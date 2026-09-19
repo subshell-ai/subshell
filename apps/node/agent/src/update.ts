@@ -21,10 +21,10 @@ import { clientHome } from "./config.js";
 import { log } from "./log.js";
 import { looksLikeEntryScript, selfInvokePrefix } from "./self-invoke.js";
 import { serviceExecArgv } from "./service.js";
-import { AGENT_VERSION } from "./version.js";
+import { NODE_VERSION } from "./version.js";
 
 /**
- * Replacing this agent's own binary (spec 2026-09-15 §5.2).
+ * Replacing this node's own binary (spec 2026-09-15 §5.2).
  *
  * The node half of the shared shape: **every install of a binary is a
  * transaction the NEW binary completes at boot.** The updater process cannot
@@ -116,7 +116,7 @@ export interface ApplyUpdateInput {
   /**
    * How the binary to replace is resolved (default: the real ladder).
    *
-   * A seam for the same reason {@link AgentBinaryDeps} exists at all: the
+   * A seam for the same reason {@link NodeBinaryDeps} exists at all: the
    * ladder asks the SERVICE DEFINITION first, and that read reaches the real
    * launchd/systemd user domain — which no temp directory can hide, because
    * `homedir()` answers from the password database rather than `$HOME`. So on
@@ -124,7 +124,7 @@ export interface ApplyUpdateInput {
    * the developer's own installed agent instead of their fixture, and failed
    * for being right about the host (measured 2026-09-18).
    */
-  binaryDeps?: AgentBinaryDeps;
+  binaryDeps?: NodeBinaryDeps;
 }
 
 /** What the marker file holds, on either side of the swap. */
@@ -203,10 +203,10 @@ async function writeMarker(path: string, body: unknown): Promise<void> {
 }
 
 /** Which rung named the binary. Reported so a person can tell "the unit says so" from "this is me". */
-export type AgentBinarySource = "service definition" | "this process";
+export type NodeBinarySource = "service definition" | "this process";
 
-/** Injectable seams for {@link resolveAgentBinary}, so the ladder is testable without a real unit or plist. */
-export interface AgentBinaryDeps {
+/** Injectable seams for {@link resolveNodeBinary}, so the ladder is testable without a real unit or plist. */
+export interface NodeBinaryDeps {
   /** Runtime platform (default: `process.platform`). */
   platform?: NodeJS.Platform;
   /** User home the unit/plist paths hang off (default: `homedir()`). */
@@ -257,10 +257,10 @@ export interface AgentBinaryDeps {
  * discovered halfway through: a failed `rename` after a 70 MB download is a
  * worse way to learn it.
  */
-export async function resolveAgentBinary(
-  deps: AgentBinaryDeps = {},
-): Promise<{ binary: string; dir: string; source: AgentBinarySource }> {
-  const { binary, source } = await resolveAgentBinaryPath(deps);
+export async function resolveNodeBinary(
+  deps: NodeBinaryDeps = {},
+): Promise<{ binary: string; dir: string; source: NodeBinarySource }> {
+  const { binary, source } = await resolveNodeBinaryPath(deps);
   const dir = dirname(binary);
   try {
     const info = await stat(binary);
@@ -270,7 +270,7 @@ export async function resolveAgentBinary(
       NODE_RESULT_NOT_COMPILED,
       source === "service definition"
         ? `the installed service names ${binary}, which cannot be read: ${err instanceof Error ? err.message : String(err)}`
-        : `cannot read this agent's own binary at ${binary}: ${err instanceof Error ? err.message : String(err)}`,
+        : `cannot read this node's own binary at ${binary}: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   try {
@@ -296,9 +296,9 @@ export async function resolveAgentBinary(
  * would report `binary: null` for an un-writable directory — which is a true
  * thing about updating and a false thing about where this agent lives.
  */
-export async function resolveAgentBinaryPath(
-  deps: AgentBinaryDeps = {},
-): Promise<{ binary: string; source: AgentBinarySource }> {
+export async function resolveNodeBinaryPath(
+  deps: NodeBinaryDeps = {},
+): Promise<{ binary: string; source: NodeBinarySource }> {
   const argv = await serviceExecArgv({
     platform: deps.platform ?? process.platform,
     home: deps.home ?? homedir(),
@@ -324,7 +324,7 @@ export async function resolveAgentBinaryPath(
   });
 
   let binary: string;
-  let source: AgentBinarySource;
+  let source: NodeBinarySource;
   if (argv !== null) {
     // `execLine()` writes `[...selfInvokePrefix(), <verb>]`, so this agent's
     // definition ALWAYS carries a trailing `run` — a compiled install reads
@@ -469,7 +469,7 @@ export const updateSeams = {
  * The rule of spec 2026-09-17 §4, in one function: bytes are installable iff
  * they hash to the digest the SIGNED manifest names for this host's exact
  * published filename, and that manifest's signature verifies against the
- * compiled-in publisher pubkey with a payload naming component `node` and
+ * compiled-in publisher pubkey with a payload naming component `cli-node` and
  * exactly the version being installed.
  *
  * Runs AFTER the download and BEFORE the swap (and before the first
@@ -504,7 +504,7 @@ async function verifySignedManifest(
     );
   }
   const checked = await updateSeams.verifyManifest(source.manifest.bytes, source.manifest.sig, updateSeams.pubkey, {
-    component: "node",
+    component: "cli-node",
     version,
   });
   if (!checked.ok) {
@@ -513,7 +513,7 @@ async function verifySignedManifest(
       `the release manifest did not verify against the compiled-in publisher pubkey: ${checked.reason}`,
     );
   }
-  const asset = releaseAssetNames("node", target).binary;
+  const asset = releaseAssetNames("cli-node", target).binary;
   const named = checked.manifest.assets[asset];
   if (named === undefined) {
     throw new UpdateRefused(NODE_RESULT_DIGEST_MISMATCH, `the signed manifest for ${version} names no ${asset}`);
@@ -579,7 +579,7 @@ export interface AppliedUpdate {
  * @throws {@link UpdateRefused} for every refusal the plane maps to a 409
  */
 export async function applyUpdate(input: ApplyUpdateInput): Promise<AppliedUpdate> {
-  const { binary, dir } = await resolveAgentBinary(input.binaryDeps);
+  const { binary, dir } = await resolveNodeBinary(input.binaryDeps);
   const temp = join(dir, `${basename(binary)}.download-${process.pid}`);
   const previous = `${binary}.previous`;
 
@@ -622,7 +622,7 @@ export async function applyUpdate(input: ApplyUpdateInput): Promise<AppliedUpdat
   }
 
   const marker: UpdateMarker = {
-    from: AGENT_VERSION,
+    from: NODE_VERSION,
     to: input.version,
     binary,
     previousBinary: previous,
@@ -650,12 +650,12 @@ export async function applyUpdate(input: ApplyUpdateInput): Promise<AppliedUpdat
   log(`installed subshell ${input.version} at ${binary} (previous kept at ${previous})`);
 
   if (!input.restart) {
-    return { from: AGENT_VERSION, to: input.version, binary, restarted: false };
+    return { from: NODE_VERSION, to: input.version, binary, restarted: false };
   }
 
   if (!input.restartService) {
     return {
-      from: AGENT_VERSION,
+      from: NODE_VERSION,
       to: input.version,
       binary,
       restarted: false,
@@ -665,14 +665,14 @@ export async function applyUpdate(input: ApplyUpdateInput): Promise<AppliedUpdat
   const res = await input.restartService(input.force === true);
   if (res.code !== 0) {
     return {
-      from: AGENT_VERSION,
+      from: NODE_VERSION,
       to: input.version,
       binary,
       restarted: false,
       note: (res.err.trim() || res.out.trim() || "the service manager refused the restart").split("\n")[0] ?? "",
     };
   }
-  return { from: AGENT_VERSION, to: input.version, binary, restarted: true };
+  return { from: NODE_VERSION, to: input.version, binary, restarted: true };
 }
 
 /**
@@ -744,9 +744,9 @@ export async function completeUpdate(dataDir: string): Promise<UpdateMarker | nu
 export async function rollbackUpdate(
   dataDir: string,
   /** See {@link ApplyUpdateInput.binaryDeps} — the same host-independence seam. */
-  binaryDeps: AgentBinaryDeps = {},
+  binaryDeps: NodeBinaryDeps = {},
 ): Promise<{ binary: string; to: string }> {
-  const { binary } = await resolveAgentBinary(binaryDeps);
+  const { binary } = await resolveNodeBinary(binaryDeps);
   const previous = `${binary}.previous`;
   try {
     const info = await stat(previous);
@@ -869,13 +869,13 @@ export async function resolveNodeRelease(want?: string): Promise<NodeReleaseOffe
 
   const tags = [...byTag.keys()];
   const chosen = want
-    ? (tags.map((tag) => ({ tag, version: parseReleaseTag("node", tag) })).find((c) => c.version === want) ?? null)
-    : newestRelease("node", tags);
+    ? (tags.map((tag) => ({ tag, version: parseReleaseTag("cli-node", tag) })).find((c) => c.version === want) ?? null)
+    : newestRelease("cli-node", tags);
   if (chosen === null || chosen.version === null) {
-    throw new Error(want ? `${api} publishes no node release ${want}` : `${api} publishes no node-v* release`);
+    throw new Error(want ? `${api} publishes no node release ${want}` : `${api} publishes no cli-node-v* release`);
   }
   const assets = byTag.get(chosen.tag) ?? new Map<string, string>();
-  const { binary } = releaseAssetNames("node", target);
+  const { binary } = releaseAssetNames("cli-node", target);
   const url = assets.get(binary);
   if (!url) throw new Error(`${chosen.tag} publishes no ${binary}`);
 
@@ -916,7 +916,7 @@ export async function resolveNodeRelease(want?: string): Promise<NodeReleaseOffe
     );
   }
   const checked = await updateSeams.verifyManifest(bytes, sig, updateSeams.pubkey, {
-    component: "node",
+    component: "cli-node",
     version: chosen.version,
   });
   if (!checked.ok) throw new Error(`${chosen.tag} is not installable: ${checked.reason}`);

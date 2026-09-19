@@ -9,26 +9,26 @@ import { audit } from "@/services/audit.js";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 
 const LoggingBodySchema = t.Object({
-  debug: t.Boolean({ description: "Whether debug-level lines reach the agent's own log file" }),
+  debug: t.Boolean({ description: "Whether debug-level lines reach the node's own log file" }),
 });
 
 const LoggingResponseSchema = t.Object({
-  debug: t.Boolean({ description: "The state the agent reported after applying it" }),
+  debug: t.Boolean({ description: "The state the node reported after applying it" }),
 });
 
 /**
  * `PUT /api/nodes/:id/logging` — the debug-logging switch for an enrolled
- * node's agent, the node half of `PUT /api/admin/server/logging`.
+ * node, the node half of `PUT /api/admin/server/logging`.
  *
- * Applied LIVE by the agent (it flips its file transport's level) and
+ * Applied LIVE by the node (it flips its file transport's level) and
  * persisted in that machine's `config.json`, so a `service restart` — two
  * clicks away on the same card — does not silently end a debug session.
  *
- * **What it reveals today is nothing, and that is deliberate.** The agent has
+ * **What it reveals today is nothing, and that is deliberate.** The node has
  * no `logger.debug` call sites. The server's switch has a real payload —
  * `@loglayer/elysia` writes one line per HTTP request at debug, which is why
  * that one needed security accounting about paths carrying setup keys — and an
- * agent serves no HTTP. This is the mechanism in place ahead of the lines
+ * node serves no HTTP. This is the mechanism in place ahead of the lines
  * (operator's call), so the first debug line anyone writes is already
  * controllable from the browser that is the only way to read a headless node's
  * log at all.
@@ -69,7 +69,7 @@ export const nodeLoggingRoute = new Elysia()
         await sendCommand(gate.row.id, { type: "set_log_level", debug: body.debug });
       } catch (err) {
         if (err instanceof NodeRpcError) {
-          // The agent's own refusal, verbatim — which is how a machine whose
+          // The node's own refusal, verbatim — which is how a machine whose
           // environment forces `SUBSHELL_DEBUG_LOGGING` explains itself. A
           // sentence of ours here would be a second, worse description of it.
           return status(409, apiErrorBody({ code: BackendErrorCodes.NODE_UNREACHABLE, message: err.message }));
@@ -100,7 +100,7 @@ export const nodeLoggingRoute = new Elysia()
         operationId: "setNodeLogging",
         tags: ["nodes"],
         description:
-          "Turn debug-level logging on or off in an enrolled node's agent. Applied live and persisted on that machine; cookie-only, owner or edit; 409 when the node is offline or its environment forces the setting.",
+          "Turn debug-level logging on or off in an enrolled node. Applied live and persisted on that machine; cookie-only, owner or edit; 409 when the node is offline or its environment forces the setting.",
       },
     },
   );

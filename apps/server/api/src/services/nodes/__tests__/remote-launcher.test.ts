@@ -25,7 +25,7 @@ const defaultLocalLauncher = getDefaultLocalLauncher();
 
 import { planRemoteSubshellMcp } from "@/services/mcp-launch.js";
 import { dispatchOutput, resetNodeEventsForTests } from "@/services/nodes/node-events.js";
-import type { NodeAgentFacts } from "@/services/nodes/node-registry.js";
+import type { NodeFacts } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { NoLiveConnectionError, RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { EMPTY_PRESET } from "@/services/preset-definition.js";
@@ -49,7 +49,7 @@ type OutputEvent = Extract<NodeEvent, { type: "output" }>;
 /** Scripted answer: a value, or a thunk that may throw (sync ⇒ rejected promise). */
 type Script = unknown | (() => unknown);
 
-function makeHarness(facts: NodeAgentFacts | null = testFacts) {
+function makeHarness(facts: NodeFacts | null = testFacts) {
   const calls: Sent[] = [];
   const scripts = new Map<string, Script[]>();
   // The detect-kick recorder: production leaves the seam unbound and gets
@@ -60,7 +60,7 @@ function makeHarness(facts: NodeAgentFacts | null = testFacts) {
   let detectThrows = false;
   // `null` (not `undefined`) means offline — an explicit `undefined` would
   // re-trigger the default-parameter above.
-  let currentFacts: NodeAgentFacts | undefined = facts ?? undefined;
+  let currentFacts: NodeFacts | undefined = facts ?? undefined;
   let row: NodeTable | undefined;
 
   const send = async (
@@ -100,7 +100,7 @@ function makeHarness(facts: NodeAgentFacts | null = testFacts) {
       q.push(script);
       scripts.set(type, q);
     },
-    setFacts(f: NodeAgentFacts | undefined) {
+    setFacts(f: NodeFacts | undefined) {
       currentFacts = f;
     },
     setRow(r: NodeTable | undefined) {
@@ -109,7 +109,7 @@ function makeHarness(facts: NodeAgentFacts | null = testFacts) {
   };
 }
 
-const testFacts: NodeAgentFacts = {
+const testFacts: NodeFacts = {
   dataDir: "/home/u/.subshell",
   capabilities: ["mcp", "uploads"],
   hostname: "box",
@@ -501,10 +501,10 @@ describe("terminate / killSubshell", () => {
   });
 
   it("killSubshell swallows the already-gone class only", async () => {
-    for (const agentMsg of ["can't find session: s1", "no session: s1"]) {
+    for (const nodeMsg of ["can't find session: s1", "no session: s1"]) {
       const h = makeHarness();
       h.answer("kill", () => {
-        throw new NodeRpcError("failed", `node "node-1" reported: ${agentMsg}`, "node-1");
+        throw new NodeRpcError("failed", `node "node-1" reported: ${nodeMsg}`, "node-1");
       });
       await h.launcher.killSubshell("subshell-abc", "s1"); // resolves
       expect(h.calls).toEqual([{ cmd: { type: "kill", subshellId: "s1" }, timeoutMs: 10_000 }]);

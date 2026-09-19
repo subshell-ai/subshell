@@ -1,7 +1,7 @@
 /**
  * Setting Up… — the checklist the Register press runs behind (spec 2026-09-18 § 5.6).
  *
- * One press runs three acts — install the agent, enroll this machine, start
+ * One press runs three acts — install the node, enroll this machine, start
  * the node service — and this screen is the only place a person can see which
  * one is in flight. That is not decoration: this repo has already learned, in
  * the server app's reset, that **a dead button lettered "Resetting…" reads
@@ -132,7 +132,7 @@ export function ProgressScreen(props: {
       }
     >
       {/*
-       * Ordered, because the acts are: enrolling before the agent exists is
+       * Ordered, because the acts are: enrolling before the node exists is
        * not a thing that can happen. `aria-live` carries the state words as
        * rows tick, which is the listening half of "legible from stuck".
        */}

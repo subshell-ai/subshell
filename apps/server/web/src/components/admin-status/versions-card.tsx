@@ -7,9 +7,9 @@ import type { AdminStatus } from "@/hooks/use-admin-status";
  * What this control plane is and what it will talk to.
  *
  * The three numbers are not interchangeable and the labels say so: the server
- * version is what YOU deployed, the node protocol is matched EXACTLY (an agent
+ * version is what YOU deployed, the node protocol is matched EXACTLY (a node
  * ahead of the server is refused just as one behind it is), and the minimum
- * agent version is a floor checked before the protocol backstop.
+ * node version is a floor checked before the protocol backstop.
  */
 export function VersionsCard({ status }: { status: AdminStatus }) {
   const outdated = status.inventory.nodes.needingUpdate;
@@ -25,12 +25,12 @@ export function VersionsCard({ status }: { status: AdminStatus }) {
         v{status.versions.nodeProtocol}
       </Fact>
       <Fact label="Minimum node version" mono>
-        {status.versions.minAgent}
+        {status.versions.minNode}
       </Fact>
       <Fact label="Nodes needing update" wide>
         {outdated.length === 0 ? (
           <span className="text-muted-foreground">
-            None. Every enrolled node meets the {status.versions.minAgent} floor
+            None. Every enrolled node meets the {status.versions.minNode} floor
           </span>
         ) : (
           <div className="flex flex-wrap gap-2">
@@ -39,7 +39,7 @@ export function VersionsCard({ status }: { status: AdminStatus }) {
                 explains it, so each one links to the node it names. */}
             {outdated.map((node) => (
               <Link key={node.id} to="/nodes/$id" params={{ id: node.id }}>
-                <Badge variant="warning" title={`Refused at connect: needs ${status.versions.minAgent} or newer`}>
+                <Badge variant="warning" title={`Refused at connect: needs ${status.versions.minNode} or newer`}>
                   {node.name} · {node.agentVersion ?? "unversioned"}
                 </Badge>
               </Link>

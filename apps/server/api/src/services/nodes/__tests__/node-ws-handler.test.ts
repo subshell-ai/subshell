@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import {
-  MIN_AGENT_VERSION,
+  MIN_NODE_VERSION,
   NODE_CLOSE_SUPERSEDED,
   NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,
@@ -130,7 +130,7 @@ function makeHarness(): Harness {
 
 const readyFrame = (over: Record<string, unknown> = {}) => ({
   type: "ready",
-  agentVersion: MIN_AGENT_VERSION,
+  agentVersion: MIN_NODE_VERSION,
   protocolVersion: NODE_PROTOCOL_VERSION,
   os: "linux",
   arch: "x64",
@@ -235,7 +235,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
       {
         id: "n1",
         report: {
-          agentVersion: MIN_AGENT_VERSION,
+          agentVersion: MIN_NODE_VERSION,
           protocolVersion: NODE_PROTOCOL_VERSION,
           os: "linux",
           arch: "x64",
@@ -518,7 +518,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     const h = makeHarness();
     const ws = fakeSocket("n1");
     handleNodeOpen(ws);
-    await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: MIN_AGENT_VERSION }));
+    await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: MIN_NODE_VERSION }));
     expect(ws.closed).toHaveLength(0);
     expect(getHeld("n1")).toBeUndefined();
     expect(getLive("n1")).toBeDefined();
@@ -573,7 +573,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     const ws = fakeSocket("n1"); // deliberately NOT opened
     await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: "0.0.1" }));
     expect(ws.closed[0]?.code).toBe(NODE_CLOSE_UPDATE_REQUIRED);
-    expect(ws.closed[0]?.reason).toContain(MIN_AGENT_VERSION);
+    expect(ws.closed[0]?.reason).toContain(MIN_NODE_VERSION);
     expect(ws.closed[0]?.reason).toContain("0.0.1");
     expect(getHeld("n1")).toBeUndefined();
   });

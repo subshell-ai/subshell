@@ -57,7 +57,7 @@ export function AboutScreen(props: { shell: FrameShell; probe: Probe | undefined
     retry: false,
     retryOnMount: false,
   });
-  const agent = props.probe?.agent?.version;
+  const cliVersion = props.probe?.nodeBinary?.version;
 
   return (
     <Frame
@@ -81,7 +81,7 @@ export function AboutScreen(props: { shell: FrameShell; probe: Probe | undefined
                 that should say which of the two programs the number belongs
                 to. */}
             <p>Desktop app {data.appVersion}</p>
-            {agent && <p className="text-muted-foreground">CLI {agent}</p>}
+            {cliVersion && <p className="text-muted-foreground">CLI {cliVersion}</p>}
           </div>
           <p className="text-muted-foreground text-detail">{data.licenseSummary}</p>
           <div className="flex flex-wrap items-center justify-center gap-x-3 text-muted-foreground text-detail">

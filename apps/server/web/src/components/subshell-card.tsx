@@ -65,7 +65,7 @@ function nodePill(subshell: SubshellView, known: Node | undefined, pending: bool
 export function SubshellCard({ subshell }: { subshell: SubshellView }) {
   const preview = subshell.preview ?? [];
   const exited = subshell.status === "running" && !subshell.alive;
-  // Remote + no live agent: everything "exited" would claim is unknowable
+  // Remote + no live node: everything "exited" would claim is unknowable
   // right now (spec §5.6), so the offline reading supersedes it everywhere.
   const nodeOffline = subshell.nodeOffline === true;
   // Names-only lookup over the shared nodes query (already cached for the

@@ -32,7 +32,7 @@ const FS_LS_TIMEOUT_MS = 5_000;
  * mapping is the established idiom here (see remote-launcher's ALREADY_GONE_RE
  * / BINARY_MISSING_RE).
  */
-const AGENT_FS_ERROR_RE = /reported: (ENOENT|EACCES|EINVAL):/;
+const NODE_FS_ERROR_RE = /reported: (ENOENT|EACCES|EINVAL):/;
 
 /**
  * Map one {@link NodeRpcError} from the browse round-trip onto the wire: the
@@ -47,7 +47,7 @@ function rethrowRemoteBrowseError(err: NodeRpcError): never {
   if (err.code === "offline") {
     throwApiError({
       code: BackendErrorCodes.NODE_OFFLINE,
-      message: "That node has no live agent connection",
+      message: "That node has no live connection",
       doNotLog: true,
     });
   }
@@ -72,7 +72,7 @@ function rethrowRemoteBrowseError(err: NodeRpcError): never {
   // Here: the agent answered `ok:false`. The pinned prefixes ride the local
   // route's status classes; anything else the browser cannot act on gets
   // the 409 family with a generic body (agent text is never echoed).
-  const prefix = AGENT_FS_ERROR_RE.exec(err.message)?.[1];
+  const prefix = NODE_FS_ERROR_RE.exec(err.message)?.[1];
   if (prefix === "ENOENT") {
     throwApiError({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Path does not exist", doNotLog: true });
   }

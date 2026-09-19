@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AGENT_LOG_CAP_BYTES, CappedFileTransport, readAgentLogSlice } from "../log-file.js";
+import { AGENT_LOG_CAP_BYTES, CappedFileTransport, readNodeLogSlice } from "../log-file.js";
 
 /** A throwaway directory per case, so nothing here shares a file. */
 function dir(): string {
@@ -63,18 +63,18 @@ describe("the agent's own log file", () => {
 
 describe("reading a slice of it", () => {
   it("is empty rather than an error when nothing has been logged", async () => {
-    const slice = await readAgentLogSlice(join(dir(), "absent.log"), 0, 100);
+    const slice = await readNodeLogSlice(join(dir(), "absent.log"), 0, 100);
     expect(slice).toEqual({ text: "", nextByte: 0, size: 0, truncated: false });
   });
 
   it("returns the requested range and the offset to continue from", async () => {
     const path = join(dir(), "agent.log");
     writeFileSync(path, "abcdefghij");
-    const first = await readAgentLogSlice(path, 0, 4);
+    const first = await readNodeLogSlice(path, 0, 4);
     expect(first.text).toBe("abcd");
     expect(first.nextByte).toBe(4);
     expect(first.size).toBe(10);
-    const rest = await readAgentLogSlice(path, first.nextByte, 100);
+    const rest = await readNodeLogSlice(path, first.nextByte, 100);
     expect(rest.text).toBe("efghij");
     expect(rest.nextByte).toBe(10);
   });
@@ -82,7 +82,7 @@ describe("reading a slice of it", () => {
   it("reports nothing new at the end of the file", async () => {
     const path = join(dir(), "agent.log");
     writeFileSync(path, "abc");
-    expect(await readAgentLogSlice(path, 3, 100)).toEqual({ text: "", nextByte: 3, size: 3, truncated: false });
+    expect(await readNodeLogSlice(path, 3, 100)).toEqual({ text: "", nextByte: 3, size: 3, truncated: false });
   });
 
   // The file is truncated at the cap, so an offset taken before a replacement
@@ -92,7 +92,7 @@ describe("reading a slice of it", () => {
   it("says truncated when the caller's offset is past the end", async () => {
     const path = join(dir(), "agent.log");
     writeFileSync(path, "short");
-    const slice = await readAgentLogSlice(path, 9_000, 100);
+    const slice = await readNodeLogSlice(path, 9_000, 100);
     expect(slice.truncated).toBe(true);
     expect(slice.nextByte).toBe(0);
     expect(slice.text).toBe("");

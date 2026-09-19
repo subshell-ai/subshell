@@ -6,10 +6,10 @@ import type {
   NodeMaintenanceWire,
   NodeRuntimeReport,
 } from "@internal/subshell-protocol";
-import type { AgentConfig } from "../config.js";
+import type { NodeConfig } from "../config.js";
 import type { ServiceDeps } from "../service.js";
 import type { SubshellMetaStore } from "../subshell-meta.js";
-import type { AgentBinaryDeps } from "../update.js";
+import type { NodeBinaryDeps } from "../update.js";
 
 /**
  * The command-executor seam (spec 2026-08-31 §7): everything an executor may
@@ -87,7 +87,7 @@ export interface WatcherRegistration {
 /** Everything `dispatchCommand` (index.ts) hands an executor. */
 export interface CommandContext {
   /** The enrolled config — `dataDir` is the root of the path policy (spec §7). */
-  config: AgentConfig;
+  config: NodeConfig;
   /** The tmux runner all pane operations go through. */
   tmux: TmuxRunner;
   /** Per-subshell launch records (socket, cwd) — the policy's second root source. */
@@ -105,7 +105,7 @@ export interface CommandContext {
    * of their fixture, and the suite passed only on machines that do not run
    * Subshell (measured 2026-09-18).
    */
-  binaryDeps?: AgentBinaryDeps;
+  binaryDeps?: NodeBinaryDeps;
   /** Outbound event seam (inventory events now; tail output/exit events later). */
   ws: CommandWs;
   /**

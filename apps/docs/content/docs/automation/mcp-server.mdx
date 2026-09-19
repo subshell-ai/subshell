@@ -47,7 +47,7 @@ One global registration on a manually-registered machine is still per-subshell-c
 Both binaries carry the subcommand, and it is the same implementation in both:
 
 - `subshell-server mcp` — the control plane's own binary serves it. This is what lets a server-only host resolve the entrypoint entirely by itself, with no agent installed anywhere.
-- `subshell mcp` — the node agent carries it, so a subshell running on a node gets the identical tools on that machine.
+- `subshell mcp` — the node CLI carries it, so a subshell running on a node gets the identical tools on that machine.
 
 When the control plane registers a pane, it walks a short ladder to pick the command:
 
@@ -55,7 +55,7 @@ When the control plane registers a pane, it walks a short ladder to pick the com
 2. **Itself** — the server binary names itself when running compiled; a source or dist run names Bun and the absolute entry script instead.
 3. A `subshell` agent found on `PATH` — a safety net for installs whose server predates the self rung.
 
-For a pane launched on a node, the plane does not guess: it composes the registration from the node agent's own reported self-invocation of `subshell mcp`, and ships it inline with the launch — the node writes the config with the command its own binary answered, never a path copied from the control-plane host.
+For a pane launched on a node, the plane does not guess: it composes the registration from the node's own reported self-invocation of `subshell mcp`, and ships it inline with the launch — the node writes the config with the command its own binary answered, never a path copied from the control-plane host.
 
 `subshell-server status` prints the resolved command and which rung answered, so if a deployment resolves to nothing (a shape matching all three misses), you see `UNRESOLVED` before your first subshell fails to create. See the [server CLI reference](/reference/server-cli).
 

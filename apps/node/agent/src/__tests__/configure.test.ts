@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync, statSync, writeFileSync } from "node:fs";
-import { type AgentConfig, configPath, loadConfig, saveConfig } from "../config.js";
+import { configPath, loadConfig, type NodeConfig, saveConfig } from "../config.js";
 import { runConfigure } from "../configure.js";
 import { wsUrlFor } from "../daemon.js";
 import { newHome } from "../test-preload.js";
@@ -16,7 +16,7 @@ import { newHome } from "../test-preload.js";
  * and rewrites the address.
  */
 
-const enrolled: AgentConfig = {
+const enrolled: NodeConfig = {
   serverUrl: "http://localhost:3080",
   nodeId: "11111111-2222-3333-4444-555555555555",
   nodeKey: "subshell_secret_never_printed",

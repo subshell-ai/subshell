@@ -4,7 +4,7 @@ import type { SubshellView } from "@/types/subshell";
 /**
  * The six coarse states a subshell can be shown in, in the precedence the
  * home cards established (`accessoryFor` in subshell-card.tsx): node-offline
- * outranks everything — with the agent down, `alive`/`waitingSince` are
+ * outranks everything — with the node down, `alive`/`waitingSince` are
  * last-known facts, not current state (spec 2026-08-31 §5.6); then `exited`;
  * then `waiting`; then the server's `activity`.
  *

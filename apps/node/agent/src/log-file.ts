@@ -65,7 +65,7 @@ function renderLine({ logLevel, messages, data, hasData }: LogLayerTransportPara
  *
  * Truncation starts a NEW file rather than dropping the oldest lines — that is
  * what "replaced when full" means, and it is why a reader's byte offset can go
- * stale (see {@link readAgentLogSlice}).
+ * stale (see {@link readNodeLogSlice}).
  *
  * Synchronous, like the pane-log pipe: a line lost to buffering at a crash is
  * the line that explains the crash. The directory is created on first write
@@ -139,7 +139,7 @@ export interface LevelledTransport {
   level?: LogLevelType;
 }
 
-/** What {@link readAgentLogSlice} answers. */
+/** What {@link readNodeLogSlice} answers. */
 export interface AgentLogSlice {
   text: string;
   nextByte: number;
@@ -163,7 +163,7 @@ export interface AgentLogSlice {
  * A missing file is empty, never an error: the agent may simply not have
  * logged anything yet.
  */
-export async function readAgentLogSlice(path: string, fromByte: number, maxBytes: number): Promise<AgentLogSlice> {
+export async function readNodeLogSlice(path: string, fromByte: number, maxBytes: number): Promise<AgentLogSlice> {
   if (!existsSync(path)) return { text: "", nextByte: 0, size: 0, truncated: false };
   const size = (await stat(path)).size;
   if (fromByte > size) return { text: "", nextByte: 0, size, truncated: true };

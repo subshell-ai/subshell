@@ -44,7 +44,7 @@ export function semverLt(a: string, b: string): boolean {
  * operator sees always tells them the version to install.
  *
  * And raise `apps/node/agent/package.json` to the SAME value in that commit.
- * `AGENT_VERSION` is that field, so a floor above it makes HEAD refuse a node
+ * `NODE_VERSION` is that field, so a floor above it makes HEAD refuse a node
  * built from HEAD — the server and the agent ship together, and for the
  * window before the version PR lands there would be no agent that satisfies
  * its own server. (Changesets then releases the client one patch above the
@@ -86,10 +86,10 @@ export function semverLt(a: string, b: string): boolean {
  * it would install whatever digest a commanding plane names, which is the
  * exact silent-downgrade the protocol bump exists to make impossible — so
  * the floor and {@link NODE_SIGNED_UPDATES_PROTOCOL_VERSION} tell one story,
- * and until the matching `node-v*` cut publishes, held-node copy is what
+ * and until the matching `cli-node-v*` cut publishes, held-node copy is what
  * explains the gap to the operator.
  */
-export const MIN_AGENT_VERSION = "0.11.0";
+export const MIN_NODE_VERSION = "0.11.0";
 
 /**
  * Whether an agent reporting `version` may connect.
@@ -98,8 +98,8 @@ export const MIN_AGENT_VERSION = "0.11.0";
  * cannot say what it is cannot be assumed current.
  *
  * @param version - the agent's self-reported `agentVersion` from `ready`
- * @returns True when the agent is at or above {@link MIN_AGENT_VERSION}
+ * @returns True when the agent is at or above {@link MIN_NODE_VERSION}
  */
-export function agentVersionSupported(version: string | null | undefined): boolean {
-  return typeof version === "string" && !semverLt(version, MIN_AGENT_VERSION);
+export function nodeVersionSupported(version: string | null | undefined): boolean {
+  return typeof version === "string" && !semverLt(version, MIN_NODE_VERSION);
 }

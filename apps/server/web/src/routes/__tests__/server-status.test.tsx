@@ -9,7 +9,7 @@ import type { ServerDeployment } from "@/types/server-deployment";
 
 /** A healthy instance; each test overrides only what it is about. */
 const HEALTHY: AdminStatus = {
-  versions: { server: "1.5.0", nodeProtocol: 4, minAgent: "0.3.0", bun: "1.4.0" },
+  versions: { server: "1.5.0", nodeProtocol: 4, minNode: "0.3.0", bun: "1.4.0" },
   runtime: {
     uptimeSeconds: 90_061,
     bootedAt: "2026-09-03T12:00:00.000Z",

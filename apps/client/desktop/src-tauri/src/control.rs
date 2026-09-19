@@ -16,7 +16,7 @@
 //! paint the "Working…" state it set before calling.
 //!
 //! Three invocations are absent BY CONSTRUCTION rather than by convention, and
-//! [`AgentCommand`] is the closed set that keeps them absent:
+//! [`NodeCommand`] is the closed set that keeps them absent:
 //!
 //! - `subshell status --probe` DIALS the control plane, and the node registry
 //!   is newest-wins, so a probe supersede-kicks whatever agent is live —
@@ -44,10 +44,10 @@ use subshell_desktop_core::shell_env::{home_dir, which};
 use subshell_desktop_core::sidecar;
 use subshell_desktop_core::tray::{effective_close_to_tray, tray_support};
 
-use crate::agent_bin::{self, decide_agent, AgentBinary, AgentChoice, AGENT_SIDECAR};
+use crate::node_bin::{self, decide_node, NodeBinary, NodeChoice, NODE_SIDECAR};
 
 /// What the page is told when nothing on the ladder answered.
-const NO_AGENT: &str = "no subshell agent found — install the bundled one first";
+const NO_NODE: &str = "no subshell node CLI found — install the bundled one first";
 
 /// The mint shape of a node setup key: `nsk_` plus 32 url-safe base64
 /// characters (`randomBytes(24).toString("base64url")` in
@@ -98,10 +98,10 @@ impl ServiceCommand {
 /// and no variant that can emit `--probe` — so the three forbidden
 /// invocations cannot be reached by adding an argument at a call site, only by
 /// adding a variant here. (`version` is the one invocation outside this set:
-/// [`agent_bin::probe_version`] appends it while walking the ladder, before
+/// [`node_bin::probe_version`] appends it while walking the ladder, before
 /// there is an agent to build a command for.)
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AgentCommand {
+pub enum NodeCommand {
     /// `status --json` — LOCAL truth only, read from the daemon lock file.
     Status,
     /// `service status --json` — what the service manager reports.
@@ -132,7 +132,7 @@ pub enum AgentCommand {
     Enroll { server: String, key: String, name: String },
     /// `configure --json` — repoint an ALREADY-enrolled node.
     ///
-    /// The non-destructive counterpart to [`AgentCommand::Enroll`], and the
+    /// The non-destructive counterpart to [`NodeCommand::Enroll`], and the
     /// reason it is a separate variant rather than a flag on that one: it
     /// carries no setup key, keeps this node's id and node key, and mints no
     /// second node row. "The control plane moved" had no other answer.
@@ -143,26 +143,26 @@ pub enum AgentCommand {
     Configure { server: String },
 }
 
-impl AgentCommand {
+impl NodeCommand {
     /// The arguments to append to a resolved agent's command prefix.
     pub fn args(&self) -> Vec<String> {
         match self {
-            AgentCommand::Status => vec!["status".into(), "--json".into()],
-            AgentCommand::ServiceStatus => vec!["service".into(), "status".into(), "--json".into()],
+            NodeCommand::Status => vec!["status".into(), "--json".into()],
+            NodeCommand::ServiceStatus => vec!["service".into(), "status".into(), "--json".into()],
             // The CLI refuses `--force` anywhere but `restart`, so passing it
             // elsewhere would turn a stop into a usage error.
-            AgentCommand::Service { verb, force, .. } if *force && *verb == ServiceCommand::Restart => {
+            NodeCommand::Service { verb, force, .. } if *force && *verb == ServiceCommand::Restart => {
                 vec!["service".into(), verb.as_str().into(), "--force".into()]
             }
             // The CLI accepts `--no-autostart` on `install` alone (it is in
             // that subcommand's flag allowlist and nowhere else), so passing
             // it on a stop or a restart would turn the verb into a usage
             // error — the same rule `--force` follows one arm above.
-            AgentCommand::Service { verb, autostart, .. } if *verb == ServiceCommand::Install && !*autostart => {
+            NodeCommand::Service { verb, autostart, .. } if *verb == ServiceCommand::Install && !*autostart => {
                 vec!["service".into(), "install".into(), "--no-autostart".into()]
             }
-            AgentCommand::Service { verb, .. } => vec!["service".into(), verb.as_str().into()],
-            AgentCommand::Enroll { server, key, name } => {
+            NodeCommand::Service { verb, .. } => vec!["service".into(), verb.as_str().into()],
+            NodeCommand::Enroll { server, key, name } => {
                 let mut args = vec![
                     "enroll".into(),
                     "--server".into(),
@@ -177,7 +177,7 @@ impl AgentCommand {
                 args.push("--json".into());
                 args
             }
-            AgentCommand::Configure { server } => {
+            NodeCommand::Configure { server } => {
                 // `--json` for the same reason enroll uses it: the node id and
                 // the stored address come back as data, never screen-scraped
                 // off a human line. The body omits the node key.
@@ -190,23 +190,21 @@ impl AgentCommand {
     /// the service manager or talks to the control plane is not.
     fn timeout(&self) -> Duration {
         match self {
-            AgentCommand::Status | AgentCommand::ServiceStatus => QUERY_TIMEOUT,
-            AgentCommand::Service { .. } | AgentCommand::Enroll { .. } | AgentCommand::Configure { .. } => {
-                ACTION_TIMEOUT
-            }
+            NodeCommand::Status | NodeCommand::ServiceStatus => QUERY_TIMEOUT,
+            NodeCommand::Service { .. } | NodeCommand::Enroll { .. } | NodeCommand::Configure { .. } => ACTION_TIMEOUT,
         }
     }
 }
 
 /// `<agent> <args…>`, or `None` when nothing resolved.
-fn agent_cmd(agent: Option<&AgentBinary>, command: &AgentCommand) -> Option<Vec<String>> {
-    let mut cmd = agent?.argv.clone();
+fn node_cmd(node_binary: Option<&NodeBinary>, command: &NodeCommand) -> Option<Vec<String>> {
+    let mut cmd = node_binary?.argv.clone();
     cmd.extend(command.args());
     Some(cmd)
 }
 
-fn run_agent(agent: Option<&AgentBinary>, command: &AgentCommand) -> Option<Run> {
-    agent_cmd(agent, command).map(|cmd| run(&cmd, command.timeout()))
+fn run_node(node_binary: Option<&NodeBinary>, command: &NodeCommand) -> Option<Run> {
+    node_cmd(node_binary, command).map(|cmd| run(&cmd, command.timeout()))
 }
 
 // ---------------------------------------------------------------------------
@@ -313,15 +311,15 @@ fn existing_node() -> ExistingNode {
 /// sentence rather than a path.
 ///
 /// Exactly one of the two returns is ever `Some`.
-fn agent_log() -> (Option<String>, Option<String>) {
-    agent_log_from(config_dir(), home_dir().map(PathBuf::from), |p| {
+fn node_log_paths() -> (Option<String>, Option<String>) {
+    node_log_paths_from(config_dir(), home_dir().map(PathBuf::from), |p| {
         std::fs::metadata(p)
             .map(|m| m.is_file() && m.len() > 0)
             .unwrap_or(false)
     })
 }
 
-/// [`agent_log`]'s body over injected facts, so the ORDER is testable without
+/// [`node_log_paths`]'s body over injected facts, so the ORDER is testable without
 /// a machine in a particular state.
 ///
 /// `has_content` rather than a bare existence check, for the reason the server
@@ -329,7 +327,7 @@ fn agent_log() -> (Option<String>, Option<String>) {
 /// truncates to zero and starts over, and a zero-byte own-log is an agent that
 /// has said nothing — while the manager's copy may still hold the boot output
 /// that explains why.
-fn agent_log_from(
+fn node_log_paths_from(
     config: Option<PathBuf>,
     home: Option<PathBuf>,
     has_content: impl Fn(&Path) -> bool,
@@ -356,9 +354,9 @@ fn agent_log_from(
 /// the fallback each has: macOS keeps a second file the plist names, Linux has
 /// the journal and will never grow a file at all.
 const NO_LOG_FILE: &str = if cfg!(target_os = "macos") {
-    "the agent has not written a log yet — it appears at ~/.config/subshell/logs/agent.log once the agent runs, and the service manager keeps its own copy at ~/Library/Logs/subshell.log"
+    "the node has not written a log yet — it appears at ~/.config/subshell/logs/agent.log once the node runs, and the service manager keeps its own copy at ~/Library/Logs/subshell.log"
 } else {
-    "the agent has not written a log yet — it appears at ~/.config/subshell/logs/agent.log once the agent runs; the service manager's own copy is the journal (`journalctl --user -u subshell.service -f`)"
+    "the node has not written a log yet — it appears at ~/.config/subshell/logs/agent.log once the node runs; the service manager's own copy is the journal (`journalctl --user -u subshell.service -f`)"
 };
 
 /// The paths the window may name, and the ones it may ask to reveal.
@@ -374,14 +372,14 @@ pub struct NodePaths {
     pub data_dir: Option<String>,
     /// The agent's log FILE: its own capped one when it has written anything,
     /// else the service manager's redirect where the platform keeps one.
-    pub agent_log: Option<String>,
+    pub node_log: Option<String>,
     /// What to do instead, when neither has content yet.
-    pub agent_log_hint: Option<String>,
+    pub node_log_hint: Option<String>,
 }
 
 fn node_paths(config: &NodeConfigFacts) -> NodePaths {
     let dir = config_dir();
-    let (agent_log, agent_log_hint) = agent_log();
+    let (node_log, node_log_hint) = node_log_paths();
     NodePaths {
         config_dir: dir.as_ref().map(|p| p.to_string_lossy().into_owned()),
         config_file: config_file().map(|p| p.to_string_lossy().into_owned()),
@@ -389,8 +387,8 @@ fn node_paths(config: &NodeConfigFacts) -> NodePaths {
             .data_dir
             .clone()
             .or_else(|| dir.map(|p| p.join("data").to_string_lossy().into_owned())),
-        agent_log,
-        agent_log_hint,
+        node_log,
+        node_log_hint,
     }
 }
 
@@ -406,7 +404,7 @@ fn node_paths(config: &NodeConfigFacts) -> NodePaths {
 #[serde(rename_all = "kebab-case")]
 pub enum ProbeStep {
     /// Nothing on the ladder answered — install the bundled agent.
-    NoAgent,
+    NoNode,
     /// An agent, but no `config.json`: this machine is not a node yet.
     NotEnrolled,
     /// Enrolled, but nothing keeps the daemon running across a reboot.
@@ -426,7 +424,7 @@ pub struct Probe {
     /// The agent this app ships, if this build carries one.
     pub bundled_version: Option<String>,
     /// The agent that would actually run, and which rung found it.
-    pub agent: Option<AgentBinary>,
+    pub node_binary: Option<NodeBinary>,
     /// Whether that agent is the copy THIS APP installed and can replace.
     pub managed: bool,
     /// `status --json`, verbatim. `null` when it did not answer at all.
@@ -434,7 +432,7 @@ pub struct Probe {
     /// `service status --json`, verbatim. `null` when it did not answer.
     pub service: Option<serde_json::Value>,
     /// What to do about the shipped agent versus the installed one.
-    pub agent_choice: AgentChoice,
+    pub node_choice: NodeChoice,
     /// The single next step, recomputed from facts on every probe.
     pub step: ProbeStep,
     /// The CLI's own words when a step failed rather than merely being pending.
@@ -486,7 +484,7 @@ pub struct Probe {
     /// The second half of an app update that has not been finished yet.
     ///
     /// Filled by [`node_probe`] alone — [`probe_now`] is also what
-    /// [`install_agent_now`] reads the machine with, and a marker on that
+    /// [`install_node_now`] reads the machine with, and a marker on that
     /// answer would be a fact nobody asked for. See [`resume_view`] for why
     /// this rides the probe rather than `node_settings`.
     pub pending_install: Option<PendingInstall>,
@@ -506,7 +504,7 @@ pub struct Probe {
 /// `PendingUpdateView`/`pendingUpdate`/`exhausted` until 2026-09-18, which
 /// made a straight diff of the two screens read as a difference in design
 /// where there was only a difference in spelling. `attempts` is the one field
-/// this app had first (it counts at the FIRE — see [`node_install_agent`] —
+/// this app had first (it counts at the FIRE — see [`node_install_cli`] —
 /// which is the rule both apps now follow).
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -523,12 +521,12 @@ impl Default for Probe {
     fn default() -> Self {
         Probe {
             bundled_version: None,
-            agent: None,
+            node_binary: None,
             managed: false,
             status: None,
             service: None,
-            agent_choice: AgentChoice::NoBundled,
-            step: ProbeStep::NoAgent,
+            node_choice: NodeChoice::NoBundled,
+            step: ProbeStep::NoNode,
             error: None,
             tmux: None,
             has_brew: false,
@@ -586,19 +584,19 @@ impl Probe {
     /// anyway at the next boot. One rule, asked in both places, is what makes
     /// the refusal hold across the relaunch. (Found in review; the server app
     /// carries the identical fix and the identical comment.)
-    fn comparable_agent_version(&self) -> Option<&str> {
-        if self.managed || self.agent.is_none() {
-            self.agent.as_ref().and_then(|a| a.version.as_deref())
+    fn comparable_node_version(&self) -> Option<&str> {
+        if self.managed || self.node_binary.is_none() {
+            self.node_binary.as_ref().and_then(|a| a.version.as_deref())
         } else {
             self.bundled_version.as_deref()
         }
     }
 
     fn decide(&mut self) {
-        self.agent_choice = decide_agent(self.bundled_version.as_deref(), self.comparable_agent_version());
+        self.node_choice = decide_node(self.bundled_version.as_deref(), self.comparable_node_version());
 
-        self.step = if self.agent.is_none() {
-            ProbeStep::NoAgent
+        self.step = if self.node_binary.is_none() {
+            ProbeStep::NoNode
         } else if self.status.is_none() {
             // The binary answered `version` but not `status --json`. Reading
             // that as "not enrolled" would offer ENROLL, which overwrites
@@ -607,7 +605,7 @@ impl Probe {
             // transient failure must never route to the destructive step. The
             // honest remedy for a binary that cannot state its own status is a
             // different binary, so it lands here, with `error` saying why.
-            ProbeStep::NoAgent
+            ProbeStep::NoNode
         } else if !self.enrolled() {
             ProbeStep::NotEnrolled
         } else if !is_true(&self.service, "installed") {
@@ -642,7 +640,7 @@ static BUNDLED_VERSION: OnceLock<Option<String>> = OnceLock::new();
 /// What the shipped binary says it is. Memoized — it cannot change under a
 /// running app, and probing it spawns a ~100 MB binary.
 fn bundled_version() -> Option<String> {
-    BUNDLED_VERSION.get_or_init(agent_bin::bundled_version).clone()
+    BUNDLED_VERSION.get_or_init(node_bin::bundled_version).clone()
 }
 
 /// Look at the machine and report what it would take to get this node running.
@@ -698,9 +696,9 @@ fn resume_view(settings: &SettingsState, probe: &Probe) -> Option<PendingInstall
         Some(marker),
         probe.bundled_version.as_deref(),
         // The managed-aware version, the same one `decide()` compares — see
-        // `comparable_agent_version`. The raw installed version here let an
+        // `comparable_node_version`. The raw installed version here let an
         // unmanaged machine resume an install phase 1 had refused.
-        probe.comparable_agent_version(),
+        probe.comparable_node_version(),
     )?;
     let view = view_of(marker, &decision);
     if view.is_none() {
@@ -734,14 +732,14 @@ fn view_of(marker: &PendingBundledInstall, decision: &Resume) -> Option<PendingI
 }
 
 pub(crate) fn probe_now(configured: Option<&str>) -> Probe {
-    let agent = agent_bin::resolve(configured);
-    let managed = match (&agent, sidecar::install_path(&AGENT_SIDECAR)) {
+    let node_binary = node_bin::resolve(configured);
+    let managed = match (&node_binary, sidecar::install_path(&NODE_SIDECAR)) {
         (Some(a), Some(managed_path)) => a.argv.first().map(String::as_str) == managed_path.to_str(),
         _ => false,
     };
     let mut p = Probe {
         bundled_version: bundled_version(),
-        agent,
+        node_binary,
         managed,
         tmux: which("tmux"),
         has_brew: which("brew").is_some(),
@@ -750,13 +748,13 @@ pub(crate) fn probe_now(configured: Option<&str>) -> Probe {
         ..Default::default()
     };
 
-    if let Some(out) = run_agent(p.agent.as_ref(), &AgentCommand::Status) {
+    if let Some(out) = run_node(p.node_binary.as_ref(), &NodeCommand::Status) {
         p.status = json_of(&out);
         if p.status.is_none() {
             p.error = Some(format!("`status --json` failed: {}", out.detail()));
         }
     }
-    if let Some(out) = run_agent(p.agent.as_ref(), &AgentCommand::ServiceStatus) {
+    if let Some(out) = run_node(p.node_binary.as_ref(), &NodeCommand::ServiceStatus) {
         p.service = json_of(&out);
         if p.service.is_none() && p.error.is_none() {
             p.error = Some(format!("`service status --json` failed: {}", out.detail()));
@@ -818,7 +816,7 @@ impl From<Run> for ActionResult {
 /// Why an install must not proceed, or `None` when it may.
 ///
 /// The one refusal is the DOWNGRADE, and it is stated here because nothing
-/// downstream states it: [`decide_agent`]'s rule is that a newer bundled agent
+/// downstream states it: [`decide_node`]'s rule is that a newer bundled agent
 /// is OFFERED and a newer installed one is ADOPTED — never overwritten, never
 /// even offered — but `sidecar::already_installed` compares size and version
 /// for EQUALITY, not order, so an older bundled binary would cheerfully
@@ -832,7 +830,7 @@ impl From<Run> for ActionResult {
 /// newer than anything the open window knows about. This runs BEFORE the
 /// service is stopped or a byte is copied.
 ///
-/// Decided against the RESOLVED agent rather than read off `Probe::agent_choice`
+/// Decided against the RESOLVED agent rather than read off `Probe::node_choice`
 /// — that field is deliberately narrowed to the copy this app manages, because
 /// an upgrade OFFER for an agent the service does not run would change nothing
 /// and repeat forever. The guard has to be wider than the offer: `~/.local/bin`
@@ -841,9 +839,9 @@ impl From<Run> for ActionResult {
 /// installed the newer one.
 pub fn install_refusal(bundled: Option<&str>, installed: Option<&str>) -> Option<String> {
     // Both versions are readable by construction: an agent that cannot state
-    // one never resolves, and `decide_agent` reaches AdoptInstalled only when
+    // one never resolves, and `decide_node` reaches AdoptInstalled only when
     // it has two to compare.
-    if decide_agent(bundled, installed) != AgentChoice::AdoptInstalled {
+    if decide_node(bundled, installed) != NodeChoice::AdoptInstalled {
         return None;
     }
     let (bundled, installed) = (bundled?, installed?);
@@ -897,28 +895,33 @@ const UPDATE_TIMEOUT: Duration = Duration::from_secs(300);
 /// screen OFFERS that restart rather than telling anyone to start something.
 /// Nothing here was ever stopped: the daemon is running, on the previous
 /// binary's inode, which is exactly the fact the offer exists to state.
-fn install_agent_now(settings: &SettingsState) -> Result<ActionResult, String> {
+fn install_node_now(settings: &SettingsState) -> Result<ActionResult, String> {
     let configured = settings.get().binary_path;
     let version = bundled_version();
     let probe = probe_now(configured.as_deref());
     if let Some(reason) = install_refusal(
         version.as_deref(),
-        probe.agent.as_ref().and_then(|a| a.version.as_deref()),
+        probe.node_binary.as_ref().and_then(|a| a.version.as_deref()),
     ) {
         return Ok(ActionResult::refused(reason));
     }
     if probe.managed {
-        let Some(staged) = sidecar::bundled_path(&AGENT_SIDECAR) else {
-            return Err("this build ships no subshell agent".into());
+        let Some(staged) = sidecar::bundled_path(&NODE_SIDECAR) else {
+            return Err("this build ships no subshell node CLI".into());
         };
-        let installed = probe.agent.as_ref().and_then(|a| a.version.clone());
-        return delegate_update(probe.agent.as_ref(), &staged, version.as_deref(), installed.as_deref());
+        let installed = probe.node_binary.as_ref().and_then(|a| a.version.clone());
+        return delegate_update(
+            probe.node_binary.as_ref(),
+            &staged,
+            version.as_deref(),
+            installed.as_deref(),
+        );
     }
-    match sidecar::install_bundled(&AGENT_SIDECAR, version.as_deref(), || {})? {
-        sidecar::InstallOutcome::NoSidecar => Err("this build ships no subshell agent".into()),
-        sidecar::InstallOutcome::UpToDate => Ok(ActionResult::said("The bundled agent is already installed.")),
+    match sidecar::install_bundled(&NODE_SIDECAR, version.as_deref(), || {})? {
+        sidecar::InstallOutcome::NoSidecar => Err("this build ships no subshell node CLI".into()),
+        sidecar::InstallOutcome::UpToDate => Ok(ActionResult::said("The bundled node CLI is already installed.")),
         sidecar::InstallOutcome::Installed => {
-            let where_ = sidecar::install_path(&AGENT_SIDECAR)
+            let where_ = sidecar::install_path(&NODE_SIDECAR)
                 .map(|p| p.display().to_string())
                 .unwrap_or_default();
             Ok(ActionResult::said(format!("Installed subshell to {where_}.")))
@@ -932,8 +935,8 @@ fn install_agent_now(settings: &SettingsState) -> Result<ActionResult, String> {
 /// Split out so the argv is testable without running anything — the flags are
 /// a contract with the CLI (see `desktop-core`'s `cli_update`), and this app
 /// must never spell one of them itself.
-fn update_argv(agent: Option<&AgentBinary>, staged: &Path) -> Option<Vec<String>> {
-    let mut argv = agent?.argv.clone();
+fn update_argv(node_binary: Option<&NodeBinary>, staged: &Path) -> Option<Vec<String>> {
+    let mut argv = node_binary?.argv.clone();
     argv.extend(cli_update::update_args(staged));
     Some(argv)
 }
@@ -954,13 +957,13 @@ fn update_argv(agent: Option<&AgentBinary>, staged: &Path) -> Option<Vec<String>
 /// failure of `update` is still a failure: see
 /// [`cli_update::lacks_update_verb`] for why the test is as narrow as it is.
 fn delegate_update(
-    agent: Option<&AgentBinary>,
+    node_binary: Option<&NodeBinary>,
     staged: &Path,
     bundled: Option<&str>,
     installed: Option<&str>,
 ) -> Result<ActionResult, String> {
-    let Some(argv) = update_argv(agent, staged) else {
-        return Ok(ActionResult::refused("no installed subshell agent to update"));
+    let Some(argv) = update_argv(node_binary, staged) else {
+        return Ok(ActionResult::refused("no installed subshell node CLI to update"));
     };
     match classify_update(run(&argv, UPDATE_TIMEOUT)) {
         AfterUpdate::Legacy => install_over_legacy(bundled, installed),
@@ -991,7 +994,7 @@ fn classify_update(run: Run) -> AfterUpdate {
     let Some(report) = cli_update::parse_update_report(&result.stdout) else {
         return AfterUpdate::Reported(result);
     };
-    let summary = cli_update::update_summary(&report, "agent");
+    let summary = cli_update::update_summary(&report, "node CLI");
     AfterUpdate::Reported(ActionResult {
         stdout: joined(&result.stdout, &summary),
         ..result
@@ -1015,16 +1018,16 @@ fn classify_update(run: Run) -> AfterUpdate {
 /// inode until someone restarts it (spec § 7.1/§ 7.2; review N2, the second
 /// site of the wrong verb I9 fixed one function up).
 fn install_over_legacy(bundled: Option<&str>, installed: Option<&str>) -> Result<ActionResult, String> {
-    match sidecar::install_bundled(&AGENT_SIDECAR, bundled, || {})? {
-        sidecar::InstallOutcome::NoSidecar => Err("this build ships no subshell agent".into()),
+    match sidecar::install_bundled(&NODE_SIDECAR, bundled, || {})? {
+        sidecar::InstallOutcome::NoSidecar => Err("this build ships no subshell node CLI".into()),
         // `update` refused the verb, so the installed copy is NOT this one —
         // a size-and-version match here would mean the probe and the binary
         // disagree, which is worth saying rather than smoothing over.
-        sidecar::InstallOutcome::UpToDate => Ok(ActionResult::said("The bundled agent is already installed.")),
+        sidecar::InstallOutcome::UpToDate => Ok(ActionResult::said("The bundled node CLI is already installed.")),
         sidecar::InstallOutcome::Installed => Ok(ActionResult::said(cli_update::legacy_install_summary(
             installed,
             bundled,
-            "agent",
+            "node CLI",
             cli_update::Unrecorded::Rollback,
         ))),
     }
@@ -1043,7 +1046,7 @@ fn install_over_legacy(bundled: Option<&str>, installed: Option<&str>) -> Result
 /// A successful install by ANY of those routes finishes the act, because what
 /// the marker records is that the bundled agent had not been installed yet.
 #[tauri::command(async)]
-pub fn node_install_agent(settings: State<'_, SettingsState>) -> Result<ActionResult, String> {
+pub fn node_install_cli(settings: State<'_, SettingsState>) -> Result<ActionResult, String> {
     let resuming = settings.get().pending_bundled_install.is_some();
     if resuming {
         let _ = settings.update(|s| {
@@ -1052,7 +1055,7 @@ pub fn node_install_agent(settings: State<'_, SettingsState>) -> Result<ActionRe
             }
         });
     }
-    let outcome = install_agent_now(&settings);
+    let outcome = install_node_now(&settings);
     // Only a run that actually replaced the file clears it. A rejection or a
     // refusal leaves the marker for the Retry the screen offers, which is the
     // whole reason the marker outlives a failure.
@@ -1142,10 +1145,10 @@ pub(crate) fn service_now(
     force: bool,
     autostart: bool,
 ) -> ActionResult {
-    let agent = agent_bin::resolve(settings.get().binary_path.as_deref());
-    match run_agent(agent.as_ref(), &AgentCommand::Service { verb, force, autostart }) {
+    let node_binary = node_bin::resolve(settings.get().binary_path.as_deref());
+    match run_node(node_binary.as_ref(), &NodeCommand::Service { verb, force, autostart }) {
         Some(out) => out.into(),
-        None => ActionResult::refused(NO_AGENT),
+        None => ActionResult::refused(NO_NODE),
     }
 }
 
@@ -1175,10 +1178,10 @@ pub fn node_configure(settings: State<'_, SettingsState>, server: Option<String>
         },
         None => return ActionResult::refused("enter the control plane's URL to repoint this node"),
     };
-    let agent = agent_bin::resolve(settings.get().binary_path.as_deref());
-    let command = AgentCommand::Configure { server: server.clone() };
-    let Some(out) = run_agent(agent.as_ref(), &command) else {
-        return ActionResult::refused(NO_AGENT);
+    let node_binary = node_bin::resolve(settings.get().binary_path.as_deref());
+    let command = NodeCommand::Configure { server: server.clone() };
+    let Some(out) = run_node(node_binary.as_ref(), &command) else {
+        return ActionResult::refused(NO_NODE);
     };
     // Only on success: a refused repoint must not move the app's own address
     // to a plane this machine is not actually pointed at.
@@ -1457,9 +1460,9 @@ pub fn node_enroll(
 
     // Resolved BEFORE the confirmation, so a machine with no agent is told so
     // instead of being asked to confirm something that then cannot happen.
-    let agent = agent_bin::resolve(settings.get().binary_path.as_deref());
-    if agent.is_none() {
-        return EnrollOutcome::refused(NO_AGENT);
+    let node_binary = node_bin::resolve(settings.get().binary_path.as_deref());
+    if node_binary.is_none() {
+        return EnrollOutcome::refused(NO_NODE);
     }
 
     if !confirm {
@@ -1469,8 +1472,8 @@ pub fn node_enroll(
         }
     }
 
-    let Some(out) = run_agent(agent.as_ref(), &AgentCommand::Enroll { server, key, name }) else {
-        return EnrollOutcome::refused(NO_AGENT);
+    let Some(out) = run_node(node_binary.as_ref(), &NodeCommand::Enroll { server, key, name }) else {
+        return EnrollOutcome::refused(NO_NODE);
     };
     let node = out.ok().then(|| json_of(&out)).flatten();
     let stderr = if out.ok() || !out.stderr.trim().is_empty() {
@@ -1518,7 +1521,7 @@ pub fn close_to_tray_now(settings: &SettingsState) -> bool {
 #[serde(rename_all = "camelCase")]
 pub struct NodeSettings {
     /// The agent binary the user picked by hand, if any.
-    pub agent_bin_path: Option<String>,
+    pub node_bin_path: Option<String>,
     /// The control plane the main window shows, once one has been resolved.
     ///
     /// From the stored preference, else the enrolled node's own `serverUrl` —
@@ -1530,7 +1533,7 @@ pub struct NodeSettings {
 /// Build the payload from the stored settings.
 fn settings_view(current: Settings) -> NodeSettings {
     NodeSettings {
-        agent_bin_path: current.binary_path,
+        node_bin_path: current.binary_path,
         plane_url: plane_url_from(current.plane_url),
     }
 }
@@ -1745,7 +1748,7 @@ pub enum OpenTarget {
     /// The identity/state directory this node was enrolled with.
     DataDir,
     /// The agent's own log file, where the platform has one.
-    AgentLog,
+    NodeLog,
 }
 
 /// Resolve one target to a path, or explain why there is none.
@@ -1759,10 +1762,10 @@ pub fn resolve_open_target(target: OpenTarget, paths: &NodePaths) -> Result<Stri
             .data_dir
             .clone()
             .ok_or_else(|| "this machine has no data directory yet — it is created when the node enrolls".to_string()),
-        OpenTarget::AgentLog => paths
-            .agent_log
+        OpenTarget::NodeLog => paths
+            .node_log
             .clone()
-            .ok_or_else(|| paths.agent_log_hint.clone().unwrap_or_else(|| NO_LOG_FILE.to_string())),
+            .ok_or_else(|| paths.node_log_hint.clone().unwrap_or_else(|| NO_LOG_FILE.to_string())),
     }
 }
 
@@ -1909,7 +1912,7 @@ pub async fn node_check_app_update(app: AppHandle) -> Result<crate::app_update::
 /// **Takes ONE bool and names no location.** The version to install is
 /// re-resolved here rather than carried back from the page — the same shape
 /// every other command in this file keeps: the page names an intent, never a
-/// path, a URL or a host. `install_agent` is the § 13 selection, and it is a
+/// path, a URL or a host. `install_node` is the § 13 selection, and it is a
 /// bool for exactly the reason the whole argument list is pinned by test: a
 /// `String` here would be the parameter that pin exists to catch.
 ///
@@ -1921,8 +1924,8 @@ pub async fn node_check_app_update(app: AppHandle) -> Result<crate::app_update::
 ///
 /// It does not return on success: `app.restart()` is `-> !`.
 #[tauri::command(async)]
-pub async fn node_install_app_update(app: AppHandle, install_agent: bool) -> Result<(), String> {
-    crate::app_update::install_app_update(&app, install_agent).await
+pub async fn node_install_app_update(app: AppHandle, install_node: bool) -> Result<(), String> {
+    crate::app_update::install_app_update(&app, install_node).await
 }
 
 /// Reveal one of a fixed set of the app's own directories or files.
@@ -1944,8 +1947,8 @@ pub fn node_open_path(app: AppHandle, target: OpenTarget) -> Result<(), String> 
 mod command_set_tests {
     use super::*;
 
-    fn every_command() -> Vec<AgentCommand> {
-        let mut out = vec![AgentCommand::Status, AgentCommand::ServiceStatus];
+    fn every_command() -> Vec<NodeCommand> {
+        let mut out = vec![NodeCommand::Status, NodeCommand::ServiceStatus];
         for verb in [
             ServiceCommand::Install,
             ServiceCommand::Uninstall,
@@ -1954,14 +1957,14 @@ mod command_set_tests {
             ServiceCommand::Restart,
         ] {
             for force in [false, true] {
-                out.push(AgentCommand::Service {
+                out.push(NodeCommand::Service {
                     verb,
                     force,
                     autostart: true,
                 });
             }
         }
-        out.push(AgentCommand::Enroll {
+        out.push(NodeCommand::Enroll {
             server: "https://subshell.example.com".into(),
             key: "nsk_0123456789012345678901234567890a".into(),
             name: "workstation".into(),
@@ -2000,8 +2003,8 @@ mod command_set_tests {
 
     #[test]
     fn reads_ask_for_json() {
-        assert_eq!(AgentCommand::Status.args(), ["status", "--json"]);
-        assert_eq!(AgentCommand::ServiceStatus.args(), ["service", "status", "--json"]);
+        assert_eq!(NodeCommand::Status.args(), ["status", "--json"]);
+        assert_eq!(NodeCommand::ServiceStatus.args(), ["service", "status", "--json"]);
     }
 
     // The CLI refuses `--force` anywhere but `restart`, so a stop that carried
@@ -2014,7 +2017,7 @@ mod command_set_tests {
             ServiceCommand::Start,
             ServiceCommand::Stop,
         ] {
-            let args = AgentCommand::Service {
+            let args = NodeCommand::Service {
                 verb,
                 force: true,
                 autostart: true,
@@ -2023,7 +2026,7 @@ mod command_set_tests {
             assert!(!args.iter().any(|a| a == "--force"), "{verb:?} kept --force: {args:?}");
         }
         assert_eq!(
-            AgentCommand::Service {
+            NodeCommand::Service {
                 verb: ServiceCommand::Restart,
                 force: true,
                 autostart: true
@@ -2032,7 +2035,7 @@ mod command_set_tests {
             ["service", "restart", "--force"]
         );
         assert_eq!(
-            AgentCommand::Service {
+            NodeCommand::Service {
                 verb: ServiceCommand::Restart,
                 force: false,
                 autostart: true
@@ -2054,7 +2057,7 @@ mod command_set_tests {
             ServiceCommand::Stop,
             ServiceCommand::Restart,
         ] {
-            let args = AgentCommand::Service {
+            let args = NodeCommand::Service {
                 verb,
                 force: false,
                 autostart: false,
@@ -2066,7 +2069,7 @@ mod command_set_tests {
             );
         }
         assert_eq!(
-            AgentCommand::Service {
+            NodeCommand::Service {
                 verb: ServiceCommand::Install,
                 force: false,
                 autostart: false
@@ -2078,7 +2081,7 @@ mod command_set_tests {
         // must keep coming back at login, which is what every caller before
         // the start-up screen expected.
         assert_eq!(
-            AgentCommand::Service {
+            NodeCommand::Service {
                 verb: ServiceCommand::Install,
                 force: false,
                 autostart: true
@@ -2093,7 +2096,7 @@ mod command_set_tests {
         // There is no nameless spelling to test: the variant cannot hold one, and
         // the CLI would refuse it as a usage error. This pins the argv a nameless
         // spawn used to produce — `enroll` without `--name` — is impossible.
-        let args = AgentCommand::Enroll {
+        let args = NodeCommand::Enroll {
             server: "https://x.example".into(),
             key: "nsk_k".into(),
             name: "box".into(),
@@ -2120,7 +2123,7 @@ mod command_set_tests {
     /// either — the plane owns a node's name, and the CLI rejects the flag.
     #[test]
     fn configure_repoints_without_a_setup_key_or_a_rename() {
-        let args = AgentCommand::Configure {
+        let args = NodeCommand::Configure {
             server: "https://subshell.example".into(),
         }
         .args();
@@ -2136,7 +2139,7 @@ mod command_set_tests {
     #[test]
     fn a_repoint_gets_the_action_deadline() {
         assert_eq!(
-            AgentCommand::Configure {
+            NodeCommand::Configure {
                 server: "https://subshell.example".into(),
             }
             .timeout(),
@@ -2148,10 +2151,10 @@ mod command_set_tests {
     // 15 — the CLI's own network deadline is 30.
     #[test]
     fn deadlines_match_what_each_invocation_does() {
-        assert_eq!(AgentCommand::Status.timeout(), QUERY_TIMEOUT);
-        assert_eq!(AgentCommand::ServiceStatus.timeout(), QUERY_TIMEOUT);
+        assert_eq!(NodeCommand::Status.timeout(), QUERY_TIMEOUT);
+        assert_eq!(NodeCommand::ServiceStatus.timeout(), QUERY_TIMEOUT);
         assert_eq!(
-            AgentCommand::Enroll {
+            NodeCommand::Enroll {
                 server: "https://x.example".into(),
                 key: "nsk_k".into(),
                 name: "box".into(),
@@ -2163,17 +2166,17 @@ mod command_set_tests {
     }
 
     #[test]
-    fn the_agent_prefix_comes_first() {
-        let agent = AgentBinary {
+    fn the_node_prefix_comes_first() {
+        let node_binary = NodeBinary {
             argv: vec!["/bin/bun".into(), "/repo/main.ts".into()],
-            source: crate::agent_bin::AgentSource::Service,
+            source: crate::node_bin::NodeSource::Service,
             version: Some("1.9.0".into()),
         };
         assert_eq!(
-            agent_cmd(Some(&agent), &AgentCommand::Status).unwrap(),
+            node_cmd(Some(&node_binary), &NodeCommand::Status).unwrap(),
             ["/bin/bun", "/repo/main.ts", "status", "--json"]
         );
-        assert!(agent_cmd(None, &AgentCommand::Status).is_none());
+        assert!(node_cmd(None, &NodeCommand::Status).is_none());
     }
 }
 
@@ -2214,21 +2217,21 @@ mod resume_tests {
     fn an_unmanaged_machine_has_no_second_half_to_resume() {
         let p = Probe {
             bundled_version: Some("1.10.0".into()),
-            agent: Some(AgentBinary {
+            node_binary: Some(NodeBinary {
                 argv: vec!["/usr/local/bin/subshell".into()],
-                source: agent_bin::AgentSource::Service,
+                source: node_bin::NodeSource::Service,
                 version: Some("1.8.0".into()),
             }),
             managed: false,
             ..Default::default()
         };
         // The bundle really IS newer; the raw comparison would say "work".
-        assert_eq!(p.comparable_agent_version(), Some("1.10.0"));
+        assert_eq!(p.comparable_node_version(), Some("1.10.0"));
         assert_eq!(
             resume_decision(
                 Some(&marker(0)),
                 p.bundled_version.as_deref(),
-                p.comparable_agent_version()
+                p.comparable_node_version()
             ),
             Some(Resume::Clear)
         );
@@ -2239,20 +2242,20 @@ mod resume_tests {
     fn a_managed_machine_still_has_its_second_half() {
         let p = Probe {
             bundled_version: Some("1.10.0".into()),
-            agent: Some(AgentBinary {
+            node_binary: Some(NodeBinary {
                 argv: vec!["/home/u/.local/bin/subshell".into()],
-                source: agent_bin::AgentSource::LocalBin,
+                source: node_bin::NodeSource::LocalBin,
                 version: Some("1.8.0".into()),
             }),
             managed: true,
             ..Default::default()
         };
-        assert_eq!(p.comparable_agent_version(), Some("1.8.0"));
+        assert_eq!(p.comparable_node_version(), Some("1.8.0"));
         assert_eq!(
             resume_decision(
                 Some(&marker(0)),
                 p.bundled_version.as_deref(),
-                p.comparable_agent_version()
+                p.comparable_node_version()
             ),
             Some(Resume::Install { forced: true })
         );
@@ -2322,18 +2325,18 @@ mod probe_tests {
     use super::*;
     use serde_json::json;
 
-    fn agent() -> AgentBinary {
-        AgentBinary {
+    fn node_binary() -> NodeBinary {
+        NodeBinary {
             argv: vec!["/home/u/.local/bin/subshell".into()],
-            source: crate::agent_bin::AgentSource::LocalBin,
+            source: crate::node_bin::NodeSource::LocalBin,
             version: Some("1.9.0".into()),
         }
     }
 
-    fn probe_with(status: Option<serde_json::Value>, service: Option<serde_json::Value>, has_agent: bool) -> Probe {
+    fn probe_with(status: Option<serde_json::Value>, service: Option<serde_json::Value>, has_node: bool) -> Probe {
         let mut p = Probe {
             bundled_version: Some("1.9.0".into()),
-            agent: has_agent.then(agent),
+            node_binary: has_node.then(node_binary),
             managed: true,
             status,
             service,
@@ -2356,17 +2359,17 @@ mod probe_tests {
     }
 
     #[test]
-    fn with_no_agent_the_first_step_is_getting_one() {
-        assert_eq!(probe_with(None, None, false).step, ProbeStep::NoAgent);
+    fn with_no_node_the_first_step_is_getting_one() {
+        assert_eq!(probe_with(None, None, false).step, ProbeStep::NoNode);
     }
 
     // The dangerous one: `enroll` overwrites config.json, mints a second node
     // row and throws away the node key. A binary that ran `version` but whose
     // `status` failed must never route there.
     #[test]
-    fn an_agent_that_did_not_answer_is_never_the_enroll_step() {
+    fn a_node_that_did_not_answer_is_never_the_enroll_step() {
         let p = probe_with(None, Some(service(true, "running")), true);
-        assert_eq!(p.step, ProbeStep::NoAgent);
+        assert_eq!(p.step, ProbeStep::NoNode);
         assert_ne!(p.step, ProbeStep::NotEnrolled);
     }
 
@@ -2437,31 +2440,31 @@ mod probe_tests {
     // Installing to ~/.local/bin cannot change what a service pointing
     // somewhere else runs, so offering the upgrade would repeat forever.
     #[test]
-    fn no_upgrade_is_offered_for_an_agent_this_app_does_not_manage() {
+    fn no_upgrade_is_offered_for_a_node_this_app_does_not_manage() {
         let mut p = Probe {
             bundled_version: Some("2.0.0".into()),
-            agent: Some(AgentBinary {
+            node_binary: Some(NodeBinary {
                 argv: vec!["/usr/local/bin/subshell".into()],
-                source: crate::agent_bin::AgentSource::Service,
+                source: crate::node_bin::NodeSource::Service,
                 version: Some("1.9.0".into()),
             }),
             managed: false,
             ..Default::default()
         };
         p.decide();
-        assert_eq!(p.agent_choice, AgentChoice::UpToDate);
+        assert_eq!(p.node_choice, NodeChoice::UpToDate);
     }
 
     #[test]
     fn an_upgrade_is_offered_for_the_managed_copy() {
         let mut p = Probe {
             bundled_version: Some("2.0.0".into()),
-            agent: Some(agent()),
+            node_binary: Some(node_binary()),
             managed: true,
             ..Default::default()
         };
         p.decide();
-        assert_eq!(p.agent_choice, AgentChoice::UpgradeAvailable);
+        assert_eq!(p.node_choice, NodeChoice::UpgradeAvailable);
     }
 
     #[test]
@@ -2471,8 +2474,8 @@ mod probe_tests {
             ..Default::default()
         };
         p.decide();
-        assert_eq!(p.agent_choice, AgentChoice::InstallBundled);
-        assert_eq!(p.step, ProbeStep::NoAgent);
+        assert_eq!(p.node_choice, NodeChoice::InstallBundled);
+        assert_eq!(p.step, ProbeStep::NoNode);
     }
 
     // Hazard, measured: `subshell status` exits 1 whenever the node is
@@ -2502,7 +2505,7 @@ mod probe_tests {
 
     #[test]
     fn steps_serialize_as_kebab_case_for_the_page() {
-        assert_eq!(serde_json::to_string(&ProbeStep::NoAgent).unwrap(), "\"no-agent\"");
+        assert_eq!(serde_json::to_string(&ProbeStep::NoNode).unwrap(), "\"no-node\"");
         assert_eq!(
             serde_json::to_string(&ProbeStep::NotEnrolled).unwrap(),
             "\"not-enrolled\""
@@ -2519,11 +2522,11 @@ mod probe_tests {
         let v = serde_json::to_value(&p).unwrap();
         for key in [
             "bundledVersion",
-            "agent",
+            "nodeBinary",
             "managed",
             "status",
             "service",
-            "agentChoice",
+            "nodeChoice",
             "step",
             "error",
             "tmux",
@@ -2547,13 +2550,13 @@ mod install_policy_tests {
     // restarting a daemon this command has deliberately never restarted.
     #[test]
     fn the_delegated_argv_is_the_installed_binary_plus_the_shared_flags() {
-        let agent = AgentBinary {
+        let node_binary = NodeBinary {
             argv: vec!["/home/u/.local/bin/subshell".into()],
-            source: crate::agent_bin::AgentSource::LocalBin,
+            source: crate::node_bin::NodeSource::LocalBin,
             version: Some("0.8.0".into()),
         };
         let staged = PathBuf::from("/Applications/Subshell Client.app/Contents/MacOS/subshell-node-bundled");
-        let argv = update_argv(Some(&agent), &staged).expect("an argv");
+        let argv = update_argv(Some(&node_binary), &staged).expect("an argv");
         assert_eq!(argv.first().map(String::as_str), Some("/home/u/.local/bin/subshell"));
         assert_eq!(&argv[1..], &cli_update::update_args(&staged)[..]);
         assert!(argv.contains(&"--no-restart".to_string()));
@@ -2584,7 +2587,7 @@ mod install_policy_tests {
     // `fail(2, UsageError)` — note the exit code is 2 here and 1 in the server
     // app, which is why the detection keys on the MARKER and not on a number.
     #[test]
-    fn an_agent_predating_the_verb_falls_back_to_the_plain_copy() {
+    fn a_node_predating_the_verb_falls_back_to_the_plain_copy() {
         assert!(matches!(
             classify_update(run_of(Some(2), "", "unknown command 'update'\n")),
             AfterUpdate::Legacy
@@ -2622,26 +2625,30 @@ mod install_policy_tests {
     // one would alarm about something that was never going to happen.
     #[test]
     fn the_fallback_says_no_rollback_and_never_mentions_a_database() {
-        let said =
-            cli_update::legacy_install_summary(Some("0.8.0"), Some("0.9.0"), "agent", cli_update::Unrecorded::Rollback);
+        let said = cli_update::legacy_install_summary(
+            Some("0.8.0"),
+            Some("0.9.0"),
+            "node CLI",
+            cli_update::Unrecorded::Rollback,
+        );
         assert!(said.contains("Installed 0.9.0 over 0.8.0."), "{said}");
         assert!(said.contains("No rollback point was recorded"), "{said}");
         assert!(said.contains("predates the update command"), "{said}");
         assert!(!said.contains("database"), "{said}");
     }
 
-    // The invariant `agent_bin` states in its own words: a newer installed
+    // The invariant `node_bin` states in its own words: a newer installed
     // agent is ADOPTED, never overwritten. Nothing downstream enforces it —
     // `already_installed` compares versions for equality, not order — so an
     // older bundled binary would otherwise overwrite a newer installed one and
     // buy a node that enrolls, reports online and refuses every launch.
     #[test]
-    fn a_newer_installed_agent_is_never_overwritten() {
+    fn a_newer_installed_node_is_never_overwritten() {
         let refusal = install_refusal(Some("1.9.0"), Some("2.0.0")).expect("a downgrade must be refused");
         assert!(refusal.contains("2.0.0"), "{refusal}");
         assert!(refusal.contains("1.9.0"), "{refusal}");
         assert!(refusal.contains("downgrade"), "{refusal}");
-        // Numeric, not lexical — the comparison `decide_agent` already owns.
+        // Numeric, not lexical — the comparison `decide_node` already owns.
         assert!(install_refusal(Some("1.9.0"), Some("1.10.0")).is_some());
     }
 
@@ -2664,19 +2671,19 @@ mod install_policy_tests {
         }
     }
 
-    // The guard is deliberately WIDER than the upgrade offer. `agent_choice`
+    // The guard is deliberately WIDER than the upgrade offer. `node_choice`
     // is narrowed to the copy this app manages — an offer for an agent the
     // service does not run would change nothing and repeat forever — but
     // `~/.local/bin` outranks the login PATH and the well-known directories,
     // so writing an older binary there downgrades what this app drives even
     // when it never installed the newer one.
     #[test]
-    fn an_agent_this_app_does_not_manage_is_not_downgraded_either() {
+    fn a_node_this_app_does_not_manage_is_not_downgraded_either() {
         let mut p = Probe {
             bundled_version: Some("1.9.0".into()),
-            agent: Some(AgentBinary {
+            node_binary: Some(NodeBinary {
                 argv: vec!["/usr/local/bin/subshell".into()],
-                source: crate::agent_bin::AgentSource::WellKnown,
+                source: crate::node_bin::NodeSource::WellKnown,
                 version: Some("2.0.0".into()),
             }),
             managed: false,
@@ -2684,11 +2691,11 @@ mod install_policy_tests {
         };
         p.decide();
         // Nothing is OFFERED here…
-        assert_eq!(p.agent_choice, AgentChoice::UpToDate);
+        assert_eq!(p.node_choice, NodeChoice::UpToDate);
         // …and if the command is reached anyway, it still refuses.
         assert!(install_refusal(
             p.bundled_version.as_deref(),
-            p.agent.as_ref().and_then(|a| a.version.as_deref())
+            p.node_binary.as_ref().and_then(|a| a.version.as_deref())
         )
         .is_some());
     }
@@ -2789,7 +2796,7 @@ mod validation_tests {
     /// The agent now normalizes on write regardless, so this is the two
     /// spellings of "one normalization" agreeing rather than the only guard.
     #[test]
-    fn a_mixed_case_scheme_is_lowercased_like_the_agent_does() {
+    fn a_mixed_case_scheme_is_lowercased_like_the_node_does() {
         assert_eq!(
             validate_server_url("HTTP://Box.Local:3080").unwrap(),
             "http://box.local:3080"
@@ -3077,8 +3084,8 @@ mod path_tests {
     // Exactly one of the two is ever set, whatever this machine happens to
     // have on disk: a path to reveal, or a sentence saying what to do instead.
     #[test]
-    fn the_agent_log_is_a_path_or_a_hint_never_both_and_never_neither() {
-        let (path, hint) = agent_log();
+    fn the_node_log_is_a_path_or_a_hint_never_both_and_never_neither() {
+        let (path, hint) = node_log_paths();
         assert_ne!(path.is_some(), hint.is_some());
         match (path, hint) {
             (Some(p), None) => assert!(
@@ -3094,9 +3101,9 @@ mod path_tests {
     // plane's log view serves, so revealing anything else here would put the
     // desktop and the browser on two different documents.
     #[test]
-    fn the_agents_own_capped_log_wins_over_the_managers_copy() {
+    fn the_nodes_own_capped_log_wins_over_the_managers_copy() {
         let own = PathBuf::from("/home/u/.config/subshell/logs/agent.log");
-        let (path, hint) = agent_log_from(
+        let (path, hint) = node_log_paths_from(
             Some(PathBuf::from("/home/u/.config/subshell")),
             Some(PathBuf::from("/home/u")),
             |_| true, // both have content
@@ -3110,7 +3117,7 @@ mod path_tests {
     #[test]
     fn the_managers_log_is_the_fallback_where_the_platform_keeps_one() {
         let own = PathBuf::from("/home/u/.config/subshell/logs/agent.log");
-        let (path, hint) = agent_log_from(
+        let (path, hint) = node_log_paths_from(
             Some(PathBuf::from("/home/u/.config/subshell")),
             Some(PathBuf::from("/home/u")),
             |p| p != own, // the agent has written nothing of its own
@@ -3130,7 +3137,7 @@ mod path_tests {
     // silence. Same rule as the server app's `server_log_tail`.
     #[test]
     fn nothing_with_content_anywhere_is_the_hint() {
-        let (path, hint) = agent_log_from(
+        let (path, hint) = node_log_paths_from(
             Some(PathBuf::from("/home/u/.config/subshell")),
             Some(PathBuf::from("/home/u")),
             |_| false,
@@ -3165,7 +3172,7 @@ mod path_tests {
     #[test]
     fn every_target_resolves_or_explains_itself() {
         let paths = node_paths(&NodeConfigFacts::default());
-        for target in [OpenTarget::ConfigDir, OpenTarget::DataDir, OpenTarget::AgentLog] {
+        for target in [OpenTarget::ConfigDir, OpenTarget::DataDir, OpenTarget::NodeLog] {
             match resolve_open_target(target, &paths) {
                 Ok(p) => assert!(p.starts_with('/'), "{target:?} resolved to {p}"),
                 Err(e) => assert!(!e.is_empty(), "{target:?} refused with nothing to say"),
@@ -3178,19 +3185,19 @@ mod path_tests {
     #[test]
     fn a_missing_log_file_answers_with_its_hint() {
         let paths = NodePaths {
-            agent_log: None,
-            agent_log_hint: Some("do this instead".into()),
+            node_log: None,
+            node_log_hint: Some("do this instead".into()),
             ..Default::default()
         };
         assert_eq!(
-            resolve_open_target(OpenTarget::AgentLog, &paths).unwrap_err(),
+            resolve_open_target(OpenTarget::NodeLog, &paths).unwrap_err(),
             "do this instead"
         );
         // …and when even the hint is missing, with the platform's own reason
         // rather than an empty string.
         let bare = NodePaths::default();
         assert_eq!(
-            resolve_open_target(OpenTarget::AgentLog, &bare).unwrap_err(),
+            resolve_open_target(OpenTarget::NodeLog, &bare).unwrap_err(),
             NO_LOG_FILE
         );
     }
@@ -3208,8 +3215,8 @@ mod path_tests {
             OpenTarget::DataDir
         );
         assert_eq!(
-            serde_json::from_str::<OpenTarget>("\"agent-log\"").unwrap(),
-            OpenTarget::AgentLog
+            serde_json::from_str::<OpenTarget>("\"node-log\"").unwrap(),
+            OpenTarget::NodeLog
         );
         assert!(serde_json::from_str::<OpenTarget>("\"/etc/passwd\"").is_err());
     }
@@ -3253,7 +3260,7 @@ mod path_tests {
         let json = serde_json::to_value(settings_view(stored(true))).unwrap();
         let mut keys: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();
         keys.sort_unstable();
-        assert_eq!(keys, ["agentBinPath", "planeUrl"]);
+        assert_eq!(keys, ["nodeBinPath", "planeUrl"]);
     }
 
     #[test]

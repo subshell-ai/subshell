@@ -5,4 +5,4 @@ import pkg from "../package.json";
  * truth). resolveJsonModule lets tsc type it, Bun's bundler inlines it for
  * both tsdown and `bun build --compile`.
  */
-export const AGENT_VERSION: string = pkg.version;
+export const NODE_VERSION: string = pkg.version;

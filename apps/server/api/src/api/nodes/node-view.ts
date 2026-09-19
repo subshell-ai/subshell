@@ -17,7 +17,7 @@ import { localPlatform } from "@/services/nodes/seed-local.js";
  * `harnesses` is the merge in `services/nodes/inventory.ts →
  * effectiveHarnessStates`: one row per plugin the INSTANCE has installed and
  * enabled, crossed with that node's binary detection — live for `local`, the
- * cached inventory for an agent (false until the first detection lands). The
+ * cached inventory for a node (false until the first detection lands). The
  * node declares nothing any more (spec 2026-09-10); the instance store is the
  * single catalog behind every node's rows.
  * Staleness is a PER-NODE flag (`inventoryStale`) — a cached detection ages
@@ -67,20 +67,20 @@ export const NodeHarnessViewSchema = t.Object({
   checkedAt: t.Optional(
     t.String({
       description:
-        "ISO 8601 stamp of when this entry was probed. Absent from a node running an agent older than the field",
+        "ISO 8601 stamp of when this entry was probed. Absent from a node running a CLI older than the field",
     }),
   ),
 });
 
 /**
  * True when this node's harness entries were resolved from data that may not
- * match reality: an agent whose cached inventory is older than the 10-min
+ * match reality: a node whose cached inventory is older than the 10-min
  * TTL OR has never landed. Per-node (not per-entry) by design — the
  * inventory ages as a unit. `local` is always false (live probe per read).
  */
 export const InventoryStaleSchema = t.Boolean({
   description:
-    "Agent: cached inventory older than the 10-min TTL (or never reported); installed values are last-known, not live. local: always false",
+    "Node: cached inventory older than the 10-min TTL (or never reported); installed values are last-known, not live. local: always false",
 });
 
 /** One node as the registry routes render it — no secrets, no machine keys. */
@@ -147,13 +147,13 @@ export const NodeViewSchema = t.Object({
   held: t.Nullable(
     t.Object({
       reason: t.Union([t.Literal("below-floor"), t.Literal("protocol-mismatch")], {
-        description: "Which gate refused this agent: its version, or the wire protocol it speaks",
+        description: "Which gate refused this node: its version, or the wire protocol it speaks",
       }),
       agentVersion: t.String({ description: "The version reported on the socket being held" }),
     }),
     {
       description:
-        "This node's agent is connected but REFUSED — held open for one command (`update`) and offline for every other purpose. Visible to every viewer who can see the row: it is the same disclosure as `agentVersion`, which is already here, and a node that needs updating is exactly what anyone looking at it needs told. null when the node is not held",
+        "This node is connected but REFUSED — held open for one command (`update`) and offline for every other purpose. Visible to every viewer who can see the row: it is the same disclosure as `agentVersion`, which is already here, and a node that needs updating is exactly what anyone looking at it needs told. null when the node is not held",
     },
   ),
 });
@@ -202,11 +202,11 @@ export const SetNodeSharesBodySchema = t.Object({
  * `ready.runtime`, mirrored onto the detail view (spec 2026-09-12 § 6.2).
  *
  * Shaped exactly like the protocol's `NodeRuntimeReport`, because it IS that
- * object: the plane forwards what the agent reported rather than deriving
+ * object: the plane forwards what the node reported rather than deriving
  * anything, so there is nothing here the node did not say about itself.
  */
 export const NodeRuntimeSchema = t.Object({
-  startedAt: t.String({ description: "ISO 8601 start of the agent process" }),
+  startedAt: t.String({ description: "ISO 8601 start of the node process" }),
   supervised: t.Boolean({
     description: "Whether the service manager started this process, so exiting it would be a restart",
   }),
@@ -214,7 +214,7 @@ export const NodeRuntimeSchema = t.Object({
     manager: t.Nullable(t.Union([t.Literal("launchd"), t.Literal("systemd")]), {
       description: "Per-user service manager on the node's platform, or null where there is none",
     }),
-    installed: t.Boolean({ description: "Whether a unit/plist for the agent exists on disk" }),
+    installed: t.Boolean({ description: "Whether a unit/plist for the node exists on disk" }),
     definitionPath: t.Nullable(t.String(), { description: "Where that definition lives" }),
     state: t.String({ description: "The manager's own word for the process state" }),
     pid: t.Nullable(t.Number(), { description: "The manager's main pid" }),
@@ -227,27 +227,27 @@ export const NodeRuntimeSchema = t.Object({
       description: "Whether a restart through that definition keeps live panes",
     }),
   }),
-  configPath: t.String({ description: "The agent's config.json" }),
+  configPath: t.String({ description: "The node's config.json" }),
   agentLogPath: t.String({
     description:
-      "The agent's OWN log file — the one GET /api/nodes/:id/logs serves. Exists on every platform, unlike logPath",
+      "The node's OWN log file — the one GET /api/nodes/:id/logs serves. Exists on every platform, unlike logPath",
   }),
   logPath: t.Nullable(t.String(), { description: "The launchd log file; null under systemd" }),
   logHint: t.Nullable(t.String(), { description: "The journal command when logPath is null" }),
   logging: t.Object(
     {
-      debug: t.Boolean({ description: "Whether debug-level lines reach the agent's own log file" }),
+      debug: t.Boolean({ description: "Whether debug-level lines reach the node's own log file" }),
       source: t.Union([t.Literal("process env"), t.Literal("setting"), t.Literal("default")], {
         description:
           "Which layer decided; `process env` means SUBSHELL_DEBUG_LOGGING forces it and the switch is read-only",
       }),
     },
-    { description: "The agent's debug-logging switch, the node half of the server's own" },
+    { description: "The node's debug-logging switch, the node half of the server's own" },
   ),
   tmuxPath: t.Nullable(t.String(), {
     description: "tmux on the daemon's PATH, or null (the node accepts no launches)",
   }),
-  binaryPath: t.String({ description: "The agent binary this process re-enters" }),
+  binaryPath: t.String({ description: "The node binary this process re-enters" }),
 });
 
 /** `GET /api/nodes/:id` — the view plus the grant set, ONLY when the viewer can configure. */
@@ -257,7 +257,7 @@ export const GetNodeResponseSchema = t.Object({
   runtime: t.Optional(
     t.Object(NodeRuntimeSchema.properties, {
       description:
-        "How the agent runs — present only while the node is online, only for config-capable viewers, and only on agent nodes",
+        "How the node runs — present only while the node is online, only for config-capable viewers, and only on agent nodes",
     }),
   ),
   runningSubshells: t.Optional(
@@ -337,7 +337,7 @@ function nodeViewBase(
     status: row.status,
     lastSeenAt: row.lastSeenAt,
     agentVersion: row.agentVersion,
-    // Task 15's "agent too old" chip reads this against NODE_PROTOCOL_VERSION.
+    // Task 15's "node too old" chip reads this against NODE_PROTOCOL_VERSION.
     protocolVersion: row.protocolVersion,
     access,
     // The SAME rule the route gate applies — shared helper, so view and gate
@@ -352,7 +352,7 @@ function nodeViewBase(
     // Read from the LIVE registry rather than the row, for the same reason
     // `runtime` is: being held is a fact about a socket that exists right now,
     // and a column would go stale the moment the process ends. It is NOT
-    // manage-gated, unlike `runtime` — this says "the agent here needs
+    // manage-gated, unlike `runtime` — this says "the node here needs
     // updating", which is the same disclosure as the `agentVersion` sitting
     // beside it, not a machine's paths and pids.
     held: heldView(row.id),
@@ -385,7 +385,7 @@ export async function toNodeView(
 /**
  * Render rows already paired with the viewer's access + admin flag. The
  * instance catalog is read once and the local node's live probe is computed
- * at most once per call (a list is local + N agents — one probe batch and one
+ * at most once per call (a list is local + N nodes — one probe batch and one
  * disk pass, not one per row).
  */
 export async function toNodeViews(

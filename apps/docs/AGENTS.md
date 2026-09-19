@@ -34,7 +34,7 @@ containing ": " must be quoted — it is YAML).
   database, the SPA it serves) — not a machine that runs agents; **node** = a
   machine that runs agents (the `subshell` daemon) — not an app; **client** =
   a person's interface to a control plane (web, mobile, desktop) — not the
-  agent. Reusing a word for two things is the one style violation that bounces
+  node daemon. Reusing a word for two things is the one style violation that bounces
   a PR.
 - **Device-neutral positioning.** Lead with "from anywhere / any device";
   phone-specific copy belongs on the mobile page only. The maintainer rejected

@@ -1,6 +1,6 @@
 import { statSync } from "node:fs";
 import { hostname } from "node:os";
-import { agentVersionSupported, MIN_AGENT_VERSION, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
+import { MIN_NODE_VERSION, NODE_PROTOCOL_VERSION, nodeVersionSupported } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { requireAdmin } from "@/api/auth-guard.js";
 import { listSystemKeys } from "@/auth/apikey-store.js";
@@ -49,12 +49,12 @@ import { SERVER_VERSION } from "@/version.js";
 const VersionsSchema = t.Object({
   server: t.String({ description: "Server app version (apps/server/api package.json)" }),
   nodeProtocol: t.Number({ description: "Node protocol version this control plane speaks; nodes must match EXACTLY" }),
-  minAgent: t.String({ description: "Oldest subshell node version this control plane will accept on /ws/node" }),
+  minNode: t.String({ description: "Oldest subshell node version this control plane will accept on /ws/node" }),
   bun: t.String({ description: "Bun runtime version this process is running on" }),
 });
 
 /** One enrolled agent that this control plane would refuse (or has refused). */
-const OutdatedAgentSchema = t.Object({
+const OutdatedNodeSchema = t.Object({
   id: t.String({ description: "Node id" }),
   name: t.String({ description: "Node display name" }),
   agentVersion: t.Nullable(t.String({ description: "Last-known node version" }), {
@@ -111,11 +111,11 @@ const InventorySchema = t.Object({
     total: t.Number({ description: "Enrolled nodes, including the seeded `local` row" }),
     online: t.Number({
       description:
-        "Nodes reachable right now: agents holding a live socket in the in-memory registry, plus the seeded `local` row, which holds no socket and is up whenever this server is",
+        "Nodes reachable right now: those holding a live socket in the in-memory registry, plus the seeded `local` row, which holds no socket and is up whenever this server is",
     }),
-    needingUpdate: t.Array(OutdatedAgentSchema, {
+    needingUpdate: t.Array(OutdatedNodeSchema, {
       description:
-        "Enrolled agents below the minimum version; they are refused at connect, so they appear offline with no other explanation",
+        "Enrolled nodes below the minimum version; they are refused at connect, so they appear offline with no other explanation",
     }),
   }),
   workspaces: t.Number({ description: "Workspaces across all users" }),
@@ -232,7 +232,7 @@ export const adminStatusRoutes = new Elysia({ prefix: "/api/admin" }).use(requir
     // a second comparison that could drift from it. A node that has never
     // reported a version has never completed a `ready`, so it is not yet a
     // compatibility problem — only a version BELOW the floor is.
-    const needingUpdate = agents.filter((a) => a.agentVersion !== null && !agentVersionSupported(a.agentVersion));
+    const needingUpdate = agents.filter((a) => a.agentVersion !== null && !nodeVersionSupported(a.agentVersion));
     const systemKeys = systemUserId ? listSystemKeys(systemUserId) : [];
     // "Active" must mean USABLE. An enabled key past its expiry cannot
     // authenticate, and the card calls each active key a full-access bearer
@@ -247,7 +247,7 @@ export const adminStatusRoutes = new Elysia({ prefix: "/api/admin" }).use(requir
       versions: {
         server: SERVER_VERSION,
         nodeProtocol: NODE_PROTOCOL_VERSION,
-        minAgent: MIN_AGENT_VERSION,
+        minNode: MIN_NODE_VERSION,
         bun: Bun.version,
       },
       runtime: {

@@ -43,13 +43,13 @@ describe("NodeKeyRotate plaintext lifetime", () => {
     setConfirmHandler(() => Promise.resolve(true));
     const { restore } = mockRotateFetch();
     try {
-      const { rerender } = render(tree("agent1"));
+      const { rerender } = render(tree("node1"));
       fireEvent.click(await screen.findByRole("button", { name: /Rotate key/ }));
-      await waitFor(() => expect(screen.getByText("subshell_key_agent1").textContent).toBe("subshell_key_agent1"));
+      await waitFor(() => expect(screen.getByText("subshell_key_node1").textContent).toBe("subshell_key_node1"));
 
       // Simulate the param change a node switch produces WITHOUT a remount.
-      rerender(tree("agent2"));
-      expect(screen.queryByText("subshell_key_agent1")).toBeNull();
+      rerender(tree("node2"));
+      expect(screen.queryByText("subshell_key_node1")).toBeNull();
       // The new node starts clean — no reveal card, just the button.
       expect(screen.getByRole("button", { name: /Rotate key/ })).toBeDefined();
     } finally {
@@ -61,12 +61,12 @@ describe("NodeKeyRotate plaintext lifetime", () => {
     setConfirmHandler(() => Promise.resolve(true));
     const { restore } = mockRotateFetch();
     try {
-      const { rerender } = render(tree("agent1"));
+      const { rerender } = render(tree("node1"));
       fireEvent.click(await screen.findByRole("button", { name: /Rotate key/ }));
-      await waitFor(() => expect(screen.getByText("subshell_key_agent1").textContent).toBe("subshell_key_agent1"));
+      await waitFor(() => expect(screen.getByText("subshell_key_node1").textContent).toBe("subshell_key_node1"));
 
-      rerender(tree("agent1"));
-      expect(screen.getByText("subshell_key_agent1").textContent).toBe("subshell_key_agent1");
+      rerender(tree("node1"));
+      expect(screen.getByText("subshell_key_node1").textContent).toBe("subshell_key_node1");
     } finally {
       restore();
     }

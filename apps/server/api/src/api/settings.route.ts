@@ -104,7 +104,7 @@ const PublicSettingsSchema = t.Object({
   // without an admin session is a version nobody quotes in a bug report.
   serverVersion: t.String({
     description:
-      "Version of the SERVER app (apps/server/api package.json). Per-app, not instance-wide; the agent and frontend version independently",
+      "Version of the SERVER app (apps/server/api package.json). Per-app, not instance-wide; the node and frontend version independently",
   }),
   // The enroll-UX honesty field: a binary-only server install ships an EMPTY
   // node-artifacts dir, so the Nodes dialog's install one-liner would 404 on
@@ -113,7 +113,7 @@ const PublicSettingsSchema = t.Object({
   // holds this payload.
   nodeArtifactTargets: t.Array(t.String(), {
     description:
-      "Platform triples whose agent binary is already ON DISK here, served under /api/downloads/node/* without a fetch; empty on a fresh binary-only install",
+      "Platform triples whose node binary is already ON DISK here, served under /api/downloads/node/* without a fetch; empty on a fresh binary-only install",
   }),
   // Whether an absent binary is a 404 or a download. With a release source
   // configured (the default) the missing targets above are fetched the first
@@ -121,7 +121,7 @@ const PublicSettingsSchema = t.Object({
   // is for the air-gapped configuration, where it is still exactly true.
   nodeArtifactsAutoFetch: t.Boolean({
     description:
-      "Whether this server downloads a missing agent binary from the project's own GitHub release on first use (SUBSHELL_RELEASE_URL; empty disables it)",
+      "Whether this server downloads a missing node binary from the project's own GitHub release on first use (SUBSHELL_RELEASE_URL; empty disables it)",
   }),
 });
 
@@ -162,7 +162,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         operationId: "getPublicSettings",
         tags: ["settings"],
         description:
-          "Settings readable by any SIGNED-IN user: the registration and node-enrollment flags, the emergency-login armed state, the instance name, its base URL and the origins a browser may sign in from, the viewerIsAdmin admin-nav signal (cookie-only), the server version and the agent-artifact facts; anonymous callers get 401",
+          "Settings readable by any SIGNED-IN user: the registration and node-enrollment flags, the emergency-login armed state, the instance name, its base URL and the origins a browser may sign in from, the viewerIsAdmin admin-nav signal (cookie-only), the server version and the node-artifact facts; anonymous callers get 401",
       },
     },
   )

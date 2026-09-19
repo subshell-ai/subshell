@@ -12,9 +12,9 @@
 //! showing the plane's page. See `windows.rs` for why that split is the
 //! security boundary.
 
-mod agent_bin;
 mod app_update;
 mod control;
+mod node_bin;
 mod reset;
 // macOS only: a GTK menu bar is per-window chrome rather than a system bar, so
 // Linux has none — and a module compiled there would be entirely dead code.
@@ -157,7 +157,7 @@ pub fn run() {
         .manage(reset::Stash::default())
         .invoke_handler(tauri::generate_handler![
             control::node_probe,
-            control::node_install_agent,
+            control::node_install_cli,
             control::node_install_tmux,
             control::node_enroll,
             control::node_configure,
@@ -309,7 +309,7 @@ mod tests {
 
     /// Deliberately not exercised by mutating the environment: `unsetenv` is
     /// not safe against a concurrent `getenv`, and cargo runs these tests in
-    /// parallel with ones that read `HOME`, `PATH` and `SUBSHELL_AGENT_BIN`.
+    /// parallel with ones that read `HOME`, `PATH` and `SUBSHELL_NODE_BIN`.
     /// What is worth pinning is the NAME — the variable whose inheritance
     /// produces an agent that enrolls into one directory and is then started
     /// by a service that reads another.

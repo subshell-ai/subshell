@@ -106,7 +106,7 @@ It drives `install-server.sh` against the real GitHub release, boots the
 published binary, and enrols a node through the one-liner that server serves —
 covering the digest check, the embedded SPA, and the lazy fetch of the agent
 binary from the node release, none of which have a local equivalent. It needs
-the public internet and a published `server-v*`, which is why it is not in
+the public internet and a published `cli-server-v*`, which is why it is not in
 `test:cli`.
 
 ## `lint` vs `lint:check`

@@ -63,7 +63,7 @@ function uploadRequest(subshellId: string, token: string, file: File): Request {
 type WriteFileCmd = Extract<NodeCommandBody, { type: "write_file" }>;
 
 /** Script overrides for the fake agent's answers. */
-interface FakeAgentScript {
+interface FakeNodeScript {
   /** Chunk index that answers `ok:false` (every earlier chunk is accepted). */
   failAt?: number;
   /** Added to the running total in the `eof` answer (short-read simulation). */
@@ -73,7 +73,7 @@ interface FakeAgentScript {
 }
 
 /** Recording fake agent attached to the live-connection registry. */
-interface FakeAgent {
+interface FakeNode {
   /** Every `write_file` command body, in wire order. */
   readonly cmds: WriteFileCmd[];
   /** Evict the connection (idempotent) — for offline-transition scripts. */
@@ -87,7 +87,7 @@ interface FakeAgent {
  * would (`resolveResult`). Answers are synchronous, so chunk order in
  * `cmds` equals wire order with no scheduling noise.
  */
-function attachFakeAgent(nodeId: string, script: FakeAgentScript = {}): FakeAgent {
+function attachFakeNode(nodeId: string, script: FakeNodeScript = {}): FakeNode {
   const cmds: WriteFileCmd[] = [];
   let received = 0;
   let conn: NodeConnection;
@@ -158,7 +158,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
   });
 
   /** Creates an agent node row (subshells.node_id has a real FK). */
-  async function mkAgentNode(): Promise<string> {
+  async function mkNodeRow(): Promise<string> {
     const id = crypto.randomUUID();
     createdNodeIds.push(id);
     await new NodesRepository(db).create({
@@ -196,10 +196,10 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
   }
 
   it("relays a 1 MiB file as exactly two 512 KiB chunks and answers the local response shape", async () => {
-    const nodeId = await mkAgentNode();
+    const nodeId = await mkNodeRow();
     const ws = tempWorkDir();
     const id = await makeSubshell(ws, nodeId);
-    const agent = attachFakeAgent(nodeId);
+    const agent = attachFakeNode(nodeId);
     try {
       const res = await uploadsRoutes.fetch(
         uploadRequest(id, ownerToken, new File([payload(1048576)], "big.bin", { type: "application/octet-stream" })),
@@ -227,17 +227,17 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
   });
 
   it("gives two same-second relays of the same file distinct paths, each echoed by its own response", async () => {
-    const nodeId = await mkAgentNode();
+    const nodeId = await mkNodeRow();
     const ws = tempWorkDir();
     const id = await makeSubshell(ws, nodeId);
     // Fresh fake agent per upload: its `received` total is stream-running,
     // and each relay is a fresh stream the agent restarts at 0.
-    const agentA = attachFakeAgent(nodeId);
+    const nodeA = attachFakeNode(nodeId);
     const resA = await uploadsRoutes.fetch(
       uploadRequest(id, ownerToken, new File([payload(8)], "dup.bin", { type: "application/octet-stream" })),
     );
-    agentA.detach();
-    const agentB = attachFakeAgent(nodeId);
+    nodeA.detach();
+    const nodeB = attachFakeNode(nodeId);
     try {
       const resB = await uploadsRoutes.fetch(
         uploadRequest(id, ownerToken, new File([payload(8)], "dup.bin", { type: "application/octet-stream" })),
@@ -258,18 +258,18 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
       expect(a.path).not.toBe(b.path);
       expect(a.path).toBe(join(ws, ".subshell", "uploads", a.name));
       expect(b.path).toBe(join(ws, ".subshell", "uploads", b.name));
-      expect(agentA.cmds.map((c) => c.path)).toEqual([a.path]);
-      expect(agentB.cmds.map((c) => c.path)).toEqual([b.path]);
+      expect(nodeA.cmds.map((c) => c.path)).toEqual([a.path]);
+      expect(nodeB.cmds.map((c) => c.path)).toEqual([b.path]);
     } finally {
-      agentB.detach();
+      nodeB.detach();
     }
   });
 
   it("splits a 1,048,577-byte file into three chunks with a 1-byte tail", async () => {
-    const nodeId = await mkAgentNode();
+    const nodeId = await mkNodeRow();
     const ws = tempWorkDir();
     const id = await makeSubshell(ws, nodeId);
-    const agent = attachFakeAgent(nodeId);
+    const agent = attachFakeNode(nodeId);
     try {
       const res = await uploadsRoutes.fetch(
         uploadRequest(id, ownerToken, new File([payload(1048577)], "tail.bin", { type: "application/octet-stream" })),
@@ -283,11 +283,11 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
   });
 
   it("stops at a mid-stream refusal: 409 NODE_UNREACHABLE, generic body, no frames after the failing chunk", async () => {
-    const nodeId = await mkAgentNode();
+    const nodeId = await mkNodeRow();
     const ws = tempWorkDir();
     const id = await makeSubshell(ws, nodeId);
     // 3 chunks of data, refusal on chunk 1 — a genuinely mid-stream failure.
-    const agent = attachFakeAgent(nodeId, { failAt: 1 });
+    const agent = attachFakeNode(nodeId, { failAt: 1 });
     try {
       const res = await uploadsRoutes.fetch(
         uploadRequest(
@@ -309,12 +309,12 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
   });
 
   it("refuses an offline node with 409 NODE_OFFLINE before sending a single frame", async () => {
-    const nodeId = await mkAgentNode();
+    const nodeId = await mkNodeRow();
     const ws = tempWorkDir();
     const id = await makeSubshell(ws, nodeId);
     // Attach then detach: the registry reads exactly "no live connection" and
     // the recording socket proves the pre-gate fired before any send.
-    const agent = attachFakeAgent(nodeId);
+    const agent = attachFakeNode(nodeId);
     agent.detach();
     const res = await uploadsRoutes.fetch(
       uploadRequest(id, ownerToken, new File([payload(4)], "gone.bin", { type: "application/octet-stream" })),
@@ -325,10 +325,10 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
   });
 
   it("409s when the agent's eof `received` total disagrees with the byte count", async () => {
-    const nodeId = await mkAgentNode();
+    const nodeId = await mkNodeRow();
     const ws = tempWorkDir();
     const id = await makeSubshell(ws, nodeId);
-    const agent = attachFakeAgent(nodeId, { eofReceivedDelta: -1 });
+    const agent = attachFakeNode(nodeId, { eofReceivedDelta: -1 });
     try {
       const res = await uploadsRoutes.fetch(
         uploadRequest(id, ownerToken, new File([payload(10)], "short.bin", { type: "application/octet-stream" })),
@@ -342,13 +342,13 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
   });
 
   it("maps a mid-stream disconnect to 409 NODE_OFFLINE with only the pre-drop frames sent", async () => {
-    const nodeId = await mkAgentNode();
+    const nodeId = await mkNodeRow();
     const ws = tempWorkDir();
     const id = await makeSubshell(ws, nodeId);
     // Chunk 0 is answered, then the socket dies — chunk 1's sendCommand finds
     // no live connection (the offline twin of the refusal path — both 409,
     // distinct only by code: NODE_OFFLINE vs NODE_UNREACHABLE).
-    const agent = attachFakeAgent(nodeId, { offlineAfter: 0 });
+    const agent = attachFakeNode(nodeId, { offlineAfter: 0 });
     try {
       const res = await uploadsRoutes.fetch(
         uploadRequest(
@@ -366,9 +366,9 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
   });
 
   it("rejects a target that is not an absolute path with 400 and zero frames (never sign an empty path)", async () => {
-    const nodeId = await mkAgentNode();
+    const nodeId = await mkNodeRow();
     const id = await makeSubshell("", nodeId); // composes ".subshell/uploads/<name>" — a relative target
-    const agent = attachFakeAgent(nodeId);
+    const agent = attachFakeNode(nodeId);
     try {
       const res = await uploadsRoutes.fetch(
         uploadRequest(id, ownerToken, new File([payload(4)], "rel.bin", { type: "application/octet-stream" })),

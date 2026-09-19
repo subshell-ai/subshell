@@ -40,13 +40,13 @@ const VERBS: VerbSpec[] = [
   {
     verb: "start",
     label: "Start",
-    describe: (name) => `Asks ${name}'s service manager to start the agent from its installed definition.`,
+    describe: (name) => `Asks ${name}'s service manager to start the node from its installed definition.`,
   },
   {
     verb: "install",
     label: "Install service",
     describe: (name) =>
-      `Writes a service definition on ${name} and enables it, so the agent comes back on its own instead of only when someone runs it.`,
+      `Writes a service definition on ${name} and enables it, so the node comes back on its own instead of only when someone runs it.`,
   },
   {
     verb: "stop",
@@ -62,16 +62,16 @@ const VERBS: VerbSpec[] = [
     oneWay: true,
     destructive: true,
     describe: (name, kills) =>
-      `${kills ? `This will close every subshell running on ${name}. ` : ""}Removes the service definition, so the agent will not come back after a reboot. Nothing here can reinstall it once the agent is gone — that needs a shell on that machine.`,
+      `${kills ? `This will close every subshell running on ${name}. ` : ""}Removes the service definition, so the node will not come back after a reboot. Nothing here can reinstall it once the node is gone — that needs a shell on that machine.`,
   },
 ];
 
 /**
- * The controls that act on a node's agent process (spec 2026-09-12, node half).
+ * The controls that act on a node's own process (spec 2026-09-12, node half).
  *
  * **`stop` and `uninstall` say what they cost, in the confirmation.** A command
- * reaches a node over the AGENT'S OWN socket, so nothing in this app can start
- * an agent that is not running: those two end the connection that would have
+ * reaches a node over the NODE'S OWN socket, so nothing in this app can start
+ * a node that is not running: those two end the connection that would have
  * carried the verb undoing them. The server gates them on ownership; this
  * names the consequence, because it is invisible from a button that looks like
  * every other one.
@@ -97,7 +97,7 @@ export function NodeServiceCard({ node }: { node: NodeDetail }): JSX.Element | n
     setFailure(null);
     setDone(null);
     const ok = await confirmAction({
-      title: `${spec.label} the agent on "${node.name}"?`,
+      title: `${spec.label} the node "${node.name}"?`,
       description: spec.describe(node.name, kills),
       confirmLabel: spec.destructive && kills ? `${spec.label} anyway` : spec.label,
       danger: spec.destructive === true,
@@ -109,18 +109,18 @@ export function NodeServiceCard({ node }: { node: NodeDetail }): JSX.Element | n
       const body = spec.destructive && kills ? { verb: spec.verb, force: true } : { verb: spec.verb };
       const res = await service.mutateAsync(body);
       // Captured here, not read during the wait: the report goes away with the
-      // socket the moment the agent drops.
+      // socket the moment the node drops.
       if (spec.verb === "restart") wait.begin(runtime.startedAt);
       setDone(res.detail ?? `${spec.label} accepted.`);
     } catch (err) {
-      setFailure(errMessage(err, `Could not ${spec.label.toLowerCase()} the agent`));
+      setFailure(errMessage(err, `Could not ${spec.label.toLowerCase()} the node`));
     }
   }
 
   /** Why this button cannot be pressed, or undefined when it can. */
   function blocked(spec: VerbSpec): string | undefined {
     if (spec.verb === "restart" && !runtime?.supervised) {
-      return "Nothing on that machine is supervising this agent, so exiting would stop it rather than restart it";
+      return "Nothing on that machine is supervising this node, so exiting would stop it rather than restart it";
     }
     if (spec.oneWay && !isOwner) return "Only the node's owner can do this — it cannot be undone from here";
     return undefined;
@@ -132,7 +132,7 @@ export function NodeServiceCard({ node }: { node: NodeDetail }): JSX.Element | n
         <CardTitle>Service</CardTitle>
         <CardDescription>
           Drive the service manager on that machine. Stopping or uninstalling is one-way from here: nothing in this app
-          can start an agent that is not running, because every command travels over the agent's own connection.
+          can start a node that is not running, because every command travels over the node's own connection.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -154,7 +154,7 @@ export function NodeServiceCard({ node }: { node: NodeDetail }): JSX.Element | n
         </div>
         {wait.outcome === "waiting" && (
           <p className="flex items-center gap-2 text-sm text-warning">
-            {/* The agent drops its socket and comes back; that is tens of
+            {/* The node drops its socket and comes back; that is tens of
                 seconds during which the card would otherwise sit still and
                 read as a page that had ignored the press. */}
             <LoaderCircle className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
@@ -162,15 +162,15 @@ export function NodeServiceCard({ node }: { node: NodeDetail }): JSX.Element | n
           </p>
         )}
         {wait.outcome === "timeout" && (
-          <p className="text-destructive text-sm">The node has not come back. Check the agent on that machine.</p>
+          <p className="text-destructive text-sm">The node has not come back. Check the node on that machine.</p>
         )}
-        {/* Updating the agent BINARY is a different act from driving its
+        {/* Updating the node BINARY is a different act from driving its
             service manager, and it lives in one place for the whole fleet
             rather than being a sixth button here — a person updating nodes is
             usually updating several, and the page that lists them can say
             which ones need it. This is the pointer, not a second door. */}
         <p className="text-detail text-muted-foreground">
-          To install a newer agent on this machine, use{" "}
+          To install a newer node CLI on this machine, use{" "}
           <Link to="/settings/updates" className="underline underline-offset-2">
             Settings → Updates
           </Link>

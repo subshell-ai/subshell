@@ -7,7 +7,7 @@ import { join } from "node:path";
  * `install-server.sh` is the control plane's one-liner: it is fetched from
  * raw.githubusercontent and piped straight into bash, so everything it does
  * before the first `chmod +x` is the whole of its safety argument. These tests
- * drive the real script against a fake release host — no release or `server-v*`
+ * drive the real script against a fake release host — no release or `cli-server-v*`
  * tag exists yet (spec 2026-09-15 §2.3), and nothing here ever reaches GitHub.
  *
  * What is pinned, and why each one is a defect if it regresses:
@@ -19,7 +19,7 @@ import { join } from "node:path";
  * - Intel Macs are refused BY NAME rather than resolved to a triple whose
  *   asset 404s;
  * - the setup knobs reach `init` as its own flags;
- * - version resolution picks the newest `server-v*` and ignores every other
+ * - version resolution picks the newest `cli-server-v*` and ignores every other
  *   component's tags, which share the index.
  */
 
@@ -51,14 +51,14 @@ echo "stub init ran"
 /** Tags the fake releases index returns — deliberately mixed across components. */
 const RELEASE_TAGS = [
   "desktop-client-v2.0.0",
-  "node-v9.99.0",
-  "server-v1.9.0",
-  "server-v1.10.0",
+  "cli-node-v9.99.0",
+  "cli-server-v1.9.0",
+  "cli-server-v1.10.0",
   "desktop-server-v3.1.0",
-  "server-v0.4.2",
+  "cli-server-v0.4.2",
 ];
 
-/** Newest `server-v*` above, by semver rather than by string order. */
+/** Newest `cli-server-v*` above, by semver rather than by string order. */
 const NEWEST_SERVER_VERSION = "1.10.0";
 
 /** Mutable server state so one case can serve a digest that does not match the bytes. */
@@ -282,18 +282,18 @@ describe("install-server.sh", () => {
     expect(r.argv).toEqual(["init"]);
   });
 
-  test("resolves the newest server-v tag and ignores the other components'", async () => {
+  test("resolves the newest cli-server-v tag and ignores the other components'", async () => {
     const r = await run();
-    // 1.10.0 over 1.9.0 is the whole reason this is `sort -V`, and node-v9.99.0
+    // 1.10.0 over 1.9.0 is the whole reason this is `sort -V`, and cli-node-v9.99.0
     // shares the index with it.
-    expect(r.stdout).toContain(`installing server-v${NEWEST_SERVER_VERSION}`);
+    expect(r.stdout).toContain(`installing cli-server-v${NEWEST_SERVER_VERSION}`);
     expect(r.stdout).not.toContain("9.99.0");
   });
 
   test("an explicit version skips the release index entirely", async () => {
     const r = await run({ SUBSHELL_SERVER_VERSION: "0.4.2" });
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain("installing server-v0.4.2");
+    expect(r.stdout).toContain("installing cli-server-v0.4.2");
     expect(r.stdout).not.toContain("finding the newest server release");
   });
 
@@ -301,7 +301,7 @@ describe("install-server.sh", () => {
     state.assetStatus = 404;
     const r = await run();
     expect(r.code).not.toBe(0);
-    expect(r.stderr).toContain(`server-v${NEWEST_SERVER_VERSION}`);
+    expect(r.stderr).toContain(`cli-server-v${NEWEST_SERVER_VERSION}`);
     expect(r.stderr).toContain(assetName(hostTriple()));
     expect(existsSync(r.dest)).toBe(false);
   });

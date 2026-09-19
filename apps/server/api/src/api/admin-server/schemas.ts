@@ -113,7 +113,7 @@ export const DeploymentViewSchema = t.Object({
 /** One published release, as every view names it. */
 export const ReleaseRefSchema = t.Object({
   version: t.String({ description: "Strict X.Y.Z, parsed off the tag" }),
-  tag: t.String({ description: "The git tag the release carries (server-v0.7.0)" }),
+  tag: t.String({ description: "The git tag the release carries (cli-server-v0.7.0)" }),
   publishedAt: t.Nullable(t.String(), {
     description: "ISO 8601 from the release source, or null when it did not say",
   }),

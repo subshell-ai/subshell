@@ -11,7 +11,7 @@ import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 /**
  * How much of a node's log one request may pull.
  *
- * Smaller than the agent's own 200 KB file cap, because this is a poll: the
+ * Smaller than the node's own 200 KB file cap, because this is a poll: the
  * view holds an offset and asks for what arrived since, and a first read of a
  * full file is the only one that ever reaches this ceiling.
  */
@@ -34,13 +34,13 @@ const LogsViewSchema = t.Object({
 });
 
 /**
- * `GET /api/nodes/:id/logs` — read a slice of an enrolled node's own agent log
+ * `GET /api/nodes/:id/logs` — read a slice of an enrolled node's own log
  * (spec 2026-09-12, node half § 4).
  *
- * **This is the only way to read a headless node's log.** The agent's console
+ * **This is the only way to read a headless node's log.** The node's console
  * output goes wherever the platform's service manager puts it — a file under
  * launchd, the journal under systemd, nowhere in particular in a container —
- * so the agent also writes one bounded file of its own, and this serves that.
+ * so the node also writes one bounded file of its own, and this serves that.
  *
  * Gate: cookie only, owner or `edit` — the same gate the runtime report itself
  * carries, and for the same reason. A `view` grantee may launch subshells here;
@@ -79,13 +79,13 @@ export const nodeLogsRoute = new Elysia()
         const answer = await sendCommand(gate.row.id, { type: "agent_log_read", fromByte, maxBytes });
         const slice = parseNodeAgentLogSlice(answer);
         if (!slice) {
-          // A malformed answer is the agent's problem, not the reader's — and
+          // A malformed answer is the node's problem, not the reader's — and
           // it must not reach the page as a half-parsed object.
           return status(
             502,
             apiErrorBody({
               code: BackendErrorCodes.NODE_UNREACHABLE,
-              message: "That node's agent answered with a log slice this server could not read",
+              message: "That node answered with a log slice this server could not read",
             }),
           );
         }
@@ -100,7 +100,7 @@ export const nodeLogsRoute = new Elysia()
                 : BackendErrorCodes.NODE_UNREACHABLE;
           const message =
             err.code === "unsupported"
-              ? "This node's agent predates the log command; update the agent on that machine to read its log here"
+              ? "This node's binary predates the log command; update the node on that machine to read its log here"
               : err.message;
           return status(409, apiErrorBody({ code, message }));
         }
@@ -122,7 +122,7 @@ export const nodeLogsRoute = new Elysia()
       detail: {
         operationId: "nodeLogs",
         tags: ["nodes"],
-        description: "Read a byte range of an enrolled node's own agent log (owner or edit; never the local node)",
+        description: "Read a byte range of an enrolled node's own log (owner or edit; never the local node)",
       },
     },
   );

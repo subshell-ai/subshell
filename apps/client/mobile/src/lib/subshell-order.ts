@@ -31,7 +31,7 @@ export function isCompleted(s: Pick<SubshellView, "status">): boolean {
 
 /**
  * True when the subshell's node is currently unreachable (spec 2026-08-31
- * §5.6). With no live agent, `alive`/`waitingSince` are last-known facts, so
+ * §5.6). With no live node, `alive`/`waitingSince` are last-known facts, so
  * no waiting marker (section, chip, border, dot, badge) may assert them — the
  * web accessory rule (`nodeOffline` beats waiting, `subshell-card.tsx`) ported
  * to the shared predicate's call sites. `=== true` so older payloads without

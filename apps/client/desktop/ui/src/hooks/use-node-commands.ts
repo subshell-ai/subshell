@@ -25,7 +25,7 @@ import {
   type EnrollOutcome,
   nodeConfigure,
   nodeEnroll,
-  nodeInstallAgent,
+  nodeInstallCli,
   nodeInstallTmux,
   nodeOpenPath,
   nodeOpenPlane,
@@ -44,10 +44,10 @@ import type { EnrollForm } from "./use-enroll-form";
 export interface NodeCommands {
   /** Re-read the machine. No CLI action of its own; the runner's re-probe IS the work. */
   refresh: () => void;
-  /** Install the bundled agent with no confirmation — only ever offered where nothing exists to overwrite. */
-  installAgent: () => void;
-  /** Replace the INSTALLED agent with the bundled one. Always confirmed. */
-  updateAgent: () => void;
+  /** Install the bundled node CLI with no confirmation — only ever offered where nothing exists to overwrite. */
+  installNode: () => void;
+  /** Replace the INSTALLED node CLI with the bundled one. Always confirmed. */
+  updateNode: () => void;
   /** One `service` verb, straight through. Never `restart` — that goes through {@link restart}. */
   service: (verb: ServiceVerb, opts?: { settle?: boolean }) => void;
   /** Restart, offering `--force` only behind the verbatim refusal `--force` answers. */
@@ -85,7 +85,7 @@ export interface NodeCommands {
    */
   connectOnly: (url: string) => void;
   /**
-   * The first run's one press: install the agent if there is none, enroll this
+   * The first run's one press: install the node if there is none, enroll this
    * machine, then install and start its service.
    *
    * Reports progress through {@link RegisterOptions.onPhase} so the Setting
@@ -122,7 +122,7 @@ export function useNodeCommands(args: {
    *
    * The tmux screen's failure card CANNOT read `runner.output`, which is the
    * last of ANY action and outlives the screen it was produced on: the runner
-   * lives in `App`, so a failed `service` verb or agent install on the status
+   * lives in `App`, so a failed `service` verb or node CLI install on the status
    * screen would render under "The tmux install didn't finish." the next time
    * anyone walked to the tmux screen. That is the defect the server app's own
    * `tmuxResult` slot exists to prevent (`wizard.ts`), and this is its twin —
@@ -146,20 +146,20 @@ export function useNodeCommands(args: {
   return {
     refresh: () => runner.run(async () => finished(null)),
 
-    installAgent: () => runner.run(async () => finished(await nodeInstallAgent())),
+    installNode: () => runner.run(async () => finished(await nodeInstallCli())),
 
     /**
-     * Replacing the installed agent is worth a confirmation even though it
+     * Replacing the installed node CLI is worth a confirmation even though it
      * interrupts nothing: it overwrites the binary this machine runs, from a
      * copy that ships inside this app, and the daemon goes on running the
      * previous version afterwards. That last fact is the one a single click
      * would hide — see the messages below, which state it rather than the
      * stop-and-start this path has not done since spec 2026-09-15 § 7.1.
      */
-    updateAgent: () =>
+    updateNode: () =>
       runner.run(async () => {
         const messages = [
-          `Install the agent that ships inside this app (${probe?.bundledVersion ?? "unknown version"}) over ` +
+          `Install the node CLI that ships inside this app (${probe?.bundledVersion ?? "unknown version"}) over ` +
             "~/.local/bin/subshell. Nothing is downloaded.",
         ];
         if (probe?.managed === true) {
@@ -168,7 +168,7 @@ export function useNodeCommands(args: {
           // NOT started again. Start it from here afterwards." — false twice
           // over (operator's question, 2026-09-18):
           //
-          // - Nothing is stopped. `install_agent_now` passes a no-op closure
+          // - Nothing is stopped. `install_node_now` passes a no-op closure
           //   where the stop callback used to be, and the managed path goes
           //   through the CLI's `update --from`, whose swap is a `rename(2)`
           //   a running daemon never notices.
@@ -185,10 +185,10 @@ export function useNodeCommands(args: {
           );
         }
         return asks({
-          title: "Update the agent",
+          title: "Update the node",
           messages,
-          acceptLabel: "Update the agent",
-          run: async () => finished(await nodeInstallAgent()),
+          acceptLabel: "Update the node",
+          run: async () => finished(await nodeInstallCli()),
         });
       }),
 
@@ -244,7 +244,7 @@ export function useNodeCommands(args: {
     uninstall: () =>
       runner.run(async () => {
         const messages = [
-          "The agent stops and will not come back at login. This machine stays registered, with its " +
+          "The node stops and will not come back at login. This machine stays registered, with its " +
             "configuration and node key untouched, so running it in the background again brings it back.",
         ];
         if (paneRisk(probe)) {
@@ -272,7 +272,7 @@ export function useNodeCommands(args: {
       runner.run(async () => {
         if (!rewriteKillsPanes(probe)) return finished(await runService("install", { settle: true }));
         return asks({
-          title: "Rewriting the definition restarts the agent",
+          title: "Rewriting the definition restarts the node",
           messages: [
             "A launchd job cannot be reloaded in place: the loaded one is booted out and the new definition is " +
               "bootstrapped. The definition currently loaded does not spare live panes, so booting it out kills " +
@@ -470,11 +470,11 @@ export function useNodeCommands(args: {
         const args = form.validate();
         if (args === null) return finished(null);
 
-        // A no-op where an agent is already installed, which is what makes a
+        // A no-op where a node CLI is already installed, which is what makes a
         // resumed run converge rather than refuse.
-        if (probe?.step === "no-agent") {
+        if (probe?.step === "no-node") {
           onPhase("installing");
-          const installed = await nodeInstallAgent();
+          const installed = await nodeInstallCli();
           if (!installed.ok) {
             onFailed("install");
             return finished(installed);
@@ -489,8 +489,8 @@ export function useNodeCommands(args: {
         // and the person sees no panel. What a blanket `confirm: true` would
         // ALSO do is skip Rust's already-enrolled guard, which reads
         // `config.json` directly — and a machine can reach this chain with a
-        // live config: `no-agent` is reported for a missing binary AND for one
-        // that cannot answer `status --json`, so a machine whose agent was
+        // live config: `no-node` is reported for a missing binary AND for one
+        // that cannot answer `status --json`, so a machine whose node CLI was
         // deleted still has its config, its node id and the only copy of its
         // node key. Enrolling over that mints a SECOND node row and discards
         // the key. The probe's own comment says a transient failure must never

@@ -467,7 +467,7 @@ shares and subshell shares are two independent axes:
   usage script for an invalid/absent key (it is never a binary oracle), and the
   rendered script digest-verifies the download before its first `chmod +x`/exec.
   **A binary the instance does not have is fetched from the project's own
-  `node-v*` release on first use** (2026-09-12): lazily — no warm-up, no admin
+  `cli-node-v*` release on first use** (2026-09-12): lazily — no warm-up, no admin
   button, no poll, and the triggering request is already authenticated —
   streamed through while being hashed against the release's `.sha256`, with a
   mismatch erroring the response mid-flight so nothing unverified is cached.

@@ -38,13 +38,13 @@
 # steps 10 and 11's throwaway ports are the only network anything here opens.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-AGENT="$ROOT/apps/node/agent"
+NODE_APP="$ROOT/apps/node/agent"
 W=$(mktemp -d /tmp/ss-nupd-XXXX)
 # The version bump below is a WORKING-TREE edit, restored on every exit path
 # from a COPY of the file's bytes rather than with `git checkout` — several
 # sessions share one checkout here, and `git checkout -- <path>` would also
 # discard an uncommitted edit somebody else was holding in that file.
-PKG="$AGENT/package.json"
+PKG="$NODE_APP/package.json"
 PKG_BACKUP="$(mktemp /tmp/ss-nupd-pkg-XXXX)"
 cp "$PKG" "$PKG_BACKUP"
 # Step 11 patches the publisher pubkey the way step 2 patches the version —
@@ -76,13 +76,28 @@ ok()   { echo "  ok: $*"; }
 
 export SUBSHELL_CONFIG_HOME="$W/config"
 export SUBSHELL_RELEASE_URL=""   # `--from` only: this test reaches no network
-mkdir -p "$SUBSHELL_CONFIG_HOME" "$W/data" "$W/bin"
+# A throwaway HOME, for the same reason `server-update.sh` swaps one and says
+# so at length — and this scenario went without it until 2026-09-19, when the
+# omission bit a developer's machine.
+#
+# `SUBSHELL_CONFIG_HOME` is NOT enough. `resolveNodeBinary`
+# (`apps/node/agent/src/update.ts`) asks the SERVICE DEFINITION first, and it
+# hangs the plist/unit paths off `homedir()`, not off the config home. So on a
+# host carrying `~/Library/LaunchAgents/dev.subshell.client.plist` — every
+# machine that ever enrolled through Subshell Client — the sandbox is bypassed
+# by the one lookup that runs before it, and `update` replaces THE OPERATOR'S
+# OWN `~/.local/bin/subshell` and reports success. Measured 2026-09-19 on a
+# host whose plist appeared the previous day; ten earlier runs in
+# `/tmp/ss-nupd-*` had resolved to the temp dir correctly purely because no
+# plist existed yet, which is why this survived so long.
+export HOME="$W/home"
+mkdir -p "$SUBSHELL_CONFIG_HOME" "$W/data" "$W/bin" "$HOME"
 
-CURRENT=$(bun -e "console.log(require('$AGENT/package.json').version)")
+CURRENT=$(bun -e "console.log(require('$NODE_APP/package.json').version)")
 NEXT="99.0.0"
 
 echo "== 1. install the CURRENT build as ~/bin/subshell ($CURRENT)"
-cp "$AGENT/dist/subshell" "$W/bin/subshell"
+cp "$NODE_APP/dist/subshell" "$W/bin/subshell"
 chmod +x "$W/bin/subshell"
 INSTALLED="$W/bin/subshell"
 "$INSTALLED" version | grep -q "subshell $CURRENT" || fail "the installed binary does not report $CURRENT"
@@ -92,14 +107,14 @@ echo "== 2. build a $NEXT binary from the same source"
 # The version is inlined from package.json by the bundler, so a different
 # version means a different package.json at build time. Edited and restored.
 bun -e "
-  const p = '$AGENT/package.json';
+  const p = '$NODE_APP/package.json';
   const j = JSON.parse(require('fs').readFileSync(p, 'utf8'));
   j.version = '$NEXT';
   require('fs').writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
 "
 # The SAME flags `bun run compile` uses — see server-update.sh for why that is
 # load-bearing rather than tidy.
-(cd "$AGENT" && bun build --compile --bytecode --minify --sourcemap ./src/main.ts \
+(cd "$NODE_APP" && bun build --compile --bytecode --minify --sourcemap ./src/main.ts \
    --outfile "$W/next-subshell" >/dev/null) || fail "could not build the $NEXT binary"
 cp "$PKG_BACKUP" "$PKG"
 "$W/next-subshell" version | grep -q "subshell $NEXT" || fail "the new binary does not report $NEXT"
@@ -191,16 +206,16 @@ cat > "$W/fake-release.ts" <<EOF
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { hostReleaseTarget, releaseAssetNames } from "$ROOT/packages/subshell-protocol/src/releases.js";
-const binary = releaseAssetNames("node", hostReleaseTarget(process.platform, process.arch)!).binary;
+const binary = releaseAssetNames("cli-node", hostReleaseTarget(process.platform, process.arch)!).binary;
 const bytes = readFileSync(process.argv[2]!);
 const digest = createHash("sha256").update(bytes).digest("hex");
 const port = Number(process.argv[3]!);
 const base = \`http://127.0.0.1:\${port}\`;
 const manifest = JSON.stringify({
-  component: "node",
+  component: "cli-node",
   version: process.argv[4]!,
   nodeProtocol: 12,
-  minAgentVersion: "0.11.0",
+  minNodeVersion: "0.11.0",
   commit: "0".repeat(40),
   assets: { [binary]: digest },
 });
@@ -211,7 +226,7 @@ Bun.serve({
     if (path === "/releases") {
       return Response.json([
         {
-          tag_name: \`node-v\${process.argv[4]}\`,
+          tag_name: \`cli-node-v\${process.argv[4]}\`,
           draft: false,
           assets: [
             { name: "release-manifest.json", browser_download_url: \`\${base}/manifest\` },
@@ -283,7 +298,7 @@ mkdir -p "$W/bin2"
 # The SAME flags `bun run compile` uses (see step 2's note on why that is
 # load-bearing). The compiled agent bundles the protocol package's DIST, so
 # the rebuild above is what puts the throwaway armor inside this binary.
-(cd "$AGENT" && bun build --compile --bytecode --minify --sourcemap ./src/main.ts \
+(cd "$NODE_APP" && bun build --compile --bytecode --minify --sourcemap ./src/main.ts \
    --outfile "$W/bin2/subshell" >/dev/null) || fail "could not build the patched-pubkey binary"
 # Restore the source, rebuild the dist FROM it, and retire the backup only
 # after the rebuild succeeded. Retiring it first was the ordering bug: `fail`
@@ -308,13 +323,13 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { hostReleaseTarget, releaseAssetNames } from "$ROOT/packages/subshell-protocol/src/releases.js";
 const [binPath, version, outPath] = process.argv.slice(2);
-const binary = releaseAssetNames("node", hostReleaseTarget(process.platform, process.arch)!).binary;
+const binary = releaseAssetNames("cli-node", hostReleaseTarget(process.platform, process.arch)!).binary;
 const digest = createHash("sha256").update(readFileSync(binPath!)).digest("hex");
 writeFileSync(outPath!, JSON.stringify({
-  component: "node",
+  component: "cli-node",
   version: version!,
   nodeProtocol: 12,
-  minAgentVersion: "0.11.0",
+  minNodeVersion: "0.11.0",
   commit: "0".repeat(40),
   assets: { [binary]: digest },
 }));
@@ -334,7 +349,7 @@ bun -e "
 cat > "$W/fake-release-signed.ts" <<EOF
 import { readFileSync } from "node:fs";
 import { hostReleaseTarget, releaseAssetNames } from "$ROOT/packages/subshell-protocol/src/releases.js";
-const binary = releaseAssetNames("node", hostReleaseTarget(process.platform, process.arch)!).binary;
+const binary = releaseAssetNames("cli-node", hostReleaseTarget(process.platform, process.arch)!).binary;
 const [binPath, portArg, version, manifestPath, sigPath] = process.argv.slice(2);
 const bytes = readFileSync(binPath!);
 const manifest = readFileSync(manifestPath!);
@@ -352,7 +367,7 @@ Bun.serve({
     if (path === "/releases") {
       return Response.json([
         {
-          tag_name: \`node-v\${version}\`,
+          tag_name: \`cli-node-v\${version}\`,
           draft: false,
           assets: [
             { name: "release-manifest.json", browser_download_url: \`\${base}/manifest\` },

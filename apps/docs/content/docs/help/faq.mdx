@@ -11,7 +11,7 @@ Three pieces, three words: the **server** is the control plane (API, database, t
 
 ## Is self-hosting free?
 
-Yes — free as in the deal, not as in a trial. No time limit, no user cap, no feature clock, no license key. Subshell is dual-licensed: everything under `apps/server/` — the control plane — is **AGPL-3.0-only**, and everything else (the node agent, the client apps, the shared packages) is **Apache-2.0**, deliberately permissive so you can write plugins, embed the agent, and build on the protocol without inheriting copyleft. The AGPL bites in exactly one direction: run a *modified* control plane as a network service and you owe its source. Building an API client is copyleft-free too — the license carries an explicit type-surface exception. The short version for API users is on [the REST API page](/automation/rest-api), and the full terms are the [LICENSE section of the README](https://github.com/subshell-ai/subshell#license).
+Yes — free as in the deal, not as in a trial. No time limit, no user cap, no feature clock, no license key. Subshell is dual-licensed: everything under `apps/server/` — the control plane — is **AGPL-3.0-only**, and everything else (the node CLI, the client apps, the shared packages) is **Apache-2.0**, deliberately permissive so you can write plugins, embed the node, and build on the protocol without inheriting copyleft. The AGPL bites in exactly one direction: run a *modified* control plane as a network service and you owe its source. Building an API client is copyleft-free too — the license carries an explicit type-surface exception. The short version for API users is on [the REST API page](/automation/rest-api), and the full terms are the [LICENSE section of the README](https://github.com/subshell-ai/subshell#license).
 
 ## What leaves my network when I haven't configured anything?
 
@@ -52,7 +52,7 @@ No. They are **clients** — interfaces to a control plane — and installing on
 
 ## I deleted a node. What did that revoke — and what kept running?
 
-Deleting is owner-only and it is a *retirement*, not a kill switch. The plane disables and deletes the node's credential, evicts its connection, and drops the shares and the channel identity with the row — the machine can never act on this plane again. What deletion does **not** reach is the machine itself: the `subshell` daemon keeps running (now dialing with a dead key), the installed binary and config stay, and any panes already running keep running on their tmux. With subshells still running, deletion asks you first; forcing it against an *online* node is refused — stop it and let go offline, or delete once it is down. Stop the agent and reap panes on the machine itself: `subshell service stop`, or see [Managing the Agent](/nodes/managing-the-agent).
+Deleting is owner-only and it is a *retirement*, not a kill switch. The plane disables and deletes the node's credential, evicts its connection, and drops the shares and the channel identity with the row — the machine can never act on this plane again. What deletion does **not** reach is the machine itself: the `subshell` daemon keeps running (now dialing with a dead key), the installed binary and config stay, and any panes already running keep running on their tmux. With subshells still running, deletion asks you first; forcing it against an *online* node is refused — stop it and let go offline, or delete once it is down. Stop the node and reap panes on the machine itself: `subshell service stop`, or see [Managing a Node](/nodes/managing-a-node).
 
 ## Who can delete my subshell — even an admin?
 
@@ -60,7 +60,7 @@ You alone. Admins hold instance-wide *edit* — read and interact, restart — b
 
 ## Why no Intel Mac, or arm64 Linux desktop, binaries?
 
-Intel Macs are not built for any component — the install script refuses them by name — and the desktop apps ship for Apple silicon macOS and `amd64` Linux only. Both choices are about what can be honestly tested: every Linux artifact builds on Ubuntu 24.04, which sets a **glibc 2.39 floor** (Ubuntu 24.04 / Debian 13 or newer for every component), and there is no native arm64 Linux runner to build a GUI on. The control plane and node agent do publish `linux-arm64`, so an arm64 Linux *headless* host is fine. [Supported Platforms](/about/supported-platforms) has the matrix.
+Intel Macs are not built for any component — the install script refuses them by name — and the desktop apps ship for Apple silicon macOS and `amd64` Linux only. Both choices are about what can be honestly tested: every Linux artifact builds on Ubuntu 24.04, which sets a **glibc 2.39 floor** (Ubuntu 24.04 / Debian 13 or newer for every component), and there is no native arm64 Linux runner to build a GUI on. The control plane and node CLI do publish `linux-arm64`, so an arm64 Linux *headless* host is fine. [Supported Platforms](/about/supported-platforms) has the matrix.
 
 ## Why no TLS enforcement, or 2FA?
 

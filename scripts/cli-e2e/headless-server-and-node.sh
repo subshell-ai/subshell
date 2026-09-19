@@ -12,12 +12,12 @@ export SUBSHELL_SERVER_CONFIG_DIR="$W/srv-config"
 export SUBSHELL_SERVER_DATA_DIR="$W/srv-data"
 mkdir -p "$SUBSHELL_SERVER_CONFIG_DIR" "$SUBSHELL_SERVER_DATA_DIR"
 JAR="$W/cookies"
-SRVPID=""; AGENTPID=""
+SRVPID=""; NODEPID=""
 cleanup() {
   # A `fail` used to exit before the kill at the bottom, orphaning a server
   # that then held the port and made the NEXT run fail somewhere else
   # entirely. Kill from a trap so every exit path tears down.
-  [ -n "$AGENTPID" ] && kill "$AGENTPID" 2>/dev/null
+  [ -n "$NODEPID" ] && kill "$NODEPID" 2>/dev/null
   [ -n "$SRVPID" ] && kill "$SRVPID" 2>/dev/null
   for p in $(lsof -nP -tiTCP:$PORT -sTCP:LISTEN 2>/dev/null); do kill -9 "$p" 2>/dev/null; done
 }
@@ -108,7 +108,7 @@ ok "setup enrolled and named the nodes page"
 
 echo "== 9. run the agent and confirm it comes online"
 "$NODE" run > "$W/agent.log" 2>&1 &
-AGENTPID=$!
+NODEPID=$!
 ONLINE=no
 for i in $(seq 1 40); do
   if curl -sf -b "$JAR" "$BASE/api/nodes" | grep -q '"status":"online"'; then ONLINE=yes; break; fi
@@ -120,8 +120,8 @@ ok "node is online on the control plane"
 echo "== 10. node status"
 "$NODE" status 2>&1 | head -2
 
-kill $AGENTPID $SRVPID 2>/dev/null
-wait $AGENTPID $SRVPID 2>/dev/null
+kill $NODEPID $SRVPID 2>/dev/null
+wait $NODEPID $SRVPID 2>/dev/null
 echo
 echo "ALL CLI E2E CHECKS PASSED"
 echo "workdir: $W"

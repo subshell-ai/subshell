@@ -4,7 +4,7 @@ This document describes how this project works and how to perform common operati
 
 ## Project Overview
 
-This is a **Bun-powered TypeScript monorepo** using Turborepo for orchestration. It contains an ElysiaJS API server, the React SPA that server serves, a node agent daemon (`subshell`), two Tauri desktop apps, a React Native companion, and shared packages: a type-safe Eden Treaty client SDK, the subshell protocol, agent harness plugins, a shared `subshell mcp` server, and backend error handling.
+This is a **Bun-powered TypeScript monorepo** using Turborepo for orchestration. It contains an ElysiaJS API server, the React SPA that server serves, a node daemon (`subshell`), two Tauri desktop apps, a React Native companion, and shared packages: a type-safe Eden Treaty client SDK, the subshell protocol, agent harness plugins, a shared `subshell mcp` server, and backend error handling.
 
 ### The vocabulary
 
@@ -15,7 +15,7 @@ names, component ids, tags, artifacts and prose alike:
 |---|---|---|
 | **server** | the control plane: the API, its database, the SPA it serves | a machine that runs agents |
 | **node** | a machine that runs agents — the `subshell` daemon | a user-facing app |
-| **client** | a human interface to a control plane — web, mobile, desktop | the node agent |
+| **client** | a human interface to a control plane — web, mobile, desktop | the node daemon |
 
 The rule that matters: **no word may name two things.** A change that
 reintroduces an overloaded word is a regression even when nothing breaks.
@@ -23,7 +23,7 @@ reintroduces an overloaded word is a regression even when nothing breaks.
 This replaced an earlier scheme in which `client` meant both "the node-agent
 side" and "the thing a human points at a control plane", so `apps/client/desktop`
 shipped as *Subshell Client* while being the node GUI, the real clients carried
-no client branding, and the `client-v*` tag published the agent binary. The full
+no client branding, and the `client-v*` tag published the node binary. The full
 argument is `docs/superpowers/specs/2026-09-07-app-vocabulary-design.md`.
 
 **Display labels are not vocabulary, and `local` is not a label** (spec
@@ -41,11 +41,11 @@ argument is `docs/superpowers/specs/2026-09-07-app-vocabulary-design.md`.
 
 Defaulting a node's label to "Server" does put that word near a machine that
 runs agents, so it is worth being explicit that nothing the rule governs
-acquired a second meaning: the id is `local`, the release-component id, tag
-prefix and package name for the control plane are still `server`, and the
-directory is still `apps/server/`. It is a string an admin owns and can change
-in one field — which is the point of the change, since the old fixed "Local"
-read to every other user as *their* machine.
+acquired a second meaning: the id is `local`, the package name for the control
+plane is still `@internal/server`, its release-component id and tag prefix say
+`cli-server`, and the directory is still `apps/server/`. It is a string an
+admin owns and can change in one field — which is the point of the change,
+since the old fixed "Local" read to every other user as *their* machine.
 
 ### Directory Structure
 
@@ -95,17 +95,24 @@ privileged lives on the bundled node page; see `apps/client/desktop/AGENTS.md`.
 `apps/server/web` is the SERVER's SPA and nothing else's, which is what the
 nesting says out loud. `apps/client/mobile` is a client because it is a person's
 interface to a control plane — it calls `/api/auth`, `/api/subshells`,
-`/api/nodes`, `/api/presets` and `/api/devices` and depends on no agent
+`/api/nodes`, `/api/presets` and `/api/devices` and depends on no node
 package — not because it is "a client of the API".
 
-**Directory names and component IDS are two different things.** `server`,
-`node`, `desktop-server` and `desktop-client` are the release-component ids —
-the git tag prefixes (`server-vX.Y.Z`, `node-vX.Y.Z`, `desktop-server-vX.Y.Z`,
-`desktop-client-vX.Y.Z`), the `release.yml` dispatch options, the artifact
-prefixes and the root `release:*` script names. A nested path is not a usable
-tag, so the two are mapped explicitly rather than derived; see "GitHub Releases"
-below for the table. `client` as a component id is **retired** — it published
-the agent, which is the exact overload the vocabulary removes.
+**Directory names and component IDS are two different things.** `cli-server`,
+`cli-node`, `desktop-server` and `desktop-client` are the release-component
+ids — the git tag prefixes (`cli-server-vX.Y.Z`, `cli-node-vX.Y.Z`,
+`desktop-server-vX.Y.Z`, `desktop-client-vX.Y.Z`), the `release.yml` dispatch
+options, the artifact prefixes and the root `release:*` script names. A nested
+path is not a usable tag, so the two are mapped explicitly rather than derived;
+see "GitHub Releases" below for the table.
+
+Every id reads `<form>-<role>`: which shape a user installs, then which of the
+product's three words it is. The CLI pair carried no form marker until
+2026-09-18 (`server`, `node`); renaming them to `cli-server` and `cli-node`
+also removed a real wart — `desktop-server-v` used to have `server-v` as a
+suffix, which both the TypeScript and the Rust tag parsers carried comments
+about. `client` as a component id stays RETIRED — it published the node binary,
+which is the exact overload the vocabulary removes.
 
 Package names follow the same words: `@internal/server`, `@internal/server-web`,
 `@internal/node`, `@internal/desktop-server`, `@internal/desktop-client`,
@@ -163,7 +170,7 @@ execution data only: the launch carries the plane-built `argv` plus the
 binary-lookup `resolve` rule, and detection is the plane's `detect` command
 answering to a request, never a node-side scan. The plane asks on a page load,
 a Re-check, a launch, a node COMING ONLINE, and a periodic pass over the
-online agents; who may ask has grown, that only the plane asks has not.
+online nodes; who may ask has grown, that only the plane asks has not.
 
 The store seeds its built-ins once at boot, keyed on a **completion marker**,
 never on emptiness: an empty directory is an operator who uninstalled
@@ -210,7 +217,7 @@ instance.
 Subshell is dual-licensed, and the split is exactly the `server` grouping
 directory: **`apps/server/**` is AGPL-3.0-only**, **everything else is
 Apache-2.0**. The permissive half is permissive so third parties can write
-harness plugins, embed the node agent and build on `subshell-protocol` without
+harness plugins, embed the node CLI and build on `subshell-protocol` without
 copyleft; the AGPL covers the one piece a competitor would fork into a hosted
 service. Root `LICENSE` states the split; `apps/server/LICENSE` carries the
 AGPL text.
@@ -428,12 +435,12 @@ node enroll flow) are built separately from the app build. The release dance,
 from the repo root:
 
 ```bash
-bunx turbo build                          # 1. package dists the agent binary bundles
-bun run release:node                      # 2. compile:release — cross-build + atomic publish
+bunx turbo build                          # 1. package dists the node binary bundles
+bun run release:cli-node                  # 2. compile:release — cross-build + atomic publish
 systemctl --user restart subshell-server.service     # 3. the server serves the new files
 ```
 
-- `release:node` runs `apps/node/agent`'s `compile:release` (`src/scripts/release.ts`):
+- `release:cli-node` runs `apps/node/agent`'s `compile:release` (`src/scripts/release.ts`):
   the three served triples (`linux-x64`, `linux-arm64`, `darwin-arm64` — no
   Intel Mac), each cross-built WITH
   `--bytecode` (uniform since spec 2026-09-03 §5) — `SUBSHELL_RELEASE_TRIPLES`
@@ -455,8 +462,8 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
   `subshell-server-cli-<triple>`), so a downloaded file says whether it is the
   CLI or the desktop app that wraps it. That makes republishing a DEPLOY-ORDER
   step, not a detail: an already-running instance's `node-artifacts` dir still
-  holds the old names, and every agent download 404s (`install.sh` says "this
-  server has no <target> agent binary published") until `release:node`
+  holds the old names, and every node download 404s (`install.sh` says "this
+  server could not provide a <target> node binary") until `release:cli-node`
   publishes into it again. The installed binary names are unchanged — a
   downloaded artifact is still renamed to `subshell` on install.
 
@@ -478,7 +485,7 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
   `.tmp-<pid>` files alone.
 - `turbo build` wipes the compiled `apps/node/agent/dist/subshell` dev binary;
   re-create it with `cd apps/node/agent && bun run compile`.
-- Separately, `bun run release:server` builds the **control-plane** binary
+- Separately, `bun run release:cli-server` builds the **control-plane** binary
   (not a Nodes download artifact): the three `SERVER_TARGETS` triples
   (`linux-x64`, `linux-arm64`, `darwin-arm64`), each `--bytecode`, with the
   built SPA **embedded** so the binary serves the UI with no frontend dist
@@ -579,7 +586,7 @@ file keyed by their identifier, so a shared string is a collision:
 
 **Those Linux directory names are not the CLIs'**, and that asymmetry is the
 point: `~/.config/subshell-server` is where the SERVER CLI keeps `config.env`
-(`apps/server/api/src/config-env.ts`) and `~/.config/subshell` is the node agent's
+(`apps/server/api/src/config-env.ts`) and `~/.config/subshell` is the node CLI's
 own config home (`apps/node/agent/src/config.ts`). A desktop app dropping
 `settings.json` into either would put two different programs' state in one
 directory, so each app prefixes `subshell-desktop-`. An identifier is an
@@ -660,7 +667,7 @@ you touch any of it:
 
 Where each half lives: `apps/server/api/AGENTS.md` ("Updating the server") for
 the four server modules, the measurements and `test:cli`'s `server-update.sh`;
-`apps/node/agent/AGENTS.md` ("Update") for the agent, the frozen `update`
+`apps/node/agent/AGENTS.md` ("Update") for the node, the frozen `update`
 command shape and the 4406 revert; each desktop app's `AGENTS.md` for
 `tauri-plugin-updater`, `latest.json` and the `update --from` delegation;
 `docs/security.md` §11.12 for what all of it costs.
@@ -767,8 +774,8 @@ one of those minutes metered. That is the trade as made, knowingly.
 ### GitHub Releases (CI — `.github/workflows/release.yml`)
 
 The four pipelines run sharded in CI and ship as **GitHub Releases** under
-component-scoped tags: `server-vX.Y.Z` (three `subshell-server-cli-<triple>`
-binaries + `.sha256` sidecars), `node-vX.Y.Z` (3 + 3),
+component-scoped tags: `cli-server-vX.Y.Z` (three `subshell-server-cli-<triple>`
+binaries + `.sha256` sidecars), `cli-node-vX.Y.Z` (3 + 3),
 `desktop-server-vX.Y.Z` (2 + 2) and `desktop-client-vX.Y.Z` (2 + 2). Tagging
 and releasing is OWNED BY THE WORKFLOW — never cut tags by hand.
 
@@ -779,14 +786,16 @@ carries an explicit table and emits BOTH names in every matrix entry:
 
 | id (`matrix.app`) | directory (`matrix.dir`) |
 |---|---|
-| `server` | `server/api` |
-| `node` | `node/agent` |
+| `cli-server` | `server/api` |
+| `cli-node` | `node/agent` |
 | `desktop-server` | `server/desktop` |
 | `desktop-client` | `client/desktop` |
 
 - **id** — the git tag (`tag="$app-v$version"`), the `upload-artifact` name,
   the publish job's download pattern and file glob, the dispatch option, and
-  every `matrix.app == …` condition. These are PUBLISHED; they do not move.
+  every `matrix.app == …` condition. These are PUBLISHED, so moving one is a
+  cutover and not a rename — an installed binary looks only for its own
+  compiled-in prefix. 2026-09-18 did exactly that to the CLI pair.
 - **directory** — `apps/$dir/package.json` for the version read,
   `repo/apps/$DIR/CHANGELOG.md` for the release-notes slice, and every
   `--cwd`/`working-directory`/cargo path. Nothing else.
@@ -802,12 +811,12 @@ release body, and shards in the same `build`/`publish` jobs. The only thing that
 differs is the SHAPE of what they publish — a bundle rather than a bare binary —
 which is why they share their own smoke, parameterized by app id.
 
-- **Release assets:** `server-vX.Y.Z` carries ONE binary per triple —
+- **Release assets:** `cli-server-vX.Y.Z` carries ONE binary per triple —
   `subshell-server-cli-<triple>` (SPA embedded; the binary serves its own
   `mcp` subcommand, so a server-only host self-resolves its MCP entrypoint);
   install that ONE file **renamed to `subshell-server`** — dropping only the
   triple would leave `subshell-server-cli`, which is not the name the service
-  unit invokes. `node-vX.Y.Z` carries `subshell-node-cli-<triple>` the same way,
+  unit invokes. `cli-node-vX.Y.Z` carries `subshell-node-cli-<triple>` the same way,
   installed as `subshell`. The 1.3.x companion-binary era is retired.
   `desktop-server-vX.Y.Z` carries
   `Subshell-Server-Desktop-<version>-darwin-arm64.dmg` (Tauri signs it; the
@@ -819,7 +828,7 @@ which is why they share their own smoke, parameterized by app id.
   `.sha256` — and no AppImage (`linuxdeploy` cannot cross-compile and downloads at build time).
   **Every release also carries `release-manifest.json` + `release-manifest.json.sig`**
   (spec 2026-09-15 §3.2, signed by 2026-09-17 §7): the component id, the
-  version, `NODE_PROTOCOL_VERSION`, `MIN_AGENT_VERSION`, the commit sha and an
+  version, `NODE_PROTOCOL_VERSION`, `MIN_NODE_VERSION`, the commit sha and an
   `assets` map (published filename → sha256), written by each `release.ts` and
   shipped by the existing `files:` glob — plus the detached minisign signature
   over the manifest's EXACT bytes (shells out to `tauri signer sign` with
@@ -857,7 +866,7 @@ which is why they share their own smoke, parameterized by app id.
   were built". The `.app` and `share/` directories a DMG build also fills stay
   intermediates and are never published.
   Each bundle SHIPS the CLI it wraps, so a desktop cut re-releases that CLI: a
-  server-only or agent-only fix does not reach desktop users until the matching
+  server-only or node-only fix does not reach desktop users until the matching
   desktop cut, which is why a security-relevant release should be dispatched as
   `app=all`.
 - **Never write a changeset for an `ignore`d package — it is inert and it
@@ -960,7 +969,7 @@ which is why they share their own smoke, parameterized by app id.
   real CLI, never a hand-rolled reimplementation.
 - **The cut is an explicit dispatch:**
   `gh workflow run release.yml -f app=all` (or
-  `app=server|node|desktop-server|desktop-client`, optional
+  `app=cli-server|cli-node|desktop-server|desktop-client`, optional
   `-f version=X.Y.Z`; blank = read `apps/<dir>/package.json`). `all` is the
   input's default: every component is cuttable, and each desktop bundle ships
   the CLI it wraps, so the whole set is the safe cut.
@@ -1016,7 +1025,7 @@ The Turbo pipeline ensures correct build order:
 2. `@internal/server` (`apps/server/api`) depends on backend-errors, subshell-protocol, pane-runtime, and mcp-core
 3. `@internal/backend-client` depends on server (imports the `App` type for Eden Treaty)
 4. `apps/server/web` depends on backend-client and subshell-protocol
-5. `@internal/node` (`apps/node/agent`) depends on backend-errors, subshell-protocol, pane-runtime, and mcp-core — its compiled binary bundles those dists, which is why `turbo build` is a preflight for `release:node` (and the reverse hazard: the build wipes `apps/node/agent/dist/subshell`)
+5. `@internal/node` (`apps/node/agent`) depends on backend-errors, subshell-protocol, pane-runtime, and mcp-core — its compiled binary bundles those dists, which is why `turbo build` is a preflight for `release:cli-node` (and the reverse hazard: the build wipes `apps/node/agent/dist/subshell`)
 
 For development, `build:dev` tasks use `hash-runner` for incremental builds — only rebuilding when source inputs change.
 

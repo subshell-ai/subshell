@@ -14,7 +14,7 @@ Six things participate in a running Subshell:
 - **tmux** — where panes actually live. Every subshell is a tmux session on the machine running it, which is why a pane outlives every window pointed at it.
 - **The harness** — the agent CLI you picked (or a plain shell, via the terminal plugin), running in the pane like it would in any terminal.
 - **`subshell mcp`** — a small process the harness starts, which is the agent's phone line back to the control plane.
-- **The node agent** — on any machine other than the control plane's own host, the `subshell` daemon that receives the plane's commands and runs the tmux half locally.
+- **The node daemon** — on any machine other than the control plane's own host, the `subshell` daemon that receives the plane's commands and runs the tmux half locally.
 
 ## One launch, step by step
 
@@ -32,7 +32,7 @@ Two more things happen before anything starts. The plane mints a **bearer token 
 
 If the target is the control plane's own machine, the plane starts a tmux session — one socket per subshell — and spawns the harness inside it.
 
-If the target is a **node**, the launch instead travels to that machine's `subshell` daemon over the WebSocket the daemon dials to the plane — as a command signed by the control plane's signing key. The agent verifies the signature, the expiry, and that the command was addressed to this node before it runs any of it. Then it does exactly what the plane does locally: tmux, pane, harness, same curated environment. A launch onto an offline node is refused on the spot — "That node is offline. Start its subshell or pick another node." — rather than pretending the process crashed.
+If the target is a **node**, the launch instead travels to that machine's `subshell` daemon over the WebSocket the daemon dials to the plane — as a command signed by the control plane's signing key. The node verifies the signature, the expiry, and that the command was addressed to this node before it runs any of it. Then it does exactly what the plane does locally: tmux, pane, harness, same curated environment. A launch onto an offline node is refused on the spot — "That node is offline. Start its subshell or pick another node." — rather than pretending the process crashed.
 
 ### 4. Output streams back — the same way either way
 

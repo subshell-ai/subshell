@@ -39,7 +39,7 @@ exit 2
 const BAKABLE_ORIGIN = /^[a-z][a-z0-9+.-]*:\/\/[A-Za-z0-9.\-:%[\]_]+$/i;
 
 /**
- * The address to bake as the node's `SERVER` — which the agent dials forever.
+ * The address to bake as the node's `SERVER` — which the node dials forever.
  *
  * `APP_BASE_URL` alone cannot answer this: it is one global spelling for an
  * instance that may be reachable at several (LAN IP, tailnet name, proxied
@@ -87,8 +87,8 @@ function resolveBakedServer(raw: string | undefined): string {
  *
  * Install dest / data dir: the DEFAULT install lands in `~/.local/bin/subshell`
  * — the same path Subshell Client's own installer writes — and runs the verb
- * WITHOUT `--data-dir`, so the agent keeps its own default data dir and a
- * stray `curl | bash` never relocates agent state. It used to be `./subshell`
+ * WITHOUT `--data-dir`, so the node keeps its own default data dir and a
+ * stray `curl | bash` never relocates node state. It used to be `./subshell`
  * in whatever directory the curl ran in, which a later `service install` then
  * baked into a unit file by absolute path: a stable home is what makes that
  * definition survive someone tidying up their downloads.
@@ -122,7 +122,7 @@ SERVER="${server}"
 KEY="${key}"
 
 # Install dest + setup --data-dir. Unset/empty SUBSHELL_DATA_DIR installs to
-# ~/.local/bin and runs WITHOUT --data-dir (the agent keeps its own default
+# ~/.local/bin and runs WITHOUT --data-dir (the node keeps its own default
 # data dir). Setting the knob OPTS INTO a relocated install: everything lands
 # under $SUBSHELL_DATA_DIR, which the installer creates (0700, with any
 # missing parents). The SETUP_DATA_DIR_ARGS expansion below is guarded
@@ -138,7 +138,7 @@ else
   # NOT the curl's CWD. A later \`subshell service install\` bakes this path
   # into a systemd unit or a launchd plist by absolute path, so the binary has
   # to live somewhere that outlives a tidied-up downloads folder — and this is
-  # the same path Subshell Client installs the agent to, so one machine cannot
+  # the same path Subshell Client installs the node CLI to, so one machine cannot
   # end up with two.
   BIN_DIR="$HOME/.local/bin"
   mkdir -p "$BIN_DIR"
@@ -151,7 +151,7 @@ DEST="$BIN_DIR/subshell"
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *)
-    echo "subshell: note: $BIN_DIR is not on your PATH, so the agent is installed" >&2
+    echo "subshell: note: $BIN_DIR is not on your PATH, so the node is installed" >&2
     echo "    but 'subshell' will not be found by name. Add it with:" >&2
     printf '      export PATH="%s:$PATH"\\n' "$BIN_DIR" >&2
     ;;
@@ -177,8 +177,8 @@ case "$OS/$ARCH" in
     # are not a published target, and "this server publishes no binary for your
     # platform" would read as "the operator has not published one yet" — a
     # different problem with a different fix.
-    echo "subshell: Intel Macs are not supported: no agent is published for darwin-x64." >&2
-    echo "    Apple silicon and Linux have binaries; on an Intel Mac, run the agent from a checkout." >&2
+    echo "subshell: Intel Macs are not supported: no node binary is published for darwin-x64." >&2
+    echo "    Apple silicon and Linux have binaries; on an Intel Mac, run the node from a checkout." >&2
     exit 1
     ;;
   Darwin/arm64)             TARGET="darwin-arm64" ;;
@@ -205,7 +205,7 @@ fi
 echo "==> downloading subshell ($TARGET) from $SERVER"
 # Download to a temp path and only REPLACE $DEST after verification: curl
 # --fail leaves an existing output file byte-intact, so the historical
-# fetch-straight-into-$DEST made a failed re-run in an installed agent's
+# fetch-straight-into-$DEST made a failed re-run in an installed node's
 # directory a clobber-or-delete of a WORKING binary. The HTTP code is
 # inspected rather than curl's exit status alone — "404, this server has no
 # artifact" and "401, your key is spent" need different advice (bare curl(22)
@@ -229,20 +229,20 @@ case "$HTTP" in
     ;;
   404)
     rm -f "$TMP" 2>/dev/null || true
-    echo "subshell: this server could not provide a $TARGET agent binary." >&2
+    echo "subshell: this server could not provide a $TARGET node binary." >&2
     echo "    It serves what is in its node-artifacts dir, and downloads a missing build from the" >&2
-    echo "    project's own node-vX.Y.Z release on first use — so this usually means the server" >&2
+    echo "    project's own cli-node-vX.Y.Z release on first use — so this usually means the server" >&2
     echo "    cannot reach that release (no outbound network, or SUBSHELL_RELEASE_URL is" >&2
     echo "    empty). Check the server's log for the reason. To supply it by hand instead, run" >&2
-    echo "    'bun run release:node' from a checkout on the server host, or copy the" >&2
-    echo "    'subshell-node-cli-$TARGET' asset from a node-vX.Y.Z GitHub Release into that dir." >&2
-    echo "    Or install the agent for this machine another way and run setup directly:" >&2
+    echo "    'bun run release:cli-node' from a checkout on the server host, or copy the" >&2
+    echo "    'subshell-node-cli-$TARGET' asset from a cli-node-vX.Y.Z GitHub Release into that dir." >&2
+    echo "    Or install the node for this machine another way and run setup directly:" >&2
     echo "      subshell setup --server $SERVER --key $KEY\${DATA_DIR:+ --data-dir \\"$DATA_DIR\\"}" >&2
     exit 1
     ;;
   *)
     rm -f "$TMP" 2>/dev/null || true
-    echo "subshell: server answered HTTP $HTTP for the agent download; nothing installed ($DEST untouched)." >&2
+    echo "subshell: server answered HTTP $HTTP for the node download; nothing installed ($DEST untouched)." >&2
     exit 1
     ;;
 esac
@@ -319,7 +319,7 @@ echo "==> enrolling with $SERVER"
 "$DEST" setup --server "$SERVER" --key "$KEY" \${SETUP_DATA_DIR_ARGS[@]+"\${SETUP_DATA_DIR_ARGS[@]}"} \${SETUP_SERVICE_ARGS[@]+"\${SETUP_SERVICE_ARGS[@]}"} \${SETUP_NAME_ARGS[@]+"\${SETUP_NAME_ARGS[@]}"}
 
 echo "==> done."
-echo "    the agent runs as the invoking user; no sudo needed (data lives in \${DATA_DIR:-the default agent data dir})."
+echo "    the node runs as the invoking user; no sudo needed (data lives in \${DATA_DIR:-the default node data dir})."
 # A piped-curl install is a distribution, and the recipient never sees a
 # LICENSE file: what lands is one bare binary. Naming the terms once here, and
 # pointing at the subcommand that prints them in full, is the only moment this
@@ -338,7 +338,7 @@ const InstallQuerySchema = t.Object({
   server: t.Optional(
     t.String({
       description:
-        "Origin to bake as the node's SERVER (what the agent dials forever); accepted only when it is one of this instance's trusted origins, ignored otherwise",
+        "Origin to bake as the node's SERVER (what the node dials forever); accepted only when it is one of this instance's trusted origins, ignored otherwise",
     }),
   ),
 });

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { MIN_AGENT_VERSION, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
+import { MIN_NODE_VERSION, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { Elysia } from "elysia";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
@@ -154,7 +154,7 @@ describe("/ws/node over the real ws stack", () => {
     ws.send(
       JSON.stringify({
         type: "ready",
-        agentVersion: MIN_AGENT_VERSION,
+        agentVersion: MIN_NODE_VERSION,
         protocolVersion: NODE_PROTOCOL_VERSION,
         os: "linux",
         arch: "x64",

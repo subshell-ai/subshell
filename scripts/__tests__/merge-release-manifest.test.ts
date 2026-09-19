@@ -30,14 +30,14 @@ import {
 const digestFor = (n: number): string => n.toString(16).padStart(64, "0").slice(-64);
 
 /** One shard manifest for `component`, naming exactly `assets`. */
-function shard(component: "node" | "server" | "desktop-server", assets: Record<string, string>): ShardManifest {
+function shard(component: "cli-node" | "cli-server" | "desktop-server", assets: Record<string, string>): ShardManifest {
   return {
     origin: `shard/${component}`,
     manifest: {
       component,
       version: "9.9.9",
       nodeProtocol: 12,
-      minAgentVersion: "0.11.0",
+      minNodeVersion: "0.11.0",
       commit: "0".repeat(40),
       assets,
     },
@@ -47,39 +47,39 @@ function shard(component: "node" | "server" | "desktop-server", assets: Record<s
 describe("mergeReleaseManifests", () => {
   it("unions the per-shard assets of a complete node cut", () => {
     const shards = NODE_TARGETS.map((t, i) =>
-      shard("node", { [releaseAssetNames("node", t).binary]: digestFor(i + 1) }),
+      shard("cli-node", { [releaseAssetNames("cli-node", t).binary]: digestFor(i + 1) }),
     );
     const merged = mergeReleaseManifests(shards);
     expect(Object.keys(merged.assets).sort()).toEqual(
-      NODE_TARGETS.map((t) => releaseAssetNames("node", t).binary).sort(),
+      NODE_TARGETS.map((t) => releaseAssetNames("cli-node", t).binary).sort(),
     );
-    expect(merged.component).toBe("node");
+    expect(merged.component).toBe("cli-node");
     expect(merged.version).toBe("9.9.9");
   });
 
   it("refuses a shard set missing a platform — a dead-end machine is not a full cut", () => {
     const shards = NODE_TARGETS.slice(0, 2).map((t, i) =>
-      shard("node", { [releaseAssetNames("node", t).binary]: digestFor(i + 1) }),
+      shard("cli-node", { [releaseAssetNames("cli-node", t).binary]: digestFor(i + 1) }),
     );
-    const missing = releaseAssetNames("node", NODE_TARGETS[2]!).binary;
+    const missing = releaseAssetNames("cli-node", NODE_TARGETS[2]!).binary;
     expect(() => mergeReleaseManifests(shards)).toThrow(new RegExp(`names no asset for: .*${missing}`));
   });
 
   it("refuses two shards giving one asset two digests", () => {
-    const name = releaseAssetNames("server", "linux-x64").binary;
+    const name = releaseAssetNames("cli-server", "linux-x64").binary;
     expect(() =>
       mergeReleaseManifests([
-        shard("server", { [name]: digestFor(1) }),
-        shard("server", { [name]: digestFor(2) }),
+        shard("cli-server", { [name]: digestFor(1) }),
+        shard("cli-server", { [name]: digestFor(2) }),
         ...SERVER_TARGETS.slice(1).map((t) =>
-          shard("server", { [releaseAssetNames("server", t).binary]: digestFor(9) }),
+          shard("cli-server", { [releaseAssetNames("cli-server", t).binary]: digestFor(9) }),
         ),
       ]),
     ).toThrow(/two digests across shards/);
   });
 
   it("refuses shards that disagree on the release itself, naming the field", () => {
-    const a = shard("node", { [releaseAssetNames("node", "linux-x64").binary]: digestFor(1) });
+    const a = shard("cli-node", { [releaseAssetNames("cli-node", "linux-x64").binary]: digestFor(1) });
     const b = { ...a, origin: "other", manifest: { ...a.manifest, version: "9.9.8" } };
     expect(() => mergeReleaseManifests([a, b])).toThrow(/disagree on version/);
   });
@@ -99,7 +99,7 @@ describe("findShardManifests / loadShardManifests", () => {
         mkdirSync(join(root, `node-${t}`), { recursive: true });
         writeFileSync(
           join(root, `node-${t}`, RELEASE_MANIFEST_NAME),
-          JSON.stringify(shard("node", { [releaseAssetNames("node", t).binary]: digestFor(1) }).manifest),
+          JSON.stringify(shard("cli-node", { [releaseAssetNames("cli-node", t).binary]: digestFor(1) }).manifest),
         );
       }
       mkdirSync(out, { recursive: true });
@@ -124,11 +124,11 @@ describe("findShardManifests / loadShardManifests", () => {
     try {
       const mergedAssets: Record<string, string> = {};
       NODE_TARGETS.forEach((t, i) => {
-        const name = releaseAssetNames("node", t).binary;
+        const name = releaseAssetNames("cli-node", t).binary;
         mergedAssets[name] = digestFor(i + 1);
         const shardDir = join(root, `node-${t}`);
         mkdirSync(shardDir, { recursive: true });
-        writeFileSync(join(shardDir, RELEASE_MANIFEST_NAME), JSON.stringify(shard("node", { [name]: digestFor(i + 1) }).manifest));
+        writeFileSync(join(shardDir, RELEASE_MANIFEST_NAME), JSON.stringify(shard("cli-node", { [name]: digestFor(i + 1) }).manifest));
       });
       // The previous run's merged output, disagreeing with a shard on purpose:
       // ingested as a "shard" it would refuse with "two digests across shards"
@@ -136,7 +136,7 @@ describe("findShardManifests / loadShardManifests", () => {
       writeFileSync(
         join(root, RELEASE_MANIFEST_NAME),
         JSON.stringify(
-          shard("node", { ...mergedAssets, [releaseAssetNames("node", NODE_TARGETS[0]!).binary]: digestFor(77) }).manifest,
+          shard("cli-node", { ...mergedAssets, [releaseAssetNames("cli-node", NODE_TARGETS[0]!).binary]: digestFor(77) }).manifest,
         ),
       );
       const paths = findShardManifests(root, root);
@@ -162,7 +162,7 @@ describe("findShardManifests / loadShardManifests", () => {
 
   it("the fixture of a real merge parses end to end", () => {
     const shards = NODE_TARGETS.map((t, i) =>
-      shard("node", { [releaseAssetNames("node", t).binary]: digestFor(i + 1) }),
+      shard("cli-node", { [releaseAssetNames("cli-node", t).binary]: digestFor(i + 1) }),
     );
     const parsed = parseReleaseManifest(JSON.stringify(mergeReleaseManifests(shards)));
     expect(Object.keys(parsed?.assets ?? {}).length).toBe(3);
@@ -182,7 +182,7 @@ describe("merge-release-manifest CLI", () => {
         mkdirSync(shardDir, { recursive: true });
         writeFileSync(
           join(shardDir, RELEASE_MANIFEST_NAME),
-          JSON.stringify(shard("node", { [releaseAssetNames("node", t).binary]: digestFor(i + 1) }).manifest),
+          JSON.stringify(shard("cli-node", { [releaseAssetNames("cli-node", t).binary]: digestFor(i + 1) }).manifest),
         );
       });
       // A previous run's valid merged pair already AT the destination (the
@@ -192,7 +192,7 @@ describe("merge-release-manifest CLI", () => {
       // its own temps (review 2026-09-17).
       const out = join(root, "manifest");
       mkdirSync(out, { recursive: true });
-      const priorManifest = `${JSON.stringify(shard("node", {}).manifest, null, 2)}\n`;
+      const priorManifest = `${JSON.stringify(shard("cli-node", {}).manifest, null, 2)}\n`;
       const priorSig = "PRIOR ARMOR — must survive\n";
       writeFileSync(join(out, RELEASE_MANIFEST_NAME), priorManifest);
       writeFileSync(join(out, RELEASE_MANIFEST_SIG_NAME), priorSig);
@@ -229,14 +229,14 @@ describe("merge-release-manifest CLI", () => {
     try {
       const mergedAssets: Record<string, string> = {};
       NODE_TARGETS.forEach((t, i) => {
-        const name = releaseAssetNames("node", t).binary;
+        const name = releaseAssetNames("cli-node", t).binary;
         mergedAssets[name] = digestFor(i + 1);
         const shardDir = join(root, `node-${t}`);
         mkdirSync(shardDir, { recursive: true });
-        writeFileSync(join(shardDir, RELEASE_MANIFEST_NAME), JSON.stringify(shard("node", { [name]: digestFor(i + 1) }).manifest));
+        writeFileSync(join(shardDir, RELEASE_MANIFEST_NAME), JSON.stringify(shard("cli-node", { [name]: digestFor(i + 1) }).manifest));
       });
-      mergedAssets[releaseAssetNames("node", NODE_TARGETS[0]!).binary] = digestFor(77);
-      writeFileSync(join(root, RELEASE_MANIFEST_NAME), JSON.stringify(shard("node", mergedAssets).manifest));
+      mergedAssets[releaseAssetNames("cli-node", NODE_TARGETS[0]!).binary] = digestFor(77);
+      writeFileSync(join(root, RELEASE_MANIFEST_NAME), JSON.stringify(shard("cli-node", mergedAssets).manifest));
       const proc = Bun.spawn(["bun", "scripts/merge-release-manifest.ts", root], {
         cwd: new URL("../../", import.meta.url).pathname,
         env: { PATH: process.env.PATH ?? "" },

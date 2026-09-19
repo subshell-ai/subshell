@@ -29,8 +29,8 @@ import type { ProbeStep } from "@/lib/ipc";
  * rather than an omission: `connected`, `service` and `install-agent` were the
  * probe-derived landings, and `clientScreen` routes every configured client to
  * `status` instead — which carries what each of them offered (the service
- * verb, the pane-safety rewrite, the reveals, the agent-binary picker, and the
- * refusal that keeps an unreadable agent from being offered registration). A
+ * verb, the pane-safety rewrite, the reveals, the node-binary picker, and the
+ * refusal that keeps an unreadable node CLI from being offered registration). A
  * screen nothing can route to is not a recovery path, it is dead code that
  * reads like one.
  */
@@ -177,9 +177,9 @@ export function screenTitle(screen: NodeScreenId): string {
     case "about":
       return "About Subshell Client";
     case "update":
-      // The app AND the node agent it ships, which is why the name can be
+      // The app AND the node CLI it ships, which is why the name can be
       // this plain (spec 2026-09-18 D6). It used to read the same while
-      // meaning only the application, beside a separate "Update the agent
+      // meaning only the application, beside a separate "Update the node
       // to X" button that did the other half — two controls whose names
       // differed by a possessive, for one thing a person experiences once.
       // The name became TRUE rather than being disambiguated.

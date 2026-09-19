@@ -35,7 +35,7 @@ const base: NodeDetail = {
   held: null,
 };
 
-/** A supervised systemd agent on a lingering machine, with the fields each test varies. */
+/** A supervised systemd node on a lingering machine, with the fields each test varies. */
 function runtime(over: Partial<NodeRuntime> = {}): NodeRuntime {
   return {
     startedAt: "2026-09-12T10:00:00.000Z",
@@ -102,7 +102,7 @@ describe("NodeRuntimeCard", () => {
     expect(screen.queryAllByRole("button", { name: /restart/i })).toEqual([]);
   });
 
-  it("says so when the agent is not supervised", () => {
+  it("says so when the node is not supervised", () => {
     renderCard({
       ...base,
       runtime: runtime({
@@ -137,7 +137,7 @@ describe("NodeRuntimeCard", () => {
 /**
  * The one question a headless node's owner actually has, and the only surface
  * that answers it for them. It used to be a static caveat printed under every
- * enabled systemd node explaining BOTH outcomes; the agent reports `linger`
+ * enabled systemd node explaining BOTH outcomes; the node reports `linger`
  * now, so the card says which one this machine is.
  */
 describe("NodeRuntimeCard — Comes back", () => {

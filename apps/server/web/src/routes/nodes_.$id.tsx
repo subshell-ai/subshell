@@ -1,9 +1,9 @@
 import {
-  agentVersionSupported,
-  MIN_AGENT_VERSION,
+  MIN_NODE_VERSION,
   NODE_NAME_MAX,
   NODE_NAME_MAX_UNITS,
   NODE_PROTOCOL_VERSION,
+  nodeVersionSupported,
 } from "@internal/subshell-protocol";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Share2, Trash2 } from "lucide-react";
@@ -145,7 +145,7 @@ function NodeDetailPage() {
                     )}
                 </dd>
               </div>
-              {/* Agent facts, and `local` runs no agent — it is a launch
+              {/* Node facts, and `local` runs no node daemon — it is a launch
                   target the server drives in-process through `LocalLauncher`,
                   with no daemon, no socket and no enrollment. So `lastSeenAt`
                   is stamped by a connection that never happens and
@@ -180,12 +180,12 @@ function NodeDetailPage() {
                       with or without a protocol bump. Not gated on `offline`,
                       because the floor is checked at connect and such a node
                       never gets online. */}
-                    {n.agentVersion != null && !agentVersionSupported(n.agentVersion) && (
+                    {n.agentVersion != null && !nodeVersionSupported(n.agentVersion) && (
                       <Badge
                         variant="warning"
-                        title={`This control plane requires subshell ${MIN_AGENT_VERSION} or newer; this node reports ${n.agentVersion}. Update the node on that host.`}
+                        title={`This control plane requires subshell ${MIN_NODE_VERSION} or newer; this node reports ${n.agentVersion}. Update the node on that host.`}
                       >
-                        below minimum ({MIN_AGENT_VERSION})
+                        below minimum ({MIN_NODE_VERSION})
                       </Badge>
                     )}
                   </dd>

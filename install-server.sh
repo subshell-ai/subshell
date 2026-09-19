@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/subshell-ai/subshell/main/install-server.sh | bash
 #
 # Downloads the `subshell-server` binary for this platform from the newest
-# `server-vX.Y.Z` GitHub Release, VERIFIES its digest before the file is ever
+# `cli-server-vX.Y.Z` GitHub Release, VERIFIES its digest before the file is ever
 # made executable, installs it to ~/.local/bin, and hands over to
 # `subshell-server init` — which asks the setup questions and prints where to
 # go next. This script deliberately says nothing about what comes after `init`:
@@ -59,8 +59,8 @@ esac
 
 # --- 2. which release? ------------------------------------------------------
 # The releases LISTING, not /releases/latest: this repo ships four components
-# from one repo, so the newest release overall is as likely to be a node-v* or
-# desktop-* cut as a server one. Tags are filtered to `server-v` and ordered
+# from one repo, so the newest release overall is as likely to be a cli-node-v*
+# or desktop-* cut as a server one. Tags are filtered to `cli-server-v` and ordered
 # with sort -V, which knows 1.10.0 > 1.9.0 and plain `sort` does not.
 API="${SUBSHELL_SERVER_RELEASE_API:-https://api.github.com/repos/$REPO/releases}"
 
@@ -86,17 +86,17 @@ if [ -z "$VERSION" ]; then
   fi
   VERSION="$(
     printf '%s' "$BODY" |
-      grep -o '"tag_name"[[:space:]]*:[[:space:]]*"server-v[0-9][0-9.]*"' |
-      sed -e 's/.*"server-v//' -e 's/"$//' |
+      grep -o '"tag_name"[[:space:]]*:[[:space:]]*"cli-server-v[0-9][0-9.]*"' |
+      sed -e 's/.*"cli-server-v//' -e 's/"$//' |
       sort -V |
       tail -n 1
   )"
   if [ -z "$VERSION" ]; then
-    fail "no server-vX.Y.Z release is published yet." \
+    fail "no cli-server-vX.Y.Z release is published yet." \
       "The index at $API listed no matching tag."
   fi
 fi
-TAG="server-v$VERSION"
+TAG="cli-server-v$VERSION"
 echo "==> installing $TAG ($TARGET)"
 
 ASSET="subshell-server-cli-$TARGET"

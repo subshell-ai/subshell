@@ -14,7 +14,7 @@ import type { NodeDetail } from "@/types/node";
  *
  * **Owner only, and the card says why.** Locally this is an unprivileged edit
  * — `subshell configure --server` rewrites a 0600 file the machine's own user
- * already owns. Doing it from here is a different act: the agent then dials
+ * already owns. Doing it from here is a different act: the node then dials
  * whatever host was typed carrying a credential valid on THIS plane, and the
  * machine leaves this instance. An `edit` grantee is trusted to interrupt a
  * machine they were shared; making it someone else's is not that.
@@ -61,7 +61,7 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
       await service.mutateAsync({ verb: "restart" });
       setSaved(`${saved ?? ""} Restarting now.`.trim());
     } catch (err) {
-      setFailure(errMessage(err, "Could not restart the agent"));
+      setFailure(errMessage(err, "Could not restart the node"));
     }
   }
 
@@ -71,7 +71,7 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
         <CardTitle>Control plane</CardTitle>
         <CardDescription>
           The address this machine dials. Changing it keeps the node's identity — its id, its key and the server key it
-          pinned at enrollment — so this is a move, never a re-enrollment. It takes effect when the agent restarts.
+          pinned at enrollment — so this is a move, never a re-enrollment. It takes effect when the node restarts.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

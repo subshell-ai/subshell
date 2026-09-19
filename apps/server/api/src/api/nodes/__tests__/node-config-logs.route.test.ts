@@ -72,7 +72,7 @@ describe("/api/nodes logs + config gates", () => {
   let carolCookie = "";
   const createdNodeIds: string[] = [];
 
-  async function mkAgent(): Promise<string> {
+  async function mkNode(): Promise<string> {
     const id = crypto.randomUUID();
     await nodes.create({ id, ownerUserId: aliceId, name: `nc-${id.slice(0, 8)}`, kind: "agent", status: "offline" });
     createdNodeIds.push(id);
@@ -121,7 +121,7 @@ describe("/api/nodes logs + config gates", () => {
   // ── GET /:id/logs ────────────────────────────────────────────────────────
 
   it("logs: a view grantee is refused, an edit grantee is not", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "view" }], aliceId);
     expect((await req("GET", `/api/nodes/${id}/logs`, { cookie: carolCookie })).status).toBe(403);
     // An `edit` grantee gets past the gate and lands on the node being
@@ -132,7 +132,7 @@ describe("/api/nodes logs + config gates", () => {
   });
 
   it("logs: anonymous 401, unknown node 404, local 400", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     expect((await req("GET", `/api/nodes/${id}/logs`)).status).toBe(401);
     expect((await req("GET", `/api/nodes/nope-${crypto.randomUUID()}/logs`, { cookie: aliceCookie })).status).toBe(404);
     // The control-plane host's own log is an admin surface with its own route.
@@ -148,7 +148,7 @@ describe("/api/nodes logs + config gates", () => {
    * interrupt a machine, not to make it someone else's.
    */
   it("config: owner only — an edit grantee is refused", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "edit" }], aliceId);
     const res = await req("PATCH", `/api/nodes/${id}/config`, {
       cookie: carolCookie,
@@ -158,7 +158,7 @@ describe("/api/nodes logs + config gates", () => {
   });
 
   it("config: the owner gets past the gate and onto the node's liveness", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     const res = await req("PATCH", `/api/nodes/${id}/config`, {
       cookie: aliceCookie,
       body: { serverUrl: "https://plane.example.com" },
@@ -170,7 +170,7 @@ describe("/api/nodes logs + config gates", () => {
   // Validated BEFORE the node is asked anything, so an unusable address is a
   // 400 rather than a confusing 409 about a machine that is merely offline.
   it("config: an unusable address is refused before the node is dialed", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     const res = await req("PATCH", `/api/nodes/${id}/config`, {
       cookie: aliceCookie,
       body: { serverUrl: "http://localhost:3080" },
@@ -180,7 +180,7 @@ describe("/api/nodes logs + config gates", () => {
   });
 
   it("config: anonymous 401, unknown node 404, local 400", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     const body = { serverUrl: "https://plane.example.com" };
     expect((await req("PATCH", `/api/nodes/${id}/config`, { body })).status).toBe(401);
     expect(

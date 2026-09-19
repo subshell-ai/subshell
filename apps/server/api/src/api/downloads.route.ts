@@ -194,7 +194,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
       "Content-Disposition": `attachment; filename=${nodeArtifactFileName(params.target)}`,
       "Cache-Control": "private, no-cache",
     };
-    // On disk wins, always: a binary an operator published with `release:node`
+    // On disk wins, always: a binary an operator published with `release:cli-node`
     // is what this instance serves, and nothing here second-guesses it.
     if (artifactStat(params.target)) {
       return new Response(Bun.file(artifactPath(params.target)), { headers });
@@ -225,7 +225,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
     query: DownloadQuerySchema,
     response: { 401: "ApiErrorResponse", 404: "ApiErrorResponse" },
     detail: {
-      operationId: "downloadNodeAgent",
+      operationId: "downloadNodeCli",
       tags: ["downloads"],
       description:
         "Downloads the prebuilt subshell binary for one platform target (session cookie or valid ?setup_key=; unknown target → 404)",
@@ -259,7 +259,7 @@ for (const target of NODE_TARGETS) {
       query: DownloadQuerySchema,
       response: { 401: "ApiErrorResponse", 404: "ApiErrorResponse" },
       detail: {
-        operationId: `downloadNodeAgentSha256${target.replace(/-/g, "")}`,
+        operationId: `downloadNodeCliSha256${target.replace(/-/g, "")}`,
         tags: ["downloads"],
         description: `SHA-256 (64-hex) of the ${target} subshell build (same cookie-or-setup_key gate as the binary)`,
       },

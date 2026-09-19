@@ -332,7 +332,7 @@ does**, because that is what makes the rest of the system work unchanged:
   `performRestart`.
 
 It lives in this app rather than `crates/desktop-core` by the crate's own
-rule: Subshell Client's node agent has its own service and no equivalent mode,
+rule: Subshell Client's node CLI has its own service and no equivalent mode,
 so an abstraction here would be one real consumer and one guess.
 
 **Console output** goes to one file, truncated per spawn — the last run's
@@ -1082,7 +1082,7 @@ To stage one by hand for `tauri dev`:
 ```bash
 SUBSHELL_SERVER_RELEASE_TRIPLES=darwin-arm64 \
 SUBSHELL_SERVER_RELEASE_DIR="$PWD/apps/server/desktop/src-tauri/binaries" \
-  bun run release:server
+  bun run release:cli-server
 cd apps/server/desktop/src-tauri/binaries \
   && mv subshell-server-cli-darwin-arm64 subshell-server-bundled-aarch64-apple-darwin \
   && rm -f subshell-server-cli-darwin-arm64.sha256
@@ -1524,7 +1524,7 @@ apps.
 `bundled_version()` reports, and only the app knows it, so it is the one way
 the SPA's Service page can offer an update. The group is optional, so a build
 that ships no server, Subshell Client (whose `SubshellClient/…` marker never
-carries one — it bundles a node agent) and every older shell
+carries one — it bundles a node CLI) and every older shell
 stay valid against the same regex; `DESKTOP_PROTOCOL` is unchanged by it.
 `user_agent_for` is the pure body, pinned by test.
 

@@ -1,4 +1,4 @@
-import { type AgentConfig, loadConfig, saveConfig } from "./config.js";
+import { loadConfig, type NodeConfig, saveConfig } from "./config.js";
 import { normalizeServer } from "./enroll.js";
 
 /**
@@ -58,12 +58,12 @@ export interface ConfigureOpts {
  * @throws when a URL is unusable, or there is no config to repoint (the
  *   message points at `enroll`)
  */
-export async function runConfigure(opts: ConfigureOpts): Promise<AgentConfig> {
+export async function runConfigure(opts: ConfigureOpts): Promise<NodeConfig> {
   // Normalized first, so an unusable URL is refused without touching the file.
   const serverUrl = normalizeServer(opts.server);
 
   const current = await loadConfig();
-  const next: AgentConfig = { ...current, serverUrl };
+  const next: NodeConfig = { ...current, serverUrl };
   if (serverUrl !== current.serverUrl) {
     delete next.nodeWsUrl;
   }

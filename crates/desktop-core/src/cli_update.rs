@@ -170,7 +170,7 @@ pub enum Unrecorded {
 ///
 /// @param from - the version being replaced, when the probe knew it
 /// @param to - the version being installed, when this build knows it
-/// @param what - `"server"` or `"agent"`
+/// @param what - `"server"` or `"node CLI"`
 pub fn legacy_install_summary(from: Option<&str>, to: Option<&str>, what: &str, missing: Unrecorded) -> String {
     let installed = match (to, from) {
         (Some(to), Some(from)) => format!("Installed {to} over {from}."),
@@ -204,7 +204,7 @@ pub fn legacy_install_summary(from: Option<&str>, to: Option<&str>, what: &str, 
 /// function serve both apps: the node agent has no database, so its report
 /// never carries the field and the sentence never mentions it.
 ///
-/// @param what - the noun for the binary that moved: `"server"` or `"agent"`
+/// @param what - the noun for the binary that moved: `"server"` or `"node CLI"`
 pub fn update_summary(report: &UpdateReport, what: &str) -> String {
     let head = format!("Updated the installed {what} from {} to {}.", report.from, report.to);
     match report.backup.as_deref() {
@@ -262,8 +262,8 @@ mod tests {
         let report = parse_update_report(r#"{"from":"0.8.0","to":"0.9.0","restarted":false}"#).expect("a report");
         assert_eq!(report.backup, None);
         assert_eq!(
-            update_summary(&report, "agent"),
-            "Updated the installed agent from 0.8.0 to 0.9.0."
+            update_summary(&report, "node CLI"),
+            "Updated the installed node CLI from 0.8.0 to 0.9.0."
         );
     }
 
@@ -309,7 +309,7 @@ mod tests {
     ///   `return fail(2, new UsageError(\`unknown command '${parsed.command}'\`))`.
     const SERVER_0_6_0_STDERR: &str =
         "subshell-server: unknown command 'update'\nusage:\n  subshell-server init\n  subshell-server status\n";
-    const AGENT_0_8_0_STDERR: &str = "unknown command 'update'\n";
+    const NODE_0_8_0_STDERR: &str = "unknown command 'update'\n";
 
     // The whole point of the fallback: every install that exists today
     // predates the verb, so without this the desktop offer fails on exactly
@@ -320,9 +320,9 @@ mod tests {
         // usage errors through fail(2). Keying on either number would have
         // silently excluded one app.
         assert!(lacks_update_verb(&run_of(Some(1), "", SERVER_0_6_0_STDERR)));
-        assert!(lacks_update_verb(&run_of(Some(2), "", AGENT_0_8_0_STDERR)));
+        assert!(lacks_update_verb(&run_of(Some(2), "", NODE_0_8_0_STDERR)));
         // And on stdout, in case a future CLI moves its usage text there.
-        assert!(lacks_update_verb(&run_of(Some(1), AGENT_0_8_0_STDERR, "")));
+        assert!(lacks_update_verb(&run_of(Some(1), NODE_0_8_0_STDERR, "")));
     }
 
     // The refusals that must NEVER fall back. Each is a real answer about this
@@ -385,12 +385,12 @@ mod tests {
     // name something its own `update` never does either — alarming about the
     // wrong thing. What it really loses is the rollback point.
     #[test]
-    fn the_agents_sentence_claims_no_database() {
-        let said = legacy_install_summary(Some("0.8.0"), Some("0.9.0"), "agent", Unrecorded::Rollback);
+    fn the_nodes_sentence_claims_no_database() {
+        let said = legacy_install_summary(Some("0.8.0"), Some("0.9.0"), "node CLI", Unrecorded::Rollback);
         assert!(!said.contains("database"), "{said}");
         assert_eq!(
             said,
-            "Installed 0.9.0 over 0.8.0. No rollback point was recorded: the previous agent predates \
+            "Installed 0.9.0 over 0.8.0. No rollback point was recorded: the previous node CLI predates \
              the update command, so this install cannot be undone automatically."
         );
     }

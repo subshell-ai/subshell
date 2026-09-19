@@ -2,8 +2,8 @@ import { type JsonValue, type NodeCommandBody, parseNodeCommandBody } from "@int
 import {
   attachConnection,
   detachConnection,
-  type NodeAgentFacts,
   type NodeConnection,
+  type NodeFacts,
   type NodeSocket,
 } from "@/services/nodes/node-registry.js";
 import { resolveResult } from "@/services/nodes/node-rpc.js";
@@ -73,7 +73,7 @@ export interface ScriptedNode {
 export const SCRIPTED_DATA_DIR = "/home/scripted/.subshell";
 
 /** Defaults for the `ready`-stashed facts; override per test via `over`. */
-const DEFAULT_FACTS: NodeAgentFacts = {
+const DEFAULT_FACTS: NodeFacts = {
   dataDir: SCRIPTED_DATA_DIR,
   // The exact set the shipped agent advertises post-Task-13.
   capabilities: ["uploads", "mcp"],
@@ -113,7 +113,7 @@ export const probeAllAlive: ScriptedHandler = (cmd) =>
 export function attachScriptedNode(
   nodeId: string,
   handlers: ScriptedHandlers,
-  over: Partial<NodeAgentFacts> = {},
+  over: Partial<NodeFacts> = {},
 ): ScriptedNode {
   const wire: ScriptedWireFrame[] = [];
   let conn: NodeConnection;

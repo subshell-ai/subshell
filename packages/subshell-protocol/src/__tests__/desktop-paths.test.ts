@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
-  AGENT_SIDECAR_NAME,
   DESKTOP_CLIENT_PRODUCT,
   DESKTOP_SERVER_PRODUCT,
   DESKTOP_TARGETS,
   desktopArtifactFileName,
   desktopSidecarFileName,
+  NODE_SIDECAR_NAME,
   NODE_TARGETS,
   nodeArtifactFileName,
   rustTargetTriple,
@@ -83,11 +83,11 @@ describe("sidecar naming", () => {
     // Same rule for the node agent, and for the same reason: Debian puts an
     // externalBin in /usr/bin, so a sidecar named `subshell` would own that
     // name system-wide on every machine the node app is installed on.
-    expect(AGENT_SIDECAR_NAME).not.toBe("subshell");
-    expect(AGENT_SIDECAR_NAME.startsWith("subshell-")).toBe(true);
+    expect(NODE_SIDECAR_NAME).not.toBe("subshell");
+    expect(NODE_SIDECAR_NAME.startsWith("subshell-")).toBe(true);
     // The two apps can be installed side by side, so nothing they place in
     // /usr/bin may collide.
-    expect(AGENT_SIDECAR_NAME).not.toBe(SERVER_SIDECAR_NAME);
+    expect(NODE_SIDECAR_NAME).not.toBe(SERVER_SIDECAR_NAME);
     expect(DESKTOP_CLIENT_PRODUCT).not.toBe(DESKTOP_SERVER_PRODUCT);
   });
 });

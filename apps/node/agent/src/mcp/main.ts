@@ -1,7 +1,7 @@
 import { readMcpEnv, runSubshellMcp } from "@internal/mcp-core";
 
 /**
- * `runAgentMcp` — the `subshell mcp` entry: the `subshell mcp` stdio server
+ * `runNodeMcp` — the `subshell mcp` entry: the `subshell mcp` stdio server
  * running INSIDE the compiled agent binary (spec §6.4), so a subshell launched
  * on an agent node gets the same cross-subshell tools a local subshell has.
  *
@@ -34,7 +34,7 @@ import { readMcpEnv, runSubshellMcp } from "@internal/mcp-core";
  * for a compiled binary AND for a bun-interpreted run, because the agent
  * answered the shape, not a bare execPath.
  */
-export async function runAgentMcp(): Promise<void> {
+export async function runNodeMcp(): Promise<void> {
   // Fail fast on an incomplete pane env BEFORE touching stdio: the throw's
   // message ("subshell mcp: SUBSHELL_API_KEY is not set") is what the CLI maps to
   // exit 2. `runSubshellMcp` reads the env again internally; the double read is

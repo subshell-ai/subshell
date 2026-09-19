@@ -93,7 +93,7 @@ export function createResetView(host: AssistantHost): ResetView {
       }
     }
     el("reset-disclosures").textContent =
-      "Enrolled remote nodes are NOT reached: their agents and panes keep running with keys to a plane that will not exist. A subshell node agent on this very machine is not reached either and must be stopped from Subshell Client or `subshell service stop`. The installed server binary stays. Everything listed above is permanent.";
+      "Enrolled remote nodes are NOT reached: their daemons and panes keep running with keys to a plane that will not exist. A subshell daemon on this very machine is not reached either and must be stopped from Subshell Client or `subshell service stop`. The installed server binary stays. Everything listed above is permanent.";
     el("reset-hostname").textContent = host_name;
     const typed = (el("reset-confirm") as HTMLInputElement).value;
     // `busy` belongs in this gate as much as the refusal does. Without it the

@@ -15,7 +15,7 @@ import {
   startExitWatcher,
   stopWatcher,
 } from "../commands/report.js";
-import type { AgentConfig } from "../config.js";
+import type { NodeConfig } from "../config.js";
 import { type SubshellMeta, SubshellMetaStore } from "../subshell-meta.js";
 import { captureLogs } from "./helpers/capture-logs.js";
 
@@ -158,7 +158,7 @@ function makeCtx(
     killSubshell: method("killSubshell"),
     run: method("run"),
   };
-  const config: AgentConfig = {
+  const config: NodeConfig = {
     serverUrl: "http://localhost:1",
     nodeId: "node-1",
     nodeKey: "k",
@@ -1188,7 +1188,7 @@ it.skipIf(!HAS_TMUX)(
     const subshellId = crypto.randomUUID();
     const events: NodeEvent[] = [];
     const runner = new TmuxRunner();
-    const config: AgentConfig = {
+    const config: NodeConfig = {
       serverUrl: "http://localhost:1",
       nodeId: "node-1",
       nodeKey: "k",

@@ -1,12 +1,21 @@
 import type { Node } from "@/types/node";
 
 /**
- * The ONE spelling of "this node is a down agent" on the web side: the
- * offline rule covers agents only — `local`'s status is a projection that
+ * The ONE spelling of "this node is down" on the web side: the
+ * offline rule covers enrolled machines only — `local`'s status is a projection that
  * never gates (mirrors the server's liveness check). Pickers' disabled
  * states, the " (offline)" label, the compat matrix (`lib/subshell-compat`)
  * and the launch hints all derive from this so they cannot disagree about
  * what offline means.
+ *
+ * **`Agent` and not `Node`, deliberately** (2026-09-18, when every other
+ * node-daemon identifier moved). It gates on `kind === "agent"`, so it answers
+ * false for an offline `local` — a node. `isOfflineNode` would name something
+ * this function does not compute. It moves with the `kind` discriminant, in the
+ * migration-shaped follow-up that also covers `listAgents`,
+ * `#reconcileAgentRows`, `#applyAgentAlive`, `markStaleAgentsOffline` and
+ * `NODE_AGENT_TOO_OLD`.
+ *
  * @param node - Any node row (list or detail)
  */
 export function isOfflineAgent(node: Pick<Node, "kind" | "status">): boolean {
@@ -17,7 +26,7 @@ export function isOfflineAgent(node: Pick<Node, "kind" | "status">): boolean {
  * The option label for a node in a picker: the node's OWN name — an admin- or
  * owner-chosen string for every kind, the control-plane host included — plus a
  * ` · {os}/{arch}` platform suffix when the node has reported both (a young
- * agent's ready may still be in flight), with " (offline)" and
+ * node's ready may still be in flight), with " (offline)" and
  * " (maintenance)" kept as the LAST segments, because a disabled option still
  * needs to explain itself.
  *
@@ -33,7 +42,7 @@ export function isOfflineAgent(node: Pick<Node, "kind" | "status">): boolean {
  */
 export function nodeOptionLabel(node: Pick<Node, "kind" | "status" | "name" | "os" | "arch" | "maintenance">): string {
   // "mac-mini · darwin/arm64" — only when the node actually reported both
-  // (a young agent's ready may still be in flight).
+  // (a young node's ready may still be in flight).
   const platform = node.os !== null && node.arch !== null ? ` · ${node.os}/${node.arch}` : "";
   const offline = isOfflineAgent(node) ? " (offline)" : "";
   // A node in maintenance stays VISIBLE and greyed rather than vanishing

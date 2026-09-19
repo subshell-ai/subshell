@@ -1,6 +1,6 @@
 import {
   hostReleaseTarget,
-  MIN_AGENT_VERSION,
+  MIN_NODE_VERSION,
   NODE_PROTOCOL_VERSION,
   NODE_SIGNED_UPDATES_PROTOCOL_VERSION,
   semverLt,
@@ -28,7 +28,7 @@ import { collectServerUpdateView, type ReleaseRef, releaseRef } from "@/services
  * host's update IS the server's, which is the card above.
  */
 
-/** Why a stale agent is being kept connected for one command. */
+/** Why a stale node is being kept connected for one command. */
 export interface HeldRow {
   nodeId: string;
   reason: "below-floor" | "protocol-mismatch";
@@ -59,18 +59,18 @@ const NodeUpdateRowSchema = t.Object({
       "The release triple for this machine's reported os/arch (linux-x64, linux-arm64, darwin-arm64), or null when no artifact is published for it",
   }),
   protocolVersion: t.Nullable(t.Number(), {
-    description: "The node protocol this agent speaks; null before the first ready. Reads with `nodes.protocol`",
+    description: "The node protocol this machine speaks; null before the first ready. Reads with `nodes.protocol`",
   }),
-  online: t.Boolean({ description: "Whether the agent holds a live socket right now" }),
+  online: t.Boolean({ description: "Whether the node holds a live socket right now" }),
   held: t.Nullable(
     t.Object({
       reason: t.Union([t.Literal("below-floor"), t.Literal("protocol-mismatch")], {
-        description: "Which gate refused this agent",
+        description: "Which gate refused this node",
       }),
     }),
-    { description: "Set when the agent was refused but is being kept connected so it can be updated" },
+    { description: "Set when the node was refused but is being kept connected so it can be updated" },
   ),
-  updateAvailable: t.Boolean({ description: "Whether the offered node release is newer than this agent's version" }),
+  updateAvailable: t.Boolean({ description: "Whether the offered node release is newer than this machine's version" }),
   canUpdate: t.Object(
     {
       ok: t.Boolean({ description: "Whether this row's Update button is live" }),
@@ -93,9 +93,9 @@ const AdminUpdatesSchema = t.Object({
       // ("speaks protocol 9, this server speaks 10"), and half a comparison
       // arriving from a second query is how a page renders "speaks protocol 9,
       // this server speaks undefined" for one paint.
-      minAgentVersion: t.String({ description: "The oldest agent version this server will accept on /ws/node" }),
-      protocol: t.Number({ description: "The node protocol this server speaks; agents must match it EXACTLY" }),
-      rows: t.Array(NodeUpdateRowSchema, { description: "Every enrolled agent node; `local` is never here" }),
+      minNodeVersion: t.String({ description: "The oldest node version this server will accept on /ws/node" }),
+      protocol: t.Number({ description: "The node protocol this server speaks; nodes must match it EXACTLY" }),
+      rows: t.Array(NodeUpdateRowSchema, { description: "Every enrolled node; `local` is never here" }),
     },
     { description: "The fleet, and what it could be updated to" },
   ),
@@ -182,7 +182,7 @@ export const adminUpdatesRoutes = new Elysia({ prefix: "/api/admin" }).use(requi
       nodes: {
         release: rels.node,
         reason: rels.nodeReason,
-        minAgentVersion: MIN_AGENT_VERSION,
+        minNodeVersion: MIN_NODE_VERSION,
         protocol: NODE_PROTOCOL_VERSION,
         rows,
       },
@@ -195,7 +195,7 @@ export const adminUpdatesRoutes = new Elysia({ prefix: "/api/admin" }).use(requi
       operationId: "getAdminUpdates",
       tags: ["admin"],
       description:
-        "Everything the Updates page renders: this server's own update view, the node release this plane can offer plus one row per enrolled agent node, and the two desktop apps' newest releases. Cookie-admin only; bearer keys are refused.",
+        "Everything the Updates page renders: this server's own update view, the node release this plane can offer plus one row per enrolled node, and the two desktop apps' newest releases. Cookie-admin only; bearer keys are refused.",
     },
   },
 );
@@ -211,7 +211,7 @@ export const adminUpdatesRoutes = new Elysia({ prefix: "/api/admin" }).use(requi
  * is precisely being reachable for this one verb.
  *
  * The protocol check sits AFTER the release/platform facts and BEFORE
- * offline, in spec 2026-09-17 §6's words: an agent below
+ * offline, in spec 2026-09-17 §6's words: a node below
  * {@link NODE_SIGNED_UPDATES_PROTOCOL_VERSION} would ignore the
  * `manifest`/`manifestSig` the command now carries, so it cannot be updated
  * from here no matter what else is true — and unlike "offline" that answer
@@ -225,9 +225,9 @@ function canUpdate(
   protocolVersion: number | null,
 ): { ok: true; reason: null } | { ok: false; reason: string } {
   if (rels.node === null) return { ok: false, reason: rels.nodeReason ?? "no node release can be offered" };
-  if (target === null) return { ok: false, reason: "no agent binary is published for this machine's platform" };
+  if (target === null) return { ok: false, reason: "no node binary is published for this machine's platform" };
   if (protocolVersion === null || protocolVersion < NODE_SIGNED_UPDATES_PROTOCOL_VERSION) {
-    return { ok: false, reason: "agent predates signed updates" };
+    return { ok: false, reason: "node predates signed updates" };
   }
   if (!online && !isHeld) return { ok: false, reason: "this node is offline" };
   return { ok: true, reason: null };

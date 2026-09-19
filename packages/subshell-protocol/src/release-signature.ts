@@ -122,8 +122,8 @@ export interface UnverifiedReleaseManifest {
  *   latter)
  * @param pubkeyBase64 - the publisher's armor (`RELEASE_PUBKEY` in production)
  * @param expected - the component and version the CALLER is being told to
- *   install; the payload must name exactly these. A `node` release's
- *   signature can therefore never validate as a `server` release's: replay
+ *   install; the payload must name exactly these. A `cli-node` release's
+ *   signature can therefore never validate as a `cli-server` release's: replay
  *   requires the payload to match, and the payload says what it is.
  */
 export async function verifyReleaseManifest(
@@ -316,7 +316,7 @@ export async function signReleaseManifestArtifacts(
  *
  * The key arrives through `TAURI_SIGNING_PRIVATE_KEY` (the desktop shards'
  * secret, reused per D1). Absent key ⇒ `"unsigned-no-key"` and NOTHING is
- * written: a local `release:node` publish-to-your-own-instance stays legal
+ * written: a local `release:cli-node` publish-to-your-own-instance stays legal
  * unsigned — those artifacts are served by digest through the authenticated
  * downloads route — while an operator sees on the pipeline's own output that
  * the release will not be offered for update by any plane. The CI shards

@@ -9,7 +9,7 @@ import { BASE_URL } from "../ports";
  * Resolved from `import.meta.url` like `ADMIN_STATE`, so the CWD the run is
  * launched from never matters.
  */
-export const AGENT_MAIN = new URL("../../apps/node/agent/src/main.ts", import.meta.url).pathname;
+export const NODE_MAIN = new URL("../../apps/node/agent/src/main.ts", import.meta.url).pathname;
 
 /** The e2e stub `pi` harness — the agent's inventory reports it (via PI_PATH). */
 export const STUB_PI = new URL("./pi", import.meta.url).pathname;
@@ -18,7 +18,7 @@ export const STUB_PI = new URL("./pi", import.meta.url).pathname;
 const RING_CAP = 400;
 
 /** Everything one spawned agent needs; paths are the caller's (cleanup too). */
-export interface StartAgentOptions {
+export interface StartNodeOptions {
   /** `SUBSHELL_CONFIG_HOME` — config + daemon.lock live here. */
   home: string;
   /** `--data-dir` — identity keypair + subshell meta/logs on the node. */
@@ -34,7 +34,7 @@ export interface StartAgentOptions {
 }
 
 /** A live `subshell run` daemon + its operator-facing surface. */
-export interface RunningAgent {
+export interface RunningNode {
   /** The detached daemon — its pid IS its process-group id. */
   readonly child: ChildProcessByStdio<null, Readable, Readable>;
   /** SIGTERM the whole group (the daemon + its tmux children), SIGKILL-escalated. */
@@ -44,7 +44,7 @@ export interface RunningAgent {
 }
 
 /** The agent's env: config isolation + the stub harness + an owned tmux home. */
-function agentEnv(o: StartAgentOptions): NodeJS.ProcessEnv {
+function nodeEnv(o: StartNodeOptions): NodeJS.ProcessEnv {
   // TMUX/TMUX_PANE must not leak in (a suite run from inside a tmux session
   // would otherwise nest the pane server inside the caller's), and
   // TMUX_TMPDIR redirects `-L` sockets into `tmuxBase` so the caller's
@@ -61,7 +61,7 @@ function agentEnv(o: StartAgentOptions): NodeJS.ProcessEnv {
 /** Runs a one-shot agent invocation (enroll) to completion, output captured. */
 async function runOneShot(args: string[], env: NodeJS.ProcessEnv): Promise<{ code: number; out: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn("bun", [AGENT_MAIN, ...args], { env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("bun", [NODE_MAIN, ...args], { env, stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     child.stdout.on("data", (d: Buffer) => (out += d.toString()));
     child.stderr.on("data", (d: Buffer) => (out += d.toString()));
@@ -84,12 +84,12 @@ async function runOneShot(args: string[], env: NodeJS.ProcessEnv): Promise<{ cod
  * Enroll + run a REAL subshell from source (the Phase-3 stand-in for
  * `curl …/install.sh | bash && subshell run`): `enroll` is a one-shot that
  * must exit 0, `run` is the long-lived daemon — spawned `detached` into its
- * own process group so {@link RunningAgent.stop} can SIGTERM the whole tree
+ * own process group so {@link RunningNode.stop} can SIGTERM the whole tree
  * (bun forks; the tmux servers it daemonises escape the group and are the
  * caller's to sweep via `tmuxBase`).
  */
-export async function startAgent(o: StartAgentOptions): Promise<RunningAgent> {
-  const env = agentEnv(o);
+export async function startNode(o: StartNodeOptions): Promise<RunningNode> {
+  const env = nodeEnv(o);
   const enroll = await runOneShot(
     ["enroll", "--server", o.server ?? BASE_URL, "--key", o.setupKey, "--name", o.name, "--data-dir", o.dataDir],
     env,
@@ -98,7 +98,7 @@ export async function startAgent(o: StartAgentOptions): Promise<RunningAgent> {
     throw new Error(`subshell enroll exited ${enroll.code}\n--- agent output ---\n${enroll.out}`);
   }
 
-  const child = spawn("bun", [AGENT_MAIN, "run"], { detached: true, env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn("bun", [NODE_MAIN, "run"], { detached: true, env, stdio: ["ignore", "pipe", "pipe"] });
   // A successful spawn always has a pid; the type just cannot prove it.
   const pgid = child.pid as number;
   const ring: string[] = [];

@@ -48,7 +48,7 @@ describe("a browser", () => {
   it("links to the release pages, and offers no button", () => {
     setUA(BROWSER_UA);
     renderRows();
-    const links = screen.getAllByRole("link", { name: "Release notes and downloads" }) as HTMLAnchorElement[];
+    const links = screen.getAllByRole("link", { name: "Notes" }) as HTMLAnchorElement[];
     expect(links.map((a) => a.href)).toEqual([
       releasePageUrl("desktop-server-v0.7.0"),
       releasePageUrl("desktop-client-v0.5.0"),
@@ -83,8 +83,8 @@ describe("inside Subshell Server", () => {
   it("draws no server row when it is asked for the client alone", () => {
     setUA(SERVER_BEHIND_UA);
     renderRows(undefined, ["client"]);
-    expect(screen.queryByText("Subshell Server app", { exact: true })).toBeNull();
-    expect(screen.getByText("Subshell Client app", { exact: true })).toBeTruthy();
+    expect(screen.queryByText("Subshell Server App", { exact: true })).toBeNull();
+    expect(screen.getByText("Subshell Client App", { exact: true })).toBeTruthy();
     // No button anywhere: this surface cannot install the OTHER app, and the
     // one it could install is not its row any more.
     expect(screen.queryByRole("button")).toBeNull();

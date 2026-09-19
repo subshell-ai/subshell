@@ -261,7 +261,7 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
         node: t.Optional(
           t.String({
             description:
-              "Node id to browse; omitted or 'local' = the control-plane host. A remote browse relays the agent's own refusals: 409 NODE_OUTDATED, NODE_OFFLINE or NODE_UNREACHABLE",
+              "Node id to browse; omitted or 'local' = the control-plane host. A remote browse relays the node's own refusals: 409 NODE_OUTDATED, NODE_OFFLINE or NODE_UNREACHABLE",
           }),
         ),
       }),

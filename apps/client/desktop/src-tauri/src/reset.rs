@@ -32,8 +32,8 @@ use subshell_desktop_core::reset_guards::{
 use subshell_desktop_core::settings::SettingsState;
 use subshell_desktop_core::sidecar;
 
-use crate::agent_bin::AGENT_SIDECAR;
 use crate::control::{ActionResult, ServiceCommand};
+use crate::node_bin::NODE_SIDECAR;
 
 /// The three paths a confirmed reset deletes, read off a fresh `status --json`.
 ///
@@ -148,9 +148,9 @@ pub fn node_reset(app: AppHandle, settings: State<'_, SettingsState>, typed: Str
         .clone()
         .ok_or_else(|| "no reset plan is staged; the reset screen must be opened again".to_string())?;
     // The one thing the confirmation promised to keep: this app's managed copy
-    // of the agent, resolved exactly as the installer resolves it.
-    let keep = sidecar::install_path(&AGENT_SIDECAR)
-        .ok_or_else(|| "cannot locate this app's managed agent copy to protect it".to_string())?;
+    // of the node CLI, resolved exactly as the installer resolves it.
+    let keep = sidecar::install_path(&NODE_SIDECAR)
+        .ok_or_else(|| "cannot locate this app's managed node CLI copy to protect it".to_string())?;
     // Canonicalize so containment compares real locations rather than
     // spellings. An ABSENT binary keeps the uncanonicalized path and
     // containment still refuses a target that would contain it: that path is
@@ -182,7 +182,7 @@ pub fn node_reset(app: AppHandle, settings: State<'_, SettingsState>, typed: Str
         })?;
         if !delete_guard_ok(&canonical, &keep) {
             return Err(format!(
-                "refusing to delete {:?}: it contains the installed agent binary this reset promises to keep",
+                "refusing to delete {:?}: it contains the installed node binary this reset promises to keep",
                 plan.data_dir
             ));
         }
@@ -456,7 +456,7 @@ mod tests {
     // The guard that keeps the promise the screen makes: the installed agent
     // stays. A data dir that contained it would take it with the tree.
     #[test]
-    fn a_data_dir_containing_the_installed_agent_is_refused() {
+    fn a_data_dir_containing_the_installed_node_is_refused() {
         let keep = Path::new("/home/u/.local/bin/subshell");
         assert!(!delete_guard_ok(Path::new("/home/u/.local/bin"), keep));
         assert!(!delete_guard_ok(Path::new("/home/u/.local/bin/subshell"), keep));

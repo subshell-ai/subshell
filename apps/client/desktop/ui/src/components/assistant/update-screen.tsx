@@ -1,18 +1,18 @@
 /**
- * Update Subshell Client — the app AND the node agent it ships, in one act.
+ * Update Subshell Client — the app AND the node CLI it ships, in one act.
  *
  * It replaces `app-update-screen.tsx` and, with it, the status screen's
- * standalone "Update the agent to X": each desktop bundle carries the CLI it
+ * standalone "Update the node to X": each desktop bundle carries the CLI it
  * wraps, so those were never two independent things (spec 2026-09-18 § 1).
  * Two controls whose names differed by a possessive also produced a loop that
  * reads as a bug — update the app, and the next launch's probe sees a bundled
- * agent newer than the installed one and asks again.
+ * node CLI newer than the installed one and asks again.
  *
  * **Two phases, across the relaunch the app install ends in.** Phase 1 states
  * what is behind, downloads and installs the app bundle, and Rust writes a
  * marker before `app.restart()`. Phase 2 is a DIFFERENT PROCESS: the new build
  * boots, `node_probe` weighs that marker against this machine, and this screen
- * finishes the act by installing the bundled agent. The phase-1 press is the
+ * finishes the act by installing the bundled node CLI. The phase-1 press is the
  * consent for both halves, which is why the resumed install raises no
  * confirmation — asking again after a relaunch, on a screen the person did not
  * choose to open, would be asking for something already granted.
@@ -95,9 +95,9 @@ export function UpdateScreen(props: {
   }, []);
 
   const installApp = useMutation({
-    // Takes the agent row's checkbox, which is the whole of what crosses the
+    // Takes the node row's checkbox, which is the whole of what crosses the
     // relaunch (§ 13.1): false writes no marker, so phase 2 never runs.
-    mutationFn: (installAgent: boolean) => nodeInstallAppUpdate(installAgent),
+    mutationFn: (installNode: boolean) => nodeInstallAppUpdate(installNode),
     onMutate: () => setProgress("Starting the download…"),
     // No `onSuccess`: this call does not resolve on success, because the app
     // restarts out from under this page.
@@ -105,17 +105,17 @@ export function UpdateScreen(props: {
   });
 
   /**
-   * What THIS WINDOW has done to the agent, and whether the daemon has been
+   * What THIS WINDOW has done to the node CLI, and whether the daemon has been
    * restarted since.
    *
    * Page state on purpose (spec § 7.1). `rename(2)` leaves a running process
    * on its original inode, so after a successful install the file says the new
    * version while the daemon is still the old one — and no probe here can see
-   * that. "This window installed an agent and did not restart it" is a fact
+   * that. "This window installed a node CLI and did not restart it" is a fact
    * about what just happened, exactly as `ranSetupHere` is on the server side,
    * and a restart from anywhere else or a later launch simply clears it.
    */
-  const [installedAgentHere, setInstalledAgentHere] = useState(false);
+  const [installedNodeHere, setInstalledNodeHere] = useState(false);
   const [restartedHere, setRestartedHere] = useState(false);
   /**
    * Which of this screen's two runner actions is awaiting its verdict, and
@@ -124,13 +124,13 @@ export function UpdateScreen(props: {
    * The second half is load-bearing and was a defect first: `runner.run`'s
    * `isPending` does NOT land in the same commit as this press, so an effect
    * guarded on `busy` alone runs once with the PREVIOUS action's output still
-   * in place — and reads the agent install's success as the restart's. So the
+   * in place — and reads the node install's success as the restart's. So the
    * press records the output it saw, and a verdict is only read once the
    * runner has produced a different one.
    */
-  const [awaiting, setAwaiting] = useState<{ act: "agent" | "restart"; since: ActionResult | null } | null>(null);
+  const [awaiting, setAwaiting] = useState<{ act: "node" | "restart"; since: ActionResult | null } | null>(null);
   const watchFor = useCallback(
-    (act: "agent" | "restart") => setAwaiting({ act, since: runner.output }),
+    (act: "node" | "restart") => setAwaiting({ act, since: runner.output }),
     [runner.output],
   );
 
@@ -148,8 +148,8 @@ export function UpdateScreen(props: {
     const answered = runner.output !== awaiting.since || runner.failure !== "";
     if (!answered) return;
     const succeeded = runner.output?.ok === true;
-    if (succeeded && awaiting.act === "agent") {
-      setInstalledAgentHere(true);
+    if (succeeded && awaiting.act === "node") {
+      setInstalledNodeHere(true);
       setRestartedHere(false);
     }
     if (succeeded && awaiting.act === "restart") setRestartedHere(true);
@@ -175,8 +175,8 @@ export function UpdateScreen(props: {
     probe,
     checking: isFetching,
     installingApp: installApp.isPending,
-    installingAgent: awaiting?.act === "agent" && runner.busy,
-    installedAgentHere,
+    installingNode: awaiting?.act === "node" && runner.busy,
+    installedNodeHere,
     restartedHere,
     busy: runner.busy,
     selection,
@@ -193,37 +193,37 @@ export function UpdateScreen(props: {
    * then offers Retry rather than firing.
    *
    * Whether to fire at all is {@link updateAct}'s answer and not this
-   * component's: a marker on a machine whose agent this app must not replace
+   * component's: a marker on a machine whose node CLI this app must not replace
    * is refused in words, and firing it here would perform the act the same
    * screen is refusing.
    */
   const resumed = useRef(false);
-  const installAgent = useRef(commands.installAgent);
-  installAgent.current = commands.installAgent;
+  const installNode = useRef(commands.installNode);
+  installNode.current = commands.installNode;
   const resuming = act.autoFinish;
   useEffect(() => {
     if (resumed.current || !resuming || runner.busy) return;
     resumed.current = true;
-    watchFor("agent");
-    installAgent.current();
+    watchFor("node");
+    installNode.current();
   }, [resuming, runner.busy, watchFor]);
 
   const problem =
     error instanceof Error ? error.message : installApp.error instanceof Error ? installApp.error.message : "";
 
-  /** The primary press: the app half downloads, the agent half is local. */
+  /** The primary press: the app half downloads, the node half is local. */
   const press = () => {
     if (!act.canPress) return;
     if (act.press === "app") {
-      installApp.mutate(act.pressInstallsAgent);
+      installApp.mutate(act.pressInstallsNodeCli);
       return;
     }
-    watchFor("agent");
+    watchFor("node");
     // A resumed or retried act was already consented to in phase 1; a direct
-    // press on an agent that is merely behind has had no such moment, so it
+    // press on a node CLI that is merely behind has had no such moment, so it
     // goes through the command that asks first.
-    if (act.resume) installAgent.current();
-    else commands.updateAgent();
+    if (act.resume) installNode.current();
+    else commands.updateNode();
   };
 
   return (
@@ -333,7 +333,7 @@ export function UpdateScreen(props: {
 
       {act.upToDate && data && (
         <p className="text-center text-sm">
-          Subshell Client {data.current} is the newest release, and its agent is installed.
+          Subshell Client {data.current} is the newest release, and its node CLI is installed.
         </p>
       )}
 
@@ -345,7 +345,7 @@ export function UpdateScreen(props: {
        * — and immediately, on a machine with no service to restart.
        */}
       {act.settled && (
-        <p className="text-center text-sm">Subshell Client and the agent it ships are both up to date.</p>
+        <p className="text-center text-sm">Subshell Client and the node CLI it ships are both up to date.</p>
       )}
 
       {act.refusals.length > 0 && (
@@ -362,52 +362,40 @@ export function UpdateScreen(props: {
 
       {act.phase === "finishing" && (
         <p className="mt-4 text-center text-sm">
-          Finishing the update: installing the node agent that ships inside this app.
+          Finishing the update: installing the node CLI that ships inside this app.
         </p>
       )}
 
       {progress !== "" && <p className="mt-4 text-center text-detail text-muted-foreground">{progress}</p>}
 
-      {act.press === "app" && (
-        <div className="mt-4 space-y-2 text-center text-detail text-muted-foreground">
-          {/*
-           * The agent half is promised only where it will actually run (spec
-           * § 13). On the machine that report came from — an agent installed
-           * by hand that is NEWER than the one inside this app — phase 2
-           * answers `Resume::Clear` and installs nothing, and a sentence
-           * saying otherwise is the defect rather than the act.
-           *
-           * There is deliberately NO Force checkbox in this app (§ 13.3):
-           * Force overrides the pane-safety refusal on a service RESTART, and
-           * phase 2 here restarts nothing — it OFFERS the restart (§ 7.1),
-           * which carries its own override behind the CLI's own refusal. A
-           * control governing nothing, rendered for symmetry with Subshell
-           * Server, would be a promise of the same kind.
-           */}
-          <p>
-            The update is downloaded, its signature is checked against the key built into this app, and then Subshell
-            Client restarts.
-            {act.pressInstallsAgent
-              ? " It finishes by installing the node agent it ships; the daemon on this machine keeps running the previous agent until you restart it."
-              : " The agent on this machine is left exactly as it is."}
-          </p>
-          {/*
-           * Linux installs through dpkg, which raises a system password sheet.
-           * A sheet nobody was told about reads as malware — which is why this
-           * one sentence branches on the platform: it is a genuine difference
-           * in what the person has to DO, not in voice.
-           */}
-          {!IS_MACOS && <p>Linux installs the package with dpkg, so your system will ask for your password.</p>}
-        </div>
+      {/*
+       * Linux installs through dpkg, which raises a system password sheet. A
+       * sheet nobody was told about reads as malware — which is why this one
+       * sentence branches on the platform: it is a genuine difference in what
+       * the person has to DO, not in voice. It is all that is left of this
+       * block, so the wrapper is gated too rather than leaving macOS an empty
+       * spacer div.
+       *
+       * There is deliberately NO Force checkbox in this app (§ 13.3): Force
+       * overrides the pane-safety refusal on a service RESTART, and phase 2
+       * here restarts nothing — it OFFERS the restart (§ 7.1), which carries
+       * its own override behind the CLI's own refusal. A control governing
+       * nothing, rendered for symmetry with Subshell Server, would be a
+       * promise of the same kind.
+       */}
+      {act.press === "app" && !IS_MACOS && (
+        <p className="mt-4 text-center text-detail text-muted-foreground">
+          Linux installs the package with dpkg, so your system will ask for your password.
+        </p>
       )}
 
       {act.offerRestart && (
         <div className="mt-4 space-y-2 text-center text-sm">
-          <p>The agent was replaced. The daemon is still running the previous version.</p>
+          <p>The node CLI was replaced. The daemon is still running the previous version.</p>
           {act.restartCostsPanes && (
             // The pane-safety sentence belongs HERE and not on the install:
             // the swap is a `rename(2)` a running daemon never notices, so
-            // nothing about installing an agent can close a subshell. The
+            // nothing about installing a node CLI can close a subshell. The
             // RESTART can, and the CLI refuses it without `--force` for
             // exactly that reason.
             <p className="text-detail text-muted-foreground">
@@ -428,7 +416,7 @@ export function UpdateScreen(props: {
                 commands.restart();
               }}
             >
-              Restart the agent
+              Restart the node
             </Button>
           </div>
         </div>

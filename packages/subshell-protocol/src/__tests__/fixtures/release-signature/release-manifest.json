@@ -1,8 +1,8 @@
 {
-  "component": "node",
+  "component": "cli-node",
   "version": "9.9.9",
   "nodeProtocol": 12,
-  "minAgentVersion": "0.11.0",
+  "minNodeVersion": "0.11.0",
   "commit": "f00dfeedbeefcafe0000000000000000000000ff",
   "assets": {
     "subshell-node-cli-linux-x64": "e27a255e8f793d0cd1f6271612717934b6dc38c3f6e5f4b6100b9f82ef737358",

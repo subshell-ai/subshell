@@ -107,7 +107,7 @@ describe("the four cases of §4.1", () => {
     expect(view.phase).toBe("idle");
     expect(row(view, "app")).toEqual({
       id: "app",
-      label: "Subshell Server app",
+      label: "Subshell Server App",
       from: "0.8.0",
       to: "0.8.1",
       selected: true,
@@ -120,7 +120,7 @@ describe("the four cases of §4.1", () => {
     // until then.
     expect(row(view, "cli")).toEqual({
       id: "cli",
-      label: "subshell-server CLI",
+      label: "Subshell Server CLI",
       from: "0.9.0",
       to: null,
       selected: true,
@@ -145,7 +145,7 @@ describe("the four cases of §4.1", () => {
     expect(row(view, "app")?.to).toBe("0.8.1");
     expect(row(view, "cli")).toEqual({
       id: "cli",
-      label: "subshell-server CLI",
+      label: "Subshell Server CLI",
       from: "0.10.0",
       to: null,
       selected: true,
@@ -160,7 +160,7 @@ describe("the four cases of §4.1", () => {
     const view = act({ probe: machine(SERVER_BEHIND) });
     expect(row(view, "app")).toEqual({
       id: "app",
-      label: "Subshell Server app",
+      label: "Subshell Server App",
       from: "0.8.0",
       to: null,
       selected: null,
@@ -185,7 +185,9 @@ describe("the four cases of §4.1", () => {
       ["cli", null, "up to date"],
     ]);
     expect(view.press).toBeNull();
-    expect(view.subtitle).toContain("both current");
+    // The offer carries no subtitle since 2026-09-18 — the rows above ARE the
+    // statement, and a sentence restating them was a second thing to keep true.
+    expect(view.subtitle).toBe("");
   });
 
   it("treats a machine with no server installed as work the act can do", () => {
@@ -196,7 +198,7 @@ describe("the four cases of §4.1", () => {
     const view = act({ probe: machine({ serverChoice: "install-bundled", server: null, managed: false }) });
     expect(row(view, "cli")).toEqual({
       id: "cli",
-      label: "subshell-server CLI",
+      label: "Subshell Server CLI",
       from: "not installed",
       to: "0.10.0",
       selected: true,
@@ -222,7 +224,7 @@ describe("the two phases of §4.2", () => {
     // the row states it rather than offering it.
     const view = act({ probe: machine({ ...SERVER_BEHIND, pendingInstall: marker() }) });
     expect(view.rows).toEqual([
-      { id: "cli", label: "subshell-server CLI", from: "0.9.0", to: "0.10.0", selected: null, reason: null },
+      { id: "cli", label: "Subshell Server CLI", from: "0.9.0", to: "0.10.0", selected: null, reason: null },
     ]);
   });
 
@@ -363,7 +365,7 @@ describe("§13: the act is a selection", () => {
     const view = act({ probe: machine(SERVER_AHEAD), appUpdate: APP_BEHIND });
     expect(row(view, "cli")).toEqual({
       id: "cli",
-      label: "subshell-server CLI",
+      label: "Subshell Server CLI",
       from: "0.10.1",
       to: null,
       selected: null,
@@ -375,14 +377,12 @@ describe("§13: the act is a selection", () => {
     expect(view.press?.bundled).toBe(false);
   });
 
-  it("stops the subtitle promising the CLI half when it will not run", () => {
-    expect(act({ probe: machine(SERVER_AHEAD), appUpdate: APP_BEHIND }).subtitle).not.toContain(
-      "also installs the server it ships",
-    );
-    // Where it WILL run, the sentence is unchanged.
-    expect(act({ probe: machine(SERVER_BEHIND), appUpdate: APP_BEHIND }).subtitle).toContain(
-      "also installs the server it ships",
-    );
+  it("writes the phase-2 marker only where the CLI half will actually run", () => {
+    // § 13's promise, now held by the press rather than by a sentence: the
+    // subtitle that used to claim "also installs the server it ships" was
+    // removed on 2026-09-18, and `bundled` is the fact it was restating.
+    expect(act({ probe: machine(SERVER_AHEAD), appUpdate: APP_BEHIND }).press?.bundled).toBe(false);
+    expect(act({ probe: machine(SERVER_BEHIND), appUpdate: APP_BEHIND }).press?.bundled).toBe(true);
   });
 
   it("names the supported way to move a server backwards instead of offering one", () => {
@@ -391,7 +391,6 @@ describe("§13: the act is a selection", () => {
     const view = act({ probe: machine(SERVER_AHEAD) });
     expect(view.notes.join(" ")).toContain("update --from");
     expect(view.press).toBeNull();
-    expect(view.subtitle).toContain("newer server than this app ships");
   });
 
   it("runs only what is ticked, and is dead when nothing is", () => {
@@ -405,7 +404,6 @@ describe("§13: the act is a selection", () => {
       bundled: false,
       forced: false,
     });
-    expect(appOnly.subtitle).toContain("not part of this update");
     // Untick the app: the CLI half runs here and now.
     const cliOnly = act({ ...both, selection: { rows: { app: false }, force: null } });
     expect(cliOnly.press?.kind).toBe("cli");
@@ -554,10 +552,12 @@ describe("the refusals of §6", () => {
     // `latest` absent WITH a reason is "we could not tell"; absent without one
     // is "nothing newer exists". Flattening the two tells a machine that has
     // not checked since it was installed that it is current.
-    expect(act({ appUpdate: AIR_GAPPED }).subtitle).toContain("could not check");
-    expect(act({ appUpdate: NO_APP_UPDATE }).subtitle).toContain("both current");
+    // The row's reason is where the split lives now that the offer has no
+    // subtitle: "could not check" is a different cell from "up to date".
+    expect(row(act({ appUpdate: AIR_GAPPED }), "app")?.reason).toBe("could not check");
+    expect(row(act({ appUpdate: NO_APP_UPDATE }), "app")?.reason).toBe("up to date");
     // A check that threw leaves no answer at all, and says the same thing.
-    expect(act({ appUpdate: null }).subtitle).toContain("could not check");
+    expect(row(act({ appUpdate: null }), "app")?.reason).toBe("could not check");
   });
 
   it("carries the pane question into the combined act rather than after it", () => {
@@ -577,8 +577,10 @@ describe("the refusals of §6", () => {
     // a press there was nothing left to try (review, 2026-09-18).
     const view = act({ finished: { ok: false } });
     expect(view.phase).toBe("idle");
-    expect(view.subtitle).not.toContain("both current");
-    expect(view.subtitle).toContain("restart did not finish");
+    // The offer lost its subtitle on 2026-09-18, so this — the one thing there
+    // that no row could show — became a note instead of disappearing.
+    expect(view.subtitle).toBe("");
+    expect(view.notes.join(" ")).toContain("restart did not finish");
     expect(view.press?.label).toBe("Try Again");
     // That Try Again IS the restart that failed, so the box it needs is there
     // even with no tickable row on screen to hang it off.

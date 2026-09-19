@@ -26,7 +26,7 @@ import {
 } from "@internal/subshell-protocol";
 import { run as runCli } from "../cli.js";
 import { TAIL_POLL_MS } from "../commands/tail.js";
-import { type AgentConfig, saveConfig } from "../config.js";
+import { type NodeConfig, saveConfig } from "../config.js";
 import {
   type DaemonDeps,
   probeOnline,
@@ -40,7 +40,7 @@ import { type DaemonLock, lockPath } from "../lock.js";
 import { maintenancePath, writeMaintenance } from "../maintenance.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
 import { newHome } from "../test-preload.js";
-import { AGENT_VERSION } from "../version.js";
+import { NODE_VERSION } from "../version.js";
 import { captureLogs } from "./helpers/capture-logs.js";
 
 /**
@@ -85,7 +85,7 @@ interface Plane {
 
 interface Harness {
   plane: Plane;
-  config: AgentConfig;
+  config: NodeConfig;
   keys: ControlKeyPair;
   hostileKeys: ControlKeyPair;
   /** Codes the injected exit() captured (terminal 4409/4406 → 1; SIGINT → 0). */
@@ -166,7 +166,7 @@ async function startDaemon(
   const plane = startPlane();
   const dataDir = mkdtempSync(join(tmpdir(), "subshell-daemon-"));
   daemonDirs.push(dataDir);
-  const config: AgentConfig = {
+  const config: NodeConfig = {
     serverUrl: `http://localhost:${plane.server.port}`,
     nodeId: NODE_ID,
     nodeKey: NODE_KEY,
@@ -354,7 +354,7 @@ test("sends a ready frame the real parseNodeEvent accepts, with protocol identit
   const ready = await waitForReady(h);
   expect(ready).toMatchObject({
     type: "ready",
-    agentVersion: AGENT_VERSION,
+    agentVersion: NODE_VERSION,
     protocolVersion: NODE_PROTOCOL_VERSION,
     arch: process.arch,
     hostname: hostname(),
@@ -611,7 +611,7 @@ test("probeOnline: true against a live plane, false against a refused key / dead
 test("a wrong bearer key never gets a socket (upgrade refused)", async () => {
   const plane = startPlane();
   const [keys] = await Promise.all([keysReady]);
-  const config: AgentConfig = {
+  const config: NodeConfig = {
     serverUrl: `http://localhost:${plane.server.port}`,
     nodeId: NODE_ID,
     nodeKey: "wrong-key",
@@ -744,7 +744,7 @@ test("status: a live daemon.lock reports ONLINE without touching the plane (dest
     nodeId: NODE_ID,
     serverUrl: h.config.serverUrl,
     online: true,
-    agentVersion: AGENT_VERSION,
+    agentVersion: NODE_VERSION,
   });
   expect(typeof body.daemonAgeMs).toBe("number"); // heartbeat age on the JSON path
   expect(body.probe).toBeUndefined(); // lock path never probes

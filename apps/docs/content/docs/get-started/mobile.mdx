@@ -25,7 +25,7 @@ The installed app opens fullscreen under its own icon, and on Apple devices it i
 
 ## The native companion
 
-There is also a real React Native app in the repository, built with Expo — and to be honest about what that means today: it is a from-source project. The release pipeline publishes the server, the node agent, and the two desktop apps; nothing mobile ships through it, and the app's own docs say push cannot even be end-to-end tested without your own EAS project and Firebase credentials. If you are evaluating Subshell on a phone, the Home Screen app above is the supported path.
+There is also a real React Native app in the repository, built with Expo — and to be honest about what that means today: it is a from-source project. The release pipeline publishes the server, the node CLI, and the two desktop apps; nothing mobile ships through it, and the app's own docs say push cannot even be end-to-end tested without your own EAS project and Firebase credentials. If you are evaluating Subshell on a phone, the Home Screen app above is the supported path.
 
 What the companion adds, when built, is OS-level presence: push delivered with no browser in the chain, an app-icon badge, lock-screen actions, and a session credential kept in the Keychain — optionally gated behind Face ID — rather than in browser storage. It authenticates as the same kind of user your browser does — you type your server's address and sign in — and it shows the subshell list, the launch form, and a live xterm pane, with the same "who else is watching" device strip as the web. It is not a second web app and the app's docs forbid it from becoming one; it exists for those OS-level capabilities, no more.
 

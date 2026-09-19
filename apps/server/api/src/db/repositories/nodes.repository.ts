@@ -247,6 +247,12 @@ export class NodesRepository extends BaseRepository {
    * means no exclusion — the clause is skipped rather than rendered as
    * `not in ()`.
    * @returns the number of rows flipped
+   *
+   * **`Agents` and not `Nodes`, deliberately** (2026-09-18, when every other
+   * node-daemon identifier moved): the `where kind = 'agent'` below is the
+   * whole point of the method, and `local` — a node — is exactly what it
+   * spares. It moves with the `kind` discriminant, in the migration-shaped
+   * follow-up alongside {@link listAgents} and `isOfflineAgent`.
    */
   async markStaleAgentsOffline(olderThanIso: string, excludeNodeIds?: string[]): Promise<number> {
     let query = this.db

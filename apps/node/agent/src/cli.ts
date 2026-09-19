@@ -1,6 +1,6 @@
 import { ATTENTION_KINDS, REPORT_VERBS, readMcpEnv, runReport } from "@internal/mcp-core";
 import { licenseNotice, NODE_PROTOCOL_VERSION, semverLt } from "@internal/subshell-protocol";
-import { type AgentConfig, configPath, loadConfig } from "./config.js";
+import { configPath, loadConfig, type NodeConfig } from "./config.js";
 import { runConfigure } from "./configure.js";
 import { probeOnline, runDaemon } from "./daemon.js";
 import { runEnroll } from "./enroll.js";
@@ -15,7 +15,7 @@ import {
   type MaintenanceDeps,
   runMaintenance,
 } from "./maintenance-cli.js";
-import { runAgentMcp } from "./mcp/main.js";
+import { runNodeMcp } from "./mcp/main.js";
 import {
   controlService,
   DEFAULT_DEPS,
@@ -34,12 +34,12 @@ import {
   pendingMarkerPath,
   probeFileVersion,
   readMarker,
-  resolveAgentBinaryPath,
+  resolveNodeBinaryPath,
   resolveNodeRelease,
   rollbackUpdate,
   type UpdateFailure,
 } from "./update.js";
-import { AGENT_VERSION } from "./version.js";
+import { NODE_VERSION } from "./version.js";
 
 /** Collected output + exit code instead of direct stdio writes, so tests assert both. */
 export interface CliResult {
@@ -59,7 +59,7 @@ export interface CliResult {
   keepAlive?: boolean;
 }
 
-const USAGE = `subshell: node agent daemon
+const USAGE = `subshell: node daemon
 
 usage:
   subshell setup --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
@@ -76,7 +76,7 @@ usage:
   subshell configure --server <url> [--json]
                           repoint an ALREADY-enrolled node at a different control
                           plane. Keeps this node's identity and spends no setup
-                          key; restart the agent to apply. Does NOT rename: the
+                          key; restart the node to apply. Does NOT rename: the
                           plane owns a node's name (the Nodes page).
   subshell run
   subshell service install [--no-autostart]   (systemd user unit / launchd agent)
@@ -93,7 +93,7 @@ usage:
   subshell status [--json] [--probe]
   subshell update [--check] [--to <version>] [--from <file>] [--force] [--yes]
                   [--json] [--no-restart]
-                          replace this agent's own binary with a newer one and
+                          replace this node's own binary with a newer one and
                           restart into it. --check only says what is available.
                           --from installs a local file instead of downloading.
                           --force allows a downgrade, and overrides the
@@ -391,14 +391,14 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
   try {
     switch (parsed.command) {
       case "version":
-        return { code: 0, out: `subshell ${AGENT_VERSION} (node protocol v${NODE_PROTOCOL_VERSION})\n`, err: "" };
+        return { code: 0, out: `subshell ${NODE_VERSION} (node protocol v${NODE_PROTOCOL_VERSION})\n`, err: "" };
       // Separate from `version` on purpose: `version` is a machine contract
       // (the release smoke matches it, scripts parse it), and this binary
       // ships as a bare single file with no LICENSE beside it — so this
       // subcommand is how a recipient gets the terms both licences oblige us
       // to hand over.
       case "license":
-        return { code: 0, out: licenseNotice("subshell", AGENT_VERSION), err: "" };
+        return { code: 0, out: licenseNotice("subshell", NODE_VERSION), err: "" };
       case "mcp": {
         // The stdio MCP server for one subshell pane (spec §6.4). It is NOT
         // an enrolled-daemon command: no config, no lock, no socket — just the
@@ -410,7 +410,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         } catch (err) {
           return fail(2, err);
         }
-        await runAgentMcp();
+        await runNodeMcp();
         // REACHABLE, and not the end: `connect()` resolves as soon as the
         // stdio transport attaches, so this await returns while the server is
         // still live. keepAlive is the contract that stops the entry from
@@ -611,7 +611,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           code: 0,
           out:
             `node ${next.nodeId} "${next.name}" now points at ${next.serverUrl}\n` +
-            "restart the agent to apply it: subshell service restart (or restart `subshell run`)\n",
+            "restart the node to apply it: subshell service restart (or restart `subshell run`)\n",
           err: "",
         };
       }
@@ -684,31 +684,31 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
 
         if (parsed.flags.check === "1") {
           // SEMVER, not `!==`. The two answers differ exactly when the offer
-          // is OLDER, and that is not a hypothetical: `MIN_AGENT_VERSION` and
+          // is OLDER, and that is not a hypothetical: `MIN_NODE_VERSION` and
           // this package are bumped in the same commit as a protocol change,
-          // so between that commit and the matching `node-v*` cut the newest
+          // so between that commit and the matching `cli-node-v*` cut the newest
           // published release IS older than the running agent. `!==` called
           // that "available" and a bare `subshell update` then downloaded
           // ~70 MB, swapped, restarted, and was held by the plane's own floor.
           // `subshell-server update` has always compared this way
           // (`commands/update.ts`); this is the half that had not.
-          const available = semverLt(AGENT_VERSION, offer.version);
+          const available = semverLt(NODE_VERSION, offer.version);
           if (json) {
-            const body = { installed: AGENT_VERSION, latest: offer.version, updateAvailable: available };
+            const body = { installed: NODE_VERSION, latest: offer.version, updateAvailable: available };
             return { code: 0, out: `${JSON.stringify(body, null, 2)}\n`, err: "" };
           }
           const line = available
-            ? `subshell ${offer.version} is available (${offer.where}); this agent is ${AGENT_VERSION}`
-            : `subshell ${AGENT_VERSION} is the newest available`;
+            ? `subshell ${offer.version} is available (${offer.where}); this agent is ${NODE_VERSION}`
+            : `subshell ${NODE_VERSION} is the newest available`;
           return { code: 0, out: `${line}\n${planeHint}`, err: "" };
         }
 
-        if (offer.version === AGENT_VERSION) {
-          const line = `already at subshell ${AGENT_VERSION}`;
+        if (offer.version === NODE_VERSION) {
+          const line = `already at subshell ${NODE_VERSION}`;
           if (json) {
             return {
               code: 0,
-              out: `${JSON.stringify({ from: AGENT_VERSION, to: AGENT_VERSION, changed: false }, null, 2)}\n`,
+              out: `${JSON.stringify({ from: NODE_VERSION, to: NODE_VERSION, changed: false }, null, 2)}\n`,
               err: "",
             };
           }
@@ -720,11 +720,11 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         // the same refusal `subshell-server update` uses; it is deliberately
         // not a silent no-op, because `--from <an older build>` is a real
         // thing to want and only the person holding the file knows why.
-        if (semverLt(offer.version, AGENT_VERSION) && parsed.flags.force !== "1") {
+        if (semverLt(offer.version, NODE_VERSION) && parsed.flags.force !== "1") {
           return {
             code: 1,
             out: "",
-            err: `subshell: ${offer.version} is older than the running ${AGENT_VERSION}; pass --force to install it anyway\n`,
+            err: `subshell: ${offer.version} is older than the running ${NODE_VERSION}; pass --force to install it anyway\n`,
           };
         }
 
@@ -766,13 +766,13 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         // explicit opt-in to the WS connect probe, which can supersede-kick a remote-run
         // agent (registry newest-wins) and says so loudly on stderr. Exit 0 iff online.
         // The nodeKey is NEVER echoed — not even via --json; the 0600 config file is its only home.
-        let cfg: AgentConfig;
+        let cfg: NodeConfig;
         try {
           cfg = await loadConfig();
         } catch (err) {
           const reason = err instanceof Error ? err.message : String(err);
           if (!parsed.flags.json) return fail(1, err);
-          const missing = { nodeId: null, serverUrl: null, online: false, agentVersion: AGENT_VERSION, reason };
+          const missing = { nodeId: null, serverUrl: null, online: false, agentVersion: NODE_VERSION, reason };
           return { code: 1, out: `${JSON.stringify(missing, null, 2)}\n`, err: "" };
         }
         let lock = readLock();
@@ -838,7 +838,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           // other reader of a service definition here is injected the same
           // way, for the same reason.
           const sd = deps.service ?? DEFAULT_DEPS(configExists);
-          const installed = await resolveAgentBinaryPath({
+          const installed = await resolveNodeBinaryPath({
             platform: sd.platform,
             home: sd.home,
             // `configDir` and `fileExists` are injected for the SAME reason as
@@ -858,7 +858,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
             nodeId: cfg.nodeId,
             serverUrl: cfg.serverUrl,
             online,
-            agentVersion: AGENT_VERSION,
+            agentVersion: NODE_VERSION,
             // Which rung named `paths.binary`, so "the unit says so" is
             // legible from "this is me". NOT inside `paths`: it is not a path,
             // and that object's key set is pinned as the reset's deletion set.

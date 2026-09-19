@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { shortTmuxBase } from "../stack";
-import { type RunningAgent, startAgent } from "../stub/client";
+import { type RunningNode, startNode } from "../stub/client";
 import { ADMIN_STATE } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
@@ -98,7 +98,7 @@ test("a registry plugin installed on the control plane launches on a node that h
   // NOT under `home`: the sun_path budget (spec 12's note on shortTmuxBase).
   const tmuxBase = shortTmuxBase();
   mkdirSync(tmuxBase, { recursive: true });
-  let agent: RunningAgent | undefined;
+  let agent: RunningNode | undefined;
   let nodeId: string | undefined;
   let setupKeyId: string | undefined;
   let subshellId: string | undefined;
@@ -132,7 +132,7 @@ test("a registry plugin installed on the control plane launches on a node that h
     expect(keyRes.ok(), await keyRes.text()).toBe(true);
     const { id: mintedId, key } = (await keyRes.json()) as { id: string; key: string };
     setupKeyId = mintedId;
-    agent = await startAgent({ home, dataDir, tmuxBase, setupKey: key, name: nodeName });
+    agent = await startNode({ home, dataDir, tmuxBase, setupKey: key, name: nodeName });
 
     const deadline = Date.now() + SPAWN_TIMEOUT;
     for (;;) {

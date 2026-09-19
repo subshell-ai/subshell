@@ -16,12 +16,12 @@ import {
   releaseAssetNames,
   SUBSHELL_REPO_SLUG,
 } from "../releases.js";
-import { MIN_AGENT_VERSION } from "../versions.js";
+import { MIN_NODE_VERSION } from "../versions.js";
 
 describe("parseReleaseTag", () => {
   it("takes the version out of each component's own tag", () => {
-    expect(parseReleaseTag("node", "node-v0.2.0")).toBe("0.2.0");
-    expect(parseReleaseTag("server", "server-v10.20.30")).toBe("10.20.30");
+    expect(parseReleaseTag("cli-node", "cli-node-v0.2.0")).toBe("0.2.0");
+    expect(parseReleaseTag("cli-server", "cli-server-v10.20.30")).toBe("10.20.30");
     expect(parseReleaseTag("desktop-server", "desktop-server-v0.6.0")).toBe("0.6.0");
     expect(parseReleaseTag("desktop-client", "desktop-client-v0.4.0")).toBe("0.4.0");
   });
@@ -31,33 +31,48 @@ describe("parseReleaseTag", () => {
     // packages. A prefix test that also matched `desktop-client-v…` would
     // hand a node a desktop bundle.
     const foreign: Record<ReleaseComponent, string[]> = {
-      node: ["server-v0.2.0", "desktop-server-v0.2.0", "desktop-client-v0.1.3", "v0.2.0", "node-v"],
-      // `desktop-server-v…` ends with the server prefix but does not start
-      // with it, which is the whole reason this is a startsWith test.
-      server: ["node-v0.2.0", "desktop-server-v0.2.0", "desktop-client-v0.1.3", "@subshell-ai/plugin-api@1.0.0"],
-      "desktop-server": ["server-v0.2.0", "desktop-client-v0.2.0", "node-v0.2.0"],
-      "desktop-client": ["server-v0.2.0", "desktop-server-v0.2.0", "node-v0.2.0"],
+      "cli-node": ["cli-server-v0.2.0", "desktop-server-v0.2.0", "desktop-client-v0.1.3", "v0.2.0", "cli-node-v"],
+      "cli-server": [
+        "cli-node-v0.2.0",
+        "desktop-server-v0.2.0",
+        "desktop-client-v0.1.3",
+        "@subshell-ai/plugin-api@1.0.0",
+      ],
+      "desktop-server": ["cli-server-v0.2.0", "desktop-client-v0.2.0", "cli-node-v0.2.0"],
+      "desktop-client": ["cli-server-v0.2.0", "desktop-server-v0.2.0", "cli-node-v0.2.0"],
     };
     for (const component of RELEASE_COMPONENTS) {
       for (const tag of foreign[component]) expect(parseReleaseTag(component, tag), `${component}/${tag}`).toBeNull();
     }
   });
 
+  it("no longer answers to the retired `server-v`/`node-v` prefixes", () => {
+    // The hard cutover of 2026-09-18: every release published before it stays
+    // on the Releases page, and no current build may treat one as its own.
+    expect(parseReleaseTag("cli-server", "server-v1.2.3")).toBeNull();
+    expect(parseReleaseTag("cli-node", "node-v1.2.3")).toBeNull();
+  });
+
   it("refuses a prerelease or build-metadata suffix", () => {
     // An updater would otherwise hand a machine a build the release pipeline
     // does not smoke the same way.
-    expect(parseReleaseTag("node", "node-v1.0.0-rc.1")).toBeNull();
-    expect(parseReleaseTag("server", "server-v1.0.0+build7")).toBeNull();
-    expect(parseReleaseTag("server", "server-v1.0")).toBeNull();
+    expect(parseReleaseTag("cli-node", "cli-node-v1.0.0-rc.1")).toBeNull();
+    expect(parseReleaseTag("cli-server", "cli-server-v1.0.0+build7")).toBeNull();
+    expect(parseReleaseTag("cli-server", "cli-server-v1.0")).toBeNull();
   });
 
-  it("every component has its own prefix and no prefix is another's prefix", () => {
+  it("every component has its own prefix, and no prefix is another's prefix or suffix", () => {
+    // Prefix: `parseReleaseTag` is a plain `startsWith`, and the release
+    // workflow's publish job globs `<id>-*`. Suffix: not load-bearing, but
+    // true since every prefix reads `<form>-<role>-v`, and asserting it is
+    // what keeps the comment on RELEASE_TAG_PREFIX honest.
     const prefixes = RELEASE_COMPONENTS.map((c) => RELEASE_TAG_PREFIX[c]);
     expect(new Set(prefixes).size).toBe(prefixes.length);
     for (const a of prefixes) {
       for (const b of prefixes) {
         if (a === b) continue;
         expect(b.startsWith(a), `${b} starts with ${a}`).toBe(false);
+        expect(b.endsWith(a), `${b} ends with ${a}`).toBe(false);
       }
     }
   });
@@ -65,39 +80,40 @@ describe("parseReleaseTag", () => {
 
 describe("newestRelease", () => {
   it("picks by semver, not by the order given", () => {
-    const tags = ["node-v0.2.0", "node-v0.10.0", "node-v0.9.0"];
-    expect(newestRelease("node", tags)).toEqual({ tag: "node-v0.10.0", version: "0.10.0" });
-    expect(newestRelease("node", [...tags].reverse())).toEqual({ tag: "node-v0.10.0", version: "0.10.0" });
+    const tags = ["cli-node-v0.2.0", "cli-node-v0.10.0", "cli-node-v0.9.0"];
+    expect(newestRelease("cli-node", tags)).toEqual({ tag: "cli-node-v0.10.0", version: "0.10.0" });
+    expect(newestRelease("cli-node", [...tags].reverse())).toEqual({ tag: "cli-node-v0.10.0", version: "0.10.0" });
   });
 
   it("is not fooled by a re-cut publishing after a newer version", () => {
     // GitHub returns releases newest-FIRST by date. A date-ordered pick would
     // hand every machine a downgrade the day an old version is re-cut.
-    expect(newestRelease("node", ["node-v0.1.9", "node-v0.3.0"])?.version).toBe("0.3.0");
+    expect(newestRelease("cli-node", ["cli-node-v0.1.9", "cli-node-v0.3.0"])?.version).toBe("0.3.0");
   });
 
   it("ignores another component's tag even when it parses as newer", () => {
     // The whole point of taking a component rather than inferring one.
-    const mixed = ["server-v0.6.0", "desktop-server-v9.9.9", "node-v0.8.0", "desktop-client-v0.4.0"];
-    expect(newestRelease("server", mixed)).toEqual({ tag: "server-v0.6.0", version: "0.6.0" });
-    expect(newestRelease("node", mixed)).toEqual({ tag: "node-v0.8.0", version: "0.8.0" });
+    const mixed = ["cli-server-v0.6.0", "desktop-server-v9.9.9", "cli-node-v0.8.0", "desktop-client-v0.4.0"];
+    expect(newestRelease("cli-server", mixed)).toEqual({ tag: "cli-server-v0.6.0", version: "0.6.0" });
+    expect(newestRelease("cli-node", mixed)).toEqual({ tag: "cli-node-v0.8.0", version: "0.8.0" });
     expect(newestRelease("desktop-server", mixed)).toEqual({ tag: "desktop-server-v9.9.9", version: "9.9.9" });
   });
 
   it("answers null when the repository has no release of that component", () => {
-    expect(newestRelease("node", [])).toBeNull();
-    expect(newestRelease("node", ["server-v1.0.0", "desktop-client-v1.0.0"])).toBeNull();
+    expect(newestRelease("cli-node", [])).toBeNull();
+    expect(newestRelease("cli-node", ["cli-server-v1.0.0", "desktop-client-v1.0.0"])).toBeNull();
   });
 });
 
 describe("releaseAssetNames", () => {
   it("names exactly what each CLI release publishes", () => {
-    // Verified against the real node-v0.2.0 and server-v0.6.0 asset lists.
-    expect(releaseAssetNames("node", "darwin-arm64")).toEqual({
+    // The artifact names are unchanged by the 2026-09-18 tag rename: they
+    // already carried `cli`, just in the trailing position.
+    expect(releaseAssetNames("cli-node", "darwin-arm64")).toEqual({
       binary: "subshell-node-cli-darwin-arm64",
       sidecar: "subshell-node-cli-darwin-arm64.sha256",
     });
-    expect(releaseAssetNames("server", "linux-x64")).toEqual({
+    expect(releaseAssetNames("cli-server", "linux-x64")).toEqual({
       binary: "subshell-server-cli-linux-x64",
       sidecar: "subshell-server-cli-linux-x64.sha256",
     });
@@ -127,10 +143,10 @@ describe("parseSidecarDigest", () => {
 
 describe("parseReleaseManifest", () => {
   const good: ReleaseManifest = {
-    component: "node",
+    component: "cli-node",
     version: "0.9.0",
     nodeProtocol: NODE_PROTOCOL_VERSION,
-    minAgentVersion: MIN_AGENT_VERSION,
+    minNodeVersion: MIN_NODE_VERSION,
     commit: "0123456789abcdef0123456789abcdef01234567",
     assets: { "subshell-node-cli-linux-x64": "84b7f6ab0d7fc1242440131aa86e26707b187860e94be68b83ef2698e93319e0" },
   };
@@ -152,10 +168,14 @@ describe("parseReleaseManifest", () => {
     expect(parseReleaseManifest("null")).toBeNull();
     expect(parseReleaseManifest("[]")).toBeNull();
     expect(parseReleaseManifest(spoiled({ component: "agent" }))).toBeNull();
+    // The retired ids (2026-09-18). A manifest from a pre-rename release must
+    // read as unknown, exactly as a manifest from some future pipeline does.
+    expect(parseReleaseManifest(spoiled({ component: "server" }))).toBeNull();
+    expect(parseReleaseManifest(spoiled({ component: "node" }))).toBeNull();
     expect(parseReleaseManifest(spoiled({ version: "0.9" }))).toBeNull();
     expect(parseReleaseManifest(spoiled({ nodeProtocol: "10" }))).toBeNull();
     expect(parseReleaseManifest(spoiled({ nodeProtocol: 9.5 }))).toBeNull();
-    expect(parseReleaseManifest(spoiled({ minAgentVersion: "" }))).toBeNull();
+    expect(parseReleaseManifest(spoiled({ minNodeVersion: "" }))).toBeNull();
     expect(parseReleaseManifest(spoiled({ commit: "" }))).toBeNull();
   });
 

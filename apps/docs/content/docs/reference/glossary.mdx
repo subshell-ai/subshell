@@ -3,7 +3,7 @@ title: Glossary
 description: The words this product reserves — server, node, client, subshell, pane, preset, workspace, channel, plugin — each in one or two sentences, with a link to the page that goes deep.
 ---
 
-Three of these words are load-bearing, and one style rule governs all of them: **no word names two things.** "Server" is the control plane, never a machine that runs agents; "node" is a machine that runs agents, never an app; "client" is what a person points at a control plane, never the agent daemon. The display labels — "Subshell Server", "Subshell Client", and the control-plane host's node row — sit on top of these words without changing them.
+Three of these words are load-bearing, and one style rule governs all of them: **no word names two things.** "Server" is the control plane, never a machine that runs agents; "node" is a machine that runs agents, never an app; "client" is what a person points at a control plane, never the node daemon. The display labels — "Subshell Server", "Subshell Client", and the control-plane host's node row — sit on top of these words without changing them.
 
 ## Terms
 
@@ -15,11 +15,11 @@ Three of these words are load-bearing, and one style rule governs all of them: *
 
 **Client** — A person's interface to a control plane: the web UI, the mobile companion, the Subshell Client desktop app. A client calls the API; it never runs agents. → [Mobile and tablet](/get-started/mobile), [Subshell Client as a node](/nodes/client-as-node)
 
-**Config home** — The directory each binary keeps its settings in: `~/.config/subshell-server` for the control plane (its `config.env` lives here), `~/.config/subshell` for the agent (its `config.json` — the node key's only home). → [Files & Paths](/reference/files-and-paths)
+**Config home** — The directory each binary keeps its settings in: `~/.config/subshell-server` for the control plane (its `config.env` lives here), `~/.config/subshell` for the node (its `config.json` — the node key's only home). → [Files & Paths](/reference/files-and-paths)
 
 **Control plane (server)** — The one process that serves the web UI, holds the database, and makes every decision: what runs, with what credentials, on which machine. In this documentation "server" always means this, never a machine that runs agents — the machine running the control plane is *also* a node when it hosts panes, and the docs say so. → [What is Subshell](/about/index), [Server overview](/server/index)
 
-**Data directory** — Where the control plane keeps its working state — the pane logs, backups, plugin store, node artifacts, the update transaction — defaulting to the database file's own directory. The agent has its own, under its config home. → [Files & Paths](/reference/files-and-paths)
+**Data directory** — Where the control plane keeps its working state — the pane logs, backups, plugin store, node artifacts, the update transaction — defaulting to the database file's own directory. The node has its own, under its config home. → [Files & Paths](/reference/files-and-paths)
 
 **Everyone grant** — Two related defaults, one per axis: the control-plane host's node row starts shared with **edit** to every signed-in user (removing that row's share is how an admin narrows the host down), and a subshell's sharing picker can grant to all signed-in users at once. Both are shares like any other — revocable, and invisible to no one who can see the row. → [Sharing](/use/sharing), [Sharing a node](/nodes/sharing)
 
@@ -33,7 +33,7 @@ Three of these words are load-bearing, and one style rule governs all of them: *
 
 **Node** — A machine that runs agents: the `subshell` daemon and nothing else — no UI, no database, no opinions. Registering one delegates command execution under its OS user to the control plane, which is the feature; the node's own key, by contrast, is near-powerless. → [What a node is](/nodes/index)
 
-**Node key** — The bearer credential an enrolled agent dials its WebSocket with. On purpose it can do **nothing** on the REST API: its entire reach is impersonating that one node on its one socket. Rotating it revokes the live connection. → [What a node is](/nodes/index), [Managing the agent](/nodes/managing-the-agent)
+**Node key** — The bearer credential an enrolled node dials its WebSocket with. On purpose it can do **nothing** on the REST API: its entire reach is impersonating that one node on its one socket. Rotating it revokes the live connection. → [What a node is](/nodes/index), [Managing a node](/nodes/managing-a-node)
 
 **Pane** — The tmux split a subshell's harness actually runs in. A workspace is an arrangement of panes; each pane holds exactly one subshell, and the browser sees the pane, not the machine. → [Workspaces and panes](/use/workspaces-panes)
 

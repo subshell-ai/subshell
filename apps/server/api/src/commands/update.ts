@@ -153,7 +153,7 @@ async function pickRelease(opts: UpdateOpts): Promise<{ release: ResolvedRelease
   // unsigned manifest and a failed signature each refuse with their own
   // sentence — the release that fails verification is not merely older, it
   // does not exist to this host.
-  const gate = await installableCliRelease("server");
+  const gate = await installableCliRelease("cli-server");
   if (!gate.ok) return { refusal: gate.reason };
   const newest = gate.release;
   if (opts.to !== undefined && opts.to !== newest.version) {
@@ -227,7 +227,7 @@ async function runInstall(opts: UpdateOpts, deps: UpdateDeps): Promise<number> {
       error(`subshell-server: no server binary is published for ${process.platform}-${process.arch}`);
       return 1;
     }
-    const names = releaseAssetNames("server", hostTarget);
+    const names = releaseAssetNames("cli-server", hostTarget);
     const url = release.assets.get(names.binary);
     if (url === undefined) {
       error(`subshell-server: ${release.tag} publishes no ${names.binary}`);

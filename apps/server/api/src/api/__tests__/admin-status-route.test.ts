@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { MIN_AGENT_VERSION, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
+import { MIN_NODE_VERSION, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { adminStatusRoutes } from "@/api/admin-status.route.js";
@@ -102,13 +102,13 @@ describe("GET /api/admin/status", () => {
     const res = await app.fetch(authedRequest("/api/admin/status", adminCookie));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      versions: { server: string; nodeProtocol: number; minAgent: string; bun: string };
+      versions: { server: string; nodeProtocol: number; minNode: string; bun: string };
       generatedAt: string;
     };
     // Shared constants, never literals — a bump must not leave this stale.
     expect(body.versions.server).toBe(SERVER_VERSION);
     expect(body.versions.nodeProtocol).toBe(NODE_PROTOCOL_VERSION);
-    expect(body.versions.minAgent).toBe(MIN_AGENT_VERSION);
+    expect(body.versions.minNode).toBe(MIN_NODE_VERSION);
     expect(body.versions.bun).toMatch(/^\d+\.\d+\.\d+/);
     expect(Number.isNaN(Date.parse(body.generatedAt))).toBe(false);
   });
@@ -174,7 +174,7 @@ describe("GET /api/admin/status", () => {
       name: "current-agent",
       kind: "agent",
       status: "offline",
-      agentVersion: MIN_AGENT_VERSION,
+      agentVersion: MIN_NODE_VERSION,
     });
 
     const res = await app.fetch(authedRequest("/api/admin/status", adminCookie));

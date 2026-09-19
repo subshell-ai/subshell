@@ -2,7 +2,7 @@
  * The one update act, decided (spec 2026-09-18 §§ 4, 6, 7.1).
  *
  * Pure, so every case below is a fixture rather than a machine: the four
- * shapes § 4.1 names (app behind, agent behind, both, neither), each refusal
+ * shapes § 4.1 names (app behind, node behind, both, neither), each refusal
  * § 6 lists, and the restart § 7.1 offers once the agent file has been
  * replaced.
  */
@@ -22,8 +22,8 @@ function act(overrides: Partial<UpdateActInput> = {}) {
     probe: makeProbe(),
     checking: false,
     installingApp: false,
-    installingAgent: false,
-    installedAgentHere: false,
+    installingNode: false,
+    installedNodeHere: false,
     restartedHere: false,
     busy: false,
     // Nothing ticked by hand: every actionable row is selected by default
@@ -39,22 +39,22 @@ function row(over: Partial<UpdateActRow> & Pick<UpdateActRow, "id" | "label" | "
 }
 
 /** A machine whose installed agent is older than the one inside this app. */
-function agentBehind(overrides: Partial<Probe> = {}): Probe {
+function nodeBehind(overrides: Partial<Probe> = {}): Probe {
   return makeProbe({
-    agentChoice: "upgrade-available",
+    nodeChoice: "upgrade-available",
     bundledVersion: "1.10.0",
-    agent: { argv: ["/home/u/.local/bin/subshell"], source: "local-bin", version: "1.9.0" },
+    nodeBinary: { argv: ["/home/u/.local/bin/subshell"], source: "local-bin", version: "1.9.0" },
     ...overrides,
   });
 }
 
 describe("what the screen states (§ 4.1)", () => {
   it("names both halves when the app is behind, and cannot number the agent yet", () => {
-    const a = act({ check: check({ latest: "0.8.1" }), probe: agentBehind() });
+    const a = act({ check: check({ latest: "0.8.1" }), probe: nodeBehind() });
     expect(a.rows).toEqual([
       row({
         id: "app",
-        label: "Subshell Client app",
+        label: "Subshell Client App",
         from: "0.8.0",
         to: { kind: "version", version: "0.8.1" },
         selected: true,
@@ -67,37 +67,37 @@ describe("what the screen states (§ 4.1)", () => {
       // (review, 2026-09-18; it used to be a statement reading "installs with
       // the app", on the belief that nothing could cross the relaunch).
       row({
-        id: "agent",
-        label: "subshell CLI",
+        id: "node",
+        label: "Subshell Node CLI",
         from: "1.9.0",
         to: { kind: "with-app" },
         selected: true,
         selectable: true,
       }),
     ]);
-    expect(a.pressInstallsAgent).toBe(true);
+    expect(a.pressInstallsNodeCli).toBe(true);
     expect(a.press).toBe("app");
     expect(a.pressLabel).toBe("Download and Install 0.8.1");
   });
 
-  it("states BOTH halves when only the agent is behind, with the number in hand", () => {
-    const a = act({ probe: agentBehind() });
+  it("states BOTH halves when only the node is behind, with the number in hand", () => {
+    const a = act({ probe: nodeBehind() });
     expect(a.rows).toEqual([
       // The app is current and says so, rather than being dropped from a table
       // its sibling opened (review, 2026-09-18) — Subshell Server's rule, and
       // the one § 13.1 states for both.
-      row({ id: "app", label: "Subshell Client app", from: "0.8.0", to: { kind: "none" }, reason: "up to date" }),
+      row({ id: "app", label: "Subshell Client App", from: "0.8.0", to: { kind: "none" }, reason: "up to date" }),
       row({
-        id: "agent",
-        label: "subshell CLI",
+        id: "node",
+        label: "Subshell Node CLI",
         from: "1.9.0",
         to: { kind: "version", version: "1.10.0" },
         selected: true,
         selectable: true,
       }),
     ]);
-    expect(a.press).toBe("agent");
-    expect(a.pressLabel).toBe("Install the agent (1.10.0)");
+    expect(a.press).toBe("node");
+    expect(a.pressLabel).toBe("Install the node (1.10.0)");
     expect(a.phase).toBe("idle");
   });
 
@@ -106,10 +106,10 @@ describe("what the screen states (§ 4.1)", () => {
    * a machine set up before the last app update, or one whose agent install
    * failed. One phase, and no relaunch.
    */
-  it("offers the agent half on an app that is already current", () => {
-    const a = act({ probe: agentBehind() });
+  it("offers the node half on an app that is already current", () => {
+    const a = act({ probe: nodeBehind() });
     expect(a.rows.find((r) => r.id === "app")?.selectable).toBe(false);
-    expect(a.press).toBe("agent");
+    expect(a.press).toBe("node");
     expect(a.upToDate).toBe(false);
   });
 
@@ -121,16 +121,16 @@ describe("what the screen states (§ 4.1)", () => {
     expect(a.upToDate).toBe(true);
   });
 
-  /** A machine with no agent at all is a first install, not an upgrade. */
+  /** A machine with no node CLI at all is a first install, not an upgrade. */
   it("names an uninstalled agent by what it is rather than by a version", () => {
     const a = act({
-      probe: makeProbe({ agentChoice: "install-bundled", agent: null, managed: false, bundledVersion: "1.10.0" }),
+      probe: makeProbe({ nodeChoice: "install-bundled", nodeBinary: null, managed: false, bundledVersion: "1.10.0" }),
     });
     expect(a.rows).toEqual([
-      row({ id: "app", label: "Subshell Client app", from: "0.8.0", to: { kind: "none" }, reason: "up to date" }),
+      row({ id: "app", label: "Subshell Client App", from: "0.8.0", to: { kind: "none" }, reason: "up to date" }),
       row({
-        id: "agent",
-        label: "subshell CLI",
+        id: "node",
+        label: "Subshell Node CLI",
         from: "not installed",
         to: { kind: "version", version: "1.10.0" },
         selected: true,
@@ -143,22 +143,22 @@ describe("what the screen states (§ 4.1)", () => {
    * **Even a table the AGENT half opened states the app** (second review,
    * 2026-09-18). `check` is undefined on the first paint and PERMANENTLY when
    * `node_check_app_update` rejects — a build with no updater pubkey is the
-   * reserved `Err` case — and gating the app row on it left the agent row
+   * reserved `Err` case — and gating the app row on it left the node row
    * alone in a table this file and AGENTS.md both say cannot exist.
    */
   it("states an app it has not been able to ask about", () => {
-    const checkingNow = act({ check: undefined, checking: true, probe: agentBehind() });
-    expect(checkingNow.rows.map((r) => r.id)).toEqual(["app", "agent"]);
+    const checkingNow = act({ check: undefined, checking: true, probe: nodeBehind() });
+    expect(checkingNow.rows.map((r) => r.id)).toEqual(["app", "node"]);
     expect(checkingNow.rows[0]).toEqual(
-      row({ id: "app", label: "Subshell Client app", from: "—", to: { kind: "none" }, reason: "checking…" }),
+      row({ id: "app", label: "Subshell Client App", from: "—", to: { kind: "none" }, reason: "checking…" }),
     );
 
     // And once the check has REJECTED rather than answered, the row says so
     // rather than claiming the app is current.
-    const rejected = act({ check: undefined, checking: false, probe: agentBehind() });
+    const rejected = act({ check: undefined, checking: false, probe: nodeBehind() });
     expect(rejected.rows[0]?.reason).toBe("cannot be checked");
-    // The agent half is unaffected by any of it — it is entirely local.
-    expect(rejected.press).toBe("agent");
+    // The node half is unaffected by any of it — it is entirely local.
+    expect(rejected.press).toBe("node");
   });
 
   it("is still checking until a release answer has landed", () => {
@@ -172,35 +172,41 @@ describe("the refusals (§ 6)", () => {
   /**
    * Writing a binary the service does not invoke is an update that reports
    * success and changes nothing (root AGENTS.md, "never write the installed
-   * binary by convention"), so the app half runs and the agent half does not.
+   * binary by convention"), so the app half runs and the node half does not.
    */
-  it("refuses the agent half on a machine running somebody else's binary, and names it", () => {
+  it("refuses the node half on a machine running somebody else's binary, and names it", () => {
     const a = act({
       check: check({ latest: "0.8.1" }),
       probe: makeProbe({
         managed: false,
-        agentChoice: "upgrade-available",
-        agent: { argv: ["/opt/subshell/bin/subshell"], source: "service", version: "1.9.0" },
+        nodeChoice: "upgrade-available",
+        nodeBinary: { argv: ["/opt/subshell/bin/subshell"], source: "service", version: "1.9.0" },
       }),
     });
-    expect(a.rows.map((r) => r.id)).toEqual(["app", "agent"]);
-    // The agent row states the refusal where its checkbox would be, and is
+    expect(a.rows.map((r) => r.id)).toEqual(["app", "node"]);
+    // The node row states the refusal where its checkbox would be, and is
     // never a disabled one (§ 13.1).
     expect(a.rows[1]).toEqual(
-      row({ id: "agent", label: "subshell CLI", from: "1.9.0", to: { kind: "none" }, reason: "runs another binary" }),
+      row({
+        id: "node",
+        label: "Subshell Node CLI",
+        from: "1.9.0",
+        to: { kind: "none" },
+        reason: "runs another binary",
+      }),
     );
     expect(a.refusals.join(" ")).toContain("/opt/subshell/bin/subshell");
     // The app half still runs — the refusal is half an act, not the whole one.
     expect(a.press).toBe("app");
   });
 
-  it("keeps the agent half on an air-gapped install, and says why there is no app half", () => {
+  it("keeps the node half on an air-gapped install, and says why there is no app half", () => {
     const a = act({
       check: check({ reason: "no release source is configured (SUBSHELL_RELEASE_URL is empty)" }),
-      probe: agentBehind(),
+      probe: nodeBehind(),
     });
     expect(a.refusals.join(" ")).toContain("SUBSHELL_RELEASE_URL is empty");
-    expect(a.press).toBe("agent");
+    expect(a.press).toBe("node");
     expect(a.upToDate).toBe(false);
   });
 
@@ -209,22 +215,22 @@ describe("the refusals (§ 6)", () => {
       check: check({ reason: "the release source answered 503" }),
       probe: makeProbe({
         managed: false,
-        agentChoice: "upgrade-available",
-        agent: { argv: ["/opt/subshell/bin/subshell"], source: "service", version: "1.9.0" },
+        nodeChoice: "upgrade-available",
+        nodeBinary: { argv: ["/opt/subshell/bin/subshell"], source: "service", version: "1.9.0" },
       }),
     });
     expect(a.refusals.length).toBe(2);
   });
 
   it("does not offer a press while another action holds the runner", () => {
-    expect(act({ probe: agentBehind(), busy: true }).canPress).toBe(false);
-    expect(act({ probe: agentBehind(), installingApp: true }).canPress).toBe(false);
+    expect(act({ probe: nodeBehind(), busy: true }).canPress).toBe(false);
+    expect(act({ probe: nodeBehind(), installingApp: true }).canPress).toBe(false);
   });
 });
 
 describe("the second phase (§§ 4.2, 5)", () => {
   const resuming = (halted: boolean) =>
-    agentBehind({ pendingInstall: { fromAppVersion: "0.8.0", attempts: halted ? 2 : 0, halted } });
+    nodeBehind({ pendingInstall: { fromAppVersion: "0.8.0", attempts: halted ? 2 : 0, halted } });
 
   it("is finishing while a marker is outstanding, and offers no button over it", () => {
     const a = act({ probe: resuming(false) });
@@ -239,7 +245,7 @@ describe("the second phase (§§ 4.2, 5)", () => {
   /**
    * A marker on a machine whose agent this app must not replace.
    *
-   * Rust resolves that to `Resume::Clear` now (`comparable_agent_version` is
+   * Rust resolves that to `Resume::Clear` now (`comparable_node_version` is
    * what `decide()` always compared), so the only way here is a marker an
    * OLDER build left on disk. This layer is nonetheless the only one that can
    * SAY anything, and the worst possible reading is the one it used to
@@ -250,9 +256,9 @@ describe("the second phase (§§ 4.2, 5)", () => {
     const a = act({
       probe: makeProbe({
         managed: false,
-        agentChoice: "upgrade-available",
+        nodeChoice: "upgrade-available",
         bundledVersion: "1.10.0",
-        agent: { argv: ["/opt/subshell/bin/subshell"], source: "service", version: "1.9.0" },
+        nodeBinary: { argv: ["/opt/subshell/bin/subshell"], source: "service", version: "1.9.0" },
         pendingInstall: { fromAppVersion: "0.8.0", attempts: 0, halted: false },
       }),
     });
@@ -274,7 +280,7 @@ describe("the second phase (§§ 4.2, 5)", () => {
   it("offers Retry once it has stopped trying by itself", () => {
     const a = act({ probe: resuming(true) });
     expect(a.pressLabel).toBe("Retry");
-    expect(a.press).toBe("agent");
+    expect(a.press).toBe("node");
     expect(a.canPress).toBe(true);
     // Offered, never fired: this is the one place the design refuses to keep
     // trying on someone's behalf.
@@ -291,14 +297,14 @@ describe("the second phase (§§ 4.2, 5)", () => {
 
 describe("the restart the act offers rather than performs (§ 7.1)", () => {
   /**
-   * `node_install_agent` passes `--no-restart` and that stays — restarting a
+   * `node_install_cli` passes `--no-restart` and that stays — restarting a
    * node agent kills every subshell on a machine whose definition does not
    * spare panes. What changed is that the app now SAYS so: `rename(2)` leaves
    * the running process on its original inode, so the file is new and the
    * daemon is old, and before this nothing on screen mentioned it.
    */
   it("offers a restart once this window replaced the agent", () => {
-    const a = act({ installedAgentHere: true });
+    const a = act({ installedNodeHere: true });
     expect(a.offerRestart).toBe(true);
     expect(a.phase).toBe("done");
     // The offer IS what the screen says here, so there is nothing to settle.
@@ -306,11 +312,11 @@ describe("the restart the act offers rather than performs (§ 7.1)", () => {
   });
 
   it("stops offering it once the restart has happened", () => {
-    expect(act({ installedAgentHere: true, restartedHere: true }).offerRestart).toBe(false);
+    expect(act({ installedNodeHere: true, restartedHere: true }).offerRestart).toBe(false);
   });
 
   it("offers nothing to restart on a machine with no service", () => {
-    const a = act({ installedAgentHere: true, probe: makeProbe({ service: { installed: false } }) });
+    const a = act({ installedNodeHere: true, probe: makeProbe({ service: { installed: false } }) });
     expect(a.offerRestart).toBe(false);
   });
 
@@ -321,19 +327,19 @@ describe("the restart the act offers rather than performs (§ 7.1)", () => {
    * a successful act reads as one that lost the thread.
    */
   it("says the act is finished once there is nothing left to offer", () => {
-    expect(act({ installedAgentHere: true, restartedHere: true }).settled).toBe(true);
-    expect(act({ installedAgentHere: true, probe: makeProbe({ service: { installed: false } }) }).settled).toBe(true);
+    expect(act({ installedNodeHere: true, restartedHere: true }).settled).toBe(true);
+    expect(act({ installedNodeHere: true, probe: makeProbe({ service: { installed: false } }) }).settled).toBe(true);
     // Not while a half is still named on screen — an app update that landed
     // after the agent one must not be covered by "both up to date".
-    expect(act({ installedAgentHere: true, restartedHere: true, check: check({ latest: "0.9.0" }) }).settled).toBe(
+    expect(act({ installedNodeHere: true, restartedHere: true, check: check({ latest: "0.9.0" }) }).settled).toBe(
       false,
     );
   });
 
   it("warns about panes only where the definition does not spare them", () => {
-    expect(act({ installedAgentHere: true }).restartCostsPanes).toBe(false);
+    expect(act({ installedNodeHere: true }).restartCostsPanes).toBe(false);
     const risky = act({
-      installedAgentHere: true,
+      installedNodeHere: true,
       probe: makeProbe({ service: { installed: true, state: "running", paneSafety: "kills" } }),
     });
     expect(risky.restartCostsPanes).toBe(true);
@@ -342,7 +348,7 @@ describe("the restart the act offers rather than performs (§ 7.1)", () => {
   /** `unknown` fails closed everywhere else here, and must here too. */
   it("fails closed on a definition it could not read", () => {
     const a = act({
-      installedAgentHere: true,
+      installedNodeHere: true,
       probe: makeProbe({ service: { installed: true, state: "running", paneSafety: "unknown" } }),
     });
     expect(a.restartCostsPanes).toBe(true);
@@ -352,61 +358,67 @@ describe("the restart the act offers rather than performs (§ 7.1)", () => {
 /**
  * Reported by the operator on 2026-09-18, against Subshell Server and true of
  * this app for the same structural reason: a CLI updated by hand outranks the
- * one inside the bundle (`decide_agent` adopts it and never downgrades), and
+ * one inside the bundle (`decide_node` adopts it and never downgrades), and
  * the screen went on naming it as a target it would be replaced by.
  */
 describe("the act is a selection, not always both halves (§ 13)", () => {
   /** A machine running an agent NEWER than the one this app ships. */
-  const agentNewer = (overrides: Partial<Probe> = {}): Probe =>
+  const nodeNewer = (overrides: Partial<Probe> = {}): Probe =>
     makeProbe({
-      agentChoice: "adopt-installed",
+      nodeChoice: "adopt-installed",
       bundledVersion: "1.9.0",
-      agent: { argv: ["/home/u/.local/bin/subshell"], source: "local-bin", version: "1.11.0" },
+      nodeBinary: { argv: ["/home/u/.local/bin/subshell"], source: "local-bin", version: "1.11.0" },
       ...overrides,
     });
 
   it("never names an older bundled agent as the target of a newer installed one", () => {
-    const a = act({ check: check({ latest: "0.8.1" }), probe: agentNewer() });
+    const a = act({ check: check({ latest: "0.8.1" }), probe: nodeNewer() });
     expect(a.rows[1]).toEqual(
-      row({ id: "agent", label: "subshell CLI", from: "1.11.0", to: { kind: "none" }, reason: "you run a newer one" }),
+      row({
+        id: "node",
+        label: "Subshell Node CLI",
+        from: "1.11.0",
+        to: { kind: "none" },
+        reason: "you run a newer one",
+      }),
     );
     // And the sentence beside the press stops promising the half that will
     // not run: phase 2 answers `Resume::Clear` on this machine.
-    expect(a.pressInstallsAgent).toBe(false);
+    expect(a.pressInstallsNodeCli).toBe(false);
     // The app half is untouched by any of it.
     expect(a.press).toBe("app");
     expect(a.canPress).toBe(true);
   });
 
   it("refuses a marker on that machine rather than firing a downgrade (§ 13.2)", () => {
-    const a = act({ probe: agentNewer({ pendingInstall: { fromAppVersion: "0.8.0", attempts: 0, halted: false } }) });
+    const a = act({ probe: nodeNewer({ pendingInstall: { fromAppVersion: "0.8.0", attempts: 0, halted: false } }) });
     expect(a.resume).toBeNull();
     expect(a.autoFinish).toBe(false);
     expect(a.phase).not.toBe("finishing");
   });
 
-  it("hands the agent half its own checkbox once the app half is unticked", () => {
-    const behind = agentBehind();
+  it("hands the node half its own checkbox once the app half is unticked", () => {
+    const behind = nodeBehind();
     const both = act({ check: check({ latest: "0.8.1" }), probe: behind });
     // Both halves are choices, on either footing (review, 2026-09-18).
     expect(both.rows.map((r) => r.selectable)).toEqual([true, true]);
 
     const appOff = act({ check: check({ latest: "0.8.1" }), probe: behind, selection: { app: false } });
-    // With nothing crossing a relaunch, the agent half is an act of its own —
+    // With nothing crossing a relaunch, the node half is an act of its own —
     // and its number is in hand, because it is THIS bundle's agent.
     expect(appOff.rows[1]).toEqual(
       row({
-        id: "agent",
-        label: "subshell CLI",
+        id: "node",
+        label: "Subshell Node CLI",
         from: "1.9.0",
         to: { kind: "version", version: "1.10.0" },
         selected: true,
         selectable: true,
       }),
     );
-    expect(appOff.press).toBe("agent");
-    expect(appOff.pressLabel).toBe("Install the agent (1.10.0)");
-    expect(appOff.pressInstallsAgent).toBe(false);
+    expect(appOff.press).toBe("node");
+    expect(appOff.pressLabel).toBe("Install the node (1.10.0)");
+    expect(appOff.pressInstallsNodeCli).toBe(false);
   });
 
   /**
@@ -415,16 +427,16 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
    *
    * It was not offerable at all: the row rendered ticked and disabled, on the
    * reasoning that the marker carries no selection. It carries one now, as its
-   * own PRESENCE — `node_install_app_update(install_agent: false)` writes none,
+   * own PRESENCE — `node_install_app_update(install_node: false)` writes none,
    * so phase 2 never runs and a deliberately older `~/.local/bin/subshell`
    * survives the app update.
    */
-  it("lets the agent half be declined while the app half runs", () => {
-    const a = act({ check: check({ latest: "0.8.1" }), probe: agentBehind(), selection: { agent: false } });
+  it("lets the node half be declined while the app half runs", () => {
+    const a = act({ check: check({ latest: "0.8.1" }), probe: nodeBehind(), selection: { node: false } });
     expect(a.rows[1]).toEqual(
       row({
-        id: "agent",
-        label: "subshell CLI",
+        id: "node",
+        label: "Subshell Node CLI",
         from: "1.9.0",
         // Still says what ticking it would do, rather than going blank.
         to: { kind: "with-app" },
@@ -435,14 +447,14 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
     // The app press is unchanged, and stops promising the half it will not do.
     expect(a.press).toBe("app");
     expect(a.pressLabel).toBe("Download and Install 0.8.1");
-    expect(a.pressInstallsAgent).toBe(false);
+    expect(a.pressInstallsNodeCli).toBe(false);
   });
 
   it("is dead, and says why, when everything is unticked", () => {
     const a = act({
       check: check({ latest: "0.8.1" }),
-      probe: agentBehind(),
-      selection: { app: false, agent: false },
+      probe: nodeBehind(),
+      selection: { app: false, node: false },
     });
     expect(a.press).toBeNull();
     expect(a.canPress).toBe(false);
@@ -456,11 +468,11 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
   });
 
   it("states an unreachable release source in the app row's own cell", () => {
-    const a = act({ check: check({ reason: "the release source answered 503" }), probe: agentBehind() });
+    const a = act({ check: check({ reason: "the release source answered 503" }), probe: nodeBehind() });
     expect(a.rows[0]).toEqual(
       row({
         id: "app",
-        label: "Subshell Client app",
+        label: "Subshell Client App",
         from: "0.8.0",
         to: { kind: "none" },
         reason: "cannot be checked",
@@ -474,7 +486,7 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
    * press's own sentence.
    */
   it("stops promising a local install where there is none to make", () => {
-    const a = act({ check: check({ reason: "the release source answered 503" }), probe: agentNewer() });
+    const a = act({ check: check({ reason: "the release source answered 503" }), probe: nodeNewer() });
     expect(a.refusals).toEqual(["the release source answered 503"]);
     expect(a.press).toBeNull();
   });
@@ -489,7 +501,7 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
    */
   it("states the agent beside an app row it cannot answer for", () => {
     const a = act({ check: check({ reason: "the release source answered 503" }) });
-    expect(a.rows.map((r) => r.id)).toEqual(["app", "agent"]);
+    expect(a.rows.map((r) => r.id)).toEqual(["app", "node"]);
     expect(a.rows[1].reason).toBe("up to date");
   });
 
@@ -510,13 +522,13 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
       check: check({ reason: "the release source answered 503" }),
       probe: makeProbe({ bundledVersion: null }),
     });
-    expect(a.rows.map((r) => r.id)).toEqual(["app", "agent"]);
-    expect(a.rows[1].reason).toBe("this build does not say which agent it ships");
+    expect(a.rows.map((r) => r.id)).toEqual(["app", "node"]);
+    expect(a.rows[1].reason).toBe("this build does not say which node CLI it ships");
     expect(a.rows[1].selectable).toBe(false);
   });
 
   it("leaves no checkbox anywhere while an act is running", () => {
-    const a = act({ check: check({ latest: "0.8.1" }), probe: agentBehind(), installingApp: true });
+    const a = act({ check: check({ latest: "0.8.1" }), probe: nodeBehind(), installingApp: true });
     expect(a.rows.every((r) => !r.selectable)).toBe(true);
     // And the app row says nothing where its checkbox was: the decision is
     // made, and the progress line is what the screen has to say.

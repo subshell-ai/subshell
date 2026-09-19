@@ -76,7 +76,7 @@ export const ENROLL_NOTES: readonly string[] = [
  * Which platform this bundled page is running on.
  *
  * The user agent, because this page has no `platform` on its probe — the
- * Rust side reports the AGENT's state, and nothing in that report is about the
+ * Rust side reports the NODE's state, and nothing in that report is about the
  * operating system as such. Read once and named, so the two places that need
  * it read one expression: a second inline regex is how two surfaces come to
  * disagree about which machine they are on.

@@ -646,7 +646,7 @@ credential that is now readable:
 **Agent binaries are fetched lazily from the project's own release
 (2026-09-12).** A control plane installed from a release tarball has an empty
 `node-artifacts` directory, so every install one-liner used to 404 until an
-operator ran `release:node` from a checkout. The repository is public, so the
+operator ran `release:cli-node` from a checkout. The repository is public, so the
 server now reads the same release it was telling people to copy from. The
 posture:
 
@@ -681,7 +681,7 @@ posture:
   hand install. The Nodes dialog's "no agent binary" warning is kept for
   precisely that case, where it is still exactly true.
 - **Only a release this plane can TALK TO is offered** (tightened 2026-09-15).
-  The old rule was "newest above `MIN_AGENT_VERSION`", which could hand a
+  The old rule was "newest above `MIN_NODE_VERSION`", which could hand a
   machine an agent speaking a protocol this server does not — it would enrol,
   reconnect, and be refused forever. `compatibleNodeRelease()` now requires the
   release's own `release-manifest.json` to declare THIS server's
@@ -1948,7 +1948,7 @@ install instead of failing quietly. Two honest residues. The INSTALL one-liners
 (`install-server.sh`, the node enroll script) keep the old rule — their digest
 comes from the sidecar the same host serves, so a first install is still
 TLS-plus-repository trust; the first UPDATE any installed product performs is
-verified against the compiled-in key. And a local `release:node` publish into
+verified against the compiled-in key. And a local `release:cli-node` publish into
 one's own instance is legal UNSIGNED — those artifacts are served by digest
 through the authenticated downloads route and never crossed a network nobody
 controls — while every plane's release SELECTION refuses an unsigned release,

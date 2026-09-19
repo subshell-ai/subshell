@@ -7,7 +7,7 @@ export const Route = createFileRoute("/nodes_/$id/logs")({ component: NodeLogsPa
 /**
  * One node's Logs section (spec 2026-09-12, node half § 4).
  *
- * The agent writes one bounded file of its own precisely so this page can
+ * The node writes one bounded file of its own precisely so this page can
  * exist on every platform: its console output goes to a file under launchd and
  * to the journal under systemd, and neither is something a browser can read.
  */
@@ -20,8 +20,8 @@ function NodeLogsPage() {
           <NodeLogCard node={node} />
         ) : (
           <p className="text-muted-foreground text-sm">
-            This node is offline. Its log is read through the agent's own connection, so it can only be read while the
-            agent is running.
+            This node is offline. Its log is read through the node's own connection, so it can only be read while the
+            node is running.
           </p>
         )
       }

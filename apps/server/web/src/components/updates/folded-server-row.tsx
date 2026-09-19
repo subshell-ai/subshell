@@ -10,7 +10,7 @@ import type { ReleaseRef, ServerUpdateView } from "@/types/updates";
  * app that manages both (spec 2026-09-18 D4).
  *
  * In a browser this page shows two rows and three update controls for what a
- * person experiences as one thing: the *Subshell Server app* row, the *Server*
+ * person experiences as one thing: the *Subshell Server App* row, the *Server*
  * row's release-source download, and a bundled-server sentence under it. That
  * is honest in a browser, where nothing can be installed on a machine the page
  * is not running on — but inside the app it is our packaging presented as the
@@ -79,12 +79,13 @@ export function FoldedServerRow({
     <>
       <div className="contents">
         <div className="min-w-0">
-          {/* Sentence case, matching the sibling "Subshell Client app" row —
-              two rows in one table must not disagree about capitalisation.
+          {/* `Subshell <Product> <Form>`, the one rule all three update
+              surfaces follow since 2026-09-18, mirroring the cli-server /
+              cli-node / desktop-server / desktop-client release components.
               It read "Subshell Server", which named the product rather than
               the thing this row's versions are about (operator's report,
               2026-09-18). */}
-          <p className="truncate font-strong text-label">Subshell Server app</p>
+          <p className="truncate font-strong text-label">Subshell Server App</p>
           <MobilePair running={shell.version} newest={app?.version ?? DASH} />
         </div>
         <VersionCell value={shell.version} />
@@ -107,7 +108,7 @@ export function FoldedServerRow({
         <div className="min-w-0">
           {/* "CLI", so the version beside it is unambiguously the binary's and
               not this app's — the row above carries the other one. */}
-          <p className="truncate font-strong text-label">subshell-server CLI</p>
+          <p className="truncate font-strong text-label">Subshell Server CLI</p>
           <MobilePair running={server.current || DASH} newest={server.latest?.version ?? DASH} />
         </div>
         <VersionCell value={server.current || DASH} />

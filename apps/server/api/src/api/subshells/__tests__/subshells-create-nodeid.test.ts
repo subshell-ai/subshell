@@ -85,7 +85,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     return row.id;
   }
 
-  async function mkAgent(ownerUserId: string): Promise<string> {
+  async function mkNode(ownerUserId: string): Promise<string> {
     const id = crypto.randomUUID();
     createdNodeIds.push(id);
     await new NodesRepository(db).create({ id, ownerUserId, name: `cnode-${id}`, kind: "agent", status: "offline" });
@@ -217,14 +217,14 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
   });
 
   it("foreign private node → 404 (invisible, never 403 — spec §2: no node-id existence oracle)", async () => {
-    const node = await mkAgent(otherId);
+    const node = await mkNode(otherId);
     const res = await post({ ...base(unusablePresetId, "pi"), nodeId: node });
     expect(res.status).toBe(404);
     expect(((await res.json()) as { message: string }).message).toMatch(/node/i);
   });
 
   it("own agent with no live connection → 409 NODE_OFFLINE", async () => {
-    const node = await mkAgent(userId);
+    const node = await mkNode(userId);
     const res = await post({ ...base(unusablePresetId, "pi"), nodeId: node });
     expect(res.status).toBe(409);
     const body = (await res.json()) as { code: string; statusCode: number };
@@ -251,9 +251,9 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
       // per-node harness gate must reject it. A local-probe bug would fall
       // through to a real launch (200) instead of this 409. The AGENT copy
       // must name the node, not "this machine".
-      const agentRes = await post({ ...base(claudePresetId, "claude-code"), nodeId });
-      expect(agentRes.status).toBe(409);
-      expect(((await agentRes.json()) as { message: string }).message).toBe(
+      const nodeRes = await post({ ...base(claudePresetId, "claude-code"), nodeId });
+      expect(nodeRes.status).toBe(409);
+      expect(((await nodeRes.json()) as { message: string }).message).toBe(
         "That harness is disabled or not installed on that node",
       );
     } finally {

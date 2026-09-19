@@ -17,11 +17,11 @@
  * 2. **Nothing touches this machine before the person says which half of the
  *    app they want.** Welcome and Choice exist so the register path is chosen
  *    rather than defaulted into, and so a watcher is never walked past tmux,
- *    an agent install and a setup key to reach an address field.
+ *    a node install and a setup key to reach an address field.
  *
  * The walk itself is in-memory ({@link FteStep}, held by the page) and
  * deliberately NOT persisted: every fact it would store — an address, an
- * agent, a node config — is one the probe already reports, and a second source
+ * node CLI, a node config — is one the probe already reports, and a second source
  * of truth for a step that costs one re-pick to redo is the expensive kind of
  * cheap.
  */
@@ -108,11 +108,11 @@ export function configured(settings: NodeSettings | undefined, probe: Probe | un
  *    person is watching with Status between two rows of it. A walk ends when
  *    the page clears the step, not when a side effect lands.
  * 4. **A configured client ⇒ Status**, whatever the probe says. A stopped
- *    service, an agent that will not answer, a client that never enrolled:
+ *    service, a node that will not answer, a client that never enrolled:
  *    all of them are Status with a different action inside it, because the
  *    person came back to an app they had already set up and the screen that
  *    says so is the honest landing.
- * 5. **A machine already half-built ⇒ Register.** An agent that reports
+ * 5. **A machine already half-built ⇒ Register.** A node that reports
  *    `not-enrolled` is a first run that got as far as installing and stopped
  *    (spec § 5.5): the walk is not news to this machine, and Register's chain
  *    re-runs the install as a no-op.
@@ -124,8 +124,8 @@ export function clientScreen(i: FlowInput): NodeScreenId | null {
   if (i.override) return i.override;
   if (i.step) return walkScreen(i.step, i.probe);
   if (configured(i.settings, i.probe)) return "status";
-  // Spec § 5.5's resume: an agent exists and has no config. Keyed on the step
-  // rather than on `probe.agent`, because `no-agent` also covers a binary that
+  // Spec § 5.5's resume: a node CLI exists and has no config. Keyed on the step
+  // rather than on `probe.nodeBinary`, because `no-node` also covers a binary that
   // answered `version` and not `status --json` — a machine we cannot say
   // anything about, whose remedy is the register chain's own install.
   if (i.probe?.step === "not-enrolled") return "register";
@@ -139,7 +139,7 @@ function walkScreen(step: FteStep, probe: Probe | undefined): NodeScreenId {
       return "choice";
     case "watch":
       // The watch path's one screen: an address, and nothing about this
-      // machine. No agent, no key, nothing installed.
+      // machine. No node, no key, nothing installed.
       return "connect";
     case "node":
       // tmux is a HARD gate, not a caption (spec § 2): every subshell runs in
@@ -183,7 +183,7 @@ export interface RegisterRow {
  * sentence "this is the act that failed".
  */
 const REGISTER_ACTS: readonly { id: RegisterRow["id"]; label: string }[] = [
-  { id: "install", label: "Install the agent" },
+  { id: "install", label: "Install the node" },
   { id: "enroll", label: "Enroll this machine" },
   { id: "start", label: "Start the node service" },
 ];
@@ -204,7 +204,7 @@ function alreadyTrue(probe: Probe | undefined, id: RegisterRow["id"]): boolean {
     // The same test the chain itself branches on (spec § 6.1): it installs
     // only when nothing on the ladder answered.
     case "install":
-      return probe.step !== "no-agent";
+      return probe.step !== "no-node";
     case "enroll":
       return probe.status?.nodeId != null;
     case "start":

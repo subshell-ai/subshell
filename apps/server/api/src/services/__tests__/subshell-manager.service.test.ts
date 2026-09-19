@@ -1135,7 +1135,7 @@ function remoteFixture(
 }
 
 /** Seed a running agent row directly (the fake "pane" lives only on the node). */
-async function seedAgentRow(
+async function seedNodeRow(
   nodeId: string,
   over: Partial<Parameters<typeof subshellsRepo.create>[0]> = {},
 ): Promise<string> {
@@ -1176,7 +1176,7 @@ describe("reconcile partition — agent rows (spec §6.3)", () => {
     // sweep that probed it for an agent row would FALSE-CRASH the row (death
     // push) and revive through `#launcherFor(nodeId)` onto the node itself.
     f.launcher.alive = false;
-    const id = await seedAgentRow(nodeId, { name: "Before", backoffCount: 0 });
+    const id = await seedNodeRow(nodeId, { name: "Before", backoffCount: 0 });
     try {
       entries = [probeAlive(id, { title: "Remote task", command: "claude", capture: "screen line 1\nscreen line 2" })];
       await f.manager.reconcileAll();
@@ -1205,7 +1205,7 @@ describe("reconcile partition — agent rows (spec §6.3)", () => {
   it("an offline agent node ⇒ its rows are skipped entirely (no probe, row stays running; spec §5.6)", async () => {
     const nodeId = "recon-node-offline";
     const f = remoteFixture(() => []);
-    const id = await seedAgentRow(nodeId, { alive: 1 });
+    const id = await seedNodeRow(nodeId, { alive: 1 });
     try {
       await f.manager.reconcileAll();
       expect(f.probes).toHaveLength(0); // never probed…
@@ -1224,7 +1224,7 @@ describe("reconcile partition — agent rows (spec §6.3)", () => {
     const off = nodeOnline(nodeId, []);
     const f = remoteFixture(() => []);
     const ids: string[] = [];
-    for (let i = 0; i < 30; i++) ids.push(await seedAgentRow(nodeId, { name: `b-${i}` }));
+    for (let i = 0; i < 30; i++) ids.push(await seedNodeRow(nodeId, { name: `b-${i}` }));
     try {
       await f.manager.reconcileAll();
       expect(f.probes.map((p) => p.subshellIds.length)).toEqual([24, 6]);
@@ -1246,7 +1246,7 @@ describe("reconcile partition — agent rows (spec §6.3)", () => {
       return subshellIds.map((id) => probeDead(id, 1));
     });
     const ids: string[] = [];
-    for (let i = 0; i < 30; i++) ids.push(await seedAgentRow(nodeId, { name: `e-${i}` }));
+    for (let i = 0; i < 30; i++) ids.push(await seedNodeRow(nodeId, { name: `e-${i}` }));
     try {
       await f.manager.reconcileAll(); // must not reject
       expect(f.probes).toHaveLength(2);
@@ -1272,7 +1272,7 @@ describe("reconcile partition — agent rows (spec §6.3)", () => {
     const off = nodeOnline(nodeId, []);
     let entries: NodeProbeEntry[] = [];
     const f = remoteFixture(() => entries);
-    const id = await seedAgentRow(nodeId, {
+    const id = await seedNodeRow(nodeId, {
       alive: 1,
       restartOnExit: 1,
       backoffCount: 0,
@@ -1324,7 +1324,7 @@ describe("reconcile partition — agent rows (spec §6.3)", () => {
     // — the same shape as the offline stop). The alive-apply must re-read,
     // find the row retired, and FINISH the operator's job instead of patching.
     const f = remoteFixture(() => gate.then(() => entries));
-    const id = await seedAgentRow(nodeId, { alive: 1 });
+    const id = await seedNodeRow(nodeId, { alive: 1 });
     try {
       const sweepP = f.manager.reconcileAll();
       for (let i = 0; f.probes.length === 0 && i < 2000; i++) await new Promise((r) => setTimeout(r, 1));
@@ -1350,10 +1350,10 @@ describe("reconcile partition — agent rows (spec §6.3)", () => {
   it("alive-entry rules: title rejects command/host defaults, locked names untouched, backoff reset, capture optional", async () => {
     const nodeId = "recon-node-rules";
     const off = nodeOnline(nodeId, []);
-    const adopt = await seedAgentRow(nodeId, { name: "Auto", backoffCount: 2 });
-    const sameCmd = await seedAgentRow(nodeId, { name: "Run" });
-    const locked = await seedAgentRow(nodeId, { name: "Pinned", nameLocked: 1 });
-    const hostTitled = await seedAgentRow(nodeId, { name: "Hosty" });
+    const adopt = await seedNodeRow(nodeId, { name: "Auto", backoffCount: 2 });
+    const sameCmd = await seedNodeRow(nodeId, { name: "Run" });
+    const locked = await seedNodeRow(nodeId, { name: "Pinned", nameLocked: 1 });
+    const hostTitled = await seedNodeRow(nodeId, { name: "Hosty" });
     try {
       const entries = [
         probeAlive(adopt, { title: "✳ Ship the feature", command: "claude" }),
@@ -1380,7 +1380,7 @@ describe("reconcile partition — agent rows (spec §6.3)", () => {
   it("#preview for agent rows reads the cache ONLY — no launcher capture, no probe (list path)", async () => {
     const nodeId = "recon-node-view";
     const off = nodeOnline(nodeId, []);
-    const id = await seedAgentRow(nodeId, { alive: 1 });
+    const id = await seedNodeRow(nodeId, { alive: 1 });
     try {
       previewCachePut(id, ["cached", "screen"]);
       const f = remoteFixture(() => []);
@@ -1402,7 +1402,7 @@ describe("applyRemoteExit — shared death transition (idempotent against sweep 
     const nodeId = "exit-node-a";
     const off = nodeOnline(nodeId, []);
     const f = remoteFixture();
-    const id = await seedAgentRow(nodeId, { alive: 1 });
+    const id = await seedNodeRow(nodeId, { alive: 1 });
     try {
       const at = new Date(Date.now() - 5_000).toISOString();
       await f.manager.applyRemoteExit(nodeId, id, 3, at);
@@ -1421,7 +1421,7 @@ describe("applyRemoteExit — shared death transition (idempotent against sweep 
   it("exit event then a sweep pass ⇒ still exactly ONE push", async () => {
     const nodeId = "exit-node-b";
     const off = nodeOnline(nodeId, []);
-    const id = await seedAgentRow(nodeId, { alive: 1 });
+    const id = await seedNodeRow(nodeId, { alive: 1 });
     const f = remoteFixture(() => [probeDead(id, 3)]);
     try {
       await f.manager.applyRemoteExit(nodeId, id, 3, new Date().toISOString());
@@ -1437,7 +1437,7 @@ describe("applyRemoteExit — shared death transition (idempotent against sweep 
     const nodeId = "exit-node-c";
     const off = nodeOnline(nodeId, []);
     const f = remoteFixture((_call, subshellIds) => subshellIds.map((sid) => probeDead(sid, 3)));
-    const id = await seedAgentRow(nodeId, { alive: 1 });
+    const id = await seedNodeRow(nodeId, { alive: 1 });
     try {
       await f.manager.reconcileAll(); // sweep marks dead first — one push
       expect(f.pushes).toHaveLength(1);
@@ -1453,7 +1453,7 @@ describe("applyRemoteExit — shared death transition (idempotent against sweep 
     const nodeId = "exit-node-cache";
     const off = nodeOnline(nodeId, []);
     const f = remoteFixture();
-    const id = await seedAgentRow(nodeId, { alive: 1 });
+    const id = await seedNodeRow(nodeId, { alive: 1 });
     try {
       previewCachePut(id, ["last", "screen"]);
       await f.manager.applyRemoteExit(nodeId, id, 1, new Date().toISOString());
@@ -1469,7 +1469,7 @@ describe("applyRemoteExit — shared death transition (idempotent against sweep 
     const nodeId = "exit-node-owner";
     const off = nodeOnline(nodeId, []);
     const f = remoteFixture();
-    const id = await seedAgentRow(nodeId, { alive: 1 });
+    const id = await seedNodeRow(nodeId, { alive: 1 });
     try {
       await f.manager.applyRemoteExit("exit-node-imposter", id, 1, new Date().toISOString());
       expect(f.pushes).toHaveLength(0);
@@ -1510,7 +1510,7 @@ describe("applyRemoteExit — shared death transition (idempotent against sweep 
       sendNode: f.sendNode,
     });
     const livePreset = await seedPreset(presetsRepo);
-    const id = await seedAgentRow(nodeId, { alive: 0, presetId: livePreset }); // parked row → restart revives it
+    const id = await seedNodeRow(nodeId, { alive: 0, presetId: livePreset }); // parked row → restart revives it
     const restartP = gated.restartSubshell("u-recon", id);
     for (let i = 0; !reachedIssue && i < 2000; i++) await new Promise((r) => setTimeout(r, 1));
     expect(reachedIssue).toBe(true);
@@ -1534,7 +1534,7 @@ describe("applySubshellsReport — reconnect census (O2 reconnect path)", () => 
     const nodeId = "report-node-revive";
     const off = nodeOnline(nodeId, []);
     const f = remoteFixture();
-    const id = await seedAgentRow(nodeId, { alive: 0 });
+    const id = await seedNodeRow(nodeId, { alive: 0 });
     await subshellsRepo.update(id, { endedAt: new Date().toISOString() }); // parked WITH a death stamp
     try {
       await f.manager.applySubshellsReport(nodeId, [{ subshellId: id, alive: true, exitCode: null }]);
@@ -1554,7 +1554,7 @@ describe("applySubshellsReport — reconnect census (O2 reconnect path)", () => 
     const nodeId = "report-node-dead";
     const off = nodeOnline(nodeId, []);
     const f = remoteFixture();
-    const id = await seedAgentRow(nodeId, { alive: 1 });
+    const id = await seedNodeRow(nodeId, { alive: 1 });
     try {
       await f.manager.applySubshellsReport(nodeId, [{ subshellId: id, alive: false, exitCode: 7 }]);
       const row = await subshellsRepo.findById(id);
@@ -1572,7 +1572,7 @@ describe("applySubshellsReport — reconnect census (O2 reconnect path)", () => 
     const nodeId = "report-node-kill";
     const off = nodeOnline(nodeId, []);
     const f = remoteFixture();
-    const id = await seedAgentRow(nodeId, { alive: 1 });
+    const id = await seedNodeRow(nodeId, { alive: 1 });
     await subshellsRepo.markTerminated(id, new Date().toISOString());
     await subshellsRepo.update(id, { alive: 0 });
     try {
@@ -1592,7 +1592,7 @@ describe("applySubshellsReport — reconnect census (O2 reconnect path)", () => 
     const nodeId = "report-node-guard";
     const off = nodeOnline(nodeId, []);
     const f = remoteFixture();
-    const id = await seedAgentRow(nodeId, { alive: 1 });
+    const id = await seedNodeRow(nodeId, { alive: 1 });
     try {
       await f.manager.applySubshellsReport("report-node-imposter", [{ subshellId: id, alive: false, exitCode: 0 }]);
       await f.manager.applySubshellsReport(nodeId, [{ subshellId: crypto.randomUUID(), alive: true, exitCode: null }]);
@@ -1625,7 +1625,7 @@ describe("terminateSubshell on an offline agent node — best-effort stop (O2 ru
         audits.push(JSON.parse(event.metadataJson ?? "{}") as Record<string, unknown>);
       },
     });
-    const id = await seedAgentRow("terminate-node-off", { alive: 1 });
+    const id = await seedNodeRow("terminate-node-off", { alive: 1 });
     await manager.terminateSubshell("u-recon", id); // must NOT throw
     const row = await subshellsRepo.findById(id);
     expect(row?.status).toBe("terminated");
@@ -1637,7 +1637,7 @@ describe("terminateSubshell on an offline agent node — best-effort stop (O2 ru
 
   it("a successful kill keeps the audit metadata exactly as before (no killUnverified)", async () => {
     const f = remoteFixture();
-    const id = await seedAgentRow("terminate-node-on", { alive: 1 });
+    const id = await seedNodeRow("terminate-node-on", { alive: 1 });
     await f.manager.terminateSubshell("u-recon", id);
     expect(f.launcher.kills).toEqual([id]);
     expect(f.audits.at(-1)).toEqual({ name: "Agent row" });
@@ -1647,7 +1647,7 @@ describe("terminateSubshell on an offline agent node — best-effort stop (O2 ru
   it("a NON-offline kill failure still throws and leaves the row running (all other kills behave as today)", async () => {
     const f = remoteFixture();
     f.launcher.killError = new Error("tmux refused");
-    const id = await seedAgentRow("terminate-node-boom", { alive: 1 });
+    const id = await seedNodeRow("terminate-node-boom", { alive: 1 });
     await expect(f.manager.terminateSubshell("u-recon", id)).rejects.toThrow("tmux refused");
     const row = await subshellsRepo.findById(id);
     expect(row?.status).toBe("running"); // the terminate aborted, as today
@@ -1660,7 +1660,7 @@ describe("deleteSubshell cleans the agent meta artifact (O3)", () => {
     const nodeId = "delete-node-o3";
     const off = nodeOnline(nodeId, []);
     const f = remoteFixture();
-    const id = await seedAgentRow(nodeId, { alive: 0, status: "terminated" });
+    const id = await seedNodeRow(nodeId, { alive: 0, status: "terminated" });
     try {
       expect(await f.manager.deleteSubshell("u-recon", id)).toBe(true);
       expect(f.launcher.removedPaths.at(-1)).toEqual([
@@ -1676,7 +1676,7 @@ describe("deleteSubshell cleans the agent meta artifact (O3)", () => {
 
   it("local row: byte-identical artifact list (no meta concept locally)", async () => {
     const f = remoteFixture();
-    const id = await seedAgentRow(LOCAL_NODE_ID, { status: "terminated", userId: "u-recon-local" });
+    const id = await seedNodeRow(LOCAL_NODE_ID, { status: "terminated", userId: "u-recon-local" });
     expect(await f.manager.deleteSubshell("u-recon-local", id)).toBe(true);
     expect(f.launcher.removedPaths.at(-1)).toEqual([join(testDir, `${id}.log`)]);
     await subshellsRepo.delete(id);

@@ -386,7 +386,7 @@ async function main(): Promise<void> {
   const assets: Record<string, string> = {};
   for (const [, { path, digest }] of result.artifacts) assets[basename(path)] = digest;
   const manifest = await writeReleaseManifest(destDir, {
-    component: "server",
+    component: "cli-server",
     version: pkg.version,
     commit: releaseCommit(),
     assets,
@@ -405,7 +405,7 @@ async function main(): Promise<void> {
     );
   }
   process.stdout.write(
-    `  ${RELEASE_MANIFEST_NAME.padEnd(32)} protocol ${manifest.nodeProtocol}, min agent ${manifest.minAgentVersion}\n`,
+    `  ${RELEASE_MANIFEST_NAME.padEnd(32)} protocol ${manifest.nodeProtocol}, min node ${manifest.minNodeVersion}\n`,
   );
   process.stdout.write(
     signed === "signed"

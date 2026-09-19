@@ -3,7 +3,7 @@ import { relativeElapsed } from "@/components/subshell-status";
 /**
  * "checked 2m ago" for a detection stamp, or null when there is none.
  *
- * Absent is not an error. A node running an agent older than the field simply
+ * Absent is not an error. A node running a node CLI older than the field simply
  * has nothing to say, and a surface must render that as silence rather than as
  * "checked never", which would read as a failure.
  *

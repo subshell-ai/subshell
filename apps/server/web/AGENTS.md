@@ -282,7 +282,7 @@ servers.** A `systemd --user` unit runs inside its owner's login session, so an
 ENABLED unit still dies at logout unless the account lingers
 (`loginctl enable-linger`); with lingering it comes back at boot with nobody
 logged in. So "starts at login" and "survives a reboot" are different facts,
-and on a box nobody logs in to the first one is worth nothing. The agent and
+and on a box nobody logs in to the first one is worth nothing. The node and
 the server both measure it now (`service.linger`, `null` on macOS where a
 LaunchAgent's lifetime IS the login session and no such knob is missing), which
 is what lets the browser state which machine you have instead of explaining
@@ -323,7 +323,7 @@ state, and a value this plane does not store).
 Two places deliberately DIVERGE. There is no supervision card: Subshell Client
 has no supervisor, so a node has no "the app runs it as a child" mode to
 choose. And the Control plane card's "Restart to apply" has no wait-for-return
-— that restart sends the agent to a DIFFERENT plane, so watching for it here
+— that restart sends the node to a DIFFERENT plane, so watching for it here
 would time out and report a failure for the thing working exactly as asked.
 
 **Whether "Add node" is offered is `lib/node-enrollment.ts`, not an expression
@@ -397,13 +397,13 @@ triples the server actually serves — and names the missing ones IN THE TERMINA
 (both the refusal and the copyable `subshell setup` fallback it drives live beside the
 command they describe, not in the generate slot above; `setup`, not `enroll`, because
 `enroll` requires `--name` and a person reading a command off a browser should be
-ASKED for the name instead): a binary-only server install publishes no agent
-binaries until `release:node` runs, and the one-liner 404s on every machine
+ASKED for the name instead): a binary-only server install publishes no node
+binaries until `release:cli-node` runs, and the one-liner 404s on every machine
 until then. The field being ABSENT (older server behind a cached PWA) stays
 silent; the query still loading or errored shows a "could not check" line
 instead — no verdict without data. Opening the dialog refetches so a just-
 published artifact set is visible at once. The **Desktop App** panel sees NONE of
-this, and that is the point of that path: the app ships its own agent binary, so what
+this, and that is the point of that path: the app ships its own node binary, so what
 this server has or has not published is nobody's problem on that machine. The amber
 refusal DOES name the app as the third door while the operator is still choosing.
 **The dialog asks no name, and the invariant about the key moved.** Its first
@@ -415,7 +415,7 @@ question, `--name` for a script, Subshell Client's required Enroll field).
 
 What each panel shows is now the SHORTEST true version of itself, because the
 explanatory prose was cut on 2026-09-18 (operator's call): the terminal panel had a
-paragraph walking through what the script does ("installs the agent to
+paragraph walking through what the script does ("installs the node CLI to
 `~/.local/bin`, asks what to call this machine, enrolls it, and then asks about the
 background service…") and the app panel had one walking through opening the app
 ("In Subshell Client, open Window → This machine…"). **Both are gone** — the command

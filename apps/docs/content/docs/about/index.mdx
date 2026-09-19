@@ -11,7 +11,7 @@ If you have ever left a coding agent mid-task to go to dinner and spent the even
 
 **Durable panes.** Every subshell is a tmux session on the machine running it, streamed to the browser over a WebSocket with replay on attach. Detach by closing the tab; reattach from any device. The browser cannot tell whether a pane runs on the control-plane host or an enrolled remote node, because both stream identically.
 
-**Many machines, one control plane.** The control plane keeps the UI, the database, the terminal transport, and the decision logic; **nodes** just execute. Commands travel signed, and the agent on the node refuses anything that does not verify. Harnesses are **plugins**: the control plane owns which ones exist, and one install at Settings → Plugins arms every node, while detection answers per machine — a node is only ever offered the agents actually installed on it.
+**Many machines, one control plane.** The control plane keeps the UI, the database, the terminal transport, and the decision logic; **nodes** just execute. Commands travel signed, and the node refuses anything that does not verify. Harnesses are **plugins**: the control plane owns which ones exist, and one install at Settings → Plugins arms every node, while detection answers per machine — a node is only ever offered the harnesses actually installed on it.
 
 **Other people, when you say so.** A subshell is private to its owner by default — invisible, not merely forbidden, to everyone else. The owner can grant **view** (a read-only live terminal) or **edit** (type, rename, restart) to specific users or to everyone signed in. Deletes, re-shares and notifications stay with the owner.
 
@@ -27,7 +27,7 @@ Everything in this documentation follows one naming rule: no word names two thin
 |---|---|---|
 | **server** | the control plane: the API, its database, the web UI it serves | a machine that runs agents |
 | **node** | a machine that runs agents, via the `subshell` daemon | a user-facing app |
-| **client** | a human interface to a control plane — web, mobile, desktop | the node agent |
+| **client** | a human interface to a control plane — web, mobile, desktop | the node daemon |
 
 Your control-plane host can certainly run agents too — but then it is also a node, and the docs say so. The control-plane host's row in the Nodes list is named by an admin and defaults to "Server"; the instance itself has an admin-editable display name shown in the sidebar, so someone running several planes can tell them apart.
 

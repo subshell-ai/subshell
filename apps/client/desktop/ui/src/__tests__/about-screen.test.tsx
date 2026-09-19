@@ -60,8 +60,8 @@ describe("the About screen", () => {
       // "About Subshell Client", and this line's job is to say which of the
       // two programs the number belongs to.
       expect(screen.queryByText(/Subshell Client 0\.1\.3/)).toBeNull();
-      if (probe.agent?.version) {
-        expect(screen.getByText(`CLI ${probe.agent.version}`)).toBeTruthy();
+      if (probe.nodeBinary?.version) {
+        expect(screen.getByText(`CLI ${probe.nodeBinary.version}`)).toBeTruthy();
       }
     } finally {
       fake.restore();

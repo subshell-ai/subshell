@@ -13,7 +13,7 @@ From a fresh shell on the machine that will host the server:
 curl -fsSL https://raw.githubusercontent.com/subshell-ai/subshell/main/install-server.sh | bash
 ```
 
-The script detects your platform, finds the newest `server-vX.Y.Z` [GitHub release](https://github.com/subshell-ai/subshell/releases), downloads `subshell-server-cli-<triple>`, verifies the release's `.sha256` sidecar **before the first `chmod +x`**, installs the binary to `~/.local/bin/subshell-server`, and hands over to `subshell-server init`. Nothing it downloaded can execute until its bytes match the digest the release published.
+The script detects your platform, finds the newest `cli-server-vX.Y.Z` [GitHub release](https://github.com/subshell-ai/subshell/releases), downloads `subshell-server-cli-<triple>`, verifies the release's `.sha256` sidecar **before the first `chmod +x`**, installs the binary to `~/.local/bin/subshell-server`, and hands over to `subshell-server init`. Nothing it downloaded can execute until its bytes match the digest the release published.
 
 Because a piped script has no arguments, every question it or `init` would ask can be pre-answered from the environment — every one except the database path, which keeps its default unless you run `init --db-path` yourself:
 
@@ -57,7 +57,7 @@ Two choices there mirror `init`'s question: run **In the background** (a launchd
 Same artifacts, no script. Download the two files for your triple from the release page (here `darwin-arm64`; the `cli` in the name marks the bare binary, not the desktop app that wraps it):
 
 ```bash
-gh release download server-vX.Y.Z -p 'subshell-server-cli-darwin-arm64*'
+gh release download cli-server-vX.Y.Z -p 'subshell-server-cli-darwin-arm64*'
 ```
 
 The `.sha256` sidecar is a **bare 64-hex digest**, not the `<hash>  <name>` line checkers expect — pair the two yourself:

@@ -37,7 +37,7 @@ export function StatusChip({ subshell }: { subshell: SubshellView }) {
  * "waiting for you" chip — except when the subshell's node is unreachable,
  * where the amber `node unreachable` badge replaces BOTH.
  *
- * Node-offline outranks everything because with the agent down,
+ * Node-offline outranks everything because with the node down,
  * `alive`/`waitingSince` are last-known facts, not current state (spec
  * 2026-08-31 §5.6): claiming "running" (or "ended"/"exited") or "waiting for
  * you" would assert from stale DB truth. The card implements the same

@@ -5,7 +5,7 @@ import { NODE_QUERY_KEY, NODES_QUERY_KEY, UPDATES_QUERY_KEY } from "@/lib/query-
 /** What `POST /api/nodes/:id/update` answers on 202. */
 export interface NodeUpdateStarted {
   ok: true;
-  /** The agent version that machine was running. */
+  /** The node version that machine was running. */
   from: string;
   /** The version it is installing. */
   to: string;
@@ -20,7 +20,7 @@ export interface NodeUpdateStarted {
 
 /** What {@link useNodeUpdate} hands the Nodes rows. */
 export interface NodeUpdate {
-  /** Ask one node to replace its agent binary. Resolves on the 202; rejects on a refusal. */
+  /** Ask one node to replace its own binary. Resolves on the 202; rejects on a refusal. */
   update(nodeId: string, opts?: { force?: boolean }): Promise<NodeUpdateStarted>;
   /** The node whose update is in flight, or null. */
   pendingNodeId: string | null;
@@ -31,10 +31,10 @@ export interface NodeUpdate {
 }
 
 /**
- * `POST /api/nodes/:id/update` — replace one node's agent binary (spec
+ * `POST /api/nodes/:id/update` — replace one node's own binary (spec
  * 2026-09-15 §5.3).
  *
- * **This is the action a HELD node exists for.** An agent the server refuses
+ * **This is the action a HELD node exists for.** A node the server refuses
  * for its version or protocol is no longer dropped — its socket is held open
  * for this one command — so `node.held` being non-null is precisely when this
  * is both possible and the only thing that helps. It also works on an online
@@ -57,7 +57,7 @@ export function useNodeUpdate(): NodeUpdate {
         body: JSON.stringify(force === true ? { force: true } : {}),
       }),
     onSuccess: (_result, { nodeId }) => {
-      // The agent exits to be respawned, so its row is about to change twice:
+      // The node exits to be respawned, so its row is about to change twice:
       // offline, then online on the new version.
       void queryClient.invalidateQueries({ queryKey: UPDATES_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: NODES_QUERY_KEY });

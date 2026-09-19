@@ -54,7 +54,7 @@ Value flags also accept the `--flag=value` form, so a URL containing `=` still w
 
 **The boot path is the no-subcommand form.** A service unit or `launchd` job that names the binary with no subcommand (or with only a leading flag) boots the server. This is a pinned contract: never teach a bare invocation a new meaning. Every other word is a subcommand, and an unknown word is refused with the usage text above and exit 1.
 
-**Exit codes:** `status` and `service status` always exit 0 when the flags were valid — they are views, and a script should not have to tell "not running" from "the call failed". `report` always exits 0 whatever happens, because harness hooks run it and their stderr lands in your session. `mcp` runs until its pane's client disconnects. Every other verb exits 0 on success and 1 on any refusal or failure, including usage errors — unlike the agent CLI, which uses exit 2 for those.
+**Exit codes:** `status` and `service status` always exit 0 when the flags were valid — they are views, and a script should not have to tell "not running" from "the call failed". `report` always exits 0 whatever happens, because harness hooks run it and their stderr lands in your session. `mcp` runs until its pane's client disconnects. Every other verb exits 0 on success and 1 on any refusal or failure, including usage errors — unlike the node CLI, which uses exit 2 for those.
 
 ## init — first run
 
@@ -124,7 +124,7 @@ Each local subshell's tmux server is a child of the service, so an old definitio
 
 ## See also
 
-- [subshell CLI](/reference/node-cli) — the node agent's binary, similar shape, different exit-code convention.
+- [subshell CLI](/reference/node-cli) — the node's own binary, similar shape, different exit-code convention.
 - [Environment Variables](/reference/environment-variables) — what `config.env` and the process environment can carry.
 - [Files & Paths](/reference/files-and-paths) — every file these verbs create, with its permissions.
 - [Running as a Service](/server/service) — the same ground from the operator's side.

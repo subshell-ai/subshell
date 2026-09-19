@@ -10,7 +10,7 @@ import { newHome } from "../test-preload.js";
 import { darwinServiceStub, LOG, linuxServiceStub, serviceStub, TARGET, UNIT } from "./helpers/service-stub.js";
 
 /** A line only the usage block carries — proof an exit-2 path printed it. */
-const USAGE_MARKER = "subshell: node agent daemon";
+const USAGE_MARKER = "subshell: node daemon";
 
 describe("--flag=value parsing", () => {
   test("=-form fills the same flag map as the space form", () => {
@@ -828,7 +828,7 @@ describe("update verb (spec 2026-09-15 §5.2)", () => {
    * was built for — which is all `probeFileVersion` reads, so it is all a
    * `--from` offer needs to be believed.
    */
-  const fakeAgent = (version: string): string => {
+  const fakeNodeCli = (version: string): string => {
     const dir = mkdtempSync(join(tmpdir(), "subshell-cli-fake-"));
     const path = join(dir, "subshell");
     writeFileSync(path, `#!/bin/sh\necho "subshell ${version} (node protocol 10)"\n`, { mode: 0o755 });
@@ -850,9 +850,9 @@ describe("update verb (spec 2026-09-15 §5.2)", () => {
   /**
    * The comparison is SEMVER, and `!==` is not the same question.
    *
-   * It bites in an ordinary state rather than a contrived one: `MIN_AGENT_VERSION`
+   * It bites in an ordinary state rather than a contrived one: `MIN_NODE_VERSION`
    * and this package are bumped in the SAME commit as a protocol change, so
-   * between that commit and the matching `node-v*` cut the newest published
+   * between that commit and the matching `cli-node-v*` cut the newest published
    * release is genuinely older than the running agent. Under `!==` that read
    * as "available", and a bare `subshell update` then downloaded ~70 MB,
    * swapped the binary, restarted, and was held by the plane's own version
@@ -860,7 +860,7 @@ describe("update verb (spec 2026-09-15 §5.2)", () => {
    */
   test("--check calls an OLDER offer unavailable rather than merely different", async () => {
     await enrolled();
-    const res = await run(["update", "--check", "--from", fakeAgent("0.0.1"), "--json"]);
+    const res = await run(["update", "--check", "--from", fakeNodeCli("0.0.1"), "--json"]);
     expect(res.code).toBe(0);
     const body = JSON.parse(res.out) as { installed: string; latest: string; updateAvailable: boolean };
     expect(body.latest).toBe("0.0.1");
@@ -869,7 +869,7 @@ describe("update verb (spec 2026-09-15 §5.2)", () => {
 
   test("refuses to install a version older than the running one without --force", async () => {
     await enrolled();
-    const res = await run(["update", "--from", fakeAgent("0.0.1"), "--yes", "--no-restart"]);
+    const res = await run(["update", "--from", fakeNodeCli("0.0.1"), "--yes", "--no-restart"]);
     expect(res.code).toBe(1);
     expect(res.err).toMatch(/older than the running/);
     expect(res.err).toMatch(/--force/);

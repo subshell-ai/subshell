@@ -35,7 +35,7 @@ Every list and card shows one of six states:
 | node unreachable | the machine that owns this pane has no connection to the server |
 | ended | retired with the terminate action; still restartable |
 
-**node unreachable outranks all of it on purpose.** Absence of a connection is not absence of a process: the agent may be down while its panes keep running, and while the node is unreachable nobody knows what they are doing. So a subshell on a quiet machine says "node unreachable" and never "crashed" — when the node reconnects the plane re-probes it, surviving panes answer, and the books are corrected.
+**node unreachable outranks all of it on purpose.** Absence of a connection is not absence of a process: the node may be down while its panes keep running, and while the node is unreachable nobody knows what they are doing. So a subshell on a quiet machine says "node unreachable" and never "crashed" — when the node reconnects the plane re-probes it, surviving panes answer, and the books are corrected.
 
 ## Restarting
 

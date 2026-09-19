@@ -78,7 +78,7 @@ export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onB
   }
 
   // `node unreachable` outranks every other reading (web detail badge, spec
-  // §5.6): with no live agent, alive/waitingSince are last-known facts.
+  // §5.6): with no live node, alive/waitingSince are last-known facts.
   // (`isNodeOffline` carries the `=== true` posture — older payloads
   // without the field never read as unreachable.)
   const pill = !subshell

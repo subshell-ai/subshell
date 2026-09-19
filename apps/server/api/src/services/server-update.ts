@@ -183,7 +183,7 @@ async function runJob(
     fail(`no server binary is published for ${process.platform}-${process.arch}`);
     return;
   }
-  const names = releaseAssetNames("server", hostTarget);
+  const names = releaseAssetNames("cli-server", hostTarget);
   const url = release.assets.get(names.binary);
   if (url === undefined) {
     fail(`${release.tag} publishes no ${names.binary}`);
@@ -299,7 +299,7 @@ async function runJob(
 export interface ReleaseRef {
   /** Strict `X.Y.Z`, off the tag. */
   version: string;
-  /** The git tag the release carries (`server-v0.7.0`). */
+  /** The git tag the release carries (`cli-server-v0.7.0`). */
   tag: string;
   /** ISO 8601 from the release source, or null when it did not say. */
   publishedAt: string | null;
@@ -311,7 +311,7 @@ export interface ServerUpdateView {
   source: { url: string | null; enabled: boolean };
   /** The version this process is. */
   current: string;
-  /** The newest published `server` release, or null. */
+  /** The newest published `cli-server` release, or null. */
   latest: ReleaseRef | null;
   /** Why `latest` is null while the source is ON; null when the source answered (or is off). */
   latestError: string | null;
@@ -345,7 +345,7 @@ async function readServerRelease(refresh: boolean): Promise<{ latest: ReleaseRef
   if (releaseSourceUrl() === null) return { latest: null, error: null };
   try {
     if (refresh) await refreshReleases();
-    const gate = await installableCliRelease("server");
+    const gate = await installableCliRelease("cli-server");
     return gate.ok ? { latest: releaseRef(gate.release), error: null } : { latest: null, error: gate.reason };
   } catch (error) {
     // A page that cannot reach the release source still renders; it says so.

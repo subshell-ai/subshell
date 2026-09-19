@@ -74,7 +74,7 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/subshells" })
       // Phase-2 relay (spec §3.4): a subshell pinned to an agent node stores
       // its upload THERE. The local-fs checks below are deliberately skipped
       // for this branch — that filesystem lives on the node, where the
-      // agent's `write_file` path policy is the authority; stat-ing a local
+      // node's `write_file` path policy is the authority; stat-ing a local
       // copy of the path (or refusing because this host has no such dir)
       // would be meaningless.
       if (row.nodeId !== LOCAL_NODE_ID) {
@@ -87,7 +87,7 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/subshells" })
             409,
             apiErrorBody({
               code: BackendErrorCodes.NODE_OFFLINE,
-              message: `The subshell's node "${row.nodeId}" is offline; start its agent and retry`,
+              message: `The subshell's node "${row.nodeId}" is offline; start it and retry`,
             }),
           );
         }
@@ -96,7 +96,7 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/subshells" })
         } catch (err) {
           if (err instanceof RemoteUploadError) {
             // The browser only ever sees the generic mapping below, so the
-            // details (which chunk died, the agent's refusal text, the
+            // details (which chunk died, the node's refusal text, the
             // byte-count disagreement) must be captured SERVER-side or the
             // failure is undebuggable — err.message already names the chunk
             // index, and `child()` first because withContext mutates the
@@ -106,8 +106,8 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/subshells" })
               .withContext({ subshellId: params.id, nodeId: row.nodeId })
               .withError(err)
               .warn(`remote upload relay to node "${row.nodeId}" failed for subshell ${params.id}`);
-            // Map on the class + `offline` flag ONLY — agent refusal strings
-            // are unpinned protocol-side (T6 ruling), so no agent text is
+            // Map on the class + `offline` flag ONLY — node refusal strings
+            // are unpinned protocol-side (T6 ruling), so no node text is
             // echoed; the details ride the server-side error, not the body.
             return err.offline
               ? status(
@@ -125,12 +125,12 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/subshells" })
                   apiErrorBody({
                     code: BackendErrorCodes.NODE_UNREACHABLE,
                     // Honest rule (spec errata, phase-2 review #7): a pane
-                    // that exited NATURALLY is forgotten by the agent's exit
+                    // that exited NATURALLY is forgotten by the node's exit
                     // watcher, so its cwd leaves the write_file root set and
                     // re-running the upload NEVER succeeds — only a relaunch
                     // does. Do not promise a self-heal here.
                     message:
-                      "The node failed to store the file; the agent only accepts files for a running subshell; restart the subshell and upload again",
+                      "The node failed to store the file; the node only accepts files for a running subshell; restart the subshell and upload again",
                   }),
                 );
           }

@@ -19,7 +19,7 @@ import { type NodeCommandBody, parseNodeWriteFileResult } from "@internal/subshe
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
 import { cleanupStaleUploads, execWriteFile } from "../commands/write-file.js";
-import type { AgentConfig } from "../config.js";
+import type { NodeConfig } from "../config.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
 
 /**
@@ -53,7 +53,7 @@ function setup(
   const work = join(root, "work");
   const outside = join(root, "outside");
   for (const d of [dataDir, work, outside]) mkdirSync(d, { recursive: true });
-  const config: AgentConfig = {
+  const config: NodeConfig = {
     serverUrl: "http://localhost:1",
     nodeId: "node-1",
     nodeKey: "k",

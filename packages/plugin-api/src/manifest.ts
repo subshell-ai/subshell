@@ -299,9 +299,9 @@ export function parseManifest(pkgJson: unknown): SubshellManifest | ManifestErro
   }
   if (block.apiVersion > PLUGIN_API_VERSION) {
     // Name BOTH numbers: the reader has to decide whether to upgrade the
-    // plugin or the agent, and one number cannot tell them that.
+    // plugin or the host, and one number cannot tell them that.
     return {
-      error: `this plugin needs plugin-api ${block.apiVersion}, but this host implements ${PLUGIN_API_VERSION}; upgrade the agent`,
+      error: `this plugin needs plugin-api ${block.apiVersion}, but this host implements ${PLUGIN_API_VERSION}; upgrade Subshell`,
     };
   }
 

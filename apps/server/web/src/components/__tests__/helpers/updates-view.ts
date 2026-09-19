@@ -15,7 +15,7 @@ export function serverUpdateView(over: Partial<ServerUpdateView> = {}): ServerUp
   return {
     source: { url: "https://api.github.com/repos/subshell-ai/subshell/releases?per_page=100", enabled: true },
     current: "0.6.0",
-    latest: { version: "0.7.0", tag: "server-v0.7.0", publishedAt: "2026-09-15T10:00:00.000Z" },
+    latest: { version: "0.7.0", tag: "cli-server-v0.7.0", publishedAt: "2026-09-15T10:00:00.000Z" },
     latestError: null,
     updateAvailable: true,
     canApply: { ok: true, reasons: [] },
@@ -31,9 +31,9 @@ export function serverUpdateView(over: Partial<ServerUpdateView> = {}): ServerUp
 /** The fleet, empty by default — a row is added by the case that needs one. */
 export function nodeUpdates(over: Partial<NodeUpdates> = {}): NodeUpdates {
   return {
-    release: { version: "0.9.0", tag: "node-v0.9.0", publishedAt: null },
+    release: { version: "0.9.0", tag: "cli-node-v0.9.0", publishedAt: null },
     reason: null,
-    minAgentVersion: "0.7.0",
+    minNodeVersion: "0.7.0",
     protocol: 10,
     rows: [],
     ...over,

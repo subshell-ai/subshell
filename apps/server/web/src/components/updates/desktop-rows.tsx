@@ -51,8 +51,8 @@ export function DesktopRows({
 }) {
   const shell = desktopShell();
   const rows: { app: "server" | "client"; name: string; release: ReleaseRef | null }[] = [
-    { app: "server", name: "Subshell Server app", release: desktop.server },
-    { app: "client", name: "Subshell Client app", release: desktop.client },
+    { app: "server", name: "Subshell Server App", release: desktop.server },
+    { app: "client", name: "Subshell Client App", release: desktop.client },
   ].filter((row) => apps.includes(row.app as "server" | "client")) as {
     app: "server" | "client";
     name: string;
@@ -88,7 +88,7 @@ export function DesktopRows({
                   rel="noreferrer"
                   className="text-detail underline hover:text-foreground"
                 >
-                  Release notes and downloads
+                  Notes
                 </a>
               )}
               {!link && <span className="text-detail text-muted-foreground">{DASH}</span>}

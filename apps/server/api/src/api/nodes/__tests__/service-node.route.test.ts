@@ -81,7 +81,7 @@ describe("/api/nodes service + runtime", () => {
   const createdSubshellIds: string[] = [];
 
   /** An offline agent node owned by alice. */
-  async function mkAgent(): Promise<string> {
+  async function mkNode(): Promise<string> {
     const id = crypto.randomUUID();
     await nodes.create({ id, ownerUserId: aliceId, name: `nr-${id.slice(0, 8)}`, kind: "agent", status: "offline" });
     createdNodeIds.push(id);
@@ -231,14 +231,14 @@ describe("/api/nodes service + runtime", () => {
   // ── POST /api/nodes/:id/service ─────────────────────────────────────────
 
   it("offline → 409 NODE_OFFLINE", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     const res = await req("POST", `/api/nodes/${id}/service`, { cookie: aliceCookie, body: { verb: "restart" } });
     expect(res.status).toBe(409);
     expect(await codeOf(res)).toBe("NODE_OFFLINE");
   });
 
   it("view grantee 403, local 400, unknown 404, bearer 403, anon 401", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     // A `view` grantee may LAUNCH on this node; restarting the machine's agent
     // is a configure act, so `nodeCanConfigure` and not `canAccess`.
     await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "view" }], aliceId);
@@ -271,7 +271,7 @@ describe("/api/nodes service + runtime", () => {
    * walks to it is a different act, so those two are the owner's.
    */
   it("stop and uninstall are owner-only, even for an edit grantee", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "edit" }], aliceId);
     for (const verb of ["stop", "uninstall"] as const) {
       expect((await req("POST", `/api/nodes/${id}/service`, { cookie: carolCookie, body: { verb } })).status).toBe(403);
@@ -284,7 +284,7 @@ describe("/api/nodes service + runtime", () => {
   });
 
   it("refuses a verb it does not know", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     const res = await req("POST", `/api/nodes/${id}/service`, { cookie: aliceCookie, body: { verb: "reload" } });
     expect(res.status).toBe(400);
   });
@@ -296,7 +296,7 @@ describe("/api/nodes service + runtime", () => {
    * noise, and then passes it where it is not.
    */
   it("refuses force on a verb that cannot close a subshell", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     for (const verb of ["start", "install"] as const) {
       const res = await req("POST", `/api/nodes/${id}/service`, { cookie: aliceCookie, body: { verb, force: true } });
       expect(res.status).toBe(400);
@@ -305,7 +305,7 @@ describe("/api/nodes service + runtime", () => {
   });
 
   it("maps the agent's no-definition refusal to NODE_NO_SERVICE", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     const res = await serviceWithAnswer(
       id,
       aliceCookie,
@@ -317,7 +317,7 @@ describe("/api/nodes service + runtime", () => {
   });
 
   it("online: sends the signed service command, answers {ok:true}, audits node.service", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     const res = await serviceWithAnswer(id, aliceCookie, { verb: "restart" }, { ok: true });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
@@ -328,13 +328,13 @@ describe("/api/nodes service + runtime", () => {
   });
 
   it("carries force through to the signed claim", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     const res = await serviceWithAnswer(id, aliceCookie, { verb: "restart", force: true }, { ok: true });
     expect(res.status).toBe(200);
   });
 
   it("maps the agent's refusals: not supervised, kills panes, unsupported", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     let res = await serviceWithAnswer(
       id,
       aliceCookie,
@@ -365,7 +365,7 @@ describe("/api/nodes service + runtime", () => {
    * would die, because nobody knows that.
    */
   it("says the definition could not be read when pane safety is unknown", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     const unknownSafety: NodeRuntimeReport = {
       ...runtime,
       service: { ...runtime.service, paneSafety: "unknown" },
@@ -389,7 +389,7 @@ describe("/api/nodes service + runtime", () => {
    * being read as one of the two known refusals.
    */
   it("maps an unrecognized agent error to NODE_UNREACHABLE", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     const res = await serviceWithAnswer(
       id,
       aliceCookie,
@@ -403,7 +403,7 @@ describe("/api/nodes service + runtime", () => {
   // ── GET /api/nodes/:id runtime ──────────────────────────────────────────
 
   it("runtime is present for an online node's owner, absent for a view grantee and when offline", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "view" }], aliceId);
     const offline = (await (await req("GET", `/api/nodes/${id}`, { cookie: aliceCookie })).json()) as {
       runtime?: unknown;
@@ -425,7 +425,7 @@ describe("/api/nodes service + runtime", () => {
   });
 
   it("runtime is absent when an online agent reported none", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     goOnline(id, null);
     try {
       const view = (await (await req("GET", `/api/nodes/${id}`, { cookie: aliceCookie })).json()) as {

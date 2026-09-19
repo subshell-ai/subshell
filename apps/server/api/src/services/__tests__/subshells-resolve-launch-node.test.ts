@@ -50,7 +50,7 @@ async function mkUser(role: "admin" | "user"): Promise<string> {
   return await new UsersRepository(db).createUser({ email, name: email, passwordHash: await hashPassword(pw), role });
 }
 
-async function mkAgent(ownerUserId: string): Promise<string> {
+async function mkNode(ownerUserId: string): Promise<string> {
   const id = crypto.randomUUID();
   nodeIds.push(id);
   await deps.nodes.create({ id, ownerUserId, name: `rl-${id}`, kind: "agent", status: "offline" });
@@ -97,7 +97,7 @@ describe("resolveLaunchNode — explicit nodeId (step 1)", () => {
   });
 
   it("foreign private node → 404 (access 'none' ⇔ invisible; never 403 — spec §2)", async () => {
-    const node = await mkAgent(otherId);
+    const node = await mkNode(otherId);
     const err = await grab(() =>
       resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node }, deps),
     );
@@ -105,7 +105,7 @@ describe("resolveLaunchNode — explicit nodeId (step 1)", () => {
   });
 
   it("an Everyone VIEW grant launches (nodes rule: any share grants launch)", async () => {
-    const node = await mkAgent(otherId);
+    const node = await mkNode(otherId);
     await deps.shares.replaceForNode(node, [{ granteeUserId: null, permission: "view" }], otherId);
     const off = online(node);
     try {
@@ -119,7 +119,7 @@ describe("resolveLaunchNode — explicit nodeId (step 1)", () => {
   });
 
   it("own agent with no live connection → 409 ApiError NODE_OFFLINE (doNotLog class)", async () => {
-    const node = await mkAgent(ownerId);
+    const node = await mkNode(ownerId);
     const err = await grab(() =>
       resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node }, deps),
     );
@@ -128,7 +128,7 @@ describe("resolveLaunchNode — explicit nodeId (step 1)", () => {
   });
 
   it("own agent, online → resolves", async () => {
-    const node = await mkAgent(ownerId);
+    const node = await mkNode(ownerId);
     const off = online(node);
     try {
       expect(await resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node }, deps)).toEqual({
@@ -146,7 +146,7 @@ describe("resolveLaunchNode — explicit nodeId (step 1)", () => {
   });
 
   it("admins hold instance-wide edit: a foreign private online node launches for them", async () => {
-    const node = await mkAgent(otherId);
+    const node = await mkNode(otherId);
     const off = online(node);
     try {
       expect(await resolveLaunchNode({ userId: adminId, machineActor: false, requestedNodeId: node }, deps)).toEqual({
@@ -158,7 +158,7 @@ describe("resolveLaunchNode — explicit nodeId (step 1)", () => {
   });
 
   it("MACHINE actors get no admin boost and no shares: an admin user's bearer still 404s a foreign node", async () => {
-    const node = await mkAgent(otherId);
+    const node = await mkNode(otherId);
     const err = await grab(() =>
       resolveLaunchNode({ userId: adminId, machineActor: true, requestedNodeId: node }, deps),
     );
@@ -184,7 +184,7 @@ describe("resolveLaunchNode — explicit nodeId (step 1)", () => {
  */
 describe("resolveLaunchNode — maintenance", () => {
   it("refuses the node's own OWNER with 409 NODE_IN_MAINTENANCE", async () => {
-    const node = await mkAgent(ownerId);
+    const node = await mkNode(ownerId);
     await deps.nodes.setMaintenance(node, { on: true, changedAt: new Date().toISOString(), source: "plane" });
     const off = online(node);
     try {
@@ -199,7 +199,7 @@ describe("resolveLaunchNode — maintenance", () => {
   });
 
   it("refuses an ADMIN too — the instance-wide edit boost does not outrank a window", async () => {
-    const node = await mkAgent(otherId);
+    const node = await mkNode(otherId);
     await deps.nodes.setMaintenance(node, { on: true, changedAt: new Date().toISOString(), source: "plane" });
     const off = online(node);
     try {
@@ -213,7 +213,7 @@ describe("resolveLaunchNode — maintenance", () => {
   });
 
   it("answers maintenance BEFORE offline, so an unreachable machine says the actionable thing", async () => {
-    const node = await mkAgent(ownerId);
+    const node = await mkNode(ownerId);
     await deps.nodes.setMaintenance(node, { on: true, changedAt: new Date().toISOString(), source: "plane" });
     // No live socket at all: without the ordering this would be NODE_OFFLINE,
     // sending the owner to check a network rather than to end the window.
@@ -224,7 +224,7 @@ describe("resolveLaunchNode — maintenance", () => {
   });
 
   it("keeps the 404 first: an INVISIBLE node in maintenance still says nothing about existing", async () => {
-    const node = await mkAgent(otherId);
+    const node = await mkNode(otherId);
     await deps.nodes.setMaintenance(node, { on: true, changedAt: new Date().toISOString(), source: "plane" });
     const err = await grab(() =>
       resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node }, deps),
@@ -233,7 +233,7 @@ describe("resolveLaunchNode — maintenance", () => {
   });
 
   it("launches again the moment the window ends", async () => {
-    const node = await mkAgent(ownerId);
+    const node = await mkNode(ownerId);
     await deps.nodes.setMaintenance(node, { on: true, changedAt: new Date().toISOString(), source: "plane" });
     await deps.nodes.setMaintenance(node, { on: false, changedAt: new Date().toISOString(), source: "plane" });
     const off = online(node);
@@ -292,7 +292,7 @@ describe("resolveLaunchNode — implicit local (step 2) and auto-pick (step 3)",
   });
 
   it("local switch OFF + exactly one online agent candidate → auto-picked", async () => {
-    const node = await mkAgent(ownerId);
+    const node = await mkNode(ownerId);
     await deps.shares.replaceForNode(LOCAL_NODE_ID, [], systemId);
     const off = online(node);
     try {
@@ -306,8 +306,8 @@ describe("resolveLaunchNode — implicit local (step 2) and auto-pick (step 3)",
   });
 
   it("local switch OFF + TWO online candidates → still NODE_REQUIRED (spec's single-online auto-pick, read literally)", async () => {
-    const a = await mkAgent(ownerId);
-    const b = await mkAgent(ownerId);
+    const a = await mkNode(ownerId);
+    const b = await mkNode(ownerId);
     await deps.shares.replaceForNode(LOCAL_NODE_ID, [], systemId);
     const offA = online(a);
     const offB = online(b);
@@ -326,7 +326,7 @@ describe("resolveLaunchNode — implicit local (step 2) and auto-pick (step 3)",
     // The dangerous case: an implicit launch silently relocating onto a
     // machine whose owner took it out of service. Step 3 never reaches
     // `nodeCanLaunchOn`, so the flag is filtered by hand there.
-    const node = await mkAgent(ownerId);
+    const node = await mkNode(ownerId);
     await deps.nodes.setMaintenance(node, { on: true, changedAt: new Date().toISOString(), source: "plane" });
     await deps.shares.replaceForNode(LOCAL_NODE_ID, [], systemId);
     const off = online(node);
@@ -340,7 +340,7 @@ describe("resolveLaunchNode — implicit local (step 2) and auto-pick (step 3)",
   });
 
   it("MACHINE candidates are listByOwner, not findAccessible: a shared online node is never auto-picked for a bearer", async () => {
-    const sharedOnline = await mkAgent(otherId);
+    const sharedOnline = await mkNode(otherId);
     await deps.shares.replaceForNode(sharedOnline, [{ granteeUserId: null, permission: "edit" }], otherId);
     const off = online(sharedOnline);
     try {

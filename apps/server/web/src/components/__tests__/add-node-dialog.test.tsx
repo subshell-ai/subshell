@@ -403,7 +403,7 @@ describe("AddNodeDialog", () => {
     try {
       await renderDialog();
       fireEvent.click(screen.getByRole("button", { name: "Generate setup key" }));
-      expect(await screen.findByText(/has no agent binary for:/i)).toBeDefined();
+      expect(await screen.findByText(/has no node binary for:/i)).toBeDefined();
       expect(screen.getByText('subshell setup --server "https://subshell.example" --key "nsk_secret"')).toBeDefined();
       // The one-liner stays visible — it still works once artifacts exist.
       expect(screen.getByText(/install\.sh\?setup_key=nsk_secret/)).toBeDefined();
@@ -432,7 +432,7 @@ describe("AddNodeDialog", () => {
     try {
       await renderDialog();
       fireEvent.click(screen.getByRole("button", { name: "Generate setup key" }));
-      const hint = await screen.findByText(/has no agent binary for:/i);
+      const hint = await screen.findByText(/has no node binary for:/i);
       expect(hint.textContent).toContain("darwin-arm64");
       expect(hint.textContent).not.toContain("linux-x64");
     } finally {
@@ -454,7 +454,7 @@ describe("AddNodeDialog", () => {
       await renderDialog();
       fireEvent.click(screen.getByRole("button", { name: "Generate setup key" }));
       await screen.findByText(/install\.sh\?setup_key=nsk_secret/);
-      expect(screen.queryByText(/has no agent binary for:/i)).toBeNull();
+      expect(screen.queryByText(/has no node binary for:/i)).toBeNull();
     } finally {
       restore();
     }
@@ -472,7 +472,7 @@ describe("AddNodeDialog", () => {
     try {
       await renderDialog();
       await screen.findByRole("button", { name: "Generate setup key" });
-      expect(screen.queryByText(/has no agent binary for:/i)).toBeNull();
+      expect(screen.queryByText(/has no node binary for:/i)).toBeNull();
       // And the first-run sentence is gone entirely (operator's call, 2026-09-18):
       // no blurbs between the picker and the button.
       expect(screen.queryByText(/downloaded from the project/i)).toBeNull();
@@ -487,7 +487,7 @@ describe("AddNodeDialog", () => {
       await renderDialog();
       fireEvent.click(screen.getByRole("button", { name: "Generate setup key" }));
       await screen.findByText(/install\.sh\?setup_key=nsk_secret/);
-      expect(screen.queryByText(/has no agent binary for:/i)).toBeNull();
+      expect(screen.queryByText(/has no node binary for:/i)).toBeNull();
     } finally {
       restore();
     }
@@ -505,7 +505,7 @@ describe("AddNodeDialog", () => {
     });
     try {
       await renderDialog();
-      expect(await screen.findByText(/has no agent binary for:/i)).toBeDefined();
+      expect(await screen.findByText(/has no node binary for:/i)).toBeDefined();
       // And no key was minted by merely opening the dialog.
       expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/setup-keys")).toBe(false);
     } finally {
@@ -515,7 +515,7 @@ describe("AddNodeDialog", () => {
 
   it("shows the command and says nothing else about the machine", async () => {
     // Two paragraphs used to sit above this command — one walking through what the
-    // script does ("installs the agent to ~/.local/bin, asks what to call this
+    // script does ("installs the node CLI to ~/.local/bin, asks what to call this
     // machine, enrolls it, and then asks about the background service"), one about
     // the first run per platform. Both are GONE (operator's call, 2026-09-18): the
     // command IS the instruction, and the script narrates itself on the machine it
@@ -528,7 +528,7 @@ describe("AddNodeDialog", () => {
       await renderDialog();
       fireEvent.click(screen.getByRole("button", { name: "Generate setup key" }));
       await screen.findByText(/install\.sh\?setup_key=nsk_secret/);
-      expect(screen.queryByText(/installs the agent to/i)).toBeNull();
+      expect(screen.queryByText(/installs the node CLI to/i)).toBeNull();
       expect(screen.queryByText(/background service that starts it at login/i)).toBeNull();
       expect(screen.queryByText(/setup refuses without it/i)).toBeNull();
     } finally {
@@ -718,7 +718,7 @@ describe("AddNodeDialog", () => {
       }
     });
 
-    it("says nothing about unpublished agent binaries on the app path — the app ships its own", async () => {
+    it("says nothing about unpublished node binaries on the app path — the app ships its own", async () => {
       // The amber refusal is a statement about the DOWNLOAD, which is a
       // terminal-path fact. On the air-gapped branch it must not follow the
       // operator across the switch.
@@ -730,9 +730,9 @@ describe("AddNodeDialog", () => {
       try {
         await renderDialog();
         fireEvent.click(screen.getByRole("button", { name: "Generate setup key" }));
-        expect(await screen.findByText(/has no agent binary for:/i)).toBeDefined();
+        expect(await screen.findByText(/has no node binary for:/i)).toBeDefined();
         fireEvent.click(screen.getByRole("button", { name: "Desktop App" }));
-        expect(screen.queryByText(/has no agent binary for:/i)).toBeNull();
+        expect(screen.queryByText(/has no node binary for:/i)).toBeNull();
         expect(screen.getByText(/nsk_secret/)).toBeDefined();
       } finally {
         restore();
@@ -749,7 +749,7 @@ describe("AddNodeDialog", () => {
         await renderDialog();
         // Said BEFORE the key is minted: this is the screen where the operator
         // still has a choice to make, and the app is one of the choices.
-        expect(await screen.findByText(/has no agent binary for:/i)).toBeDefined();
+        expect(await screen.findByText(/has no node binary for:/i)).toBeDefined();
         expect(screen.getByText(/Subshell Client app/i)).toBeDefined();
       } finally {
         restore();

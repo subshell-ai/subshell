@@ -19,7 +19,7 @@
  *
  * **The staged sidecar is not what the app runs, and that is the whole reason
  * the second half of this script exists.** Both apps resolve their CLI through
- * a ladder (`server_bin.rs`, `agent_bin.rs`): an env override, a configured
+ * a ladder (`server_bin.rs`, `node_bin.rs`): an env override, a configured
  * path, the service definition, then the MANAGED COPY at `~/.local/bin/…`. The
  * sidecar appears on no rung — it is only a source to install FROM, and the
  * app installs it only when its version is newer. In dev both carry the same
@@ -58,7 +58,7 @@ import {
   stageSidecar as stageServerSidecar,
 } from "../apps/server/desktop/src/scripts/release.js";
 import {
-  AGENT_SIDECAR_NAME,
+  NODE_SIDECAR_NAME,
   DESKTOP_TARGETS,
   type DesktopTarget,
   desktopSidecarFileName,
@@ -127,7 +127,7 @@ const APPS: readonly DesktopApp[] = [
   {
     id: "client",
     dir: "client/desktop",
-    sidecar: AGENT_SIDECAR_NAME,
+    sidecar: NODE_SIDECAR_NAME,
     crate: "subshell-desktop-client",
     installed: "subshell",
     cliPackage: "@internal/node",

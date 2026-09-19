@@ -30,17 +30,17 @@ describe("the Components table", () => {
    * coordinates: the row order is the operator's deliberate 2026-09-17 call —
    * the two desktop apps, then Server, then the fleet — and nothing else on
    * the page would notice a swap. Exact textContent matches name the row
-   * labels; "Server" must not match inside "Subshell Server app".
+   * labels; "Server" must not match inside "Subshell Server App".
    */
   it("orders the rows desktop apps, Server, then Nodes", () => {
     const { container } = renderTable();
     const labels = Array.from(container.querySelectorAll("p, span")).map((n) => n.textContent);
     const pos = (label: string) => labels.indexOf(label);
-    for (const label of ["Subshell Server app", "Subshell Client app", "Server", "Nodes"]) {
+    for (const label of ["Subshell Server App", "Subshell Client App", "Server", "Nodes"]) {
       expect(pos(label)).toBeGreaterThanOrEqual(0);
     }
-    expect(pos("Subshell Server app")).toBeLessThan(pos("Subshell Client app"));
-    expect(pos("Subshell Client app")).toBeLessThan(pos("Server"));
+    expect(pos("Subshell Server App")).toBeLessThan(pos("Subshell Client App"));
+    expect(pos("Subshell Client App")).toBeLessThan(pos("Server"));
     expect(pos("Server")).toBeLessThan(pos("Nodes"));
   });
 
@@ -93,12 +93,12 @@ describe("the Components table inside Subshell Server", () => {
     // Sentence case, matching the sibling row rather than the product name:
     // it read "Subshell Server", which named neither of the two things whose
     // versions this fold states.
-    expect(labels).toContain("Subshell Server app");
-    expect(labels).toContain("subshell-server CLI");
+    expect(labels).toContain("Subshell Server App");
+    expect(labels).toContain("Subshell Server CLI");
     // The plain "Server" row a browser gets is not here.
     expect(labels).not.toContain("Server");
     // The client app is a DIFFERENT product this window cannot install.
-    expect(labels).toContain("Subshell Client app");
+    expect(labels).toContain("Subshell Client App");
   });
 
   /**
@@ -189,7 +189,7 @@ describe("the Components table inside Subshell Server", () => {
     setUA(BROWSER_UA);
     const { container } = renderTable();
     const labels = Array.from(container.querySelectorAll("p, span")).map((n) => n.textContent);
-    expect(labels).toContain("Subshell Server app");
+    expect(labels).toContain("Subshell Server App");
     expect(labels).toContain("Server");
     expect(screen.queryByRole("button", { name: "Open the update assistant" })).toBeNull();
   });

@@ -32,7 +32,7 @@ const SERVER_PRODUCT = "subshell-server";
  * `@internal/mcp-core` server, so the PATH lookup of it is the safe last
  * autodetect rung — it covers installs whose server predates the self rung.
  */
-const AGENT_BINARY = "subshell";
+const NODE_BINARY = "subshell";
 
 /**
  * The machine-agnostic `subshell mcp` spelling, embedded in the manual
@@ -49,7 +49,7 @@ const AGENT_BINARY = "subshell";
  * is the one machine the PATH form misses; `subshell-server status` prints the
  * resolved launch for that host.
  */
-export const PORTABLE_MCP_LAUNCH: McpLaunchSpec = { command: AGENT_BINARY, args: ["mcp"] };
+export const PORTABLE_MCP_LAUNCH: McpLaunchSpec = { command: NODE_BINARY, args: ["mcp"] };
 
 /** Which rung answered — surfaced by `status` so an operator sees WHY it resolves. */
 export type McpLaunchSource = "env" | "self" | "agent-on-path";
@@ -140,7 +140,7 @@ function probeSelfInvoke(subcommand: string, io: McpResolveIo = {}): McpProbeOut
   if (looksLikeEntry) {
     return { spec: { command: execPath, args: [resolve(argv1), subcommand] }, source: "self" };
   }
-  const agent = which(AGENT_BINARY);
+  const agent = which(NODE_BINARY);
   if (agent) return { spec: { command: agent, args: [subcommand] }, source: "agent-on-path" };
   return { spec: null, error: `cannot locate the subshell ${subcommand} entrypoint; set SUBSHELL_MCP_COMMAND` };
 }

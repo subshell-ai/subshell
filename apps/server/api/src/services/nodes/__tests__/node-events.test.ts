@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { MIN_AGENT_VERSION, NODE_PROTOCOL_VERSION, type NodeEvent } from "@internal/subshell-protocol";
+import { MIN_NODE_VERSION, NODE_PROTOCOL_VERSION, type NodeEvent } from "@internal/subshell-protocol";
 import { dispatchOutput, resetNodeEventsForTests, setNodeLifecycleHooks, subscribeOutput } from "../node-events.js";
 import { getHeld, resetNodeRegistryForTests } from "../node-registry.js";
 import {
@@ -78,7 +78,7 @@ function makeHarness(): Harness {
 
 const readyFrame = (over: Record<string, unknown> = {}) => ({
   type: "ready",
-  agentVersion: MIN_AGENT_VERSION,
+  agentVersion: MIN_NODE_VERSION,
   protocolVersion: NODE_PROTOCOL_VERSION,
   os: "linux",
   arch: "x64",
@@ -155,7 +155,7 @@ describe("subscribeOutput / dispatchOutput (spec §3.3)", () => {
 
 /* ------------------- agent facts on `ready` ---------------------- */
 
-describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
+describe("ready → connection.agent (NodeFacts, spec §6.4)", () => {
   it("sets ws.data.nodeConn.agent EXACTLY from the frame when selfInvoke is present", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
@@ -178,7 +178,7 @@ describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
       dataDir: "/home/u/.local/share/subshell",
       capabilities: ["uploads"],
       hostname: "box",
-      agentVersion: MIN_AGENT_VERSION,
+      agentVersion: MIN_NODE_VERSION,
       selfInvoke: { command: "/usr/local/bin/bun", args: ["/opt/subshell/src/index.ts"] },
       homeDir: "/home/u",
     });
@@ -201,7 +201,7 @@ describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
       dataDir: "/home/u/.local/share/subshell",
       capabilities: ["uploads"],
       hostname: "box",
-      agentVersion: MIN_AGENT_VERSION,
+      agentVersion: MIN_NODE_VERSION,
     });
     for (const key of ["selfInvoke", "homeDir", "env"] as const) {
       expect(conn.agent && key in conn.agent).toBe(false);
@@ -219,7 +219,7 @@ describe("ready → connection.agent (NodeAgentFacts, spec §6.4)", () => {
 
     // Recorded BEFORE the refusal, on purpose: an operator diagnosing a node
     // that will not connect needs to see what it reported.
-    expect(conn.agent?.agentVersion).toBe(MIN_AGENT_VERSION);
+    expect(conn.agent?.agentVersion).toBe(MIN_NODE_VERSION);
     // The refusal itself is a HOLD now, not a close (spec 2026-09-15 §5.3):
     // the socket stays open so the plane can still send the one command that
     // fixes the machine. What this case is about is unchanged — the facts are

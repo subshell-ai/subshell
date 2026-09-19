@@ -6,9 +6,9 @@ import { LINGER_COMMAND, type PersistenceFix, persistence } from "@/lib/supervis
 import type { NodeDetail, NodeRuntime } from "@/types/node";
 
 /**
- * Who is running the agent, and since when.
+ * Who is running the node, and since when.
  *
- * No "starts at login" tail: whether this machine brings the agent back is its
+ * No "starts at login" tail: whether this machine brings the node back is its
  * own fact now, stated in full one row down. Carrying both put a hint on this
  * line about what the other line answers — and the hint was the half that was
  * wrong on Linux.
@@ -21,7 +21,7 @@ export function supervisionLine(runtime: NodeRuntime): string {
 }
 
 /**
- * What to do about a machine that will not bring the agent back.
+ * What to do about a machine that will not bring the node back.
  *
  * Two shapes, because the two remedies live in different places. Lingering is
  * a command in a shell ON that machine, so it is offered copyably; installing
@@ -62,7 +62,7 @@ function FixLine({ fix }: { fix: PersistenceFix }): JSX.Element {
 }
 
 /**
- * How one node's agent is running (spec 2026-09-12 § 6.2).
+ * How one node is running (spec 2026-09-12 § 6.2).
  *
  * FACTS ONLY. The verbs that act on that process live in `NodeServiceCard`
  * beside it (spec 2026-09-12, node half): two cards on one page each offering
@@ -74,7 +74,7 @@ function FixLine({ fix }: { fix: PersistenceFix }): JSX.Element {
  * config and log live, whether tmux was found — and it reaches its owner here,
  * from any browser.
  *
- * **"Comes back" is measured, not advised.** The agent reports `linger`, so
+ * **"Comes back" is measured, not advised.** The node reports `linger`, so
  * this card says which of the two a systemd machine IS rather than explaining
  * both and leaving the reader to work out which one is theirs. The sentences
  * come from `lib/supervision.ts`, shared with the server's own Service page, so
@@ -119,12 +119,12 @@ export function NodeRuntimeCard({ node }: { node: NodeDetail }): JSX.Element | n
           <span className="break-all font-mono text-detail">{runtime.tmuxPath}</span>
         ) : (
           // Said here rather than discovered at launch time: without tmux the
-          // agent accepts nothing, and nothing else on this page would say so.
+          // node accepts nothing, and nothing else on this page would say so.
           <Badge variant="warning">not found: this node accepts no launches</Badge>
         )}
       </Fact>
-      <Fact label="Agent binary" mono wide>
-        <CopyableValue value={runtime.binaryPath} label="Agent binary" />
+      <Fact label="Node binary" mono wide>
+        <CopyableValue value={runtime.binaryPath} label="Node binary" />
       </Fact>
       <Fact label="Config file" mono wide>
         <CopyableValue value={runtime.configPath} label="Config file" />
@@ -144,13 +144,13 @@ export function NodeRuntimeCard({ node }: { node: NodeDetail }): JSX.Element | n
 
       {!runtime.supervised && (
         <p className="col-span-full text-muted-foreground text-sm">
-          Nothing on that machine is supervising this agent, so exiting would stop it rather than restart it. Restart it
+          Nothing on that machine is supervising this node, so exiting would stop it rather than restart it. Restart it
           where it was started.
         </p>
       )}
       {kills && runtime.supervised && (
         <p className="col-span-full text-sm text-warning">
-          This node's service definition would close every subshell running there when the agent stops or restarts;
+          This node's service definition would close every subshell running there when the node stops or restarts;
           reinstall the definition on that machine to fix this.
         </p>
       )}

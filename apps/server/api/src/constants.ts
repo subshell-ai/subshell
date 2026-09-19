@@ -177,9 +177,9 @@ export const NODE_ARTIFACTS_DIR = IS_TEST
  * thing to read that can disagree with the first.
  *
  * A server installed from a release tarball has an EMPTY node-artifacts
- * directory, so every enroll one-liner 404s until someone runs `release:node`
+ * directory, so every enroll one-liner 404s until someone runs `release:cli-node`
  * from a checkout. With this set, `GET /api/downloads/node/*` fetches the
- * missing binary from the repository's own `node-v*` release the first time a
+ * missing binary from the repository's own `cli-node-v*` release the first time a
  * machine asks for it, verifies it, and keeps it.
  *
  * **Empty disables it**, and that is the supported air-gapped configuration:

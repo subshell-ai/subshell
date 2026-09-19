@@ -65,7 +65,7 @@ export function DesktopAppUpdateRow({ collapsed }: { collapsed: boolean }) {
       // different numbers. Two rows saying `Subshell Server <x>` for two
       // different facts is precisely what the "a version nobody can see is a
       // version nobody quotes in a bug report" argument was against.
-      label={`Subshell Server app ${data.currentVersion}`}
+      label={`Subshell Server App ${data.currentVersion}`}
       notice={appUpdateNotice(data)}
       onActivate={
         isAdmin

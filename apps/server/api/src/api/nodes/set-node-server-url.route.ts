@@ -15,9 +15,9 @@ const ConfigBodySchema = t.Object({
 });
 
 const ConfigResponseSchema = t.Object({
-  serverUrl: t.String({ description: "The address as the agent stored it" }),
+  serverUrl: t.String({ description: "The address as the node stored it" }),
   restartRequired: t.Literal(true, {
-    description: "The new address takes effect when the agent restarts; this call does not restart it",
+    description: "The new address takes effect when the node restarts; this call does not restart it",
   }),
 });
 
@@ -67,17 +67,17 @@ export function validateNodeServerUrl(value: string): { url: string } | { error:
  * **OWNER ONLY, and that is the one gate in this group that is not
  * `nodeCanConfigure`.** `docs/security.md` calls `subshell configure --server`
  * deliberately unprivileged, and locally it is: it edits a 0600 file the local
- * user already owns. Doing it REMOTELY is a different act. The agent then dials
+ * user already owns. Doing it REMOTELY is a different act. The node then dials
  * whatever host was typed with `Authorization: Bearer <nodeKey>`, disclosing a
  * credential valid on THIS plane to that host, and the machine leaves this
  * instance. An `edit` grantee is trusted to interrupt a machine they were
  * shared; making it someone else's machine is not that.
  *
  * The address is validated and canonicalized here AND re-normalized by the
- * agent (`runConfigure` shares `normalizeServer` with enroll), so the two
+ * node (`runConfigure` shares `normalizeServer` with enroll), so the two
  * cannot disagree about a spelling.
  *
- * **It does not restart the agent.** The new address takes effect on the next
+ * **It does not restart the node.** The new address takes effect on the next
  * start, and choosing when is the operator's — a machine that vanished
  * mid-request because it silently re-dialed elsewhere is the surprise this
  * whole surface exists to remove.
@@ -125,7 +125,7 @@ export const setNodeServerUrlRoute = new Elysia()
                 : BackendErrorCodes.NODE_UNREACHABLE;
           const message =
             err.code === "unsupported"
-              ? "This node's agent predates remote configuration; run `subshell configure --server` on that machine"
+              ? "This node's binary predates remote configuration; run `subshell configure --server` on that machine"
               : err.message;
           return status(409, apiErrorBody({ code, message }));
         }
@@ -161,7 +161,7 @@ export const setNodeServerUrlRoute = new Elysia()
         operationId: "setNodeServerUrl",
         tags: ["nodes"],
         description:
-          "Repoint an enrolled node at another control plane (owner only; never the local node; takes effect on the agent's next restart)",
+          "Repoint an enrolled node at another control plane (owner only; never the local node; takes effect on the node's next restart)",
       },
     },
   );

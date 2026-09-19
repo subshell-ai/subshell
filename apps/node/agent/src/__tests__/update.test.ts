@@ -24,7 +24,7 @@ import {
   readMarker,
   redactUrl,
   releaseApiUrl,
-  resolveAgentBinary,
+  resolveNodeBinary,
   resolveNodeRelease,
   revertAfterRefusal,
   rollbackUpdate,
@@ -47,7 +47,7 @@ import {
  */
 
 /** A throwaway `<dir>/subshell` + data dir, standing in for an installed agent. */
-async function installedAgent(): Promise<{ root: string; binDir: string; binary: string; dataDir: string }> {
+async function installedNode(): Promise<{ root: string; binDir: string; binary: string; dataDir: string }> {
   const root = await mkdtemp(join(tmpdir(), "subshell-update-"));
   const binDir = join(root, "bin");
   const dataDir = join(root, "data");
@@ -81,15 +81,18 @@ const sha256 = (text: string): string => new Bun.CryptoHasher("sha256").update(t
  * which is exactly what `verifySignedManifest` requires (the digest a node
  * checks is the one the signed map names for the file IT fetched).
  */
-const HOST_ASSET = releaseAssetNames("node", hostReleaseTarget(process.platform, process.arch) ?? "linux-x64").binary;
+const HOST_ASSET = releaseAssetNames(
+  "cli-node",
+  hostReleaseTarget(process.platform, process.arch) ?? "linux-x64",
+).binary;
 
 function signedManifest(digest: string, version = "0.9.1"): UpdateManifestSource {
   return {
     bytes: JSON.stringify({
-      component: "node",
+      component: "cli-node",
       version,
       nodeProtocol: 12,
-      minAgentVersion: "0.11.0",
+      minNodeVersion: "0.11.0",
       commit: "0".repeat(40),
       assets: { [HOST_ASSET]: digest },
     }),
@@ -145,7 +148,7 @@ function pretendInstalledAt(binary: string): void {
   Object.defineProperty(process, "execPath", { value: binary, configurable: true, writable: true });
 }
 
-describe("resolveAgentBinary", () => {
+describe("resolveNodeBinary", () => {
   it("refuses a source run, because there is no single file to swap", async () => {
     // `selfInvokePrefix` rung 2: an interpreter with a real entry script. The
     // refusal has to be NOT_COMPILED rather than a write error — the remedy is
@@ -154,7 +157,7 @@ describe("resolveAgentBinary", () => {
     const argv1 = process.argv[1];
     process.argv[1] = "/repo/apps/node/agent/src/index.ts";
     try {
-      await expect(resolveAgentBinary(NO_SERVICE_DEFINITION)).rejects.toMatchObject({
+      await expect(resolveNodeBinary(NO_SERVICE_DEFINITION)).rejects.toMatchObject({
         detail: NODE_RESULT_NOT_COMPILED,
       });
     } finally {
@@ -163,9 +166,9 @@ describe("resolveAgentBinary", () => {
   });
 
   it("names the installed binary and its directory", async () => {
-    const { binary, binDir } = await installedAgent();
+    const { binary, binDir } = await installedNode();
     pretendInstalledAt(binary);
-    expect(await resolveAgentBinary(NO_SERVICE_DEFINITION)).toEqual({ binary, dir: binDir, source: "this process" });
+    expect(await resolveNodeBinary(NO_SERVICE_DEFINITION)).toEqual({ binary, dir: binDir, source: "this process" });
   });
 
   it("prefers the binary the SERVICE DEFINITION names over the one this process is", async () => {
@@ -176,14 +179,14 @@ describe("resolveAgentBinary", () => {
     // and changes nothing is the one thing an update must never do, and it is
     // unfalsifiable from the outside: `version` still answers, just from the
     // copy that was never replaced.
-    const { binary, binDir } = await installedAgent();
+    const { binary, binDir } = await installedNode();
     const other = join(binDir, "subshell-on-path");
     await writeFile(other, "A DIFFERENT COPY");
     await chmod(other, 0o755);
     pretendInstalledAt(other);
 
     expect(
-      await resolveAgentBinary({
+      await resolveNodeBinary({
         platform: "linux",
         home: "/home/u",
         readFile: async (path) =>
@@ -207,7 +210,7 @@ describe("resolveAgentBinary", () => {
     await chmod(binary, 0o755);
 
     expect(
-      await resolveAgentBinary({
+      await resolveNodeBinary({
         platform: "linux",
         home: "/home/u",
         readFile: async () => `ExecStart=/ignored/first\nExecStart="${binary}" run\n`,
@@ -222,7 +225,7 @@ describe("resolveAgentBinary", () => {
     // with an agent binary, which breaks every other program on the machine
     // that runs through it.
     await expect(
-      resolveAgentBinary({
+      resolveNodeBinary({
         platform: "linux",
         home: "/home/u",
         readFile: async () => "ExecStart=/usr/local/bin/bun /repo/apps/node/agent/src/index.ts run\n",
@@ -231,10 +234,10 @@ describe("resolveAgentBinary", () => {
   });
 
   it("reads launchd's ProgramArguments through plutil, because a plist may be binary1", async () => {
-    const { binary, binDir } = await installedAgent();
+    const { binary, binDir } = await installedNode();
     pretendInstalledAt(join(binDir, "not-this-one"));
     expect(
-      await resolveAgentBinary({
+      await resolveNodeBinary({
         platform: "darwin",
         home: "/Users/u",
         readFile: async () => null, // a binary plist: no text answer exists
@@ -249,9 +252,9 @@ describe("resolveAgentBinary", () => {
   it("falls back to this process when no definition is installed", async () => {
     // A hand-run agent is a real deployment, and it is the rung that used to
     // be the only one.
-    const { binary, binDir } = await installedAgent();
+    const { binary, binDir } = await installedNode();
     pretendInstalledAt(binary);
-    expect(await resolveAgentBinary({ platform: "linux", home: "/home/u", readFile: async () => null })).toEqual({
+    expect(await resolveNodeBinary({ platform: "linux", home: "/home/u", readFile: async () => null })).toEqual({
       binary,
       dir: binDir,
       source: "this process",
@@ -262,9 +265,9 @@ describe("resolveAgentBinary", () => {
     // Falling back to `process.execPath` here would resurrect the whole bug:
     // the manager runs the named file, so a missing one is a broken install to
     // report, never a licence to replace a different binary instead.
-    pretendInstalledAt((await installedAgent()).binary);
+    pretendInstalledAt((await installedNode()).binary);
     await expect(
-      resolveAgentBinary({
+      resolveNodeBinary({
         platform: "linux",
         home: "/home/u",
         readFile: async () => "ExecStart=/opt/gone/subshell run\n",
@@ -275,7 +278,7 @@ describe("resolveAgentBinary", () => {
 
 describe("applyUpdate", () => {
   it("downloads, verifies, swaps, and keeps the old binary as .previous", async () => {
-    const { binary, dataDir } = await installedAgent();
+    const { binary, dataDir } = await installedNode();
     pretendInstalledAt(binary);
     const bytes = "NEW BINARY 0.9.1";
     const artifact = serveArtifact(bytes);
@@ -305,7 +308,7 @@ describe("applyUpdate", () => {
     // The whole reason the digest is checked before the first chmod: a
     // mismatch must cost nothing, and must leave nothing behind for a confused
     // hand to run.
-    const { binary, binDir, dataDir } = await installedAgent();
+    const { binary, binDir, dataDir } = await installedNode();
     pretendInstalledAt(binary);
     const artifact = serveArtifact("TAMPERED");
     try {
@@ -345,7 +348,7 @@ describe("applyUpdate", () => {
    * stay, because "which address could not be reached" is the whole diagnosis.
    */
   it("keeps the download token out of every refusal it can raise", async () => {
-    const { binary, dataDir } = await installedAgent();
+    const { binary, dataDir } = await installedNode();
     pretendInstalledAt(binary);
     const artifact = serveArtifact("TAMPERED");
     const withToken = `${artifact.url}?update_token=nut_SECRETVALUE`;
@@ -388,7 +391,7 @@ describe("applyUpdate", () => {
   });
 
   it("refuses a URL that does not answer 200 without touching anything", async () => {
-    const { binary, dataDir } = await installedAgent();
+    const { binary, dataDir } = await installedNode();
     pretendInstalledAt(binary);
     // The single-use download token the plane mints is forgotten across its own
     // restart, and this 401 is exactly what the agent then sees.
@@ -418,7 +421,7 @@ describe("applyUpdate", () => {
   it("refuses when the downloaded binary reports a version other than the one asked for", async () => {
     // A wrong-architecture artifact, or a mis-tagged release: the probe is what
     // catches it before the file becomes the one the service manager runs.
-    const { binary, dataDir } = await installedAgent();
+    const { binary, dataDir } = await installedNode();
     pretendInstalledAt(binary);
     const bytes = "NEW";
     const artifact = serveArtifact(bytes);
@@ -446,7 +449,7 @@ describe("applyUpdate", () => {
     // manifest whose signature the verifier refuses. The download already
     // passed its own digest belt — this is the check that catches a release
     // source and a plane AGREEING on bytes the publisher did not sign.
-    const { binary, binDir, dataDir } = await installedAgent();
+    const { binary, binDir, dataDir } = await installedNode();
     pretendInstalledAt(binary);
     const bytes = "NEW BINARY 0.9.1";
     const artifact = serveArtifact(bytes);
@@ -480,7 +483,7 @@ describe("applyUpdate", () => {
     // not let a NEW agent accept a command without them. A plane below
     // protocol 12 is refused before this is ever sent; a replayed or stripped
     // command must still not install.
-    const { binary, dataDir } = await installedAgent();
+    const { binary, dataDir } = await installedNode();
     pretendInstalledAt(binary);
     const bytes = "NEW BINARY 0.9.1";
     const artifact = serveArtifact(bytes);
@@ -507,7 +510,7 @@ describe("applyUpdate", () => {
     // disagrees with both. The manifest outranks the command — that is the
     // split of powers (§4: node-signing key ⇒ ordering, publisher key ⇒
     // payload), and the digest constant is the answer the plane maps.
-    const { binary, dataDir } = await installedAgent();
+    const { binary, dataDir } = await installedNode();
     pretendInstalledAt(binary);
     const bytes = "NEW BINARY 0.9.1";
     const artifact = serveArtifact(bytes);
@@ -531,7 +534,7 @@ describe("applyUpdate", () => {
   });
 
   it("installs from a local file with no digest, because the operator named the path", async () => {
-    const { binary, root, dataDir } = await installedAgent();
+    const { binary, root, dataDir } = await installedNode();
     pretendInstalledAt(binary);
     const local = join(root, "downloaded-subshell");
     await writeFile(local, "FROM A FILE");
@@ -549,7 +552,7 @@ describe("applyUpdate", () => {
   });
 
   it("restarts through the injected service seam and reports what it did", async () => {
-    const { binary, root, dataDir } = await installedAgent();
+    const { binary, root, dataDir } = await installedNode();
     pretendInstalledAt(binary);
     const local = join(root, "next");
     await writeFile(local, "NEXT");
@@ -576,7 +579,7 @@ describe("applyUpdate", () => {
     // `controlService` refuses a restart whose definition would kill panes.
     // The swap already happened and must not be undone by that: the file is
     // correct, only the bounce did not occur.
-    const { binary, root, dataDir } = await installedAgent();
+    const { binary, root, dataDir } = await installedNode();
     pretendInstalledAt(binary);
     const local = join(root, "next");
     await writeFile(local, "NEXT");
@@ -598,7 +601,7 @@ describe("applyUpdate", () => {
 
 describe("the 4406 rollback", () => {
   it("swaps .previous back, records the failure, and consumes the pending marker", async () => {
-    const { binary, root, dataDir } = await installedAgent();
+    const { binary, root, dataDir } = await installedNode();
     pretendInstalledAt(binary);
     const local = join(root, "next");
     await writeFile(local, "THE REFUSED VERSION");
@@ -625,7 +628,7 @@ describe("the 4406 rollback", () => {
     // The commonest 4406 by far: a node that predates the floor and that
     // nobody just updated. Inventing a swap there would move files for an
     // update that never happened.
-    const { binary, dataDir } = await installedAgent();
+    const { binary, dataDir } = await installedNode();
     pretendInstalledAt(binary);
     expect(await revertAfterRefusal(dataDir, "too old")).toBeNull();
     expect(await readFile(binary, "utf8")).toBe("OLD BINARY");
@@ -633,7 +636,7 @@ describe("the 4406 rollback", () => {
   });
 
   it("refuses to pretend when the marker names a .previous that is gone", async () => {
-    const { binary, root, dataDir } = await installedAgent();
+    const { binary, root, dataDir } = await installedNode();
     pretendInstalledAt(binary);
     const local = join(root, "next");
     await writeFile(local, "NEXT");
@@ -655,7 +658,7 @@ describe("the 4406 rollback", () => {
 
 describe("completeUpdate", () => {
   it("drops .previous and the marker once the plane has accepted the binary", async () => {
-    const { binary, root, dataDir } = await installedAgent();
+    const { binary, root, dataDir } = await installedNode();
     pretendInstalledAt(binary);
     const local = join(root, "next");
     await writeFile(local, "ACCEPTED");
@@ -679,13 +682,13 @@ describe("completeUpdate", () => {
 
 describe("rollbackUpdate", () => {
   it("refuses when there is no .previous to go back to", async () => {
-    const { binary, dataDir } = await installedAgent();
+    const { binary, dataDir } = await installedNode();
     pretendInstalledAt(binary);
     await expect(rollbackUpdate(dataDir, NO_SERVICE_DEFINITION)).rejects.toBeInstanceOf(UpdateRefused);
   });
 
   it("puts the previous binary back and names the version it restored", async () => {
-    const { binary, root, dataDir } = await installedAgent();
+    const { binary, root, dataDir } = await installedNode();
     pretendInstalledAt(binary);
     const local = join(root, "next");
     await writeFile(local, "REGRETTED");
@@ -717,7 +720,7 @@ describe("rollbackUpdate", () => {
    * the destination's inode changing while a file is continuously present.
    */
   it("never unlinks the binary it is about to replace", async () => {
-    const { binary, root, dataDir } = await installedAgent();
+    const { binary, root, dataDir } = await installedNode();
     pretendInstalledAt(binary);
     const local = join(root, "next");
     await writeFile(local, "REGRETTED");
@@ -771,7 +774,7 @@ describe("resolveNodeRelease", () => {
   /** The gh-JSON list shape `resolveNodeRelease` reads: tags with named assets. */
   function releaseList(origin: string, tag: string, names: string[]): string {
     return JSON.stringify([
-      { tag_name: "node-v0.8.0", draft: false, assets: [] },
+      { tag_name: "cli-node-v0.8.0", draft: false, assets: [] },
       {
         tag_name: tag,
         draft: false,
@@ -785,10 +788,10 @@ describe("resolveNodeRelease", () => {
 
   const releaseManifest = (version = "0.9.1"): string =>
     JSON.stringify({
-      component: "node",
+      component: "cli-node",
       version,
       nodeProtocol: 12,
-      minAgentVersion: "0.11.0",
+      minNodeVersion: "0.11.0",
       commit: "0".repeat(40),
       // The decoy triple proves the lookup is by THIS host's exact published
       // filename: resolveNodeRelease must ask for HOST_ASSET, not for a
@@ -799,7 +802,7 @@ describe("resolveNodeRelease", () => {
   /** The whole fake release: list, manifest, sig, artifact, and a LYING sidecar. */
   function fakeRelease(source: ReturnType<typeof serveReleaseSource>, manifestText: string): void {
     const { origin, routes } = source;
-    routes["/releases"] = releaseList(origin, "node-v0.9.1", [
+    routes["/releases"] = releaseList(origin, "cli-node-v0.9.1", [
       HOST_ASSET,
       `${HOST_ASSET}.sha256`,
       RELEASE_MANIFEST_NAME,
@@ -843,7 +846,7 @@ describe("resolveNodeRelease", () => {
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       // Newest node release wins…
-      expect(result.offer).toMatchObject({ version: "0.9.1", tag: "node-v0.9.1" });
+      expect(result.offer).toMatchObject({ version: "0.9.1", tag: "cli-node-v0.9.1" });
       // …for THIS host's exact artifact, not the decoy triple in the list…
       expect(result.offer.url).toBe(`${source.origin}/dl/${HOST_ASSET}`);
       // …with the digest the signed map names, never the sidecar's. A
@@ -878,7 +881,7 @@ describe("resolveNodeRelease", () => {
       const result = await resolveAgainst(source);
       expect(result.ok).toBe(false);
       if (result.ok) return;
-      expect(result.error.message).toBe("node-v0.9.1 is not installable: test: the fixture signature was refused");
+      expect(result.error.message).toBe("cli-node-v0.9.1 is not installable: test: the fixture signature was refused");
       expect(result.error.message).not.toContain("--from");
       expect([...source.requested].sort()).toEqual(
         [`/dl/${RELEASE_MANIFEST_NAME}`, `/dl/${RELEASE_MANIFEST_SIG_NAME}`, "/releases"].sort(),

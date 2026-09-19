@@ -2,9 +2,9 @@
  * Reset this client — the one irreversible screen in this app.
  *
  * The shape is the server app's reset, and deliberately so: the page supplies
- * a HOSTNAME, never a path. The delete plan is read from the agent's own
+ * a HOSTNAME, never a path. The delete plan is read from the node's own
  * `status --json` when the screen arms and stashed on the Rust side, because
- * the chain uninstalls the very agent whose report names those paths; this
+ * the chain uninstalls the very node CLI whose report names those paths; this
  * page renders the plan it is told about and can change none of it.
  *
  * Arming happens on mount rather than on the press, which is what lets an

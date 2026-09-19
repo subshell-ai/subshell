@@ -8,7 +8,7 @@ than every installed binary silently losing update ability at its next check
 
 | file | what it is |
 |---|---|
-| `release-manifest.json` | fixture `release-manifest.json` bytes (component `node`, version `9.9.9`) — exactly what `writeReleaseManifest` emits |
+| `release-manifest.json` | fixture `release-manifest.json` bytes (component `cli-node`, version `9.9.9`) — exactly what `writeReleaseManifest` emits |
 | `release-manifest.sig` | its `release-manifest.json.sig` — produced by `bunx @tauri-apps/cli` 2.11.4 `signer sign` |
 | `publisher-pubkey.txt` | the fixture key's `*.pub` (armor, as committed in `tauri.conf.json`) |
 | `other-pubkey.txt` | a SECOND throwaway key's pubkey — the wrong-key-ID test |

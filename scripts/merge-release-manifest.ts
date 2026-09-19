@@ -8,7 +8,7 @@
  * ```
  *
  * Why a merge step exists at all: every build shard writes its OWN
- * `release-manifest.json` beside its artifact (the local `release:node` run
+ * `release-manifest.json` beside its artifact (the local `release:cli-node` run
  * writes one because it builds every triple in a single process; CI does not
  * — it runs one shard per triple). Before the `assets` map, those per-shard
  * files were byte-identical, so softprops' upload-by-basename collision was
@@ -24,15 +24,15 @@
  *
  * `<dir>` is searched at the top level and one directory deep, because
  * `download-artifact` lands each shard in its own subdirectory
- * (`dist/server-linux-x64/…`). The merged files go to `--out`, ABOVE those
+ * (`dist/cli-server-linux-x64/…`). The merged files go to `--out`, ABOVE those
  * directories.
  *
  * Refusals, all release-stopping: no shard manifests; shards that disagree
- * on component/version/nodeProtocol/minAgentVersion/commit (a half-cut, or
+ * on component/version/nodeProtocol/minNodeVersion/commit (a half-cut, or
  * two versions in one release — either way nobody can say what was published);
  * two shards naming one asset with different digests (the exact
  * two-artifacts-for-one-tag state the signature exists to catch); and, for
- * the `server`/`node` components, a merged set missing any target platform's
+ * the `cli-server`/`cli-node` components, a merged set missing any target platform's
  * binary — a missing entry is invisible to everyone but the machine that
  * needed it. A missing `TAURI_SIGNING_PRIVATE_KEY` also refuses: unlike the
  * shards (where an unsigned local publish is legitimate), this script runs
@@ -114,7 +114,7 @@ export function loadShardManifests(paths: readonly string[]): ShardManifest[] {
 /**
  * The binary asset names a merged manifest MUST carry, per component.
  *
- * Only the two CLI components: `server`/`node` releases are consumed by the
+ * Only the two CLI components: `cli-server`/`cli-node` releases are consumed by the
  * per-machine update paths that look a target up by exact name, so a missing
  * triple is a real dead end there. Desktop components publish manifests too
  * (spec 2026-09-15 §3.2) but nothing per-platform reads their `assets` map —
@@ -122,8 +122,8 @@ export function loadShardManifests(paths: readonly string[]): ShardManifest[] {
  * legitimate cuts for no consumer's sake.
  */
 function requiredAssets(manifest: ReleaseManifest): string[] | null {
-  if (manifest.component === "node") return NODE_TARGETS.map((t) => releaseAssetNames("node", t).binary);
-  if (manifest.component === "server") return SERVER_TARGETS.map((t) => releaseAssetNames("server", t).binary);
+  if (manifest.component === "cli-node") return NODE_TARGETS.map((t) => releaseAssetNames("cli-node", t).binary);
+  if (manifest.component === "cli-server") return SERVER_TARGETS.map((t) => releaseAssetNames("cli-server", t).binary);
   return null;
 }
 
@@ -138,7 +138,7 @@ export function mergeReleaseManifests(shards: readonly ShardManifest[]): Release
   const first = shards[0]?.manifest;
   if (first === undefined) throw new Error("no shard manifests to merge");
   for (const shard of shards) {
-    for (const field of ["component", "version", "nodeProtocol", "minAgentVersion", "commit"] as const) {
+    for (const field of ["component", "version", "nodeProtocol", "minNodeVersion", "commit"] as const) {
       if (shard.manifest[field] !== first[field]) {
         throw new Error(
           `shards disagree on ${field}: ${first[field]} (${shards[0]?.origin}) vs ${shard.manifest[field]} (${shard.origin})`,

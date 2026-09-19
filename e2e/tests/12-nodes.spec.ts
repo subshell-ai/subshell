@@ -5,7 +5,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { BASE_URL } from "../ports";
 import { shortTmuxBase } from "../stack";
-import { AGENT_MAIN, type RunningAgent, startAgent } from "../stub/client";
+import { NODE_MAIN, type RunningNode, startNode } from "../stub/client";
 import { ADMIN_STATE, dismissDirectoryPanel, openAgentPicker, pickAgent, renameSubshell } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
@@ -32,7 +32,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
  */
 async function pollUntil(
   label: string,
-  agent: RunningAgent | undefined,
+  agent: RunningNode | undefined,
   check: () => Promise<boolean>,
   tickMs = 500,
 ): Promise<void> {
@@ -283,11 +283,11 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   // form already spends ~75 of them (see shortTmuxBase in stack.ts).
   const tmuxBase = shortTmuxBase();
   mkdirSync(tmuxBase, { recursive: true }); // tmux will not mkdir the TMUX_TMPDIR base itself (stack.ts)
-  let agent: RunningAgent | undefined;
+  let agent: RunningNode | undefined;
   let nodeId: string | undefined;
   let subshellId: string | undefined;
   try {
-    agent = await startAgent({ home, dataDir, tmuxBase, setupKey, name: nodeName });
+    agent = await startNode({ home, dataDir, tmuxBase, setupKey, name: nodeName });
 
     // `ready` on the node socket flips the row online — poll the registry.
     // The row id is captured on EVERY iteration, not only on success: if the
@@ -481,7 +481,7 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     // is what tells the plane — there is no IPC between the two processes, so
     // this also proves the heartbeat re-read actually fires.
     const cliEnv = { ...process.env, SUBSHELL_CONFIG_HOME: home, TMUX_TMPDIR: tmuxBase };
-    const flip = spawnSync("bun", [AGENT_MAIN, "maintenance", "on", "--yes"], { env: cliEnv, encoding: "utf8" });
+    const flip = spawnSync("bun", [NODE_MAIN, "maintenance", "on", "--yes"], { env: cliEnv, encoding: "utf8" });
     expect(flip.status, `${flip.stdout ?? ""}${flip.stderr ?? ""}`).toBe(0);
     await pollUntil("the plane never learned the machine's own flip", agent, async () => {
       const res = await request.get(`/api/nodes/${nodeId}`);
@@ -493,7 +493,7 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     });
     // Leave it launchable: the teardown below deletes the node, and a machine
     // left in maintenance would make the next run's failure message a puzzle.
-    const unflip = spawnSync("bun", [AGENT_MAIN, "maintenance", "off"], { env: cliEnv, encoding: "utf8" });
+    const unflip = spawnSync("bun", [NODE_MAIN, "maintenance", "off"], { env: cliEnv, encoding: "utf8" });
     expect(unflip.status, `${unflip.stdout ?? ""}${unflip.stderr ?? ""}`).toBe(0);
     await pollUntil("the plane never learned the machine ended maintenance", agent, async () => {
       const res = await request.get(`/api/nodes/${nodeId}`);

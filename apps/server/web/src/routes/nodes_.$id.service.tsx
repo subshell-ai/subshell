@@ -10,7 +10,7 @@ export const Route = createFileRoute("/nodes_/$id/service")({ component: NodeSer
  * `/settings/service` for a machine that is not this one.
  *
  * For a HEADLESS node this is the only surface that answers any of it: who
- * supervises the agent, since when, where it writes, and the five verbs that
+ * supervises the node, since when, where it writes, and the five verbs that
  * act on the process. Both cards render themselves away without a runtime
  * report, which is also the access rule — the server attaches one only for an
  * online agent node whose viewer can configure it.
@@ -26,7 +26,7 @@ function NodeServicePage() {
           {!node.runtime && (
             <p className="text-muted-foreground text-sm">
               {node.status === "online"
-                ? "This node's agent did not report how it runs."
+                ? "This node did not report how it runs."
                 : "This node is offline, so there is nothing to report and nothing to drive. These facts describe a running process — offline, they would be stale by definition."}
             </p>
           )}

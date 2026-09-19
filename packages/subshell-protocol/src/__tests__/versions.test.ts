@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { agentVersionSupported, MIN_AGENT_VERSION, semverLt } from "../versions.js";
+import { MIN_NODE_VERSION, nodeVersionSupported, semverLt } from "../versions.js";
 
 describe("semverLt", () => {
   it("orders by numeric component, not lexically", () => {
@@ -28,14 +28,14 @@ describe("semverLt", () => {
   });
 });
 
-describe("agentVersionSupported", () => {
+describe("nodeVersionSupported", () => {
   it("admits the floor itself and anything newer", () => {
-    expect(agentVersionSupported(MIN_AGENT_VERSION)).toBe(true);
-    expect(agentVersionSupported("99.0.0")).toBe(true);
+    expect(nodeVersionSupported(MIN_NODE_VERSION)).toBe(true);
+    expect(nodeVersionSupported("99.0.0")).toBe(true);
   });
 
   it("refuses anything older", () => {
-    expect(agentVersionSupported("0.0.1")).toBe(false);
+    expect(nodeVersionSupported("0.0.1")).toBe(false);
   });
 
   it("refuses an agent that cannot say what it is", () => {
@@ -43,7 +43,7 @@ describe("agentVersionSupported", () => {
     // floor is that the operator gets told what to install, and a nameless
     // build gives them nothing to compare against.
     for (const v of [null, undefined, "", "unknown"]) {
-      expect(agentVersionSupported(v)).toBe(false);
+      expect(nodeVersionSupported(v)).toBe(false);
     }
   });
 });

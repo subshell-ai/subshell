@@ -42,9 +42,9 @@ import pkg from "../../package.json" with { type: "json" };
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 /** `apps/node/agent` — the cwd every `bun build` invocation runs in (relative `./src/main.ts`). */
-const AGENT_DIR = resolve(SCRIPT_DIR, "..", "..");
+const NODE_DIR = resolve(SCRIPT_DIR, "..", "..");
 /** The monorepo root — where the `packages` dist outputs and hoisted workspace links live. */
-const REPO_ROOT = resolve(AGENT_DIR, "..", "..", "..");
+const REPO_ROOT = resolve(NODE_DIR, "..", "..", "..");
 
 /** One entry of the build schedule. */
 export interface BuildTarget {
@@ -162,7 +162,7 @@ export function resolveArtifactsDir(): string {
 /** Runs one `bun` subcommand argv in `apps/node/agent` with output streamed to this console. */
 async function runBun(args: string[]): Promise<number> {
   const child = Bun.spawn([process.execPath, ...args], {
-    cwd: AGENT_DIR,
+    cwd: NODE_DIR,
     stdout: "inherit",
     stderr: "inherit",
   });
@@ -172,7 +172,7 @@ async function runBun(args: string[]): Promise<number> {
 /** Refuses (exit 1) unless the workspace dist outputs the compiled client links against exist. */
 function assertWorkspaceBuilt(): boolean {
   const linked =
-    existsSync(join(AGENT_DIR, "node_modules", "@internal", "pane-runtime")) ||
+    existsSync(join(NODE_DIR, "node_modules", "@internal", "pane-runtime")) ||
     existsSync(join(REPO_ROOT, "node_modules", "@internal", "pane-runtime"));
   // tsdown's ESM extension for @internal/pane-runtime is .mjs today (its
   // package.json points at dist/index.mjs); accept either spelling so the
@@ -221,7 +221,7 @@ async function main(): Promise<void> {
         `with a different cwd or its own .env, confirm it serves:\n      ${destDir}\n`,
     );
   }
-  const outDir = join(AGENT_DIR, "dist", "release");
+  const outDir = join(NODE_DIR, "dist", "release");
   await mkdir(outDir, { recursive: true });
 
   // No embed step here, and no stub to restore: the agent reads no plugin
@@ -243,7 +243,7 @@ async function main(): Promise<void> {
   const assets: Record<string, string> = {};
   for (const [, { path, digest }] of result.artifacts) assets[basename(path)] = digest;
   const manifest = await writeReleaseManifest(destDir, {
-    component: "node",
+    component: "cli-node",
     version: pkg.version,
     commit: releaseCommit(),
     assets,
@@ -252,7 +252,7 @@ async function main(): Promise<void> {
   // (spec 2026-09-17). With `TAURI_SIGNING_PRIVATE_KEY` set (CI sets it for
   // every shard; the workflow refuses the shard before this step when it is
   // missing), the release is signed and every plane can verify it offline.
-  // Without it the artifacts still publish — a local `release:node` into
+  // Without it the artifacts still publish — a local `release:cli-node` into
   // one's own instance is a legitimate digest-served install — but the
   // operator hears, from this pipeline's own output, that no plane will
   // OFFER it for update until a shard with the key cuts the release.
@@ -266,7 +266,7 @@ async function main(): Promise<void> {
     );
   }
   process.stdout.write(
-    `  ${RELEASE_MANIFEST_NAME.padEnd(28)} protocol ${manifest.nodeProtocol}, min agent ${manifest.minAgentVersion}\n`,
+    `  ${RELEASE_MANIFEST_NAME.padEnd(28)} protocol ${manifest.nodeProtocol}, min node ${manifest.minNodeVersion}\n`,
   );
   process.stdout.write(
     signed === "signed"

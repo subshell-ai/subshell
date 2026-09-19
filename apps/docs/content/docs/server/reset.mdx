@@ -18,7 +18,7 @@ The dashboard's danger card on Settings is only a door: it raises the **Subshell
 **What no reset reaches:**
 
 - **Enrolled remote nodes.** Each keeps its node key and keeps running. It simply stops receiving commands, because the control plane it dialed is gone.
-- **A same-machine node agent.** The `subshell` daemon and its config belong to the node role — a different program with its own config home — and are untouched. Subshells running on other machines are not shut down by resetting this one; they live on their nodes' disks and die with their own panes.
+- **A same-machine node.** The `subshell` daemon and its config belong to the node role — a different program with its own config home — and are untouched. Subshells running on other machines are not shut down by resetting this one; they live on their nodes' disks and die with their own panes.
 - **The installed binary** — by the containment guard above — and **the Subshell Client app's** own choices.
 
 > [!caution] Backups go too

@@ -6,7 +6,7 @@ import { tmuxSocketFor } from "@internal/pane-runtime";
 import type { NodeEvent } from "@internal/subshell-protocol";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
-import type { AgentConfig } from "../config.js";
+import type { NodeConfig } from "../config.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
 
 /**
@@ -58,7 +58,7 @@ describe("resolveSocket memo (spec §6.3)", () => {
     });
 
     const sends: Array<[string, string, string]> = [];
-    const config: AgentConfig = {
+    const config: NodeConfig = {
       serverUrl: "http://localhost:1",
       nodeId: "node-1",
       nodeKey: "k",

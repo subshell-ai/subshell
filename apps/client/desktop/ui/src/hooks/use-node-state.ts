@@ -4,7 +4,7 @@
  * `node_probe` is the expensive one — two CLI spawns plus the ladder probes —
  * which is why {@link PROBE_POLL_MS} is seconds and why polling is SUSPENDED
  * while an action runs. (The cheap probe a fast poll would reach for,
- * `status --probe`, is not merely expensive: it supersede-kicks a live agent,
+ * `status --probe`, is not merely expensive: it supersede-kicks a live node,
  * possibly one on another machine for this same node. The Rust side makes it
  * unreachable, and nothing here may add an affordance that asks for it.)
  */

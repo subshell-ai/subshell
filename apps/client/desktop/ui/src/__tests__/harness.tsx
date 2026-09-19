@@ -27,7 +27,7 @@ type Handler = (args: Record<string, unknown>) => unknown;
 export function makeProbe(overrides: Partial<Probe> = {}): Probe {
   return {
     bundledVersion: "1.9.0",
-    agent: { argv: ["/home/u/.local/bin/subshell"], source: "local-bin", version: "1.9.0" },
+    nodeBinary: { argv: ["/home/u/.local/bin/subshell"], source: "local-bin", version: "1.9.0" },
     managed: true,
     status: {
       nodeId: "11111111-2222-3333-4444-555555555555",
@@ -45,7 +45,7 @@ export function makeProbe(overrides: Partial<Probe> = {}): Probe {
       paneSafety: "keeps",
       detail: "",
     },
-    agentChoice: "up-to-date",
+    nodeChoice: "up-to-date",
     step: "online",
     error: null,
     tmux: "/usr/bin/tmux",
@@ -56,8 +56,8 @@ export function makeProbe(overrides: Partial<Probe> = {}): Probe {
       configDir: "/home/u/.config/subshell",
       configFile: "/home/u/.config/subshell/config.json",
       dataDir: "/home/u/.config/subshell/data",
-      agentLog: null,
-      agentLogHint: "the agent logs to the systemd journal on Linux — run `journalctl --user -u subshell.service -f`",
+      nodeLog: null,
+      nodeLogHint: "the agent logs to the systemd journal on Linux — run `journalctl --user -u subshell.service -f`",
     },
     hostname: "devbox",
     rewriteTearsDown: false,
@@ -83,7 +83,7 @@ export function makeProbe(overrides: Partial<Probe> = {}): Probe {
  */
 export function makeSettings(overrides: Partial<NodeSettings> = {}): NodeSettings {
   return {
-    agentBinPath: null,
+    nodeBinPath: null,
     planeUrl: "https://subshell.example.com",
     ...overrides,
   };

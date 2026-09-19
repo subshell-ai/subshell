@@ -13,7 +13,7 @@ import type { Node } from "@/types/node";
  * to honour that — the server folds it into `canLaunch`, and the reason text
  * the web picker shows is the part this screen goes without. Without reading it, an admin who threw that switch
  * would still see the Server chip here and collect a 403 on Start. An
- * OFFLINE agent is shown disabled for its own reason: launching there 409s
+ * OFFLINE node is shown disabled for its own reason: launching there 409s
  * `NODE_OFFLINE`, and offering a target we know is down would only invite a
  * confusing failure. (The pick list can always be stale — the 409 path covers
  * the race.) Shared by the chip row and `pickNodeDefault` so "selectable" is
