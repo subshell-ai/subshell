@@ -191,13 +191,13 @@ cat > "$W/fake-release.ts" <<EOF
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { hostReleaseTarget, releaseAssetNames } from "$ROOT/packages/subshell-protocol/src/releases.js";
-const binary = releaseAssetNames("node", hostReleaseTarget(process.platform, process.arch)!).binary;
+const binary = releaseAssetNames("cli-node", hostReleaseTarget(process.platform, process.arch)!).binary;
 const bytes = readFileSync(process.argv[2]!);
 const digest = createHash("sha256").update(bytes).digest("hex");
 const port = Number(process.argv[3]!);
 const base = \`http://127.0.0.1:\${port}\`;
 const manifest = JSON.stringify({
-  component: "node",
+  component: "cli-node",
   version: process.argv[4]!,
   nodeProtocol: 12,
   minAgentVersion: "0.11.0",
@@ -211,7 +211,7 @@ Bun.serve({
     if (path === "/releases") {
       return Response.json([
         {
-          tag_name: \`node-v\${process.argv[4]}\`,
+          tag_name: \`cli-node-v\${process.argv[4]}\`,
           draft: false,
           assets: [
             { name: "release-manifest.json", browser_download_url: \`\${base}/manifest\` },
@@ -308,10 +308,10 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { hostReleaseTarget, releaseAssetNames } from "$ROOT/packages/subshell-protocol/src/releases.js";
 const [binPath, version, outPath] = process.argv.slice(2);
-const binary = releaseAssetNames("node", hostReleaseTarget(process.platform, process.arch)!).binary;
+const binary = releaseAssetNames("cli-node", hostReleaseTarget(process.platform, process.arch)!).binary;
 const digest = createHash("sha256").update(readFileSync(binPath!)).digest("hex");
 writeFileSync(outPath!, JSON.stringify({
-  component: "node",
+  component: "cli-node",
   version: version!,
   nodeProtocol: 12,
   minAgentVersion: "0.11.0",
@@ -334,7 +334,7 @@ bun -e "
 cat > "$W/fake-release-signed.ts" <<EOF
 import { readFileSync } from "node:fs";
 import { hostReleaseTarget, releaseAssetNames } from "$ROOT/packages/subshell-protocol/src/releases.js";
-const binary = releaseAssetNames("node", hostReleaseTarget(process.platform, process.arch)!).binary;
+const binary = releaseAssetNames("cli-node", hostReleaseTarget(process.platform, process.arch)!).binary;
 const [binPath, portArg, version, manifestPath, sigPath] = process.argv.slice(2);
 const bytes = readFileSync(binPath!);
 const manifest = readFileSync(manifestPath!);
@@ -352,7 +352,7 @@ Bun.serve({
     if (path === "/releases") {
       return Response.json([
         {
-          tag_name: \`node-v\${version}\`,
+          tag_name: \`cli-node-v\${version}\`,
           draft: false,
           assets: [
             { name: "release-manifest.json", browser_download_url: \`\${base}/manifest\` },

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Tests the PUBLISHED release the way an operator meets it. NOT part of
 # `bun run test:cli`: it reaches the public internet and needs a real
-# `server-v*` release to exist, so it is the check to run AFTER a cut rather
-# than before one.
+# `cli-server-v*` release to exist, so it is the check to run AFTER a cut
+# rather than before one.
 #
 #   bash scripts/cli-e2e/published-release.sh
 #
@@ -19,13 +19,14 @@
 #   2. the server it installs boots, hands off, and takes a first admin;
 #   3. first admin + a setup key;
 #   4. the node one-liner it serves installs and enrols a node against it;
-#   5. the newest published `node-v*` AND `server-v*` releases' manifests
-#      verify OFFLINE against the pubkey compiled into the products (spec
-#      2026-09-17) — the one thing step 4's lazy fetch cannot prove, because
-#      THAT server verifies against its own embedded key, and both would
-#      fail identically if the cut had shipped no signature at all. Tag
-#      discovery paginates to exhaustion: one 100-tag page is not the repo's
-#      whole tag set once the npm `<pkg>@<version>` bumps are counted.
+#   5. the newest published `cli-node-v*` AND `cli-server-v*` releases'
+#      manifests verify OFFLINE against the pubkey compiled into the
+#      products (spec 2026-09-17) — the one thing step 4's lazy fetch cannot
+#      prove, because THAT server verifies against its own embedded key, and
+#      both would fail identically if the cut had shipped no signature at
+#      all. Tag discovery paginates to exhaustion: one 100-tag page is not
+#      the repo's whole tag set once the npm `<pkg>@<version>` bumps are
+#      counted.
 # Temp dirs, a throwaway HOME, port 31997. Never ~/.config/subshell-server or :3080.
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -110,11 +111,12 @@ echo "== 5. the published node AND server releases verify OFFLINE against RELEAS
 #
 # Tag discovery PAGINATES. This repo pushes npm `<pkg>@<version>` tags on
 # every version-PR merge, so one `per_page=100` page stops holding the
-# newest node-v*/server-v* the moment the repo passes 100 tags total — and a
-# `sort -V | tail -1` over a truncated page picks a STALE release and the
-# cut reads as verified against bytes nobody is shipping. Every page is read
-# to the empty one; a failing page (network, or the API's rate limit) fails
-# the script loudly rather than proceeding on a partial scan.
+# newest cli-node-v*/cli-server-v* the moment the repo passes 100 tags
+# total — and a `sort -V | tail -1` over a truncated page picks a STALE
+# release and the cut reads as verified against bytes nobody is shipping.
+# Every page is read to the empty one; a failing page (network, or the API's
+# rate limit) fails the script loudly rather than proceeding on a partial
+# scan.
 : > "$W/tags.txt"
 page=1
 while :; do
@@ -125,10 +127,10 @@ while :; do
   printf '%s\n' "$names" >> "$W/tags.txt"
   page=$((page + 1))
 done
-NODE_TAG=$(grep '^node-v' "$W/tags.txt" | sort -V | tail -1)
-[ -n "$NODE_TAG" ] || fail "no node-v* tag found on the public repo"
-SERVER_TAG=$(grep '^server-v' "$W/tags.txt" | sort -V | tail -1)
-[ -n "$SERVER_TAG" ] || fail "no server-v* tag found on the public repo"
+NODE_TAG=$(grep '^cli-node-v' "$W/tags.txt" | sort -V | tail -1)
+[ -n "$NODE_TAG" ] || fail "no cli-node-v* tag found on the public repo"
+SERVER_TAG=$(grep '^cli-server-v' "$W/tags.txt" | sort -V | tail -1)
+[ -n "$SERVER_TAG" ] || fail "no cli-server-v* tag found on the public repo"
 cat > "$W/verify-manifest.ts" <<EOF
 import { RELEASE_PUBKEY } from "$REPO/packages/subshell-protocol/src/releases.js";
 import { verifyReleaseManifest } from "$REPO/packages/subshell-protocol/src/release-signature.js";
@@ -139,13 +141,13 @@ const mf = await fetch(base + "release-manifest.json");
 if (!mf.ok) { console.error("release-manifest.json: HTTP " + mf.status + " — the newest " + component + " release carries no manifest (it predates signed releases)"); process.exit(1); }
 const sg = await fetch(base + "release-manifest.json.sig");
 if (!sg.ok) { console.error("release-manifest.json.sig: HTTP " + sg.status + " — an UNSIGNED release: no plane will offer it for update"); process.exit(1); }
-const res = await verifyReleaseManifest(new Uint8Array(await mf.arrayBuffer()), await sg.text(), RELEASE_PUBKEY, { component: component as "node" | "server", version });
+const res = await verifyReleaseManifest(new Uint8Array(await mf.arrayBuffer()), await sg.text(), RELEASE_PUBKEY, { component: component as "cli-node" | "cli-server", version });
 if (!res.ok) { console.error("REFUSED: " + res.reason); process.exit(1); }
 console.log("verified " + res.manifest.component + " " + res.manifest.version + " — " + Object.keys(res.manifest.assets).length + " signed asset(s)");
 EOF
-bun "$W/verify-manifest.ts" node "${NODE_TAG#node-v}" "$NODE_TAG" || fail "the published node release does not verify against this build's RELEASE_PUBKEY"
+bun "$W/verify-manifest.ts" cli-node "${NODE_TAG#cli-node-v}" "$NODE_TAG" || fail "the published node release does not verify against this build's RELEASE_PUBKEY"
 ok "$NODE_TAG verifies against the compile-time publisher pubkey"
-bun "$W/verify-manifest.ts" server "${SERVER_TAG#server-v}" "$SERVER_TAG" || fail "the published server release does not verify against this build's RELEASE_PUBKEY"
+bun "$W/verify-manifest.ts" cli-server "${SERVER_TAG#cli-server-v}" "$SERVER_TAG" || fail "the published server release does not verify against this build's RELEASE_PUBKEY"
 ok "$SERVER_TAG verifies against the compile-time publisher pubkey"
 
 echo

@@ -59,14 +59,16 @@
 # An app has TWO names, and confusing them is the failure mode this workflow is
 # now shaped around:
 #
-#   app (the id)  `server` | `node` | `desktop-server` | `desktop-client`.
+#   app (the id)  `cli-server` | `cli-node` | `desktop-server` | `desktop-client`.
 #                 The git tag prefix, the upload-artifact name, the publish
 #                 download pattern and file glob, the dispatch option, and
 #                 every `matrix.app == …` condition. These are what a user
-#                 sees on the releases page — `server-vX.Y.Z`, `node-vX.Y.Z`,
-#                 `desktop-server-vX.Y.Z`, `desktop-client-vX.Y.Z` — and they
-#                 follow the product's three words, not the directory tree.
-#                 `client` as an id is RETIRED: it published the node agent.
+#                 sees on the releases page — `cli-server-vX.Y.Z`,
+#                 `cli-node-vX.Y.Z`, `desktop-server-vX.Y.Z`,
+#                 `desktop-client-vX.Y.Z`. Every id reads `<form>-<role>`:
+#                 which shape a user installs, then which of the product's
+#                 three words it is. `client` as an id is RETIRED: it
+#                 published the node agent.
 #   dir           where the app lives under `apps/`, now NESTED:
 #                 `server/api`, `node/agent`, `server/desktop`,
 #                 `client/desktop`. Used for `apps/<dir>/package.json`,
@@ -92,7 +94,7 @@ on:
       app:
         description: "Which deployable to cut"
         type: choice
-        options: [server, node, desktop-server, desktop-client, all]
+        options: [cli-server, cli-node, desktop-server, desktop-client, all]
         # `all` is the default because every component is cuttable and each
         # desktop bundle SHIPS the CLI it wraps — so a CLI-only fix does not
         # reach desktop users until the matching desktop cut. Defaulting to the
@@ -325,11 +327,11 @@ jobs:
             exit 0
           fi
           case "$APP_INPUT" in
-            server)  apps="server" ;;
-            node)    apps="node" ;;
+            cli-server) apps="cli-server" ;;
+            cli-node)   apps="cli-node" ;;
             desktop-server) apps="desktop-server" ;;
             desktop-client) apps="desktop-client" ;;
-            all)     apps="server node desktop-server desktop-client" ;;
+            all)     apps="cli-server cli-node desktop-server desktop-client" ;;
             *) echo "unknown app input: '$APP_INPUT'" >&2; exit 1 ;;
           esac
           # The publish job downloads with `<app>-*` and globs `dist/<app>-*/*`,
@@ -340,7 +342,7 @@ jobs:
           #
           # This is a property of the IDS, not of the directories: the ids are
           # what the tags and the artifact names are built from.
-          ALL_APPS="server node desktop-server desktop-client"
+          ALL_APPS="cli-server cli-node desktop-server desktop-client"
           for a in $ALL_APPS; do
             for b in $ALL_APPS; do
               [ "$a" = "$b" ] && continue
@@ -354,8 +356,8 @@ jobs:
           # See the header comment for which consumer takes which name.
           app_dir() {
             case "$1" in
-              server)         echo "server/api" ;;
-              node)           echo "node/agent" ;;
+              cli-server)     echo "server/api" ;;
+              cli-node)       echo "node/agent" ;;
               desktop-server) echo "server/desktop" ;;
               desktop-client) echo "client/desktop" ;;
               # Never a fall-through to "$1": a new id without a directory
@@ -413,8 +415,8 @@ jobs:
             [ -z "$appsjson" ] || appsjson="$appsjson,"
             appsjson="$appsjson{\"app\":\"$app\",\"dir\":\"$dir\",\"version\":\"$version\",\"tag\":\"$tag\"}"
             case "$app" in
-              server) triples="linux-x64 linux-arm64 darwin-arm64" ;;
-              node) triples="linux-x64 linux-arm64 darwin-arm64" ;;
+              cli-server) triples="linux-x64 linux-arm64 darwin-arm64" ;;
+              cli-node) triples="linux-x64 linux-arm64 darwin-arm64" ;;
               # No linux-arm64: there is no native arm64 Linux runner, and a
               # file(1) magic check cannot see a GUI's characteristic failure,
               # which is an invisible window. No darwin-x64: a desktop build
@@ -524,7 +526,7 @@ jobs:
       - run: bun run build
 
       - name: Release build (scoped to ${{ matrix.triple }})
-        if: contains(fromJSON('["server","node"]'), matrix.app)
+        if: contains(fromJSON('["cli-server","cli-node"]'), matrix.app)
         env:
           APP: ${{ matrix.app }}
           TRIPLE: ${{ matrix.triple }}
@@ -557,7 +559,7 @@ jobs:
           # unsigned is a release no plane will offer for update
           # (`compatibleNodeRelease` refuses it by name), so publishing it
           # would ship a dud and blame the reader's TLS. An operator's local
-          # `bun run release:node` stays legal unsigned — this refusal is
+          # `bun run release:cli-node` stays legal unsigned — this refusal is
           # CI's, where a keyless cut is a secret misconfiguration.
           [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ] \
             || { echo "missing TAURI_SIGNING_PRIVATE_KEY secret (the updater signing key's CONTENTS)"; exit 1; }
@@ -601,8 +603,8 @@ jobs:
               ;;
           esac
           case "$APP" in
-            server) SUBSHELL_SERVER_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_SERVER_RELEASE_DIR="$DEST" bun run release:server ;;
-            node) SUBSHELL_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_NODE_ARTIFACTS_DIR="$DEST" bun run release:node ;;
+            cli-server) SUBSHELL_SERVER_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_SERVER_RELEASE_DIR="$DEST" bun run release:cli-server ;;
+            cli-node) SUBSHELL_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_NODE_ARTIFACTS_DIR="$DEST" bun run release:cli-node ;;
             # Never an `else`: a new app reaching here would build and publish
             # the NODE binary under its own tag rather than failing.
             *) echo "::error::no bare-binary pipeline for app '$APP'"; exit 1 ;;
@@ -687,7 +689,7 @@ jobs:
 
           case "$TRIPLE" in
             linux-*)
-              # The nested release:server ends in `git checkout` to restore the
+              # The nested release:cli-server ends in `git checkout` to restore the
               # embedded-web stub, as root, over a runner-owned workspace.
               git config --global --add safe.directory "$GITHUB_WORKSPACE"
               pkg-config --exists webkit2gtk-4.1 || { echo "missing libwebkit2gtk-4.1-dev"; exit 1; }
@@ -722,7 +724,7 @@ jobs:
               ;;
           esac
 
-          # NEVER on a desktop shard: the nested release:server would sign and
+          # NEVER on a desktop shard: the nested release:cli-server would sign and
           # notarize a binary the .app is about to re-seal with --force.
           unset SUBSHELL_RELEASE_SIGN_CMD || true
 
@@ -747,8 +749,8 @@ jobs:
               ;;
           esac
           case "$APP" in
-            server) BIN="dist-rel/subshell-server-cli-$TRIPLE" ;;
-            node) BIN="dist-rel/subshell-node-cli-$TRIPLE" ;;
+            cli-server) BIN="dist-rel/subshell-server-cli-$TRIPLE" ;;
+            cli-node) BIN="dist-rel/subshell-node-cli-$TRIPLE" ;;
             *) echo "no binary smoke for app '$APP'"; exit 1 ;;
           esac
           test -f "$BIN"        || { echo "missing artifact $BIN"; exit 1; }
@@ -772,7 +774,7 @@ jobs:
             echo "$out"
             # Pinned against the CLIs' real output: the server prints exactly
             # "subshell-server <v>"; the agent adds "(node protocol vN)".
-            if [ "$APP" = "server" ]; then
+            if [ "$APP" = "cli-server" ]; then
               [ "$out" = "subshell-server $VERSION" ] || { echo "server version output mismatch"; return 1; }
             else
               case "$out" in
@@ -780,7 +782,7 @@ jobs:
                 *) echo "node agent version output mismatch"; return 1 ;;
               esac
             fi
-            if [ "$APP" = "server" ]; then
+            if [ "$APP" = "cli-server" ]; then
               boot_smoke
               # Branch-headline feature, per-triple (darwin included): the
               # server binary SERVES `mcp` itself — the refusal contract
@@ -945,7 +947,7 @@ jobs:
           # section 7 API Type Surface exception) rides along for the two
           # components that actually ship it.
           case "$APP" in
-            server|desktop-server) cp repo/apps/server/LICENSE legal/LICENSE-AGPL-3.0 ;;
+            cli-server|desktop-server) cp repo/apps/server/LICENSE legal/LICENSE-AGPL-3.0 ;;
           esac
           ls -la legal
 
