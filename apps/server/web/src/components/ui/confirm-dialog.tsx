@@ -1,5 +1,5 @@
+import { Button, type ConfirmOptions, setConfirmHandler } from "@internal/node-admin";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -8,7 +8,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { type ConfirmOptions, setConfirmHandler } from "@/lib/confirm";
 
 /**
  * Hosts the single confirmation dialog behind `confirmAction`.

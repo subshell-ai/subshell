@@ -1,9 +1,7 @@
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, errMessage } from "@internal/node-admin";
 import { useState } from "react";
 import { PluginIcon } from "@/components/plugin-icon";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { type InstancePluginRow, useInstallInstancePlugin } from "@/hooks/use-instance-plugins";
-import { errMessage } from "@/lib/api";
 
 /**
  * The offline half of the catalog: built-ins this build carries that the

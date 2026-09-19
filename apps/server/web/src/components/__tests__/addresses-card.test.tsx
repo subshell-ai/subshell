@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { ApiError } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { deploymentView, idleRestart } from "@/components/__tests__/helpers/deployment-view";
 import { AddressesCard, invalidField } from "@/components/networking/addresses-card";
-import { ApiError } from "@/lib/api";
 
 const restore: (() => void)[] = [];
 afterEach(() => {

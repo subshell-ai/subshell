@@ -1,3 +1,4 @@
+import { Button } from "@internal/node-admin";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
@@ -6,7 +7,6 @@ import { InstallByNameForm } from "@/components/plugins/install-by-name-form";
 import { InstalledPluginsCard } from "@/components/plugins/installed-plugins-card";
 import { PluginCatalogCard } from "@/components/plugins/plugin-catalog-card";
 import { UninstallPluginDialog } from "@/components/plugins/uninstall-plugin-dialog";
-import { Button } from "@/components/ui/button";
 import { type InstancePluginRow, useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 

@@ -1,12 +1,10 @@
+import { Input, Label, Switch } from "@internal/node-admin";
 import { useEffect, useMemo, useState } from "react";
 import { McpSetupSection } from "@/components/mcp-setup-section";
 import { type PairRow, PairRowsEditor } from "@/components/pair-rows-editor";
 import { CommandPasteField } from "@/components/presets/command-paste-field";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Segmented } from "@/components/ui/segmented";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { useHarnessSchema } from "@/hooks/use-harness-schema";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import type { PresetFormValue } from "@/lib/preset-form";

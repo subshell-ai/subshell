@@ -1,10 +1,6 @@
+import { Button, Card, CardContent, CardHeader, CardTitle, CopyableValue, Label, Switch } from "@internal/node-admin";
 import { Pause, Play } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CopyableValue } from "@/components/ui/copyable-value";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { SERVER_LOG_DEFAULT_LINES, useServerLogs, useSetDebugLogging } from "@/hooks/use-server-logs";
 import type { ServerDeployment, ServerLogLine } from "@/types/server-deployment";
 

@@ -1,5 +1,5 @@
+import { cn } from "@internal/node-admin";
 import type { ReactNode } from "react";
-import { cn } from "@/lib/utils";
 
 /** Dot fills, by what the pill is reporting. */
 const DOT_TONES = {

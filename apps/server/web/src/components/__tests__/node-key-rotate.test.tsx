@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { setConfirmHandler } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { NodeKeyRotate } from "@/components/nodes/node-key-rotate";
-import { setConfirmHandler } from "@/lib/confirm";
 
 /**
  * Regression pin for the plaintext-once guarantee across a node switch:

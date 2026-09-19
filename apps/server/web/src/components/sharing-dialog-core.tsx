@@ -1,6 +1,5 @@
+import { Badge, Button, errMessage } from "@internal/node-admin";
 import { type ReactNode, useState } from "react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +10,6 @@ import {
 } from "@/components/ui/dialog";
 import { Segmented } from "@/components/ui/segmented";
 import type { RosterUser, ShareDraft } from "@/hooks/use-subshell-shares";
-import { errMessage } from "@/lib/api";
 import type { SubshellAccess } from "@/types/subshell";
 
 /** The grantee levels a share can hold (owner is implicit, never assignable). */

@@ -1,10 +1,8 @@
+import { Button, errMessage, Input } from "@internal/node-admin";
 import { Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AutocompleteInput } from "@/components/autocomplete-input";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { errMessage } from "@/lib/api";
 import type { Suggestion } from "@/lib/autocomplete";
 
 /** One editor row: a first column (autocompleted) and a free-text second. */

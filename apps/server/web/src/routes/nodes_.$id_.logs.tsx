@@ -1,5 +1,5 @@
+import { NodeLogCard } from "@internal/node-admin";
 import { createFileRoute } from "@tanstack/react-router";
-import { NodeLogCard } from "@/components/nodes/node-log-card";
 import { NodePageShell } from "@/components/nodes/node-page-shell";
 
 export const Route = createFileRoute("/nodes_/$id_/logs")({ component: NodeLogsPage });

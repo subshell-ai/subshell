@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { ApiError, NetworkError } from "@/lib/api";
+import { ApiError, NetworkError } from "@internal/node-admin";
 import { queryRetry, queryRetryDelay } from "@/lib/query-client";
 
 const net = new NetworkError(new TypeError("Failed to fetch"));

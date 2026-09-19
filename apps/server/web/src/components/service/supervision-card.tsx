@@ -1,22 +1,12 @@
+import { Button, CopyableValue, FactCard, LINGER_COMMAND, persistence, Switch } from "@internal/node-admin";
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
-import { FactCard } from "@/components/admin-status/fact-list";
 import { REINSTALL_COMMAND } from "@/components/service/service-card";
 import { SupervisionDialog } from "@/components/service/supervision-dialog";
-import { Button } from "@/components/ui/button";
-import { CopyableValue } from "@/components/ui/copyable-value";
-import { Switch } from "@/components/ui/switch";
 import type { ServerAutostart } from "@/hooks/use-server-deployment";
 import type { SetSupervision } from "@/hooks/use-set-supervision";
 import { isServerDesktop } from "@/lib/desktop";
-import {
-  currentMode,
-  LINGER_COMMAND,
-  loginDisabledReason,
-  modeLabel,
-  persistence,
-  type SupervisionMode,
-} from "@/lib/supervision";
+import { currentMode, loginDisabledReason, modeLabel, type SupervisionMode } from "@/lib/supervision";
 import type { ServerDeployment } from "@/types/server-deployment";
 
 export { currentMode, loginDisabledReason, type SupervisionMode };

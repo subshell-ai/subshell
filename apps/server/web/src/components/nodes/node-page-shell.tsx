@@ -1,10 +1,10 @@
+import type { NodeDetail } from "@internal/node-admin";
+import { useNode } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import type { JSX, ReactNode } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { NodeSectionNav } from "@/components/nodes/node-section-nav";
 import { PageHeader } from "@/components/page-header";
-import { useNode } from "@/hooks/use-nodes";
-import type { NodeDetail } from "@/types/node";
 
 /**
  * The frame every node section shares: the load, the header, and the nav.

@@ -1,3 +1,4 @@
+import { apiFetch, Button, confirmAction, errMessage } from "@internal/node-admin";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -7,11 +8,8 @@ import { PageHeader } from "@/components/page-header";
 import { PluginIcon } from "@/components/plugin-icon";
 import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
 import { PresetListRow } from "@/components/presets/preset-list-row";
-import { Button } from "@/components/ui/button";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useInvalidatePresets, usePresets } from "@/hooks/use-presets";
-import { apiFetch, errMessage } from "@/lib/api";
-import { confirmAction } from "@/lib/confirm";
 import type { PresetRow } from "@/types/preset";
 
 export const Route = createFileRoute("/presets")({

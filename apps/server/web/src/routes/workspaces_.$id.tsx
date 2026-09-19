@@ -1,13 +1,11 @@
+import { ApiError, Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@internal/node-admin";
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useCallback, useMemo, useRef } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { WorkspaceDock } from "@/components/workspace-dock";
 import { WorkspaceTabs } from "@/components/workspace-tabs";
 import { useDiscardThinDraft } from "@/hooks/use-discard-thin-draft";
 import { useIsWide } from "@/hooks/use-is-wide";
 import { useWorkspace } from "@/hooks/use-workspace";
-import { ApiError } from "@/lib/api";
 import { createIntentClaim } from "@/lib/intent-claim";
 import { workspaceLoad } from "@/lib/workspace-load";
 import { parseSplitIntent } from "@/lib/workspace-split-intent";

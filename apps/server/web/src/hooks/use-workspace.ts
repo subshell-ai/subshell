@@ -1,5 +1,5 @@
+import { apiFetch } from "@internal/node-admin";
 import { useQuery } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/api";
 import { WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import type { WorkspaceDetail } from "@/types/workspace";
 

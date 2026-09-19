@@ -1,5 +1,5 @@
+import { Button } from "@internal/node-admin";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
 import { DASH, MobilePair, RowRule, VersionCell } from "@/components/updates/row-cells";
 import { useNodeUpdate } from "@/hooks/use-node-update";
 import { endOnce } from "@/lib/update-copy";

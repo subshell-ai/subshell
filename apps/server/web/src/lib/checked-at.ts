@@ -1,4 +1,4 @@
-import { relativeElapsed } from "@/components/subshell-status";
+import { relativeElapsed } from "@internal/node-admin";
 
 /**
  * "checked 2m ago" for a detection stamp, or null when there is none.

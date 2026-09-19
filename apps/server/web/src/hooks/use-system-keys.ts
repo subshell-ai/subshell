@@ -1,5 +1,5 @@
+import { apiFetch } from "@internal/node-admin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/api";
 
 /** One admin-managed system API key (never the secret — only its preview). */
 export interface SystemKeyRow {

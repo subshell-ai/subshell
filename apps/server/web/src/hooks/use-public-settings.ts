@@ -1,5 +1,5 @@
+import { apiFetch } from "@internal/node-admin";
 import { useQuery } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/api";
 
 /** Query key of the instance's public settings (`GET /api/settings/public`). */
 export const PUBLIC_SETTINGS_QUERY_KEY = ["settings-public"] as const;

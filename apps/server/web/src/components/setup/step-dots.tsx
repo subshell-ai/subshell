@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@internal/node-admin";
 
 /**
  * The assistant's progress: dots, not steps. Not interactive on purpose (the

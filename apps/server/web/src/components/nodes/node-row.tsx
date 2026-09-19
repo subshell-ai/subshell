@@ -1,10 +1,8 @@
+import type { Node } from "@internal/node-admin";
+import { Badge, badgeVariants, cn, relativeElapsed } from "@internal/node-admin";
 import { Settings, Share2, Trash2, Wrench } from "lucide-react";
 import { useState } from "react";
 import { ActionsMenu } from "@/components/actions-menu";
-import { relativeElapsed } from "@/components/subshell-status";
-import { Badge, badgeVariants } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
-import type { Node } from "@/types/node";
 
 /**
  * OS label (spec 2026-08-31 §9): darwin reads as "Apple" (the honest brand of

@@ -1,4 +1,4 @@
-import { Input } from "@/components/ui/input";
+import { Input } from "@internal/node-admin";
 
 /**
  * Search box filtering subshell cards by name, working directory, or harness.

@@ -1,9 +1,8 @@
+import { Badge, Button } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import { Check, Copy, Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { presetLaunchCommand } from "@/lib/launch-command";
 import type { PresetRow } from "@/types/preset";
 

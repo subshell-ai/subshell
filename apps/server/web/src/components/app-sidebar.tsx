@@ -1,3 +1,4 @@
+import { Button, cn, Input } from "@internal/node-admin";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   Activity,
@@ -26,8 +27,6 @@ import { AboutDialog } from "@/components/about-dialog";
 import { MobileInstallDialog } from "@/components/mobile-install-dialog";
 import { useQuickAdd } from "@/components/quick-add";
 import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { UserMenu } from "@/components/user-menu";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
 import { useOrderedSubshells } from "@/hooks/use-ordered-subshells";
@@ -37,7 +36,6 @@ import { signOutAndRedirect, useCurrentUser } from "@/lib/auth";
 import { desktopInvoke, isDesktop, onDesktopAction } from "@/lib/desktop";
 import { RECENT_LIMIT, recentWorkspaceLinks } from "@/lib/sidebar-recents";
 import { filterSubshells } from "@/lib/subshell-filter";
-import { cn } from "@/lib/utils";
 
 /** localStorage key for the collapsed state (persists across reloads). */
 const COLLAPSED_KEY = "subshell.sidebarCollapsed";

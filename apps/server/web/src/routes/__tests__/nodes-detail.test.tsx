@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import type { NodeDetail } from "@internal/node-admin";
+import { setConfirmHandler } from "@internal/node-admin";
 import { MIN_NODE_VERSION, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { setConfirmHandler } from "@/lib/confirm";
 import { Route } from "@/routes/nodes_.$id";
-import type { NodeDetail } from "@/types/node";
 
 /**
  * The node detail page's manager affordances (spec 2026-08-31 §9/§10, card

@@ -1,6 +1,6 @@
+import { errMessage } from "@internal/node-admin";
 import { useMemo, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
-import { errMessage } from "@/lib/api";
 import { type PresetFormValue, parseCommandPaste, presetFormToCommand } from "@/lib/preset-form";
 
 /** Placeholder: a worked command, so the shape is shown rather than described. */

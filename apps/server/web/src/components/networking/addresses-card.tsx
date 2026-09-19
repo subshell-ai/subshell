@@ -1,4 +1,15 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
+import {
+  ApiError,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  errMessage,
+  Input,
+  Label,
+} from "@internal/node-admin";
 import { useState } from "react";
 // Deliberate (review, 2026-09-17): the card moved to `networking/`, but
 // RESTARTING is service-domain and these two are shared with ServiceCard —
@@ -6,13 +17,8 @@ import { useState } from "react";
 // has not come back".
 import { RestartDialog } from "@/components/service/restart-dialog";
 import { RestartStrip } from "@/components/service/restart-strip";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useUpdateServerConfig } from "@/hooks/use-server-deployment";
 import type { ServerRestart } from "@/hooks/use-server-restart";
-import { ApiError, errMessage } from "@/lib/api";
 import { formProblems } from "@/lib/config-validation";
 import { isServerDesktop } from "@/lib/desktop";
 import type { ServerConfigPatch, ServerDeployment, ServerSettingKey } from "@/types/server-deployment";

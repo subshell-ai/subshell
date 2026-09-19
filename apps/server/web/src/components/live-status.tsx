@@ -1,5 +1,5 @@
+import { cn } from "@internal/node-admin";
 import type { JSX } from "react";
-import { cn } from "@/lib/utils";
 
 /**
  * Whether this page is receiving live subshell updates.

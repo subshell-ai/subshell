@@ -1,7 +1,7 @@
+import { ApiError, NetworkError, parseErrorBody } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ADMIN_STATUS_QUERY_KEY } from "@/hooks/use-admin-status";
 import { readInstallStream } from "@/hooks/use-install-agent";
-import { ApiError, NetworkError, parseErrorBody } from "@/lib/api";
 
 /** The `done` frame of `POST /api/setup/tmux/install`. */
 export interface TmuxInstallResult {

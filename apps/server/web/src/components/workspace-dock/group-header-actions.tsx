@@ -1,8 +1,8 @@
+import { Button } from "@internal/node-admin";
 import type { IDockviewHeaderActionsProps } from "dockview-react";
 import { Maximize2, Minimize2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { TranscriptSearch } from "@/components/transcript-search";
-import { Button } from "@/components/ui/button";
 import { useWorkspaceDockContext } from "@/components/workspace-dock/context";
 
 /**

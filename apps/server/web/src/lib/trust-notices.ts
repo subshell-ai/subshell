@@ -1,4 +1,4 @@
-import type { Node } from "@/types/node";
+import type { Node } from "@internal/node-admin";
 import type { SubshellView } from "@/types/subshell";
 
 /**

@@ -1,9 +1,6 @@
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label } from "@internal/node-admin";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
 import { CURRENT_USER_QUERY_KEY } from "@/lib/query-keys";

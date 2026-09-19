@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import type { NodeDetail, NodeHarness } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -9,7 +10,6 @@ import {
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
-import type { NodeDetail, NodeHarness } from "@/types/node";
 
 /**
  * The node page's harness card after the plugin inversion (spec 2026-09-10):

@@ -1,6 +1,5 @@
+import { Badge, Fact, FactCard } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
-import { Fact, FactCard } from "@/components/admin-status/fact-list";
-import { Badge } from "@/components/ui/badge";
 import type { AdminStatus } from "@/hooks/use-admin-status";
 
 /**

@@ -1,3 +1,4 @@
+import { apiFetch, apiPost, Button, cn, errMessage } from "@internal/node-admin";
 import { createFileRoute } from "@tanstack/react-router";
 import { LayoutDashboard, Plus } from "lucide-react";
 import { useRef, useState } from "react";
@@ -6,12 +7,9 @@ import { EntityCard } from "@/components/entity-card";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
 import { NewWorkspaceDialog } from "@/components/sidebar/new-workspace-dialog";
-import { Button } from "@/components/ui/button";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
 import { useInvalidateWorkspaces, useWorkspaces } from "@/hooks/use-workspaces";
-import { apiFetch, apiPost, errMessage } from "@/lib/api";
 import { readSubshellDrag, SUBSHELL_DND_TYPE } from "@/lib/subshell-dnd";
-import { cn } from "@/lib/utils";
 import type { WorkspaceDetail } from "@/types/workspace";
 
 export const Route = createFileRoute("/workspaces")({

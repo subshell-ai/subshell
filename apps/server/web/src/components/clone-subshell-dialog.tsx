@@ -1,6 +1,6 @@
+import { Button, Input } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { type JSX, useState } from "react";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -9,7 +9,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { type CreateSubshellInput, useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useNodes } from "@/hooks/use-nodes";

@@ -1,0 +1,12 @@
+{
+  "extends": "@internal/tsconfig/tsconfig.json",
+  "include": ["src/**/*"],
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["bun", "react", "react-dom"],
+    "noEmit": true
+  }
+}

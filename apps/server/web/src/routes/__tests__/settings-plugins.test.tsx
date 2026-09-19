@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { apiFetch } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, Outlet, RouterProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import type { InstancePluginRow, PluginImpact } from "@/hooks/use-instance-plugins";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
-import { apiFetch } from "@/lib/api";
 import { Route } from "@/routes/settings_.plugins";
 
 /**

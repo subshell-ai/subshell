@@ -1,7 +1,7 @@
+import { apiFetch, apiPost } from "@internal/node-admin";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ADMIN_STATUS_QUERY_KEY } from "@/hooks/use-admin-status";
-import { apiFetch, apiPost } from "@/lib/api";
 import { desktopInvokeStrict } from "@/lib/desktop";
 import { SERVER_DEPLOYMENT_QUERY_KEY } from "@/lib/query-keys";
 import { currentMode, type SupervisionMode } from "@/lib/supervision";

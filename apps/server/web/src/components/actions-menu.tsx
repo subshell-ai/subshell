@@ -1,6 +1,6 @@
+import { Button } from "@internal/node-admin";
 import { type LucideIcon, MoreHorizontal } from "lucide-react";
 import { type JSX, type ReactNode, useRef } from "react";
-import { Button } from "@/components/ui/button";
 import { ContextMenuRoot, ContextMenuTriggerContents } from "@/components/ui/context-menu";
 import {
   DropdownMenu,

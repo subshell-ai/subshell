@@ -1,7 +1,7 @@
+import { Button } from "@internal/node-admin";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
-import { Button } from "@/components/ui/button";
 import { UpdatesTable } from "@/components/updates/updates-table";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { usePublicSettings } from "@/hooks/use-public-settings";

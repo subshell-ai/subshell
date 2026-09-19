@@ -1,9 +1,7 @@
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, errMessage } from "@internal/node-admin";
 import { useEffect, useState } from "react";
 import { PermissionNotice } from "@/components/desktop/permission-notice";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useDesktopPermissions } from "@/hooks/use-desktop-permissions";
-import { errMessage } from "@/lib/api";
 import { desktopPlatform, isServerDesktop } from "@/lib/desktop";
 import { disablePush, enablePush, getPushState, type PushState } from "@/lib/notifications";
 import { isIOS } from "@/lib/platform";

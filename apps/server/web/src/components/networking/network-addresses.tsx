@@ -1,4 +1,4 @@
-import { CopyableValue } from "@/components/ui/copyable-value";
+import { CopyableValue } from "@internal/node-admin";
 import type { NetworkAddress } from "@/types/network";
 
 /**

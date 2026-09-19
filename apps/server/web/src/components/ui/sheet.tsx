@@ -1,7 +1,7 @@
 import { Dialog } from "@base-ui/react/dialog";
+import { cn } from "@internal/node-admin";
 import { X } from "lucide-react";
 import type { JSX } from "react";
-import { cn } from "@/lib/utils";
 
 /**
  * Side sheet: a dialog panel sliding in from a screen edge, built on Base

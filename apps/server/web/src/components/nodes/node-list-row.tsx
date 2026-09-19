@@ -1,11 +1,15 @@
+import type { Node, NodeDetail } from "@internal/node-admin";
+import {
+  confirmStartMaintenance,
+  errMessage,
+  maintenanceRefusalNotice,
+  nodeDetailQuery,
+  useSetNodeMaintenance,
+} from "@internal/node-admin";
 import { useQueryClient } from "@tanstack/react-query";
 import type { JSX } from "react";
 import { NodeRow } from "@/components/nodes/node-row";
-import { nodeDetailQuery, useSetNodeMaintenance } from "@/hooks/use-nodes";
-import { errMessage } from "@/lib/api";
-import { confirmStartMaintenance } from "@/lib/node-confirmations";
-import { maintenanceRefusalNotice } from "@/lib/node-maintenance";
-import type { Node, NodeDetail } from "@/types/node";
+import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 
 /**
  * One row of the Nodes list with its maintenance flip bound to it.
@@ -57,12 +61,28 @@ export function NodeListRow({
   const queryClient = useQueryClient();
   const setMaintenance = useSetNodeMaintenance(node.id);
 
+  /**
+   * The fallout the SHARED card hook no longer reaches. Flipping maintenance
+   * terminates subshells on that machine, and the rows this viewer can see
+   * went `terminated` the instant the PUT answered — on the plane that means
+   * the sidebar list must learn now, not on its next incidental refetch. The
+   * node-admin card takes this as a prop for the same reason; a row has no
+   * card, so it says it here. (The node's own dashboard has no subshell
+   * query, which is exactly why the hook left it out.)
+   */
+  function reportFlip() {
+    void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
+  }
+
   async function flip(): Promise<void> {
     onError(null);
     if (node.maintenance) {
       // Ending only widens what the machine accepts — nothing to ask.
       setMaintenance.mutate(false, {
-        onSuccess: (result) => onError(maintenanceRefusalNotice(node.name, result.failed)),
+        onSuccess: (result) => {
+          reportFlip();
+          onError(maintenanceRefusalNotice(node.name, result.failed));
+        },
         onError: (err) => onError(errMessage(err, `Couldn't end maintenance on ${node.name}.`)),
       });
       return;
@@ -81,7 +101,10 @@ export function NodeListRow({
     });
     if (!ok) return;
     setMaintenance.mutate(true, {
-      onSuccess: (result) => onError(maintenanceRefusalNotice(node.name, result.failed)),
+      onSuccess: (result) => {
+        reportFlip();
+        onError(maintenanceRefusalNotice(node.name, result.failed));
+      },
       onError: (err) => onError(errMessage(err, `Couldn't start maintenance on ${node.name}.`)),
     });
   }

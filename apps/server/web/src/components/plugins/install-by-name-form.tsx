@@ -1,11 +1,17 @@
+import {
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  confirmAction,
+  errMessage,
+  Input,
+  Label,
+} from "@internal/node-admin";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { type InstancePluginRow, useInstallInstancePlugin } from "@/hooks/use-instance-plugins";
-import { errMessage } from "@/lib/api";
-import { confirmAction } from "@/lib/confirm";
 import { derivePluginId, isSafePluginId, parseNpmSpec } from "@/lib/plugin-spec";
 
 /**

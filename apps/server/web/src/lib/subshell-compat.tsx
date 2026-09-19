@@ -1,9 +1,9 @@
+import type { Node } from "@internal/node-admin";
 import { PluginIcon } from "@/components/plugin-icon";
 import type { ComboboxOption } from "@/components/ui/combobox";
 import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
 import { isOfflineAgent, nodeOptionLabel } from "@/lib/node-label";
 import { usableFirst } from "@/lib/option-order";
-import type { Node } from "@/types/node";
 
 /**
  * The launch picker's compatibility matrix (spec 2026-09-02 §2, re-cut

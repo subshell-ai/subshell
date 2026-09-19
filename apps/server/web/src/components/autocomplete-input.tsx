@@ -1,7 +1,6 @@
+import { cn, Input } from "@internal/node-admin";
 import { useMemo, useState } from "react";
-import { Input } from "@/components/ui/input";
 import { filterSuggestions, type Suggestion } from "@/lib/autocomplete";
-import { cn } from "@/lib/utils";
 
 /**
  * A text input with a filtered suggestion dropdown, used for env-var names

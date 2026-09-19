@@ -1,7 +1,7 @@
+import { Button } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import { LayoutDashboard } from "lucide-react";
 import type { JSX } from "react";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,

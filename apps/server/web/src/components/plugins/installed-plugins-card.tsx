@@ -1,12 +1,17 @@
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  confirmAction,
+  errMessage,
+  Switch,
+} from "@internal/node-admin";
 import { useState } from "react";
 import { PluginIcon } from "@/components/plugin-icon";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
 import { type InstancePluginRow, useSetPluginEnabled } from "@/hooks/use-instance-plugins";
-import { errMessage } from "@/lib/api";
-import { confirmAction } from "@/lib/confirm";
 
 /**
  * The headings, in the order a reader meets these things: what runs an agent,

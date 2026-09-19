@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { setConfirmHandler } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SetupKeysSection } from "@/components/nodes/setup-keys-section";
-import { setConfirmHandler } from "@/lib/confirm";
 
 interface Row {
   id: string;

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cn } from "@/lib/utils";
+import { cn } from "@internal/node-admin";
 
 describe("cn knows the design-system roles are font-sizes", () => {
   test("a role size survives a colour class", () => {

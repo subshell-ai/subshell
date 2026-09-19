@@ -1,12 +1,12 @@
+import type { Node } from "@internal/node-admin";
+import { Badge } from "@internal/node-admin";
 import type { ReactNode } from "react";
 import { EntityCard } from "@/components/entity-card";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { TerminalPreview } from "@/components/terminal-preview";
-import { Badge } from "@/components/ui/badge";
 import { WaitingChip } from "@/components/waiting-chip";
 import { useNodes } from "@/hooks/use-nodes";
 import { INDICATOR_LABEL, INDICATOR_VARIANT, subshellIndicator } from "@/lib/subshell-indicator";
-import type { Node } from "@/types/node";
 import type { SubshellView } from "@/types/subshell";
 
 /**

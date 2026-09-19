@@ -1,8 +1,7 @@
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, cn } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
 
 /**
  * The card shell every entity list shares: the whole card is a link to the

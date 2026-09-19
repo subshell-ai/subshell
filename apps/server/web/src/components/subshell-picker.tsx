@@ -1,7 +1,7 @@
+import { Button } from "@internal/node-admin";
 import { Plus } from "lucide-react";
 import { type JSX, useState } from "react";
 import { AddSubshellDialog } from "@/components/subshell-picker/add-subshell-dialog";
-import { Button } from "@/components/ui/button";
 import type { SplitDirection, WorkspacePaneRow } from "@/types/workspace";
 
 /** Props for {@link SubshellPicker}. */

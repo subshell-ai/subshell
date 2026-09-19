@@ -1,4 +1,4 @@
-import { ApiError, errMessage } from "@/lib/api";
+import { ApiError, errMessage } from "@internal/node-admin";
 
 /** Said of a server that predates the half of the split it is failing at. */
 const STALE_SERVER = "the server is running an older build than this page — update and restart it, then try again";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { ApiError, NetworkError } from "@/lib/api";
+import { ApiError, NetworkError } from "@internal/node-admin";
 import { workspaceLoad } from "@/lib/workspace-load";
 
 const detail = { workspace: { id: "w1" } };

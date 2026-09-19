@@ -1,4 +1,4 @@
-import { Badge } from "@/components/ui/badge";
+import { Badge } from "@internal/node-admin";
 import { isWaiting } from "@/lib/subshell-order";
 import type { SubshellView } from "@/types/subshell";
 

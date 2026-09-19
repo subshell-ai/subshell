@@ -1,6 +1,6 @@
+import { apiFetch, errMessage, NODE_QUERY_KEY, NODES_QUERY_KEY } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, errMessage } from "@/lib/api";
-import { NODE_QUERY_KEY, NODES_QUERY_KEY, UPDATES_QUERY_KEY } from "@/lib/query-keys";
+import { UPDATES_QUERY_KEY } from "@/lib/query-keys";
 
 /** What `POST /api/nodes/:id/update` answers on 202. */
 export interface NodeUpdateStarted {

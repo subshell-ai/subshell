@@ -1,5 +1,5 @@
+import { apiFetch, Button, errMessage, Input, Label } from "@internal/node-admin";
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -8,10 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { apiFetch, errMessage } from "@/lib/api";
 import { PASSWORD_REQUIREMENT, passwordTooShort } from "@/lib/password";
 import { asUserRole, USER_ROLE_OPTIONS, type UserRole } from "@/types/user-role";
 

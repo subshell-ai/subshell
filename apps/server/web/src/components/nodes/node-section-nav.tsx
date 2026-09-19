@@ -1,7 +1,7 @@
+import type { NodeDetail } from "@internal/node-admin";
+import { cn } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import type { JSX } from "react";
-import { cn } from "@/lib/utils";
-import type { NodeDetail } from "@/types/node";
 
 /**
  * One node's sections (spec 2026-09-12, node half § 2).

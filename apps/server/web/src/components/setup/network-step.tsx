@@ -1,6 +1,6 @@
+import { Button } from "@internal/node-admin";
 import { ErrorBanner } from "@/components/error-banner";
 import { NetworkRow as NetworkRowItem } from "@/components/setup/network-row";
-import { Button } from "@/components/ui/button";
 import { useNetwork } from "@/hooks/use-network";
 import type { NetworkRow } from "@/types/network";
 

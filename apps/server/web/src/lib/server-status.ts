@@ -1,5 +1,5 @@
+import { isNetworkError } from "@internal/node-admin";
 import type { QueryClient } from "@tanstack/react-query";
-import { isNetworkError } from "@/lib/api";
 import { queryClient } from "@/lib/query-client";
 
 /** What the shell needs: a boolean snapshot + a subscription. */

@@ -1,3 +1,15 @@
+import {
+  apiFetch,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  errMessage,
+  Label,
+  Switch,
+} from "@internal/node-admin";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
@@ -6,12 +18,7 @@ import { InstanceNameCard } from "@/components/instance-name-card";
 import { PageHeader } from "@/components/page-header";
 import { ResetServerCard, resetCardVisible } from "@/components/settings/reset-card";
 import { SetupChecklistCard } from "@/components/settings/setup-checklist-card";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { usePublicSettings } from "@/hooks/use-public-settings";
-import { apiFetch, errMessage } from "@/lib/api";
 import { isServerDesktop } from "@/lib/desktop";
 
 /** The two instance switches this page owns. */

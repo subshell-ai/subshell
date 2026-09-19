@@ -1,7 +1,6 @@
+import { Button, cn } from "@internal/node-admin";
 import { LoaderCircle } from "lucide-react";
 import { PluginIcon } from "@/components/plugin-icon";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import type { HarnessInfo } from "@/types/harness";
 
 /**

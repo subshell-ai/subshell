@@ -1,8 +1,14 @@
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  errMessage,
+  Label,
+  Switch,
+} from "@internal/node-admin";
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { errMessage } from "@/lib/api";
 import { getMasterSwitch, setMasterSwitch } from "@/lib/notifications";
 
 /**

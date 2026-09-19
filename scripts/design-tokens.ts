@@ -422,6 +422,17 @@ export const SURFACE_GLOBS: Record<Surface, { root: string; include: RegExp; exc
   mobile: { root: "apps/client/mobile", include: /\.(tsx?)$/, exclude: /__tests__|\.test\.|node_modules|\.expo/ },
 };
 
+/**
+ * Extra trees scanned under a surface's own rules.
+ *
+ * `@internal/node-admin` holds the node cards the SPA moved out on 2026-09-19
+ * (shared with the node's own dashboard); they render under the SPA's
+ * `styles.css`, so they are SPA code for every rule except the directory.
+ * Scanning them under `spa` is what keeps "moved to a package" from becoming
+ * "escaped the role system".
+ */
+const SCAN_ROOTS: Partial<Record<Surface, string[]>> = { spa: ["packages/node-admin/src"] };
+
 // ---------------------------------------------------------------------------
 // Contrast: computed from the tokens, every run, rather than trusted from the
 // day the palette was approved (spec § 5).
@@ -544,14 +555,16 @@ export function allEscapes(only?: Surface): Escape[] {
   const out: Escape[] = [];
   for (const [surface, g] of Object.entries(SURFACE_GLOBS) as [Surface, (typeof SURFACE_GLOBS)[Surface]][]) {
     if (only && only !== surface) continue;
-    for (const abs of walk(join(REPO_ROOT, g.root), g.include, g.exclude)) {
-      const rel = abs.slice(REPO_ROOT.length + 1);
-      out.push(
-        ...findEscapes(surface, rel.slice(g.root.length + 1), readFileSync(abs, "utf8")).map((e) => ({
-          ...e,
-          file: rel,
-        })),
-      );
+    for (const root of [g.root, ...(SCAN_ROOTS[surface] ?? [])]) {
+      for (const abs of walk(join(REPO_ROOT, root), g.include, g.exclude)) {
+        const rel = abs.slice(REPO_ROOT.length + 1);
+        out.push(
+          ...findEscapes(surface, rel.slice(root.length + 1), readFileSync(abs, "utf8")).map((e) => ({
+            ...e,
+            file: rel,
+          })),
+        );
+      }
     }
   }
   return out;

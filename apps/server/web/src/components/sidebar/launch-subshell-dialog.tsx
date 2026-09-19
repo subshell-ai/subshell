@@ -1,3 +1,4 @@
+import { Button } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { type JSX, useState } from "react";
 import {
@@ -6,7 +7,6 @@ import {
   NewSubshellForm,
   type NewSubshellFormValue,
 } from "@/components/subshell-picker/new-subshell-form";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,

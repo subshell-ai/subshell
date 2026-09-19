@@ -1,7 +1,7 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+import { cn } from "@internal/node-admin";
 import { X } from "lucide-react";
 import type { HTMLAttributes } from "react";
-import { cn } from "@/lib/utils";
 
 /**
  * Modal dialog on Base UI's `Dialog` parts (migrated from Radix; export

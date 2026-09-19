@@ -1,6 +1,6 @@
+import { apiFetch } from "@internal/node-admin";
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
-import { apiFetch } from "@/lib/api";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 

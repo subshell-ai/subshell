@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { type ConfirmOptions, setConfirmHandler } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -9,7 +10,6 @@ import {
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { WorkspaceHeader } from "@/components/workspace-header";
-import { type ConfirmOptions, setConfirmHandler } from "@/lib/confirm";
 import type { WorkspaceRow } from "@/types/workspace";
 
 const restore: (() => void)[] = [];

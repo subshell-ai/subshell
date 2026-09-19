@@ -1,13 +1,11 @@
+import { apiFetch, Button, confirmAction, errMessage, isAlreadyGone } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type JSX, type ReactNode, useState } from "react";
 import { DetailBackHeader } from "@/components/detail-back-header";
 import { EditableText } from "@/components/editable-text";
 import { SaveWorkspaceDialog } from "@/components/save-workspace-dialog";
-import { Button } from "@/components/ui/button";
 import { useInvalidateWorkspaces } from "@/hooks/use-workspaces";
-import { apiFetch, errMessage, isAlreadyGone } from "@/lib/api";
-import { confirmAction } from "@/lib/confirm";
 import { WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import type { WorkspaceRow } from "@/types/workspace";
 

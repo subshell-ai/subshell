@@ -1,7 +1,5 @@
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, Label, Switch } from "@internal/node-admin";
 import { useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { resetSeenNotices, setTrustBannersEnabled, trustBannersEnabled } from "@/lib/trust-notice-prefs";
 
 /**

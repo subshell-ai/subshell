@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import type { Node } from "@internal/node-admin";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { NodeRow, osLabel } from "@/components/nodes/node-row";
-import type { Node } from "@/types/node";
 
 const BASE: Node = {
   id: "n1",

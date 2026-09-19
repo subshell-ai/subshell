@@ -1,14 +1,20 @@
+import {
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  CopyableValue,
+  LINGER_COMMAND,
+} from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import { REINSTALL_COMMAND } from "@/components/service/service-card";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { CopyableValue } from "@/components/ui/copyable-value";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { useHarnesses } from "@/hooks/use-harnesses";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { type ServerAutostart, useServerDeployment, useSetServerAutostart } from "@/hooks/use-server-deployment";
 import { type ChecklistRemedy, checklistItems } from "@/lib/setup-checklist";
-import { LINGER_COMMAND } from "@/lib/supervision";
 
 /**
  * How often this card's deployment read polls: once a minute, not the hook's

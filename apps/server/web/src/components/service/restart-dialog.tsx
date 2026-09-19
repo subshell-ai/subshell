@@ -1,6 +1,6 @@
+import { Button } from "@internal/node-admin";
 import type { ReactNode } from "react";
 import { REINSTALL_COMMAND } from "@/components/service/service-card";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,

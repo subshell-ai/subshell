@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import type { Node } from "@internal/node-admin";
 import { trustNoticesFor } from "@/lib/trust-notices";
-import type { Node } from "@/types/node";
 import type { SubshellView } from "@/types/subshell";
 
 /** A minimal subshell view — only the fields the notices actually read. */

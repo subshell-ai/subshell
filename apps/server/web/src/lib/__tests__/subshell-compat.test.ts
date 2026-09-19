@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import type { Node } from "@internal/node-admin";
 import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
 import {
   buildAgentOptions,
@@ -7,7 +8,6 @@ import {
   harnessFitsNode,
   type LaunchAgent,
 } from "@/lib/subshell-compat";
-import type { Node } from "@/types/node";
 
 function node(overrides: Partial<Node>): Node {
   return {

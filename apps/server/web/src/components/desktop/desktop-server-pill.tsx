@@ -1,9 +1,9 @@
+import { cn } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { Circle } from "lucide-react";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useServerOffline } from "@/hooks/use-server-offline";
 import { desktopInvoke } from "@/lib/desktop";
-import { cn } from "@/lib/utils";
 
 /**
  * The footer row that says whether the thing this window is talking to is

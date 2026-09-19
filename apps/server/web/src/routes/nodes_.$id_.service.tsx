@@ -1,7 +1,6 @@
+import { NodeRuntimeCard, NodeServiceCard } from "@internal/node-admin";
 import { createFileRoute } from "@tanstack/react-router";
 import { NodePageShell } from "@/components/nodes/node-page-shell";
-import { NodeRuntimeCard } from "@/components/nodes/node-runtime-card";
-import { NodeServiceCard } from "@/components/nodes/node-service-card";
 
 export const Route = createFileRoute("/nodes_/$id_/service")({ component: NodeServicePage });
 

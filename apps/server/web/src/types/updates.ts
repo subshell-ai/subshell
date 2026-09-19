@@ -7,6 +7,7 @@
  * here, checked against the route's `t` schema by review, is what the table
  * and hooks share.
  */
+import type { HeldReason } from "@internal/node-admin";
 
 /** One published release, as every row names it. */
 export interface ReleaseRef {
@@ -99,9 +100,6 @@ export interface ServerUpdateView {
   /** Where snapshots go, how many are kept, and what is there. */
   backups: { dir: string; keep: number; count: number; latest: BackupFile | null };
 }
-
-/** Why a stale node is being kept connected for exactly one command. */
-export type HeldReason = "below-floor" | "protocol-mismatch";
 
 /** One enrolled node, as the Nodes rows render it. */
 export interface NodeUpdateRow {

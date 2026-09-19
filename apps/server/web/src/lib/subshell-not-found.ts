@@ -1,4 +1,4 @@
-import { ApiError } from "@/lib/api";
+import { ApiError } from "@internal/node-admin";
 
 /**
  * True when a subshell fetch was answered with 404. The backend answers 404 —

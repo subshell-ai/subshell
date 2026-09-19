@@ -1,6 +1,6 @@
 import { Menu } from "@base-ui/react/menu";
+import { cn } from "@internal/node-admin";
 import type { JSX } from "react";
-import { cn } from "@/lib/utils";
 
 /**
  * Dropdown menu on Base UI's `Menu` parts (migrated from Radix

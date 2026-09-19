@@ -1,8 +1,7 @@
+import { CopyableValue, Label } from "@internal/node-admin";
 import { QrCode } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useId, useState } from "react";
-import { CopyableValue } from "@/components/ui/copyable-value";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { installAddresses } from "@/lib/install-addresses";

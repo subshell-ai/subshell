@@ -1,5 +1,4 @@
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button, Card, CardContent, CardHeader, CardTitle } from "@internal/node-admin";
 import { DesktopRows } from "@/components/updates/desktop-rows";
 import { FoldedServerRow } from "@/components/updates/folded-server-row";
 import { NodeRows } from "@/components/updates/node-rows";

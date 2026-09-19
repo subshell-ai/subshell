@@ -1,7 +1,7 @@
+import { apiFetch } from "@internal/node-admin";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { isSubshellDead, isSubshellExited } from "@/components/subshell-terminal";
-import { apiFetch } from "@/lib/api";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import { isNotFoundSubshellError } from "@/lib/subshell-not-found";
 import type { SubshellView } from "@/types/subshell";

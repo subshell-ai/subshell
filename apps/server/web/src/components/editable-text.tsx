@@ -1,7 +1,6 @@
+import { cn, Input } from "@internal/node-admin";
 import { type JSX, useEffect, useRef, useState } from "react";
-import { Input } from "@/components/ui/input";
 import { NAME_MAX_DEFAULT } from "@/lib/name-limits";
-import { cn } from "@/lib/utils";
 
 /**
  * One line of metadata that edits itself in place: it reads as text, becomes

@@ -1,8 +1,8 @@
+import { apiFetch } from "@internal/node-admin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { NETWORK_QUERY_KEY } from "@/hooks/use-network";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
 import { PUBLIC_SETTINGS_QUERY_KEY } from "@/hooks/use-public-settings";
-import { apiFetch } from "@/lib/api";
 
 /** Query key of the instance plugin catalog (`GET /api/plugins`). */
 export const INSTANCE_PLUGINS_QUERY_KEY = ["instance-plugins"] as const;

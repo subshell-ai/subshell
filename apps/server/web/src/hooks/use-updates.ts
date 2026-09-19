@@ -1,8 +1,8 @@
+import { apiFetch, errMessage } from "@internal/node-admin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { ADMIN_STATUS_QUERY_KEY, type AdminStatus } from "@/hooks/use-admin-status";
 import { isNewBoot } from "@/hooks/use-server-restart";
-import { apiFetch, errMessage } from "@/lib/api";
 import { SERVER_DEPLOYMENT_QUERY_KEY, UPDATES_QUERY_KEY } from "@/lib/query-keys";
 import type { ServerUpdateView, UpdatesView } from "@/types/updates";
 

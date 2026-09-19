@@ -1,16 +1,14 @@
+import { Button, cn, errMessage } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { X } from "lucide-react";
 import { type JSX, useEffect, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { SubshellPane } from "@/components/subshell-pane";
 import { SubshellPicker } from "@/components/subshell-picker";
-import { Button } from "@/components/ui/button";
 import { TabWaitingMarker } from "@/components/workspace-dock/subshell-tab";
 import { WorkspaceHeader } from "@/components/workspace-header";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
-import { errMessage } from "@/lib/api";
 import { isPaneWaiting } from "@/lib/subshell-order";
-import { cn } from "@/lib/utils";
 import type { SplitIntent } from "@/lib/workspace-split-intent";
 import type { SplitDirection, WorkspaceDetail, WorkspacePaneRow } from "@/types/workspace";
 

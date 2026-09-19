@@ -1,5 +1,5 @@
+import { apiFetch } from "@internal/node-admin";
 import { useQuery } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/api";
 
 /** Query key of the instance status read (`GET /api/admin/status`). */
 export const ADMIN_STATUS_QUERY_KEY = ["admin-status"] as const;

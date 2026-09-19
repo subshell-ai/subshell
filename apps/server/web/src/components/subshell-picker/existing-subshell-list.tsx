@@ -1,10 +1,10 @@
+import { cn, relativeElapsed } from "@internal/node-admin";
 import { Check } from "lucide-react";
 import type { JSX } from "react";
 import { SubshellSearch } from "@/components/subshell-search";
-import { RowStatusBadges, relativeElapsed } from "@/components/subshell-status";
+import { RowStatusBadges } from "@/components/subshell-status";
 import { filterSubshells } from "@/lib/subshell-filter";
 import { priorityRunning } from "@/lib/subshell-order";
-import { cn } from "@/lib/utils";
 import type { SubshellView } from "@/types/subshell";
 
 /**

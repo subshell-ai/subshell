@@ -1,7 +1,7 @@
+import { apiFetch } from "@internal/node-admin";
 import type { ServerFrame, ViewersState } from "@internal/subshell-protocol";
 import type { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
-import { apiFetch } from "@/lib/api";
 import { BUILD_ID } from "@/lib/build-id";
 import { deviceName } from "@/lib/device-name";
 import { sendInput, sendResize, sendVisibility } from "@/lib/subshell-frames.js";

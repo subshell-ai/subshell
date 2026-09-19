@@ -1,5 +1,5 @@
+import { apiFetch, apiPost, isAlreadyGone } from "@internal/node-admin";
 import { useCallback } from "react";
-import { apiFetch, apiPost, isAlreadyGone } from "@/lib/api";
 
 /**
  * The pane-lifecycle endpoints of one workspace, shared by the two

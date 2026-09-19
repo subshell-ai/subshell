@@ -1,5 +1,5 @@
+import { isNetworkError } from "@internal/node-admin";
 import { QueryClient } from "@tanstack/react-query";
-import { isNetworkError } from "@/lib/api";
 
 /**
  * Query retry rule: a DOWN server (`NetworkError`) retries UNBOUNDED so every

@@ -1,9 +1,9 @@
+import { cn } from "@internal/node-admin";
 import { AppSidebar } from "@/components/app-sidebar";
 import { DesktopAppUpdateRow } from "@/components/desktop/desktop-app-update-row";
 import { DesktopServerPill } from "@/components/desktop/desktop-server-pill";
 import { DragStrip } from "@/components/desktop/drag-strip";
 import { desktopPlatform } from "@/lib/desktop";
-import { cn } from "@/lib/utils";
 
 /**
  * The rail the desktop shell renders instead of the web one.

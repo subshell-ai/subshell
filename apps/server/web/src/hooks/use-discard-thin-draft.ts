@@ -1,7 +1,7 @@
+import { apiFetch, isAlreadyGone } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { useInvalidateWorkspaces } from "@/hooks/use-workspaces";
-import { apiFetch, isAlreadyGone } from "@/lib/api";
 import type { SplitIntent } from "@/lib/workspace-split-intent";
 import type { WorkspaceDetail } from "@/types/workspace";
 

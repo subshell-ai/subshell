@@ -1,6 +1,5 @@
+import { apiFetch, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@internal/node-admin";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { apiFetch } from "@/lib/api";
 
 /** One recorded event: who did what to which target, and when. */
 interface AuditEvent {

@@ -1,3 +1,4 @@
+import { apiPost, Button, errMessage } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { type JSX, useState } from "react";
 import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
@@ -7,7 +8,6 @@ import {
   NewSubshellForm,
   type NewSubshellFormValue,
 } from "@/components/subshell-picker/new-subshell-form";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -20,7 +20,6 @@ import { Segmented } from "@/components/ui/segmented";
 import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useSubshellsList } from "@/hooks/use-subshells";
 import { useInvalidateWorkspaces } from "@/hooks/use-workspaces";
-import { apiPost, errMessage } from "@/lib/api";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
 import { defaultWorkspaceName } from "@/lib/workspace-name";
 

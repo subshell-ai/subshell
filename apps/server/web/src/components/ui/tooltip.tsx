@@ -1,6 +1,6 @@
 import { Tooltip as BaseTooltip } from "@base-ui/react/tooltip";
+import { cn } from "@internal/node-admin";
 import type { JSX, ReactNode } from "react";
-import { cn } from "@/lib/utils";
 
 /**
  * Hover/focus tooltip over Base UI's primitive — the same wrapping the other

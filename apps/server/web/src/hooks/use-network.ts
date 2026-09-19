@@ -1,7 +1,7 @@
+import { ApiError, apiFetch, NetworkError, parseErrorBody } from "@internal/node-admin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { readInstallStream } from "@/hooks/use-install-agent";
 import { PUBLIC_SETTINGS_QUERY_KEY } from "@/hooks/use-public-settings";
-import { ApiError, apiFetch, NetworkError, parseErrorBody } from "@/lib/api";
 import type {
   NetworkInstallResult,
   NetworkJoinResult,

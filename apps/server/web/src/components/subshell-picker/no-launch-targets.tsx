@@ -1,10 +1,10 @@
+import type { Node } from "@internal/node-admin";
+import { Button } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import type { JSX } from "react";
-import { Button } from "@/components/ui/button";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { canAddNode } from "@/lib/node-enrollment";
 import { isOfflineAgent } from "@/lib/node-label";
-import type { Node } from "@/types/node";
 
 /**
  * What the launch form says when nothing it can see will take a subshell.

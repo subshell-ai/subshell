@@ -1,13 +1,11 @@
+import { apiFetch, Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@internal/node-admin";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { PageHeader } from "@/components/page-header";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AddUserDialog } from "@/components/users/add-user-dialog";
 import { type UserRow, UsersTable } from "@/components/users/users-table";
 import { usePublicSettings } from "@/hooks/use-public-settings";
-import { apiFetch } from "@/lib/api";
 
 export const Route = createFileRoute("/settings_/users")({ component: UsersPage });
 

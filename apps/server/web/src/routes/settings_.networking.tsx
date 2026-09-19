@@ -1,3 +1,4 @@
+import { Button, Card, CardContent, CardHeader, CardTitle } from "@internal/node-admin";
 import { useIsMutating, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ErrorBanner } from "@/components/error-banner";
@@ -5,8 +6,6 @@ import { AddNetworkCard } from "@/components/networking/add-network-card";
 import { AddressesCard } from "@/components/networking/addresses-card";
 import { PageHeader } from "@/components/page-header";
 import { NetworkRow as NetworkRowItem } from "@/components/setup/network-row";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { NETWORK_MUTATION_KEY, NETWORK_QUERY_KEY, useNetwork } from "@/hooks/use-network";
 import { usePublicSettings } from "@/hooks/use-public-settings";

@@ -1,5 +1,4 @@
-import { Fact, FactCard } from "@/components/admin-status/fact-list";
-import { CopyableValue } from "@/components/ui/copyable-value";
+import { CopyableValue, Fact, FactCard } from "@internal/node-admin";
 import type { ServerDeployment } from "@/types/server-deployment";
 
 /** A fact whose value is a path, or an em-dash when there is none. */

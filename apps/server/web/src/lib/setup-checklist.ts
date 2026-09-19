@@ -1,5 +1,5 @@
+import { type PersistenceFix, type PersistenceInput, persistence } from "@internal/node-admin";
 import { isLoopbackUrl } from "@internal/server/config-values";
-import { type PersistenceFix, type PersistenceInput, persistence } from "@/lib/supervision";
 import { tmuxInstallHint } from "@/lib/tmux-install";
 
 /**

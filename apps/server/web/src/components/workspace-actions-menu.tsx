@@ -1,11 +1,10 @@
+import { apiFetch, confirmAction, errMessage } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { ExternalLink, QrCode, SquareArrowOutUpRight, Trash2 } from "lucide-react";
 import { type JSX, type ReactNode, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { QrLinkDialog } from "@/components/qr-link-dialog";
 import { useInvalidateWorkspaces } from "@/hooks/use-workspaces";
-import { apiFetch, errMessage } from "@/lib/api";
-import { confirmAction } from "@/lib/confirm";
 import type { WorkspaceRow } from "@/types/workspace";
 
 /**

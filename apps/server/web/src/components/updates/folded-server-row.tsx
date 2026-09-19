@@ -1,5 +1,5 @@
+import { Button } from "@internal/node-admin";
 import { semverLt } from "@internal/subshell-protocol";
-import { Button } from "@/components/ui/button";
 import { DASH, MobilePair, VersionCell } from "@/components/updates/row-cells";
 import { bundledServerUpdate } from "@/components/updates/server-row";
 import { type DesktopShell, desktopInvoke } from "@/lib/desktop";

@@ -1,5 +1,5 @@
+import { cn } from "@internal/node-admin";
 import { INDICATOR_LABEL, type SubshellIndicator, subshellIndicator } from "@/lib/subshell-indicator";
-import { cn } from "@/lib/utils";
 import type { SubshellView } from "@/types/subshell";
 
 /**
