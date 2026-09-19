@@ -16,6 +16,7 @@
 import { describe, expect, it } from "bun:test";
 import type { AppUpdateCheck, PendingInstall, Probe } from "../lib/ipc";
 import {
+  leaveHeld,
   rejectedResult,
   UPDATE_TITLE,
   type UpdateActInput,
@@ -614,5 +615,52 @@ describe("the name", () => {
     // Server" and "Update Subshell Server" differed by a possessive, for two
     // acts; one act that updates both is honestly called this.
     expect(UPDATE_TITLE).toBe("Update Subshell Server");
+  });
+});
+
+/**
+ * The way out is held shut only while something is actually running (review,
+ * 2026-09-18). It matters because the press DESTROYS this window on a ready
+ * machine — `host.close()` reaches `open_main` through the handoff — so
+ * leaving mid-install takes the progress, the failure line and the phase-2
+ * screen with it.
+ */
+describe("leaveHeld", () => {
+  it("holds the leave shut while the app download runs", () => {
+    expect(leaveHeld({ busy: false, state: "downloading" })).toBe(true);
+  });
+
+  it("holds it shut while phase 2 installs and restarts", () => {
+    // `act()` sets `busy` around the install-and-restart, and that is the only
+    // signal phase 2 gives — the phase itself outlives the act.
+    expect(leaveHeld({ busy: true, state: "idle" })).toBe(true);
+  });
+
+  it("does NOT hold it shut for a check", () => {
+    // A bounded network read. Leaving during one costs nothing, and gating it
+    // would make a 20-second release-list fetch feel like a lock-up.
+    expect(leaveHeld({ busy: false, state: "checking" })).toBe(false);
+  });
+
+  it("releases it when nothing is running", () => {
+    expect(leaveHeld({ busy: false, state: "idle" })).toBe(false);
+  });
+
+  it("releases it again after a FAILED install, rather than stranding anyone", () => {
+    // The trap a gate keyed on `phase === "finishing"` would have set: a
+    // marker survives a failure, so the phase stays while nothing runs.
+    // `startAppUpdate`'s catch resets the state and `act`'s `finally` clears
+    // `busy`, so both inputs are false again and the screen can be left.
+    expect(leaveHeld({ busy: false, state: "idle" })).toBe(false);
+  });
+
+  it("holds it shut for every non-idle act state, reachable today or not", () => {
+    // `installing` is unreachable from this screen — nothing sets it — but it
+    // is in `ActState`, and a rule named for holding a window shut during an
+    // install must not be what lets one through the day something does.
+    // `checking` is the one deliberate exclusion, covered above.
+    for (const state of ["downloading", "installing"] as const) {
+      expect(leaveHeld({ busy: false, state })).toBe(true);
+    }
   });
 });

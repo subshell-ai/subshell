@@ -65,6 +65,7 @@ import {
 } from "./lib/settings-screen";
 import {
   type ActState,
+  leaveHeld,
   NO_SELECTION,
   rejectedResult,
   UPDATE_TITLE,
@@ -1790,10 +1791,27 @@ function renderUpdate(p: Probe): void {
   // It is `host.close()`, which is what Back does everywhere else — leave the
   // screen for whatever the probe implies. On a ready machine that lands on the
   // handoff, which opens the dashboard and closes this window; from the
-  // recovery screen's link it goes back to recovery. Never gated: a person must
-  // always be able to leave, and leaving cancels nothing — a download in flight
-  // continues in Rust, and phase 2 is resumed from its marker either way.
-  el("bar-right").append(button("Close", () => host.close(), "primary"));
+  // recovery screen's link it goes back to recovery.
+  //
+  // **DISABLED while an install is actually running** (review, 2026-09-18), and
+  // the reason is the sentence this comment used to get wrong. It claimed
+  // leaving cancels nothing because the download continues in Rust — true of
+  // the download, false of everything the person needs: on a ready machine
+  // `host.close()` reaches `openWhenReady` → `open_main`, which DESTROYS this
+  // window, so the progress, the failure line and the phase-2 screen all go
+  // with it and the eventual `app.restart()` arrives explained by nothing.
+  //
+  // This was live before the consolidation and is not a new hole: **Later**
+  // was gated for exactly this ("closing this window out from under a running
+  // download is how the app would quit mid-update") while **Not Now**, which
+  // called `host.close()`, never was — and on a ready machine the two ended
+  // the same window. Keeping the ungated one is what made an old hole into a
+  // claim that there was none.
+  //
+  // Disabled rather than hidden, which is also how Subshell Client's copy of
+  // this screen does it: a control that vanishes mid-act reads as a page that
+  // lost a button. `leaveHeld` owns which flags hold it and why.
+  el("bar-right").append(button("Close", () => host.close(), "primary", leaveHeld({ busy, state: updateState })));
 }
 
 /**
