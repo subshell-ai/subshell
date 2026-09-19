@@ -9,7 +9,7 @@
 # What it covers that nothing else can: install-server.sh against a real
 # release (its digest check, its version resolution, its handoff), the
 # published binary booting and serving its EMBEDDED SPA, and the server lazily
-# fetching the agent binary from the node release the first time a node asks
+# fetching the node binary from the node release the first time a node asks
 # for one — a path with no local equivalent, since it needs two published
 # releases to exist at once.
 #
@@ -88,11 +88,19 @@ ok "setup key minted"
 
 echo "== 4. the node one-liner, served by the released server"
 export SUBSHELL_CONFIG_HOME="$W/node-config"
+# A node NAMES ITSELF since 2026-09-17, and `setup` refuses without one when
+# nothing can be asked — which is always true of a piped `curl | bash`. The
+# rendered install.sh forwards this env var as `--name`. Without it this step
+# fails with the usage block, which reads like a broken binary rather than a
+# missing argument. (The requirement landed in d959af54, which touched this
+# file without adding the name; the check is manual and not in CI, so it went
+# unnoticed until the 2026-09-19 cut.)
+export SUBSHELL_NODE_NAME="post-cut-check"
 mkdir -p "$SUBSHELL_CONFIG_HOME"
 curl -fsSL "$BASE/install.sh?setup_key=$KEY" | bash > "$W/node.out" 2>&1 || { cat "$W/node.out"; fail "node installer failed"; }
 sed 's/^/     | /' "$W/node.out"
-[ -x "$HOME/.local/bin/subshell" ] || fail "agent not installed"
-ok "agent installed to ~/.local/bin/subshell"
+[ -x "$HOME/.local/bin/subshell" ] || fail "node CLI not installed"
+ok "node CLI installed to ~/.local/bin/subshell"
 grep -q "/nodes" "$W/node.out" || fail "node installer never named the nodes page"
 ok "named the nodes page"
 curl -s -b "$JAR" "$BASE/api/nodes" | grep -q '"kind":"agent"' || fail "node row not created"
