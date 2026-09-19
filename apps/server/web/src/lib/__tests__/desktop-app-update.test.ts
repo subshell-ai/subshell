@@ -1,99 +1,60 @@
 import { describe, expect, it } from "bun:test";
-import {
-  appUpdateRowVisible,
-  type DesktopAppUpdate,
-  DISMISSED_APP_UPDATE_KEY,
-  readDismissedAppUpdate,
-  rememberAppUpdateDismissal,
-} from "@/lib/desktop-app-update";
+import { appUpdateNotice, type DesktopAppUpdate } from "../desktop-app-update";
 
 /**
- * When the footer row shows itself, and what a dismissal is bound to (spec
- * 2026-09-17 §5.3). Pure, because "gone for the app run, back when a NEWER
- * version appears" is the whole mechanism and it has to be readable without a
- * shell, a storage, or a clock.
+ * What the footer row announces about the app hosting the page.
+ *
+ * The dismissal these tests used to cover is gone with the two-line block it
+ * silenced (operator's call, 2026-09-18): the row is one line that always
+ * names the version and carries a dot when there is news, so there is nothing
+ * loud left to dismiss. `appUpdateRowVisible`, `readDismissedAppUpdate`,
+ * `rememberAppUpdateDismissal` and `DISMISSED_APP_UPDATE_KEY` went with it.
+ *
+ * What did NOT go is the equal-versions backstop, which is the one rule here
+ * worth a test of its own — see below.
  */
-
-function update(availableVersion: string | null): DesktopAppUpdate {
-  return { currentVersion: "0.7.2", availableVersion };
+function update(over: Partial<DesktopAppUpdate> = {}): DesktopAppUpdate {
+  return { currentVersion: "0.7.2", availableVersion: null, ...over };
 }
 
-describe("appUpdateRowVisible", () => {
-  it("shows the row when the shell names a newer version", () => {
-    expect(appUpdateRowVisible(update("0.8.0"), null)).toBe(true);
+describe("appUpdateNotice", () => {
+  it("announces a version newer than the one running", () => {
+    expect(appUpdateNotice(update({ availableVersion: "0.8.0" }))).toBe("0.8.0");
   });
 
-  it("shows nothing when no update is known — which is not 'up to date'", () => {
-    expect(appUpdateRowVisible(update(null), null)).toBe(false);
+  it("announces nothing when no update is known — which is NOT 'up to date'", () => {
+    // Covers "never checked" and "checked, found nothing" alike. The row still
+    // renders the version; it just carries no dot.
+    expect(appUpdateNotice(update())).toBeNull();
   });
 
-  it("shows nothing when the 'available' version is the one already running", () => {
-    // The stale-notice backstop (review 2026-09-17): the app's own read
-    // filters this now, but a NEW page can meet an OLD binary that stored
-    // the announcement and never cleared it — after an in-app update (the
-    // restart did not clear the field) or a hand-replaced `.app` (nothing
-    // clears it at all). A row saying "v0.7.2 available" while running
-    // 0.7.2 is the lie this comparison exists to refuse.
-    expect(appUpdateRowVisible({ currentVersion: "0.7.2", availableVersion: "0.7.2" }, null)).toBe(false);
-    // Same-version under any spelling the payload carries: still equality.
-    expect(appUpdateRowVisible({ currentVersion: "0.7.2", availableVersion: "0.7.2" }, "0.8.0")).toBe(false);
+  /**
+   * The BACKSTOP, and the reason this function did not collapse into a null
+   * check (review 2026-09-17). The shell already answers `availableVersion:
+   * null` once the stored notice names what is running — but a NEW page can
+   * meet an OLD binary whose stored value outlived the install it announced:
+   * in-app, where the notice was never cleared before the restart, or by hand,
+   * where the `.app` was replaced from a downloads page and nothing touched
+   * `settings.json`. A dot beside a 0.8.0 app for 0.8.0 is the lie either half
+   * alone lets through.
+   */
+  it("announces nothing when the 'available' version is the one already running", () => {
+    expect(appUpdateNotice({ currentVersion: "0.8.0", availableVersion: "0.8.0" })).toBeNull();
   });
 
-  it("shows nothing before the shell answers, or when it answered nothing", () => {
-    expect(appUpdateRowVisible(undefined, null)).toBe(false);
-    expect(appUpdateRowVisible(null, null)).toBe(false);
+  it("still announces an older-numbered current against a newer available", () => {
+    // Not a semver comparison and deliberately not: the shell owns that
+    // judgement (`notice_for` in Rust, which uses `version_lt`). This function
+    // guards the one shape Rust cannot see — a payload from a binary that
+    // never cleared its stored answer.
+    expect(appUpdateNotice({ currentVersion: "0.9.0", availableVersion: "0.10.0" })).toBe("0.10.0");
   });
 
-  it("hides exactly the version that was dismissed", () => {
-    expect(appUpdateRowVisible(update("0.8.0"), "0.8.0")).toBe(false);
-  });
-
-  // The dismissal carries no expiry: the version IS the key, so the next
-  // release re-shows the row without anything here having to notice a date.
-  it("re-shows for a newer version than the one dismissed", () => {
-    expect(appUpdateRowVisible(update("0.9.0"), "0.8.0")).toBe(true);
-  });
-
-  it("shows a version the person never dismissed", () => {
-    // A dismissal says nothing about any other version, including a lower one
-    // — the comparison is equality, so no expiry logic can drift out of it.
-    expect(appUpdateRowVisible(update("0.8.0"), "0.9.0")).toBe(true);
-  });
-});
-
-describe("the dismissal in sessionStorage", () => {
-  it("reads null when nothing was dismissed", () => {
-    sessionStorage.clear();
-    expect(readDismissedAppUpdate()).toBeNull();
-  });
-
-  it("writes and reads back the dismissed version under its own key", () => {
-    sessionStorage.clear();
-    rememberAppUpdateDismissal("0.8.0");
-    expect(sessionStorage.getItem(DISMISSED_APP_UPDATE_KEY)).toBe("0.8.0");
-    expect(readDismissedAppUpdate()).toBe("0.8.0");
-    sessionStorage.clear();
-  });
-
-  // The platform rule: storage can be absent or throw (private mode), and a
-  // footer row must not be the thing that surfaces it. Forgetting the dismissal
-  // shows the row again — the safe direction of the two failures.
-  it("swallows a storage that throws on both sides", () => {
-    const original = globalThis.sessionStorage;
-    const thrower = {
-      getItem: () => {
-        throw new Error("blocked");
-      },
-      setItem: () => {
-        throw new Error("blocked");
-      },
-    };
-    Object.defineProperty(globalThis, "sessionStorage", { value: thrower, configurable: true });
-    try {
-      expect(readDismissedAppUpdate()).toBeNull();
-      expect(() => rememberAppUpdateDismissal("0.8.0")).not.toThrow();
-    } finally {
-      Object.defineProperty(globalThis, "sessionStorage", { value: original, configurable: true });
-    }
+  it("announces nothing before the shell answers, or when it answered nothing", () => {
+    // A browser, a build predating `desktop_app_update`, or the read in
+    // flight. The ROW renders nothing at all in that case; this is the model
+    // half of the same fact.
+    expect(appUpdateNotice(null)).toBeNull();
+    expect(appUpdateNotice(undefined)).toBeNull();
   });
 });

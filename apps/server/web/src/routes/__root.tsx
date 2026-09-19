@@ -1,6 +1,6 @@
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { createRootRoute, Navigate, Outlet, useLocation } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { DesktopBridge } from "@/components/desktop/desktop-bridge";
 import { DesktopNotifications } from "@/components/desktop/desktop-notifications";
@@ -11,6 +11,7 @@ import { MobileTopBar } from "@/components/mobile-top-bar";
 import { OfflineBanner } from "@/components/offline-banner";
 import { QuickAddProvider } from "@/components/quick-add";
 import { RouteError } from "@/components/route-error";
+import { ServerVersionRow } from "@/components/sidebar/server-version-row";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { useDesktopShellReady } from "@/hooks/use-desktop-shell-ready";
 import { useHasSidebar } from "@/hooks/use-has-sidebar";
@@ -94,6 +95,18 @@ function Shell() {
   // lands on. Hooks run before the early returns, which is what makes this the
   // right home for it.
   useDesktopShellReady(desktop);
+  // The browser rail's footer carries the SERVER's version — and, for an
+  // admin, a dot when a newer one is published. NOT the app's:
+  // `DesktopAppUpdateRow` reports the bundle it runs inside, and a browser is
+  // inside no app, which is why this rail had no version line at all until
+  // 2026-09-18 — read as a missing feature, and really a missing row.
+  // Subshell Client's window takes this branch too, and should: it is pointed
+  // at somebody's control plane and has no authority over the server app's
+  // build.
+  const browserFooter = useCallback(
+    ({ collapsed }: { collapsed: boolean }) => <ServerVersionRow collapsed={collapsed} />,
+    [],
+  );
   const insets = useVisualViewportInsets();
   const { data: user, isLoading } = useCurrentUser();
   const offline = useServerOffline();
@@ -196,7 +209,11 @@ function Shell() {
               window can be dragged below SIDEBAR_MIN_WIDTH (its floor is 360),
               so MobileTopBar does mount there — the drawer is the right chrome
               once the rail would cost a third of the window. */}
-            {hasSidebar && !bare && (desktop ? <DesktopSidebar /> : <AppSidebar />)}
+            {/* `root-frame-guards.test.ts` finds the line that mounts each
+                session-only child and requires the check ON IT, so this stays
+                one line and `browserFooter` is hoisted above rather than
+                inlined. */}
+            {hasSidebar && !bare && (desktop ? <DesktopSidebar /> : <AppSidebar footerEnd={browserFooter} />)}
             <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
               <Outlet />
             </div>
