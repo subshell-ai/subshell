@@ -1,5 +1,17 @@
 # @internal/docs
 
+## 0.3.0
+
+### Minor Changes
+
+- [#93](https://github.com/subshell-ai/subshell/pull/93) [`b87d11d`](https://github.com/subshell-ai/subshell/commit/b87d11d65de43b44c1495e6317cfd37a17619b4c) Thanks [@theogravity](https://github.com/theogravity)! - The documentation says "node" where it means the node — the daemon that makes a
+  machine a node — and keeps "agent" for the harness a subshell runs, which is
+  what the word means everywhere else in the product. It also carries the release
+  tags' rename to `cli-server-v` / `cli-node-v`.
+  
+  `/nodes/managing-the-agent` is now `/nodes/managing-a-node`. The old path is
+  gone rather than redirected.
+
 ## 0.2.0
 
 ### Minor Changes
