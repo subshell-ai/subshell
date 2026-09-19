@@ -6,9 +6,11 @@ import {
   flagTokensToRows,
   formToEnv,
   formToFlagTokens,
+  parseCommandPaste,
   parseEnvPaste,
   parseFlagsPaste,
   presetFormFromRow,
+  presetFormToCommand,
   toPresetPayload,
   toPresetUpdatePayload,
 } from "../preset-form";
@@ -252,5 +254,131 @@ describe("toPresetPayload / toPresetUpdatePayload", () => {
         .filter((k) => k !== "harnessId" && k !== "settings")
         .sort(),
     );
+  });
+});
+
+describe("parseCommandPaste", () => {
+  it("splits a full terminal command into env vars, the command, and flags", () => {
+    const pasted = [
+      "ANTHROPIC_BASE_URL=https://llm.ein.disaresta.com \\",
+      'ANTHROPIC_API_KEY="sk-ant-api03-0e6bb5" \\',
+      'ANTHROPIC_DEFAULT_OPUS_MODEL="Qwen 3.8 Flash Next" \\',
+      "CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \\",
+      "claude --dangerously-skip-permissions --effort xhigh",
+    ].join("\n");
+    expect(parseCommandPaste(pasted)).toEqual({
+      env: [
+        { key: "ANTHROPIC_BASE_URL", value: "https://llm.ein.disaresta.com" },
+        { key: "ANTHROPIC_API_KEY", value: "sk-ant-api03-0e6bb5" },
+        // A quoted value holding spaces stays ONE value — the tokenizer keeps
+        // it together and the model name is not three flags.
+        { key: "ANTHROPIC_DEFAULT_OPUS_MODEL", value: "Qwen 3.8 Flash Next" },
+        { key: "CLAUDE_CODE_MAX_OUTPUT_TOKENS", value: "64000" },
+      ],
+      flags: [
+        { flag: "--dangerously-skip-permissions", value: "" },
+        { flag: "--effort", value: "xhigh" },
+      ],
+      command: "claude",
+    });
+  });
+
+  it("reports an absolute command path verbatim and keeps its flags", () => {
+    expect(parseCommandPaste("/usr/local/bin/claude --dangerously-skip-permissions --effort xhigh")).toEqual({
+      env: [],
+      flags: [
+        { flag: "--dangerously-skip-permissions", value: "" },
+        { flag: "--effort", value: "xhigh" },
+      ],
+      command: "/usr/local/bin/claude",
+    });
+  });
+
+  it("accepts flags with no command at all", () => {
+    const parsed = parseCommandPaste("--effort xhigh");
+    expect(parsed.command).toBeUndefined();
+    expect(parsed.flags).toEqual([{ flag: "--effort", value: "xhigh" }]);
+  });
+
+  it("accepts env assignments with no command at all", () => {
+    expect(parseCommandPaste("FOO=bar")).toEqual({ env: [{ key: "FOO", value: "bar" }], flags: [] });
+  });
+
+  it("skips a leading `env` prefix", () => {
+    expect(parseCommandPaste("env FOO=bar claude --x")).toEqual({
+      env: [{ key: "FOO", value: "bar" }],
+      flags: [{ flag: "--x", value: "" }],
+      command: "claude",
+    });
+  });
+
+  it("treats an assignment AFTER the command as an argument, not an env var", () => {
+    const parsed = parseCommandPaste("claude --set FOO=bar");
+    expect(parsed.env).toEqual([]);
+    expect(parsed.flags).toEqual([{ flag: "--set", value: "FOO=bar" }]);
+  });
+
+  it("returns empty halves for empty text", () => {
+    expect(parseCommandPaste("   ")).toEqual({ env: [], flags: [] });
+  });
+
+  it("throws on an unterminated quote rather than guessing", () => {
+    expect(() => parseCommandPaste('claude --p "oops')).toThrow(/quote/i);
+  });
+});
+
+describe("presetFormToCommand", () => {
+  it("renders form state as a continued command line", () => {
+    const form = {
+      ...emptyPresetForm(),
+      envRows: [
+        { key: "ANTHROPIC_MODEL", value: "sonnet" },
+        { key: "BLANK", value: "" },
+        { key: "", value: "dropped" },
+      ],
+      flagRows: [
+        { flag: "--dangerously-skip-permissions", value: "" },
+        { flag: "--effort", value: "xhigh" },
+        { flag: "", value: "dropped" },
+      ],
+    };
+    expect(presetFormToCommand(form, "claude")).toBe(
+      ["ANTHROPIC_MODEL=sonnet \\", 'BLANK="" \\', "claude --dangerously-skip-permissions --effort xhigh"].join("\n"),
+    );
+  });
+
+  it("quotes only what a shell would re-split, and round-trips through the parser", () => {
+    const form = {
+      ...emptyPresetForm(),
+      envRows: [{ key: "MODEL", value: "Qwen 3.8 Flash Next" }],
+      flagRows: [{ flag: "--append-system-prompt", value: "be nice" }],
+    };
+    const line = presetFormToCommand(form, "claude");
+    expect(line).toContain('MODEL="Qwen 3.8 Flash Next"');
+    const parsed = parseCommandPaste(line);
+    expect(parsed.env).toEqual(form.envRows);
+    expect(parsed.flags).toEqual(form.flagRows);
+    expect(parsed.command).toBe("claude");
+  });
+
+  it("round-trips a value holding a single quote", () => {
+    const form = { ...emptyPresetForm(), envRows: [{ key: "WHO", value: "it's mine" }] };
+    expect(parseCommandPaste(presetFormToCommand(form, "claude")).env).toEqual([{ key: "WHO", value: "it's mine" }]);
+  });
+
+  it("prints the assignments alone when no command name is known", () => {
+    const form = { ...emptyPresetForm(), envRows: [{ key: "A", value: "1" }] };
+    expect(presetFormToCommand(form, "")).toBe("A=1");
+  });
+
+  it("is empty for an empty form even with a command name, so the placeholder shows", () => {
+    // A bare `claude` in a fresh form's paste box hides the worked example.
+    expect(presetFormToCommand(emptyPresetForm(), "claude")).toBe("");
+    expect(presetFormToCommand(emptyPresetForm(), "")).toBe("");
+  });
+
+  it("prints the command line for env vars alone — that is the whole command", () => {
+    const form = { ...emptyPresetForm(), envRows: [{ key: "A", value: "1" }] };
+    expect(presetFormToCommand(form, "claude")).toBe("A=1 \\\nclaude");
   });
 });

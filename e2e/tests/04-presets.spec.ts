@@ -53,6 +53,22 @@ test("create a preset from the page, verify it via the API, delete it", async ({
   await page.getByRole("option", { name: "pi", exact: true }).click();
   await page.fill("#preset-name", "E2E shell");
 
+  // The form opens on "Paste command" — paste the line you'd type in a
+  // terminal and it becomes this preset's env vars and flags. Driving it here
+  // is what proves the panel is a VIEW of the rows rather than a box beside
+  // them: what is typed below has to show up in the row editors, and then in
+  // the POST body.
+  const commandSection = page.locator("#preset-command");
+  await commandSection.locator("textarea").fill("E2E_PASTED=yes \\\n pi --verbose");
+  await expect(commandSection.getByText("1 env var · 1 flag")).toBeVisible();
+  // The command name is stated and ignored — a preset runs the agent it names.
+  await expect(commandSection.getByText(/“pi” is ignored/)).toBeVisible();
+
+  // Switching views keeps the values: same rows, now editable one by one.
+  await page.getByRole("button", { name: "Custom command" }).click();
+  await expect(page.locator("#preset-env").getByRole("combobox", { name: "Variable 1" })).toHaveValue("E2E_PASTED");
+  await expect(page.locator("#preset-flags").getByRole("combobox", { name: "Flag 1" })).toHaveValue("--verbose");
+
   // Bulk-paste env wiring — the browser-level proof the removed wizard profile
   // step used to carry. It drives the real controlled-textarea path (parse →
   // "Add N rows" → row inputs → POST body) that unit tests of the pure parser
@@ -71,7 +87,7 @@ test("create a preset from the page, verify it via the API, delete it", async ({
   await envSection.getByRole("button", { name: "Add 2 rows" }).click();
   // Row first-columns are AutocompleteInputs → role=combobox with the
   // aria-label "Variable N" (components/autocomplete-input.tsx).
-  await expect(envSection.getByRole("combobox", { name: "Variable 1" })).toHaveValue("E2E_ONE");
+  await expect(envSection.getByRole("combobox", { name: "Variable 2" })).toHaveValue("E2E_ONE");
   await page.getByRole("button", { name: "Create preset" }).click();
   // The row appears under its agent's group header (the list is grouped by
   // agent now; the row itself carries no harness badge). The header is an
@@ -87,7 +103,8 @@ test("create a preset from the page, verify it via the API, delete it", async ({
     const rows = (await (await fetch("/api/presets")).json()) as { name: string; envJson: string | null }[];
     return rows.find((r) => r.name === "E2E shell")?.envJson ?? null;
   });
-  expect(JSON.parse(savedEnv ?? "{}")).toMatchObject({ E2E_ONE: "1", E2E_TWO: "two" });
+  // Both routes in: the command paste and the row-level bulk paste.
+  expect(JSON.parse(savedEnv ?? "{}")).toMatchObject({ E2E_PASTED: "yes", E2E_ONE: "1", E2E_TWO: "two" });
 
   // Delete it — every preset is deletable, and DELETE always answers.
   await page.getByRole("button", { name: "Actions for E2E shell" }).click();

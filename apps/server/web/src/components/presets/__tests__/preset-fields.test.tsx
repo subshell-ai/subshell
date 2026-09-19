@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
-import { PresetFields } from "@/components/presets/preset-fields";
+import { type PresetEntryMode, PresetFields } from "@/components/presets/preset-fields";
 import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
 import { emptyPresetForm, type PresetFormValue } from "@/lib/preset-form";
 
@@ -19,6 +19,7 @@ function plugin(p: {
   installed?: boolean;
   enabled?: boolean;
   broken?: string;
+  binary?: string;
 }): InstancePluginRow {
   return {
     id: p.id,
@@ -28,10 +29,11 @@ function plugin(p: {
     enabled: p.enabled ?? true,
     builtIn: true,
     ...(p.broken !== undefined ? { broken: p.broken } : {}),
+    ...(p.binary !== undefined ? { binary: p.binary } : {}),
   };
 }
 
-const CLAUDE = plugin({ id: "claude-code", name: "Claude Code" });
+const CLAUDE = plugin({ id: "claude-code", name: "Claude Code", binary: "claude" });
 const PI = plugin({ id: "pi", name: "Pi" });
 
 function mockFetch(plugins: InstancePluginRow[]) {
@@ -45,13 +47,19 @@ function mockFetch(plugins: InstancePluginRow[]) {
 }
 
 /** Stateful controlled parent (like the create dialog / edit page). */
-function renderEditor(initial: PresetFormValue, seen: PresetFormValue[], lockedHarness?: string) {
+function renderEditor(
+  initial: PresetFormValue,
+  seen: PresetFormValue[],
+  lockedHarness?: string,
+  defaultEntryMode?: PresetEntryMode,
+) {
   function Wrapper() {
     const [value, setValue] = useState(initial);
     return (
       <PresetFields
         value={value}
         lockedHarness={lockedHarness}
+        defaultEntryMode={defaultEntryMode}
         onChange={(v) => {
           seen.push(v);
           setValue(v);
@@ -93,9 +101,13 @@ describe("PresetFields agent select (unlocked)", () => {
       renderEditor({ ...emptyPresetForm(), harnessId: "claude-code" }, []);
       await screen.findByText("Agent");
       expect(document.getElementById("preset-name")).not.toBeNull();
+      expect(document.getElementById("preset-restart")).not.toBeNull();
+      // Creating opens on the command view; the row editors are one click away.
+      expect(document.getElementById("preset-command")).not.toBeNull();
+      expect(document.getElementById("preset-env")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Custom command" }));
       expect(document.getElementById("preset-env")).not.toBeNull();
       expect(document.getElementById("preset-flags")).not.toBeNull();
-      expect(document.getElementById("preset-restart")).not.toBeNull();
       expect((document.getElementById("preset-name") as HTMLInputElement).placeholder).toBe("e.g. Fast model");
       // The gated hint is gone.
       expect(screen.queryByText("Select an agent to see the rest of the options.")).toBeNull();
@@ -153,6 +165,125 @@ describe("PresetFields locked agent", () => {
     try {
       renderEditor({ ...emptyPresetForm(), harnessId: "acme", name: "P" }, [], "acme");
       expect(await screen.findByText("acme")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+});
+
+/**
+ * The two entry modes (2026-09-18). What is pinned here is that they are two
+ * VIEWS of one set of rows — a paste reaches the row editors, a row edit
+ * reaches the command text — plus the two things only this panel says: that
+ * the command name is ignored, and when it is not the selected agent's.
+ */
+describe("PresetFields entry modes", () => {
+  const held = { ...emptyPresetForm(), harnessId: "claude-code" };
+
+  function pasteInto(text: string) {
+    const box = screen.getByRole("textbox", { name: "Paste a command" });
+    fireEvent.change(box, { target: { value: text } });
+    return box as HTMLTextAreaElement;
+  }
+
+  it("parses a pasted command into the rows the other view edits", async () => {
+    const restore = mockFetch([CLAUDE]);
+    try {
+      const seen: PresetFormValue[] = [];
+      renderEditor(held, seen);
+      await screen.findByText("Agent");
+      pasteInto('ANTHROPIC_MODEL=sonnet \\\n claude --effort "very high"');
+
+      const last = seen[seen.length - 1];
+      expect(last.envRows).toEqual([{ key: "ANTHROPIC_MODEL", value: "sonnet" }]);
+      expect(last.flagRows).toEqual([{ flag: "--effort", value: "very high" }]);
+
+      // The preview states what was read, counts first.
+      expect(screen.getByText("1 env var · 1 flag")).toBeDefined();
+
+      // And the row editors hold it — this is one set of values, not two.
+      fireEvent.click(screen.getByRole("button", { name: "Custom command" }));
+      expect(screen.getByRole("combobox", { name: "Variable 1" })).toHaveProperty("value", "ANTHROPIC_MODEL");
+      expect(screen.getByRole("combobox", { name: "Flag 1" })).toHaveProperty("value", "--effort");
+    } finally {
+      restore();
+    }
+  });
+
+  it("renders the rows back as a command when the command view is re-entered", async () => {
+    const restore = mockFetch([CLAUDE]);
+    try {
+      renderEditor(
+        {
+          ...held,
+          envRows: [{ key: "ANTHROPIC_MODEL", value: "sonnet" }],
+          flagRows: [{ flag: "--effort", value: "xhigh" }],
+        },
+        [],
+        undefined,
+        "custom",
+      );
+      await screen.findByText("Agent");
+      fireEvent.click(screen.getByRole("button", { name: "Paste command" }));
+      const box = screen.getByRole("textbox", { name: "Paste a command" }) as HTMLTextAreaElement;
+      expect(box.value).toBe("ANTHROPIC_MODEL=sonnet \\\nclaude --effort xhigh");
+    } finally {
+      restore();
+    }
+  });
+
+  it("names the pasted command and says it is ignored", async () => {
+    const restore = mockFetch([CLAUDE]);
+    try {
+      renderEditor(held, []);
+      await screen.findByText("Agent");
+      pasteInto("/usr/local/bin/claude --effort xhigh");
+      expect(
+        screen.getByText("“claude” is ignored: subshells run Claude Code as resolved on the machine they start on."),
+      ).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("warns when the pasted command is not the selected agent's", async () => {
+    const restore = mockFetch([CLAUDE]);
+    try {
+      renderEditor(held, []);
+      await screen.findByText("Agent");
+      pasteInto("codex --effort xhigh");
+      expect(
+        screen.getByText("“codex” isn't Claude Code's command — the agent selected above is what runs."),
+      ).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps the rows and shows the message when the text cannot be read", async () => {
+    const restore = mockFetch([CLAUDE]);
+    try {
+      const seen: PresetFormValue[] = [];
+      renderEditor(held, seen);
+      await screen.findByText("Agent");
+      pasteInto("FOO=bar claude --effort xhigh");
+      const good = seen[seen.length - 1];
+      pasteInto('FOO=bar claude --p "oops');
+      expect(screen.getByText(/quote/i)).toBeDefined();
+      // Nothing was written over the last good parse.
+      expect(seen[seen.length - 1]).toEqual(good);
+    } finally {
+      restore();
+    }
+  });
+
+  it("opens on the row editors when the caller asks for them (the edit page)", async () => {
+    const restore = mockFetch([CLAUDE]);
+    try {
+      renderEditor(held, [], "claude-code", "custom");
+      await screen.findByText("Agent");
+      expect(document.getElementById("preset-env")).not.toBeNull();
+      expect(document.getElementById("preset-command")).toBeNull();
     } finally {
       restore();
     }
