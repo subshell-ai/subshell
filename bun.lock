@@ -129,6 +129,7 @@
         "@internal/pane-runtime": "workspace:*",
         "@internal/subshell-protocol": "workspace:*",
         "@subshell-ai/plugin-api": "workspace:*",
+        "elysia": "1.4.29",
         "jose": "6.2.9",
         "loglayer": "9.4.0",
       },
@@ -210,6 +211,7 @@
         "@better-auth/passkey": "1.7.1",
         "@internal/backend-client": "workspace:*",
         "@internal/backend-errors": "workspace:*",
+        "@internal/node-admin": "workspace:*",
         "@internal/server": "workspace:*",
         "@internal/subshell-protocol": "workspace:*",
         "@loglayer/transport-simple-pretty-terminal": "3.3.0",
@@ -315,6 +317,40 @@
         "@types/bun": "1.3.14",
         "hash-runner": "4.0.0",
         "tsdown": "0.22.14",
+      },
+    },
+    "packages/node-admin": {
+      "name": "@internal/node-admin",
+      "version": "0.0.0",
+      "dependencies": {
+        "@base-ui/react": "1.7.0",
+        "@internal/subshell-protocol": "workspace:*",
+        "class-variance-authority": "0.7.1",
+        "clsx": "2.1.1",
+        "lucide-react": "1.32.0",
+        "tailwind-merge": "3.6.0",
+      },
+      "devDependencies": {
+        "@happy-dom/global-registrator": "20.11.13",
+        "@internal/tsconfig": "workspace:*",
+        "@tanstack/react-query": "5.101.4",
+        "@tanstack/react-router": "1.170.30",
+        "@testing-library/dom": "10.4.1",
+        "@testing-library/react": "16.3.3",
+        "@types/bun": "1.3.14",
+        "@types/react": "19.2.18",
+        "@types/react-dom": "19.2.4",
+        "hash-runner": "4.0.0",
+        "react": "19.2.8",
+        "react-dom": "19.2.8",
+        "tsdown": "0.22.14",
+        "typescript": "7.0.2",
+      },
+      "peerDependencies": {
+        "@tanstack/react-query": "5.101.4",
+        "@tanstack/react-router": "1.170.30",
+        "react": "19.2.8",
+        "react-dom": "19.2.8",
       },
     },
     "packages/pane-runtime": {
@@ -1038,6 +1074,8 @@
     "@internal/mobile": ["@internal/mobile@workspace:apps/client/mobile"],
 
     "@internal/node": ["@internal/node@workspace:apps/node/agent"],
+
+    "@internal/node-admin": ["@internal/node-admin@workspace:packages/node-admin"],
 
     "@internal/pane-runtime": ["@internal/pane-runtime@workspace:packages/pane-runtime"],
 

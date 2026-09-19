@@ -628,7 +628,10 @@ describe("maintenance verb", () => {
     const res = await run(["maintenance", "on", "--yes", "--json"], deps);
 
     expect(res.code).toBe(0);
-    expect(JSON.parse(res.out)).toEqual({ on: true, changedAt: NOW, stopped: [A] });
+    // `failed` carries the RAW id for exactly this case: the node dashboard's
+    // partial-flip wording is built from the list, and a consumer handed the
+    // decorated stderr line would have to parse display text to count panes.
+    expect(JSON.parse(res.out)).toEqual({ on: true, changedAt: NOW, stopped: [A], failed: [B] });
     expect(res.err).toInclude(B);
   });
 

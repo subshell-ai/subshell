@@ -3,6 +3,7 @@ import { licenseNotice, NODE_PROTOCOL_VERSION, semverLt } from "@internal/subshe
 import { configPath, loadConfig, type NodeConfig } from "./config.js";
 import { runConfigure } from "./configure.js";
 import { probeOnline, runDaemon } from "./daemon.js";
+import { startNodeDashboard } from "./dashboard/server.js";
 import { runEnroll } from "./enroll.js";
 import { clearLock, isPidAlive, lockPath, readLock } from "./lock.js";
 import { logger } from "./log.js";
@@ -443,6 +444,33 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         const hygiene = await tightenServiceLogMode(deps.service ?? DEFAULT_DEPS(configExists));
         if (hygiene.reason === "failed") {
           logger.withError(hygiene.error).warn(`could not tighten ${hygiene.path} to 0600`);
+        }
+        // The local admin dashboard (spec 2026-09-19), started HERE rather
+        // than inside `runDaemon` for the same reason the hygiene pass is:
+        // `daemon.test.ts` calls `runDaemon` directly, and a server bindable
+        // from there would bind on every daemon test run. On by default;
+        // `SUBSHELL_DASHBOARD=0` is the opt-out. It binds 127.0.0.1 and only
+        // 127.0.0.1 — the listen address IS the access control — and a port
+        // it cannot take costs the dashboard, never the daemon: the plane
+        // socket is this process's first job, so every failure here is one
+        // warn line and a node that runs anyway.
+        if (process.env.SUBSHELL_DASHBOARD !== "0") {
+          const rawPort = process.env.SUBSHELL_DASHBOARD_PORT;
+          const port = rawPort === undefined || rawPort.trim() === "" ? 3090 : Number(rawPort);
+          if (!Number.isInteger(port) || port < 0 || port > 65535) {
+            logger.warn(
+              `dashboard did not start: SUBSHELL_DASHBOARD_PORT="${rawPort}" is not a port (the node runs without the dashboard; the variable is otherwise honoured as set)`,
+            );
+          } else {
+            try {
+              const dash = await startNodeDashboard(cfg, { port });
+              logger.info(`dashboard: http://127.0.0.1:${dash.port}/ (${dash.webSource} pages)`);
+            } catch (err) {
+              logger
+                .withError(err instanceof Error ? err : new Error(String(err)))
+                .warn(`dashboard did not start on port ${port} (the node runs without it)`);
+            }
+          }
         }
         await runDaemon(cfg);
         return { code: 0, out: "", err: "" }; // unreachable: runDaemon never resolves (test seam only)

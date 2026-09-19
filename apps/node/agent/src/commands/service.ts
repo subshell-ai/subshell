@@ -39,7 +39,16 @@ const NEEDS_DEFINITION: readonly NodeServiceVerb[] = ["start", "stop"];
  * both on OWNERSHIP and says so in the confirmation (spec § 5.1); this side
  * simply performs them.
  */
-export async function execService(ctx: CommandContext, cmd: Cmd<"service">): Promise<CommandResult> {
+/**
+ * What `execService` actually reads. A `CommandContext` satisfies it, and so
+ * does the local dashboard's own object — the route serving
+ * `POST /api/nodes/:id/service` holds no signed command frame and no socket,
+ * and a second implementation of these refusals for its benefit is exactly the
+ * drift this file's one-executor rule argues against.
+ */
+export type ServiceExecContext = Pick<CommandContext, "runtime" | "requestRestart" | "serviceDeps">;
+
+export async function execService(ctx: ServiceExecContext, cmd: Cmd<"service">): Promise<CommandResult> {
   const runtime = ctx.runtime;
 
   // SUPERVISION first, and only for `restart`, because it is the most

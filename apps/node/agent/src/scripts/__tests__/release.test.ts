@@ -209,4 +209,38 @@ describe("the agent binary carries no plugin store bytes", () => {
     expect(src).not.toContain("await runEmbedPlugins(");
     expect(src).not.toContain('"embed-plugins.ts"');
   });
+
+  test("the SPA embeds BEFORE the builds and the stub restore is a finally", async () => {
+    // Spec 2026-09-19: `bun build --compile` statically walks the generated
+    // module, so embedding after a build would compile the stub — and a
+    // restore that can be skipped by a mid-flight failure leaves base64 in
+    // the working tree. One test pins the order rather than trusting prose.
+    const src = await Bun.file(new URL("../release.ts", import.meta.url)).text();
+    const embedAt = src.indexOf("await runEmbed({");
+    const buildAt = src.indexOf("await buildAll(");
+    const restoreAt = src.indexOf("finally {\n    await restoreEmbed();");
+    expect(embedAt).toBeGreaterThan(-1);
+    expect(buildAt).toBeGreaterThan(embedAt);
+    expect(restoreAt).toBeGreaterThan(buildAt);
+  });
+
+  test("runEmbed refuses a missing dashboard before the generator runs", async () => {
+    const { runEmbed } = await import("../release.js");
+    let generatorRan = false;
+    await expect(
+      runEmbed({
+        distIndexExists: () => false,
+        runGenerator: async () => {
+          generatorRan = true;
+          return 0;
+        },
+      }),
+    ).rejects.toThrow("apps/node/web/dist/index.html");
+    expect(generatorRan).toBe(false);
+
+    // Generator failure is its own refusal, before any compile spawns.
+    await expect(runEmbed({ distIndexExists: () => true, runGenerator: async () => 1 })).rejects.toThrow(
+      "nothing built or published",
+    );
+  });
 });
