@@ -256,15 +256,17 @@ test("GET /api/self/update carries the version, protocol, and marker fields the 
   expect(typeof b.debugLogging).toBe("boolean");
 });
 
-test("the guard and the routes are separate gates composed by server.ts", async () => {
+test("the guard travels WITH the routes instance", async () => {
   const cfg = await enrolled();
   const app = buildRoutes(cfg);
   const req = new Request("http://127.0.0.1:3090/api/self", {
     headers: { host: "evil.example.com" },
   });
-  // The guard alone refuses it; the routes alone would answer it. server.ts
-  // composes them (onBeforeHandle), and that composition is the contract:
-  // the routes may trust the guard, and this pins they are right to.
+  // Elysia lifecycle hooks are definition-ordered and do not cross an
+  // instance boundary, so buildRoutes guards its OWN routes (the first
+  // registration on the instance) and `server.ts`'s static fallback calls
+  // `guardResponse` explicitly. The composed server (test below) refuses
+  // every path; this pins the API half of that split.
   expect(
     refuseRequest({
       method: "GET",
@@ -273,7 +275,36 @@ test("the guard and the routes are separate gates composed by server.ts", async 
       contentType: null,
     })?.status,
   ).toBe(403);
-  expect((await app.handle(req)).status).toBe(200);
+  expect((await app.handle(req)).status).toBe(403);
+});
+
+test("the server-level guard refuses a foreign Host on EVERY path, SPA fallback included", async () => {
+  // The first live smoke caught this exact bug: the guard in
+  // `onBeforeHandle` did not fire on the catch-all route, so a rebinding
+  // `Host:` got a 200 page. server.ts composes the two on the `request`
+  // lifecycle; this pins that composition, which no per-route test can see.
+  const cfg = await enrolled();
+  const { startNodeDashboard } = await import("../server.js");
+  const dash = await startNodeDashboard(cfg, { port: 0, hostname: "127.0.0.1" });
+  // curl, not fetch: the Fetch spec forbids setting `Host`, and the whole
+  // rebinding case IS a Host header — curl is the client that can send one.
+  const status = async (path: string, host?: string): Promise<number> => {
+    const argv = ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}"];
+    if (host !== undefined) argv.push("-H", `Host: ${host}`);
+    argv.push(`http://127.0.0.1:${dash.port}${path}`);
+    const child = Bun.spawn(argv);
+    return Number(await new Response(child.stdout).text());
+  };
+  try {
+    for (const path of ["/api/self", "/", "/some/spa/route"]) {
+      expect([path, await status(path, "evil.example.com")]).toEqual([path, 403]);
+    }
+    // And the same requests with a loopback Host still work — the guard
+    // refuses the NAME, not the port.
+    expect(await status("/api/self")).toBe(200);
+  } finally {
+    dash.stop();
+  }
 });
 
 test("GET /api/self/state reads the daemon bridge, and the bridge survives the daemon leaving", () => {

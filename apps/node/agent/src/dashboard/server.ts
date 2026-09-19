@@ -1,7 +1,6 @@
 import type { NodeConfig } from "../config.js";
 import { log } from "../log.js";
-import { refuseRequest } from "./guards.js";
-import { buildRoutes } from "./routes.js";
+import { buildRoutes, guardResponse } from "./routes.js";
 import { openWebStatic, type WebStatic } from "./web-static.js";
 
 /**
@@ -58,18 +57,16 @@ export interface DashboardOptions {
 export async function startNodeDashboard(cfg: NodeConfig, opts: DashboardOptions = {}): Promise<DashboardHandle> {
   const web = opts.web ?? openWebStatic();
   const app = buildRoutes(cfg)
-    // The guard runs for every request including the SPA fallback: a page
-    // served to a foreign Host would be a page that then fetches from it.
-    .onBeforeHandle(({ request, headers }) => {
-      const refusal = refuseRequest({
-        method: request.method,
-        hostHeader: headers.host ?? null,
-        originHeader: headers.origin ?? null,
-        contentType: headers["content-type"] ?? null,
-      });
-      return refusal ?? undefined;
-    })
+    // The API routes carry the guard on their own instance (`routes.ts`
+    // registers `onBeforeHandle` first); a `.use()`d instance's lifecycle
+    // NEVER reaches a later wildcard on the outer one — three live smokes
+    // proved every outer-lifecycle variant passes exactly one of the two
+    // surfaces. So the fallback calls `guardResponse` explicitly, and the
+    // wire test in `__tests__/dashboard.test.ts` refuses a foreign Host on
+    // BOTH kinds of path.
     .all("/*", ({ request }) => {
+      const refusal = guardResponse(request);
+      if (refusal !== null) return refusal;
       const url = new URL(request.url);
       // The API had its turn inside buildRoutes; anything reaching here is a
       // page, an asset, or a miss the static ladder classifies.
@@ -93,25 +90,31 @@ export async function startNodeDashboard(cfg: NodeConfig, opts: DashboardOptions
     });
 
   const hostname = opts.hostname ?? "127.0.0.1";
-  const port = opts.port ?? 3090;
-  // Elysia's `listen` returns a promise at runtime (the sync handle is
-  // Bun-specific sugar); awaiting it is what turns a busy port into THIS
-  // rejection rather than an unhandled one — see the header.
+  const port = opts.port ?? 3090; // `??`, not `||`: :0 is the ask-the-OS port, not "no port"
+  // Elysia's `listen` is a promise at runtime (verified against 1.4.29:
+  // awaiting is how a busy port becomes THIS rejection rather than an
+  // unhandled one — see the header). :0 asks the OS, and `app.server.port`
+  // then names the real one — what `run`'s log line prints and the tests
+  // call on.
   const server = await (
     app as unknown as {
-      listen(o: { hostname: string; port: number }): PromiseLike<{ port?: number }> | { port?: number };
+      listen(o: { hostname: string; port: number }): PromiseLike<unknown>;
     }
   ).listen({ hostname, port });
-  const bound = await Promise.resolve(server);
+  await Promise.resolve(server); // settle the bind; the handle lives on `app`
+  // The resolved object is Elysia's own instance (probed on 1.4.29: it
+  // carries `server`, not a plain `{port}`), and `app.server` is Bun's serve
+  // handle — whose `port` is the OS-assigned one when :0 was asked.
+  const realPort = (app as unknown as { server?: { port?: number } }).server?.port ?? port;
   let stopped = false;
   return {
-    port: typeof bound?.port === "number" ? bound.port : port,
+    port: realPort,
     webSource: web.source,
     stop() {
       if (stopped) return;
       stopped = true;
       try {
-        (bound as unknown as { stop?: () => void }).stop?.();
+        (app as unknown as { stop?: () => void }).stop?.();
       } catch {
         /* already gone */
       }

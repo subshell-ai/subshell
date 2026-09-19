@@ -27,6 +27,7 @@ import {
   rollbackUpdate,
 } from "../update.js";
 import { NODE_VERSION } from "../version.js";
+import { refuseRequest } from "./guards.js";
 import { getDaemonState, requestDaemonRestart } from "./state.js";
 import { buildLocalNodeView, liveRuntime } from "./view.js";
 
@@ -150,12 +151,30 @@ const ServiceBody = t.Object({
 });
 
 /**
- * The dashboard's `/api` surface. Mounted by `server.ts` behind the loopback
- * guard; every route here is therefore already host/origin/content-type
- * checked, and nothing in this file re-checks — the guard is the one gate.
+ * The guard every request passes, exported for `server.ts`'s static fallback:
+ * a `.use()`d instance's lifecycle never reaches a later wildcard on the
+ * outer one (live smokes: a foreign `Host:` got 200 on exactly that seam), so
+ * this instance guards its own routes below and the fallback calls this
+ * function explicitly. One rule, two call sites, no composition to get wrong.
+ */
+export function guardResponse(request: Request): Response | null {
+  return refuseRequest({
+    method: request.method,
+    hostHeader: request.headers.get("host"),
+    originHeader: request.headers.get("origin"),
+    contentType: request.headers.get("content-type"),
+  });
+}
+
+/**
+ * The dashboard's `/api` surface, behind {@link guardResponse} on THIS
+ * instance (Elysia lifecycle hooks are definition-ordered); every route below
+ * is therefore already host/origin/content-type checked, and nothing in this
+ * file re-checks — the guard is the one gate.
  */
 export function buildRoutes(cfg: NodeConfig) {
   return new Elysia()
+    .onBeforeHandle(({ request }) => guardResponse(request) ?? undefined)
     .get("/api/self", () => ({ id: cfg.nodeId, name: cfg.name }))
     .get("/api/self/state", async () => ({
       connected: getDaemonState().connected,
