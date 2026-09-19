@@ -1,5 +1,18 @@
 # @internal/desktop-server
 
+## 0.11.1
+
+### Patch Changes
+
+- [#93](https://github.com/subshell-ai/subshell/pull/93) [`b87d11d`](https://github.com/subshell-ai/subshell/commit/b87d11d65de43b44c1495e6317cfd37a17619b4c) Thanks [@theogravity](https://github.com/theogravity)! - The update screens say less. Both assistants dropped the paragraph explaining
+  that the download is signature-checked and that the app restarts, and Subshell
+  Server's offer dropped its subtitle — the rows already carry the versions, and
+  a sentence restating them was a second thing to keep true.
+  
+  One sentence survived the subtitle: a restart that fails after the install
+  landed still says so, as a note under the table, because that is an outcome no
+  row can show and the Try Again button would otherwise appear unexplained.
+
 ## 0.11.0
 
 ### Minor Changes
