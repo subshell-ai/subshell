@@ -1,5 +1,98 @@
 # @internal/server
 
+## 0.12.0
+
+### Minor Changes
+
+- [#91](https://github.com/subshell-ai/subshell/pull/91) [`3de2795`](https://github.com/subshell-ai/subshell/commit/3de279580f049ef821c406a64f681cc9617258c0) Thanks [@theogravity](https://github.com/theogravity)! - A version line in the sidebar, with a dot when an update is waiting
+  
+  The browser rail now carries **Subshell Server &lt;version&gt;** in its footer.
+  It had none — the existing line reports the desktop app's own bundle version
+  over IPC, and a browser is inside no app, so there was nothing for it to say.
+  The server's version is a different fact and is not privileged: every
+  signed-in user can read it. Admins additionally get an amber dot when a newer
+  server is published, and the row opens the Updates page; a member gets the
+  line alone, since only an admin can act on it.
+  
+  Inside Subshell Server the update row is now one line in both states: the
+  version, with the same amber dot when a newer build exists. It was a plain
+  line when nothing was known and a two-line block with an Update button and a
+  dismiss × when something was — two shapes for one fact, and the quiet one led
+  nowhere. Pressing the row does what the button did, so with nothing loud left
+  there is nothing to dismiss.
+
+- [#91](https://github.com/subshell-ai/subshell/pull/91) [`3de2795`](https://github.com/subshell-ai/subshell/commit/3de279580f049ef821c406a64f681cc9617258c0) Thanks [@theogravity](https://github.com/theogravity)! - Preset dialog: paste a whole command instead of filling rows
+  
+  Creating a preset now opens on **Paste command** — paste the line you would
+  type in a terminal (`ANTHROPIC_MODEL=sonnet \ claude --effort xhigh`,
+  continuations, quotes and an absolute path included) and it becomes the
+  preset's env vars and flags, with a preview of exactly what was read.
+  **Custom command** is the row editors, unchanged.
+  
+  The two are views of ONE set of values: paste and the rows hold what it
+  parsed, edit a row and the command re-renders from it. The command name
+  itself is stated and ignored — a preset runs the agent you selected, resolved
+  on the machine the subshell starts on — and a command that is not that
+  agent's says so. Editing an existing preset opens on the rows.
+
+- [#91](https://github.com/subshell-ai/subshell/pull/91) [`3de2795`](https://github.com/subshell-ai/subshell/commit/3de279580f049ef821c406a64f681cc9617258c0) Thanks [@theogravity](https://github.com/theogravity)! - The sidebar's version line opens the update screen
+  
+  Inside Subshell Server, **Subshell Server app 0.10.1** in the sidebar footer is
+  now a button: admins land on the Updates page, everyone else on the update
+  assistant. It said the version and led nowhere, which was the last place in the
+  app where knowing it did you no good — "no update known" is not "up to date",
+  since the daily check may not have run today, and what it opens finds out.
+  
+  It says "app" because that is the application's own version. The server it
+  manages versions separately, and a browser's sidebar now names that one
+  instead.
+
+- [#91](https://github.com/subshell-ai/subshell/pull/91) [`3de2795`](https://github.com/subshell-ai/subshell/commit/3de279580f049ef821c406a64f681cc9617258c0) Thanks [@theogravity](https://github.com/theogravity)! - Presets: auto-restart on by default, and the launch command is hidden until asked for
+  
+  New presets start with **Auto-restart on exit** on. A preset exists because
+  someone means to run an agent that way more than once, so recovering from an
+  exit is the expected answer; the switch is unchanged and turning it off is one
+  click. Presets you already saved keep whatever they stored.
+  
+  The `/presets` list no longer prints each preset's launch command. Those env
+  vars are where API keys and base URLs live, and the page is something you
+  scroll past on the way somewhere else — so each row now carries an eye icon
+  that reveals its own command, per visit, with nothing persisted. Copy still
+  works while it is hidden.
+
+- [#91](https://github.com/subshell-ai/subshell/pull/91) [`3de2795`](https://github.com/subshell-ai/subshell/commit/3de279580f049ef821c406a64f681cc9617258c0) Thanks [@theogravity](https://github.com/theogravity)! - A QR code for any subshell or workspace
+  
+  Both action menus now carry **QR code…**, which shows a code for that
+  subshell or workspace. Scan it and the thing opens on your phone.
+  
+  It uses the same address picker as Subshell for Mobile, and for the same
+  reason: the address your browser is on is very often `localhost`, which the
+  phone in your hand cannot reach — so it offers every address the instance
+  accepts a sign-in from, rather than asking you to retype a tailnet hostname
+  and a uuid on a phone keyboard. No PWA install steps here; those stay with
+  Subshell for Mobile, in the sidebar.
+  
+  It grants nothing: the link is the URL you already have open, and whoever
+  scans it still meets the sign-in page and that subshell's own sharing rules.
+
+### Patch Changes
+
+- [#91](https://github.com/subshell-ai/subshell/pull/91) [`3de2795`](https://github.com/subshell-ai/subshell/commit/3de279580f049ef821c406a64f681cc9617258c0) Thanks [@theogravity](https://github.com/theogravity)! - A new subshell is named after its agent, not the time you started it
+  
+  An unnamed subshell used to be called `2026-08-18 14:30` until its agent
+  titled its own pane. It is now called **Claude Code**, **Terminal** — whatever
+  the agent is — which is the question you actually have while a pane is
+  starting. The agent replaces it with a real title within seconds, and renaming
+  still pins the name for good.
+  
+  That also gives a rejected title somewhere sensible to land. Creating a
+  subshell could name it `Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA` — the Kitty graphics
+  query agent CLIs emit at startup to ask whether images are supported. A
+  previous fix removed that query when its escape introducer was present, but
+  tmux stores a decoded pane title, so the payload can arrive with the introducer
+  already gone and nothing left to strip. It is now recognised by shape too, and
+  the row simply keeps the agent's name until a real title arrives.
+
 ## 0.11.1
 
 ### Patch Changes
