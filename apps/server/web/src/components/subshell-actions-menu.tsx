@@ -4,6 +4,7 @@ import {
   BellOff,
   Copy,
   ExternalLink,
+  QrCode,
   RotateCcw,
   Share2,
   SlidersHorizontal,
@@ -13,6 +14,7 @@ import {
 import { type ReactNode, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { CloneSubshellDialog } from "@/components/clone-subshell-dialog";
+import { QrLinkDialog } from "@/components/qr-link-dialog";
 import { SharingDialog } from "@/components/sharing-dialog";
 import { TitleDialog } from "@/components/ui/title-dialog";
 import { usePresets } from "@/hooks/use-presets";
@@ -69,6 +71,7 @@ export function SubshellActionsMenu({
   // one at all: a presetless launch has nothing to edit (spec 2026-09-13 §8).
   // Hidden until the name resolves, since a bare id would only confuse.
   const preset = !subshell.alive ? presets?.find((p) => p.id === subshell.presetId) : undefined;
+  const [qrOpen, setQrOpen] = useState(false);
 
   const items: ActionItem[] = [
     ...(canEdit
@@ -110,6 +113,14 @@ export function SubshellActionsMenu({
           },
         ]
       : []),
+    // Beside "Open in browser", because it is the same act with a further
+    // destination — the QR carries this subshell's own path on an address the
+    // instance will actually accept, which is the half a uuid in the URL bar
+    // does not solve. Ungated beyond the menu's `canEdit` for that item's
+    // reason: it opens the SAME page, whose access the server checks on
+    // arrival, and a `view` grantee has no menu at all. `sidebar: true` so the
+    // rail's right-click menu carries it too.
+    { icon: QrCode, label: "QR code…", sidebar: true, onSelect: () => setQrOpen(true) },
     // Owner-only: the bell decides whether THIS subshell pushes to the owner's
     // devices, so it is theirs to set regardless of who else can act on it.
     ...(isOwner
@@ -195,6 +206,13 @@ export function SubshellActionsMenu({
           previous attempt would be a wrong prefill — remount-on-open gives the
           fresh state for free (Task 2 review). */}
       {cloneOpen && <CloneSubshellDialog source={subshell} open onOpenChange={setCloneOpen} />}
+      <QrLinkDialog
+        open={qrOpen}
+        onOpenChange={setQrOpen}
+        title={`Open "${subshell.name}" elsewhere`}
+        description="Scan to open this subshell on another device. It still asks whoever scans it to sign in."
+        path={`/subshells/${subshell.id}`}
+      />
     </>
   );
 }

@@ -52,18 +52,21 @@ async function renderRow() {
 describe("WorkspaceActionsMenu — context mode (spec 2026-09-03)", () => {
   afterEach(cleanup);
 
-  it("right-click offers the curated pair — new tab + delete, not the redundant 'Open'", async () => {
+  it("right-click offers the curated set — new tab, QR, delete; not the redundant 'Open'", async () => {
     await renderRow();
     expect(screen.getByText("ws row")).toBeDefined();
     fireEvent.contextMenu(screen.getByText("ws row"));
-    await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(2));
+    await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(3));
     expect(screen.getByRole("menuitem", { name: "Open in new tab" })).toBeDefined();
+    // "Open this one somewhere else", the somewhere else being a phone —
+    // sidebar-flagged for the same reason "Open in new tab" is (2026-09-19).
+    expect(screen.getByRole("menuitem", { name: "QR code…" })).toBeDefined();
     expect(screen.getByRole("menuitem", { name: "Delete workspace" })).toBeDefined();
     // The row itself is the Open link — offering "Open" again would be noise.
     expect(screen.queryByRole("menuitem", { name: "Open" })).toBeNull();
   });
 
-  it("the ⋯ page menu keeps all three items", async () => {
+  it("the ⋯ page menu keeps every item, sidebar flags ignored", async () => {
     // Button mode ignores the sidebar flags — asserted through the same
     // component the page renders (no children).
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -85,7 +88,8 @@ describe("WorkspaceActionsMenu — context mode (spec 2026-09-03)", () => {
       </QueryClientProvider>,
     );
     fireEvent.keyDown(screen.getByRole("button", { name: "Actions for demo ws" }), { key: "ArrowDown" });
-    await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(3));
+    await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(4));
     expect(screen.getByRole("menuitem", { name: "Open" })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: "QR code…" })).toBeDefined();
   });
 });

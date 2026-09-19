@@ -1,7 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
-import { ExternalLink, SquareArrowOutUpRight, Trash2 } from "lucide-react";
+import { ExternalLink, QrCode, SquareArrowOutUpRight, Trash2 } from "lucide-react";
 import { type JSX, type ReactNode, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
+import { QrLinkDialog } from "@/components/qr-link-dialog";
 import { useInvalidateWorkspaces } from "@/hooks/use-workspaces";
 import { apiFetch, errMessage } from "@/lib/api";
 import { confirmAction } from "@/lib/confirm";
@@ -31,6 +32,7 @@ export function WorkspaceActionsMenu({
   const navigate = useNavigate();
   const invalidate = useInvalidateWorkspaces();
   const [busy, setBusy] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
 
   /** The workspace's only destructive act, asked first — same question,
    * same danger styling, wherever the menu was opened from. */
@@ -62,12 +64,26 @@ export function WorkspaceActionsMenu({
       sidebar: true,
       onSelect: () => window.open(`/workspaces/${workspace.id}`, "_blank", "noopener,noreferrer"),
     },
+    // Beside the two "open it somewhere else" items, because that is what it
+    // is — the somewhere else being a phone. `sidebar: true` so the rail's
+    // right-click menu carries it too: looking up a workspace to open on
+    // another device is as likely from the rail as from its card.
+    { label: "QR code…", icon: QrCode, sidebar: true, onSelect: () => setQrOpen(true) },
     { label: "Delete workspace", icon: Trash2, destructive: true, sidebar: true, onSelect: () => void remove() },
   ];
 
   return (
-    <ActionsMenu label={workspace.name} items={items} disabled={busy}>
-      {children}
-    </ActionsMenu>
+    <>
+      <ActionsMenu label={workspace.name} items={items} disabled={busy}>
+        {children}
+      </ActionsMenu>
+      <QrLinkDialog
+        open={qrOpen}
+        onOpenChange={setQrOpen}
+        title={`Open "${workspace.name}" elsewhere`}
+        description="Scan to open this workspace on another device. It still asks whoever scans it to sign in."
+        path={`/workspaces/${workspace.id}`}
+      />
+    </>
   );
 }

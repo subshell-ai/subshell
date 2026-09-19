@@ -290,11 +290,14 @@ describe("SubshellActionsMenu — children mode, sidebar right-click (spec 2026-
       expect(screen.getByText("the row")).toBeDefined();
       expect(screen.queryByRole("button", { name: "Actions for subshell" })).toBeNull();
       fireEvent.contextMenu(screen.getByText("the row"));
-      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(5));
+      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(6));
       // The curated sidebar set after spec 2026-09-03: close, bell, clone,
-      // share, edit-title. Terminate is gone (Close subsumes it; the alive
-      // row has no lifecycle item at all) — still NOT the dialog-less extras.
+      // share, edit-title — plus the QR (2026-09-19), which is sidebar-flagged
+      // because "open this one elsewhere" is most often wanted from the rail.
+      // Terminate is gone (Close subsumes it; the alive row has no lifecycle
+      // item at all) — still NOT the dialog-less extras.
       expect(screen.getByRole("menuitem", { name: "Edit title" })).toBeDefined();
+      expect(screen.getByRole("menuitem", { name: "QR code…" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "Notify when done" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "Clone…" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "Share…" })).toBeDefined();
