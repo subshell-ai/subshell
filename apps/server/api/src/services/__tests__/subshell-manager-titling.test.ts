@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TmuxRunner } from "@internal/pane-runtime";
+import { getHarness, TmuxRunner } from "@internal/pane-runtime";
 import { CamelCasePlugin, Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
 import * as initMigration from "@/db/migrations/0001-init.js";
@@ -118,7 +118,7 @@ afterAll(() => {
 });
 
 describe("pane titling — who gets --name", () => {
-  it("create without a user name: no --name in the pane command, row keeps the date/time placeholder", async () => {
+  it("create without a user name: no --name in the pane command, row takes the AGENT's name", async () => {
     const created = await manager.createSubshell({
       userId: "u1",
       harnessId: "claude-code",
@@ -128,8 +128,13 @@ describe("pane titling — who gets --name", () => {
     const cmd = tmux.newSubshellCmds[0] ?? "";
     expect(cmd).not.toContain("'--name'");
     const row = await subshells.findById(created.id);
-    expect(row?.name).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
-    // The env is the once-at-launch display name and still carries the placeholder.
+    // The agent's display name, not the date/time it used to be (operator's
+    // call, 2026-09-19): it is what a person reads while the pane starts, and
+    // it is where a title the sweep REFUSES to adopt — a terminal capability
+    // query — leaves the row sitting.
+    expect(row?.name).toBe(getHarness("claude-code")?.name);
+    expect(row?.name).not.toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    // The env is the once-at-launch display name and carries the same.
     expect(cmd).toContain(`SUBSHELL_NAME='${row?.name}'`);
   });
 

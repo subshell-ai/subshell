@@ -341,9 +341,9 @@ export class SubshellManagerService {
     // HUMAN chose travels to the pane command — an unnamed create passes ""
     // so the plugins omit `--name`, the harness titles its own pane, and the
     // reconcile sweep adopts those titles into the row (whose displayed name
-    // stays the date/time placeholder until the first one lands).
+    // stays the agent's own until the first one lands).
     const userNamed = name?.trim() ?? "";
-    const subshellName = userNamed || defaultSubshellName();
+    const subshellName = userNamed || defaultSubshellName(harness.name);
     // Restart-resume plan: continue the predecessor's conversation when it
     // survived, else pin a fresh id this subshell will be resumed by later.
     const harnessSession = await this.#planHarnessSession(launcher, harness, resumeFromId ?? null, realPath);
@@ -1472,8 +1472,39 @@ export class SubshellManagerService {
   }
 }
 
-/** Default subshell name: the current date/time, e.g. "2026-08-18 14:30". */
-export function defaultSubshellName(): string {
+/**
+ * What an unnamed subshell is called until its harness titles its own pane:
+ * the AGENT's display name — "Claude Code", "Terminal" (operator's call,
+ * 2026-09-19).
+ *
+ * It was the current date/time, and the date/time was the wrong thing twice
+ * over. It says nothing a row does not already show — the list is ordered by
+ * recency and carries a timestamp of its own — and it is the value a person
+ * sees while a pane is starting, which is exactly when "what is this" is the
+ * question and "when did I start it" is not.
+ *
+ * It also gives the garbage-title case somewhere sensible to land.
+ * {@link normalizePaneTitle} answers "" for a pane title that is really a
+ * terminal capability query, and the sweep then leaves the name alone — so
+ * what the person reads in the meantime is whatever this returned. A date/time
+ * there looked like a bug; the agent's name looks like the truth, because it
+ * is one.
+ *
+ * **Not unique, deliberately.** Several unnamed subshells on one agent read
+ * the same until the harness titles them, which for an agent CLI is seconds.
+ * A plain `terminal` pane may never title itself and so may keep this name for
+ * good — that is the honest name for it, and the operator renames what they
+ * care to keep.
+ *
+ * @param agentName - The harness's display name (`harness.name`)
+ * @returns The agent's name, or the old date/time when a manifest has none
+ */
+export function defaultSubshellName(agentName: string): string {
+  const named = agentName.trim();
+  if (named) return named;
+  // A manifest with a blank name is a broken plugin rather than a case to
+  // design for, but a subshell with an EMPTY name is unreadable in every list
+  // it appears in, so the old default survives as the last resort.
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;

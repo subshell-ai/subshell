@@ -741,9 +741,22 @@ describe("buildHarnessCommand", () => {
     expect(cmd).toContain("QT='abc'\\''def'");
   });
 
-  it("defaults subshell name to current datetime", () => {
-    const name = defaultSubshellName();
-    expect(name).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  /**
+   * The AGENT's name, not the date/time (operator's call, 2026-09-19). It is
+   * what a person reads while a pane starts, which is when "what is this" is
+   * the question — and it is where a rejected garbage title lands, since the
+   * sweep leaves the name alone for one it will not adopt.
+   */
+  it("defaults an unnamed subshell to the agent's own name", () => {
+    expect(defaultSubshellName("Claude Code")).toBe("Claude Code");
+    expect(defaultSubshellName("  Terminal  ")).toBe("Terminal");
+  });
+
+  it("falls back to the date/time only for a manifest with no name at all", () => {
+    // A broken plugin rather than a case to design for — but an EMPTY name is
+    // unreadable in every list it appears in, so the old default survives here.
+    expect(defaultSubshellName("")).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(defaultSubshellName("   ")).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
   });
 
   it("parses a preset row's JSON blobs into a preset", () => {
