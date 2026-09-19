@@ -1771,12 +1771,28 @@ function renderUpdate(p: Probe): void {
   // snooze. The dismissal that DOES exist lives per app run in the SPA row's
   // sessionStorage, and the tray item is not dismissed away at all — it is a
   // request surface, not a notification.
-  el("bar-left").append(button("Close", () => host.close(), "ghost"));
   // Hidden while anything is in flight: re-checking mid-act asks a question
-  // nothing will read.
+  // nothing will read. Ghost and left of Close, the seat Restart takes beside
+  // Save on Server Addresses — the secondary act next to the one the screen
+  // ends on.
   if (updateState === "idle" && !busy && view.phase !== "finishing") {
     el("bar-right").append(button("Check Again", () => void runUpdateCheck(true), "ghost"));
   }
+  // **Close is this screen's PRIMARY, in the Save seat** (operator's call,
+  // 2026-09-18). Every other requested screen ends on a filled button at the
+  // bottom right — Save on Server Addresses and How Your Server Runs, Reset on
+  // Reset — with a ghost Back on the left for the way out. This screen has no
+  // such split: its act is the big press in the CONTENT, so the bar's only job
+  // is the way out, and putting that in the ghost-left seat left the filled
+  // seat empty and made the one footer button the faintest thing in the frame.
+  //
+  // It is `host.close()`, which is what Back does everywhere else — leave the
+  // screen for whatever the probe implies. On a ready machine that lands on the
+  // handoff, which opens the dashboard and closes this window; from the
+  // recovery screen's link it goes back to recovery. Never gated: a person must
+  // always be able to leave, and leaving cancels nothing — a download in flight
+  // continues in Rust, and phase 2 is resumed from its marker either way.
+  el("bar-right").append(button("Close", () => host.close(), "primary"));
 }
 
 /**
