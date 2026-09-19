@@ -752,9 +752,18 @@ describe("buildHarnessCommand", () => {
     expect(defaultSubshellName("  Terminal  ")).toBe("Terminal");
   });
 
-  it("falls back to the date/time only for a manifest with no name at all", () => {
-    // A broken plugin rather than a case to design for — but an EMPTY name is
-    // unreadable in every list it appears in, so the old default survives here.
+  /**
+   * UNREACHABLE through the plugin loader, deliberately kept (review,
+   * 2026-09-19). `parseManifest` refuses a `subshell.name` that is missing or
+   * blank (`packages/plugin-api/src/manifest.ts`), so no installed plugin can
+   * reach this branch — the guard is here because the cost of being wrong is
+   * a subshell with an EMPTY name, which is unreadable in every list it
+   * appears in, and the cost of the guard is four lines.
+   *
+   * Pinned rather than deleted so the branch is described rather than merely
+   * present; if the manifest rule ever loosens, this is already correct.
+   */
+  it("falls back to the date/time for a blank name the manifest parser would refuse", () => {
     expect(defaultSubshellName("")).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
     expect(defaultSubshellName("   ")).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
   });
