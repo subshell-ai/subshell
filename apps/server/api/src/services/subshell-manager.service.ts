@@ -1682,6 +1682,34 @@ const ESCAPE_SEQUENCE =
  * byte survived as a stray `(`: one character rather than a payload, but it is
  * the class this function claims to close (review, 2026-09-18).
  */
+/**
+ * A terminal-protocol payload with its introducer already gone.
+ *
+ * `ESC _ G i=31,s=1,v=1,a=q,t=d,f=24 ; AAAA ESC \\` is Kitty's
+ * graphics-capability query, which agent CLIs emit at startup to ask whether
+ * images are supported. {@link ESCAPE_SEQUENCE} removes it whole when the
+ * `ESC _` is present — but tmux stores a DECODED `pane_title`, so what reaches
+ * us can be the payload alone, and then there is no escape sequence left to
+ * sweep. Measured 2026-09-19 against the real function: the two ESC-bearing
+ * forms normalize to "", and `_Gi=31,…;AAAA` survives intact.
+ *
+ * That is why the earlier fix did not hold. Its comment blamed this function's
+ * own laundering — the control pass deleting an `ESC` and the punctuation trim
+ * eating the `_` — which was one true route, and closing it left the other
+ * open: a payload that never had an introducer by the time we saw it.
+ *
+ * **The root cause upstream is NOT established.** Something between the agent
+ * and `#{pane_title}` is putting an APC payload where a title belongs, and
+ * this recognises the result rather than explaining it. Worth chasing if it
+ * recurs in another shape; the shape below is narrow enough that a wrong guess
+ * costs one unusual title rather than a class of them.
+ *
+ * Narrow on purpose: a run of `key=value` pairs, then `;`, then a base64-ish
+ * tail, and NOTHING else in the string. A human title does not look like this,
+ * and requiring the `;` keeps an ordinary `FOO=bar` title safe.
+ */
+const PROTOCOL_PAYLOAD = /^[A-Za-z]?(?:[A-Za-z]+=[^,;]*)(?:,[A-Za-z]+=[^,;]*)*;[A-Za-z0-9+/=]*$/;
+
 function normalizePaneTitle(raw: string): string {
   const withoutSequences = raw.replace(ESCAPE_SEQUENCE, " ");
   // Intentional: whatever control characters survive a sequence sweep are
@@ -1695,10 +1723,11 @@ function normalizePaneTitle(raw: string): string {
   // sweep does not cover and a title has no business carrying one.
   // biome-ignore lint/suspicious/noControlCharactersInRegex: sanitizing terminal output
   const cleaned = withoutSequences.replace(/[\x00-\x1f\x7f-\x9f]+/g, " ").trim();
-  return cleaned
-    .replace(/^[^\p{L}\p{N}]+/u, "")
-    .trim()
-    .slice(0, 120);
+  const trimmed = cleaned.replace(/^[^\p{L}\p{N}]+/u, "").trim();
+  // A payload whose introducer never reached us is still not a title — see
+  // PROTOCOL_PAYLOAD. "" makes the caller keep the name it already had.
+  if (PROTOCOL_PAYLOAD.test(trimmed)) return "";
+  return trimmed.slice(0, 120);
 }
 
 export function toSubshellView(

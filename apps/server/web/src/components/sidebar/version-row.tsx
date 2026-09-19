@@ -72,12 +72,18 @@ export function VersionRow({
 
   const body = (
     <>
-      {dot && (
-        // `aria-hidden`: the dot renders the notice, and the accessible name
-        // already says the version in words — announcing both reads one fact
-        // twice.
-        <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-warning" />
-      )}
+      {/* ALWAYS rendered, invisible when there is nothing to say, so the text
+          keeps the dot's indent either way and lines up with `DesktopServerPill`
+          directly above it (operator's report, 2026-09-18 — with the dot
+          conditionally absent, a row with no news started flush left and the
+          two footer lines did not agree). Same `size-2` as that row's own
+          `Circle`, for the same reason.
+
+          `aria-hidden`: the dot renders the notice, and the accessible name
+          already says the version in words — announcing both reads one fact
+          twice. `invisible` rather than a transparent colour, so it is out of
+          the accessibility tree as well as out of sight. */}
+      <span aria-hidden className={cn("size-2 shrink-0 rounded-full", dot ? "bg-warning" : "invisible")} />
       {/* Kept in the DOM when collapsed rather than dropped: it is the
           accessible name of the whole row, button or not. */}
       <span className={cn("truncate", collapsed && "sr-only")}>{title}</span>

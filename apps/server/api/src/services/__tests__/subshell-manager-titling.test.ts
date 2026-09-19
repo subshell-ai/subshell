@@ -229,6 +229,35 @@ describe("normalizePaneTitle", () => {
     expect(norm("title \x1b(")).toBe("title");
   });
 
+  /**
+   * The introducer is not always there to sweep (operator's screenshot,
+   * 2026-09-19 — the SAME payload, reported as still happening after the fix
+   * above shipped). tmux stores a DECODED `pane_title`, so what reaches us can
+   * be the payload alone, and then there is no escape sequence left to remove.
+   * Measured against the real function before the fix: the two ESC-bearing
+   * forms normalized to "" and `_Gi=31,…;AAAA` survived intact.
+   */
+  it("drops a Kitty payload whose introducer never reached us", () => {
+    expect(norm("_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA")).toBe("");
+    // And with the `_` gone too, which is what the punctuation trim leaves.
+    expect(norm("Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA")).toBe("");
+  });
+
+  /**
+   * The payload rule is narrow deliberately, because it recognises a SHAPE
+   * rather than a sequence and a wrong guess eats a real title. These are the
+   * neighbours it must not touch.
+   */
+  it("keeps titles that merely contain `=` or `;`", () => {
+    expect(norm("FOO=bar")).toBe("FOO=bar");
+    expect(norm("one; two")).toBe("one; two");
+    expect(norm("npm run dev -- --port=3000")).toBe("npm run dev -- --port=3000");
+    expect(norm("a=1, b=2 and then some prose")).toBe("a=1, b=2 and then some prose");
+    // No `;`, so not the payload shape — requiring it is what keeps an
+    // ordinary assignment-looking title safe.
+    expect(norm("i=31,s=1")).toBe("i=31,s=1");
+  });
+
   it("drops an OSC string whole", () => {
     expect(norm("\x1b]0;hello\x07")).toBe("");
   });
