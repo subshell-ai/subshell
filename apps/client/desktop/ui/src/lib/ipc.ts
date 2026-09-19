@@ -111,7 +111,7 @@ export interface EnrolledNodeBody {
 /**
  * The single next thing that has to be true. `ProbeStep`, kebab-case.
  *
- * `no-agent` covers TWO situations — nothing on the ladder answered, and a
+ * `no-node` covers TWO situations — nothing on the ladder answered, and a
  * binary that answered `version` but not `status --json` — because reading the
  * second as "not enrolled" would route a transient read failure to the step
  * that overwrites `config.json`.
@@ -412,7 +412,7 @@ export function nodeEnroll(args: {
  * Reveal one of a fixed set of the app's own directories or files.
  *
  * Rejects with a string when the platform has no such file — on Linux the
- * rejection for `agent-log` IS the `journalctl` command to run instead, and
+ * rejection for `node-log` IS the `journalctl` command to run instead, and
  * this is the only place a user learns it, so it must reach the screen.
  */
 export function nodeOpenPath(args: { target: OpenTarget }): Promise<void> {

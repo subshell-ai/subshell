@@ -489,7 +489,7 @@ export function useNodeCommands(args: {
         // and the person sees no panel. What a blanket `confirm: true` would
         // ALSO do is skip Rust's already-enrolled guard, which reads
         // `config.json` directly — and a machine can reach this chain with a
-        // live config: `no-agent` is reported for a missing binary AND for one
+        // live config: `no-node` is reported for a missing binary AND for one
         // that cannot answer `status --json`, so a machine whose node CLI was
         // deleted still has its config, its node id and the only copy of its
         // node key. Enrolling over that mints a SECOND node row and discards

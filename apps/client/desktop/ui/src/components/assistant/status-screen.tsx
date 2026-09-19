@@ -13,10 +13,10 @@
  *
  * What came across from the two screens it absorbed, each because losing it
  * would have cost something the machine cannot recover on its own: the config
- * and agent-log reveals (`openPath`), the offline diagnosis and the log
+ * and node-log reveals (`openPath`), the offline diagnosis and the log
  * location that answers it, the pane-safety card whose button the CLI's own
  * restart refusal names BY LABEL, and — the one that is a safety property
- * rather than an affordance — the two ways `no-agent` reads, which decide
+ * rather than an affordance — the two ways `no-node` reads, which decide
  * whether registration may be offered at all.
  *
  * So there are two axes, and they are independent:
@@ -184,7 +184,7 @@ export function StatusScreen(props: {
   /**
    * A binary answered `version` but not `status --json`.
    *
-   * The Rust side folds this into `no-agent` DELIBERATELY (control.rs): reading
+   * The Rust side folds this into `no-node` DELIBERATELY (control.rs): reading
    * it as "not enrolled" would offer the act that overwrites `config.json`,
    * mints a second node row and discards the node key whose only home is that
    * file. So this screen must not offer registration here either — a transient
@@ -305,7 +305,7 @@ export function StatusScreen(props: {
       {/*
        * The repair the install screen owned, and the refusal that went with it.
        *
-       * `no-agent` covers two very different machines and keeping them apart
+       * `no-node` covers two very different machines and keeping them apart
        * is the whole care here (it is why `install-agent-screen.tsx` existed):
        *
        * - **Nothing answered at all.** Installing is safe unconfirmed — there

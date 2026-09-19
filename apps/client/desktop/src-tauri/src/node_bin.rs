@@ -1,8 +1,8 @@
-//! Finding a `subshell` node agent to drive.
+//! Finding a `subshell` node binary to drive.
 //!
 //! The app SHIPS one (`subshell_desktop_core::sidecar`, driven from here
 //! through [`NODE_SIDECAR`]), but it must never assume the shipped copy is the
-//! one in charge: the user may already have installed an agent with
+//! one in charge: the user may already have installed a node CLI with
 //! `install.sh`, and the installed service definition is the authority on which
 //! binary this machine actually runs. So resolution is a ladder, each rung
 //! named the way `services/mcp-resolve.ts` names its own, and the answer
@@ -31,8 +31,8 @@ use subshell_desktop_core::version::version_lt;
 /// What THIS app's shipped binary is called, and how it announces itself.
 ///
 /// The install dance itself is generic (`subshell_desktop_core::sidecar`);
-/// these three strings are the agent-specific half of it. The `version_prefix`
-/// keeps its trailing space for a reason that is not formatting: the agent's
+/// these three strings are the node-specific half of it. The `version_prefix`
+/// keeps its trailing space for a reason that is not formatting: the node CLI's
 /// line is `subshell 1.9.0 (node protocol v1)` and the server app's is
 /// `subshell-server 1.9.0`, so without the space this prefix matches the SERVER
 /// too and reports its version as `-server`.
@@ -42,7 +42,7 @@ pub const NODE_SIDECAR: SidecarSpec = SidecarSpec {
     version_prefix: "subshell ",
 };
 
-/// The desktop app's own override for the resolved agent. Unknown to the CLI —
+/// The desktop app's own override for the resolved node binary. Unknown to the CLI —
 /// it exists so a developer running `tauri dev` can point the app at a repo
 /// build without installing anything.
 const NODE_BIN_ENV: &str = "SUBSHELL_NODE_BIN";
@@ -258,7 +258,7 @@ pub fn resolve(configured: Option<&str>) -> Option<NodeBinary> {
 /// `ProgramArguments` from whatever binary ran it, so installing from inside
 /// the signature-sealed bundle produces a service that dies the moment the app
 /// is moved, replaced or removed — the exact failure `sidecar.rs` exists to
-/// avoid. And the probe's `no-agent` step, which is what OFFERS the install,
+/// avoid. And the probe's `no-node` step, which is what OFFERS the install,
 /// would then never fire on a machine that has no agent, so the shipped binary
 /// could never be installed at all. It is reported separately as
 /// `bundledVersion` and reached only through `node_install_cli`.

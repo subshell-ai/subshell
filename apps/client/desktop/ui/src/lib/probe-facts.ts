@@ -30,7 +30,7 @@ const SOURCE_LABEL: Record<NodeSource, string> = {
  * What each `NodeChoice` means for the version fact.
  *
  * Only the two that are news. `install-bundled` and `no-bundled` are already
- * the whole content of the `no-agent` screen, and `up-to-date` is the silent
+ * the whole content of the `no-node` screen, and `up-to-date` is the silent
  * case by definition.
  */
 const NODE_CHOICE_NOTE: Partial<Record<NodeChoice, string>> = {

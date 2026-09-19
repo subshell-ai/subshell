@@ -165,7 +165,7 @@ describe("registerSteps", () => {
 
   it("reads the probe for what is already true, so a skipped act is not a lie", () => {
     // Nothing has run yet. The chain installs the agent only when the probe
-    // says `no-agent`, so a machine that already has one shows that row done
+    // says `no-node`, so a machine that already has one shows that row done
     // rather than promising an act that will be skipped.
     expect(states("form")).toEqual(["pending", "pending", "pending"]);
     expect(states("form", probe({ step: "not-enrolled" }))).toEqual(["done", "pending", "pending"]);

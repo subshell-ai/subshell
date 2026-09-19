@@ -697,7 +697,7 @@ Three screen ids went with it, and their absence is the design.
 **`connected`**, **`service`** and **`install-agent`** were the probe-derived
 landings; every configured client lands on `status` now, which carries what
 each of them offered — the contextual service verb, the pane-safety rewrite,
-the config and agent-log reveals, and the split that decides whether
+the config and node-log reveals, and the split that decides whether
 registering may be offered at all (below). A screen nothing can
 route to is not a recovery path; it is dead code that reads like one.
 
@@ -711,7 +711,7 @@ the MACHINE may also raise: an app update left a marker, and the process that
 boots into it opens the screen once per launch to finish the act (see
 "Updating is one act", below).
 
-**`no-agent` reads two ways, and status must keep them apart.** The Rust side
+**`no-node` reads two ways, and status must keep them apart.** The Rust side
 folds "nothing on the ladder answered" and "a binary answered `version` but not
 `status --json`" into one step on purpose (control.rs says why). Where nothing
 answered, installing is safe unconfirmed and is offered ON ITS OWN — not folded
@@ -760,11 +760,11 @@ The rules ported from the Subshell Server console in 2026-09-08 are unchanged
 by any of that:
 
 - **Reveals name an intent, never a path.** `node_open_path` takes the closed
-  `config-dir | data-dir | agent-log` enum; an `agent-log` rejection IS the
+  `config-dir | data-dir | node-log` enum; an `node-log` rejection IS the
   remedy (the path it will appear at, plus the `journalctl` command on Linux),
   and the facts list also shows the log location so it is readable without
   clicking.
-- **`agent-log` resolves the node's OWN capped file first**, on every
+- **`node-log` resolves the node's OWN capped file first**, on every
   platform (2026-09-18) — `~/.config/subshell/logs/agent.log`, the same
   JSON-lines file the plane's node log view serves, so revealing a log here
   and reading one in a browser cannot land on two different documents. That is

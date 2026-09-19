@@ -125,7 +125,7 @@ export function clientScreen(i: FlowInput): NodeScreenId | null {
   if (i.step) return walkScreen(i.step, i.probe);
   if (configured(i.settings, i.probe)) return "status";
   // Spec § 5.5's resume: a node CLI exists and has no config. Keyed on the step
-  // rather than on `probe.nodeBinary`, because `no-agent` also covers a binary that
+  // rather than on `probe.nodeBinary`, because `no-node` also covers a binary that
   // answered `version` and not `status --json` — a machine we cannot say
   // anything about, whose remedy is the register chain's own install.
   if (i.probe?.step === "not-enrolled") return "register";

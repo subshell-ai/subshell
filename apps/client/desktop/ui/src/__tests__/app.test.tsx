@@ -278,7 +278,7 @@ describe("the CLI's own words", () => {
     const stderr = "warning: this unit does not spare live panes — mint a new key if enroll fails";
     await boot({ probe: FRESH, handlers: { node_install_cli: () => ({ ok: true, stdout, stderr }) } });
 
-    // The install screen's one button is the status screen's no-agent card
+    // The install screen's one button is the status screen's no-node card
     // now. Same command, same unconfirmed offer, same reason it is safe: on a
     // machine where nothing answered there is nothing to stop, overwrite or
     // downgrade.
@@ -997,7 +997,7 @@ describe("the first run", () => {
   // THE safety property of this chain, and what it costs to lose.
   //
   // A machine reaches Register with a live `config.json` more easily than it
-  // looks: `no-agent` is the probe's answer for a missing binary AND for one
+  // looks: `no-node` is the probe's answer for a missing binary AND for one
   // that cannot answer `status --json`, so a machine whose agent was deleted
   // still has its node id, its `serverUrl` and the ONLY copy of its node key
   // in that file. Enrolling over it mints a SECOND node row on the control
@@ -1440,7 +1440,7 @@ describe("the first run", () => {
 
 describe("the screens", () => {
   // The install screen's whole reason for existing, carried onto the status
-  // screen as two cards: `no-agent` covers two very different machines and the
+  // screen as two cards: `no-node` covers two very different machines and the
   // split between them decides what may be offered at all. What the screen
   // looks like changed; the split did not.
   it("offers the install only when nothing answered at all", async () => {
