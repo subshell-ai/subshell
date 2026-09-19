@@ -76,7 +76,22 @@ ok()   { echo "  ok: $*"; }
 
 export SUBSHELL_CONFIG_HOME="$W/config"
 export SUBSHELL_RELEASE_URL=""   # `--from` only: this test reaches no network
-mkdir -p "$SUBSHELL_CONFIG_HOME" "$W/data" "$W/bin"
+# A throwaway HOME, for the same reason `server-update.sh` swaps one and says
+# so at length — and this scenario went without it until 2026-09-19, when the
+# omission bit a developer's machine.
+#
+# `SUBSHELL_CONFIG_HOME` is NOT enough. `resolveAgentBinary`
+# (`apps/node/agent/src/update.ts`) asks the SERVICE DEFINITION first, and it
+# hangs the plist/unit paths off `homedir()`, not off the config home. So on a
+# host carrying `~/Library/LaunchAgents/dev.subshell.client.plist` — every
+# machine that ever enrolled through Subshell Client — the sandbox is bypassed
+# by the one lookup that runs before it, and `update` replaces THE OPERATOR'S
+# OWN `~/.local/bin/subshell` and reports success. Measured 2026-09-19 on a
+# host whose plist appeared the previous day; ten earlier runs in
+# `/tmp/ss-nupd-*` had resolved to the temp dir correctly purely because no
+# plist existed yet, which is why this survived so long.
+export HOME="$W/home"
+mkdir -p "$SUBSHELL_CONFIG_HOME" "$W/data" "$W/bin" "$HOME"
 
 CURRENT=$(bun -e "console.log(require('$AGENT/package.json').version)")
 NEXT="99.0.0"
