@@ -111,7 +111,7 @@ const InventorySchema = t.Object({
     total: t.Number({ description: "Enrolled nodes, including the seeded `local` row" }),
     online: t.Number({
       description:
-        "Nodes reachable right now: nodes holding a live socket in the in-memory registry, plus the seeded `local` row, which holds no socket and is up whenever this server is",
+        "Nodes reachable right now: those holding a live socket in the in-memory registry, plus the seeded `local` row, which holds no socket and is up whenever this server is",
     }),
     needingUpdate: t.Array(OutdatedNodeSchema, {
       description:
