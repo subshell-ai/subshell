@@ -96,9 +96,9 @@ pub fn parse_release_tag(prefix: &str, tag: &str) -> Option<String> {
 /// client, so offering one is offering an update that cannot be fetched.
 ///
 /// Tags belonging to another component are ignored even when they would parse
-/// as a newer version — which is why this takes a prefix rather than inferring
-/// one. `desktop-server-v` has `server-v` as a SUFFIX, so a component cannot be
-/// read off a tag by matching.
+/// as a newer version. Since the 2026-09-18 rename every prefix reads
+/// `<form>-<role>-v`, so no prefix is another's prefix or suffix and a plain
+/// `starts_with` is exact.
 pub fn newest_release(prefix: &str, rows: &[ReleaseRow]) -> Option<ReleasePick> {
     let mut best: Option<ReleasePick> = None;
     for row in rows.iter().filter(|r| !r.draft) {
@@ -285,7 +285,7 @@ mod tests {
         assert_eq!(parse_release_tag("desktop-server-v", "desktop-server-v1.2.3.4"), None);
         assert_eq!(parse_release_tag("desktop-server-v", "desktop-server-v1.2.3-rc1"), None);
         assert_eq!(parse_release_tag("desktop-server-v", "desktop-server-v"), None);
-        assert_eq!(parse_release_tag("desktop-server-v", "server-v1.2.3"), None);
+        assert_eq!(parse_release_tag("desktop-server-v", "cli-server-v1.2.3"), None);
     }
 
     fn row(tag: &str, draft: bool) -> ReleaseRow {
@@ -295,14 +295,13 @@ mod tests {
         }
     }
 
-    // `desktop-server-v` ends with `server-v`, so a suffix match would make
-    // every desktop release look like a server one — and vice versa, a naive
-    // `contains` would offer this app the CLI's version.
+    // Every component's tags land on one Releases page, so a picker that
+    // matched loosely would hand a desktop app a CLI release.
     #[test]
     fn another_components_tag_is_never_picked() {
         let rows = [
-            row("server-v9.0.0", false),
-            row("node-v9.0.0", false),
+            row("cli-server-v9.0.0", false),
+            row("cli-node-v9.0.0", false),
             row("desktop-client-v9.0.0", false),
             row("desktop-server-v1.2.3", false),
         ];
@@ -350,7 +349,7 @@ mod tests {
         let body = r#"[
           {"id": 1, "tag_name": "desktop-server-v1.2.3", "draft": false, "prerelease": false,
            "html_url": "https://github.com/x", "assets": [{"name": "latest.json"}]},
-          {"id": 2, "tag_name": "server-v9.9.9", "draft": false}
+          {"id": 2, "tag_name": "cli-server-v9.9.9", "draft": false}
         ]"#;
         let rows = release_feed_rows_from(body).expect("rows");
         assert_eq!(rows.len(), 2);

@@ -483,7 +483,7 @@ mod tests {
     fn the_prefix_is_this_components_own() {
         assert_eq!(TAG_PREFIX, "desktop-server-v");
         assert!(release_feed::parse_release_tag(TAG_PREFIX, "desktop-server-v1.2.3").is_some());
-        assert!(release_feed::parse_release_tag(TAG_PREFIX, "server-v1.2.3").is_none());
+        assert!(release_feed::parse_release_tag(TAG_PREFIX, "cli-server-v1.2.3").is_none());
         assert!(release_feed::parse_release_tag(TAG_PREFIX, "desktop-client-v1.2.3").is_none());
     }
 
