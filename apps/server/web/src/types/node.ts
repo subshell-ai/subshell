@@ -13,7 +13,7 @@ export type NodeAccess = "owner" | "edit" | "view";
 /** `local` = the control-plane host itself; `agent` = an enrolled machine. */
 export type NodeKind = "local" | "agent";
 
-/** Status projection — the live agent socket is authoritative server-side. */
+/** Status projection — the live node socket is authoritative server-side. */
 export type NodeStatus = "online" | "offline";
 
 /**
@@ -119,7 +119,7 @@ export interface Node {
   capabilities: string[];
   /** One row per plugin the INSTANCE has installed and enabled, crossed with this node's binary detection */
   harnesses: NodeHarness[];
-  /** Agent's cached inventory is older than the TTL (or never landed) — installed values are last-known. local: always false */
+  /** The node's cached inventory is older than the TTL (or never landed) — installed values are last-known. local: always false */
   inventoryStale: boolean;
   /**
    * Whether this machine is holding new work off while somebody works on it
@@ -142,10 +142,10 @@ export interface Node {
   /** Which end declared it; null when it has never been declared */
   maintenanceSource: MaintenanceSource | null;
   /**
-   * This node's agent is connected but REFUSED — held open for exactly one
+   * This node is connected but REFUSED — held open for exactly one
    * command and offline for every other purpose (spec 2026-09-15 §5.3).
    *
-   * The state replaces being dropped. Before, an agent below the version floor
+   * The state replaces being dropped. Before, a node below the version floor
    * or speaking a different protocol was closed 4406, so the row read as an
    * ordinary offline node and the only remedy was a shell on that machine.
    * Held, `POST /api/nodes/:id/update` can still reach it — which is why this
@@ -159,7 +159,7 @@ export interface Node {
   held: NodeHeld | null;
 }
 
-/** Why a node's agent is held rather than live. */
+/** Why a node is held rather than live. */
 export interface NodeHeld {
   /**
    * Which gate refused it: its version, or the wire protocol it speaks.
@@ -210,7 +210,7 @@ export interface NodeShare {
 }
 
 /**
- * How an agent PROCESS runs, as the agent itself reported it in `ready`.
+ * How the node PROCESS runs, as the node itself reported it in `ready`.
  *
  * Mirrors `NodeRuntimeReport` in `@internal/subshell-protocol`
  * (`node-frames.ts`) field for field. Not imported from there because this
@@ -223,15 +223,15 @@ export interface NodeShare {
  * is always current or absent.
  */
 export interface NodeRuntime {
-  /** ISO 8601 start time of this agent process */
+  /** ISO 8601 start time of this node process */
   startedAt: string;
   /** The manager started THIS pid, so exiting is a restart rather than a stop */
   supervised: boolean;
-  /** The service manager's view of the agent's unit */
+  /** The service manager's view of the node's unit */
   service: {
     /** The platform's service manager, or null where there is none */
     manager: "launchd" | "systemd" | null;
-    /** Whether a service definition for the agent is installed */
+    /** Whether a service definition for the node is installed */
     installed: boolean;
     /** Absolute path of the unit/plist, or null when none is installed */
     definitionPath: string | null;
@@ -251,26 +251,26 @@ export interface NodeRuntime {
     paneSafety: "keeps" | "kills" | "unknown";
   };
   /**
-   * The agent's debug-logging switch — the node half of the server's own.
+   * The node's debug-logging switch — the node half of the server's own.
    *
    * `source: "process env"` means `SUBSHELL_DEBUG_LOGGING` forces it on that
    * machine, and the switch renders read-only for the same reason the
    * server's does.
    */
   logging: {
-    /** Whether debug-level lines reach the agent's log file */
+    /** Whether debug-level lines reach the node's log file */
     debug: boolean;
     /** Which layer decided */
     source: "process env" | "setting" | "default";
   };
-  /** The agent's own config file, resolved */
+  /** The node's own config file, resolved */
   configPath: string;
   /**
-   * The agent's OWN log file — what `GET /api/nodes/:id/logs` serves.
+   * The node's OWN log file — what `GET /api/nodes/:id/logs` serves.
    *
    * Distinct from `logPath`, which is wherever the service manager redirected
    * stdout: a file under launchd, nothing at all under systemd. This one is
-   * written by the agent and exists identically everywhere, which is what makes
+   * written by the node and exists identically everywhere, which is what makes
    * reading a node's log in a browser one behaviour rather than two.
    */
   agentLogPath: string;
@@ -280,7 +280,7 @@ export interface NodeRuntime {
   logHint: string | null;
   /** tmux on the daemon's PATH, or null — without it the node accepts no launches */
   tmuxPath: string | null;
-  /** The agent binary this process re-enters */
+  /** The node binary this process re-enters */
   binaryPath: string;
 }
 
@@ -289,7 +289,7 @@ export interface NodeDetail extends Node {
   /** Full grant set (config-capable viewers only) */
   shares?: NodeShare[];
   /**
-   * How the agent runs on that machine.
+   * How the node runs on that machine.
    *
    * Present only when the node is ONLINE, the viewer can configure it (owner
    * or `edit`), and it is an agent node — never `local`. A `view` grantee may
@@ -351,6 +351,6 @@ export interface CreatedSetupKey {
 export interface RotatedNodeKey {
   /** Plaintext node bearer key — shown once, then never again (only its hash is stored) */
   nodeKey: string;
-  /** Operator guidance: the agent's stored config does NOT update itself — re-configure it by hand */
+  /** Operator guidance: the node's stored config does NOT update itself — re-configure it by hand */
   message: string;
 }

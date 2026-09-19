@@ -70,7 +70,7 @@ export function App() {
    *
    * Answered on the start-up screen and handed to the register chain's LAST
    * act, because `service install` is what the answer parameterizes. Defaults
-   * to on, which is what the agent has always done.
+   * to on, which is what the node CLI has always done.
    */
   const [startAtLogin, setStartAtLogin] = useState(true);
   /** How far the register chain has got, for the Setting Up… checklist. */
@@ -127,7 +127,7 @@ export function App() {
    * The one screen the machine may raise that a person nonetheless asked for:
    * `node_install_app_update` writes a marker before `app.restart()`, and this
    * process — which did not exist when the press happened — is the one that
-   * installs the agent that bundle ships. `node_probe` reports the marker only
+   * installs the node CLI that bundle ships. `node_probe` reports the marker only
    * after weighing it against this machine, so a marker whose work is already
    * done never reaches here.
    *
@@ -157,7 +157,7 @@ export function App() {
    *
    * Its own slot rather than `runner.output`, which is the last of any action
    * and lives as long as this component does — so a failed `service` verb or
-   * agent install, produced on the status screen, would render under "The tmux
+   * node CLI install, produced on the status screen, would render under "The tmux
    * install didn't finish." the next time anyone walked to the tmux screen.
    * `apps/server/desktop` keeps a `tmuxResult` for exactly that reason and says
    * so at the declaration; this is its twin, written only by
@@ -226,7 +226,7 @@ export function App() {
     return (
       <Frame
         {...shell}
-        subtitle={failed ? undefined : "Reading this machine's agent, service and configuration."}
+        subtitle={failed ? undefined : "Reading this machine's node, service and configuration."}
         barRight={
           failed ? (
             <Button className="min-w-[120px]" disabled={runner.busy} onClick={commands.refresh}>

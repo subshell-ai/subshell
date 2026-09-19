@@ -21,7 +21,7 @@ const shell = { title: "Setting Up This Machine", subtitle: "This takes a moment
 /** The three acts one Register press runs, in order. */
 function rows(states: RegisterRow["state"][]): RegisterRow[] {
   const labels: [RegisterRow["id"], string][] = [
-    ["install", "Install the agent"],
+    ["install", "Install the node"],
     ["enroll", "Enroll this machine"],
     ["start", "Start the node service"],
   ];
@@ -56,7 +56,7 @@ describe("the Setting Up checklist", () => {
   // apart from work, and what answers "what did that just do" afterwards.
   it("names every act the chain performs", () => {
     show();
-    expect(screen.getByText("Install the agent")).toBeTruthy();
+    expect(screen.getByText("Install the node")).toBeTruthy();
     expect(screen.getByText("Enroll this machine")).toBeTruthy();
     expect(screen.getByText("Start the node service")).toBeTruthy();
   });
@@ -103,7 +103,7 @@ describe("the Setting Up checklist", () => {
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     // Still on screen with every row ticked — the handoff does not clear it.
     expect(view.states()).toEqual(["done", "done", "done"]);
-    expect(screen.getByText("Install the agent")).toBeTruthy();
+    expect(screen.getByText("Install the node")).toBeTruthy();
   });
 
   it("offers Retry when an act failed", () => {

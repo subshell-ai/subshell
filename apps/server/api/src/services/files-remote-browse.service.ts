@@ -47,7 +47,7 @@ function rethrowRemoteBrowseError(err: NodeRpcError): never {
   if (err.code === "offline") {
     throwApiError({
       code: BackendErrorCodes.NODE_OFFLINE,
-      message: "That node has no live agent connection",
+      message: "That node has no live connection",
       doNotLog: true,
     });
   }

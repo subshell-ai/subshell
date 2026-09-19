@@ -85,7 +85,7 @@ export const nodeLogsRoute = new Elysia()
             502,
             apiErrorBody({
               code: BackendErrorCodes.NODE_UNREACHABLE,
-              message: "That node's agent answered with a log slice this server could not read",
+              message: "That node answered with a log slice this server could not read",
             }),
           );
         }

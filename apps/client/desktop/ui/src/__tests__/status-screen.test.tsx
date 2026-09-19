@@ -211,7 +211,7 @@ describe("a node whose agent is not running", () => {
 
   it("offers Start, and says what is wrong", () => {
     const { calls } = mount({ probe: stopped });
-    expect(screen.getByText(/the agent is not running/i)).toBeTruthy();
+    expect(screen.getByText(/the node is not running/i)).toBeTruthy();
     fireEvent.click(button(/^start$/i));
     expect(calls).toEqual([{ name: "service", args: ["start", { settle: true }] }]);
   });
@@ -298,11 +298,11 @@ describe("what the connected screen offered is still offered", () => {
    * button is a door to the one update screen, which then does whichever
    * halves are actually behind.
    */
-  it("announces a newer bundled agent and opens the one update screen", () => {
+  it("announces a newer bundled node CLI and opens the one update screen", () => {
     const { calls, pressed } = mount({
       probe: makeProbe({ agentChoice: "upgrade-available", bundledVersion: "2.0.0" }),
     });
-    fireEvent.click(button(/update the agent to 2\.0\.0/i));
+    fireEvent.click(button(/update the node to 2\.0\.0/i));
     expect(pressed).toEqual(["update"]);
     expect(calls).toEqual([]);
   });

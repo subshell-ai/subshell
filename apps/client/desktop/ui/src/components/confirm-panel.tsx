@@ -1,13 +1,13 @@
 /**
  * Anything the user must acknowledge before it happens: spending a setup key,
- * replacing the installed agent, killing live panes.
+ * replacing the installed node CLI, killing live panes.
  *
  * In the page rather than in a native dialog on purpose: these messages are
  * several sentences of consequence — what a spent setup key costs, which
  * subshells a restart kills — and a modal that has to be dismissed to re-read
  * the form behind it is the wrong shape for that. The app grants no dialog
  * surface at all now (`capabilities/node.json` held `dialog:allow-open` and
- * `dialog:allow-message` while the agent-binary picker existed, and no `ask`
+ * `dialog:allow-message` while the node-binary picker existed, and no `ask`
  * even then), so there is nothing native to fall back to here.
  *
  * It is also why nothing here is portalled or anchored. The bundle's CSP has no

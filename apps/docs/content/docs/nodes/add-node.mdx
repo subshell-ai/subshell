@@ -24,11 +24,11 @@ curl -fsSL "http://your-server:3080/install.sh?setup_key=<your-key>" | bash
 On the target machine this:
 
 1. **Checks for tmux** and warns (with the right install command for the platform) if it is missing — a node without tmux can run no subshell at all. The install itself continues; enrollment is what refuses.
-2. **Downloads the agent binary** for your platform (`linux-x64`, `linux-arm64`, or `darwin-arm64`; Intel Macs are refused by name) from that same server, to `~/.local/bin/subshell`.
+2. **Downloads the node binary** for your platform (`linux-x64`, `linux-arm64`, or `darwin-arm64`; Intel Macs are refused by name) from that same server, to `~/.local/bin/subshell`.
 3. **Verifies the published `.sha256` digest** of the download before the file is ever made executable, and replaces nothing until the digest matches. A corrupt or partial download leaves any existing install untouched.
 4. **Runs `subshell setup`** — which asks what to call the machine, enrols it, and offers the background service, as step 3 describes.
 
-If the server has no binary for your platform, it usually downloads one from the project's own public release on first request and serves it to you. When that is impossible — an air-gapped instance — the command says so rather than failing obscurely, and names the fallback: install the agent another way and run `subshell setup` by hand.
+If the server has no binary for your platform, it usually downloads one from the project's own public release on first request and serves it to you. When that is impossible — an air-gapped instance — the command says so rather than failing obscurely, and names the fallback: install the node binary another way and run `subshell setup` by hand.
 
 > [!warning] The server address is baked into the command
 > The row you pick in the dialog's **Address the node dials** dropdown is the address the node will dial forever. Choose one the new machine can actually reach — usually your VPN or tailnet address — before copying: the choice rides along in the command (a `server=` argument the server accepts only for addresses it already trusts) and is baked into the script when the machine downloads it. A remote machine pointed at `localhost` enrolls, then dials *itself* and sits there offline. If the instance knows no other address, the dropdown has only that one row — set the base URL first. See [Networking](/server/networking).
@@ -41,7 +41,7 @@ The one-liner ends at a single CLI verb, and the same verb is the whole path on 
 subshell setup --server http://your-server:3080 --key <your-key>
 ```
 
-It checks for tmux FIRST — before it asks you anything and before your single-use key is spent, so a machine that could host no pane never costs you a key or an answer. Then it asks **"Name this node"**: this is where a node gets its name. The answer is prefilled with the machine's hostname, so Enter accepts what the box calls itself and typing replaces it. It then generates an identity keypair on that machine, enrols with the control plane, and writes its config 0600 — the node's long-lived key is stored only there, and never echoed, not even with `--json`. Then it asks its second question: **"Run the agent in the background and start it at login?"** Answer yes and it installs a systemd user unit on Linux or a launchd agent on macOS; `--no-service` (or `SUBSHELL_NO_SERVICE=1` for the piped install) skips the question, and `subshell service install` does it later.
+It checks for tmux FIRST — before it asks you anything and before your single-use key is spent, so a machine that could host no pane never costs you a key or an answer. Then it asks **"Name this node"**: this is where a node gets its name. The answer is prefilled with the machine's hostname, so Enter accepts what the box calls itself and typing replaces it. It then generates an identity keypair on that machine, enrols with the control plane, and writes its config 0600 — the node's long-lived key is stored only there, and never echoed, not even with `--json`. Then it asks its second question: **"Run the node in the background and start it at login?"** Answer yes and it installs a systemd user unit on Linux or a launchd agent on macOS; `--no-service` (or `SUBSHELL_NO_SERVICE=1` for the piped install) skips the question, and `subshell service install` does it later.
 
 `--name <n>` answers the name question ahead of time, and anything that cannot ask must bring it: `setup` requires `--name` under `--yes`, under `--json`, or when there is no terminal to prompt. A piped one-liner takes no arguments, so its spelling is an environment variable on the bash side of the pipe:
 
@@ -55,7 +55,7 @@ On Linux, a user service dies at logout unless the user **lingers** — if linge
 
 ## 4. The Desktop App path
 
-No terminal on the machine? The dialog's reveal switches from **Terminal** to **Desktop App** and shows two values instead of a command — the server address and the setup key, each with its own copy button. In Subshell Client, open **Window → This machine…**, connect to that address, and paste both on its **Enroll** step. The app asks what to call the machine, installs the agent it ships with — nothing is downloaded — and enrols. The unpublished-binary warning and the air-gapped detour are the terminal path's concerns; the app carries its own agent whatever this server has published. [Subshell Client as a Node](/nodes/client-as-node) walks the assistant.
+No terminal on the machine? The dialog's reveal switches from **Terminal** to **Desktop App** and shows two values instead of a command — the server address and the setup key, each with its own copy button. In Subshell Client, open **Window → This machine…**, connect to that address, and paste both on its **Enroll** step. The app asks what to call the machine, installs the node binary it ships with — nothing is downloaded — and enrols. The unpublished-binary warning and the air-gapped detour are the terminal path's concerns; the app carries its own copy whatever this server has published. [Subshell Client as a Node](/nodes/client-as-node) walks the assistant.
 
 ## 5. Online
 
@@ -64,8 +64,8 @@ The node appears in the list. Opening its page (or pressing **Re-check**) has th
 ## If it does not come online
 
 - **"The setup key was rejected"** — invalid, expired, or already used. Mint a fresh one and rerun the command; nothing was consumed on the machine's side except the download.
-- **The agent runs but the row stays offline** — almost always the baked loopback URL, or the machine cannot reach the address. `subshell status --probe` on the node dials the stored address and names it.
-- **An agent started by hand dies when you close the SSH session** — that is `subshell run`, the foreground daemon; install the background service (step 3).
+- **The node runs but the row stays offline** — almost always the baked loopback URL, or the machine cannot reach the address. `subshell status --probe` on the node dials the stored address and names it.
+- **A node started by hand dies when you close the SSH session** — that is `subshell run`, the foreground daemon; install the background service (step 3).
 
 ## See also
 

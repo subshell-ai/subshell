@@ -35,11 +35,11 @@ The flag is one state with two copies, and **either end can overrule the other**
 
 That is acceptable because the flag was never a containment control. Whoever can send the frame that clears it holds the node's key, and whoever holds that key is the machine's local OS user — who already owns every pane, every file, and every bearer token there. **Maintenance is a routing preference, not a quarantine.** It keeps answering every command precisely so the operator can keep maintaining the machine. To actually contain a suspect machine, use the acts that are out of a node key's reach from an authenticated browser: delete the node, rotate or disable its key, or clear its shares.
 
-On the machine, the flag lives in its own small file and the agent reads it fail-closed: if the mirror is unreadable, the node refuses launches rather than assuming "off" — the inverse of the [allowlist](/nodes/directory-allowlist), and for the same reason read carefully: "refuse" is the safe answer for a switch that stops work, and "allow" is the safe answer for a restriction nobody set.
+On the machine, the flag lives in its own small file and the node reads it fail-closed: if the mirror is unreadable, the node refuses launches rather than assuming "off" — the inverse of the [allowlist](/nodes/directory-allowlist), and for the same reason read carefully: "refuse" is the safe answer for a switch that stops work, and "allow" is the safe answer for a restriction nobody set.
 
 ## See also
 
 - [Sharing a Node](/nodes/sharing) — the other axis: who may launch here.
-- [Managing the Agent](/nodes/managing-the-agent) — what stays reachable during the window.
+- [Managing a Node](/nodes/managing-a-node) — what stays reachable during the window.
 - [Notifications](/use/notifications) — how affected subshell owners hear about the stop.
 - [The threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#6-nodes) — the overrule semantics and the containment accounting.

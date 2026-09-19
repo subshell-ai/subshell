@@ -32,10 +32,10 @@ import { invoke } from "@tauri-apps/api/core";
 /** Which rung of the resolution ladder answered. `AgentSource`, kebab-case. */
 export type AgentSource = "env" | "configured" | "service" | "local-bin" | "path" | "well-known";
 
-/** What to do about the shipped agent versus the installed one. `AgentChoice`, kebab-case. */
+/** What to do about the shipped node CLI versus the installed one. `AgentChoice`, kebab-case. */
 export type AgentChoice = "no-bundled" | "install-bundled" | "up-to-date" | "upgrade-available" | "adopt-installed";
 
-/** A resolved agent, plus the rung it was found on. `AgentBinary`. */
+/** A resolved node binary, plus the rung it was found on. `AgentBinary`. */
 export interface AgentBinary {
   /** The command PREFIX — one token for a compiled binary, two for a dev-form install. Never a verb. */
   argv: string[];
@@ -124,7 +124,7 @@ export interface NodePaths {
   /** 0600, and the node key's only home. */
   configFile: string | null;
   dataDir: string | null;
-  /** The agent's log FILE, where the platform has one (macOS). */
+  /** The node's log FILE, where the platform has one (macOS). */
   agentLog: string | null;
   /** What to do instead, where it does not (Linux: the `journalctl` line). */
   agentLogHint: string | null;
@@ -137,7 +137,7 @@ export interface NodePaths {
  * An app update is one act in two phases across the relaunch it ends in (spec
  * 2026-09-18 § 5): phase 1 writes a marker into this app's `settings.json`
  * before it restarts, and the NEW build finishes the act by installing the
- * agent that bundle ships. The DECISION is Rust's, shared with the server app
+ * node CLI that bundle ships. The DECISION is Rust's, shared with the server app
  * (`desktop-core`'s `resume_decision`), so this is the answer and never the
  * inputs: a marker whose work turns out to be done is cleared by the probe
  * that read it, and never reaches this page at all.
@@ -169,7 +169,7 @@ export interface PendingInstall {
 export interface Probe {
   bundledVersion: string | null;
   agent: AgentBinary | null;
-  /** Whether the resolved agent is the copy THIS APP installed and can replace. */
+  /** Whether the resolved node binary is the copy THIS APP installed and can replace. */
   managed: boolean;
   status: NodeStatusBody | null;
   service: ServiceStatusBody | null;
@@ -200,7 +200,7 @@ export interface Probe {
    */
   hostname: string;
   /**
-   * Whether rewriting the service definition takes the running agent down on
+   * Whether rewriting the service definition takes the running node down on
    * the way — true on macOS, because launchd has no reload.
    */
   rewriteTearsDown: boolean;
@@ -273,7 +273,7 @@ export interface EnrollOutcome {
  */
 export interface NodeSettings {
   /**
-   * An explicitly chosen agent binary, if the settings file names one.
+   * An explicitly chosen node binary, if the settings file names one.
    *
    * READ-ONLY from this app as of the picker's removal: `agent_bin::resolve`
    * still honours it and `probe-facts.ts` still shows it, so a hand-edited
@@ -322,10 +322,10 @@ export function nodeSettings(): Promise<NodeSettings> {
 }
 
 /**
- * Materialise the bundled agent at `~/.local/bin/subshell`, stopping the
+ * Materialise the bundled node CLI at `~/.local/bin/subshell`, stopping the
  * managed service first when it is the binary being replaced.
  *
- * Rejects with a plain string (a Rust `Err`) when the build ships no agent; a
+ * Rejects with a plain string (a Rust `Err`) when the build ships no node CLI; a
  * downgrade comes back as `ok: false` with the reason on `stderr` instead.
  */
 export function nodeInstallAgent(): Promise<ActionResult> {
@@ -335,7 +335,7 @@ export function nodeInstallAgent(): Promise<ActionResult> {
 /**
  * Install tmux with this machine's own package manager.
  *
- * tmux is a hard stop: without it the agent cannot open a pane at all, so an
+ * tmux is a hard stop: without it the node cannot open a pane at all, so an
  * enrolled machine with no tmux is a node that can never run a subshell. Same
  * rule as Subshell Server's own installer — it runs only what a user would
  * have run in a terminal, with their own privileges, and reports the manager's
@@ -363,7 +363,7 @@ export function nodeService(args: {
    *
    * `false` spells `--no-autostart`: install the service and run it now, but
    * do not arm it for login. It is asked once, on the first run's start-up
-   * screen; every other caller omits it and keeps the behaviour the agent has
+   * screen; every other caller omits it and keeps the behaviour the node CLI has
    * always had. The Rust side refuses to pass the flag on any other verb,
    * because the CLI accepts it on `install` alone.
    */
@@ -382,7 +382,7 @@ export function nodeService(args: {
  *
  * The Rust side also repoints this app's own stored plane address on success,
  * so the two cannot drift (see `lib/plane-coherence.ts` for the drift this
- * closes). The agent reads its config at start, so a repoint takes effect on
+ * closes). The node reads its config at start, so a repoint takes effect on
  * the next restart of the daemon.
  */
 export function nodeConfigure(args: { server: string }): Promise<ActionResult> {
@@ -472,7 +472,7 @@ export function nodeOpenPlaneUrl(): Promise<void> {
  * Changes nothing. Answers whether a plan PARSED — `false` means this machine
  * is not enrolled and the screen renders its own refusal, which is the useful
  * information. The plan is taken here rather than inside {@link nodeReset}
- * because the chain uninstalls the very agent whose `status --json` names
+ * because the chain uninstalls the very node CLI whose `status --json` names
  * those paths.
  */
 export function nodeArmReset(): Promise<boolean> {
@@ -590,7 +590,7 @@ export interface AppUpdateCheck {
 
 /**
  * Ask the project's release list whether a newer **Subshell Client app**
- * exists — the `.app` or the `.deb`, not the node agent it wraps.
+ * exists — the `.app` or the `.deb`, not the node CLI it wraps.
  *
  * Downloads nothing and changes nothing. Never rejects for "there is no
  * update": an air-gapped install and an unreachable source arrive as `reason`,
@@ -609,17 +609,17 @@ export function nodeCheckAppUpdate(): Promise<AppUpdateCheck> {
  * names a URL. The bytes are refused unless they carry a minisign signature
  * matching the public key compiled into this build.
  *
- * It does not resolve on success — the app restarts. The installed node agent
- * is untouched BY THIS CALL: it replaces the application, and the agent that
+ * It does not resolve on success — the app restarts. The installed node CLI
+ * is untouched BY THIS CALL: it replaces the application, and the CLI that
  * application bundles is a source to install FROM, on no rung of the
  * resolution ladder. What Rust does write before the relaunch is the marker
  * that makes this phase 1 of one act (spec 2026-09-18 § 4.2) — the new build
  * reads it back as {@link Probe.pendingInstall} and installs that bundled
- * agent, which is the half this call deliberately does not do.
+ * CLI, which is the half this call deliberately does not do.
  *
- * @param installAgent - the § 13 selection: the agent row's checkbox. FALSE
+ * @param installAgent - the § 13 selection: the node row's checkbox. FALSE
  *   writes no marker at all, so phase 2 never runs and a deliberately older
- *   installed agent survives the app update. It is a bool rather than anything
+ *   installed node CLI survives the app update. It is a bool rather than anything
  *   richer because the ACL test pins that this command names no location.
  */
 export function nodeInstallAppUpdate(installAgent: boolean): Promise<void> {

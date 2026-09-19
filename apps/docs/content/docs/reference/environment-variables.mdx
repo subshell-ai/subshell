@@ -1,9 +1,9 @@
 ---
 title: Environment Variables
-description: Every variable the server and the agent read — what each one controls, its default, and whether config.env can carry it or only the process environment.
+description: Every variable the server and the node read — what each one controls, its default, and whether config.env can carry it or only the process environment.
 ---
 
-Both binaries read their settings from the same kind of ladder: **process environment first, then a file layer, then built-in defaults.** The server's file layer is `config.env` in its config home (see [Configuration](/server/configuration)); the agent has no file layer — its settings are `config.json`, written by `enroll`, plus a handful of environment variables. A value the environment sets wins, and the dashboard's Service-page writer refuses to write over one (409): a file edit the next boot would mask is a success report for a change that never happens. The `subshell-server configure` CLI carries no such guard: it writes, and the environment keeps winning at the next boot — an env-set key is corrected where it is set, not there.
+Both binaries read their settings from the same kind of ladder: **process environment first, then a file layer, then built-in defaults.** The server's file layer is `config.env` in its config home (see [Configuration](/server/configuration)); the node has no file layer — its settings are `config.json`, written by `enroll`, plus a handful of environment variables. A value the environment sets wins, and the dashboard's Service-page writer refuses to write over one (409): a file edit the next boot would mask is a success report for a change that never happens. The `subshell-server configure` CLI carries no such guard: it writes, and the environment keeps winning at the next boot — an env-set key is corrected where it is set, not there.
 
 ## The server binary
 
@@ -15,10 +15,10 @@ These are the variables `subshell-server` reads at boot. All of them can live in
 | `HOST` | `0.0.0.0` | The bind address. Wildcards are listen addresses, not origins — a concrete `HOST` also joins the trusted-origin list on its own. |
 | `DATABASE_PATH` | `./data/subshell.db` | The SQLite file. A relative path resolves against the process's working directory; the service definitions set that to the config home, so the default lands at `<config home>/data/subshell.db`. Docker overrides it to `/data/subshell.db`. |
 | `SUBSHELL_SERVER_DATA_DIR` | the database file's directory (`./data` when the path has none) | Root for logs, pane logs, backups, plugins, node artifacts, the update transaction. Resolved to an absolute path. |
-| `SUBSHELL_NODE_ARTIFACTS_DIR` | `<data dir>/node-artifacts` | Where `GET /api/downloads/node/*` serves prebuilt agent binaries from, and where `release:cli-node` publishes to. The release pipeline counts an empty value as unset; the running server does not — an empty string resolves against the process's working directory — so **unset the variable, never empty it**. |
-| `SUBSHELL_RELEASE_URL` | this project's GitHub releases listing | Where the instance reads releases: agent binaries it lacks (fetched lazily, hashed, and kept) and the newer server its own `update` installs. **Empty disables every release fetch** — the air-gapped configuration, and `update` then points you at `--from`. |
+| `SUBSHELL_NODE_ARTIFACTS_DIR` | `<data dir>/node-artifacts` | Where `GET /api/downloads/node/*` serves prebuilt node binaries from, and where `release:cli-node` publishes to. The release pipeline counts an empty value as unset; the running server does not — an empty string resolves against the process's working directory — so **unset the variable, never empty it**. |
+| `SUBSHELL_RELEASE_URL` | this project's GitHub releases listing | Where the instance reads releases: node binaries it lacks (fetched lazily, hashed, and kept) and the newer server its own `update` installs. **Empty disables every release fetch** — the air-gapped configuration, and `update` then points you at `--from`. |
 | `SUBSHELL_PLUGIN_REGISTRY_URL` | `https://registry.npmjs.org` | Where registry plugin installs are fetched from, and the integrity authority for them. Trusted as typed; a malformed value fails at first fetch, not at boot. |
-| `SUBSHELL_SERVER_SKIP_TMUX_CHECK` | unset | Skips the tmux presence check in `init`, `configure` and `service install` — the server-side twin of the agent's `SUBSHELL_CLIENT_SKIP_TMUX_CHECK`. |
+| `SUBSHELL_SERVER_SKIP_TMUX_CHECK` | unset | Skips the tmux presence check in `init`, `configure` and `service install` — the server-side twin of the node's `SUBSHELL_CLIENT_SKIP_TMUX_CHECK`. |
 | `BETTER_AUTH_SECRET` | a public placeholder | Signs session cookies. `init` generates and persists one (32 random bytes, base64url) and never rotates an existing value. `NODE_ENV=production` refuses to boot on the placeholder. |
 | `APP_BASE_URL` | `http://localhost:<SERVER_PORT>` | The address the instance calls itself: cookie/redirect base, and the passkey rpID. **Changing it moves which host passkeys work on**, including the Subshell Server desktop app's own loopback window. |
 | `TRUSTED_ORIGINS` | `http://localhost:5174,http://localhost:5173` | Extra origins a browser may sign in from, comma-separated. The allowlist is derived live from this plus the instance's own addresses and any published network plugin's records — never from the request's `Host`. Entries are validated and canonicalized by the writers; wildcards are refused. `configure` *removes* the key rather than writing it empty, because the built-in default carries the dev Vite servers. |
@@ -37,15 +37,15 @@ These are the variables `subshell-server` reads at boot. All of them can live in
 > [!note] `NODE_ENV` and the test mode
 > `NODE_ENV=production` is what arms the placeholder-secret boot guard. `SUBSHELL_TEST_MODE=1` is the suite's flag — it forces a temp database and temp data dir so nothing reads a developer's real config. Neither is a deployment knob.
 
-## The agent binary
+## The node binary
 
-The agent's durable settings — which plane, which identity, the node key — live in `config.json`, not in the environment. These variables change how it behaves:
+The node's durable settings — which plane, which identity, the node key — live in `config.json`, not in the environment. These variables change how it behaves:
 
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `SUBSHELL_CONFIG_HOME` | `~/.config/subshell` | The config home: `config.json`, `daemon.lock`, the log directory, and the default data dir underneath it. |
 | `SUBSHELL_RELEASE_URL` | this project's GitHub releases listing | Where `subshell update` reads releases from. Same spelling and same **empty-disables-it** rule as the server's — an air-gapped host uses `--from`. |
-| `SUBSHELL_DEBUG_LOGGING` | off | Forces debug lines into the agent's own log file and makes the plane's logging switch refuse **while armed** — the agent's rule is exactly `1` or `true`, so a set-but-falsy `SUBSHELL_DEBUG_LOGGING=0` does not arm it. Without it, the persisted `debugLogging` field in `config.json` decides. |
+| `SUBSHELL_DEBUG_LOGGING` | off | Forces debug lines into the node's own log file and makes the plane's logging switch refuse **while armed** — the node's rule is exactly `1` or `true`, so a set-but-falsy `SUBSHELL_DEBUG_LOGGING=0` does not arm it. Without it, the persisted `debugLogging` field in `config.json` decides. |
 | `SUBSHELL_CLIENT_SKIP_TMUX_CHECK` | unset | Skips the `tmux -V` preflight in `setup`/`enroll`. A test escape hatch — without tmux the node can run nothing. |
 
 ## The pane's own variables — not for setting

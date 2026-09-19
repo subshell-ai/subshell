@@ -97,7 +97,7 @@ describe("what the screen states (§ 4.1)", () => {
       }),
     ]);
     expect(a.press).toBe("agent");
-    expect(a.pressLabel).toBe("Install the agent (1.10.0)");
+    expect(a.pressLabel).toBe("Install the node (1.10.0)");
     expect(a.phase).toBe("idle");
   });
 
@@ -121,7 +121,7 @@ describe("what the screen states (§ 4.1)", () => {
     expect(a.upToDate).toBe(true);
   });
 
-  /** A machine with no agent at all is a first install, not an upgrade. */
+  /** A machine with no node CLI at all is a first install, not an upgrade. */
   it("names an uninstalled agent by what it is rather than by a version", () => {
     const a = act({
       probe: makeProbe({ agentChoice: "install-bundled", agent: null, managed: false, bundledVersion: "1.10.0" }),
@@ -417,7 +417,7 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
       }),
     );
     expect(appOff.press).toBe("agent");
-    expect(appOff.pressLabel).toBe("Install the agent (1.10.0)");
+    expect(appOff.pressLabel).toBe("Install the node (1.10.0)");
     expect(appOff.pressInstallsAgent).toBe(false);
   });
 
@@ -523,7 +523,7 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
       probe: makeProbe({ bundledVersion: null }),
     });
     expect(a.rows.map((r) => r.id)).toEqual(["app", "agent"]);
-    expect(a.rows[1].reason).toBe("this build does not say which agent it ships");
+    expect(a.rows[1].reason).toBe("this build does not say which node CLI it ships");
     expect(a.rows[1].selectable).toBe(false);
   });
 

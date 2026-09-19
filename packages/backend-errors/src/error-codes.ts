@@ -25,10 +25,10 @@ export enum BackendErrorCodes {
    * NODE_OFFLINE, and the plain 403/404s it produces).
    */
   NODE_LAUNCH_NOT_READY = "NODE_LAUNCH_NOT_READY",
-  /** `POST /api/nodes/:id/restart`: the node's agent predates the `restart` command. */
+  /** `POST /api/nodes/:id/restart`: the node's binary predates the `restart` command. */
   NODE_AGENT_TOO_OLD = "NODE_AGENT_TOO_OLD",
   NODE_NAME_TAKEN = "NODE_NAME_TAKEN",
-  /** `POST /api/nodes/:id/restart`: the agent is not the process its service manager started, so exiting would not be a restart. */
+  /** `POST /api/nodes/:id/restart`: the node is not the process its service manager started, so exiting would not be a restart. */
   NODE_NO_SERVICE = "NODE_NO_SERVICE",
   NODE_NOT_SUPERVISED = "NODE_NOT_SUPERVISED",
   /**

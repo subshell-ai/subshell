@@ -414,7 +414,7 @@ export async function compatibleNodeRelease(): Promise<CompatibleNodeRelease> {
     return {
       release: null,
       manifest: null,
-      reason: `the newest node release (${release.tag}) is older than this server's minimum agent version ${MIN_AGENT_VERSION}`,
+      reason: `the newest node release (${release.tag}) is older than this server's minimum node version ${MIN_AGENT_VERSION}`,
     };
   }
   const outcome = await checkReleaseManifest(release);

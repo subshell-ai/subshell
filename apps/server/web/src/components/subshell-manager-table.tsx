@@ -115,7 +115,7 @@ export function SubshellManagerTable({ subshells }: { subshells: SubshellView[] 
               </tr>
             ) : (
               subshells.map((s) => {
-                // Same `=== true` posture as RowStatusBadges: with the agent
+                // Same `=== true` posture as RowStatusBadges: with the node
                 // down, lastOutputAt/startedAt/alive are last-known facts, so
                 // the two time cells must not assert from them (spec §5.6) —
                 // "—" is this table's existing nothing-to-say idiom.

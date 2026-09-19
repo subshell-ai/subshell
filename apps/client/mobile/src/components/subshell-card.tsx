@@ -15,7 +15,7 @@ export const SubshellCard = memo(function SubshellCard({
   onOpen: (id: string) => void;
 }) {
   // Offline gate (web posture, spec §5.6 — T16 review (2)): with no live
-  // agent, `alive`/`activity`/`waitingSince` are last-known facts, so nothing
+  // node, `alive`/`activity`/`waitingSince` are last-known facts, so nothing
   // on the row may claim CURRENT observable state — unreachable outranks
   // waiting/activity. The subtitle's "node unreachable" (below) is the only
   // state an offline card asserts. (The `=== true` posture lives in
@@ -69,7 +69,7 @@ export const SubshellCard = memo(function SubshellCard({
         ) : null}
       </View>
       {/* `node unreachable` outranks `exited` (web subshell-card, spec §5.6):
-          with no live agent the exit facts are last-known, not current. */}
+          with no live node the exit facts are last-known, not current. */}
       <Text style={{ ...font("detail"), color: colors.mutedFg }}>
         {subshell.harnessId}
         {offline

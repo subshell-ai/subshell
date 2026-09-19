@@ -1,13 +1,13 @@
 /**
  * One update act, pure (spec 2026-09-18 §§ 4, 6 and 7).
  *
- * **This app SHIPS the agent it drives**, so "update Subshell Client" and
- * "update the node agent" were never two independent things: each desktop
+ * **This app SHIPS the node CLI it drives**, so "update Subshell Client" and
+ * "update the node CLI" were never two independent things: each desktop
  * bundle carries the CLI it wraps (root `AGENTS.md`, "a desktop cut re-releases
  * that CLI"), and `node_install_agent` installs precisely that sidecar. Two
  * screens with two buttons made our packaging the person's problem, and
  * produced a loop that reads as a bug — update the app, and the next launch's
- * probe sees a bundled agent newer than the installed one and asks again.
+ * probe sees a bundled node CLI newer than the installed one and asks again.
  *
  * So it is ONE act in TWO PHASES, separated by the relaunch that the app
  * install ends in:
@@ -16,10 +16,10 @@
  *    the marker, relaunch;
  * 2. the new build boots, Rust's `resume_decision` reads the marker against
  *    this machine, the probe reports it as {@link Probe.pendingInstall}, and
- *    this screen finishes the act by installing the bundled agent.
+ *    this screen finishes the act by installing the bundled node CLI.
  *
  * **The order is forced, not chosen.** The new app carries a newer bundled
- * agent, so installing the agent first installs the OUTGOING bundle's copy and
+ * CLI, so installing the CLI first installs the OUTGOING bundle's copy and
  * leaves the machine behind again the moment the app lands.
  *
  * **And it is a SELECTION rather than always both halves** (§ 13, amended
@@ -56,13 +56,13 @@ export type UpdateRowId = "app" | "agent";
  * `with-app` is a fact the app cannot know before it downloads: a desktop
  * `release-manifest.json` carries the component version, the protocol numbers
  * and the asset digests — **not the version of the CLI inside the bundle**
- * (spec § 4.3). So while an app update is pending, the agent row names where
+ * (spec § 4.3). So while an app update is pending, the node row names where
  * the machine IS and not where it is going, and falls back to naming the app
  * that ships it.
  *
  * `none` is a component that is not moving, whatever the press does — and it
- * is the half of the § 13 fix that shows: a machine running an agent NEWER
- * than the one inside this app had that agent named as a target it would be
+ * is the half of the § 13 fix that shows: a machine running a node CLI NEWER
+ * than the one inside this app had that CLI named as a target it would be
  * replaced by.
  */
 export type UpdateRowTarget = { kind: "version"; version: string } | { kind: "with-app" } | { kind: "none" };
@@ -131,10 +131,10 @@ export interface UpdateActInput {
   checking: boolean;
   /** Whether the app download and install is running — phase 1. */
   installingApp: boolean;
-  /** Whether the bundled-agent install is running — phase 2, or a direct press. */
+  /** Whether the bundled node CLI's install is running — phase 2, or a direct press. */
   installingAgent: boolean;
   /**
-   * Whether THIS WINDOW installed the bundled agent and has not restarted the
+   * Whether THIS WINDOW installed the bundled node CLI and has not restarted the
    * daemon since.
    *
    * Page state, deliberately, exactly as `ranSetupHere` is on the server side
@@ -156,7 +156,7 @@ export interface UpdateActInput {
 /** What the screen draws. */
 export interface UpdateAct {
   phase: UpdatePhase;
-  /** The version pairs, in the order the act runs them: app first, then agent. */
+  /** The version pairs, in the order the act runs them: app first, then node CLI. */
   rows: UpdateActRow[];
   /**
    * Halves that cannot run, each saying what it did INSTEAD of what it
@@ -179,7 +179,7 @@ export interface UpdateAct {
   /**
    * The marker AS DECIDED, or null when there is nothing left of it here.
    *
-   * Null on a machine whose agent half cannot run at all (see `unmanaged`
+   * Null on a machine whose node half cannot run at all (see `unmanaged`
    * below), which is what keeps a marker an older build wrote from firing
    * phase 2 on a machine phase 1 would have refused. It is also what the
    * screen reads to know a press was already consented to in phase 1.
@@ -205,11 +205,11 @@ export interface UpdateAct {
    */
   settled: boolean;
   /**
-   * Phase 2's own offer (§ 7.1): the agent file was replaced and the daemon is
+   * Phase 2's own offer (§ 7.1): the node binary was replaced and the daemon is
    * still running the previous version.
    *
    * Offered rather than done, because `node_install_agent` passes
-   * `--no-restart` and that stays: restarting a node agent kills every
+   * `--no-restart` and that stays: restarting a node kills every
    * subshell on a machine whose service definition does not spare panes, which
    * is why the CLI itself refuses without `--force`. Doing it unasked would be
    * performing the destructive act on someone's behalf. **But not restarting
@@ -220,11 +220,11 @@ export interface UpdateAct {
   /** Whether that restart would close live subshells — the sentence beside the offer. */
   restartCostsPanes: boolean;
   /**
-   * Whether pressing will also install the agent that ships inside the app.
+   * Whether pressing will also install the node CLI that ships inside the app.
    *
    * The screen's own promise reads off this and nothing else (§ 13: "any
-   * sentence promising the agent half must stop promising it when it will not
-   * run"). False on the machine § 13 was reported from — an agent installed by
+   * sentence promising the node half must stop promising it when it will not
+   * run"). False on the machine § 13 was reported from — a node CLI installed by
    * hand that is NEWER than the bundled one — where phase 2 answers
    * `Resume::Clear` and installs nothing.
    */
@@ -250,13 +250,13 @@ const APP_LABEL = "Subshell Client App";
  */
 const NODE_CLI_LABEL = "Subshell Node CLI";
 
-/** How a machine with no agent installed reads in a version column. */
+/** How a machine with no node CLI installed reads in a version column. */
 const NOT_INSTALLED = "not installed";
 /**
  * What the app row's "running" cell says before a check has answered.
  *
  * The app's own version reaches this model only through the release check
- * (`check.current`), so a table opened by the AGENT half alone — the agent is
+ * (`check.current`), so a table opened by the NODE half alone — the node CLI is
  * behind, and the check has not landed or rejected outright — has a row it
  * cannot number. A dash and a reason beat omitting the component, which is the
  * guess § 13.1 exists to remove.
@@ -277,14 +277,14 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   const installedAgent = probe?.agent?.version ?? null;
 
   /**
-   * Whether the agent half can run at all.
+   * Whether the node half can run at all.
    *
    * `managed` is Rust's answer to "is the binary this machine actually runs
    * the copy at `~/.local/bin/subshell`" — so a machine whose service names a
    * binary somewhere else is one this app must not write to. Writing a file
    * the service does not invoke is an update that reports success and changes
    * nothing (root `AGENTS.md`, "never write the installed binary by
-   * convention"). A machine with NO agent at all is not that case: there is
+   * convention"). A machine with NO node CLI at all is not that case: there is
    * nothing to disagree with, and the install is a first install.
    */
   const unmanaged = probe !== undefined && probe.agent !== null && !probe.managed;
@@ -294,7 +294,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
    * What each half can do, before anyone ticks anything.
    *
    * `agentNewerInstalled` is the state § 13 was reported from: the ladder
-   * ADOPTS an agent somebody installed by hand when it is newer than the one
+   * ADOPTS a node CLI somebody installed by hand when it is newer than the one
    * inside this app (`decide_agent`, which never downgrades), so there is no
    * act here at all — and the screen used to name that newer version as a
    * target it would be replaced by.
@@ -308,14 +308,14 @@ export function updateAct(input: UpdateActInput): UpdateAct {
    * The marker, weighed once more against the half that would finish it.
    *
    * Rust resolves both of these to `Resume::Clear` — an unmanaged machine and
-   * one running a newer agent than the bundle (`comparable_agent_version` is
+   * one running a newer node CLI than the bundle (`comparable_agent_version` is
    * what `decide()` always compared) — so this is defence in depth. But it is
    * also the only layer that can SAY anything: a marker written by a build
    * that predates those fixes still exists on disk, and without this the act
    * would report `finishing`, fire the install by itself, and refuse it in the
    * same breath (the § 6 sentence below renders either way). Refusing it HERE
    * means the screen shows that refusal and nothing else — no press, no
-   * automatic second phase. On the newer-agent machine it is not only a
+   * automatic second phase. On the newer-CLI machine it is not only a
    * display fix: § 13.2 forbids installing an older bundled CLI over a newer
    * installed one under ANY consent, and an auto-firing marker is a consent
    * given before the machine was in that state.
@@ -325,7 +325,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   /**
    * The ticks, resolved.
    *
-   * **The agent half is tickable under an app press too** (review,
+   * **The node half is tickable under an app press too** (review,
    * 2026-09-18). It was not, on the reasoning that the act crosses a relaunch
    * and the only thing crossing it is a marker carrying no selection — so a
    * checkbox here would be a control this process could not honour in the
@@ -335,7 +335,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
    * cleared row writes no marker, so phase 2 simply does not run and someone
    * who deliberately keeps an older `~/.local/bin/subshell` keeps it.
    *
-   * What stays true is the SHAPE of the row under an app press: the agent that
+   * What stays true is the SHAPE of the row under an app press: the node CLI that
    * lands is the NEW bundle's, whose version this build cannot know, so the
    * target reads "ships with the new app" rather than a number. Spec § 13.3
    * says Force is the one difference between the two apps' screens; this is
@@ -347,30 +347,32 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   // whether the row names a version or says it ships with the new app.
   const agentStandalone = agentAvailable && !appSelected;
   const agentSelected = agentStandalone && ticked("agent");
-  /** Whether the agent half is the app press's TAIL, if the row stays ticked. */
+  /** Whether the node half is the app press's TAIL, if the row stays ticked. */
   const agentRidesIfTicked = appSelected && agentHalfRuns && !agentNewerInstalled;
-  /** Whether the app press ends by installing the agent that lands with it. */
+  /** Whether the app press ends by installing the node CLI that lands with it. */
   const agentRidesAlong = agentRidesIfTicked && ticked("agent");
-  /** Whether the agent row is a checkbox at all, on either footing. */
+  /** Whether the node row is a checkbox at all, on either footing. */
   const agentTickable = agentStandalone || agentRidesIfTicked;
 
   const refusals: string[] = [];
   if (unmanaged) {
     const runs = probe?.agent?.argv[0] ?? "a binary this app did not install";
     refusals.push(
-      `The agent this machine runs is ${runs}, which this app did not install and will not replace.` +
+      `The node CLI this machine runs is ${runs}, which this app did not install and will not replace.` +
         (appAvailable ? " The app half of this update still runs;" : "") +
-        " update that agent where it came from.",
+        " update that CLI where it came from.",
     );
   }
   // An air-gapped install is an ordinary state of a machine, not an error —
-  // and the agent half is entirely local, so the screen may still have a job.
+  // and the node half is entirely local, so the screen may still have a job.
   // Only where it actually does, though: this sentence is one of the promises
-  // § 13 makes conditional, and on a machine running a newer agent by hand
+  // § 13 makes conditional, and on a machine running a newer node CLI by hand
   // there is nothing here to install.
   if (check?.reason) {
     refusals.push(
-      agentAvailable ? `${check.reason}. The agent that ships inside this app can still be installed.` : check.reason,
+      agentAvailable
+        ? `${check.reason}. The node CLI that ships inside this app can still be installed.`
+        : check.reason,
     );
   }
 
@@ -392,8 +394,8 @@ export function updateAct(input: UpdateActInput): UpdateAct {
    *
    * Two rules used to be one gate each, and between them they could drop a
    * component from a table the other one had opened: an air-gapped check with
-   * a current agent stated the app and said nothing about the agent, and a
-   * current app beside a behind agent stated the agent and said nothing about
+   * a current node CLI stated the app and said nothing about the CLI, and a
+   * current app beside a behind CLI stated the CLI and said nothing about
    * the app. Either way the reader is left guessing at exactly the component
    * the table exists to describe.
    *
@@ -412,7 +414,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
       // **Including when no check has answered** (second review, 2026-09-18).
       // `check` is undefined on the first paint and PERMANENTLY when
       // `node_check_app_update` rejects — a build with no updater pubkey, the
-      // reserved `Err` case — and gating the app row on it put the agent row
+      // reserved `Err` case — and gating the app row on it put the node row
       // alone in a table both this file and AGENTS.md say cannot happen.
       from: check?.current ?? NOT_ASKED,
       to: check?.latest != null ? { kind: "version", version: check.latest } : { kind: "none" },
@@ -434,7 +436,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
               : "up to date",
     });
   }
-  // The agent's own row, on the same gate as the app's — see `showTable`.
+  // The node CLI's own row, on the same gate as the app's — see `showTable`.
   if (showTable) {
     rows.push({
       id: "agent",
@@ -470,8 +472,8 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   const silent = phase === "finishing" && !retrying;
   const offerRestart = installedAgentHere && !restartedHere && probe?.service?.installed === true;
 
-  // App first, always: the new bundle carries a newer agent, so installing the
-  // agent first installs the outgoing copy.
+  // App first, always: the new bundle carries a newer node CLI, so installing
+  // the CLI first installs the outgoing copy.
   const press: UpdatePress | null = appSelected ? "app" : agentSelected ? "agent" : null;
   /** Something is offered, and the person has unticked all of it. */
   const nothingSelected = press === null && (appAvailable || agentAvailable);
@@ -479,7 +481,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
     press === "app"
       ? `Download and Install ${check?.latest ?? ""}`.trim()
       : press === "agent"
-        ? `Install the agent${bundled ? ` (${bundled})` : ""}`
+        ? `Install the node${bundled ? ` (${bundled})` : ""}`
         : // Dead rather than absent (§ 13.1), and lettered with the reason it is
           // dead: a button that still named an act nobody selected would be
           // making the same claim the table just stopped making.
@@ -495,7 +497,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
     pressLabel: silent ? null : retrying ? "Retry" : pressLabel,
     canPress: !silent && !busy && !installingApp && !installingAgent && (retrying || press !== null),
     // A refusal is enough to make this false on its own: a machine running
-    // somebody else's agent is not one this app may call up to date, and the
+    // somebody else's node CLI is not one this app may call up to date, and the
     // air-gapped `reason` it used to name explicitly is one of those refusals.
     upToDate:
       rows.length === 0 && resume === null && !installedAgentHere && check !== undefined && refusals.length === 0,
@@ -511,7 +513,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
 }
 
 /**
- * What stands where the agent row's checkbox would be.
+ * What stands where the node row's checkbox would be.
  *
  * Null means a checkbox is rendered there instead — or, while an act is in
  * flight, nothing at all: the decision has been made and the progress line is
@@ -523,18 +525,18 @@ function agentRowReason(at: {
   /** A checkbox renders here, so nothing else may. */
   agentTickable: boolean;
   inFlight: boolean;
-  /** This build does not say which agent it ships, so nothing can be offered. */
+  /** This build does not say which node CLI it ships, so nothing can be offered. */
   unknownBundle: boolean;
 }): string | null {
   // Ordered by which fact outranks which: a machine this app may not write to
-  // is that before it is anything else, and a newer installed agent is a
+  // is that before it is anything else, and a newer installed node CLI is a
   // refusal rather than a choice — `--force` may never install an older CLI
   // over a newer one (§ 13.2), so there is deliberately no way to tick it.
   if (at.unmanaged) return "runs another binary";
   // Below `unmanaged` because that is the stronger statement about the same
   // machine, and above everything else because a build that will not name what
   // it ships cannot be up to date or behind — it is unanswerable.
-  if (at.unknownBundle) return "this build does not say which agent it ships";
+  if (at.unknownBundle) return "this build does not say which node CLI it ships";
   if (at.agentNewerInstalled) return "you run a newer one";
   // A checkbox and a reason are alternatives, never both: a reason beside a
   // live control says "not now" about something that is plainly on offer.

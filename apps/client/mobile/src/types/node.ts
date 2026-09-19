@@ -17,7 +17,7 @@ export type NodeAccess = "owner" | "edit" | "view";
 /** `local` = the control-plane host itself; `agent` = an enrolled machine. */
 export type NodeKind = "local" | "agent";
 
-/** Status projection — the live agent socket is authoritative server-side. */
+/** Status projection — the live node socket is authoritative server-side. */
 export type NodeStatus = "online" | "offline";
 
 /** One node as the picker renders it — no secrets, no machine keys. */
@@ -28,7 +28,7 @@ export interface Node {
   name: string;
   /** Control-plane host vs enrolled agent */
   kind: NodeKind;
-  /** Online/offline projection — offline agents cannot be launched onto (409) */
+  /** Online/offline projection — offline nodes cannot be launched onto (409) */
   status: NodeStatus;
   /** The caller's effective access; ANY visible node grants launch (spec §2) */
   access: NodeAccess;

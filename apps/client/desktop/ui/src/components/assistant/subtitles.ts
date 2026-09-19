@@ -71,7 +71,7 @@ export function subtitleFor(
     case "status": {
       const where = settings?.planeUrl ?? probe?.status?.serverUrl ?? null;
       if (probe?.status?.nodeId) {
-        // Deliberately silent about whether the agent is UP. Every state a
+        // Deliberately silent about whether the node is UP. Every state a
         // configured node can be in lands here now, so a sentence claiming
         // one would be wrong in three of them; the screen's own badge and
         // problem line are what answer it.
@@ -84,7 +84,7 @@ export function subtitleFor(
     case "enroll":
       return probe?.status?.nodeId
         ? `Register ${here} again, with a different control plane or as a new node.`
-        : `${probe?.agent ? "This machine has an agent but is" : "This machine is"} not registered with a control plane yet.`;
+        : `${probe?.agent ? "This machine has a node CLI but is" : "This machine is"} not registered with a control plane yet.`;
     case "reset":
       // Says what is deleted rather than where it lives, which is the same
       // reason the title names no machine (node-assistant-state.ts explains).
@@ -96,12 +96,12 @@ export function subtitleFor(
       // a NETWORK read the screen itself makes, and a subtitle that claimed
       // either way would be drawn before anything had been asked.
       //
-      // It names BOTH halves because both get a ROW: this app ships the agent
+      // It names BOTH halves because both get a ROW: this app ships the node CLI
       // it drives, and a sentence about the application alone would make our
       // packaging the reader's problem (spec 2026-09-18 § 1). It stops there
       // deliberately — since § 13 the act is a selection, so which halves run
       // is the table's answer and never a subtitle drawn before the probe and
       // the release check have landed.
-      return "This app and the node agent that ships inside it.";
+      return "This app and the node CLI that ships inside it.";
   }
 }

@@ -26,7 +26,7 @@
  *   One that IS enrolled gets the reverse — **Unregister this machine…**,
  *   which is the existing reset flow under the name of what it does to the
  *   machine (it deletes the node config and the node key).
- * - **Is its agent running?** A stopped, offline or serviceless node lands
+ * - **Is the node running?** A stopped, offline or serviceless node lands
  *   here too now, so the contextual service verb (`serviceAction`) is offered
  *   on the thing that is wrong instead of on a screen nobody routes to. This
  *   screen must never be a dead end.
@@ -62,7 +62,7 @@ const TONE_BADGE: Record<Tone, "success" | "warning" | "destructive" | "muted"> 
 };
 
 /**
- * Why the agent is not answering — one sentence per step, this screen's OWN.
+ * Why the node is not answering — one sentence per step, this screen's OWN.
  *
  * They began as `subtitles.ts`'s three service-screen subtitles and are no
  * longer a copy of them. Saying they were carried across unchanged would be
@@ -75,7 +75,7 @@ const TONE_BADGE: Record<Tone, "success" | "warning" | "destructive" | "muted"> 
  *   sentence has to carry the consequence itself — nothing can launch here.
  * - **`no-service` lost its other branch.** The subtitle chose between a
  *   registered machine and one that is not; this card renders only when
- *   `enrolled`, so "Nothing keeps the agent running" is unreachable and
+ *   `enrolled`, so "Nothing keeps the node running" is unreachable and
  *   keeping it would be copy no one can ever read.
  * - **`offline` is word for word the old one**, because a sentence about a
  *   manager claiming a process that nothing is heartbeating from needs no
@@ -86,11 +86,11 @@ const TONE_BADGE: Record<Tone, "success" | "warning" | "destructive" | "muted"> 
 function serviceProblem(step: ProbeStep): string | null {
   switch (step) {
     case "stopped":
-      return "The background service is installed, but the agent is not running, so nothing can launch on this machine.";
+      return "The background service is installed, but the node is not running, so nothing can launch on this machine.";
     case "offline":
-      return "The service manager reports the agent as running, but no local daemon is heartbeating.";
+      return "The service manager reports the node as running, but no local daemon is heartbeating.";
     case "no-service":
-      return "This machine is registered, but nothing keeps its agent running.";
+      return "This machine is registered, but nothing keeps the node running.";
     default:
       return null;
   }
@@ -109,13 +109,13 @@ function serviceDetail(step: ProbeStep): string | null {
   switch (step) {
     case "offline":
       return (
-        "An agent that starts, fails and is restarted on a timer looks exactly like this. Its own log says why: a " +
+        "A node that starts, fails and is restarted on a timer looks exactly like this. Its own log says why: a " +
         "missing tmux, an unreachable control plane, or a node key the server no longer recognises."
       );
     case "no-service":
       return (
         "Running it in the background writes a user-level service definition (a systemd user unit on Linux, a " +
-        "launchd agent on macOS) that starts the agent at login and brings it back if it exits."
+        "launchd agent on macOS) that starts the node at login and brings it back if it exits."
       );
     default:
       return null;
@@ -136,7 +136,7 @@ export function StatusScreen(props: {
   /** Unregister this machine: the reset flow, which is what deletes the node. */
   onReset: () => void;
   /**
-   * Open the one update screen — the app AND the agent it ships.
+   * Open the one update screen — the app AND the node CLI it ships.
    *
    * It was `onCheckAppUpdate`, and the rename is the change: this screen used
    * to offer TWO updates, one of which quietly did half the job (spec
@@ -173,7 +173,7 @@ export function StatusScreen(props: {
   /**
    * Whether this build knows the step at all.
    *
-   * A step this app predates means the agent is newer than the app managing
+   * A step this app predates means the node CLI is newer than the app managing
    * it, and the honest thing is to say so rather than to assert anything about
    * the machine — and, above all, rather than to offer registration, which
    * spends a key on a machine whose state is unread. The service screen used
@@ -197,7 +197,7 @@ export function StatusScreen(props: {
    *
    * The one case where installing is safe UNCONFIRMED — there is nothing to
    * stop, overwrite or downgrade — and the reason it is offered on its own
-   * rather than folded into Register: a machine with no agent cannot say
+   * rather than folded into Register: a machine with no node CLI cannot say
    * whether it already has a node config, so the install comes first and the
    * probe that follows is what reveals which machine this is.
    */
@@ -229,8 +229,8 @@ export function StatusScreen(props: {
           </Button>
           {/*
            * The two reveals the service screen carried, and they follow the
-           * agent rather than the screen: a machine with no node has no config
-           * directory and no agent log, so offering them there would be two
+           * node rather than the screen: a machine with no node has no config
+           * directory and no node log, so offering them there would be two
            * buttons whose only outcome is the Rust side's refusal.
            *
            * The log one is offered on every platform even though Linux has no
@@ -243,7 +243,7 @@ export function StatusScreen(props: {
                 Reveal configuration
               </Button>
               <Button variant="ghost" disabled={busy} onClick={() => commands.openPath("agent-log")}>
-                Open the agent log
+                Open the node log
               </Button>
             </>
           )}
@@ -281,7 +281,7 @@ export function StatusScreen(props: {
       </div>
 
       {/*
-       * The machine is a node and its agent is not answering. On the thing
+       * The machine is a node and it is not answering. On the thing
        * that failed, with the step's own verb — a landing screen that only
        * worked for a healthy node would strand every other machine here.
        */}
@@ -296,8 +296,8 @@ export function StatusScreen(props: {
       {probe && !known && (
         <div className="mt-6 rounded-md border border-warning/40 bg-warning/10 p-3">
           <p className="text-detail leading-relaxed">
-            This app does not recognise the state "{probe.step}", which usually means it is older than the agent it is
-            managing.
+            This app does not recognise the state "{probe.step}", which usually means it is older than the node CLI it
+            is managing.
           </p>
         </div>
       )}
@@ -311,7 +311,7 @@ export function StatusScreen(props: {
        * - **Nothing answered at all.** Installing is safe unconfirmed — there
        *   is nothing to stop, overwrite or downgrade — and it is offered on
        *   its own rather than folded into Register, because a machine with no
-       *   agent cannot say whether it is ALREADY a node. Register's chain
+       *   node CLI cannot say whether it is ALREADY a node. Register's chain
        *   enrolls with `confirm: true`, so offering it here would overwrite a
        *   live `config.json` and discard its node key on a machine this app
        *   never got to read. Install first; the probe that follows says which
@@ -326,8 +326,8 @@ export function StatusScreen(props: {
       {mute && (
         <div className="mt-6 rounded-md border border-warning/40 bg-warning/10 p-3">
           <p className="text-detail leading-relaxed">
-            Nothing has been changed. This app will not offer to register a machine whose agent cannot say whether it is
-            already a node: enrolling overwrites the existing configuration and discards its node key.
+            Nothing has been changed. This app will not offer to register a machine whose node CLI cannot say whether it
+            is already a node: enrolling overwrites the existing configuration and discards its node key.
           </p>
         </div>
       )}
@@ -335,19 +335,19 @@ export function StatusScreen(props: {
       {noAgent && (
         <div className="mt-6 rounded-md border border-border p-3">
           <p className="text-detail leading-relaxed">
-            The agent is the small program that holds this machine's connection to the control plane and starts the
+            The node is the small program that holds this machine's connection to the control plane and starts the
             sessions launched here. Installing it copies the copy that ships inside this app to ~/.local/bin/subshell,
             and nothing is downloaded.
           </p>
           {probe?.bundledVersion ? (
             <div className="mt-2">
               <Button variant="outline" size="sm" disabled={busy} onClick={commands.installAgent}>
-                Install the agent
+                Install the node
               </Button>
             </div>
           ) : (
             <p className="mt-2 text-muted-foreground text-detail">
-              This build ships no agent, so one has to be installed on this machine some other way.
+              This build ships no node CLI, so one has to be installed on this machine some other way.
             </p>
           )}
         </div>
@@ -396,7 +396,7 @@ export function StatusScreen(props: {
       {paneRisk(probe) && (
         <div className="mt-6 rounded-md border border-warning/40 bg-warning/10 p-3">
           <p className="text-detail leading-relaxed">
-            The installed service definition does not spare live panes, so stopping or restarting the agent kills every
+            The installed service definition does not spare live panes, so stopping or restarting the node kills every
             subshell running on this machine.
           </p>
           <div className="mt-2">
@@ -422,7 +422,7 @@ export function StatusScreen(props: {
       {probe !== undefined && !enrolled && known && !mute && !noAgent && (
         <div className="mt-6 rounded-md border border-border p-3">
           <p className="text-detail leading-relaxed">
-            Registering installs the agent, enrolls this machine with a setup key from that server, and runs it in the
+            Registering installs the node, enrolls this machine with a setup key from that server, and runs it in the
             background so subshells can be launched here.
           </p>
           <div className="mt-2">
@@ -570,7 +570,7 @@ export function StatusScreen(props: {
                   <p className="text-muted-foreground">
                     Keeps this node's identity, and no setup key is spent, so this works when the new address is the
                     same control plane under another name. A different control plane holds no key for this node and will
-                    refuse it. The agent reads its configuration at start, so restart it afterwards to apply, and this
+                    refuse it. The node reads its configuration at start, so restart it afterwards to apply, and this
                     app's own control-plane window moves to the new address too.
                   </p>
                   <div className="flex items-center gap-2">
@@ -632,7 +632,7 @@ export function StatusScreen(props: {
                    * to the old plane.
                    */}
                   <p className="text-muted-foreground">
-                    This notice clears as soon as the file changes, but the running agent keeps using the old address
+                    This notice clears as soon as the file changes, but the running node keeps using the old address
                     until it restarts.
                   </p>
                   <div>
@@ -655,17 +655,17 @@ export function StatusScreen(props: {
 
           <div className="flex flex-wrap gap-2">
             {/*
-             * A newer bundled agent is still announced HERE — this is the
-             * natural place to notice the agent is behind — but the button is
-             * a DOOR now (spec 2026-09-18 § 7.4). It used to install the agent
-             * on the spot, which was half an act: this app SHIPS that agent,
-             * so a machine whose bundled agent is newer usually has a newer app
+             * A newer bundled node CLI is still announced HERE — this is the
+             * natural place to notice the node CLI is behind — but the button is
+             * a DOOR now (spec 2026-09-18 § 7.4). It used to install the CLI
+             * on the spot, which was half an act: this app SHIPS that CLI,
+             * so a machine whose bundled CLI is newer usually has a newer app
              * waiting too, and installing one of the two in isolation is what
              * produced the loop where the next launch asked again.
              */}
             {probe?.agentChoice === "upgrade-available" && (
               <Button variant="outline" size="sm" disabled={busy} onClick={onUpdate}>
-                Update the agent to {probe.bundledVersion}
+                Update the node to {probe.bundledVersion}
               </Button>
             )}
             {/*

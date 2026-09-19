@@ -4,7 +4,7 @@
  * Subshell Client is two things in one window set: a control plane's own UI,
  * and this machine's node settings. This screen is the whole of the first
  * question for someone who came only to watch: name the server, and nothing on
- * this machine is touched — no agent installed, no setup key spent, no service.
+ * this machine is touched — no node installed, no setup key spent, no service.
  *
  * **It remembers the address; it does not open the dashboard** (spec
  * 2026-09-18). It used to call `node_open_plane`, which persists AND opens, so

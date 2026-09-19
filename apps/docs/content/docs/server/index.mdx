@@ -12,9 +12,9 @@ A single `subshell-server` process answers everything on one port (default `3080
 - the REST API under `/api`, and the WebSocket used to attach to live panes;
 - the web UI — the SPA is embedded in the published binary, so the host needs no separate frontend install;
 - `/docs`, the OpenAPI page generated from the routes;
-- the node agent binaries and install script that enrolled machines download.
+- the node binaries and install script that enrolled machines download.
 
-The published form is one self-contained binary per platform (`linux-x64`, `linux-arm64`, `darwin-arm64`); it needs no Bun, no checkout, and no runtime download to boot. What a running instance keeps on disk lives in two places: the config home at `~/.config/subshell-server` (the `config.env` file and the generated auth secret), and the data directory — database, pane logs, channel keypairs, node signing keys, downloaded agent binaries, installed plugins, database backups, and the server's own log. `subshell-server status` prints every one of those paths, and [Files & Paths](/reference/files-and-paths) maps them in full.
+The published form is one self-contained binary per platform (`linux-x64`, `linux-arm64`, `darwin-arm64`); it needs no Bun, no checkout, and no runtime download to boot. What a running instance keeps on disk lives in two places: the config home at `~/.config/subshell-server` (the `config.env` file and the generated auth secret), and the data directory — database, pane logs, channel keypairs, node signing keys, downloaded node binaries, installed plugins, database backups, and the server's own log. `subshell-server status` prints every one of those paths, and [Files & Paths](/reference/files-and-paths) maps them in full.
 
 ## Who decides what
 

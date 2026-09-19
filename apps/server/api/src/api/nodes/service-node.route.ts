@@ -80,7 +80,7 @@ function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown"
   if (err.code === "unsupported") {
     return {
       code: BackendErrorCodes.NODE_AGENT_TOO_OLD,
-      message: "This node's agent predates the service command; update the agent on that machine to drive it here",
+      message: "This node's binary predates the service command; update the node on that machine to drive it here",
     };
   }
   if (err.detail === NODE_RESULT_NOT_SUPERVISED) {

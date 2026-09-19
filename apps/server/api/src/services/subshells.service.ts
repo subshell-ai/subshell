@@ -100,7 +100,7 @@ function rethrowLaunchRefusal(err: unknown): never {
   if (isNodeOfflineError(err)) {
     throwApiError({
       code: BackendErrorCodes.NODE_OFFLINE,
-      message: "The subshell's node has no live agent connection; it may still be running the subshell there",
+      message: "The subshell's node has no live connection; it may still be running the subshell there",
       doNotLog: true,
     });
   }
@@ -214,7 +214,7 @@ export async function resolveLaunchNode(
     if (row.kind === "agent" && !getLive(nodeId)) {
       throwApiError({
         code: BackendErrorCodes.NODE_OFFLINE,
-        message: "That node has no live agent connection",
+        message: "That node has no live connection",
         doNotLog: true,
       });
     }

@@ -22,14 +22,14 @@ const STICK_SLACK_PX = 24;
  * an empty answer rather than the file.
  *
  * It is still a round trip the server's is not: this crosses the plane's
- * WebSocket to the agent, where the server card reads a capped local file. The
+ * WebSocket to the node, where the server card reads a capped local file. The
  * two are the same number for the same reason and pay differently for it,
  * which is why this one stops in a hidden tab (see the poll effect) and the
  * server's gets that for free from TanStack.
  */
 const POLL_MS = 1000;
 
-/** One JSON line of the agent's log, rendered as `HH:MM:SS level message`. */
+/** One JSON line of the node's log, rendered as `HH:MM:SS level message`. */
 function renderLine(line: string): { text: string; level: string } {
   try {
     const v = JSON.parse(line) as Record<string, unknown>;
@@ -56,11 +56,11 @@ function levelClass(level: string): string {
 }
 
 /**
- * What a node's agent logged (spec 2026-09-12, node half § 4).
+ * What a node logged (spec 2026-09-12, node half § 4).
  *
- * **This is the only way to read a headless node's log.** The agent's console
+ * **This is the only way to read a headless node's log.** The node's console
  * output goes wherever that platform's service manager puts it — a file under
- * launchd, the journal under systemd — so the agent writes one bounded file of
+ * launchd, the journal under systemd — so the node writes one bounded file of
  * its own, and this reads it.
  *
  * It polls by BYTE OFFSET rather than re-reading the file: each request asks
@@ -126,7 +126,7 @@ export function NodeLogCard({
     // **Nothing is asked while the tab is hidden.** This is a bare
     // `setInterval`, so unlike the server card — a TanStack query, where
     // `refetchIntervalInBackground` defaults false — it would otherwise keep
-    // waking a remote agent once a second behind a tab nobody is looking at,
+    // waking a remote node once a second behind a tab nobody is looking at,
     // for a log nobody is reading. Matching the server's cadence is only
     // defensible alongside matching the rule that comes with it.
     let timer: ReturnType<typeof setInterval> | undefined;
@@ -172,7 +172,7 @@ export function NodeLogCard({
       <CardHeader>
         <CardTitle>Log</CardTitle>
         <CardDescription>
-          What the agent on this machine logged. One file, capped and replaced when full, so this is recent history
+          What the node on this machine logged. One file, capped and replaced when full, so this is recent history
           rather than everything that ever happened. · {paused ? "paused" : "following"}
         </CardDescription>
       </CardHeader>
@@ -241,13 +241,13 @@ export function NodeLogCard({
               </span>
             ))}
         </div>
-        {/* Said plainly rather than discovered by flipping it. The agent has no
+        {/* Said plainly rather than discovered by flipping it. The node has no
             debug-level call sites today — the server's switch exists for its
-            HTTP request lines, and an agent serves no HTTP — so this is the
+            HTTP request lines, and a node serves no HTTP — so this is the
             control in place ahead of the lines, not a promise of output. */}
         {logging && !logging.debug && (
           <p className="text-detail text-muted-foreground">
-            The agent writes no debug-level lines yet, so this changes what it would record rather than what it does.
+            The node writes no debug-level lines yet, so this changes what it would record rather than what it does.
           </p>
         )}
         {setDebug.error && (

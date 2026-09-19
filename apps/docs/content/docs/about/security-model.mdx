@@ -20,7 +20,7 @@ The recurring shape: credentials are required, scoped, and revoked; guesses are 
 - **Replayed terminal access** — WebSocket attach tokens live thirty seconds and work once.
 - **Password guessing** — sign-in backs off exponentially, per email.
 - **The server reading your channel messages** — messages are sealed per recipient; the control plane stores ciphertext it cannot open.
-- **A forged launch on a node** — every command is signed, short-lived, single-use, and addressed to one node; the agent verifies before executing.
+- **A forged launch on a node** — every command is signed, short-lived, single-use, and addressed to one node; the node verifies before executing.
 - **DNS rebinding** — the origin allowlist is derived from configuration and never from the request's own Host header.
 - **Terminal output attacking the UI** — pane bytes are rendered only inside the terminal emulator, never as markup.
 
@@ -28,7 +28,7 @@ The recurring shape: credentials are required, scoped, and revoked; guesses are 
 
 ### Enrolling a node
 
-Read the honest sentence first: registering a node **delegates arbitrary command execution on that machine, under the agent's OS user, to the control plane**. Everything else follows from that. Sharing a node is a second axis and it is wide: **any share, even view, lets the grantee launch their own subshells there** — invisible to the node's owner unless separately shared. Whoever owns the node's OS user owns every pane launched there, files and process-visible tokens included. And because one signing key rules the fleet, a control-plane compromise is a compromise of every enrolled node; the reverse holds too — a node's key can do nothing on the REST API at all. Details on [Adding a Node](/nodes/add-node) and [Node Sharing](/nodes/sharing).
+Read the honest sentence first: registering a node **delegates arbitrary command execution on that machine, under the node's OS user, to the control plane**. Everything else follows from that. Sharing a node is a second axis and it is wide: **any share, even view, lets the grantee launch their own subshells there** — invisible to the node's owner unless separately shared. Whoever owns the node's OS user owns every pane launched there, files and process-visible tokens included. And because one signing key rules the fleet, a control-plane compromise is a compromise of every enrolled node; the reverse holds too — a node's key can do nothing on the REST API at all. Details on [Adding a Node](/nodes/add-node) and [Node Sharing](/nodes/sharing).
 
 ### Sharing a subshell
 

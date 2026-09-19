@@ -2,7 +2,7 @@
  * Do this app's control-plane address and this machine's NODE address agree?
  *
  * They are two independent values. `planeUrl` (this app's setting) is what the
- * plane window opens; `serverUrl` in the agent's `config.json` is what the
+ * plane window opens; `serverUrl` in the node's `config.json` is what the
  * daemon dials. The Rust `plane_url_from` ladder falls back to the second only
  * when the first is unset, so once someone has opened a plane the two can
  * drift — and every surface shows exactly one of them, which is why a drift

@@ -9,7 +9,7 @@ description: "The contract itself — @subshell-ai/plugin-api: manifests, capabi
 
 The npm version is ordinary semver (`2.1.x` at the time of writing — types drift, nothing breaks). The **contract** version is a different integer: `PLUGIN_API_VERSION`, currently `2`, which your manifest declares as `"apiVersion": 2`. The rules the host enforces:
 
-- A host implementing a **lower** contract version refuses the plugin outright, naming both numbers so the operator knows which side to upgrade (`"this plugin needs plugin-api 3, but this host implements 2; upgrade the agent"`).
+- A host implementing a **lower** contract version refuses the plugin outright, naming both numbers so the operator knows which side to upgrade (`"this plugin needs plugin-api 3, but this host implements 2; upgrade Subshell"`).
 - A host at a **higher** version lets the plugin through that manifest gate, but that is not a compatibility window: the loader checks members **by name**, so a rename across API versions refuses the older plugin at load with a named diagnosis. The real case: a v1 plugin used the `profile` spelling and comes back as missing `validatePreset`, never as silently working.
 - Host members are **additive within a version line; across one, rebuild**. That is exactly what the 1 → 2 move was: renamed members, and `run` / `secrets` / `platform` / `homeDir` joined the host.
 

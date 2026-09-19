@@ -1449,7 +1449,7 @@ pub async fn desktop_check_app_update(app: AppHandle) -> Result<crate::app_updat
 /// The two booleans are the phase-1 SELECTION (spec 2026-09-18 § 13), and they
 /// are arguments rather than reads because only the page knows what was ticked:
 ///
-/// - `install_server` is the `subshell-server CLI` row. False writes no marker,
+/// - `install_server` is the `Subshell Server CLI` row. False writes no marker,
 ///   so phase 2 never installs a half the person unticked — the marker's
 ///   PRESENCE is the selection, which is what keeps it from being recorded in
 ///   two places that can disagree.

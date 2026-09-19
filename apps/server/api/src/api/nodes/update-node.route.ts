@@ -216,7 +216,7 @@ export const updateNodeRoute = new Elysia()
           409,
           apiErrorBody({
             code: BackendErrorCodes.NODE_AGENT_TOO_OLD,
-            message: `That agent predates signed updates${protocol === null ? "" : ` (it speaks protocol ${protocol}, signed updates need ${NODE_SIGNED_UPDATES_PROTOCOL_VERSION})`}, so this server will not order it to install an unchecked binary; update it by hand with \`subshell update\` on that machine, which verifies the publisher signature itself`,
+            message: `That node predates signed updates${protocol === null ? "" : ` (it speaks protocol ${protocol}, signed updates need ${NODE_SIGNED_UPDATES_PROTOCOL_VERSION})`}, so this server will not order it to install an unchecked binary; update it by hand with \`subshell update\` on that machine, which verifies the publisher signature itself`,
           }),
         );
       }
@@ -269,7 +269,7 @@ export const updateNodeRoute = new Elysia()
           409,
           apiErrorBody({
             code: BackendErrorCodes.NODE_UPDATE_UNAVAILABLE,
-            message: `This server has no ${target} agent binary published and fetches no releases (SUBSHELL_RELEASE_URL is empty); publish one with \`bun run release:cli-node\`, or update that machine by hand`,
+            message: `This server has no ${target} node binary published and fetches no releases (SUBSHELL_RELEASE_URL is empty); publish one with \`bun run release:cli-node\`, or update that machine by hand`,
           }),
         );
       }

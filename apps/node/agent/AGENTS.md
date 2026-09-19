@@ -1,4 +1,4 @@
-# Node agent AGENTS.md
+# Node CLI AGENTS.md
 
 App-specific documentation for `subshell` (`@internal/node`) — the node
 daemon: it enrolls with the control plane, holds the `/ws/node` socket, and
@@ -164,7 +164,7 @@ subshell maintenance on [--yes]    # take this node out of service (spec 2026-09
 subshell maintenance off           # back in service
 subshell maintenance status [--json] # what THIS machine's mirror says; always exits 0
 subshell status [--json] [--probe] # lock-file truth; --probe DIALS the plane and
-                                     # newest-wins KICKS a running agent — warned loudly
+                                     # newest-wins KICKS a running node — warned loudly
 subshell update [--check] [--to <v>] [--from <file>] [--force] [--yes] [--json]
                 [--no-restart]     # replace THIS binary with a newer one and restart
                                      # into it. See "Update" below. --rollback is a
@@ -202,7 +202,7 @@ delete. As with every other field here, the node key is never included,
 
 **Two of those five are NOT deletion targets, and the block is read key by key
 so that can be true.** `binary` is the installed CLI (spec 2026-09-15 §5.2),
-and `agentLog` (2026-09-18) is the agent's own capped log — reported so the
+and `agentLog` (2026-09-18) is the node's own capped log — reported so the
 desktop can REVEAL the same file the plane's log view serves, deliberately not
 deleted: it is the record of the reset itself, holds no credential, and is
 bounded at 200 KB whatever happens to it. `parse_delete_plan` in
@@ -213,19 +213,19 @@ which is the only way this field could be added at all.
 
 ## Logging
 
-`src/log.ts` is the agent's only log surface: **LogLayer** with TWO transports
+`src/log.ts` is the node's only log surface: **LogLayer** with TWO transports
 — the core `ConsoleTransport` and `CappedFileTransport` (`src/log-file.ts`) —
 both built on what ships inside the `loglayer` package, so the compiled binary
 takes on no third-party dependency for logging. `log(message)` is the common
 call; `logger` is there for `withError()` / `withMetadata()` / levels.
 
 **The file exists because the console does not answer the question.** What
-happens to the agent's stdout is a different thing on every platform: launchd
+happens to the node's stdout is a different thing on every platform: launchd
 redirects it to a file, systemd hands it to the journal, a container sends it
 nowhere in particular — which is why `collectRuntime` reports a `logHint`
 telling a person to go run `journalctl`. Most nodes are headless, so "read this
 machine's log" has to work from a browser, and it cannot be built on an
-artifact that only exists on macOS. So the agent writes one bounded file of its
+artifact that only exists on macOS. So the node writes one bounded file of its
 own: `<configHome>/logs/agent.log`, JSON lines, 0600, capped at 200 KB and
 REPLACED when full, the same everywhere, served to the plane by
 `agent_log_read` and reported as `runtime.agentLogPath`. It is a deliberate
@@ -237,16 +237,16 @@ licences for sixty lines.
 transport carries a `level` (`info` by default) and `debug-logging.ts` flips it
 live — off by default, persisted in `config.json` so a `service restart` does
 not silently end a debug session, forced on and made read-only by
-`SUBSHELL_DEBUG_LOGGING` in this agent's environment (only `1`/`true` force;
+`SUBSHELL_DEBUG_LOGGING` in this node's environment (only `1`/`true` force;
 `=0` is a variable somebody left behind, not the environment saying off). The
 plane drives it with `set_log_level` and shows it on the node's Log card.
 
-Two things to know before reaching for it. The agent has **no `logger.debug`
+Two things to know before reaching for it. The node has **no `logger.debug`
 call sites**, so turning it on changes what would be recorded rather than what
 is — the mechanism went in ahead of the lines by decision, and the card says so
 on screen. And the server's equivalent switch is not the same feature: that one
 exists for `@loglayer/elysia`'s per-request lines, which is why it carries
-security accounting about paths that can hold a setup key. An agent serves no
+security accounting about paths that can hold a setup key. A node serves no
 HTTP and has no equivalent stream — so whoever writes the first debug line here
 owns redoing that accounting for whatever it carries.
 
@@ -256,8 +256,8 @@ collects stays at `info`.
 **The manager's copy of that stream is 0600 too, and only because the daemon
 makes it so** (`src/log-hygiene.ts`, 2026-09-18). On macOS launchd creates the
 plist's `StandardOutPath` file itself, with the job's umask — 022, so
-`~/Library/Logs/subshell.log` lands **0644** and nothing the agent writes
-afterwards changes it. It holds the same lines the agent's own 0600 file holds,
+`~/Library/Logs/subshell.log` lands **0644** and nothing the node writes
+afterwards changes it. It holds the same lines the node's own 0600 file holds,
 so `subshell run` chmods it to 0600 at start, before the daemon loop: a
 best-effort, idempotent repair in the shape of the server's
 `services/pane-log-hygiene.ts`, total by construction (every outcome is a
@@ -280,8 +280,8 @@ launchd jobs:
   one.
 - **It is a repair, not a creation.** The pass never creates the file — an
   absent log is launchd's to make on the next line, and pre-creating one would
-  be this agent writing into `~/Library/Logs` on machines with no service at
-  all. The window that leaves (launchd creating the file 0644, the agent
+  be this node writing into `~/Library/Logs` on machines with no service at
+  all. The window that leaves (launchd creating the file 0644, the node
   chmodding it microseconds later) is accepted and is the reason the repair
   runs on every start.
 
@@ -349,7 +349,7 @@ that is actually there, `uninstall` finds either and clears both, and
 `update`'s `serviceExecArgv` — which must name the file the MANAGER runs —
 reads the same answer. `ServiceDeps.configDir` exists for exactly this; a
 reader without it would report a `--no-autostart` install as "nothing
-installed" while the agent it wrote is running.
+installed" while the node it wrote is running.
 
 **One path deliberately collapses the two locations, and it is the plane's.**
 `NODE_SERVICE_VERBS` carries `install`, and the executor
@@ -384,8 +384,8 @@ exact unit/plist text and command sequences without touching systemd.
 first.** A `systemd --user` unit runs inside its owner's LOGIN SESSION, so
 `enabled` buys a unit that comes back when somebody signs in and dies when they
 sign out — and most nodes are machines nobody ever signs in to, where that is
-an agent which is simply not there. `loginctl enable-linger` is what gives the
-account a session at BOOT instead, and the defect this closes is that the agent
+a node which is simply not there. `loginctl enable-linger` is what gives the
+account a session at BOOT instead, and the defect this closes is that the node
 only ever mentioned it once, on stdout, at install time, to a terminal with
 nobody at it. `ServiceState.linger` now carries the fact — `service status`,
 `--json`, and `ready.runtime.service.linger` (protocol 9), so the plane can
@@ -440,7 +440,7 @@ Linux `stop`, never `disable --now` — un-enabling is what uninstall is for.
 This node's subshells run their tmux servers as CHILDREN of the daemon, so a
 definition lacking `KillMode=process` / `AbandonProcessGroup=true` SIGKILLs
 every live pane on the machine when the daemon is stopped OR restarted. The
-current templates carry both, but a host that installed an older agent has a
+current templates carry both, but a host that installed an older node has a
 stale definition on disk — so `restart` REFUSES without `--force`, `stop` warns
 and proceeds (refusing would only push the operator to `systemctl`, which warns
 about nothing), and both fail CLOSED on an unreadable definition. `service
@@ -448,15 +448,15 @@ status` reports it as `teardown keeps panes`.
 
 ## Update (`src/update.ts`, `src/commands/update.ts`, spec 2026-09-15 §5)
 
-This agent can replace its own binary — from `subshell update` at the keyboard
+This node can replace its own binary — from `subshell update` at the keyboard
 or from a signed `update` command the plane sends — and both run one
 `applyUpdate`, so the download, the verification and the marker have one
 implementation rather than two that drift.
 
 **Every install is a transaction the NEXT PROCESS completes.** The updater
-cannot see the future boot; the booting agent can see the past update. So
+cannot see the future boot; the booting node can see the past update. So
 whoever swaps writes `<dataDir>/update-pending.json` and keeps the old file as
-`<binary>.previous`, and the agent that comes up settles it:
+`<binary>.previous`, and the node that comes up settles it:
 
 - **Accepted** → delete both. The node has no database, so there is nothing
   else to clean up.
@@ -465,7 +465,7 @@ whoever swaps writes `<dataDir>/update-pending.json` and keeps the old file as
   nobody had to visit. That swap-back IS the node's whole rollback.
 
 Without a marker, 4406 behaves exactly as it always did (log and exit): a plane
-refusing an agent nobody just updated is the ordinary "your node is too old"
+refusing a node nobody just updated is the ordinary "your node is too old"
 case, and swapping files there would invent a rollback for an update that never
 happened.
 
@@ -473,12 +473,12 @@ happened.
 accepted frame. Two things count: any frame the plane sends after `ready`, or
 the socket staying open past `UPDATE_ACCEPTED_MS`. The spec put that timer at
 30 seconds on the reasoning that a refusal is immediate — which was true when a
-refused agent was CLOSED and is **not true now**: §5.3 made the plane HOLD a
+refused node was CLOSED and is **not true now**: §5.3 made the plane HOLD a
 refused socket, open and silent, until its own ten-minute idle budget expires.
 At 30 s the two rules together delete `.previous` on exactly the machine about
 to need it. So the timer is **15 minutes**, strictly beyond the plane's hold
 budget, and it is a belt: the plane pushes `set_allowed_dirs` on every accepted
-`ready`, so an accepted agent settles on a FRAME within milliseconds. The cost
+`ready`, so an accepted node settles on a FRAME within milliseconds. The cost
 of the timer never firing is a stale ~70 MB `.previous`; the cost of it firing
 early is the rollback.
 
@@ -506,7 +506,7 @@ so an unsigned release costs two small reads; the plane-commanded path cannot
 pre-verify (the bytes come from the plane's tokened route) and re-verifies
 against the actual digest instead. `--from` and `--rollback` stay
 signature-free: a file the operator named IS their decision, already verified
-as far as it can be (it must say it is the agent at the expected version).
+as far as it can be (it must say it is the node at the expected version).
 The CLI's refusals name `--from` only where it is the answer. Three end
 with "install a file with `--from`" — an empty release source, a release
 with no `release-manifest.json` ("cannot be verified"), and a release with
@@ -518,18 +518,18 @@ answered by hand-installing some other file; the test suite pins the first
 of these two sentences verbatim.
 
 **The `update` command's wire shape is FROZEN across protocol bumps**
-(`node-frames.ts`). It is the one command the plane sends to an agent whose
+(`node-frames.ts`). It is the one command the plane sends to a node whose
 protocol it does NOT share — §5.3 holds such a socket precisely so this can
 reach it — so the parser on this side may be any older build. A test pins the
 shape as a literal rather than deriving it from the same source as the code.
 Protocol 12 (spec 2026-09-17 §6) grew it by exactly two fields,
 `manifest` (base64 of the verified manifest bytes) and `manifestSig`,
 OPTIONAL at the frozen parser and enforced in the executor — and,
-deliberately, NOT for everyone: a pre-12 agent would parse such a command and
+deliberately, NOT for everyone: a pre-12 node would parse such a command and
 IGNORE both fields, installing on the old trust rule, so a 12 PLANE refuses
-to send `update` to a pre-12 agent at all
+to send `update` to a pre-12 node at all
 (`NODE_SIGNED_UPDATES_PROTOCOL_VERSION`; the route's 409 and the Updates
-page's row say "agent predates signed updates"). A held old-protocol socket
+page's row say "node predates signed updates"). A held old-protocol socket
 therefore keeps everything it was held for except this: the machine that most
 needs updating is the one told, in a sentence, to update by hand.
 
@@ -553,7 +553,7 @@ patched into `RELEASE_PUBKEY` and compiled in the way the version is patched,
 restored from a byte copy, never an env override — INSTALLS on the signed
 manifest's digest while the sidecar beside it lies, and refuses after one
 hex character of the signed bytes is tampered (step 11). It boots no server
-and dials no plane — an agent has no database and no boot-time transaction,
+and dials no plane — a node has no database and no boot-time transaction,
 so the only state `update` reads is `config.json`'s `dataDir`, which the
 script writes by hand. The **4406 revert** is deliberately not compiled there: it
 needs a control plane built on a different protocol constant, a second ~110 MB
@@ -571,7 +571,7 @@ the stamp it was GIVEN and never re-stamps a value it is merely relaying.
 **Its own file, not a field in `config.json`.** `config.json` is snapshotted at
 daemon boot, so a value there would not reach a running daemon until it
 restarted — and the point of the CLI verb is that the person at the keyboard
-flips it under a live agent. It is also the node key's only home, and a value
+flips it under a live node. It is also the node key's only home, and a value
 flipped several times a day does not belong in the file whose every rewrite
 risks the machine's credential.
 
@@ -644,7 +644,7 @@ machine launches nothing either way.
 
 ## What `ready` reports about this process (`src/runtime.ts`)
 
-`ready.runtime` (spec 2026-09-12 §6.1) answers "how is this agent running" —
+`ready.runtime` (spec 2026-09-12 §6.1) answers "how is this node running" —
 supervised or not, the manager's view of the unit, the config and log paths,
 tmux, and the binary this process re-enters. `collectRuntime` builds it ONCE,
 before the connect loop, from one `service status` spawn.
@@ -671,15 +671,15 @@ manager — `start`, `stop`, `restart`, `install`, `uninstall`. Through protocol
 and a second chance to disagree about pane safety.
 
 **`restart` is not `systemctl restart`.** It exits 0 and lets the manager
-respawn the agent — asking systemd to restart the unit from inside that unit
+respawn the node — asking systemd to restart the unit from inside that unit
 kills the process mid-command, so the result frame never goes out and the plane
 sees a dropped socket instead of an answer. Every other verb is a real call to
 the manager, through the same `controlService`/`installService` the CLI uses.
 
 **Two of the five are one-way from the plane, and nothing here can soften
-that.** A command arrives over the agent's OWN socket, so `stop` and
+that.** A command arrives over the node's OWN socket, so `stop` and
 `uninstall` end the connection that would have carried the verb undoing them —
-the plane can never start an agent that is not running. The PLANE gates those
+the plane can never start a node that is not running. The PLANE gates those
 two on ownership and says so in its confirmation; this side simply performs
 them.
 
@@ -736,7 +736,7 @@ counter budget (a relaunch resets it) — hardening design 2026-09-02 §1.
   subshell (each meta's cwd is a `write_file` path-policy root alongside the data
   dir itself), `mcp/<id>.json`
   per-subshell MCP configs, and the MCP children's `identities/sess-<id>.json` +
-  `peers.json` (they run with `SUBSHELL_DATA_DIR` = the agent's data dir).
+  `peers.json` (they run with `SUBSHELL_DATA_DIR` = the node's data dir).
 - **Enroll preflights `tmux`** on PATH (macOS hint: `brew install tmux`);
   `SUBSHELL_CLIENT_SKIP_TMUX_CHECK=1` is the test escape hatch.
 

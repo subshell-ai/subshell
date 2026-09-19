@@ -43,7 +43,7 @@ dial a real registry. It is torn down with the stack.
 Spec `12` extends the stack itself: it spawns the **real `subshell` from
 source** (`bun apps/node/agent/src/main.ts enroll|run` via `stub/client.ts`, with
 `SUBSHELL_CONFIG_HOME` and `TMUX_TMPDIR` pointed at temp dirs so its config and its
-daemonised tmux servers are quarantined). No hand-written fake agent exists —
+daemonised tmux servers are quarantined). No hand-written fake node exists —
 the master plan's `subshell-fake.ts` was superseded before it was written
 (plan deviation #1, recorded in the nodes spec's Errata).
 
@@ -95,5 +95,5 @@ spec asserts the client grid yet. See `.sdd` design notes or the spec doc,
 
 Channels are machine-facing (no browser UI): spec `07` is API-only, seals with
 real crypto from `seal.ts` (a thin re-export of `@internal/mcp-core` — the same
-module the backend and agent run, so drift is structurally impossible), and
+module the backend and node run, so drift is structurally impossible), and
 asserts recipient-filtered reads.

@@ -7,9 +7,9 @@ import type { AdminStatus } from "@/hooks/use-admin-status";
  * What this control plane is and what it will talk to.
  *
  * The three numbers are not interchangeable and the labels say so: the server
- * version is what YOU deployed, the node protocol is matched EXACTLY (an agent
+ * version is what YOU deployed, the node protocol is matched EXACTLY (a node
  * ahead of the server is refused just as one behind it is), and the minimum
- * agent version is a floor checked before the protocol backstop.
+ * node version is a floor checked before the protocol backstop.
  */
 export function VersionsCard({ status }: { status: AdminStatus }) {
   const outdated = status.inventory.nodes.needingUpdate;

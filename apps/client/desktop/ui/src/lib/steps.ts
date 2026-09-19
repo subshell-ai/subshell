@@ -42,7 +42,7 @@ const STEP_LABELS: Record<ProbeStep, string> = {
   stopped: "Service stopped",
   "no-service": "Not running in the background",
   "not-enrolled": "Not enrolled",
-  "no-agent": "No agent",
+  "no-agent": "No node",
 };
 
 /** The chip's tone, which is also the dot's colour. */
@@ -60,8 +60,8 @@ const STEP_TONES: Record<ProbeStep, Tone> = {
 /**
  * The chip's word for a probe's step.
  *
- * `Unknown` covers a step this build predates — the app is older than the agent
- * it is managing — rather than asserting something about the machine.
+ * `Unknown` covers a step this build predates — the app is older than the node
+ * CLI it is managing — rather than asserting something about the machine.
  */
 export function stepLabel(step: ProbeStep | undefined): string {
   return step === undefined ? "Unknown" : (STEP_LABELS[step] ?? "Unknown");

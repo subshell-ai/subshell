@@ -862,7 +862,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         // reaches for the project's release, so the message leads with what
         // the operator can check (the server could not provide one, and why)
         // and keeps the hand-publish route as the fallback.
-        expect(gone404.stderr).toContain("could not provide a linux-x64 agent binary");
+        expect(gone404.stderr).toContain("could not provide a linux-x64 node binary");
         expect(gone404.stderr).toContain("SUBSHELL_RELEASE_URL");
         expect(gone404.stderr).toContain("subshell-node-cli-linux-x64");
         expect(gone404.stderr).toContain("GitHub Release"); // the binary-only-host path, not just release:cli-node

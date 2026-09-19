@@ -73,7 +73,7 @@ src/
 ├── plugins/        # auth.plugin.ts (better-auth handler mount), context.plugin.ts, error-handler.plugin.ts, static.plugin.ts
 ├── schema/         # Shared response schemas (error.type.ts: ApiErrorResponseSchema)
 ├── scripts/        # e2e seed, embed-web.ts (SPA -> generated/embedded-web.ts), release.ts
-├── services/       # Business logic: subshell-manager, nodes/ (NodeLauncher seam), channels/, uploads, tokens, audit, notify, mcp-launch — tmux/ no longer lives here: TmuxRunner moved to `@internal/pane-runtime` (tmux-runner.ts) so the node agent can reuse it
+├── services/       # Business logic: subshell-manager, nodes/ (NodeLauncher seam), channels/, uploads, tokens, audit, notify, mcp-launch — tmux/ no longer lives here: TmuxRunner moved to `@internal/pane-runtime` (tmux-runner.ts) so the node CLI can reuse it
 ├── utils/          # Logger and small shared helpers
 ├── ws/             # Terminal attach WebSocket (short-lived single-use tokens; remote-node subshells relay through remote-subshell-ws.ts with the browser contract byte-identical to the local path)
 └── test-preload.ts # Loaded by bunfig.toml before every test run
@@ -98,12 +98,12 @@ cached and the node's own digest check before `chmod +x` still decides.
 air-gapped configuration, and the default under `IS_TEST` so no suite reaches
 the network by accident. (It was `SUBSHELL_NODE_RELEASE_URL` until spec
 2026-09-15 §3.3; the same list now answers for the server's own `update` too,
-so the name stopped being the node agent's. No alias — there is no installed
+so the name stopped being the node CLI's. No alias — there is no installed
 base to keep compatible.) **The release a node is offered is the newest one
 whose SIGNED `release-manifest.json` says it speaks THIS server's
 `NODE_PROTOCOL_VERSION`** (`compatibleNodeRelease`), not merely the newest
 above `MIN_AGENT_VERSION`: the
-old rule could install an agent this plane cannot talk to, which enrolls,
+old rule could install a node this plane cannot talk to, which enrolls,
 reconnects and is closed 4406 forever. A release carrying no manifest — every
 cut before 2026-09-15 — is refused BY NAME rather than guessed at, and since
 spec 2026-09-17 so is an UNSIGNED or unverifiable one (every cut before
@@ -132,7 +132,7 @@ binary is a problem or a cache miss), prints as
 rendered `install.sh` downloads to a temp path, inspects the HTTP code
 (404 → publish guidance naming the GitHub Release asset; 401 → mint a fresh
 key; network → says so), verifies the digest BEFORE the temp file may
-`mv`-replace `$DEST`, and can therefore never clobber an installed agent on
+`mv`-replace `$DEST`, and can therefore never clobber an installed node on
 a failed download;
 and `services/nodes/control-keys.ts` holds the command-signing keypair at
 `<SUBSHELL_SERVER_DATA_DIR>/node-signing.json` (0600) — whoever holds it commands
@@ -165,7 +165,7 @@ built-in id is warned about once and never loaded. That is also why
 `plugins.route.ts` and `setup.route.ts` read `builtInHarnesses()` for their
 offline-installable catalog region: once the overlay exists, the merged
 `allHarnesses()` answers "what resolves", never "what can this build install".
-The agent never refreshes an overlay: after Task 7 it holds no plugin concept
+The node never refreshes an overlay: after Task 7 it holds no plugin concept
 at all, so its built-in-only view is structural, not configured. The
 anonymous setup route has NO spec field — built-in ids only, forever (spec
 2026-09-09 §13).
@@ -250,27 +250,27 @@ it — otherwise geometry announcements for that pane would stop with nothing in
 the journal. (An earlier revision had no size command and a node pane announced
 the size it had been ASKED for. That asymmetry is gone; do not reintroduce it.)
 
-**An agent is refused by TWO gates, in this order** (`node-ws-handler.ts`,
-both closing 4406 with a reason the agent RELAYS to its own log):
+**A node is refused by TWO gates, in this order** (`node-ws-handler.ts`,
+both closing 4406 with a reason the node RELAYS to its own log):
 
 1. **The version floor.** `MIN_AGENT_VERSION`
    (`@internal/subshell-protocol` `versions.ts`) is the operator-facing
    statement "this server needs subshell >= X". The reason names both the
    required and the found version. This is the gate an operator can act on,
    which is why it runs first — and it is bumped deliberately, on its own
-   schedule, whenever a server needs newer agent BEHAVIOUR.
+   schedule, whenever a server needs newer node BEHAVIOUR.
 2. **The protocol, matched EXACTLY.** Any `protocolVersion` differing from
    `NODE_PROTOCOL_VERSION`, in either direction, is refused; the reason names
    both numbers. No compatibility window, no per-feature gating — the server
-   and the agent ship together, so a mismatch is a deployment out of step
+   and the node ship together, so a mismatch is a deployment out of step
    rather than a node to be carried. Bump it whenever a frame changes,
    additive or not, and release both.
 
-The identity is persisted BEFORE either gate, so a refused agent still shows
-its version on the Nodes page. The node detail page chips "agent too old" /
-"agent too new" for a protocol mismatch and "below minimum" for a floor
-refusal; Settings → Status lists every enrolled agent under the floor in one
-place, since a refused agent looks like an ordinary offline node everywhere
+The identity is persisted BEFORE either gate, so a refused node still shows
+its version on the Nodes page. The node detail page chips "node too old" /
+"node too new" for a protocol mismatch and "below minimum" for a floor
+refusal; Settings → Status lists every enrolled node under the floor in one
+place, since a refused node looks like an ordinary offline node everywhere
 else.
 
 The two gates are INDEPENDENT — raising the floor without a protocol bump is
@@ -527,13 +527,13 @@ boot would override.
 
 `/api/nodes/:id/service`, `/logs` and `/config` give an enrolled node the
 management surface the plane already has for itself (spec 2026-09-12, node
-half). Most nodes are HEADLESS — the agent is installed there, the GUI never is
+half). Most nodes are HEADLESS — the node is installed there, the GUI never is
 — so a browser is the only place these questions can be asked at all.
 
 | route | |
 | --- | --- |
 | `POST /api/nodes/:id/service` | start / stop / restart / install / uninstall, as one signed `service` command |
-| `GET /api/nodes/:id/logs` | a byte range of the agent's OWN log file |
+| `GET /api/nodes/:id/logs` | a byte range of the node's OWN log file |
 | `PATCH /api/nodes/:id/config` | repoint the node at another control plane |
 | `PUT /api/nodes/:id/maintenance` | take the machine out of service, or put it back |
 
@@ -553,12 +553,12 @@ that means the same thing on every kind of node.
 
 **`stop` and `uninstall` are owner-only, and the reason is structural rather
 than a permission subtlety.** Every command reaches a node over the AGENT'S OWN
-socket, so the plane can never start an agent that is not running: those two
+socket, so the plane can never start a node that is not running: those two
 end the connection that would have carried the verb undoing them. They are
 one-way from a browser, reversible only by someone with a shell on that
 machine. `restart`, `start` and `install` keep the `nodeCanConfigure` gate — they
 leave the node reachable. **Repointing is owner-only too**, for a different
-reason: the agent then dials whatever host was typed carrying a credential
+reason: the node then dials whatever host was typed carrying a credential
 valid on THIS plane, and the machine leaves this instance.
 
 `local` is refused by all three, BEFORE the permission check — it is a
@@ -575,7 +575,7 @@ a node's `edit` grantee a way to bounce — or stop — the control plane. No ne
 trust either way — the plane already runs arbitrary launches on an enrolled
 node.
 
-The agent's refusals map to 409 `NODE_NOT_SUPERVISED`,
+The node's refusals map to 409 `NODE_NOT_SUPERVISED`,
 `NODE_RESTART_KILLS_PANES`, `NODE_NO_SERVICE`, `NODE_AGENT_TOO_OLD` (its
 `unsupported` answer) and `NODE_OFFLINE`, with anything unrecognized falling
 through to `NODE_UNREACHABLE` rather than being guessed at. `force` is REFUSED
@@ -584,24 +584,24 @@ so a flag silently accepted where it does nothing is how a caller learns it is
 noise, and then passes it where it is not.
 
 **That mapping compares `NodeRpcError.detail` by EQUALITY**, against the
-protocol's own `NODE_RESULT_*` constants. `detail` is the agent's
+protocol's own `NODE_RESULT_*` constants. `detail` is the node's
 `result.error` verbatim and exists for this: `message` wraps it in a sentence
 (`node "x" reported: …`) that is right for a log line and wrong for a decision.
 Matching a substring of it would have re-read `"not supervised enough,
 honestly"` as the exact refusal, and would have changed meaning silently the
 day someone reworded that sentence in `node-rpc.ts`.
 
-The agent answers `NODE_RESULT_KILLS_PANES` for `paneSafety: "unknown"` as
+The node answers `NODE_RESULT_KILLS_PANES` for `paneSafety: "unknown"` as
 well as `"kills"` — its destructive verbs fail closed on a definition they
 could not read — so only the plane can tell the two apart, and it does so in
 the WORDING and never the code. Telling someone their panes will die when the
 truth is that nobody could read the definition is the kind of certainty that
 teaches people to ignore warnings.
 
-`runtime` (the agent's report of how its own process runs) lives on the LIVE
+`runtime` (the node's report of how its own process runs) lives on the LIVE
 CONNECTION, never in the `nodes` table, and `GET /api/nodes/:id` exposes it
 only when the node is online, the viewer can configure it, and the row is an
-agent. These are facts about a running process: offline, they are stale by
+node. These are facts about a running process: offline, they are stale by
 definition, and their absence is the honest answer.
 
 ### Node harness inventories refresh themselves
@@ -620,19 +620,19 @@ Two triggers were added, and they answer different questions:
 
 - **A node coming online** (`node-ws-handler`'s `ready` case, after both
   refusal gates, beside the allowed-dirs push). This covers enrolment with no
-  special case — a freshly installed agent connects immediately — plus every
-  reconnect and agent restart. Fire-and-forget: the answer arrives as a later
+  special case — a freshly installed node connects immediately — plus every
+  reconnect and node restart. Fire-and-forget: the answer arrives as a later
   `result` frame behind this one in the socket's own serialized queue, so
   awaiting it would deadlock, and a failed probe must never fail a handshake.
-  A HELD agent is never kicked; it returns at the gate.
-- **A periodic pass over the online agents**
+  A HELD node is never kicked; it returns at the gate.
+- **A periodic pass over the online nodes**
   (`services/nodes/inventory-refresh.ts`, armed by `index.ts` beside the other
   timers). The online set comes from the REGISTRY, like the offline sweep's,
   never a DB scan; `local` is skipped by name (its view probes live on every
   read).
 
 **`NODE_INVENTORY_REFRESH_MS` is DERIVED as `INVENTORY_TTL_MS / 2`, not chosen
-beside it.** The launch gate counts an agent's cached answer only while it is
+beside it.** The launch gate counts a node's cached answer only while it is
 fresh (10 min), so a period longer than the TTL would leave an online, healthy
 node reading as unusable for the remainder of every cycle — the refresh would
 fail at the thing that matters most about it. Half the window means one
@@ -975,8 +975,8 @@ measured and rejected — read this before "simplifying" it back to `RunAtLoad`:
 
 - `RunAtLoad=false` does not stop it. The plist carries `KeepAlive=true`,
   which starts a job when it is LOADED regardless. Measured on macOS 26.6.2: a
-  throwaway agent with that exact pair reported `state = running, runs = 1`
-  two seconds after `bootstrap`, while the same agent without `KeepAlive`
+  throwaway node with that exact pair reported `state = running, runs = 1`
+  two seconds after `bootstrap`, while the same node without `KeepAlive`
   reported `runs = 0`. Switching `KeepAlive` to its dictionary form to dodge
   that would break restart-by-exit, which `performRestart` relies on.
 - `launchctl disable gui/<uid>/<label>` is worse: a disabled service refuses
@@ -1006,7 +1006,7 @@ therefore reports a SEPARATE `linger` field beside `enabled` rather than
 folding one into the other: they are two independent facts, and it is asked
 regardless of `enabled`, on the `systemctl show` success branch only.
 
-**The probe's argv and its answer-mapping are SHARED with the agent's twin of
+**The probe's argv and its answer-mapping are SHARED with the node's twin of
 this module**, in `@internal/subshell-protocol`, and that is the one exception
 to the ports-are-duplicates rule. The criterion is **one fact rendered to a
 HUMAN on two CLIs, which must agree** — deliberately not "parsing versus
@@ -1057,7 +1057,7 @@ in `src/services/mcp-resolve.ts` (split out of `mcp-launch.ts` so the
 side-effect-free CLI can import it — it touches no fs):
 `SUBSHELL_MCP_COMMAND`/`_ARGS` override → SELF (the server binary IS the MCP
 server: `<execPath> mcp` when compiled, `<execPath> <absolute entry> mcp`
-under `bun run`/dist) → the `subshell` node agent on PATH (`subshell mcp` —
+under `bun run`/dist) → the `subshell` node CLI on PATH (`subshell mcp` —
 safety net for installs whose server predates the self rung) → throw with the
 `SUBSHELL_MCP_COMMAND` hint. A deployment matching NONE of these 500s on
 create — `subshell-server status` prints the resolved command and its rung
@@ -1193,7 +1193,7 @@ is set (CI sets it to `scripts/macos-sign-notarize.sh` on the darwin shards — 
 root `AGENTS.md`; unset locally, so plain release runs skip the hook),
 and publishes atomically (tmp + rename + `.sha256` sidecar) to
 `SUBSHELL_SERVER_RELEASE_DIR`, default `<repo-root>/dist-server` — an
-operator drop dir to scp/deploy, not a data-dir ladder like the agent's
+operator drop dir to scp/deploy, not a data-dir ladder like the node's
 node artifacts. A failed target publishes NOTHING.
 
 ## Testing

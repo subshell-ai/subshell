@@ -1,15 +1,15 @@
 ---
 title: Supported Platforms
-description: Which operating systems and architectures can run the control plane, the node agent, and the desktop apps.
+description: Which operating systems and architectures can run the control plane, the node CLI, and the desktop apps.
 ---
 
 Subshell ships as prebuilt binaries — no runtime to install beside them, no package manager in the picture. Three questions answer most of what people have: does my OS run the binaries, does my machine need tmux, and what about my phone.
 
 ## The CLI binaries
 
-The control plane (`subshell-server`, with the web UI embedded in it) and the node agent (`subshell`) are each published as one self-contained binary per architecture:
+The control plane (`subshell-server`, with the web UI embedded in it) and the node CLI (`subshell`) are each published as one self-contained binary per architecture:
 
-| Platform | Control plane | Node agent |
+| Platform | Control plane | Node CLI |
 |---|---|---|
 | Linux x86_64 (`linux-x64`) | ✓ | ✓ |
 | Linux arm64 (`linux-arm64`) | ✓ | ✓ |
@@ -52,5 +52,5 @@ Docker is another way to run the control plane — the compose recipe publishes 
 ## See also
 
 - [Install the Server](/get-started/install-server) — download, verify, run
-- [Add a Node](/nodes/add-node) — the agent on another machine
+- [Add a Node](/nodes/add-node) — the node on another machine
 - [Mobile](/get-started/mobile) — the companion app in detail

@@ -72,7 +72,7 @@ const STOPPED = makeProbe({
   },
 });
 
-/** A machine with no agent at all — nothing to stop, overwrite or downgrade. */
+/** A machine with no node CLI at all — nothing to stop, overwrite or downgrade. */
 const FRESH = makeProbe({ step: "no-agent", agent: null, status: null, service: null });
 
 let ipc: FakeIpc | undefined;
@@ -190,7 +190,7 @@ describe("the assistant frame", () => {
   it("names which service failure it is looking at", async () => {
     await boot({ probe: STOPPED });
     expect(screen.getByText("Service stopped")).toBeTruthy();
-    expect(screen.getByText(/the agent is not running/)).toBeTruthy();
+    expect(screen.getByText(/the node is not running/)).toBeTruthy();
     expect(buttonOrNull("Start")).not.toBeNull();
     cleanup();
     ipc?.restore();
@@ -223,7 +223,7 @@ describe("a failure message always reaches the screen", () => {
     });
     const probesBefore = fake.callsTo("node_probe").length;
 
-    fireEvent.click(button("Open the agent log"));
+    fireEvent.click(button("Open the node log"));
 
     // Scoped to the FAILURE LINE (a <p>), not the page: the same sentence is
     // also the `logs` fact's value, and a duplicate would make a bare
@@ -250,7 +250,7 @@ describe("a failure message always reaches the screen", () => {
         },
       },
     });
-    fireEvent.click(button("Open the agent log"));
+    fireEvent.click(button("Open the node log"));
     await waitFor(() => expect(screen.getByText("that path does not exist yet")).toBeTruthy());
     expect(screen.queryByText(/background weather/)).toBeNull();
     expect(fake.callsTo("node_probe").length).toBeGreaterThan(1);
@@ -282,7 +282,7 @@ describe("the CLI's own words", () => {
     // now. Same command, same unconfirmed offer, same reason it is safe: on a
     // machine where nothing answered there is nothing to stop, overwrite or
     // downgrade.
-    fireEvent.click(button("Install the agent"));
+    fireEvent.click(button("Install the node"));
 
     await waitFor(() => expect(screen.getByText(/Installed subshell 1\.9\.0\./)).toBeTruthy());
     const block = screen.getByText(/Installed subshell 1\.9\.0\./);
@@ -303,17 +303,17 @@ describe("actions serialize", () => {
     const gate = deferred<{ ok: boolean; stdout: string; stderr: string }>();
     const fake = await boot({ probe: FRESH, handlers: { node_install_agent: () => gate.promise } });
 
-    fireEvent.click(button("Install the agent"));
-    await waitFor(() => expect(button("Install the agent").disabled).toBe(true));
+    fireEvent.click(button("Install the node"));
+    await waitFor(() => expect(button("Install the node").disabled).toBe(true));
 
     // Both the guard and the disabled attribute; a click dispatched anyway
     // (a stale reference, a synthetic event) must still not reach the CLI.
-    fireEvent.click(button("Install the agent"));
+    fireEvent.click(button("Install the node"));
     expect(fake.callsTo("node_install_agent").length).toBe(1);
-    expect(button("Install the agent").disabled).toBe(true);
+    expect(button("Install the node").disabled).toBe(true);
 
     gate.resolve({ ok: true, stdout: "Installed subshell.", stderr: "" });
-    await waitFor(() => expect(button("Install the agent").disabled).toBe(false));
+    await waitFor(() => expect(button("Install the node").disabled).toBe(false));
   });
 
   it("keeps the UI disabled until the re-probe has landed", async () => {
@@ -321,12 +321,12 @@ describe("actions serialize", () => {
     const fake = await boot({ probe: FRESH, handlers: { node_install_agent: () => gate.promise } });
     const probesBefore = fake.callsTo("node_probe").length;
 
-    fireEvent.click(button("Install the agent"));
+    fireEvent.click(button("Install the node"));
     gate.resolve({ ok: true, stdout: "Installed subshell.", stderr: "" });
 
     // A button that came back alive before the re-probe would be a button
     // acting on a machine that has moved on.
-    await waitFor(() => expect(button("Install the agent").disabled).toBe(false));
+    await waitFor(() => expect(button("Install the node").disabled).toBe(false));
     expect(fake.callsTo("node_probe").length).toBeGreaterThan(probesBefore);
   });
 });
@@ -344,7 +344,7 @@ describe("after every action, re-probe", () => {
     });
 
     let seen = fake.callsTo("node_probe").length;
-    for (const label of ["Start", "Open the agent log", "Reveal configuration"]) {
+    for (const label of ["Start", "Open the node log", "Reveal configuration"]) {
       fireEvent.click(button(label));
       await waitFor(() => expect(fake.callsTo("node_probe").length).toBeGreaterThan(seen));
       seen = fake.callsTo("node_probe").length;
@@ -735,7 +735,7 @@ describe("rewriting the service definition", () => {
 
     fireEvent.click(button("Rewrite the service definition"));
 
-    await waitFor(() => expect(screen.getByText(/Rewriting the definition restarts the agent/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Rewriting the definition restarts the node/)).toBeTruthy());
     expect(fake.callsTo("node_service").length).toBe(0);
     expect(screen.getByText(/It is the last time that happens/)).toBeTruthy();
 
@@ -744,7 +744,7 @@ describe("rewriting the service definition", () => {
   });
 });
 
-describe("replacing the installed agent", () => {
+describe("replacing the installed node CLI", () => {
   /**
    * The status screen's button is a DOOR now (spec 2026-09-18 § 7.4), so the
    * confirmation it used to raise directly is raised one screen further in —
@@ -760,9 +760,9 @@ describe("replacing the installed agent", () => {
       },
     });
 
-    fireEvent.click(button("Update the agent to 1.10.0"));
-    await waitFor(() => expect(buttonOrNull("Install the agent (1.10.0)")).not.toBeNull());
-    fireEvent.click(button("Install the agent (1.10.0)"));
+    fireEvent.click(button("Update the node to 1.10.0"));
+    await waitFor(() => expect(buttonOrNull("Install the node (1.10.0)")).not.toBeNull());
+    fireEvent.click(button("Install the node (1.10.0)"));
 
     await waitFor(() => expect(confirmPanelOrNull()).not.toBeNull());
     expect(fake.callsTo("node_install_agent").length).toBe(0);
@@ -776,17 +776,17 @@ describe("replacing the installed agent", () => {
     expect(confirmPanel().queryByText(/is NOT started again/)).toBeNull();
     expect(confirmPanel().getByText(/keeps running the previous version until you restart it/)).toBeTruthy();
 
-    fireEvent.click(confirmPanel().getByRole("button", { name: "Update the agent" }));
+    fireEvent.click(confirmPanel().getByRole("button", { name: "Update the node" }));
     await waitFor(() => expect(fake.callsTo("node_install_agent").length).toBe(1));
   });
 
   it("does not put the upgrade offer on the re-enroll screen", async () => {
     await boot({ probe: makeProbe({ agentChoice: "upgrade-available", bundledVersion: "1.10.0" }) });
-    expect(buttonOrNull("Update the agent to 1.10.0")).not.toBeNull();
+    expect(buttonOrNull("Update the node to 1.10.0")).not.toBeNull();
     fireEvent.click(button("Re-enroll…"));
     // That screen ends in a destructive button; an unrelated one beside it is
     // how the wrong one gets clicked.
-    await waitFor(() => expect(buttonOrNull("Update the agent to 1.10.0")).toBeNull());
+    await waitFor(() => expect(buttonOrNull("Update the node to 1.10.0")).toBeNull());
   });
 });
 
@@ -849,14 +849,14 @@ describe("pacing", () => {
     const gate = deferred<{ ok: boolean; stdout: string; stderr: string }>();
     const fake = await boot({ probe: FRESH, handlers: { node_install_agent: () => gate.promise } });
 
-    fireEvent.click(button("Install the agent"));
-    await waitFor(() => expect(button("Install the agent").disabled).toBe(true));
+    fireEvent.click(button("Install the node"));
+    await waitFor(() => expect(button("Install the node").disabled).toBe(true));
     const during = fake.callsTo("node_probe").length;
     await new Promise((resolve) => setTimeout(resolve, 120));
     expect(fake.callsTo("node_probe").length).toBe(during);
 
     gate.resolve({ ok: true, stdout: "", stderr: "" });
-    await waitFor(() => expect(button("Install the agent").disabled).toBe(false));
+    await waitFor(() => expect(button("Install the node").disabled).toBe(false));
   });
 });
 
@@ -865,7 +865,7 @@ describe("pacing", () => {
 // ---------------------------------------------------------------------------
 
 describe("the first run", () => {
-  /** Untouched: nothing stored, no agent, no node config. */
+  /** Untouched: nothing stored, no node, no node config. */
   const untouched = (over: Partial<ReturnType<typeof makeProbe>> = {}) =>
     makeProbe({ step: "no-agent", agent: null, status: null, service: null, ...over });
 
@@ -1445,7 +1445,7 @@ describe("the screens", () => {
   // looks like changed; the split did not.
   it("offers the install only when nothing answered at all", async () => {
     await boot({ probe: makeProbe({ step: "no-agent", agent: null, status: null, service: null }) });
-    expect(buttonOrNull("Install the agent")).not.toBeNull();
+    expect(buttonOrNull("Install the node")).not.toBeNull();
     expect(screen.getByText(/Installing it copies the copy that ships inside this app/)).toBeTruthy();
     // And registering is NOT offered beside it. A machine with no agent cannot
     // say whether it is already a node, and Register's chain enrols with
@@ -1458,7 +1458,7 @@ describe("the screens", () => {
     // An agent that answered `version` but not `status --json`: enrolling here
     // would overwrite a live config and discard its node key.
     await boot({ probe: makeProbe({ step: "no-agent", status: null }) });
-    expect(buttonOrNull("Install the agent")).toBeNull();
+    expect(buttonOrNull("Install the node")).toBeNull();
     expect(buttonOrNull("Register this machine")).toBeNull();
     expect(buttonOrNull("Enroll")).toBeNull();
     // The one thing that can change this state is still live. It is labelled
@@ -1498,7 +1498,7 @@ describe("the screens", () => {
   it("says it does not recognise a step this build predates", async () => {
     await boot({ probe: makeProbe({ step: "quantum-superposition" as never }) });
     expect(screen.getByText(/does not recognise the state "quantum-superposition"/)).toBeTruthy();
-    expect(screen.getByText(/older than the agent it is managing/)).toBeTruthy();
+    expect(screen.getByText(/older than the node CLI it/)).toBeTruthy();
     expect(screen.getByText("Unknown")).toBeTruthy();
     expect(buttonOrNull("Refresh")).not.toBeNull();
     expect(screen.getByText("Show Details")).toBeTruthy();
@@ -1585,7 +1585,7 @@ describe("tmux is a hard stop, not a hint", () => {
     await boot({ probe: makeProbe({ ...STOPPED, tmux: null }) });
     expect(button("Start").disabled).toBe(true);
     expect(button("Refresh").disabled).toBe(false);
-    expect(button("Open the agent log").disabled).toBe(false);
+    expect(button("Open the node log").disabled).toBe(false);
     expect(button("Reveal configuration").disabled).toBe(false);
     // The hint names the install command, so the refusal is one step from action.
     expect(screen.getByText(/brew install tmux|sudo apt-get install tmux/)).toBeTruthy();

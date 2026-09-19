@@ -38,7 +38,7 @@ The user roster is readable by every signed-in caller — and by any machine cre
 
 ## The admin's screen is quotable
 
-Server Settings → Status reads `GET /api/admin/status`: the widest single read in the system — versions, the node protocol, host paths, instance-wide counts, agent versions under the floor, and the security posture, all in one body. It carries **no secret in any form**: the auth secret appears only as "is this the placeholder?", the break-glass password only as "armed or not", and a test scans the serialized response for the actual values so nothing added later can regress that. The reasoning is practical — an admin's screen gets screenshotted into issues. Treat it as quotable.
+Server Settings → Status reads `GET /api/admin/status`: the widest single read in the system — versions, the node protocol, host paths, instance-wide counts, node versions under the floor, and the security posture, all in one body. It carries **no secret in any form**: the auth secret appears only as "is this the placeholder?", the break-glass password only as "armed or not", and a test scans the serialized response for the actual values so nothing added later can regress that. The reasoning is practical — an admin's screen gets screenshotted into issues. Treat it as quotable.
 
 ## The instance's own name
 

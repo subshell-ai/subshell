@@ -100,10 +100,10 @@ export interface ServerUpdateView {
   backups: { dir: string; keep: number; count: number; latest: BackupFile | null };
 }
 
-/** Why a stale agent is being kept connected for exactly one command. */
+/** Why a stale node is being kept connected for exactly one command. */
 export type HeldReason = "below-floor" | "protocol-mismatch";
 
-/** One enrolled agent node, as the Nodes rows render it. */
+/** One enrolled node, as the Nodes rows render it. */
 export interface NodeUpdateRow {
   id: string;
   /** The node's display name. */
@@ -112,13 +112,13 @@ export interface NodeUpdateRow {
   agentVersion: string | null;
   /** The release triple for this machine, or null when nothing is published for its platform. */
   target: string | null;
-  /** The node protocol this agent speaks; reads against `NodeUpdates.protocol`. */
+  /** The node protocol this machine speaks; reads against `NodeUpdates.protocol`. */
   protocolVersion: number | null;
-  /** Whether the agent holds a live socket right now. */
+  /** Whether the node holds a live socket right now. */
   online: boolean;
-  /** Set when the agent was refused but is kept connected so it can be updated. */
+  /** Set when the node was refused but is kept connected so it can be updated. */
   held: { reason: HeldReason } | null;
-  /** Whether the offered node release is newer than this agent's version. */
+  /** Whether the offered node release is newer than this machine's version. */
   updateAvailable: boolean;
   /** Whether this row's Update button is live, and why not. */
   canUpdate: { ok: boolean; reason: string | null };
@@ -130,11 +130,11 @@ export interface NodeUpdates {
   release: ReleaseRef | null;
   /** Why no node release can be offered; null when one can. */
   reason: string | null;
-  /** The oldest agent version this server accepts — half of a held row's sentence. */
+  /** The oldest node version this server accepts — half of a held row's sentence. */
   minAgentVersion: string;
   /** The node protocol this server speaks — the other half. */
   protocol: number;
-  /** Every enrolled agent node; `local` is never here. */
+  /** Every enrolled node; `local` is never here. */
   rows: NodeUpdateRow[];
 }
 

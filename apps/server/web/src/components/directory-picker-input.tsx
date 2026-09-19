@@ -50,7 +50,7 @@ export function blockedByName(deployment: ServerDeployment | undefined): string 
  * node's filesystem — the explore request carries `?node=<id>` exactly as the
  * recents hook does, so the picker follows the node selected in the new-
  * subshell form. The backend answers identically-shaped listings for either
- * transport; a node whose agent predates remote browsing answers 409
+ * transport; a node whose CLI predates remote browsing answers 409
  * `NODE_OUTDATED`, surfaced here as a clear update prompt.
  */
 export function DirectoryPickerInput({
@@ -138,7 +138,7 @@ export function DirectoryPickerInput({
   // A typed path that does not exist (404) is a different message from a
   // browse failure (500/forbidden/network): one invites a correction, the
   // other only explains. A too-old node (409 NODE_OUTDATED) is neither —
-  // nothing about the path or a retry helps; the node's agent must update.
+  // nothing about the path or a retry helps; the node itself must update.
   const notFound = error instanceof ApiError && error.status === 404;
   // Read from the CACHE, never fetched: `GET /api/admin/server` is admin-only,
   // so a request from here would 403 for most viewers to decide one word. The

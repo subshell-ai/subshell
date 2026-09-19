@@ -1,9 +1,9 @@
 ---
 title: subshell CLI
-description: Every verb of the node agent binary — setup, enroll, configure, run, service, maintenance, status, update, mcp, report — with its flags and its exit code.
+description: Every verb of the node CLI — setup, enroll, configure, run, service, maintenance, status, update, mcp, report — with its flags and its exit code.
 ---
 
-`subshell` is the agent that turns a machine into a node: a machine that runs panes for a control plane. Most of the time you touch it three times — `subshell setup` once, `subshell status` when something looks wrong, and `subshell update` when a newer agent is published. This page mirrors the binary's own usage text.
+`subshell` is the CLI that turns a machine into a node: a machine that runs panes for a control plane. Most of the time you touch it three times — `subshell setup` once, `subshell status` when something looks wrong, and `subshell update` when a newer version is published. This page mirrors the binary's own usage text.
 
 ## Usage
 
@@ -68,7 +68,7 @@ This is what the Nodes page's copy-paste one-liner ends up running. `enroll` sta
 
 `enroll` spends a single-use setup key and is **destructive**: it overwrites `config.json`, mints a second node row on the plane, and discards the node key whose only home was the old file. Run it to join a plane, not to fix one. It takes `--name <n>` and requires it — the primitive asks nothing of anyone, and the old hostname default is gone, so a nameless `enroll` is a usage error before the tmux check, the identity, or the network.
 
-`configure --server <url>` is the answer to "the control plane moved". It rewrites the address in `config.json` and keeps the identity — same node id, same node key, same pinned control key — spends no setup key, and mints no second row. Restart the agent to apply it. Two limits worth knowing:
+`configure --server <url>` is the answer to "the control plane moved". It rewrites the address in `config.json` and keeps the identity — same node id, same node key, same pinned control key — spends no setup key, and mints no second row. Restart the node to apply it. Two limits worth knowing:
 
 - It **does not rename** and takes no `--name`. The plane owns a node's name (the Nodes page), so a rename here would change only what `subshell status` prints.
 - It works **between two names for one plane**. Point it at a genuinely different control plane and the socket comes back refused — joining a different plane is an `enroll`.
@@ -77,7 +77,7 @@ Neither command prints the node key. `--json` on both reports `{nodeId, serverUr
 
 ## run
 
-`subshell run` is the foreground daemon — what the service definition executes. It dials the control plane, sends its `ready` frame, and reconnects with capped exponential backoff on any drop; a second agent started with the same identity supersedes the first (the older one exits). Use it to watch what the daemon says; use `service install` for anything that should survive you closing the terminal.
+`subshell run` is the foreground daemon — what the service definition executes. It dials the control plane, sends its `ready` frame, and reconnects with capped exponential backoff on any drop; a second daemon started with the same identity supersedes the first (the older one exits). Use it to watch what the daemon says; use `service install` for anything that should survive you closing the terminal.
 
 ## service
 
@@ -87,23 +87,23 @@ Neither command prints the node key. `--json` on both reports `{nodeId, serverUr
 
 `maintenance on` takes this machine out of service: it stays enrolled and keeps answering every other command, but launches nothing — and it **stops every subshell running here**, whoever owns them. So without `--yes` the command first lists them (name, id, working directory), writes nothing, and exits 1; the flag is the confirmation. `maintenance off` puts it back; `maintenance status` reads this machine's own mirror (always exits 0).
 
-The CLI talks to no daemon: it writes a file, and the running agent notices and tells the control plane. The plane can throw the same switch remotely, and either end can overrule the other — newer stamp wins, ties go to the plane. [Maintenance mode](/nodes/maintenance) covers the whole flag.
+The CLI talks to no daemon: it writes a file, and the running node notices and tells the control plane. The plane can throw the same switch remotely, and either end can overrule the other — newer stamp wins, ties go to the plane. [Maintenance mode](/nodes/maintenance) covers the whole flag.
 
 ## status
 
-`status` answers from local truth: a live `daemon.lock` (pid alive, same node) is ONLINE without dialing anything, and the plane is never disturbed. A stale lock is cleaned up. With no lock the honest answer is OFFLINE, and the exit code is 1 unless the node is online. `--probe` is the explicit opt-in to a real WebSocket probe — and because the control plane keeps the newest connection, **a probe kicks any agent running elsewhere for this node**; the CLI warns loudly on stderr when you ask for it.
+`status` answers from local truth: a live `daemon.lock` (pid alive, same node) is ONLINE without dialing anything, and the plane is never disturbed. A stale lock is cleaned up. With no lock the honest answer is OFFLINE, and the exit code is 1 unless the node is online. `--probe` is the explicit opt-in to a real WebSocket probe — and because the control plane keeps the newest connection, **a probe kicks any daemon running elsewhere for this node**; the CLI warns loudly on stderr when you ask for it.
 
 `--json` adds what a caller cannot derive: the resolved binary path and which rung named it, the `paths` block a reset deletes (`configFile`, `lockFile`, `dataDir`), and the update transaction's state (`pending`, `lastFailure`) — so a rollback's reason is still readable an hour later.
 
 ## update
 
-`subshell update` replaces this agent's own binary and restarts into it — the same transaction shape as the server's: the swap keeps the old file as `<binary>.previous` with a marker beside it, and the next boot either finishes or reverts. `--check` compares **semver**, not inequality, and names where the offer came from. `--to <version>` picks a published release; `--from <file>` installs a file you name. Neither direction happens by accident: an offer older than the running agent is refused unless you pass `--force`, which also overrides the live-pane restart refusal. `--no-restart` swaps without restarting. `update --rollback` puts `<binary>.previous` back, if an update left one; it takes only `--yes` and `--json` (and `--force` on the restart) beside it.
+`subshell update` replaces this node's own binary and restarts into it — the same transaction shape as the server's: the swap keeps the old file as `<binary>.previous` with a marker beside it, and the next boot either finishes or reverts. `--check` compares **semver**, not inequality, and names where the offer came from. `--to <version>` picks a published release; `--from <file>` installs a file you name. Neither direction happens by accident: an offer older than the running binary is refused unless you pass `--force`, which also overrides the live-pane restart refusal. `--no-restart` swaps without restarting. `update --rollback` puts `<binary>.previous` back, if an update left one; it takes only `--yes` and `--json` (and `--force` on the restart) beside it.
 
-Where the bytes come from matters, and the CLI cannot ask its own plane: a node key can do nothing on REST, so `update` reads the release list directly from `SUBSHELL_RELEASE_URL` (default: this project's GitHub releases; empty means this host fetches nothing and you use `--from`). The refusal line says so and points at the plane's Settings → Updates page, which is where a person sees the agent version the plane can talk to — see [Version Compatibility](/reference/version-compatibility).
+Where the bytes come from matters, and the CLI cannot ask its own plane: a node key can do nothing on REST, so `update` reads the release list directly from `SUBSHELL_RELEASE_URL` (default: this project's GitHub releases; empty means this host fetches nothing and you use `--from`). The refusal line says so and points at the plane's Settings → Updates page, which is where a person sees the node version the plane can talk to — see [Version Compatibility](/reference/version-compatibility).
 
 ## mcp and report — internal verbs
 
-`mcp` is the stdio MCP server for one subshell pane ([The subshell MCP server](/automation/mcp-server)); it is configured purely by the `SUBSHELL_*` pane environment, and a missing variable is a usage error that names the variable before a byte touches stdio. `report attention <kind>` and `report session` are the harness hooks' out-of-band reports — they run on this machine, where the only program guaranteed to exist is this binary. Unlike `mcp`, an incomplete pane environment exits 0 in silence: nobody typed it, and a hook's stderr lands in the user's session. Both verbs exist on `subshell-server` too, which is how a server-only host drives panes with no agent installed.
+`mcp` is the stdio MCP server for one subshell pane ([The subshell MCP server](/automation/mcp-server)); it is configured purely by the `SUBSHELL_*` pane environment, and a missing variable is a usage error that names the variable before a byte touches stdio. `report attention <kind>` and `report session` are the harness hooks' out-of-band reports — they run on this machine, where the only program guaranteed to exist is this binary. Unlike `mcp`, an incomplete pane environment exits 0 in silence: nobody typed it, and a hook's stderr lands in the user's session. Both verbs exist on `subshell-server` too, which is how a server-only host drives panes with no node CLI installed.
 
 ## version and license
 
@@ -111,8 +111,8 @@ Where the bytes come from matters, and the CLI cannot ask its own plane: a node 
 
 ## See also
 
-- [Add a node](/nodes/add-node) and [Managing the agent](/nodes/managing-the-agent) — the same verbs, operator-shaped.
+- [Add a node](/nodes/add-node) and [Managing a node](/nodes/managing-a-node) — the same verbs, operator-shaped.
 - [Updating a node](/nodes/updating) — both update paths, plane-driven and by hand.
 - [subshell-server CLI](/reference/server-cli) — the control plane's binary.
-- [Files & Paths](/reference/files-and-paths) — what this agent keeps on disk.
+- [Files & Paths](/reference/files-and-paths) — what this node keeps on disk.
 - [Node Protocol](/reference/node-protocol) — what `run` speaks.

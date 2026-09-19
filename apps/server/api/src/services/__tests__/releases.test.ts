@@ -231,7 +231,7 @@ describe("compatibleNodeRelease", () => {
     fake.tags = [{ tag: "cli-node-v0.0.1" }];
     const { release, reason } = await compatibleNodeRelease();
     expect(release).toBeNull();
-    expect(reason).toMatch(/minimum agent version/);
+    expect(reason).toMatch(/minimum node version/);
   });
 
   it("refuses a release that carries no manifest, and says why", async () => {

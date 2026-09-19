@@ -48,7 +48,7 @@ describe("the status screen's button is a door (§ 7.4)", () => {
       handlers: { node_check_app_update: () => APP_CURRENT },
     });
 
-    fireEvent.click(button("Update the agent to 1.10.0"));
+    fireEvent.click(button("Update the node to 1.10.0"));
 
     await waitFor(() => expect(screen.getByText("Update Subshell Client")).toBeTruthy());
     // Nothing was installed by walking through the door — the act asks first.
@@ -63,10 +63,10 @@ describe("the status screen's button is a door (§ 7.4)", () => {
 
   it("leaves by its own Back, because an override is a screen and not a verdict", async () => {
     await boot({ probe: BEHIND, handlers: { node_check_app_update: () => APP_CURRENT } });
-    fireEvent.click(button("Update the agent to 1.10.0"));
+    fireEvent.click(button("Update the node to 1.10.0"));
     await waitFor(() => expect(screen.getByText("Update Subshell Client")).toBeTruthy());
     fireEvent.click(button("Back"));
-    await waitFor(() => expect(buttonOrNull("Update the agent to 1.10.0")).not.toBeNull());
+    await waitFor(() => expect(buttonOrNull("Update the node to 1.10.0")).not.toBeNull());
   });
 
   /**
@@ -83,7 +83,7 @@ describe("the status screen's button is a door (§ 7.4)", () => {
    */
   it("ends on a filled leave at the bottom right, with Check Again beside it", async () => {
     await boot({ probe: BEHIND, handlers: { node_check_app_update: () => APP_CURRENT } });
-    fireEvent.click(button("Update the agent to 1.10.0"));
+    fireEvent.click(button("Update the node to 1.10.0"));
     await waitFor(() => expect(screen.getByText("Update Subshell Client")).toBeTruthy());
 
     const leave = button("Back");
@@ -186,9 +186,9 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
     });
 
     await waitFor(() => expect(screen.getByText(/still running the previous version/)).toBeTruthy());
-    expect(screen.getByText(/The agent was replaced/)).toBeTruthy();
+    expect(screen.getByText(/The node CLI was replaced/)).toBeTruthy();
 
-    fireEvent.click(button("Restart the agent"));
+    fireEvent.click(button("Restart the node"));
     await waitFor(() => expect(fake.callsTo("node_service").length).toBe(1));
     // Through the existing command, which is what surfaces the CLI's own
     // refusal and offers `--force` behind it. Never a forced restart here.
@@ -198,14 +198,14 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
     // that says the act is over. Until 2026-09-18 nothing took its place and
     // the body rendered EMPTY: the rows are gone (nothing is behind), and
     // `upToDate` is false because this window installed something.
-    await waitFor(() => expect(buttonOrNull("Restart the agent")).toBeNull());
+    await waitFor(() => expect(buttonOrNull("Restart the node")).toBeNull());
     expect(screen.getByText(/both up to date/)).toBeTruthy();
   });
 
   /**
    * The pane-safety sentence belongs to the RESTART, not to the install: the
    * swap is a rename a running daemon never notices, so nothing about
-   * installing an agent can close a subshell.
+   * installing a node CLI can close a subshell.
    */
   it("warns about live panes on the restart, where the cost actually is", async () => {
     const risky = {
@@ -261,15 +261,15 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
       },
     });
 
-    await waitFor(() => expect(buttonOrNull("Restart the agent")).not.toBeNull());
-    fireEvent.click(button("Restart the agent"));
+    await waitFor(() => expect(buttonOrNull("Restart the node")).not.toBeNull());
+    fireEvent.click(button("Restart the node"));
 
     // The refusal, verbatim, with the override behind it — the existing
     // command's work, not this screen's.
     await waitFor(() => expect(screen.queryByRole("region")).not.toBeNull());
     expect(within(screen.getByRole("region")).getByText(/refusing to restart/)).toBeTruthy();
     // And the offer is still there to take once that conversation is over.
-    expect(buttonOrNull("Restart the agent")).not.toBeNull();
+    expect(buttonOrNull("Restart the node")).not.toBeNull();
   });
 });
 
@@ -293,7 +293,7 @@ describe("the act is a selection (§ 13)", () => {
 
   async function openUpdate(init: Parameters<typeof installFakeIpc>[0]) {
     const fake = await boot(init);
-    fireEvent.click(button(/Update the agent to|Check for updates/));
+    fireEvent.click(button(/Update the node to|Check for updates/));
     await waitFor(() => expect(screen.getByText("Update Subshell Client")).toBeTruthy());
     return fake;
   }
@@ -326,7 +326,7 @@ describe("the act is a selection (§ 13)", () => {
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Update Subshell Client App" }));
     await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Update Subshell Node CLI" })).not.toBeNull());
-    expect(button(/Install the agent \(1\.10\.0\)/)).toBeTruthy();
+    expect(button(/Install the node \(1\.10\.0\)/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Update Subshell Node CLI" }));
     await waitFor(() => expect(button("Nothing selected").disabled).toBe(true));

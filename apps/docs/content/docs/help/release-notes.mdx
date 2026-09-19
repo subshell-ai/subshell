@@ -12,7 +12,7 @@ Four product components version independently of each other and share [one relea
 | Component | Tag prefix | What a release carries |
 |---|---|---|
 | Control plane | `cli-server-vX.Y.Z` | `subshell-server-cli-<triple>` — one binary each for `linux-x64`, `linux-arm64`, `darwin-arm64`, each with the web UI embedded |
-| Node agent | `cli-node-vX.Y.Z` | `subshell-node-cli-<triple>` — the same three platforms |
+| Node CLI | `cli-node-vX.Y.Z` | `subshell-node-cli-<triple>` — the same three platforms |
 | Subshell Server (desktop) | `desktop-server-vX.Y.Z` | A signed, notarized `Subshell-Server-Desktop-<version>-darwin-arm64.dmg` and a `subshell-server-desktop_<version>_amd64.deb` |
 | Subshell Client (desktop) | `desktop-client-vX.Y.Z` | The matching `Subshell-Client-Desktop-…` image and `subshell-client-desktop_…_deb` |
 
@@ -39,22 +39,22 @@ The naming has two markers that tell the artifacts apart, because all four compo
 - **`-cli-`** means the bare command-line binary. Install `subshell-server-cli-<triple>` **renamed to `subshell-server`** — dropping only the triple leaves you with a file named `subshell-server-cli`, which is not the name the service unit invokes. The node asset installs as plain `subshell`.
 - **`Desktop`** (in whatever case the bundle uses) marks the GUI bundle rather than a CLI, so the server desktop image and the server CLI can sit side by side and still say which is which. The installed app is unaffected — it is still "Subshell Server".
 
-Every release also carries `release-manifest.json`: the component, version, node-protocol version and minimum agent version, so a control plane can tell whether a node release is compatible **without downloading a binary**. What the protocol numbers mean for your fleet is on [Version Compatibility](/reference/version-compatibility).
+Every release also carries `release-manifest.json`: the component, version, node-protocol version and minimum node version, so a control plane can tell whether a node release is compatible **without downloading a binary**. What the protocol numbers mean for your fleet is on [Version Compatibility](/reference/version-compatibility).
 
 > [!note] A desktop release re-ships a CLI
-> Each desktop bundle carries the command-line binary it wraps, built from the same commit. A fix to the server or agent reaches desktop users only through the next desktop cut — worth knowing when you are waiting for a security fix.
+> Each desktop bundle carries the command-line binary it wraps, built from the same commit. A fix to the server or node reaches desktop users only through the next desktop cut — worth knowing when you are waiting for a security fix.
 
 ## How an installed thing learns about the next one
 
 All of it reads the same release list; the source is one setting, `SUBSHELL_RELEASE_URL`, and empty disables the paths by name rather than guessing (the [air-gapped case](/help/faq)).
 
 - **The control plane** answers `subshell-server update --check` from the release list, installs over the running one on request (always taking a database snapshot first), and refuses loudly when it is not update-shaped — telling you to pass `--from <file>` instead. [Updating the Server](/server/updating).
-- **A node agent** updates the same way — `subshell update [--check]` on the machine, or the update action on its node page from the browser. [Updating a Node](/nodes/updating).
+- **A node** updates the same way — `subshell update [--check]` on the machine, or the update action on its node page from the browser. [Updating a Node](/nodes/updating).
 - **The desktop apps** check GitHub's release list for their own component when they launch, and their tray item says `Check for Updates… (X available)` when a newer one exists. What they download is verified against a signing key baked into the app before it replaces itself — a release host that is compromised or lying cannot make the app install a build it did not sign.
 
 ## See also
 
 - [Install the Server](/get-started/install-server) — the download-and-verify walk
-- [Version Compatibility](/reference/version-compatibility) — protocol floors between plane and agents
+- [Version Compatibility](/reference/version-compatibility) — protocol floors between plane and nodes
 - [Updating the Server](/server/updating) and [Updating a Node](/nodes/updating) — what an update does and rolls back
 - [FAQ](/help/faq) — licensing, air-gapping, and the rest of the standing questions

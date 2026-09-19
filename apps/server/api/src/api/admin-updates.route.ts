@@ -225,9 +225,9 @@ function canUpdate(
   protocolVersion: number | null,
 ): { ok: true; reason: null } | { ok: false; reason: string } {
   if (rels.node === null) return { ok: false, reason: rels.nodeReason ?? "no node release can be offered" };
-  if (target === null) return { ok: false, reason: "no agent binary is published for this machine's platform" };
+  if (target === null) return { ok: false, reason: "no node binary is published for this machine's platform" };
   if (protocolVersion === null || protocolVersion < NODE_SIGNED_UPDATES_PROTOCOL_VERSION) {
-    return { ok: false, reason: "agent predates signed updates" };
+    return { ok: false, reason: "node predates signed updates" };
   }
   if (!online && !isHeld) return { ok: false, reason: "this node is offline" };
   return { ok: true, reason: null };

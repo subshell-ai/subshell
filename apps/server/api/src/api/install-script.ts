@@ -151,7 +151,7 @@ DEST="$BIN_DIR/subshell"
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *)
-    echo "subshell: note: $BIN_DIR is not on your PATH, so the agent is installed" >&2
+    echo "subshell: note: $BIN_DIR is not on your PATH, so the node is installed" >&2
     echo "    but 'subshell' will not be found by name. Add it with:" >&2
     printf '      export PATH="%s:$PATH"\\n' "$BIN_DIR" >&2
     ;;
@@ -177,8 +177,8 @@ case "$OS/$ARCH" in
     # are not a published target, and "this server publishes no binary for your
     # platform" would read as "the operator has not published one yet" — a
     # different problem with a different fix.
-    echo "subshell: Intel Macs are not supported: no agent is published for darwin-x64." >&2
-    echo "    Apple silicon and Linux have binaries; on an Intel Mac, run the agent from a checkout." >&2
+    echo "subshell: Intel Macs are not supported: no node binary is published for darwin-x64." >&2
+    echo "    Apple silicon and Linux have binaries; on an Intel Mac, run the node from a checkout." >&2
     exit 1
     ;;
   Darwin/arm64)             TARGET="darwin-arm64" ;;
@@ -229,20 +229,20 @@ case "$HTTP" in
     ;;
   404)
     rm -f "$TMP" 2>/dev/null || true
-    echo "subshell: this server could not provide a $TARGET agent binary." >&2
+    echo "subshell: this server could not provide a $TARGET node binary." >&2
     echo "    It serves what is in its node-artifacts dir, and downloads a missing build from the" >&2
     echo "    project's own cli-node-vX.Y.Z release on first use — so this usually means the server" >&2
     echo "    cannot reach that release (no outbound network, or SUBSHELL_RELEASE_URL is" >&2
     echo "    empty). Check the server's log for the reason. To supply it by hand instead, run" >&2
     echo "    'bun run release:cli-node' from a checkout on the server host, or copy the" >&2
     echo "    'subshell-node-cli-$TARGET' asset from a cli-node-vX.Y.Z GitHub Release into that dir." >&2
-    echo "    Or install the agent for this machine another way and run setup directly:" >&2
+    echo "    Or install the node for this machine another way and run setup directly:" >&2
     echo "      subshell setup --server $SERVER --key $KEY\${DATA_DIR:+ --data-dir \\"$DATA_DIR\\"}" >&2
     exit 1
     ;;
   *)
     rm -f "$TMP" 2>/dev/null || true
-    echo "subshell: server answered HTTP $HTTP for the agent download; nothing installed ($DEST untouched)." >&2
+    echo "subshell: server answered HTTP $HTTP for the node download; nothing installed ($DEST untouched)." >&2
     exit 1
     ;;
 esac
@@ -319,7 +319,7 @@ echo "==> enrolling with $SERVER"
 "$DEST" setup --server "$SERVER" --key "$KEY" \${SETUP_DATA_DIR_ARGS[@]+"\${SETUP_DATA_DIR_ARGS[@]}"} \${SETUP_SERVICE_ARGS[@]+"\${SETUP_SERVICE_ARGS[@]}"} \${SETUP_NAME_ARGS[@]+"\${SETUP_NAME_ARGS[@]}"}
 
 echo "==> done."
-echo "    the agent runs as the invoking user; no sudo needed (data lives in \${DATA_DIR:-the default agent data dir})."
+echo "    the node runs as the invoking user; no sudo needed (data lives in \${DATA_DIR:-the default node data dir})."
 # A piped-curl install is a distribution, and the recipient never sees a
 # LICENSE file: what lands is one bare binary. Naming the terms once here, and
 # pointing at the subcommand that prints them in full, is the only moment this

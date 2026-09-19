@@ -16,7 +16,7 @@ export interface Fact {
   tone?: Tone;
 }
 
-/** How each rung of the agent ladder reads to someone who has never met the CLI. */
+/** How each rung of the node-binary ladder reads to someone who has never met the CLI. */
 const SOURCE_LABEL: Record<AgentSource, string> = {
   env: "the SUBSHELL_AGENT_BIN environment variable",
   configured: "a binary you chose",
@@ -34,8 +34,8 @@ const SOURCE_LABEL: Record<AgentSource, string> = {
  * case by definition.
  */
 const AGENT_CHOICE_NOTE: Partial<Record<AgentChoice, string>> = {
-  "upgrade-available": " (newer than the installed agent)",
-  "adopt-installed": " (the installed agent is newer, so it is the one in use)",
+  "upgrade-available": " (newer than the installed node CLI)",
+  "adopt-installed": " (the installed node CLI is newer, so it is the one in use)",
 };
 
 /** `daemonAgeMs` as something readable, or null when the field is absent. */
@@ -62,7 +62,10 @@ export function probeFacts(args: {
   const svc = probe.service;
 
   if (probe.agent) {
-    out.push({ key: "agent", value: `${probe.agent.version ?? "version unknown"} (${probe.agent.argv.join(" ")})` });
+    out.push({
+      key: "node binary",
+      value: `${probe.agent.version ?? "version unknown"} (${probe.agent.argv.join(" ")})`,
+    });
     out.push({ key: "found via", value: SOURCE_LABEL[probe.agent.source] ?? probe.agent.source });
   }
   if (probe.bundledVersion) {
@@ -125,8 +128,8 @@ export function probeFacts(args: {
     } else if (svc.paneSafety === "unknown") {
       out.push({ key: "teardown", value: "unknown: the definition could not be read", tone: "warn" });
     }
-    // Where the agent's own output goes. macOS: the file the plist names, and
-    // the "Open the agent log" button reveals it. Linux: the journal, and the
+    // Where the node's own output goes. macOS: the file the plist names, and
+    // the "Open the node log" button reveals it. Linux: the journal, and the
     // row says so — the hint sentence is the Rust side's, not a copy here.
     if (probe.paths?.agentLog) out.push({ key: "logs", value: probe.paths.agentLog });
     else if (probe.paths?.agentLogHint) out.push({ key: "logs", value: probe.paths.agentLogHint });

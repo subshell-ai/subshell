@@ -15,7 +15,7 @@ names, component ids, tags, artifacts and prose alike:
 |---|---|---|
 | **server** | the control plane: the API, its database, the SPA it serves | a machine that runs agents |
 | **node** | a machine that runs agents — the `subshell` daemon | a user-facing app |
-| **client** | a human interface to a control plane — web, mobile, desktop | the node agent |
+| **client** | a human interface to a control plane — web, mobile, desktop | the node daemon |
 
 The rule that matters: **no word may name two things.** A change that
 reintroduces an overloaded word is a regression even when nothing breaks.
@@ -23,7 +23,7 @@ reintroduces an overloaded word is a regression even when nothing breaks.
 This replaced an earlier scheme in which `client` meant both "the node-agent
 side" and "the thing a human points at a control plane", so `apps/client/desktop`
 shipped as *Subshell Client* while being the node GUI, the real clients carried
-no client branding, and the `client-v*` tag published the agent binary. The full
+no client branding, and the `client-v*` tag published the node binary. The full
 argument is `docs/superpowers/specs/2026-09-07-app-vocabulary-design.md`.
 
 **Display labels are not vocabulary, and `local` is not a label** (spec
@@ -95,7 +95,7 @@ privileged lives on the bundled node page; see `apps/client/desktop/AGENTS.md`.
 `apps/server/web` is the SERVER's SPA and nothing else's, which is what the
 nesting says out loud. `apps/client/mobile` is a client because it is a person's
 interface to a control plane — it calls `/api/auth`, `/api/subshells`,
-`/api/nodes`, `/api/presets` and `/api/devices` and depends on no agent
+`/api/nodes`, `/api/presets` and `/api/devices` and depends on no node
 package — not because it is "a client of the API".
 
 **Directory names and component IDS are two different things.** `cli-server`,
@@ -111,7 +111,7 @@ product's three words it is. The CLI pair carried no form marker until
 2026-09-18 (`server`, `node`); renaming them to `cli-server` and `cli-node`
 also removed a real wart — `desktop-server-v` used to have `server-v` as a
 suffix, which both the TypeScript and the Rust tag parsers carried comments
-about. `client` as a component id stays RETIRED — it published the agent,
+about. `client` as a component id stays RETIRED — it published the node binary,
 which is the exact overload the vocabulary removes.
 
 Package names follow the same words: `@internal/server`, `@internal/server-web`,
@@ -170,7 +170,7 @@ execution data only: the launch carries the plane-built `argv` plus the
 binary-lookup `resolve` rule, and detection is the plane's `detect` command
 answering to a request, never a node-side scan. The plane asks on a page load,
 a Re-check, a launch, a node COMING ONLINE, and a periodic pass over the
-online agents; who may ask has grown, that only the plane asks has not.
+online nodes; who may ask has grown, that only the plane asks has not.
 
 The store seeds its built-ins once at boot, keyed on a **completion marker**,
 never on emptiness: an empty directory is an operator who uninstalled
@@ -217,7 +217,7 @@ instance.
 Subshell is dual-licensed, and the split is exactly the `server` grouping
 directory: **`apps/server/**` is AGPL-3.0-only**, **everything else is
 Apache-2.0**. The permissive half is permissive so third parties can write
-harness plugins, embed the node agent and build on `subshell-protocol` without
+harness plugins, embed the node CLI and build on `subshell-protocol` without
 copyleft; the AGPL covers the one piece a competitor would fork into a hosted
 service. Root `LICENSE` states the split; `apps/server/LICENSE` carries the
 AGPL text.
@@ -435,7 +435,7 @@ node enroll flow) are built separately from the app build. The release dance,
 from the repo root:
 
 ```bash
-bunx turbo build                          # 1. package dists the agent binary bundles
+bunx turbo build                          # 1. package dists the node binary bundles
 bun run release:cli-node                  # 2. compile:release — cross-build + atomic publish
 systemctl --user restart subshell-server.service     # 3. the server serves the new files
 ```
@@ -462,8 +462,8 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
   `subshell-server-cli-<triple>`), so a downloaded file says whether it is the
   CLI or the desktop app that wraps it. That makes republishing a DEPLOY-ORDER
   step, not a detail: an already-running instance's `node-artifacts` dir still
-  holds the old names, and every agent download 404s (`install.sh` says "this
-  server has no <target> agent binary published") until `release:cli-node`
+  holds the old names, and every node download 404s (`install.sh` says "this
+  server could not provide a <target> node binary") until `release:cli-node`
   publishes into it again. The installed binary names are unchanged — a
   downloaded artifact is still renamed to `subshell` on install.
 
@@ -586,7 +586,7 @@ file keyed by their identifier, so a shared string is a collision:
 
 **Those Linux directory names are not the CLIs'**, and that asymmetry is the
 point: `~/.config/subshell-server` is where the SERVER CLI keeps `config.env`
-(`apps/server/api/src/config-env.ts`) and `~/.config/subshell` is the node agent's
+(`apps/server/api/src/config-env.ts`) and `~/.config/subshell` is the node CLI's
 own config home (`apps/node/agent/src/config.ts`). A desktop app dropping
 `settings.json` into either would put two different programs' state in one
 directory, so each app prefixes `subshell-desktop-`. An identifier is an
@@ -866,7 +866,7 @@ which is why they share their own smoke, parameterized by app id.
   were built". The `.app` and `share/` directories a DMG build also fills stay
   intermediates and are never published.
   Each bundle SHIPS the CLI it wraps, so a desktop cut re-releases that CLI: a
-  server-only or agent-only fix does not reach desktop users until the matching
+  server-only or node-only fix does not reach desktop users until the matching
   desktop cut, which is why a security-relevant release should be dispatched as
   `app=all`.
 - **Never write a changeset for an `ignore`d package — it is inert and it

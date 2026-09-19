@@ -10,10 +10,10 @@ import type { RotatedNodeKey } from "@/types/node";
 /**
  * Rotate-key affordance for one node (spec 2026-08-31 §9): a manager-only
  * POST mints a replacement key, disables the old one and drops the live
- * agent. The plaintext arrives in the response EXACTLY ONCE — this component
+ * node. The plaintext arrives in the response EXACTLY ONCE — this component
  * holds it in state only, renders the reveal card (the setup-key dialog's
  * `CopyCommandRow` pattern), and forgets it on Done or on any node switch.
- * The rotate deliberately asks first: it disconnects a working agent until
+ * The rotate deliberately asks first: it disconnects a working node until
  * the operator re-configures it by hand.
  */
 export function NodeKeyRotate({

@@ -45,7 +45,7 @@ export function resetRows(status: StatusLike): { label: string; path: string }[]
   return [
     { label: "Database (users, sessions, API keys, the node signing keypair)", path: p.database as string },
     { label: "Pane logs (every transcript on disk)", path: p.logsDir as string },
-    { label: "Node artifacts (the agent binaries this plane serves)", path: p.nodeArtifacts as string },
+    { label: "Node artifacts (the node binaries this plane serves)", path: p.nodeArtifacts as string },
     { label: "Instance data directory", path: p.dataDir as string },
     { label: "Configuration", path: status.configEnv?.path as string },
   ];

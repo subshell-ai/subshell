@@ -3,7 +3,7 @@ title: Sharing a Node
 description: Let another user launch on your machine — and understand what every grant level actually confers.
 ---
 
-Sharing a node extends your machine's command surface to somebody else's workloads. That is the sentence to weigh before granting anything: a share does not open a folder or a view, it opens **launch**, and what a grantee launches runs on your hardware, under the OS user your agent runs as, with all the reach that implies. You, the owner, see grantees' work as a bare count — what they launch stays private to them unless they share it back — while admins resolve to edit on every subshell and the machine's own OS users see every pane. The asymmetries are exactly why the consequences deserve their own page.
+Sharing a node extends your machine's command surface to somebody else's workloads. That is the sentence to weigh before granting anything: a share does not open a folder or a view, it opens **launch**, and what a grantee launches runs on your hardware, under the OS user your node runs as, with all the reach that implies. You, the owner, see grantees' work as a bare count — what they launch stays private to them unless they share it back — while admins resolve to edit on every subshell and the machine's own OS users see every pane. The asymmetries are exactly why the consequences deserve their own page.
 
 ## The one asymmetry to know
 
@@ -14,14 +14,14 @@ The two levels:
 | Grant | What the grantee can do |
 |---|---|
 | **view** | Launch their own subshells on the machine. That is already "run arbitrary work here". |
-| **edit** | Everything above, plus configure the node: re-checks (re-probing for agent CLIs), the start / install / restart service controls and log reads on [the node's page](/nodes/managing-the-agent), debug-logging flips, and updates. |
+| **edit** | Everything above, plus configure the node: re-checks (re-probing for agent CLIs), the start / install / restart service controls and log reads on [the node's page](/nodes/managing-a-node), debug-logging flips, and updates. |
 
 Stays yours no matter what you grant:
 
 - **Sharing itself** — re-granting and revoking happens only from your node's page.
 - **Renaming** the node.
 - **Deleting** it, which revokes its key.
-- **`stop` and `uninstall`** of the agent — an edit grantee may interrupt a machine you were shared; making it unreachable until someone walks to it is a different act.
+- **`stop` and `uninstall`** of the node — an edit grantee may interrupt a machine you were shared; making it unreachable until someone walks to it is a different act.
 - **Repointing** it at a different control plane.
 - **Maintenance** and the **directory allowlist**.
 
@@ -39,7 +39,7 @@ The control plane's own machine ("the row named **Server**") starts out shared t
 
 Two disclosures run the other way, and both are deliberate:
 
-- A **`view` grantee may launch here without learning anything about the machine** — how it is supervised, where its files live, what its agent logs. That runtime detail appears only for the owner and for `edit` grantees.
+- A **`view` grantee may launch here without learning anything about the machine** — how it is supervised, where its files live, what it logs. That runtime detail appears only for the owner and for `edit` grantees.
 - The machine's **owner sees a count, not the work**: how many subshells are running there is visible to whoever manages the node, which is how an owner learns the price of maintenance or a revocation — but a grantee's subshells stay theirs unless they share them.
 
 And one disclosure neither of you controls: whoever owns the node's OS user at the machine — you, presumably — can read every pane launched there and the bearer token in each launch's arguments. A node share is therefore also a statement that the machine's local users are on your side.

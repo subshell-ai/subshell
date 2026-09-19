@@ -150,7 +150,7 @@ describe("registerSteps", () => {
 
   it("names each act the chain performs", () => {
     expect(registerSteps(probe(), "form").map((r) => [r.id, r.label])).toEqual([
-      ["install", "Install the agent"],
+      ["install", "Install the node"],
       ["enroll", "Enroll this machine"],
       ["start", "Start the node service"],
     ]);

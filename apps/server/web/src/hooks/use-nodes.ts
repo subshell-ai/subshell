@@ -38,7 +38,7 @@ export function useNodes({ polling = false }: { polling?: boolean } = {}) {
  * socket minutes ago, until someone navigated away and back.
  *
  * Cheap, unlike its server-side sibling. `GET /api/nodes/:id` is DB reads plus
- * an in-memory registry lookup for the live report; it never reaches the agent
+ * an in-memory registry lookup for the live report; it never reaches the node
  * and spawns nothing, where `GET /api/admin/server` runs `netstat` and the
  * service manager synchronously. That difference is why this one can poll
  * without a memo behind it.
@@ -94,7 +94,7 @@ export function useDeleteNode() {
 
 /**
  * Asks an agent node for a fresh harness inventory (`POST /api/nodes/:id/recheck`).
- * A success means the server attests the agent ACKNOWLEDGED the command — the
+ * A success means the server attests the node ACKNOWLEDGED the command — the
  * fresh snapshot lands asynchronously via the inventory event, so the
  * invalidation here may refetch the previous inventory; a later refetch picks
  * up the new one. Expected failures stay in the 409 family (`NODE_OFFLINE` /
@@ -137,8 +137,8 @@ export function useRenameNode(id: string) {
  * Rotates a node's bearer key (`POST /api/nodes/:id/rotate-key`) — manager-
  * only cookie call. The plaintext arrives ONCE in this response (only its
  * hash is stored); the caller shows it once and forgets it. The old key is
- * disabled and a live agent socket is evicted, so the node drops offline
- * until the operator re-configures the agent with the new key — the response
+ * disabled and a live node socket is evicted, so the node drops offline
+ * until the operator re-configures that machine with the new key — the response
  * `message` carries that guidance verbatim.
  */
 export function useRotateNodeKey(id: string) {
@@ -149,7 +149,7 @@ export function useRotateNodeKey(id: string) {
       void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] });
       void queryClient.invalidateQueries({ queryKey: NODES_QUERY_KEY });
       // Cross-domain (the useCreateSubshell pattern): the eviction drops the
-      // agent, which flips every subshell on this node to `nodeOffline` — the
+      // node, which flips every subshell on this node to `nodeOffline` — the
       // subshell list must learn that now, not on its next incidental refetch.
       void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
     },
@@ -261,15 +261,15 @@ export function useSetNodeAllowedDirs(id: string) {
  * Drive an enrolled node's service manager — start, stop, restart, install or
  * uninstall (spec 2026-09-12, node half).
  *
- * 409s carry the agent's own refusal: `NODE_OFFLINE`, `NODE_AGENT_TOO_OLD`,
+ * 409s carry the node's own refusal: `NODE_OFFLINE`, `NODE_AGENT_TOO_OLD`,
  * `NODE_NOT_SUPERVISED`, `NODE_NO_SERVICE`, and `NODE_RESTART_KILLS_PANES`
  * (which `{ force: true }` overrides — only for the verbs that can close a
  * subshell; the server refuses it on the others). `local` is a 400: the
  * control plane manages itself through `/api/admin/server/*` instead.
  *
  * **`stop` and `uninstall` are owner-only, and one-way from here.** A command
- * reaches a node over the agent's own socket, so nothing in this app can start
- * an agent that is not running — say so before asking for either.
+ * reaches a node over the node's own socket, so nothing in this app can start
+ * a node that is not running — say so before asking for either.
  */
 export function useNodeService(id: string) {
   const queryClient = useQueryClient();
@@ -284,8 +284,8 @@ export function useNodeService(id: string) {
     // this mutation used to write nothing back. The node detail query does NOT
     // poll, so "Install service" left the card showing "not installed" until
     // someone navigated away and back. `restart` is the one verb with its own
-    // waiter (the agent's socket has to return first); the rest are answered
-    // by the agent that is still connected, so a refetch now is correct.
+    // waiter (the node's socket has to return first); the rest are answered
+    // by the node that is still connected, so a refetch now is correct.
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] });
     },
@@ -293,7 +293,7 @@ export function useNodeService(id: string) {
 }
 
 /**
- * The debug-logging switch for one node's agent.
+ * The debug-logging switch for one node.
  *
  * Writes the fresh flag straight into the node cache on success rather than
  * refetching: the answer IS the new state, and the node detail query does not
@@ -316,7 +316,7 @@ export function useSetNodeLogging(id: string) {
 }
 
 /**
- * Read a slice of a node's own agent log.
+ * Read a slice of a node's own log.
  *
  * A byte RANGE rather than a tail, because the view polls: it holds an offset
  * and asks for what arrived since. `truncated` means the file was replaced at
@@ -336,7 +336,7 @@ export function useNodeLogSlice(id: string) {
  *
  * The address is validated server-side before the node is dialed, so an
  * unusable one is a 400 rather than a confusing 409 about a machine that is
- * merely offline. It takes effect on the agent's next restart, which this does
+ * merely offline. It takes effect on the node's next restart, which this does
  * not perform.
  */
 export function useSetNodeServerUrl(id: string) {

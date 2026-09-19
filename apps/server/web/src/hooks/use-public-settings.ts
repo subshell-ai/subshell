@@ -55,19 +55,19 @@ export interface PublicSettings {
   viewerIsAdmin: boolean;
   /**
    * Version of the SERVER app (its package.json). Per-app, not instance-wide:
-   * the server, the node agent and this bundle all version independently, so
+   * the server, the node CLI and this bundle all version independently, so
    * this is never "the subshell version".
    */
   serverVersion: string;
   /**
-   * Platform triples whose agent binary the server ACTUALLY serves under
+   * Platform triples whose node binary the server ACTUALLY serves under
    * `/api/downloads/node/*`. Optional because a cached PWA can outlive its
    * server: undefined = a server predating the field → the Nodes dialog
    * stays silent rather than nagging about a field it cannot verify.
    */
   nodeArtifactTargets?: string[];
   /**
-   * Whether the server downloads a MISSING agent binary from the project's own
+   * Whether the server downloads a MISSING node binary from the project's own
    * GitHub release the first time a machine asks for it.
    *
    * Optional, and defaulting to false at every use site, for the same reason

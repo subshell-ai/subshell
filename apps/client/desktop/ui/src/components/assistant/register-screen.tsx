@@ -72,7 +72,7 @@ export function RegisterScreen(props: {
   shell: FrameShell;
   probe: Probe | undefined;
   form: EnrollForm;
-  /** Runs the register chain — install the agent if needed, enroll, start the service. */
+  /** Runs the register chain — install the node if needed, enroll, start the service. */
   onRegister: () => void;
   /**
    * Leave the walk. Absent only where there is nowhere to go — see `app.tsx`,

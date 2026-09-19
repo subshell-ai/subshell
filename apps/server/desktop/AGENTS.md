@@ -332,7 +332,7 @@ does**, because that is what makes the rest of the system work unchanged:
   `performRestart`.
 
 It lives in this app rather than `crates/desktop-core` by the crate's own
-rule: Subshell Client's node agent has its own service and no equivalent mode,
+rule: Subshell Client's node CLI has its own service and no equivalent mode,
 so an abstraction here would be one real consumer and one guess.
 
 **Console output** goes to one file, truncated per spawn — the last run's
@@ -1524,7 +1524,7 @@ apps.
 `bundled_version()` reports, and only the app knows it, so it is the one way
 the SPA's Service page can offer an update. The group is optional, so a build
 that ships no server, Subshell Client (whose `SubshellClient/…` marker never
-carries one — it bundles a node agent) and every older shell
+carries one — it bundles a node CLI) and every older shell
 stay valid against the same regex; `DESKTOP_PROTOCOL` is unchanged by it.
 `user_agent_for` is the pure body, pinned by test.
 

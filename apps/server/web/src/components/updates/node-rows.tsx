@@ -28,7 +28,7 @@ export function rowState(row: NodeUpdateRow, fleet: Pick<NodeUpdates, "minAgentV
 }
 
 /**
- * The fleet: what every enrolled agent is running, and what it could run.
+ * The fleet: what every enrolled node is running, and what it could run.
  *
  * `local` is never here — the control-plane host's update IS the Server row
  * above, and listing it twice would offer two buttons for one act.

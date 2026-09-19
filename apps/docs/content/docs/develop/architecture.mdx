@@ -11,7 +11,7 @@ One Elysia process serves the browser, the agents, and the tooling on a single p
 
 ### Bundling is not opening
 
-`subshell mcp` is served from inside the compiled server binary (and the node agent's binary), and that binary also carries the whole boot graph for its other subcommands. The purity claim — that the MCP child holds no SQLite handle or auth secret — is not about what is *inside* the binary but about what the `mcp` code path *does*: its entry graph performs no IO at import. Two tests pin this as behavior rather than architecture-astronomy:
+`subshell mcp` is served from inside the compiled server binary (and the node CLI's binary), and that binary also carries the whole boot graph for its other subcommands. The purity claim — that the MCP child holds no SQLite handle or auth secret — is not about what is *inside* the binary but about what the `mcp` code path *does*: its entry graph performs no IO at import. Two tests pin this as behavior rather than architecture-astronomy:
 
 - `apps/server/api/src/__tests__/cli-entry.test.ts` runs the entry as a subprocess and asserts `mcp` without pane env exits with a clean contract refusal, **no database litter and no port bind**.
 - `apps/server/api/src/__tests__/auth-import-purity.test.ts` evaluates the auth module in a clean temp process and asserts it touches **no filesystem** — an auth handle that opened SQLite at module evaluation would leave a file where the probe can see it.
@@ -93,7 +93,7 @@ The control plane — not the node — owns which plugins exist: `apps/server/ap
 
 ### The MCP child — `packages/mcp-core/src/`
 
-This is the whole `subshell mcp` implementation, serving both the server binary's and the agent's `mcp` subcommand. It imports nothing outside node builtins plus `jose`, `zod`, and the MCP SDK — which is what makes the hermetic claim checkable by looking at a lockfile.
+This is the whole `subshell mcp` implementation, serving both the server binary's and the node's `mcp` subcommand. It imports nothing outside node builtins plus `jose`, `zod`, and the MCP SDK — which is what makes the hermetic claim checkable by looking at a lockfile.
 
 ```
 packages/mcp-core/src/
@@ -105,7 +105,7 @@ packages/mcp-core/src/
 ├── identity-store.ts    keypair persistence + principal-stamp guard
 ├── pin-store.ts         TOFU peer pins (peers.json)
 └── report.ts            the `<self> report …` out-of-band hook reporter —
-                         shared with the agent exactly as `mcp` is, because a
+                         shared with the node exactly as `mcp` is, because a
                          hook's machine may have no bun, only the binary
 ```
 

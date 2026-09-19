@@ -145,7 +145,7 @@ function NodeDetailPage() {
                     )}
                 </dd>
               </div>
-              {/* Agent facts, and `local` runs no agent — it is a launch
+              {/* Node facts, and `local` runs no node daemon — it is a launch
                   target the server drives in-process through `LocalLauncher`,
                   with no daemon, no socket and no enrollment. So `lastSeenAt`
                   is stamped by a connection that never happens and

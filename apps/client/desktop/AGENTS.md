@@ -10,7 +10,7 @@ control plane, a **node** is a machine that runs agents, a **client** is a human
 interface to a control plane. This app is a client that can also make its
 machine a node — which is why "node" appears all over it without contradiction:
 the machine it registers IS a node, the `node_*` commands act on it, the
-server's Nodes page lists it, and the sidecar stem names the agent it wraps.
+server's Nodes page lists it, and the sidecar stem names the node it wraps.
 
 It is the counterpart of `apps/server/desktop`, and the two are shaped alike:
 each has a window holding a remote page and a window holding its own bundled
@@ -276,7 +276,7 @@ bundle finds nothing, 100% of the time.
 **Why the `-bundled` suffix.** Tauri puts an `externalBin` in `/usr/bin` on
 Debian. A sidecar named `subshell` would own that name system-wide on every
 machine this app is installed on, and would collide with a hand-installed
-agent — which is exactly the file this app has to be able to tell apart from
+node — which is exactly the file this app has to be able to tell apart from
 its own.
 
 ## Identity — four strings that must differ from `apps/server/desktop`
@@ -356,7 +356,7 @@ here. (`src-tauri/src/tray.rs` is the ICON — builder, menu, ids;
 `desktop-core`'s `tray.rs` is the different question of whether an icon is
 drawn on this desktop at all.)
 
-## Installing the bundled agent is a TRANSACTION, not a copy
+## Installing the bundled node is a TRANSACTION, not a copy
 
 **`node_install_agent` has two paths, and the split is whether there is an
 installed CLI to ask** (spec 2026-09-15 § 7.1):
@@ -364,7 +364,7 @@ installed CLI to ask** (spec 2026-09-15 § 7.1):
 - **A REPLACE of the managed copy** (`probe.managed` — the binary this machine
   actually runs IS `~/.local/bin/subshell`) runs
   `<installed> update --from <staged sidecar> --yes --no-restart --json`. The
-  agent has no database, so this buys less than it does on the server side:
+  node has no database, so this buys less than it does on the server side:
   `<binary>.previous`, the `update-pending.json` marker, and the version probe
   that refuses a file which cannot say what it is. It is still the same code
   on every path, which is the point.
@@ -380,11 +380,11 @@ Two things went away with the stop, and neither was a loss:
   no-restart is unchanged — `--no-restart` says it — and since spec 2026-09-18
   § 7.1 the screen OFFERS the restart rather than telling the person to start
   something that was never stopped. `rename(2)` leaves the running process on
-  its original inode, so after a successful install the file is the new agent
+  its original inode, so after a successful install the file is the new node
   and the daemon is the old one, and nothing on screen used to say so.
 - **`node_install_agent` also settles the update marker.** It counts an
   attempt before the install and drops the marker after one that succeeded, so
-  every route into the agent half — the resumed act, the Retry the screen
+  every route into the node half — the resumed act, the Retry the screen
   offers once it has halted, and the status screen's own door — is bounded and
   finishing by the same code. An attempt is an attempt whoever asked for it.
 - **The flags are a CONTRACT, held in one place.**
@@ -392,16 +392,16 @@ Two things went away with the stop, and neither was a loss:
   tests pin the exact list; `update_argv` here is pinned against it, so this
   app can never spell one of them itself.
 
-**An agent older than the verb falls back to the plain copy, and SAYS so.**
-Every `subshell` agent that existed on 2026-09-15 predates `update` — 0.8.0 was
+**A node older than the verb falls back to the plain copy, and SAYS so.**
+Every `subshell` node that existed on 2026-09-15 predates `update` — 0.8.0 was
 cut before it was written — so without a fallback the app's offer would fail
 with a usage dump on exactly the upgrade it exists for. The fallback is
 `install_bundled`, the same `rename(2)` swap this path used before, and the
 screen carries `legacy_install_summary`'s sentence: *Installed 0.9.0 over
-0.8.0. No rollback point was recorded: the previous agent predates the update
+0.8.0. No rollback point was recorded: the previous node predates the update
 command, so this install cannot be undone automatically.*
 
-**It claims no missing DATABASE backup, unlike the server app's.** The agent
+**It claims no missing DATABASE backup, unlike the server app's.** The node
 has none, and its own `update` takes none either — so naming one would alarm
 about something that was never going to happen, which is the defect
 `RESET_LABEL`'s history documents at length. What this install really loses is
@@ -432,8 +432,8 @@ parse, the semver pick, the manifest URL, the 24-hour schedule — is
 
 Two facts specific to this app:
 
-- **The node agent is NOT touched by the app install itself**, which is why
-  the act has a second half. Replacing this app replaces the agent it BUNDLES,
+- **The node CLI is NOT touched by the app install itself**, which is why
+  the act has a second half. Replacing this app replaces the node it BUNDLES,
   which is a source to install FROM and is on no rung of the resolution ladder
   — so a running `subshell` daemon keeps running `~/.local/bin/subshell`
   whatever lands. See "Updating is one act" below for what finishes it.
@@ -457,20 +457,20 @@ unaffected.
 ## Updating is ONE act, in two phases
 
 Spec `docs/superpowers/specs/2026-09-18-one-update-act-design.md`. **This app
-SHIPS the agent it drives** — every desktop bundle carries the CLI it wraps
-(root `AGENTS.md`) — so "update Subshell Client" and "update the node agent"
+SHIPS the node it drives** — every desktop bundle carries the CLI it wraps
+(root `AGENTS.md`) — so "update Subshell Client" and "update the node CLI"
 were never independent: the second is the tail of the first. Until 2026-09-18
 they were two screens with two buttons whose names differed by a possessive,
 and the pair produced a loop that reads as a bug: update the app, and the next
-launch's probe sees a bundled agent newer than the installed one and asks
+launch's probe sees a bundled node newer than the installed one and asks
 again.
 
 There is one screen now, id **`update`** (`components/assistant/update-screen.tsx`,
 replacing `app-update-screen.tsx`). `app-update` is DELETED from `NodeScreenId`
 rather than aliased — this product has no installed base to keep compatible —
 so the tray emits `"update"` and an id this build does not know is ignored, as
-it always was. The status screen's **"Update the agent to X"** stays where it
-is, because that is the natural place to notice the agent is behind, but it is
+it always was. The status screen's **"Update the node to X"** stays where it
+is, because that is the natural place to notice the node is behind, but it is
 a DOOR to this screen rather than a standalone install (§ 7.4). Beside it sits
 **"Check for updates…"**, the same door for a machine that knows of nothing
 behind — and it is HIDDEN while the first one shows, because two adjacent
@@ -536,7 +536,7 @@ rule is now the shared one: **an attempt is counted at the FIRE**, in
 offers `--force` behind it and points at *Rewrite the service definition*. The
 pane-safety sentence lives THERE and not on the install: the swap is a
 `rename(2)` a running daemon never notices, so nothing about installing an
-agent can close a subshell, while the restart can. Whether to offer it is page
+node can close a subshell, while the restart can. Whether to offer it is page
 state (`installedAgentHere`), the `ranSetupHere` pattern, because the running
 daemon's version is not something any probe here can read.
 
@@ -544,7 +544,7 @@ One shape in `update-screen.tsx` is a fix for a measured defect rather than a
 style: the press records the `runner.output` it saw, and a verdict is read only
 once a DIFFERENT one arrives. `runner.run`'s `isPending` does not land in the
 same commit as the press, so an effect guarded on `busy` alone ran once with
-the previous action's output still in place — and read the agent install's
+the previous action's output still in place — and read the node install's
 success as the restart's, retiring the offer nobody had taken.
 
 **It is a SELECTION, not always both halves** (§ 13, 2026-09-18). One act is a
@@ -565,25 +565,25 @@ defects above:
   `upToDate` and `settled` read — and where anything is, BOTH components are
   stated. Asked as two separate gates it could drop a component from a table
   its sibling had opened (review, 2026-09-18): an air-gapped check beside a
-  current agent said nothing about the agent, a current app beside a behind
-  agent said nothing about the app. Subshell Server states both rows
+  current node said nothing about the node, a current app beside a behind
+  node said nothing about the app. Subshell Server states both rows
   unconditionally because it has no empty-table state to protect; this is the
   same rule with one.
 - **A row with an available act carries a checkbox, ticked by default**, so
   both halves behind is still ONE press. That default is D1 unchanged.
 - **A row with no available act states WHY where its checkbox would be** —
   *runs another binary*, *you run a newer one*, *this build does not say which
-  agent it ships*, *up to date*, *cannot be checked* — and **never a disabled
+  node it ships*, *up to date*, *cannot be checked* — and **never a disabled
   checkbox**, which says "not now" without saying anything. (*installs with the
   app* was one of these until 2026-09-18; that row is a checkbox now, and its
   target cell is what says so.)
 - **Both halves are checkboxes, on either footing.** Under an app press the
-  agent half is that act's TAIL — the agent that lands is the NEW bundle's,
+  node half is that act's TAIL — the node that lands is the NEW bundle's,
   whose version this build cannot know, so the cell reads "ships with the new
   app" rather than a number — but it is still a choice: clearing it makes
   `node_install_app_update(install_agent: false)` write NO marker, so phase 2
   never runs and a deliberately older `~/.local/bin/subshell` survives the app
-  update. Untick the app instead and the agent row becomes an act of its own,
+  update. Untick the app instead and the node row becomes an act of its own,
   with the number in hand.
 
   It was not a choice until review on 2026-09-18, and the reason recorded for
@@ -591,7 +591,7 @@ defects above:
   true of the command as written and was filed as a structural fact. Subshell
   Server had already disproved it — it makes the marker's PRESENCE the
   selection — so what the sentence actually described was one missing boolean.
-- **Every sentence promising the agent half reads off `pressInstallsAgent`**,
+- **Every sentence promising the node half reads off `pressInstallsAgent`**,
   including the air-gapped refusal's "can still be installed". A promise that
   outlives the half it describes is the defect, not the act.
 
@@ -603,7 +603,7 @@ Subshell Server's screen, would be a promise of the same kind. A test pins its
 absence.
 
 The same amendment added one refusal that is not cosmetic: a marker on a
-machine running a NEWER agent is dropped here as well as in Rust, because
+machine running a NEWER node is dropped here as well as in Rust, because
 § 13.2 forbids installing an older bundled CLI over a newer installed one under
 any consent — and an auto-firing marker is a consent given before the machine
 was in that state.
@@ -669,7 +669,7 @@ the `node` window alone:
   own button afterwards.
 
 `node_service` also gained `autostart` beside `force` — `false` spells
-`--no-autostart`, the flag the node agent gained on the same day. The Rust side
+`--no-autostart`, the flag the node CLI gained on the same day. The Rust side
 refuses to pass it on any verb but `install`, exactly as it refuses `--force`
 anywhere but `restart`: the CLI's flag allowlists are per-subcommand, so the
 wrong pairing is a usage error rather than a no-op.
@@ -715,7 +715,7 @@ boots into it opens the screen once per launch to finish the act (see
 folds "nothing on the ladder answered" and "a binary answered `version` but not
 `status --json`" into one step on purpose (control.rs says why). Where nothing
 answered, installing is safe unconfirmed and is offered ON ITS OWN — not folded
-into Register, because a machine with no agent cannot say whether it is already
+into Register, because a machine with no node cannot say whether it is already
 a node and the register chain enrols with `confirm: true`. Where a binary
 answered but could not report, NOTHING is offered: the remedy is a different
 binary. Registering is also withheld over a probe that could not be read at all
@@ -764,14 +764,14 @@ by any of that:
   remedy (the path it will appear at, plus the `journalctl` command on Linux),
   and the facts list also shows the log location so it is readable without
   clicking.
-- **`agent-log` resolves the agent's OWN capped file first**, on every
+- **`agent-log` resolves the node's OWN capped file first**, on every
   platform (2026-09-18) — `~/.config/subshell/logs/agent.log`, the same
   JSON-lines file the plane's node log view serves, so revealing a log here
   and reading one in a browser cannot land on two different documents. That is
   the order `apps/server/desktop`'s `desktop_logs` reads the server's log in,
   for the same reason. The service manager's redirect is the FALLBACK and a
   genuinely different artifact: `~/Library/Logs/subshell.log` holds the raw
-  stdout of an agent that died before opening its own file (Linux has no such
+  stdout of a node that died before opening its own file (Linux has no such
   file — the unit redirects nothing, so the fallback is the journal sentence).
   A rung counts only when it has CONTENT, not merely when it exists, because
   the capped writer truncates to zero and starts over — the same rule
@@ -795,7 +795,7 @@ by any of that:
 - **The manager row says what the manager said.** `probe-facts` appends the
   service `detail` verbatim (`launchd: spawn scheduled` is the crash-throttle
   wait) and paints `state: unknown` bad — a manager that would not answer is
-  not the same fact as a stopped agent.
+  not the same fact as a stopped node.
 
 ## Text size is Rust's, not the page's
 
@@ -904,9 +904,9 @@ that lies.
 **the page supplies a hostname, never a path.**
 
 `node_arm_reset` reads the machine NOW and stashes a delete plan parsed from the
-agent's own `subshell status --json` `paths` block; `node_reset` deletes exactly
+node's own `subshell status --json` `paths` block; `node_reset` deletes exactly
 that, gated on the typed hostname. The plan is stashed at press time rather than
-re-read inside the chain because the chain UNINSTALLS the very agent whose
+re-read inside the chain because the chain UNINSTALLS the very node whose
 report names those paths — re-reading afterwards would be asking a removed
 binary where its own data lived.
 
@@ -966,9 +966,9 @@ would take it), and a Subshell Server on the same machine is untouched.
   input, at which point delete both.
 - **`subshell status` exits 1 whenever the node is offline.** The exit code is a
   hint; the JSON body on stdout is the answer. Treating non-zero as "the command
-  failed" turns every stopped agent into an error dialog.
+  failed" turns every stopped node into an error dialog.
 - **`subshell status --probe` is destructive.** The control plane's node registry
-  is newest-wins, so a probe supersede-kicks a live agent (close 4409) —
+  is newest-wins, so a probe supersede-kicks a live node (close 4409) —
   possibly one running on another machine for the same node. Nothing in this app
   may call it: not on a timer, not behind a button.
 - **`enroll` has no already-enrolled guard.** It overwrites `config.json`, mints
@@ -1021,10 +1021,10 @@ would take it), and a Subshell Server on the same machine is untouched.
   installed service for the same node; both restart on exit, so they flap.
   **Never spawn `subshell mcp`** — it is per-pane internal plumbing.
 - **`SUBSHELL_CONFIG_HOME` is scrubbed from the process at startup**, because
-  the service definition bakes only PATH: an agent enrolled under a relocated
+  the service definition bakes only PATH: a node enrolled under a relocated
   config home is started by a service that looks in `~/.config/subshell`, finds
   nothing, and crash-loops silently.
-- **Restarting the agent can kill every pane on this machine.** A node runs its
+- **Restarting the node can kill every pane on this machine.** A node runs its
   subshells' tmux servers as CHILDREN of its own unit, so a definition without
   `KillMode=process` / `AbandonProcessGroup` takes them all down. The CLI
   refuses such a restart without `--force`; surface the refusal and make the
