@@ -309,7 +309,7 @@ mod tests {
 
     /// Deliberately not exercised by mutating the environment: `unsetenv` is
     /// not safe against a concurrent `getenv`, and cargo runs these tests in
-    /// parallel with ones that read `HOME`, `PATH` and `SUBSHELL_AGENT_BIN`.
+    /// parallel with ones that read `HOME`, `PATH` and `SUBSHELL_NODE_BIN`.
     /// What is worth pinning is the NAME — the variable whose inheritance
     /// produces an agent that enrolls into one directory and is then started
     /// by a service that reads another.

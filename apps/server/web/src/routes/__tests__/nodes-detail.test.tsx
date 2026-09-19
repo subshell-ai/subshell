@@ -43,6 +43,16 @@ function enrolledNode(overrides: Partial<NodeDetail> = {}): NodeDetail {
   };
 }
 
+/**
+ * The control-plane host's own row — `kind: "local"`, which is what several
+ * facts on this page branch on. Its own builder rather than an override on
+ * {@link enrolledNode}, because a fixture called "enrolled" that is handed
+ * `kind: "local"` says the opposite of what it builds.
+ */
+function localNode(overrides: Partial<NodeDetail> = {}): NodeDetail {
+  return enrolledNode({ id: "local", kind: "local", ...overrides });
+}
+
 interface Call {
   method: string;
   url: string;
@@ -151,7 +161,7 @@ describe("NodeDetailPage re-check gating", () => {
   });
 
   it("never offers Re-check on the local node (its probe is live on every read)", async () => {
-    const { restore } = mockFetch(enrolledNode({ id: "local", kind: "local", access: "owner", canManage: true }));
+    const { restore } = mockFetch(localNode({ access: "owner", canManage: true }));
     try {
       renderDetail("local");
       await screen.findByText("Your access");
@@ -169,7 +179,7 @@ describe("NodeDetailPage re-check gating", () => {
    * going to answer.
    */
   it("omits the node-only facts on the local node, and keeps them on an enrolled node", async () => {
-    const local = mockFetch(enrolledNode({ id: "local", kind: "local", access: "owner", canManage: true }));
+    const local = mockFetch(localNode({ access: "owner", canManage: true }));
     try {
       renderDetail("local");
       await screen.findByText("Your access");
@@ -184,14 +194,14 @@ describe("NodeDetailPage re-check gating", () => {
 
     cleanup();
 
-    const agent = mockFetch(enrolledNode());
+    const enrolled = mockFetch(enrolledNode());
     try {
       renderDetail("node1");
       await screen.findByText("Your access");
       expect(screen.getByText("Last seen")).toBeDefined();
       expect(screen.getByText("Node version")).toBeDefined();
     } finally {
-      agent.restore();
+      enrolled.restore();
     }
   });
 });
@@ -219,7 +229,7 @@ describe("NodeDetailPage rename (owner-only PATCH)", () => {
     // The control-plane host's row used to be unrenameable for everyone, which
     // left "Local" reading as the viewer's own machine (spec 2026-09-08). Its
     // `canManage` resolves to admin server-side, so that is the whole gate.
-    const { restore } = mockFetch(enrolledNode({ id: "local", kind: "local", canManage: true }));
+    const { restore } = mockFetch(localNode({ canManage: true }));
     try {
       renderDetail("local");
       await screen.findByText("Your access");
@@ -230,7 +240,7 @@ describe("NodeDetailPage rename (owner-only PATCH)", () => {
   });
 
   it("does not render the editor for `local` when the viewer does not manage it", async () => {
-    const { restore } = mockFetch(enrolledNode({ id: "local", kind: "local", access: "edit", canManage: false }));
+    const { restore } = mockFetch(localNode({ access: "edit", canManage: false }));
     try {
       renderDetail("local");
       await screen.findByText("Your access");

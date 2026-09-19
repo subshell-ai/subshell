@@ -18,7 +18,7 @@ export interface Fact {
 
 /** How each rung of the node-binary ladder reads to someone who has never met the CLI. */
 const SOURCE_LABEL: Record<NodeSource, string> = {
-  env: "the SUBSHELL_AGENT_BIN environment variable",
+  env: "the SUBSHELL_NODE_BIN environment variable",
   configured: "a binary you chose",
   service: "the installed service definition",
   "local-bin": "~/.local/bin",

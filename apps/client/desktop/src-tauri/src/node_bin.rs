@@ -45,7 +45,7 @@ pub const NODE_SIDECAR: SidecarSpec = SidecarSpec {
 /// The desktop app's own override for the resolved agent. Unknown to the CLI —
 /// it exists so a developer running `tauri dev` can point the app at a repo
 /// build without installing anything.
-const NODE_BIN_ENV: &str = "SUBSHELL_AGENT_BIN";
+const NODE_BIN_ENV: &str = "SUBSHELL_NODE_BIN";
 
 /// The systemd user unit `apps/node/agent/src/service.ts` installs.
 ///
