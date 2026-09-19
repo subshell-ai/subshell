@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TmuxRunner } from "@internal/pane-runtime";
+import { getHarness, TmuxRunner } from "@internal/pane-runtime";
 import { CamelCasePlugin, Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
 import * as initMigration from "@/db/migrations/0001-init.js";
@@ -118,7 +118,7 @@ afterAll(() => {
 });
 
 describe("pane titling — who gets --name", () => {
-  it("create without a user name: no --name in the pane command, row keeps the date/time placeholder", async () => {
+  it("create without a user name: no --name in the pane command, row takes the AGENT's name", async () => {
     const created = await manager.createSubshell({
       userId: "u1",
       harnessId: "claude-code",
@@ -128,8 +128,13 @@ describe("pane titling — who gets --name", () => {
     const cmd = tmux.newSubshellCmds[0] ?? "";
     expect(cmd).not.toContain("'--name'");
     const row = await subshells.findById(created.id);
-    expect(row?.name).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
-    // The env is the once-at-launch display name and still carries the placeholder.
+    // The agent's display name, not the date/time it used to be (operator's
+    // call, 2026-09-19): it is what a person reads while the pane starts, and
+    // it is where a title the sweep REFUSES to adopt — a terminal capability
+    // query — leaves the row sitting.
+    expect(row?.name).toBe(getHarness("claude-code")?.name);
+    expect(row?.name).not.toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    // The env is the once-at-launch display name and carries the same.
     expect(cmd).toContain(`SUBSHELL_NAME='${row?.name}'`);
   });
 
@@ -227,6 +232,80 @@ describe("normalizePaneTitle", () => {
     // intermediate byte goes with the ESC rather than surviving as a stray `(`.
     expect(norm("\x1b(")).toBe("");
     expect(norm("title \x1b(")).toBe("title");
+  });
+
+  /**
+   * The introducer is not always there to sweep (operator's screenshot,
+   * 2026-09-19 — the SAME payload, reported as still happening after the fix
+   * above shipped). tmux stores a DECODED `pane_title`, so what reaches us can
+   * be the payload alone, and then there is no escape sequence left to remove.
+   * Measured against the real function before the fix: the two ESC-bearing
+   * forms normalized to "" and `_Gi=31,…;AAAA` survived intact.
+   */
+  it("drops a Kitty payload whose introducer never reached us", () => {
+    expect(norm("_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA")).toBe("");
+    // And with the `_` gone too, which is what the punctuation trim leaves.
+    expect(norm("Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA")).toBe("");
+  });
+
+  /**
+   * The payload rule is narrow deliberately, because it recognises a SHAPE
+   * rather than a sequence and a wrong guess eats a real title. These are the
+   * neighbours it must not touch.
+   */
+  /**
+   * The payload rule recognises a SHAPE, so every clause of it is really a
+   * promise about titles it will NOT eat. The first version made that promise
+   * far too broadly (review, 2026-09-19): one pair, any non-`,;` value and an
+   * empty tail all counted, so `task=Fix the login bug;` and `PATH=/usr/bin;ls`
+   * normalized to "". Every string below was measured against the real
+   * function and eaten before the rule was narrowed.
+   */
+  it("keeps titles that merely contain `=` or `;`", () => {
+    expect(norm("FOO=bar")).toBe("FOO=bar");
+    expect(norm("one; two")).toBe("one; two");
+    expect(norm("npm run dev -- --port=3000")).toBe("npm run dev -- --port=3000");
+    expect(norm("a=1, b=2 and then some prose")).toBe("a=1, b=2 and then some prose");
+    // No `;`, so not the payload shape — requiring it is what keeps an
+    // ordinary assignment-looking title safe.
+    expect(norm("i=31,s=1")).toBe("i=31,s=1");
+  });
+
+  it("keeps a ONE-pair title, whatever follows the semicolon", () => {
+    // Two pairs minimum. A shell one-liner is the commonest shape here and
+    // every one of these was eaten by the first version.
+    for (const title of [
+      "PATH=/usr/bin;ls",
+      "TZ=UTC;date",
+      "PORT=3000;bun",
+      "host=db;psql",
+      "tag=v1.2.3;deploy",
+      "branch=feat/qr;push",
+      "q=hello;",
+    ]) {
+      expect(norm(title)).toBe(title);
+    }
+  });
+
+  it("keeps a title whose value contains a space", () => {
+    // No whitespace in a value. A machine payload has none; prose has little
+    // else.
+    expect(norm("name=My Project;")).toBe("name=My Project;");
+    expect(norm("task=Fix the login bug;")).toBe("task=Fix the login bug;");
+    expect(norm("a=one two,b=three four;AAAA")).toBe("a=one two,b=three four;AAAA");
+  });
+
+  it("keeps a two-pair title with no real tail after the semicolon", () => {
+    // At least four base64 characters. An empty or stubby tail is prose.
+    expect(norm("a=1,b=2;")).toBe("a=1,b=2;");
+    expect(norm("a=1,b=2;go")).toBe("a=1,b=2;go");
+  });
+
+  it("still drops the payload spelled in base64url", () => {
+    // `-` and `_` are the base64url alphabet's two substitutions, and the
+    // first version's tail class omitted them — so the same payload survived
+    // by being spelled differently.
+    expect(norm("Gi=31,s=1,v=1,a=q,t=d,f=24;AA-_BB")).toBe("");
   });
 
   it("drops an OSC string whole", () => {

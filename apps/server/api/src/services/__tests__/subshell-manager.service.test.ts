@@ -741,9 +741,31 @@ describe("buildHarnessCommand", () => {
     expect(cmd).toContain("QT='abc'\\''def'");
   });
 
-  it("defaults subshell name to current datetime", () => {
-    const name = defaultSubshellName();
-    expect(name).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  /**
+   * The AGENT's name, not the date/time (operator's call, 2026-09-19). It is
+   * what a person reads while a pane starts, which is when "what is this" is
+   * the question — and it is where a rejected garbage title lands, since the
+   * sweep leaves the name alone for one it will not adopt.
+   */
+  it("defaults an unnamed subshell to the agent's own name", () => {
+    expect(defaultSubshellName("Claude Code")).toBe("Claude Code");
+    expect(defaultSubshellName("  Terminal  ")).toBe("Terminal");
+  });
+
+  /**
+   * UNREACHABLE through the plugin loader, deliberately kept (review,
+   * 2026-09-19). `parseManifest` refuses a `subshell.name` that is missing or
+   * blank (`packages/plugin-api/src/manifest.ts`), so no installed plugin can
+   * reach this branch — the guard is here because the cost of being wrong is
+   * a subshell with an EMPTY name, which is unreadable in every list it
+   * appears in, and the cost of the guard is four lines.
+   *
+   * Pinned rather than deleted so the branch is described rather than merely
+   * present; if the manifest rule ever loosens, this is already correct.
+   */
+  it("falls back to the date/time for a blank name the manifest parser would refuse", () => {
+    expect(defaultSubshellName("")).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(defaultSubshellName("   ")).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
   });
 
   it("parses a preset row's JSON blobs into a preset", () => {

@@ -220,6 +220,40 @@ export interface UpdateActInput {
 }
 
 /** The screen's title — one act, one name, on every phase. */
+/**
+ * Whether the screen's way out must be held shut, because an install is
+ * actually running behind it (review, 2026-09-18).
+ *
+ * The leave is `host.close()`, and on a ready machine that reaches
+ * `openWhenReady` → `open_main`, which DESTROYS the assistant window. So
+ * pressing it mid-install takes the progress, the failure line and the phase-2
+ * screen with it, and the `app.restart()` that follows arrives explained by
+ * nothing. The old screen gated its **Later** button for exactly this reason
+ * and left **Not Now** — the same `host.close()` — ungated beside it.
+ *
+ * Two flags, and only two:
+ *
+ * - `busy` is the host's action-in-flight, set by `act()` around phase 2's
+ *   install-and-restart.
+ * - a `state` of `downloading` or `installing` is phase 1's app half. Only
+ *   `downloading` is reachable from this screen today — nothing sets
+ *   `installing` — but the union carries it, and a rule named for holding a
+ *   window shut during an install must not be the thing that lets one
+ *   through the day something does.
+ *
+ * A **check** deliberately does not gate: it is a bounded network read, and
+ * leaving during one costs nothing. Neither flag can stick — `startAppUpdate`'s
+ * catch resets the state and `act`'s `finally` clears `busy` — so a FAILED
+ * install releases the button rather than stranding someone on a dead screen,
+ * which is the trap a gate keyed on the phase (`finishing`) would have set.
+ *
+ * @param input - The two live flags the screen holds
+ * @returns True while the leave must be inert
+ */
+export function leaveHeld(input: { busy: boolean; state: ActState }): boolean {
+  return input.busy || input.state === "downloading" || input.state === "installing";
+}
+
 export const UPDATE_TITLE = "Update Subshell Server";
 
 /** Where the bundled server is installed; a constant here, resolved in Rust. */

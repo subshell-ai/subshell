@@ -24,7 +24,6 @@
  * is trying to repair.
  */
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { copyButton } from "./assistant/copy-button";
 import { type AssistantHost, el, errText } from "./assistant/host";
@@ -66,6 +65,7 @@ import {
 } from "./lib/settings-screen";
 import {
   type ActState,
+  leaveHeld,
   NO_SELECTION,
   rejectedResult,
   UPDATE_TITLE,
@@ -83,6 +83,7 @@ import {
   handoffView,
   isRequestedScreen,
   lastLine,
+  leaveLabel,
   MIN_AUTOSTART_SERVER_VERSION,
   permissionsAfterSetup,
   prereqState,
@@ -1753,32 +1754,64 @@ function renderUpdate(p: Probe): void {
     afterRender(() => void finishUpdate(p, forced));
   }
 
-  el("bar-left").append(button("Not Now", () => host.close(), "ghost"));
+  // **ONE dismissal, and it is `host.close()`** (operator's call,
+  // 2026-09-18). This screen carried two: **Not Now**, which left the screen
+  // for whatever the probe implies, and **Later** (spec 2026-09-17 § 5.4),
+  // which closed the window outright. In code they were different acts; on
+  // screen they were two ghost buttons a few words apart saying the same
+  // thing, and nothing told a reader which was which.
+  //
+  // The survivor is the leave, not the close, because it is right from every
+  // door this screen has. On a ready machine leaving lands on the handoff,
+  // which opens the dashboard — and `open_main` closes this window itself, so
+  // what a person sees is the window going away, exactly what **Later** did.
+  // From the RECOVERY screen's link there is somewhere to go back TO, and
+  // closing the window would have thrown that away. Neither meaning is lost
+  // and the surviving one cannot strand anybody.
+  //
+  // The update itself stays exactly where it is either way: no state, no
+  // snooze. The dismissal that DOES exist lives per app run in the SPA row's
+  // sessionStorage, and the tray item is not dismissed away at all — it is a
+  // request surface, not a notification.
   // Hidden while anything is in flight: re-checking mid-act asks a question
-  // nothing will read, and closing this window out from under a running
-  // download is how the app would quit mid-update.
+  // nothing will read. Ghost and left of Close, the seat Restart takes beside
+  // Save on Server Addresses — the secondary act next to the one the screen
+  // ends on.
   if (updateState === "idle" && !busy && view.phase !== "finishing") {
     el("bar-right").append(button("Check Again", () => void runUpdateCheck(true), "ghost"));
-    // **Later** (spec 2026-09-17 § 5.4): the update stays exactly where it
-    // is, and so does this window's part in remembering it — no state, no
-    // snooze. The dismissal that DOES exist lives per app run in the SPA
-    // row's sessionStorage, and the tray item is not dismissed away at all:
-    // it is a request surface, not a notification.
-    el("bar-right").append(button("Later", () => void closeAssistantWindow(), "ghost"));
   }
-}
-
-/**
- * Close this window through the Tauri core window API — the one page action
- * that is about the WINDOW rather than the machine, which is why it goes
- * around `lib/ipc.ts`: the exact-set pins there are about the `desktop_*`
- * commands, and this invokes no command of ours. The grant lives in
- * `capabilities/wizard.json` (`core:window:allow-close`), and
- * `ipc-acl.test.ts` pins the wizard window's core grants to exactly
- * `core:default` plus it.
- */
-function closeAssistantWindow(): void {
-  void getCurrentWindow().close().catch(setProblem);
+  // **Close is this screen's PRIMARY, in the Save seat** (operator's call,
+  // 2026-09-18). Every other requested screen ends on a filled button at the
+  // bottom right — Save on Server Addresses and How Your Server Runs, Reset on
+  // Reset — with a ghost Back on the left for the way out. This screen has no
+  // such split: its act is the big press in the CONTENT, so the bar's only job
+  // is the way out, and putting that in the ghost-left seat left the filled
+  // seat empty and made the one footer button the faintest thing in the frame.
+  //
+  // It is `host.close()`, which is what Back does everywhere else — leave the
+  // screen for whatever the probe implies. On a ready machine that lands on the
+  // handoff, which opens the dashboard and closes this window; from the
+  // recovery screen's link it goes back to recovery.
+  //
+  // **DISABLED while an install is actually running** (review, 2026-09-18), and
+  // the reason is the sentence this comment used to get wrong. It claimed
+  // leaving cancels nothing because the download continues in Rust — true of
+  // the download, false of everything the person needs: on a ready machine
+  // `host.close()` reaches `openWhenReady` → `open_main`, which DESTROYS this
+  // window, so the progress, the failure line and the phase-2 screen all go
+  // with it and the eventual `app.restart()` arrives explained by nothing.
+  //
+  // This was live before the consolidation and is not a new hole: **Later**
+  // was gated for exactly this ("closing this window out from under a running
+  // download is how the app would quit mid-update") while **Not Now**, which
+  // called `host.close()`, never was — and on a ready machine the two ended
+  // the same window. Keeping the ungated one is what made an old hole into a
+  // claim that there was none.
+  //
+  // Disabled rather than hidden, which is also how Subshell Client's copy of
+  // this screen does it: a control that vanishes mid-act reads as a page that
+  // lost a button. `leaveHeld` owns which flags hold it and why.
+  el("bar-right").append(button("Close", () => host.close(), "primary", leaveHeld({ busy, state: updateState })));
 }
 
 /**
@@ -1856,12 +1889,13 @@ function renderPermissions(p: Probe): void {
     ul.append(li);
   }
   content.append(ul);
-  // Two doors, and the button says which one it came through. From a
-  // dashboard notice there is somewhere to go back TO, and Back drops the
-  // screen for whatever the probe implies. From the ready handoff there is
-  // not: this window's whole remaining job is to open the dashboard, so the
+  // Two doors, and the button says which one it came through. From the ready
+  // handoff this window's whole remaining job is to open the dashboard, so the
   // press is a Continue that does it — a "Back" there would be the button
-  // lying about where it leads.
+  // lying about where it leads. Every OTHER door falls through to the shared
+  // ghost below, whose word `leaveLabel` picks by the same argument: this
+  // screen made the distinction by hand first, and that reasoning is now the
+  // rule for the leave every requested screen shares.
   if (permissionsAfterHandoff) {
     el("bar-right").append(
       button(
@@ -1875,7 +1909,7 @@ function renderPermissions(p: Probe): void {
     );
     return;
   }
-  el("bar-left").append(button("Back", () => host.close(), "ghost"));
+  el("bar-left").append(button(leaveLabel(p, p.onboarded), () => host.close(), "ghost"));
 }
 
 /**
@@ -2043,7 +2077,7 @@ function renderSupervision(p: Probe): void {
 
   const current = { background: p.supervision !== "app", autostart: p.service?.enabled === true };
   const unchanged = current.background === chosen.background && current.autostart === chosen.autostart;
-  el("bar-left").append(button("Back", () => host.close(), "ghost"));
+  el("bar-left").append(button(leaveLabel(p, p.onboarded), () => host.close(), "ghost"));
   el("bar-right").append(
     button(
       "Apply",
@@ -2124,7 +2158,7 @@ function renderSettings(p: Probe): void {
       content.append(text("p", why, "hint warn-text"));
       content.append(text("p", SETTINGS_BLIND_WARNING, "hint"));
     }
-    el("bar-left").append(button("Back", () => host.close(), "ghost"));
+    el("bar-left").append(button(leaveLabel(p, p.onboarded), () => host.close(), "ghost"));
     if (why !== null && p.error !== null) {
       el("bar-right").append(
         button(
@@ -2207,7 +2241,7 @@ function renderSettings(p: Probe): void {
 
   const refusal = settingsSaveRefusal(p, settingsBlind);
   const locked = busy || running;
-  el("bar-left").append(button("Back", () => host.close(), "ghost"));
+  el("bar-left").append(button(leaveLabel(p, p.onboarded), () => host.close(), "ghost"));
   if (refusal !== null) el("bar-right").append(text("span", refusal, "reason"));
   // Restart is offered whatever the form holds: someone who reached this screen
   // because their server is unreachable may have nothing to save and still need

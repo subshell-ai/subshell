@@ -129,7 +129,9 @@ describe("CreatePresetDialog — locked (launch form)", () => {
             flags: [],
             settings: {},
             configIsolation: false,
-            restartOnExit: false,
+            // ON by default since 2026-09-18 — a preset is a way of running
+            // something repeatedly, so recovering from an exit is expected.
+            restartOnExit: true,
           },
         }),
       );

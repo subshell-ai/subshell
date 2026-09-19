@@ -1,101 +1,79 @@
-import { ArrowUpCircle, X } from "lucide-react";
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { useNavigate } from "@tanstack/react-router";
+import { VersionRow } from "@/components/sidebar/version-row";
 import { useDesktopAppUpdate } from "@/hooks/use-desktop-app-update";
+import { usePublicSettings } from "@/hooks/use-public-settings";
 import { desktopInvoke } from "@/lib/desktop";
-import { appUpdateRowVisible, readDismissedAppUpdate, rememberAppUpdateDismissal } from "@/lib/desktop-app-update";
+import { appUpdateNotice } from "@/lib/desktop-app-update";
 
 /**
- * The footer row that says the APP hosting this page has a newer build (spec
- * 2026-09-17 §5.3).
+ * The footer row naming the APP hosting this page, with a dot when a newer
+ * build exists (spec 2026-09-17 §5.3; one line since 2026-09-18).
  *
  * Two surfaces know an app update exists — the tray item and this row — and
- * this is the one a person actually lives beside. It shows and never applies:
- * [Update] raises the assistant at `app-update`, where download, verify,
- * install and restart all live on the bundled page. The row installs nothing,
- * and there is nothing here to abort.
+ * this is the one a person lives beside. It shows and never applies.
  *
- * Absence is the normal state, in three directions at once: no answer (browser,
- * or a shell predating the command) renders nothing; an answer with no known
- * update renders the version line with no affordance, because "no update
- * known" is not "up to date"; and a dismissal hides the row for the app run,
- * re-showing the moment the daily check finds a NEWER version — the dismissal
- * is keyed to the version it dismissed, not to a clock.
+ * **It goes to the Updates page, not the assistant** (operator's call,
+ * 2026-09-18). It used to raise the bundled window through
+ * `desktop_open_assistant({ screen: "update" })`. The page is the better
+ * destination from a row that sits inside a signed-in dashboard: inside this
+ * app it FOLDS the app row and the Server row into one (spec 2026-09-18 D4),
+ * because this bundle ships the server it would install, so it answers both
+ * halves — and its control still opens the assistant, which remains the only
+ * surface allowed to install either. Nothing is lost; a step is added in front
+ * of the destructive part, and the row now behaves identically to the browser's.
+ *
+ * The TRAY is unaffected and must stay that way: it raises the assistant
+ * directly, because it has to work with no session at all, and this page does
+ * not exist then.
+ *
+ * **A member goes to the ASSISTANT instead** (review, 2026-09-19).
+ * `/settings/updates` is one of the nine admin routes, so sending a member
+ * there lands them on a page that does not render — but making the row inert
+ * for them took away the only in-page route they had to the app update, which
+ * the assistant has always been happy to give anyone. So the destination
+ * follows what the person can actually reach: the page for an admin, the
+ * bundled window for everyone else. Both end at the same act; only an admin
+ * gets the table with the Server row folded in beside it.
+ *
+ * This is the one place the two version rows differ on that question.
+ * `ServerVersionRow` really is inert for a member, and correctly: a SERVER
+ * update is admin-only wherever you stand, while replacing THIS app is not.
+ *
+ * **Absence still means the shell did not answer**, not "up to date": a
+ * browser, or a build predating `desktop_app_update`, renders nothing at all,
+ * and a `null` notice renders the version with no dot. Neither is a claim
+ * about what the next check will find.
  */
 export function DesktopAppUpdateRow({ collapsed }: { collapsed: boolean }) {
   const { data } = useDesktopAppUpdate();
-  // Read once: the dismissal is session-scoped and nothing else writes it, so
-  // re-reading per render buys nothing and a state change is the only thing
-  // that can make the answer move.
-  const [dismissed, setDismissed] = useState<string | null>(readDismissedAppUpdate);
+  const { data: settings } = usePublicSettings();
+  const navigate = useNavigate();
+  // `=== true`, never truthiness: `undefined` is the read still in flight, and
+  // treating that as admin offers a press that lands on a route that will not
+  // render. Falling to the assistant while it is unknown costs nothing — that
+  // window opens for anyone.
+  const isAdmin = settings?.viewerIsAdmin === true;
 
   if (!data) return null;
-  const available = data.availableVersion;
-  if (available === null) {
-    // Nothing to offer, so the row says only which app this is — and in a
-    // 56px rail there is no room to say even that, so it says nothing.
-    if (collapsed) return null;
-    return (
-      <p
-        className="truncate px-2 py-1.5 text-detail text-muted-foreground"
-        title={`Subshell Server ${data.currentVersion}`}
-      >
-        Subshell Server {data.currentVersion}
-      </p>
-    );
-  }
-  if (!appUpdateRowVisible(data, dismissed)) return null;
-
-  // `update`, not the deleted `app-update` (spec 2026-09-18 D3). The two
-  // assistant update screens collapsed into ONE act — the app and the server
-  // it ships are updated by one press — and the old id now parses to `Home`,
-  // so a stale string here raised the assistant at whatever the probe implied
-  // instead of the update screen, silently.
-  const openAssistant = () => void desktopInvoke("desktop_open_assistant", { screen: "update" });
-  const dismiss = () => {
-    rememberAppUpdateDismissal(available);
-    setDismissed(available);
-  };
-
-  // Collapsed: the update IS the row, one icon like every sibling — the two
-  // controls do not fit side by side at this width, and the quieter half of the
-  // pair is the one an expansion is a step away from.
-  if (collapsed) {
-    return (
-      <button
-        type="button"
-        onClick={openAssistant}
-        title={`Subshell Server ${data.currentVersion} — v${available} available`}
-        aria-label={`Update Subshell Server — v${available} available`}
-        className="flex w-full cursor-pointer items-center justify-center rounded-md py-1.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
-      >
-        <ArrowUpCircle className="h-4 w-4 shrink-0 -translate-y-px" />
-      </button>
-    );
-  }
 
   return (
-    <div className="flex items-center gap-2 rounded-md px-2 py-1.5">
-      {/* The line-item grammar: `label` over `detail`, differing by weight AND
-          colour. The version the person runs is the title; the version they
-          could run is the metadata beside it. */}
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-strong text-label">Subshell Server {data.currentVersion}</p>
-        <p className="truncate text-detail text-muted-foreground">v{available} available</p>
-      </div>
-      <Button size="sm" onClick={openAssistant}>
-        Update
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={dismiss}
-        aria-label="Dismiss update notice"
-        title="Dismiss until a newer version"
-        className="shrink-0 text-muted-foreground"
-      >
-        <X className="h-3.5 w-3.5" />
-      </Button>
-    </div>
+    <VersionRow
+      // **"app"**, because this is the BUNDLE's version and not the server's
+      // (review, 2026-09-19). It comes from `package_info()` in Rust, while
+      // `ServerVersionRow` renders `serverVersion` from public settings — and
+      // on a machine whose managed server was updated separately the two are
+      // different numbers. Two rows saying `Subshell Server <x>` for two
+      // different facts is precisely what the "a version nobody can see is a
+      // version nobody quotes in a bug report" argument was against.
+      label={`Subshell Server app ${data.currentVersion}`}
+      notice={appUpdateNotice(data)}
+      onActivate={
+        isAdmin
+          ? () => void navigate({ to: "/settings/updates" })
+          : () => void desktopInvoke("desktop_open_assistant", { screen: "update" })
+      }
+      actionLabel={isAdmin ? "Open updates" : "Check for updates"}
+      collapsed={collapsed}
+    />
   );
 }

@@ -231,22 +231,37 @@ export function UpdateScreen(props: {
       {...props.shell}
       problem={problem || props.shell.problem}
       icon={<Download />}
-      barLeft={
-        <Button variant="ghost" disabled={installApp.isPending} onClick={onClose}>
-          Back
-        </Button>
-      }
+      // **The way out is this screen's PRIMARY, in the filled right seat**
+      // (operator's call, 2026-09-18; the sibling app's update screen was
+      // changed the same day for the same reason). The frame's contract is
+      // "primary right and ghost left", and every screen that ASKS something
+      // ends on a filled button there. This one's act is the press in the
+      // CONTENT, so the bar has only the leave — and parking that in the
+      // ghost-left seat left the filled seat empty and made the one footer
+      // button the faintest thing in the frame.
+      //
+      // It stays **Back**, where the server app's says Close, and the
+      // difference is real rather than a drift: that window is raised for a
+      // screen and `host.close()` ends it, while this window is always open
+      // and `onClose` drops the override for whatever the machine implies —
+      // the status screen. Nothing closes here, so "Close" would be the word
+      // lying about where it leads, which is the defect being fixed.
       barRight={
-        installApp.isPending ? undefined : (
-          <Button
-            className="min-w-[120px]"
-            variant="outline"
-            disabled={isFetching || runner.busy}
-            onClick={() => void refetch()}
-          >
-            Check Again
+        <>
+          {!installApp.isPending && (
+            <Button
+              className="min-w-[120px]"
+              variant="outline"
+              disabled={isFetching || runner.busy}
+              onClick={() => void refetch()}
+            >
+              Check Again
+            </Button>
+          )}
+          <Button disabled={installApp.isPending} onClick={onClose}>
+            Back
           </Button>
-        )
+        </>
       }
     >
       {act.phase === "checking" && (

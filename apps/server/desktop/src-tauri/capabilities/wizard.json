@@ -1,14 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "wizard",
-  "description": "The assistant window - the one bundled page, and the ONLY surface allowed to drive the subshell-server CLI. It owns first run, recovery, update and reset, so it holds every command that changes this machine, the destructive ones included. Pinned equal to what wizard.ts and the modules under ui/src/assistant/ actually invoke by ui/src/__tests__/ipc-acl.test.ts. The one core:window permission is for the update screen's Later button (spec 2026-09-17 section 5.4): this window closing THIS window - no CLI, no filesystem, no service, and no state kept.",
+  "description": "The assistant window - the one bundled page, and the ONLY surface allowed to drive the subshell-server CLI. It owns first run, recovery, update and reset, so it holds every command that changes this machine, the destructive ones included. Pinned equal to what wizard.ts and the modules under ui/src/assistant/ actually invoke by ui/src/__tests__/ipc-acl.test.ts. It holds core:default and nothing more: the update screen's Later button was the only caller of core:window:allow-close, and consolidating that screen's two dismissals into one Close that merely leaves the screen (2026-09-18) retired the grant with it.",
   "local": true,
   "windows": [
     "wizard"
   ],
   "permissions": [
     "core:default",
-    "core:window:allow-close",
     "dialog:allow-open",
     "opener:allow-reveal-item-in-dir",
     "allow-desktop-probe",

@@ -45,7 +45,6 @@ use subshell_desktop_core::release_feed::{
     ReleaseRow,
 };
 use subshell_desktop_core::settings::SettingsState;
-use subshell_desktop_core::version::version_lt;
 
 /// The tag prefix this app's own releases carry.
 ///
@@ -96,29 +95,18 @@ pub struct AppUpdateStatus {
     pub available_version: Option<String>,
 }
 
-/// The one rule behind every rendering of the STORED notice: it may name only
-/// a version strictly newer than what is running.
+/// The one rule behind every rendering of the STORED notice, re-exported from
+/// `desktop-core` so this app and Subshell Client run ONE implementation.
 ///
-/// `last_update_version` is what the last answering check found, and the
-/// answer goes stale the moment the person installs what was announced.
-/// [`install_app_update`] clears the field; a hand replacement of the `.app`
-/// does not, and an app that updated itself across a crash between the write
-/// and the clear will not answer the release source for a day. Every site
-/// that paints the stored value without consulting the source — the tray
-/// seed, the launch check's not-due branch, the unanswered-check branch, and
-/// the SPA-facing [`status_view`] — routes through here, so "Update
-/// available — 0.8.0" can never be shown BY 0.8.0 (review 2026-09-17:
-/// `run_check`'s own comment already called that state "worse than none";
-/// only the check-answered path honoured it).
-///
-/// `version_lt` ignores suffixes on both sides, so a canary of the announced
-/// version counts as installed — the same rule every other comparison here
-/// uses.
-pub fn notice_for(current: &str, stored: Option<&str>) -> Option<String> {
-    stored
-        .filter(|version| version_lt(current, version))
-        .map(str::to_string)
-}
+/// It lived here, added by review on 2026-09-17; the client shipped the defect
+/// it closes until 2026-09-18, which is the argument for the move. Every site
+/// that paints the stored value without consulting the source — the tray seed,
+/// the launch check's not-due branch, the unanswered-check branch, and
+/// [`status_view`] — routes through it, so "Update available — 0.8.0" can never
+/// be shown BY 0.8.0.
+pub use subshell_desktop_core::version::notice_for;
+
+use subshell_desktop_core::version::version_lt;
 
 /// The pure body of `desktop_app_update`, so the camelCase contract the SPA
 /// codes against is pinned without a Tauri runtime.
@@ -397,17 +385,12 @@ pub fn check_on_launch(app: &AppHandle) {
     });
 }
 
-/// Force the check now, ignoring the daily gate: the tray's "Check for
-/// Updates…" press (spec 2026-09-17 § 5.2).
-///
-/// The item stays pressable precisely because a person may not want to wait
-/// for tomorrow's daily check. Like it, this opens nothing — the answer lands
-/// in the settings file and on the tray label, and a press that had found an
-/// update routes the NEXT press to the `update` screen.
-pub fn check_now(app: &AppHandle) {
-    let handle = app.clone();
-    tauri::async_runtime::spawn(async move { run_check(&handle).await });
-}
+// There is deliberately no `check_now` here any more (2026-09-18). The tray's
+// press used to call one — a forced background check that opened nothing and
+// answered only on the tray's own label, which the press had just closed the
+// menu on. The item now opens the update screen instead, and that screen runs
+// `runUpdateCheck` itself on entry, so the forced check lives where its answer
+// is visible rather than in a second copy behind a menu.
 
 /// Whether a check is already in flight (the tray press and the launch timer
 /// are two askers for the SAME answer). A second overlapping check was benign

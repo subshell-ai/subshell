@@ -118,9 +118,10 @@ describe("/presets page", () => {
       expect(screen.getByRole("heading", { name: "Claude Code" })).toBeDefined();
       expect(screen.getByRole("heading", { name: "Pi" })).toBeDefined();
       // A harness the catalog cannot name still leads its own group, keyed by
-      // id — twice on screen, honestly: the header AND the launch-command
-      // preview, whose binary falls back to the id too.
-      expect(screen.getAllByText("acme").length).toBe(2);
+      // id. ONCE on screen now: the launch command — which also falls back to
+      // the id for its binary — is hidden until a row's eye is pressed
+      // (2026-09-18), so the header is the only place it appears.
+      expect(screen.getAllByText("acme").length).toBe(1);
       const text = container.textContent ?? "";
       // Catalog order first (claude, pi), unknown harnesses last; within the
       // Claude group both rows sit together, above Pi's.
@@ -191,6 +192,54 @@ describe("/presets page", () => {
         ),
       ).toBeDefined();
       expect(screen.getByRole("button", { name: "Create your first preset" })).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+});
+
+/**
+ * The launch command is a secret surface: a preset's env vars are where API
+ * keys and base URLs live, and the row used to print all of them at every
+ * preset (operator's call, 2026-09-18). Hidden by default, per row, per
+ * visit — nothing persists the reveal.
+ */
+describe("/presets row command visibility", () => {
+  const WITH_SECRET: PresetRow[] = [
+    {
+      ...presetRow({ id: "s1", harnessId: "claude-code", name: "Keyed" }),
+      envJson: JSON.stringify({ ANTHROPIC_API_KEY: "sk-ant-secret" }),
+      flagsJson: JSON.stringify(["--effort", "xhigh"]),
+    },
+  ];
+
+  it("hides the command until the eye is pressed, and hides it again", async () => {
+    const { restore } = mockFetch({ presets: WITH_SECRET });
+    try {
+      renderPage();
+      expect(await screen.findByText("Keyed")).toBeDefined();
+      // Not merely invisible — absent, so a find-in-page cannot reach it.
+      expect(screen.queryByText(/sk-ant-secret/)).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "Show command for Keyed" }));
+      expect(screen.getByText(/sk-ant-secret/)).toBeDefined();
+
+      fireEvent.click(screen.getByRole("button", { name: "Hide command for Keyed" }));
+      expect(screen.queryByText(/sk-ant-secret/)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps copy available while the command is hidden", async () => {
+    const { restore } = mockFetch({ presets: WITH_SECRET });
+    try {
+      renderPage();
+      expect(await screen.findByText("Keyed")).toBeDefined();
+      // Copying is the deliberate act; rendering is the incidental exposure.
+      // Gating the former would only teach people to reveal first.
+      expect(screen.getByRole("button", { name: "Copy launch command" })).toBeDefined();
+      expect(screen.queryByText(/sk-ant-secret/)).toBeNull();
     } finally {
       restore();
     }

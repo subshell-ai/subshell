@@ -45,7 +45,7 @@ use subshell_desktop_core::release_feed::{
     ReleaseRow,
 };
 use subshell_desktop_core::settings::{PendingBundledInstall, SettingsState};
-use subshell_desktop_core::version::version_lt;
+use subshell_desktop_core::version::{notice_for, version_lt};
 
 /// The tag prefix this app's own releases carry.
 ///
@@ -238,18 +238,32 @@ pub async fn install_app_update(app: &AppHandle, install_agent: bool) -> Result<
     // that restart rather than performing it (spec § 7.1). The field exists
     // for Subshell Server, which does restart, and the two apps share the
     // struct's format and never the file.
-    if install_agent {
-        let started_at = format_rfc3339(now_epoch_secs());
-        let from_app_version = app.package_info().version.to_string();
-        let _ = app.state::<SettingsState>().update(|s| {
-            s.pending_bundled_install = Some(PendingBundledInstall {
-                from_app_version,
-                started_at,
-                attempts: 0,
-                forced: false,
-            });
-        });
-    }
+    let marker = install_agent.then(|| PendingBundledInstall {
+        from_app_version: app.package_info().version.to_string(),
+        started_at: format_rfc3339(now_epoch_secs()),
+        attempts: 0,
+        forced: false,
+    });
+    // ONE write, because both edits must land before the relaunch and
+    // `SettingsState::update` takes the lock across edit and save — two calls
+    // would be two saves with a window between them in which the process is
+    // about to be replaced.
+    //
+    // Clearing the stored notice BEFORE the restart, not after — `restart()`
+    // never returns, so anything sequenced behind it does not run. A stored
+    // 0.9.0 met by a relaunched 0.9.0 is the stale-notice bug exactly: the
+    // not-due launch branch and the tray seed would repaint the notice from it
+    // for up to a day. The read side filters that shape now (`notice_for`);
+    // this keeps the STORED fact honest, which is what `check_on_launch`'s own
+    // comment already demanded of a check that found nothing newer. Added
+    // 2026-09-18, matching the sibling app — this app shipped without it.
+    //
+    // `None` where the person unticked the agent row: no marker, no phase 2,
+    // and the new build simply offers what it ships.
+    let _ = app.state::<SettingsState>().update(|s| {
+        s.last_update_version = None;
+        s.pending_bundled_install = marker;
+    });
 
     app.restart();
 }
@@ -314,8 +328,15 @@ pub fn check_on_launch(app: &AppHandle) {
         if !due_for_check(settings.get().last_update_check_at.as_deref(), now_epoch_secs()) {
             // Still refresh the label from what the last check found: the item
             // is built before this runs, and a stored version it does not know
-            // about would otherwise only appear a day later.
-            crate::tray::set_update_available(&handle, settings.get().last_update_version.as_deref());
+            // about would otherwise only appear a day later. Filtered through
+            // `notice_for` — this branch paints STORED state with no source
+            // consulted, which is precisely where an installed-update lie
+            // survives (a hand-replaced bundle never clears the field).
+            let stored = notice_for(
+                &handle.package_info().version.to_string(),
+                settings.get().last_update_version.as_deref(),
+            );
+            crate::tray::set_update_available(&handle, stored.as_deref());
             return;
         }
         // A check that could not REACH the source is not a check that found
@@ -323,20 +344,26 @@ pub fn check_on_launch(app: &AppHandle) {
         // deliberately returns `Ok` for an unreachable source and puts the
         // cause in `reason`. Stamping the clock on that answer would suppress
         // the next check for a day, and clearing `last_update_version` would
-        // drop the tray suffix for an update already found — one flaky launch
+        // drop the tray notice for an update already found — one flaky launch
         // hiding a real release until tomorrow.
         let answered = check_app_update(&handle).await.ok().filter(|c| c.reason.is_none());
         let Some(check) = answered else {
             // Leave the stamp and the stored version exactly as they were, and
-            // keep showing whatever the last check that DID answer found.
-            crate::tray::set_update_available(&handle, settings.get().last_update_version.as_deref());
+            // keep showing whatever the last check that DID answer found —
+            // filtered through `notice_for`, since "found" here means a stored
+            // value painted with no source consulted.
+            let stored = notice_for(
+                &handle.package_info().version.to_string(),
+                settings.get().last_update_version.as_deref(),
+            );
+            crate::tray::set_update_available(&handle, stored.as_deref());
             return;
         };
         let found = check.latest;
         let stamp = format_rfc3339(now_epoch_secs());
         let _ = settings.update(|s| {
             s.last_update_check_at = Some(stamp);
-            // Cleared by a check that found nothing newer: a suffix naming a
+            // Cleared by a check that found nothing newer: a notice naming a
             // version the person has already installed is worse than none.
             s.last_update_version = found.clone();
         });

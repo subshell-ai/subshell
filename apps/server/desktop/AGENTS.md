@@ -564,18 +564,30 @@ Four more things carry the weight of the app half specifically:
   (`release_feed::due_for_check`); the only output is the tray item's label.
   A window that appeared on its own because a release was cut is the automatic
   update this design explicitly does not have (spec § 14).
-- **The tray item is two states, and its label says which** (spec
-  2026-09-17 § 5.2). `update_label()` and `tray_update_action()` are pure and
-  split on the SAME non-empty rule, because a label that promises an update
-  whose press only re-checks, or a label that promises a check whose press
-  opens a screen, is the item disagreeing with itself. "Check for Updates…"
-  forces today's background check now — `check_now`, same body as the daily
-  one (`run_check`), same silence, no window — because a person may not want
-  to wait for tomorrow's. "Update available — Subshell Server {version}"
-  opens the assistant at `update` through the same deep-link route the
-  dashboard uses, instead of re-checking what it just announced. The label is
-  unchanged by the two screens becoming one: it always named the APP, and the
-  act it opens now genuinely covers the app and the server that app ships.
+- **The tray item is two labels and ONE act: it opens the screen**
+  (operator's call, 2026-09-18, replacing spec 2026-09-17 § 5.2's branch).
+  `update_label()` stays pure — "Update available — Subshell Server {version}"
+  once a check knows, "Check for Updates…" otherwise — but both press through
+  to `arm_and_raise(update)`, so the label announces and never re-routes.
+
+  It used to branch, and the quiet half was a dead end. An unknown version ran
+  `check_now`: a forced background check that opened NOTHING, whose whole
+  answer landed on this item's own label — which the press had just closed the
+  menu on. So a machine with no update known gave no visible response at all,
+  and one with an update waiting took two presses with a menu reopen between
+  them. Signed in that is merely poor, because the SPA's footer row says the
+  same thing and its `[Update]` opens this screen; **signed out there is no
+  sidebar, so the tray was the only door to updating and it led nowhere.**
+  Reported 2026-09-18 on an app at 0.8.0 with `desktop-server-v0.10.1`
+  published, a reachable release source, and a stored `null` from a check that
+  had honestly found nothing hours earlier — three facts that each look like
+  the bug and none of which was.
+
+  Opening is strictly MORE than the check was rather than a different act: the
+  screen runs `runUpdateCheck(false)` on entry and renders checking / up to
+  date / available with the install press, so "Check for Updates…" opens a
+  window that checks, which is the macOS convention. `check_now` is deleted
+  with the branch — the forced check lives where its answer is visible.
 - **The dashboard can now SEE the stored answer** through `desktop_app_update`
   — the read-only seventh `main` command: no argument, no fetch,
   `{ currentVersion, availableVersion }` from `PackageInfo` and the one
@@ -1340,7 +1352,7 @@ With it, the split is enforced, and the split is window KIND:
 
 | Window | Gets |
 | --- | --- |
-| `wizard` | the twenty-two its page invokes — probe, port in use, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, request Photos, open a System Settings pane, check for an app update, install one — plus `dialog:allow-open`, `opener:allow-reveal-item-in-dir`, and its core grants: `core:default` and `core:window:allow-close` (spec 2026-09-17's **Later** button; `core:default` does NOT include it — verified against `gen/schemas/acl-manifests.json`, and pinned in `ipc-acl.test.ts`, which also pins that `main` holds NEITHER close nor the update verbs) |
+| `wizard` | the twenty-two its page invokes — probe, port in use, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, request Photos, open a System Settings pane, check for an app update, install one — plus `dialog:allow-open`, `opener:allow-reveal-item-in-dir`, and its core grant: `core:default` ALONE. `core:window:allow-close` was granted for spec 2026-09-17's **Later** button and went with it when that screen's two dismissals became one **Close** (2026-09-18) — a leave rather than a window close, so no page call to a core window verb remains. `ipc-acl.test.ts` pins the narrowed list, pins that nothing under `ui/src` imports `@tauri-apps/api/window` (the route the grant would come back through), and pins that `main` holds neither close nor the update verbs |
 | `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, window dragging — and `desktop_set_supervision` (below) — on a TRUSTED origin only (loopback, or the instance's configured `APP_BASE_URL`; see below) |
 
 Six of `main`'s seven commands are chosen for what they cannot do: raise a

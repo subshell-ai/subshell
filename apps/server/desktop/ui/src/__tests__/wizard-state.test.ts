@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ActionResult, Probe } from "../lib/ipc";
+import type { ActionResult, Probe, ProbeStep } from "../lib/ipc";
 import {
   applySupervisionChoice,
   autoSetupDecision,
@@ -12,6 +12,7 @@ import {
   failureLine,
   handoffView,
   isRequestedScreen,
+  leaveLabel,
   MIN_AUTOSTART_SERVER_VERSION,
   permissionsAfterSetup,
   prereqState,
@@ -975,5 +976,56 @@ describe("permissionsAfterSetup", () => {
   it("routes through the requested-screen list, not a journey", () => {
     expect(REQUESTED_SCREENS).toContain("permissions");
     expect(screensFor(virgin(), false)).not.toContain("permissions");
+  });
+});
+
+/**
+ * Every `ProbeStep`, as a list the type checker keeps complete: `satisfies
+ * Record<ProbeStep, 1>` makes a member added to the union a COMPILE error here
+ * rather than a case this file silently stops covering.
+ *
+ * Written after the first version of these tests hand-picked five strings, two
+ * of which ("install", and an earlier "init" typo's neighbours) were not steps
+ * at all — the list was wrong in a way only `tsc` caught, and a hand-picked
+ * list would have gone stale the next time a step was added regardless.
+ */
+const ALL_PROBE_STEPS = Object.keys({
+  "no-server": 1,
+  setup: 1,
+  unreachable: 1,
+  init: 1,
+  "install-service": 1,
+  start: 1,
+  ready: 1,
+} satisfies Record<ProbeStep, 1>) as ProbeStep[];
+
+describe("leaveLabel", () => {
+  /**
+   * The word has to match what the press DOES. `host.close()` never navigates
+   * — it drops the requested screen and renders what the probe implies — so on
+   * a ready machine the handoff fires, `open_main` runs, and the window
+   * closes. Reported 2026-09-18 from the tray, which has nothing behind it.
+   */
+  it("says Close where the press will end the window", () => {
+    expect(leaveLabel(virgin({ next: "ready" }), true)).toBe("Close");
+    // Onboarding is not consulted on a ready machine, and must not be: the
+    // handoff renders either way.
+    expect(leaveLabel(virgin({ next: "ready" }), false)).toBe("Close");
+  });
+
+  it("says Back where a screen is genuinely behind it", () => {
+    // Recovery, for a machine that has been set up and is not answering.
+    expect(leaveLabel(virgin({ next: "start" }), true)).toBe("Back");
+    // The first run, for one that has not.
+    expect(leaveLabel(virgin({ next: "install-service" }), false)).toBe("Back");
+  });
+
+  it("is derived from screensFor for EVERY step, so the two can never disagree", () => {
+    for (const next of ALL_PROBE_STEPS) {
+      for (const onboarded of [true, false]) {
+        const p = virgin({ next });
+        expect(leaveLabel(p, onboarded)).toBe(screensFor(p, onboarded).length > 0 ? "Back" : "Close");
+      }
+    }
   });
 });

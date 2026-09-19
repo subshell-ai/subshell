@@ -341,9 +341,9 @@ export class SubshellManagerService {
     // HUMAN chose travels to the pane command — an unnamed create passes ""
     // so the plugins omit `--name`, the harness titles its own pane, and the
     // reconcile sweep adopts those titles into the row (whose displayed name
-    // stays the date/time placeholder until the first one lands).
+    // stays the agent's own until the first one lands).
     const userNamed = name?.trim() ?? "";
-    const subshellName = userNamed || defaultSubshellName();
+    const subshellName = userNamed || defaultSubshellName(harness.name);
     // Restart-resume plan: continue the predecessor's conversation when it
     // survived, else pin a fresh id this subshell will be resumed by later.
     const harnessSession = await this.#planHarnessSession(launcher, harness, resumeFromId ?? null, realPath);
@@ -1472,8 +1472,39 @@ export class SubshellManagerService {
   }
 }
 
-/** Default subshell name: the current date/time, e.g. "2026-08-18 14:30". */
-export function defaultSubshellName(): string {
+/**
+ * What an unnamed subshell is called until its harness titles its own pane:
+ * the AGENT's display name — "Claude Code", "Terminal" (operator's call,
+ * 2026-09-19).
+ *
+ * It was the current date/time, and the date/time was the wrong thing twice
+ * over. It says nothing a row does not already show — the list is ordered by
+ * recency and carries a timestamp of its own — and it is the value a person
+ * sees while a pane is starting, which is exactly when "what is this" is the
+ * question and "when did I start it" is not.
+ *
+ * It also gives the garbage-title case somewhere sensible to land.
+ * {@link normalizePaneTitle} answers "" for a pane title that is really a
+ * terminal capability query, and the sweep then leaves the name alone — so
+ * what the person reads in the meantime is whatever this returned. A date/time
+ * there looked like a bug; the agent's name looks like the truth, because it
+ * is one.
+ *
+ * **Not unique, deliberately.** Several unnamed subshells on one agent read
+ * the same until the harness titles them, which for an agent CLI is seconds.
+ * A plain `terminal` pane may never title itself and so may keep this name for
+ * good — that is the honest name for it, and the operator renames what they
+ * care to keep.
+ *
+ * @param agentName - The harness's display name (`harness.name`)
+ * @returns The agent's name, or the old date/time when a manifest has none
+ */
+export function defaultSubshellName(agentName: string): string {
+  const named = agentName.trim();
+  if (named) return named;
+  // A manifest with a blank name is a broken plugin rather than a case to
+  // design for, but a subshell with an EMPTY name is unreadable in every list
+  // it appears in, so the old default survives as the last resort.
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
@@ -1648,6 +1679,47 @@ const ESCAPE_SEQUENCE =
   /\x1b[\]_P^X][\s\S]*?(?:\x1b\\|\x07|$)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[ -/]+(?:[0-~]|$)|\x1b[@-Z\\-_]/g;
 
 /**
+ * A terminal-protocol payload with its introducer already gone.
+ *
+ * `ESC _ G i=31,s=1,v=1,a=q,t=d,f=24 ; AAAA ESC \\` is Kitty's
+ * graphics-capability query, which agent CLIs emit at startup to ask whether
+ * images are supported. {@link ESCAPE_SEQUENCE} removes it whole when the
+ * `ESC _` is present — but tmux stores a DECODED `pane_title`, so what reaches
+ * us can be the payload alone, and then there is no escape sequence left to
+ * sweep. Measured 2026-09-19 against the real function: the two ESC-bearing
+ * forms normalize to "", and `_Gi=31,…;AAAA` survives intact.
+ *
+ * That is why the earlier fix did not hold. Its comment blamed this function's
+ * own laundering — the control pass deleting an `ESC` and the punctuation trim
+ * eating the `_` — which was one true route, and closing it left the other
+ * open: a payload that never had an introducer by the time we saw it.
+ *
+ * **The root cause upstream is NOT established.** Something between the agent
+ * and `#{pane_title}` is putting an APC payload where a title belongs, and
+ * this recognises the result rather than explaining it. Worth chasing if it
+ * recurs in another shape; the shape below is narrow enough that a wrong guess
+ * costs one unusual title rather than a class of them.
+ *
+ * **Narrow, and narrower than it first was** (review, 2026-09-19). The rule is:
+ * at least TWO `key=value` pairs, no whitespace anywhere in a value, then `;`,
+ * then at least four base64 characters. Nothing else in the string.
+ *
+ * Each clause bought back a class of real titles. The first version allowed one
+ * pair, any non-`,;` value, and an EMPTY tail, which made it "a word, `=`,
+ * anything, `;`, optionally a word" — and it ate `PATH=/usr/bin;ls`,
+ * `TZ=UTC;date`, `host=db;psql`, `branch=feat/qr;push` and
+ * `task=Fix the login bug;`, all measured against the real function. The
+ * comment said "a human title does not look like this" while the regex said
+ * something much broader; the comment was the part that was wrong.
+ *
+ * The Kitty query clears all three clauses with room to spare — six pairs, no
+ * whitespace, a four-character tail — so nothing was given up to buy them.
+ * `-` and `_` are in the tail class because base64url spells the same payload
+ * with them, which the first version missed.
+ */
+const PROTOCOL_PAYLOAD = /^[A-Za-z]?(?:[A-Za-z]+=[^,;\s]*)(?:,[A-Za-z]+=[^,;\s]*)+;[A-Za-z0-9+/=_-]{4,}$/;
+
+/**
  * Cleans a raw tmux `pane_title` for use as a subshell name: escape sequences
  * are removed whole, control residue collapses to single spaces, a leading
  * status decoration is dropped (Claude Code prefixes the title with a cycling
@@ -1695,10 +1767,11 @@ function normalizePaneTitle(raw: string): string {
   // sweep does not cover and a title has no business carrying one.
   // biome-ignore lint/suspicious/noControlCharactersInRegex: sanitizing terminal output
   const cleaned = withoutSequences.replace(/[\x00-\x1f\x7f-\x9f]+/g, " ").trim();
-  return cleaned
-    .replace(/^[^\p{L}\p{N}]+/u, "")
-    .trim()
-    .slice(0, 120);
+  const trimmed = cleaned.replace(/^[^\p{L}\p{N}]+/u, "").trim();
+  // A payload whose introducer never reached us is still not a title — see
+  // PROTOCOL_PAYLOAD. "" makes the caller keep the name it already had.
+  if (PROTOCOL_PAYLOAD.test(trimmed)) return "";
+  return trimmed.slice(0, 120);
 }
 
 export function toSubshellView(

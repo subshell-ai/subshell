@@ -1,8 +1,10 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { McpSetupSection } from "@/components/mcp-setup-section";
 import { type PairRow, PairRowsEditor } from "@/components/pair-rows-editor";
+import { CommandPasteField } from "@/components/presets/command-paste-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Segmented } from "@/components/ui/segmented";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useHarnessSchema } from "@/hooks/use-harness-schema";
@@ -10,6 +12,13 @@ import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import type { PresetFormValue } from "@/lib/preset-form";
 import { parseEnvPaste, parseFlagsPaste } from "@/lib/preset-form";
 import { buildAgentOptions } from "@/lib/subshell-compat";
+
+/**
+ * How the form is asking for env vars and flags: as the command line you'd
+ * type in a terminal, or as rows. Two views of ONE set of values — neither
+ * stores anything the other cannot see.
+ */
+export type PresetEntryMode = "paste" | "custom";
 
 /**
  * The preset fields (agent, name, env rows, flag rows, auto-restart). The
@@ -32,6 +41,7 @@ export function PresetFields({
   value,
   onChange,
   lockedHarness,
+  defaultEntryMode = "paste",
 }: {
   value: PresetFormValue;
   onChange: (value: PresetFormValue) => void;
@@ -43,6 +53,13 @@ export function PresetFields({
    * sense there).
    */
   lockedHarness?: string;
+  /**
+   * Which of the two entry modes opens first. Creating starts on `paste`:
+   * whoever reaches for a preset usually has the command in a terminal
+   * beside them. The EDIT page passes `custom`, because opening an existing
+   * preset is reading what it already is, not replacing it.
+   */
+  defaultEntryMode?: PresetEntryMode;
 }) {
   // Loading and failure are tracked separately: "No agent installed" is only
   // honest after a load that succeeded with zero rows — claiming it while the
@@ -55,6 +72,12 @@ export function PresetFields({
   const lockedName =
     lockedHarness !== undefined ? ((plugins ?? []).find((p) => p.id === lockedHarness)?.name ?? lockedHarness) : "";
   const { data: schema } = useHarnessSchema(value.harnessId);
+  const agent = (plugins ?? []).find((p) => p.id === value.harnessId);
+  const agentName = agent?.name ?? (lockedHarness !== undefined ? lockedName : value.harnessId);
+  // Local UI state, deliberately not part of PresetFormValue: which view you
+  // last looked at is not part of the preset, and both views edit one set of
+  // rows. The create dialog's mount IS its open, so this resets per open.
+  const [entryMode, setEntryMode] = useState<PresetEntryMode>(defaultEntryMode);
 
   // One usable agent is not a decision worth forcing — pick it. The guard on
   // value.harnessId makes this self-disarming after the pick.
@@ -178,33 +201,71 @@ export function PresetFields({
               placeholder="e.g. Fast model"
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="preset-env">Env vars</Label>
-            <PairRowsEditor
-              id="preset-env"
-              rows={value.envRows.map((r) => ({ first: r.key, second: r.value }))}
-              onChange={setEnvRows}
-              suggestions={envSuggestions}
-              firstLabel="Variable"
-              firstPlaceholder="ANTHROPIC_MODEL"
-              secondPlaceholder="sonnet"
-              pastePlaceholder={'KEY=value lines, export lines, or a JSON object:\n{"ANTHROPIC_MODEL":"sonnet"}'}
-              parsePaste={parseEnvRows}
+          {/* TWO VIEWS OF ONE SET OF VALUES. The rows are the state either
+              way, so switching is free and lossless: paste a command and the
+              row editors hold what it parsed to; edit a row and the command
+              re-renders from it on the way back (CommandPasteField seeds
+              itself on mount, and the panels mount one at a time).
+
+              `Segmented` rather than a tab strip because this is the app's
+              established mode switch (the tiled/list toggle, the add-subshell
+              dialog, the network card's "How to connect") and this is the same
+              kind of thing: two ways to say ONE thing, not two pages. Paste
+              leads because whoever wants a preset usually has the command in a
+              terminal beside them; the edit page flips the default, where the
+              question is what this preset already is. */}
+          <div className="space-y-3">
+            <Segmented
+              ariaLabel="How to enter env vars and flags"
+              options={[
+                { value: "paste", label: "Paste command" },
+                { value: "custom", label: "Custom command" },
+              ]}
+              value={entryMode}
+              onChange={setEntryMode}
             />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="preset-flags">Flags</Label>
-            <PairRowsEditor
-              id="preset-flags"
-              rows={value.flagRows.map((r) => ({ first: r.flag, second: r.value }))}
-              onChange={setFlagRows}
-              suggestions={flagSuggestions}
-              firstLabel="Flag"
-              firstPlaceholder="--model"
-              secondPlaceholder="value (optional)"
-              pastePlaceholder={"One per line or a whole command line:\nopencode -m anthropic/claude-sonnet-4-5 --auto"}
-              parsePaste={parseFlagRows}
-            />
+            {entryMode === "paste" ? (
+              <CommandPasteField
+                id="preset-command"
+                value={value}
+                onChange={onChange}
+                agentName={agentName}
+                agentBinary={agent?.binary}
+              />
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="preset-env">Env vars</Label>
+                  <PairRowsEditor
+                    id="preset-env"
+                    rows={value.envRows.map((r) => ({ first: r.key, second: r.value }))}
+                    onChange={setEnvRows}
+                    suggestions={envSuggestions}
+                    firstLabel="Variable"
+                    firstPlaceholder="ANTHROPIC_MODEL"
+                    secondPlaceholder="sonnet"
+                    pastePlaceholder={'KEY=value lines, export lines, or a JSON object:\n{"ANTHROPIC_MODEL":"sonnet"}'}
+                    parsePaste={parseEnvRows}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="preset-flags">Flags</Label>
+                  <PairRowsEditor
+                    id="preset-flags"
+                    rows={value.flagRows.map((r) => ({ first: r.flag, second: r.value }))}
+                    onChange={setFlagRows}
+                    suggestions={flagSuggestions}
+                    firstLabel="Flag"
+                    firstPlaceholder="--model"
+                    secondPlaceholder="value (optional)"
+                    pastePlaceholder={
+                      "One per line or a whole command line:\nopencode -m anthropic/claude-sonnet-4-5 --auto"
+                    }
+                    parsePaste={parseFlagRows}
+                  />
+                </div>
+              </>
+            )}
           </div>
           <div className="space-y-1">
             <div className="flex items-center gap-2">
