@@ -79,7 +79,9 @@ usage:
                           plane. Keeps this node's identity and spends no setup
                           key; restart the node to apply. Does NOT rename: the
                           plane owns a node's name (the Nodes page).
-  subshell run
+  subshell run [--dashboard-port <n>]
+                          the daemon; --dashboard-port (or SUBSHELL_DASHBOARD_PORT)
+                          moves the loopback dashboard off :3090
   subshell service install [--no-autostart]   (systemd user unit / launchd agent)
                           --no-autostart runs it now but not at login
   subshell service uninstall
@@ -198,6 +200,11 @@ const FLAGS: Record<string, boolean> = {
   "--from": true,
   "--no-restart": false,
   "--rollback": false,
+  // Moves the loopback dashboard off :3090 for this `run` — the spelled-out
+  // equivalent of SUBSHELL_DASHBOARD_PORT, which the service definition cannot
+  // carry per-start. Exists for the cli-e2e scenario (a suite must never bind
+  // the port a developer's node owns) as much as for an operator.
+  "--dashboard-port": true,
 };
 /** Every flag any subtoken of `command` accepts — the union {@link SUBCOMMAND_FLAGS} narrows. */
 const subcommandFlagUnion = (command: string): string[] => [
@@ -215,7 +222,7 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   maintenance: subcommandFlagUnion("maintenance"),
   mcp: [], // no flags — everything comes from the SUBSHELL_* pane env (the @internal/mcp-core env.ts contract)
   report: [], // same pane-env contract; a hook's command line is built by the control plane, never typed
-  run: [],
+  run: ["--dashboard-port"],
   // Derived, never hand-listed: the command-level check is the union and the
   // per-subtoken check below is what actually decides.
   service: subcommandFlagUnion("service"),
@@ -455,7 +462,13 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         // socket is this process's first job, so every failure here is one
         // warn line and a node that runs anyway.
         if (process.env.SUBSHELL_DASHBOARD !== "0") {
-          const rawPort = process.env.SUBSHELL_DASHBOARD_PORT;
+          // The flag wins over the variable: a person who typed one tonight
+          // means tonight; the variable is whatever this node was started
+          // with. (Both opt-outs stay env-only — a disabled dashboard is not
+          // a thing to re-enable per-run by flag.) The empty-string middle
+          // case matters: with no flag, `rawPort` reads the variable's own
+          // absence (`undefined`) rather than `""` falling through to it.
+          const rawPort = parsed.flags.dashboardPort ?? process.env.SUBSHELL_DASHBOARD_PORT;
           const port = rawPort === undefined || rawPort.trim() === "" ? 3090 : Number(rawPort);
           if (!Number.isInteger(port) || port < 0 || port > 65535) {
             logger.warn(
