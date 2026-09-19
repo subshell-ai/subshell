@@ -204,7 +204,7 @@ pub fn legacy_install_summary(from: Option<&str>, to: Option<&str>, what: &str, 
 /// function serve both apps: the node agent has no database, so its report
 /// never carries the field and the sentence never mentions it.
 ///
-/// @param what - the noun for the binary that moved: `"server"` or `"agent"`
+/// @param what - the noun for the binary that moved: `"server"` or `"node CLI"`
 pub fn update_summary(report: &UpdateReport, what: &str) -> String {
     let head = format!("Updated the installed {what} from {} to {}.", report.from, report.to);
     match report.backup.as_deref() {
@@ -262,8 +262,8 @@ mod tests {
         let report = parse_update_report(r#"{"from":"0.8.0","to":"0.9.0","restarted":false}"#).expect("a report");
         assert_eq!(report.backup, None);
         assert_eq!(
-            update_summary(&report, "agent"),
-            "Updated the installed agent from 0.8.0 to 0.9.0."
+            update_summary(&report, "node CLI"),
+            "Updated the installed node CLI from 0.8.0 to 0.9.0."
         );
     }
 

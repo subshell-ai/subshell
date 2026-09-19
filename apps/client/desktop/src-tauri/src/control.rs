@@ -994,7 +994,7 @@ fn classify_update(run: Run) -> AfterUpdate {
     let Some(report) = cli_update::parse_update_report(&result.stdout) else {
         return AfterUpdate::Reported(result);
     };
-    let summary = cli_update::update_summary(&report, "agent");
+    let summary = cli_update::update_summary(&report, "node CLI");
     AfterUpdate::Reported(ActionResult {
         stdout: joined(&result.stdout, &summary),
         ..result
@@ -2625,8 +2625,12 @@ mod install_policy_tests {
     // one would alarm about something that was never going to happen.
     #[test]
     fn the_fallback_says_no_rollback_and_never_mentions_a_database() {
-        let said =
-            cli_update::legacy_install_summary(Some("0.8.0"), Some("0.9.0"), "agent", cli_update::Unrecorded::Rollback);
+        let said = cli_update::legacy_install_summary(
+            Some("0.8.0"),
+            Some("0.9.0"),
+            "node CLI",
+            cli_update::Unrecorded::Rollback,
+        );
         assert!(said.contains("Installed 0.9.0 over 0.8.0."), "{said}");
         assert!(said.contains("No rollback point was recorded"), "{said}");
         assert!(said.contains("predates the update command"), "{said}");
