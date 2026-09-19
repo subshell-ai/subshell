@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ActionResult, Probe } from "../lib/ipc";
+import type { ActionResult, Probe, ProbeStep } from "../lib/ipc";
 import {
   applySupervisionChoice,
   autoSetupDecision,
@@ -979,6 +979,26 @@ describe("permissionsAfterSetup", () => {
   });
 });
 
+/**
+ * Every `ProbeStep`, as a list the type checker keeps complete: `satisfies
+ * Record<ProbeStep, 1>` makes a member added to the union a COMPILE error here
+ * rather than a case this file silently stops covering.
+ *
+ * Written after the first version of these tests hand-picked five strings, two
+ * of which ("install", and an earlier "init" typo's neighbours) were not steps
+ * at all — the list was wrong in a way only `tsc` caught, and a hand-picked
+ * list would have gone stale the next time a step was added regardless.
+ */
+const ALL_PROBE_STEPS = Object.keys({
+  "no-server": 1,
+  setup: 1,
+  unreachable: 1,
+  init: 1,
+  "install-service": 1,
+  start: 1,
+  ready: 1,
+} satisfies Record<ProbeStep, 1>) as ProbeStep[];
+
 describe("leaveLabel", () => {
   /**
    * The word has to match what the press DOES. `host.close()` never navigates
@@ -997,11 +1017,11 @@ describe("leaveLabel", () => {
     // Recovery, for a machine that has been set up and is not answering.
     expect(leaveLabel(virgin({ next: "start" }), true)).toBe("Back");
     // The first run, for one that has not.
-    expect(leaveLabel(virgin({ next: "install" }), false)).toBe("Back");
+    expect(leaveLabel(virgin({ next: "install-service" }), false)).toBe("Back");
   });
 
-  it("is derived from screensFor, so the two can never disagree", () => {
-    for (const next of ["ready", "start", "install", "init", "unreachable"] as const) {
+  it("is derived from screensFor for EVERY step, so the two can never disagree", () => {
+    for (const next of ALL_PROBE_STEPS) {
       for (const onboarded of [true, false]) {
         const p = virgin({ next });
         expect(leaveLabel(p, onboarded)).toBe(screensFor(p, onboarded).length > 0 ? "Back" : "Close");
