@@ -33,14 +33,24 @@ export interface PresetFormValue {
   restartOnExit: boolean;
 }
 
-/** Empty form state — one blank row per section so typing can start immediately. */
+/**
+ * Empty form state — one blank row per section so typing can start
+ * immediately, and auto-restart ON (operator's call, 2026-09-18).
+ *
+ * A preset exists because someone means to run this agent this way more than
+ * once, and an agent that exits on its own is nearly always something to
+ * recover from rather than a decision to be asked about later. The switch
+ * stays, so turning it off is one click; it is the DEFAULT that moved, and
+ * only for a form being filled in — {@link presetFormFromRow} still reads
+ * every existing preset's own stored value, so nothing already saved changes.
+ */
 export function emptyPresetForm(): PresetFormValue {
   return {
     harnessId: "",
     name: "",
     envRows: [{ key: "", value: "" }],
     flagRows: [{ flag: "", value: "" }],
-    restartOnExit: false,
+    restartOnExit: true,
   };
 }
 

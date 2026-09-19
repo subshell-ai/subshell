@@ -30,14 +30,23 @@ const baseRow: PresetRow = {
 };
 
 describe("emptyPresetForm", () => {
-  it("returns one blank row per section", () => {
+  it("returns one blank row per section, with auto-restart already on", () => {
     expect(emptyPresetForm()).toEqual({
       harnessId: "",
       name: "",
       envRows: [{ key: "", value: "" }],
       flagRows: [{ flag: "", value: "" }],
-      restartOnExit: false,
+      // Operator's call, 2026-09-18: a preset is a way of running something
+      // repeatedly, so recovering from an exit is the expected answer.
+      restartOnExit: true,
     });
+  });
+
+  it("does not change what an EXISTING preset stored", () => {
+    // The default is for a form being filled in. A saved preset with the
+    // switch off keeps it off, whatever a new form would start as.
+    expect(presetFormFromRow({ ...baseRow, restartOnExit: 0 }).restartOnExit).toBe(false);
+    expect(presetFormFromRow({ ...baseRow, restartOnExit: 1 }).restartOnExit).toBe(true);
   });
 });
 

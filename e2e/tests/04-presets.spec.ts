@@ -91,12 +91,23 @@ test("create a preset from the page, verify it via the API, delete it", async ({
   await page.getByRole("button", { name: "Create preset" }).click();
   // The row appears under its agent's group header (the list is grouped by
   // agent now; the row itself carries no harness badge). The header is an
-  // <h2> (icon span aria-hidden, then the name) — matching it by ROLE is what
-  // keeps "pi" single-match: a getByText of the bare name would also hit a
-  // future no-env preset's row, whose copy-launch command line renders
-  // exactly "pi".
+  // <h2> (icon span aria-hidden, then the name) — matching it by ROLE rather
+  // than by text keeps "pi" single-match whatever a row happens to render.
   await expect(page.getByRole("heading", { name: "pi", exact: true })).toBeVisible();
   await expect(page.getByText("E2E shell")).toBeVisible();
+
+  // The launch command is HIDDEN until asked for: a preset's env vars are
+  // where API keys live, and this page is something you scroll past. The
+  // browser-level proof is that the value is not on the page at all.
+  // `presetLaunchCommand` quotes every value, so the rendered text is
+  // `E2E_PASTED='yes'` — asserting the UNQUOTED spelling would pass while
+  // the secret was on screen.
+  const secret = "E2E_PASTED='yes'";
+  await expect(page.getByText(secret)).toHaveCount(0);
+  await page.getByRole("button", { name: "Show command for E2E shell" }).click();
+  await expect(page.getByText(secret)).toBeVisible();
+  await page.getByRole("button", { name: "Hide command for E2E shell" }).click();
+  await expect(page.getByText(secret)).toHaveCount(0);
 
   // The pasted rows must reach storage, not just the form.
   const savedEnv = await page.evaluate(async () => {
