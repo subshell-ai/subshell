@@ -469,7 +469,7 @@ export const updateSeams = {
  * The rule of spec 2026-09-17 §4, in one function: bytes are installable iff
  * they hash to the digest the SIGNED manifest names for this host's exact
  * published filename, and that manifest's signature verifies against the
- * compiled-in publisher pubkey with a payload naming component `node` and
+ * compiled-in publisher pubkey with a payload naming component `cli-node` and
  * exactly the version being installed.
  *
  * Runs AFTER the download and BEFORE the swap (and before the first

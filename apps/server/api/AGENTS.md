@@ -83,11 +83,11 @@ The Nodes plane adds two files outside the DB: `GET /api/downloads/node/*`
 (`src/api/downloads.route.ts`) serves the prebuilt `subshell` binaries —
 published as `subshell-node-cli-<triple>` + `.sha256` — from `NODE_ARTIFACTS_DIR`
 (`SUBSHELL_NODE_ARTIFACTS_DIR`, default
-`<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` — populated by `bun run release:node`,
+`<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` — populated by `bun run release:cli-node`,
 see root `AGENTS.md`), gated cookie-or-unconsumed-setup-key, never anonymous.
 A binary-only server install ships that dir EMPTY. That used to mean the
 install one-liner 404ed until someone published; since 2026-09-12 the server
-FETCHES a missing binary from the project's own `node-v*` GitHub release the
+FETCHES a missing binary from the project's own `cli-node-v*` GitHub release the
 first time a machine asks for it (`services/releases.ts`). Lazily, on the
 download route's 404 branch — no warm-up, no admin button, no poll, so a plane
 whose nodes are all one platform never spends a byte on the others. The bytes
@@ -1174,7 +1174,7 @@ From the repo root:
 
 ```bash
 bunx turbo build           # 1. apps/server/web/dist must exist (embed preflight)
-bun run release:server     # 2. = apps/server/api compile:release (src/scripts/release.ts)
+bun run release:cli-server # 2. = apps/server/api compile:release (src/scripts/release.ts)
 ```
 
 The pipeline embeds the SPA (the generator overwrites the stub; the stub is

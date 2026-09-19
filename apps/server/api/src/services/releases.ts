@@ -390,8 +390,8 @@ export interface CompatibleNodeRelease {
  * one version behind would install an agent speaking a protocol it does not,
  * and that node enrolls, reconnects, and is closed 4406 forever. The manifest
  * (spec §3.2) is what makes the sharper question answerable without
- * downloading a binary — so the release offered is the newest `node` release
- * whose manifest's `nodeProtocol` EQUALS this server's, and whose version
+ * downloading a binary — so the release offered is the newest `cli-node`
+ * release whose manifest's `nodeProtocol` EQUALS this server's, and whose version
  * clears `MIN_AGENT_VERSION`.
  *
  * Only the newest is considered, deliberately: walking back through older
@@ -463,7 +463,7 @@ export type CliReleaseCheck =
  * install" with the same sentence rather than three near-identical ones —
  * the same reason `applyConfig` is the one writer of config.env.
  *
- * `node` is here for completeness, but the node question is sharper than this
+ * `cli-node` is here for completeness, but the node question is sharper than this
  * — a plane must also match protocol and floor — so anything offering a
  * release TO A NODE uses {@link compatibleNodeRelease} instead.
  */

@@ -66,7 +66,7 @@ subshell: WARNING: SERVER is a loopback address; a remote node
 | `subshell: could not reach <server URL>; nothing was installed (<install dir> untouched).` (the script's `$SERVER` and `$DEST` expand to the URL you used and the target directory) | The machine never reached the server at all — wrong address, firewall, or the VPN was down. | Reach the address by hand (`curl -I`) and retry. |
 | `subshell: Intel Macs are not supported: no agent is published for darwin-x64.` | Intel Macs are not a target for any component. | Run the agent from a checkout on that machine, or use another host ([Supported Platforms](/about/supported-platforms)). |
 
-When the instance is configured **not** to fetch releases, the Add-node dialog warns up front — `This server has no agent binary for:` the missing triples `, and it is configured not to download one.` — and the honest remedies are the ones it names: publish binaries on the server (copy the `subshell-node-cli-<triple>` assets from a `node-v*` GitHub Release into its node-artifacts dir), or install the agent another way and run `subshell setup` directly. [Adding a Node](/nodes/add-node) has the full path.
+When the instance is configured **not** to fetch releases, the Add-node dialog warns up front — `This server has no agent binary for:` the missing triples `, and it is configured not to download one.` — and the honest remedies are the ones it names: publish binaries on the server (copy the `subshell-node-cli-<triple>` assets from a `cli-node-v*` GitHub Release into its node-artifacts dir), or install the agent another way and run `subshell setup` directly. [Adding a Node](/nodes/add-node) has the full path.
 
 ## "program not found" for an agent you installed
 

@@ -30,7 +30,7 @@ An agent nobody just updated is the ordinary "your node is too old" case; the re
 
 Every published app release carries a `release-manifest.json` asset with five fields: `component` (one of `server`, `node`, `desktop-server`, `desktop-client`), `version`, `nodeProtocol`, `minAgentVersion`, and `commit`, the commit sha it was cut from.
 
-It exists so a control plane can answer "which node release can *I* offer" without downloading anything: the Updates page offers the newest `node-v*` release whose `nodeProtocol` equals its own, and a release with **no manifest is never offered** — every cut before 2026-09-15 predates it, so the page says "unknown" rather than guessing. Releases are compared by semver, never by date: four components share one repository, and whichever tag was cut most recently is very often not the newest of any one of them.
+It exists so a control plane can answer "which node release can *I* offer" without downloading anything: the Updates page offers the newest `cli-node-v*` release whose `nodeProtocol` equals its own, and a release with **no manifest is never offered** — every cut before 2026-09-15 predates it, so the page says "unknown" rather than guessing. Releases are compared by semver, never by date: four components share one repository, and whichever tag was cut most recently is very often not the newest of any one of them.
 
 ## Database versions ride with the binary
 
@@ -44,7 +44,7 @@ That coupling is the same on the agent minus the database half: the marker names
 
 ## npm packages are a different versioning
 
-The four app components release under their own tags (`server-vX.Y.Z`, `node-vX.Y.Z`, `desktop-server-v…`, `desktop-client-v…`) and are what the two gates above compare. The `@subshell-ai/*` packages on npm — the plugin API and the harness and network plugins — carry their own versions on their own schedule, and the wire says nothing about them: a plugin is installed once into the control plane's store, reaches nodes only as **data** (the plane-built launch command and the detection rule the node runs against its own PATH), and a plugin's release therefore never requires a node-side rollout or a protocol bump.
+The four app components release under their own tags (`cli-server-vX.Y.Z`, `cli-node-vX.Y.Z`, `desktop-server-v…`, `desktop-client-v…`) and are what the two gates above compare. The `@subshell-ai/*` packages on npm — the plugin API and the harness and network plugins — carry their own versions on their own schedule, and the wire says nothing about them: a plugin is installed once into the control plane's store, reaches nodes only as **data** (the plane-built launch command and the detection rule the node runs against its own PATH), and a plugin's release therefore never requires a node-side rollout or a protocol bump.
 
 > [!important] Practical rule
 > When a change crosses the wire, cut the whole set: a desktop bundle ships the CLI it wraps, so a server-only or agent-only release does not reach desktop users until the matching desktop cut. The repository's release workflow takes `app=all` for exactly this.

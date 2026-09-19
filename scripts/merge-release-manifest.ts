@@ -24,7 +24,7 @@
  *
  * `<dir>` is searched at the top level and one directory deep, because
  * `download-artifact` lands each shard in its own subdirectory
- * (`dist/server-linux-x64/…`). The merged files go to `--out`, ABOVE those
+ * (`dist/cli-server-linux-x64/…`). The merged files go to `--out`, ABOVE those
  * directories.
  *
  * Refusals, all release-stopping: no shard manifests; shards that disagree
@@ -32,7 +32,7 @@
  * two versions in one release — either way nobody can say what was published);
  * two shards naming one asset with different digests (the exact
  * two-artifacts-for-one-tag state the signature exists to catch); and, for
- * the `server`/`node` components, a merged set missing any target platform's
+ * the `cli-server`/`cli-node` components, a merged set missing any target platform's
  * binary — a missing entry is invisible to everyone but the machine that
  * needed it. A missing `TAURI_SIGNING_PRIVATE_KEY` also refuses: unlike the
  * shards (where an unsigned local publish is legitimate), this script runs
@@ -114,7 +114,7 @@ export function loadShardManifests(paths: readonly string[]): ShardManifest[] {
 /**
  * The binary asset names a merged manifest MUST carry, per component.
  *
- * Only the two CLI components: `server`/`node` releases are consumed by the
+ * Only the two CLI components: `cli-server`/`cli-node` releases are consumed by the
  * per-machine update paths that look a target up by exact name, so a missing
  * triple is a real dead end there. Desktop components publish manifests too
  * (spec 2026-09-15 §3.2) but nothing per-platform reads their `assets` map —

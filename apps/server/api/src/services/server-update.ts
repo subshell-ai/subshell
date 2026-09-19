@@ -311,7 +311,7 @@ export interface ServerUpdateView {
   source: { url: string | null; enabled: boolean };
   /** The version this process is. */
   current: string;
-  /** The newest published `server` release, or null. */
+  /** The newest published `cli-server` release, or null. */
   latest: ReleaseRef | null;
   /** Why `latest` is null while the source is ON; null when the source answered (or is off). */
   latestError: string | null;

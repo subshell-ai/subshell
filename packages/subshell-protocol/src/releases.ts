@@ -100,7 +100,8 @@ export interface ReleaseCandidate {
  * pick would then hand every machine a downgrade.
  *
  * Tags belonging to another component are ignored even when they would parse
- * as a newer version — `desktop-server-v9.0.0` is not a server release.
+ * as a newer version — `desktop-server-v9.0.0` is not a `cli-server` release,
+ * and four components share one repository's tag list.
  */
 export function newestRelease(component: ReleaseComponent, tags: readonly string[]): ReleaseCandidate | null {
   let best: ReleaseCandidate | null = null;

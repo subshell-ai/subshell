@@ -1082,7 +1082,7 @@ To stage one by hand for `tauri dev`:
 ```bash
 SUBSHELL_SERVER_RELEASE_TRIPLES=darwin-arm64 \
 SUBSHELL_SERVER_RELEASE_DIR="$PWD/apps/server/desktop/src-tauri/binaries" \
-  bun run release:server
+  bun run release:cli-server
 cd apps/server/desktop/src-tauri/binaries \
   && mv subshell-server-cli-darwin-arm64 subshell-server-bundled-aarch64-apple-darwin \
   && rm -f subshell-server-cli-darwin-arm64.sha256

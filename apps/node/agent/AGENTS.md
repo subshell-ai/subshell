@@ -13,7 +13,7 @@ distribution design beside it. Architecture-role prose: the component map in
 ```bash
 bun run build            # tsdown lib build → dist/index.js|.d.ts (what turbo runs)
 bun run compile          # single-file DEV binary ./dist/subshell (host only, --bytecode)
-bun run compile:release  # the release pipeline (run it from ROOT as `bun run release:node`)
+bun run compile:release  # the release pipeline (run it from ROOT as `bun run release:cli-node`)
 bun run test             # bun test
 bun run verify-types     # tsc --noEmit
 ```
@@ -497,7 +497,8 @@ null`; `verifySignedManifest` runs before the swap — `null` (a command with no
 manifest, or a resolve with nothing to verify) is
 `NODE_RESULT_MANIFEST_UNVERIFIED`, and so is a signature that does not verify
 against `RELEASE_PUBKEY` (the protocol package's compiled-in publisher key)
-with the payload bound to component `node` + the version being installed. The
+with the payload bound to component `cli-node` + the version being installed.
+The
 digest the bytes are compared against comes from the SIGNED `assets` map keyed
 by the exact published filename, never from a `.sha256` sidecar or the
 command's own `sha256` field alone. `resolveNodeRelease` (the CLI's own

@@ -43,7 +43,7 @@ export const updateSeams = {
   deployment: collectDeployment,
   installed: () => resolveInstalledBinary({ configDir: serverConfigDir() }),
   /**
-   * The newest INSTALLABLE `server` release — newest AND signature-verified —
+   * The newest INSTALLABLE `cli-server` release — newest AND signature-verified —
    * or the one-sentence reason there is none. Never throws: the refusal is a
    * rendered answer, not an exception (spec 2026-09-17 §5 path 4).
    */

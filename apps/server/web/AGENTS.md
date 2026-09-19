@@ -398,7 +398,7 @@ triples the server actually serves — and names the missing ones IN THE TERMINA
 command they describe, not in the generate slot above; `setup`, not `enroll`, because
 `enroll` requires `--name` and a person reading a command off a browser should be
 ASKED for the name instead): a binary-only server install publishes no agent
-binaries until `release:node` runs, and the one-liner 404s on every machine
+binaries until `release:cli-node` runs, and the one-liner 404s on every machine
 until then. The field being ABSENT (older server behind a cached PWA) stays
 silent; the query still loading or errored shows a "could not check" line
 instead — no verdict without data. Opening the dialog refetches so a just-

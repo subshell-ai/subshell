@@ -122,8 +122,8 @@ export interface UnverifiedReleaseManifest {
  *   latter)
  * @param pubkeyBase64 - the publisher's armor (`RELEASE_PUBKEY` in production)
  * @param expected - the component and version the CALLER is being told to
- *   install; the payload must name exactly these. A `node` release's
- *   signature can therefore never validate as a `server` release's: replay
+ *   install; the payload must name exactly these. A `cli-node` release's
+ *   signature can therefore never validate as a `cli-server` release's: replay
  *   requires the payload to match, and the payload says what it is.
  */
 export async function verifyReleaseManifest(

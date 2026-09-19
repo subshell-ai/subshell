@@ -41,11 +41,11 @@ argument is `docs/superpowers/specs/2026-09-07-app-vocabulary-design.md`.
 
 Defaulting a node's label to "Server" does put that word near a machine that
 runs agents, so it is worth being explicit that nothing the rule governs
-acquired a second meaning: the id is `local`, the release-component id, tag
-prefix and package name for the control plane are still `server`, and the
-directory is still `apps/server/`. It is a string an admin owns and can change
-in one field — which is the point of the change, since the old fixed "Local"
-read to every other user as *their* machine.
+acquired a second meaning: the id is `local`, the package name for the control
+plane is still `@internal/server`, its release-component id and tag prefix say
+`cli-server`, and the directory is still `apps/server/`. It is a string an
+admin owns and can change in one field — which is the point of the change,
+since the old fixed "Local" read to every other user as *their* machine.
 
 ### Directory Structure
 
@@ -98,14 +98,21 @@ interface to a control plane — it calls `/api/auth`, `/api/subshells`,
 `/api/nodes`, `/api/presets` and `/api/devices` and depends on no agent
 package — not because it is "a client of the API".
 
-**Directory names and component IDS are two different things.** `server`,
-`node`, `desktop-server` and `desktop-client` are the release-component ids —
-the git tag prefixes (`server-vX.Y.Z`, `node-vX.Y.Z`, `desktop-server-vX.Y.Z`,
-`desktop-client-vX.Y.Z`), the `release.yml` dispatch options, the artifact
-prefixes and the root `release:*` script names. A nested path is not a usable
-tag, so the two are mapped explicitly rather than derived; see "GitHub Releases"
-below for the table. `client` as a component id is **retired** — it published
-the agent, which is the exact overload the vocabulary removes.
+**Directory names and component IDS are two different things.** `cli-server`,
+`cli-node`, `desktop-server` and `desktop-client` are the release-component
+ids — the git tag prefixes (`cli-server-vX.Y.Z`, `cli-node-vX.Y.Z`,
+`desktop-server-vX.Y.Z`, `desktop-client-vX.Y.Z`), the `release.yml` dispatch
+options, the artifact prefixes and the root `release:*` script names. A nested
+path is not a usable tag, so the two are mapped explicitly rather than derived;
+see "GitHub Releases" below for the table.
+
+Every id reads `<form>-<role>`: which shape a user installs, then which of the
+product's three words it is. The CLI pair carried no form marker until
+2026-09-18 (`server`, `node`); renaming them to `cli-server` and `cli-node`
+also removed a real wart — `desktop-server-v` used to have `server-v` as a
+suffix, which both the TypeScript and the Rust tag parsers carried comments
+about. `client` as a component id stays RETIRED — it published the agent,
+which is the exact overload the vocabulary removes.
 
 Package names follow the same words: `@internal/server`, `@internal/server-web`,
 `@internal/node`, `@internal/desktop-server`, `@internal/desktop-client`,
@@ -429,11 +436,11 @@ from the repo root:
 
 ```bash
 bunx turbo build                          # 1. package dists the agent binary bundles
-bun run release:node                      # 2. compile:release — cross-build + atomic publish
+bun run release:cli-node                  # 2. compile:release — cross-build + atomic publish
 systemctl --user restart subshell-server.service     # 3. the server serves the new files
 ```
 
-- `release:node` runs `apps/node/agent`'s `compile:release` (`src/scripts/release.ts`):
+- `release:cli-node` runs `apps/node/agent`'s `compile:release` (`src/scripts/release.ts`):
   the three served triples (`linux-x64`, `linux-arm64`, `darwin-arm64` — no
   Intel Mac), each cross-built WITH
   `--bytecode` (uniform since spec 2026-09-03 §5) — `SUBSHELL_RELEASE_TRIPLES`
@@ -456,7 +463,7 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
   CLI or the desktop app that wraps it. That makes republishing a DEPLOY-ORDER
   step, not a detail: an already-running instance's `node-artifacts` dir still
   holds the old names, and every agent download 404s (`install.sh` says "this
-  server has no <target> agent binary published") until `release:node`
+  server has no <target> agent binary published") until `release:cli-node`
   publishes into it again. The installed binary names are unchanged — a
   downloaded artifact is still renamed to `subshell` on install.
 
@@ -478,7 +485,7 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
   `.tmp-<pid>` files alone.
 - `turbo build` wipes the compiled `apps/node/agent/dist/subshell` dev binary;
   re-create it with `cd apps/node/agent && bun run compile`.
-- Separately, `bun run release:server` builds the **control-plane** binary
+- Separately, `bun run release:cli-server` builds the **control-plane** binary
   (not a Nodes download artifact): the three `SERVER_TARGETS` triples
   (`linux-x64`, `linux-arm64`, `darwin-arm64`), each `--bytecode`, with the
   built SPA **embedded** so the binary serves the UI with no frontend dist
@@ -767,8 +774,8 @@ one of those minutes metered. That is the trade as made, knowingly.
 ### GitHub Releases (CI — `.github/workflows/release.yml`)
 
 The four pipelines run sharded in CI and ship as **GitHub Releases** under
-component-scoped tags: `server-vX.Y.Z` (three `subshell-server-cli-<triple>`
-binaries + `.sha256` sidecars), `node-vX.Y.Z` (3 + 3),
+component-scoped tags: `cli-server-vX.Y.Z` (three `subshell-server-cli-<triple>`
+binaries + `.sha256` sidecars), `cli-node-vX.Y.Z` (3 + 3),
 `desktop-server-vX.Y.Z` (2 + 2) and `desktop-client-vX.Y.Z` (2 + 2). Tagging
 and releasing is OWNED BY THE WORKFLOW — never cut tags by hand.
 
@@ -779,14 +786,16 @@ carries an explicit table and emits BOTH names in every matrix entry:
 
 | id (`matrix.app`) | directory (`matrix.dir`) |
 |---|---|
-| `server` | `server/api` |
-| `node` | `node/agent` |
+| `cli-server` | `server/api` |
+| `cli-node` | `node/agent` |
 | `desktop-server` | `server/desktop` |
 | `desktop-client` | `client/desktop` |
 
 - **id** — the git tag (`tag="$app-v$version"`), the `upload-artifact` name,
   the publish job's download pattern and file glob, the dispatch option, and
-  every `matrix.app == …` condition. These are PUBLISHED; they do not move.
+  every `matrix.app == …` condition. These are PUBLISHED, so moving one is a
+  cutover and not a rename — an installed binary looks only for its own
+  compiled-in prefix. 2026-09-18 did exactly that to the CLI pair.
 - **directory** — `apps/$dir/package.json` for the version read,
   `repo/apps/$DIR/CHANGELOG.md` for the release-notes slice, and every
   `--cwd`/`working-directory`/cargo path. Nothing else.
@@ -802,12 +811,12 @@ release body, and shards in the same `build`/`publish` jobs. The only thing that
 differs is the SHAPE of what they publish — a bundle rather than a bare binary —
 which is why they share their own smoke, parameterized by app id.
 
-- **Release assets:** `server-vX.Y.Z` carries ONE binary per triple —
+- **Release assets:** `cli-server-vX.Y.Z` carries ONE binary per triple —
   `subshell-server-cli-<triple>` (SPA embedded; the binary serves its own
   `mcp` subcommand, so a server-only host self-resolves its MCP entrypoint);
   install that ONE file **renamed to `subshell-server`** — dropping only the
   triple would leave `subshell-server-cli`, which is not the name the service
-  unit invokes. `node-vX.Y.Z` carries `subshell-node-cli-<triple>` the same way,
+  unit invokes. `cli-node-vX.Y.Z` carries `subshell-node-cli-<triple>` the same way,
   installed as `subshell`. The 1.3.x companion-binary era is retired.
   `desktop-server-vX.Y.Z` carries
   `Subshell-Server-Desktop-<version>-darwin-arm64.dmg` (Tauri signs it; the
@@ -960,7 +969,7 @@ which is why they share their own smoke, parameterized by app id.
   real CLI, never a hand-rolled reimplementation.
 - **The cut is an explicit dispatch:**
   `gh workflow run release.yml -f app=all` (or
-  `app=server|node|desktop-server|desktop-client`, optional
+  `app=cli-server|cli-node|desktop-server|desktop-client`, optional
   `-f version=X.Y.Z`; blank = read `apps/<dir>/package.json`). `all` is the
   input's default: every component is cuttable, and each desktop bundle ships
   the CLI it wraps, so the whole set is the safe cut.
@@ -1016,7 +1025,7 @@ The Turbo pipeline ensures correct build order:
 2. `@internal/server` (`apps/server/api`) depends on backend-errors, subshell-protocol, pane-runtime, and mcp-core
 3. `@internal/backend-client` depends on server (imports the `App` type for Eden Treaty)
 4. `apps/server/web` depends on backend-client and subshell-protocol
-5. `@internal/node` (`apps/node/agent`) depends on backend-errors, subshell-protocol, pane-runtime, and mcp-core — its compiled binary bundles those dists, which is why `turbo build` is a preflight for `release:node` (and the reverse hazard: the build wipes `apps/node/agent/dist/subshell`)
+5. `@internal/node` (`apps/node/agent`) depends on backend-errors, subshell-protocol, pane-runtime, and mcp-core — its compiled binary bundles those dists, which is why `turbo build` is a preflight for `release:cli-node` (and the reverse hazard: the build wipes `apps/node/agent/dist/subshell`)
 
 For development, `build:dev` tasks use `hash-runner` for incremental builds — only rebuilding when source inputs change.
 
