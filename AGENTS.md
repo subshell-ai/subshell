@@ -667,7 +667,7 @@ you touch any of it:
 
 Where each half lives: `apps/server/api/AGENTS.md` ("Updating the server") for
 the four server modules, the measurements and `test:cli`'s `server-update.sh`;
-`apps/node/agent/AGENTS.md` ("Update") for the agent, the frozen `update`
+`apps/node/agent/AGENTS.md` ("Update") for the node, the frozen `update`
 command shape and the 4406 revert; each desktop app's `AGENTS.md` for
 `tauri-plugin-updater`, `latest.json` and the `update --from` delegation;
 `docs/security.md` §11.12 for what all of it costs.

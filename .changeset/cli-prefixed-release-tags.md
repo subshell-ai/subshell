@@ -4,7 +4,7 @@
 ---
 
 Release tags now read `<form>-<role>-v`: the control plane publishes under
-`cli-server-vX.Y.Z` and the node agent under `cli-node-vX.Y.Z`, matching the
+`cli-server-vX.Y.Z` and the node CLI under `cli-node-vX.Y.Z`, matching the
 `desktop-server-v` / `desktop-client-v` pair. Artifact file names are
 unchanged.
 
