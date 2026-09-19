@@ -48,7 +48,7 @@ describe("a browser", () => {
   it("links to the release pages, and offers no button", () => {
     setUA(BROWSER_UA);
     renderRows();
-    const links = screen.getAllByRole("link", { name: "Release notes and downloads" }) as HTMLAnchorElement[];
+    const links = screen.getAllByRole("link", { name: "Notes" }) as HTMLAnchorElement[];
     expect(links.map((a) => a.href)).toEqual([
       releasePageUrl("desktop-server-v0.7.0"),
       releasePageUrl("desktop-client-v0.5.0"),

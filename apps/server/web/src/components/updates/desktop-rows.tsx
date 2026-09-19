@@ -88,7 +88,7 @@ export function DesktopRows({
                   rel="noreferrer"
                   className="text-detail underline hover:text-foreground"
                 >
-                  Release notes and downloads
+                  Notes
                 </a>
               )}
               {!link && <span className="text-detail text-muted-foreground">{DASH}</span>}
