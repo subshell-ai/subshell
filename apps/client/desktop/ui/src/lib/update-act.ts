@@ -231,18 +231,24 @@ export interface UpdateAct {
   pressInstallsAgent: boolean;
 }
 
-/** What the app half is called on screen. */
-const APP_LABEL = "Subshell Client app";
 /**
- * What the CLI half is called on screen — the machine's agent, not this app.
- *
- * The binary's own name plus "CLI", so the version beside it is unambiguously
- * the agent's: this screen states TWO versions, and "Node agent" named the
- * ROLE rather than the thing whose version is on the row. Its twin in the
- * server app reads `subshell-server CLI` for the same reason (operator's
- * report, 2026-09-18).
+ * What the app half is called on screen — `Subshell <Product> <Form>`, the one
+ * rule all three update surfaces follow since 2026-09-18, mirroring the
+ * cli-server / cli-node / desktop-server / desktop-client release components.
  */
-const AGENT_LABEL = "subshell CLI";
+const APP_LABEL = "Subshell Client App";
+/**
+ * What the CLI half is called on screen — the machine's node, not this app.
+ *
+ * "Node" plus "CLI", so the version beside it is unambiguously that binary's:
+ * this screen states TWO versions, and "Node agent" named the ROLE rather than
+ * the thing whose version is on the row. Its twin in the server app reads
+ * `Subshell Server CLI` for the same reason (operator's report, 2026-09-18).
+ * `Subshell Client App` beside `Subshell Node CLI` is not a mismatch: this app
+ * is where a machine becomes a node, which is why there is no
+ * `apps/node/desktop`.
+ */
+const NODE_CLI_LABEL = "Subshell Node CLI";
 
 /** How a machine with no agent installed reads in a version column. */
 const NOT_INSTALLED = "not installed";
@@ -432,7 +438,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   if (showTable) {
     rows.push({
       id: "agent",
-      label: AGENT_LABEL,
+      label: NODE_CLI_LABEL,
       from: installedAgent ?? NOT_INSTALLED,
       // The target the row would take, ticked or not — an unticked row still
       // has to say what ticking it would do.

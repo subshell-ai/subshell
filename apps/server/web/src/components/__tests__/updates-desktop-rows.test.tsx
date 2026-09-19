@@ -83,8 +83,8 @@ describe("inside Subshell Server", () => {
   it("draws no server row when it is asked for the client alone", () => {
     setUA(SERVER_BEHIND_UA);
     renderRows(undefined, ["client"]);
-    expect(screen.queryByText("Subshell Server app", { exact: true })).toBeNull();
-    expect(screen.getByText("Subshell Client app", { exact: true })).toBeTruthy();
+    expect(screen.queryByText("Subshell Server App", { exact: true })).toBeNull();
+    expect(screen.getByText("Subshell Client App", { exact: true })).toBeTruthy();
     // No button anywhere: this surface cannot install the OTHER app, and the
     // one it could install is not its row any more.
     expect(screen.queryByRole("button")).toBeNull();

@@ -259,18 +259,23 @@ export const UPDATE_TITLE = "Update Subshell Server";
 /** Where the bundled server is installed; a constant here, resolved in Rust. */
 const INSTALL_PATH = "~/.local/bin/subshell-server";
 
-/** The app's row label — "app", because the row under it is the binary. */
-const APP_LABEL = "Subshell Server app";
+/**
+ * The app's row label — `Subshell <Product> <Form>`, the one rule all three
+ * update surfaces follow since 2026-09-18, mirroring the cli-server /
+ * cli-node / desktop-server / desktop-client release components. "App",
+ * because the row under it is the binary.
+ */
+const APP_LABEL = "Subshell Server App";
 
 /**
  * The CLI's row label.
  *
- * "CLI", and the binary's own name: this screen states TWO versions and
- * "Server" named neither of them unambiguously — it is the product's name as
- * much as the binary's, and the row above it is the app (operator's report,
- * 2026-09-18).
+ * "CLI", so the version beside it is unambiguously the binary's: this screen
+ * states TWO versions and "Server" named neither of them unambiguously — it is
+ * the product's name as much as the binary's, and the row above it is the app
+ * (operator's report, 2026-09-18).
  */
-const CLI_LABEL = "subshell-server CLI";
+const CLI_LABEL = "Subshell Server CLI";
 
 /**
  * Whether the CLI half can run at all on this machine.

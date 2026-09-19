@@ -433,7 +433,7 @@ export const checkAppUpdate = (): Promise<AppUpdateCheck> => invoke<AppUpdateChe
  * the marker because phase 2 runs in a process that cannot ask (spec
  * 2026-09-18 § 5, § 13):
  *
- * - `installServer` is whether the person left the `subshell-server CLI` row
+ * - `installServer` is whether the person left the `Subshell Server CLI` row
  *   ticked. False writes NO marker, so the new build offers the server half on
  *   its own terms instead of performing an install that was unticked.
  * - `forced` is the pane-safety override, and Rust still narrows it with its

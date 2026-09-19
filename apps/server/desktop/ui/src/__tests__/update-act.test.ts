@@ -107,7 +107,7 @@ describe("the four cases of §4.1", () => {
     expect(view.phase).toBe("idle");
     expect(row(view, "app")).toEqual({
       id: "app",
-      label: "Subshell Server app",
+      label: "Subshell Server App",
       from: "0.8.0",
       to: "0.8.1",
       selected: true,
@@ -120,7 +120,7 @@ describe("the four cases of §4.1", () => {
     // until then.
     expect(row(view, "cli")).toEqual({
       id: "cli",
-      label: "subshell-server CLI",
+      label: "Subshell Server CLI",
       from: "0.9.0",
       to: null,
       selected: true,
@@ -145,7 +145,7 @@ describe("the four cases of §4.1", () => {
     expect(row(view, "app")?.to).toBe("0.8.1");
     expect(row(view, "cli")).toEqual({
       id: "cli",
-      label: "subshell-server CLI",
+      label: "Subshell Server CLI",
       from: "0.10.0",
       to: null,
       selected: true,
@@ -160,7 +160,7 @@ describe("the four cases of §4.1", () => {
     const view = act({ probe: machine(SERVER_BEHIND) });
     expect(row(view, "app")).toEqual({
       id: "app",
-      label: "Subshell Server app",
+      label: "Subshell Server App",
       from: "0.8.0",
       to: null,
       selected: null,
@@ -198,7 +198,7 @@ describe("the four cases of §4.1", () => {
     const view = act({ probe: machine({ serverChoice: "install-bundled", server: null, managed: false }) });
     expect(row(view, "cli")).toEqual({
       id: "cli",
-      label: "subshell-server CLI",
+      label: "Subshell Server CLI",
       from: "not installed",
       to: "0.10.0",
       selected: true,
@@ -224,7 +224,7 @@ describe("the two phases of §4.2", () => {
     // the row states it rather than offering it.
     const view = act({ probe: machine({ ...SERVER_BEHIND, pendingInstall: marker() }) });
     expect(view.rows).toEqual([
-      { id: "cli", label: "subshell-server CLI", from: "0.9.0", to: "0.10.0", selected: null, reason: null },
+      { id: "cli", label: "Subshell Server CLI", from: "0.9.0", to: "0.10.0", selected: null, reason: null },
     ]);
   });
 
@@ -365,7 +365,7 @@ describe("§13: the act is a selection", () => {
     const view = act({ probe: machine(SERVER_AHEAD), appUpdate: APP_BEHIND });
     expect(row(view, "cli")).toEqual({
       id: "cli",
-      label: "subshell-server CLI",
+      label: "Subshell Server CLI",
       from: "0.10.1",
       to: null,
       selected: null,

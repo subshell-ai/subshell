@@ -55,10 +55,10 @@ describe("the status screen's button is a door (§ 7.4)", () => {
     expect(fake.callsTo("node_install_agent").length).toBe(0);
     // The half that is behind carries its numbers and its own checkbox — the
     // app is current here, so the agent row is an act of its own (§ 13.1).
-    expect(screen.getByText("subshell CLI")).toBeTruthy();
+    expect(screen.getByText("Subshell Node CLI")).toBeTruthy();
     expect(screen.getByText("1.9.0")).toBeTruthy();
     expect(screen.getByText("1.10.0")).toBeTruthy();
-    expect((screen.getByRole("checkbox", { name: "Update subshell CLI" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: "Update Subshell Node CLI" }) as HTMLInputElement).checked).toBe(true);
   });
 
   it("leaves by its own Back, because an override is a screen and not a verdict", async () => {
@@ -303,7 +303,7 @@ describe("the act is a selection (§ 13)", () => {
 
     expect(screen.getByText("you run a newer one")).toBeTruthy();
     // Never a disabled checkbox: the reason IS the content of that cell.
-    expect(screen.queryByRole("checkbox", { name: "Update subshell CLI" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "Update Subshell Node CLI" })).toBeNull();
     // The press used to carry a paragraph promising or disclaiming the agent
     // half; it was removed on 2026-09-18, so the cell above is now the only
     // place that says so — which is why this still asserts nothing renders it.
@@ -319,16 +319,16 @@ describe("the act is a selection (§ 13)", () => {
     // checkbox, because clearing it writes no marker and phase 2 then never
     // runs (review, 2026-09-18).
     expect(screen.getByText("ships with the new app")).toBeTruthy();
-    expect((screen.getByRole("checkbox", { name: "Update Subshell Client app" }) as HTMLInputElement).checked).toBe(
+    expect((screen.getByRole("checkbox", { name: "Update Subshell Client App" }) as HTMLInputElement).checked).toBe(
       true,
     );
-    expect((screen.getByRole("checkbox", { name: "Update subshell CLI" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: "Update Subshell Node CLI" }) as HTMLInputElement).checked).toBe(true);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Update Subshell Client app" }));
-    await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Update subshell CLI" })).not.toBeNull());
+    fireEvent.click(screen.getByRole("checkbox", { name: "Update Subshell Client App" }));
+    await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Update Subshell Node CLI" })).not.toBeNull());
     expect(button(/Install the agent \(1\.10\.0\)/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Update subshell CLI" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Update Subshell Node CLI" }));
     await waitFor(() => expect(button("Nothing selected").disabled).toBe(true));
   });
 

@@ -54,7 +54,7 @@ describe("what the screen states (§ 4.1)", () => {
     expect(a.rows).toEqual([
       row({
         id: "app",
-        label: "Subshell Client app",
+        label: "Subshell Client App",
         from: "0.8.0",
         to: { kind: "version", version: "0.8.1" },
         selected: true,
@@ -68,7 +68,7 @@ describe("what the screen states (§ 4.1)", () => {
       // the app", on the belief that nothing could cross the relaunch).
       row({
         id: "agent",
-        label: "subshell CLI",
+        label: "Subshell Node CLI",
         from: "1.9.0",
         to: { kind: "with-app" },
         selected: true,
@@ -86,10 +86,10 @@ describe("what the screen states (§ 4.1)", () => {
       // The app is current and says so, rather than being dropped from a table
       // its sibling opened (review, 2026-09-18) — Subshell Server's rule, and
       // the one § 13.1 states for both.
-      row({ id: "app", label: "Subshell Client app", from: "0.8.0", to: { kind: "none" }, reason: "up to date" }),
+      row({ id: "app", label: "Subshell Client App", from: "0.8.0", to: { kind: "none" }, reason: "up to date" }),
       row({
         id: "agent",
-        label: "subshell CLI",
+        label: "Subshell Node CLI",
         from: "1.9.0",
         to: { kind: "version", version: "1.10.0" },
         selected: true,
@@ -127,10 +127,10 @@ describe("what the screen states (§ 4.1)", () => {
       probe: makeProbe({ agentChoice: "install-bundled", agent: null, managed: false, bundledVersion: "1.10.0" }),
     });
     expect(a.rows).toEqual([
-      row({ id: "app", label: "Subshell Client app", from: "0.8.0", to: { kind: "none" }, reason: "up to date" }),
+      row({ id: "app", label: "Subshell Client App", from: "0.8.0", to: { kind: "none" }, reason: "up to date" }),
       row({
         id: "agent",
-        label: "subshell CLI",
+        label: "Subshell Node CLI",
         from: "not installed",
         to: { kind: "version", version: "1.10.0" },
         selected: true,
@@ -150,7 +150,7 @@ describe("what the screen states (§ 4.1)", () => {
     const checkingNow = act({ check: undefined, checking: true, probe: agentBehind() });
     expect(checkingNow.rows.map((r) => r.id)).toEqual(["app", "agent"]);
     expect(checkingNow.rows[0]).toEqual(
-      row({ id: "app", label: "Subshell Client app", from: "—", to: { kind: "none" }, reason: "checking…" }),
+      row({ id: "app", label: "Subshell Client App", from: "—", to: { kind: "none" }, reason: "checking…" }),
     );
 
     // And once the check has REJECTED rather than answered, the row says so
@@ -187,7 +187,13 @@ describe("the refusals (§ 6)", () => {
     // The agent row states the refusal where its checkbox would be, and is
     // never a disabled one (§ 13.1).
     expect(a.rows[1]).toEqual(
-      row({ id: "agent", label: "subshell CLI", from: "1.9.0", to: { kind: "none" }, reason: "runs another binary" }),
+      row({
+        id: "agent",
+        label: "Subshell Node CLI",
+        from: "1.9.0",
+        to: { kind: "none" },
+        reason: "runs another binary",
+      }),
     );
     expect(a.refusals.join(" ")).toContain("/opt/subshell/bin/subshell");
     // The app half still runs — the refusal is half an act, not the whole one.
@@ -368,7 +374,13 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
   it("never names an older bundled agent as the target of a newer installed one", () => {
     const a = act({ check: check({ latest: "0.8.1" }), probe: agentNewer() });
     expect(a.rows[1]).toEqual(
-      row({ id: "agent", label: "subshell CLI", from: "1.11.0", to: { kind: "none" }, reason: "you run a newer one" }),
+      row({
+        id: "agent",
+        label: "Subshell Node CLI",
+        from: "1.11.0",
+        to: { kind: "none" },
+        reason: "you run a newer one",
+      }),
     );
     // And the sentence beside the press stops promising the half that will
     // not run: phase 2 answers `Resume::Clear` on this machine.
@@ -397,7 +409,7 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
     expect(appOff.rows[1]).toEqual(
       row({
         id: "agent",
-        label: "subshell CLI",
+        label: "Subshell Node CLI",
         from: "1.9.0",
         to: { kind: "version", version: "1.10.0" },
         selected: true,
@@ -424,7 +436,7 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
     expect(a.rows[1]).toEqual(
       row({
         id: "agent",
-        label: "subshell CLI",
+        label: "Subshell Node CLI",
         from: "1.9.0",
         // Still says what ticking it would do, rather than going blank.
         to: { kind: "with-app" },
@@ -460,7 +472,7 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
     expect(a.rows[0]).toEqual(
       row({
         id: "app",
-        label: "Subshell Client app",
+        label: "Subshell Client App",
         from: "0.8.0",
         to: { kind: "none" },
         reason: "cannot be checked",

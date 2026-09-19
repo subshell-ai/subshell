@@ -65,8 +65,8 @@ test.describe("server updates page", () => {
     await expect(body.getByText("Name", { exact: true })).toBeVisible();
     await expect(body.getByText("Running", { exact: true })).toBeVisible();
     await expect(body.getByText("Newest", { exact: true })).toBeVisible();
-    await expect(body.getByText("Subshell Server app", { exact: true })).toBeVisible();
-    await expect(body.getByText("Subshell Client app", { exact: true })).toBeVisible();
+    await expect(body.getByText("Subshell Server App", { exact: true })).toBeVisible();
+    await expect(body.getByText("Subshell Client App", { exact: true })).toBeVisible();
     await expect(body.getByText("Server", { exact: true })).toBeVisible();
     await expect(body.getByText("Nodes", { exact: true })).toBeVisible();
 
