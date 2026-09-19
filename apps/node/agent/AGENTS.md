@@ -498,9 +498,8 @@ manifest, or a resolve with nothing to verify) is
 `NODE_RESULT_MANIFEST_UNVERIFIED`, and so is a signature that does not verify
 against `RELEASE_PUBKEY` (the protocol package's compiled-in publisher key)
 with the payload bound to component `cli-node` + the version being installed.
-The
-digest the bytes are compared against comes from the SIGNED `assets` map keyed
-by the exact published filename, never from a `.sha256` sidecar or the
+The digest the bytes are compared against comes from the SIGNED `assets` map
+keyed by the exact published filename, never from a `.sha256` sidecar or the
 command's own `sha256` field alone. `resolveNodeRelease` (the CLI's own
 `--check`/`--to`) fetches manifest+sig and verifies BEFORE the 70 MB download,
 so an unsigned release costs two small reads; the plane-commanded path cannot

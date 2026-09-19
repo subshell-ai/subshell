@@ -19,7 +19,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Tauri's own dependency list, plus four this pipeline specifically needs:
 #   pkg-config  — arrives transitively, but every *-sys crate shells out to it
 #   ca-certificates — rustup and cargo fetch over https
-#   git         — the nested `release:server` ends in `git checkout` to restore
+#   git         — the nested `release:cli-server` ends in `git checkout` to restore
 #                 the embedded-web stub, as root, over a runner-owned workspace
 #   unzip       — bun's installer
 #   tmux        — this is now the CI image too (test.yml), and both the

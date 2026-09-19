@@ -147,7 +147,7 @@ data/
 apps/server/api/data/
 apps/server/api/.bun/
 
-# release drop dirs: `release:server` output + CI build staging (binaries, never committable)
+# release drop dirs: `release:cli-server` output + CI build staging (binaries, never committable)
 dist-server/
 dist-rel/
 
