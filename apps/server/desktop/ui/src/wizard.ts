@@ -51,8 +51,8 @@ import * as ipc from "./lib/ipc";
 import { type PermissionRequest, permissionRows } from "./lib/permissions-model";
 import { recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
 import {
-  HTTPS_LOCKOUT_WARNING,
-  httpsLockout,
+  HTTPS_RESTART_NOTE,
+  httpsBaseUrl,
   SETTINGS_BLIND_WARNING,
   SETTINGS_LABEL,
   SETTINGS_RESTART_NOTE,
@@ -2071,12 +2071,14 @@ const HTTPS_NOTE_ID = "settings-https-note";
  * whether this server is reachable, edited from the one page that needs no
  * session to save them.
  *
- * It exists because of a lockout this app could not undo from inside itself:
- * an `https://` base URL marks the session cookie `Secure`, this app opens its
- * `main` window on loopback http, and the only place that value could be
- * changed was the dashboard that had just stopped accepting a sign-in. So the warning
+ * It exists because a value only the dashboard can change can make the
+ * dashboard unreachable. The case it was BUILT for — an `https://` base URL
+ * marking the session cookie `Secure` while this app opened its window on
+ * loopback http — was fixed on 2026-09-19 by opening the window on the
+ * configured address instead; what is left is an address the operator
+ * configured and cannot reach, where the window lands on a browser error. So the warning
  * under the base URL field is the dashboard's own sentence, verbatim
- * (`HTTPS_LOCKOUT_WARNING`, pinned against `addresses-card.tsx` by test): the
+ * (`HTTPS_RESTART_NOTE`, pinned against `addresses-card.tsx` by test): the
  * person who lands here has already met the consequence, and two surfaces
  * describing it differently would leave them wondering whether these are two
  * different things.
@@ -2084,7 +2086,7 @@ const HTTPS_NOTE_ID = "settings-https-note";
  * **Two acts, kept apart.** Save writes config.env through `desktop_setup` —
  * no new command, which is a requirement of § 14.2 rather than an outcome:
  * a screen that needed a fresh grant would widen the IPC surface in the name
- * of fixing a lockout. Restart is `desktop_service`, with the pane-safety
+ * of one repair screen. Restart is `desktop_service`, with the pane-safety
  * refusal and its Force override exactly as the update act has them. Nothing
  * here changes supervision — `settingsPayload` sends the machine's own answer
  * so an edit to a port cannot install a service — and **How Your Server Runs**
@@ -2154,16 +2156,16 @@ function renderSettings(p: Probe): void {
       // always built and merely hidden, so the toggle needs no rebuild.
       note: (field, values) => {
         if (field.name !== "baseUrl") return null;
-        const note = text("p", HTTPS_LOCKOUT_WARNING, "hint warn-text");
+        const note = text("p", HTTPS_RESTART_NOTE, "hint");
         note.id = HTTPS_NOTE_ID;
-        note.hidden = !httpsLockout(values.baseUrl);
+        note.hidden = !httpsBaseUrl(values.baseUrl);
         return note;
       },
       onEdit: () => {
         // Both fields, because the port moves the base URL too while nobody
         // has chosen one (`addressForm`'s mirror).
         const note = document.getElementById(HTTPS_NOTE_ID);
-        if (note) note.hidden = !httpsLockout(state.values.baseUrl);
+        if (note) note.hidden = !httpsBaseUrl(state.values.baseUrl);
       },
     }),
   );

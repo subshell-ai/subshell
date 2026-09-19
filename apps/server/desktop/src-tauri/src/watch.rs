@@ -45,7 +45,10 @@ pub fn origin_changed(current: Option<&str>, probe: &Probe) -> Option<String> {
     if probe.next != ProbeStep::Ready {
         return None;
     }
-    let next = probe.origin()?;
+    // The WINDOW's origin, not the server's: an instance whose base URL is
+    // https wants the window there, and a loopback window that predates such a
+    // change is one this tick should move (operator's report, 2026-09-19).
+    let next = probe.window_origin()?;
     let here = tauri::Url::parse(current).ok()?;
     // **Only a window on LOOPBACK is re-pointed** (review, 2026-09-18). Since
     // the window may leave loopback (spec § 15), it is expected to sit on the

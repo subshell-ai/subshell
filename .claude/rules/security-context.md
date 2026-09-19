@@ -647,12 +647,19 @@ entry names this host and a name proves nothing. Properties to keep:
   address — including the Subshell Server desktop app's own window, which loads
   this machine over http. Adding a LAN name to `TRUSTED_ORIGINS` does NOT have
   that effect and is the right lever for "also reachable at".
-  **The same field has a second consequence for that app** (2026-09-18): an
-  `https` base URL makes better-auth mark the session cookie `Secure`, and that
-  window is http-on-loopback, so it can never store a session again — the
-  Addresses card warns before the save, the sign-in page explains it after, and
-  the assistant's **Server Addresses** screen is the way back, since it drives
-  the CLI and needs no session.
+  **The same field decides WHERE that app opens its own window** (2026-09-19):
+  an `https` base URL makes better-auth mark the session cookie `Secure`, which
+  a loopback http page cannot keep — so the app opens its dashboard window on
+  the configured address instead (`Probe::window_origin`). That extends the
+  § 15 decision from "the window may FOLLOW a sign-in onto that address" to
+  "it OPENS there", which means the seven commands are granted to a page served
+  from a remote host by default on any https instance, rather than only after a
+  redirect. Same trade, stated: the operator chose that address, and without
+  this the app cannot sign in to its own server at all. It moves ONLY for
+  https — every http configuration opens on loopback exactly as before. The
+  card says a restart and a sign-in are coming; the assistant's **Server
+  Addresses** screen remains the way back for an address that turns out to be
+  unreachable, since it drives the CLI and needs no session.
 
 ## Network plugins publish this server on a network (spec 2026-09-15)
 
