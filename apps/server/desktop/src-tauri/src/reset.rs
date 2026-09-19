@@ -78,11 +78,12 @@ pub enum Screen {
     ///
     /// Reached from the TRAY and from the recovery screen, and the tray is the
     /// load-bearing door: the screen exists for a machine whose dashboard
-    /// cannot be signed into — an `https://` base URL marks the session cookie
-    /// `Secure`, and this app opens its `main` window on loopback http, so it
-    /// can never store one again. The dashboard was the only place that value
-    /// could be changed, which left the app with no way back from inside
-    /// itself. The assistant needs no session because it drives the CLI.
+    /// cannot be reached, and the dashboard is the only other place these four
+    /// values can be changed. The assistant needs no session because it drives
+    /// the CLI. (Its original case — an `https://` base URL marking the session
+    /// cookie `Secure` while the window opened on loopback http — was fixed on
+    /// 2026-09-19 by `Probe::window_origin`; what remains is a configured
+    /// address this machine cannot actually reach.)
     Settings,
 }
 

@@ -150,11 +150,13 @@ pub fn set_update_available(app: &AppHandle, version: Option<&str>) {
 
 /// The tray's **Server Addresses…** id, and the screen it opens.
 ///
-/// The item exists for a machine whose dashboard cannot be signed into (spec
-/// 2026-09-18 § 14): an `https://` base URL marks the session cookie `Secure`,
-/// and this app opens its `main` window on loopback http, so it can never
-/// store a session again — and the value that caused it lived only on a page
-/// that needs one. So this press must work when the server is DOWN, or not
+/// The item exists for a machine whose dashboard cannot be REACHED (spec
+/// 2026-09-18 § 14), because the four values that decide whether it can are
+/// otherwise editable only from that page. Its original case — an `https://`
+/// base URL marking the session cookie `Secure` while this app opened its
+/// window on loopback http — was fixed on 2026-09-19 by opening the window on
+/// the configured address instead; what remains is an address the operator
+/// configured and this machine cannot reach. So this press must work when the server is DOWN, or not
 /// running, or running and refusing every sign-in, which is exactly what
 /// `reset::arm_and_raise` gives it: the assistant is a BUNDLED page, it opens
 /// without asking the server anything, and it drives the CLI.

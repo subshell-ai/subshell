@@ -103,29 +103,27 @@ function wireValue(key: EditableKey, draft: string): string {
 }
 
 /**
- * Whether saving this base URL would lock Subshell Server's own window out.
+ * Whether saving this base URL will move Subshell Server's own window.
  *
- * TRUE only inside that app, and only for an `https://` value: better-auth
- * derives cookie security from `APP_BASE_URL` rather than from the request
- * (measured, 1.7.1), so an https base URL marks the session cookie `Secure`
- * and prefixes it `__Secure-` — and that app opens its window on
- * `http://127.0.0.1:<port>`. A browser on the https address keeps working; the
- * app's own window cannot store a session again until the base URL points back
- * here.
+ * TRUE only inside that app, and only for an `https://` value: the app opens
+ * its dashboard window on the configured address when that address is https
+ * (`Probe::window_origin`), because better-auth marks the session cookie
+ * `Secure` for an https `APP_BASE_URL` (measured, 1.7.1) and a loopback http
+ * window could never hold one. So the app restarts onto a different origin,
+ * with its own cookie jar, and the person signs in there.
  *
- * A warning rather than a refusal, because an https base URL is the RIGHT
- * setting for an instance people reach over the network — the cost just has
- * to be visible at the moment it is chosen rather than discovered at the next
+ * **It answered a different question until 2026-09-19**: whether the save would
+ * lock this app's window out for good, which is what happened while the window
+ * only ever opened on loopback. It was also gated on THIS page's protocol, for
+ * a reason that went with the lockout — the consequence is about where the app
+ * reopens, not about where this page happens to be.
+ *
+ * A note rather than a refusal, because an https base URL is the RIGHT setting
+ * for an instance people reach over the network — the cost just has to be
+ * visible at the moment it is chosen rather than discovered at the next
  * sign-in.
  */
-export function strandsThisApp(value: string): boolean {
-  // **The page's OWN protocol is half the condition** (review, 2026-09-18).
-  // The window is no longer pinned to loopback — since spec § 15 it may sit on
-  // the instance's configured address, which is exactly where a proxied
-  // sign-in leaves it — so without this check the card asserts a lockout on
-  // the https page the admin just signed into over https. A warning is worth
-  // having only while it is true where the reader can check it.
-  if (typeof window === "undefined" || window.location.protocol !== "http:") return false;
+export function movesThisAppsWindow(value: string): boolean {
   return isServerDesktop() && value.trim().toLowerCase().startsWith("https://");
 }
 
@@ -327,19 +325,15 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
                   thing that matters there, which is that this is not where to
                   change it. */}
               {!fromEnv && <p className="text-detail text-muted-foreground">{hint}</p>}
-              {/* The consequence that strands the person changing it, stated
-                  BEFORE the save rather than discovered after (operator's
-                  report, 2026-09-18). See `lib/sign-in-diagnosis.ts` for the
-                  mechanism; the short version is that better-auth marks its
-                  session cookie `Secure` for an https base URL, and this page
-                  is on http, so this window can never store one again. Shown
-                  only where it is true — inside that app, for that field, on
-                  an https draft, from an http page. */}
-              {key === "APP_BASE_URL" && strandsThisApp(drafts[key] ?? setting.saved) && (
-                <p className="text-detail text-warning">
-                  An https address will sign this app's own window out for good: that window loads this machine over
-                  http, and a Secure session cookie is not kept on an http page. Browsers on the https address are
-                  unaffected.
+              {/* What changing this costs, said BEFORE the save rather than
+                  discovered after (operator's report, 2026-09-18). One
+                  sentence, shared verbatim with the assistant's Server
+                  Addresses screen and pinned equal by test. It named a lockout
+                  until 2026-09-19, when the app began opening its window on
+                  the configured address — see `movesThisAppsWindow`. */}
+              {key === "APP_BASE_URL" && movesThisAppsWindow(drafts[key] ?? setting.saved) && (
+                <p className="text-detail text-muted-foreground">
+                  Changing the base URL will require an app restart and sign in.
                 </p>
               )}
               {setting.saved !== setting.running && (

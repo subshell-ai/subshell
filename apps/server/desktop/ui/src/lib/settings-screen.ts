@@ -2,13 +2,22 @@
  * **Server Addresses** — the assistant's own editor for the four values that
  * decide whether this server is reachable at all (spec 2026-09-18 § 14).
  *
- * It exists because of one lockout, and the lockout is structural rather than
- * unlucky. Saving an `https://` base URL signs THIS APP's window out for good:
- * better-auth marks the session cookie `Secure` for an https `APP_BASE_URL`
- * (measured, 1.7.1), and the `main` window is OPENED on
- * `http://127.0.0.1:<port>`, so it can never store a session again. The value that caused it could only
- * be changed from the dashboard, which needs the session that was just lost,
- * so the app had no way back from inside itself.
+ * It exists because a value only the dashboard could change can make the
+ * dashboard unreachable — and it is the one surface that keeps working when
+ * that happens, because it is the BUNDLED page and it drives the CLI rather
+ * than the API.
+ *
+ * **The lockout it was BUILT for is gone, and the screen matters more than
+ * ever** (operator's report, 2026-09-19). Saving an `https://` base URL used
+ * to sign this app's window out for good: better-auth marks the session cookie
+ * `Secure` for an https `APP_BASE_URL` (measured, 1.7.1) and the window only
+ * ever opened on `http://127.0.0.1:<port>`, which cannot hold such a cookie.
+ * `Probe::window_origin` now opens the window on the configured address when
+ * it is https, so the ordinary case is a restart and a fresh sign-in. What is
+ * left is the case that has no other answer: an address the operator
+ * configured and CANNOT reach — a tunnel that is down, split-horizon DNS, a
+ * typo — where the window now lands on a browser error and the dashboard is
+ * not there to correct it from.
  *
  * The assistant is the way out for a structural reason too: it is the BUNDLED
  * page, it drives the CLI rather than the API, and it therefore needs no
@@ -48,25 +57,30 @@ export const SETTINGS_LABEL = "Server Addresses";
 export const SETTINGS_SUBTITLE = "Where this server listens, and which addresses may reach it.";
 
 /**
- * What an `https://` base URL costs, stated at the field.
+ * What changing the base URL costs, said at the field BEFORE the save.
  *
- * **The dashboard's own words, verbatim** —
- * `apps/server/web/src/components/networking/addresses-card.tsx` renders this
- * sentence beside the same field, and `settings-screen.test.ts` reads that file
- * and pins the two equal. Two surfaces disagreeing about a consequence is worse
- * than either wording alone, and this screen is the one people reach AFTER the
- * consequence has happened — so it had better be describing the same thing.
+ * One sentence, shared verbatim between this screen and the dashboard's
+ * Addresses card (`apps/server/web`), and pinned equal by test: a person who
+ * meets the consequence on one surface and a different wording on the other
+ * has to work out whether they are two problems.
  *
- * A warning rather than a refusal: an https base URL is the RIGHT setting for
- * an instance people reach over the network. The cost just has to be visible at
- * the moment it is chosen rather than discovered at the next sign-in.
+ * **It named a lockout until 2026-09-19** — "an https address will sign this
+ * app's own window out for good" — which was true while the window only ever
+ * opened on loopback http. `Probe::window_origin` moves the window to the
+ * configured address when it is https, so what is left is the honest, much
+ * smaller fact: the app comes back on a different origin, which has its own
+ * cookie jar.
  */
-export const HTTPS_LOCKOUT_WARNING =
-  "An https address will sign this app's own window out for good: that window loads this machine over http, " +
-  "and a Secure session cookie is not kept on an http page. Browsers on the https address are unaffected.";
+export const HTTPS_RESTART_NOTE = "Changing the base URL will require an app restart and sign in.";
 
-/** Whether this draft base URL is the value that locks this app's window out. */
-export function httpsLockout(baseUrl: string): boolean {
+/**
+ * Whether this draft base URL is an `https` address — the one kind that MOVES
+ * this app's dashboard window.
+ *
+ * It named a lockout until 2026-09-19, and that is what it was while the
+ * window only ever opened on loopback http. See {@link HTTPS_RESTART_NOTE}.
+ */
+export function httpsBaseUrl(baseUrl: string): boolean {
   return baseUrl.trim().toLowerCase().startsWith("https://");
 }
 
@@ -193,8 +207,8 @@ export function settingsSupervision(probe: Probe): { background: boolean; autost
  * machine whose app ships a NEWER server than the one installed, a Save also
  * performs that (transactional, backed up) install. That is the same act the
  * update screen offers rather than a new one, and the alternative was a second
- * config-writing command, i.e. a wider IPC surface added in the name of fixing
- * a lockout.
+ * config-writing command, i.e. a wider IPC surface added in the name of one
+ * repair screen.
  */
 export function settingsPayload(probe: Probe, form: AddressForm): InitPayload {
   return { ...configPayload(form.values, form.explicit), supervision: settingsSupervision(probe) };

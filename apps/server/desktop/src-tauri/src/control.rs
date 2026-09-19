@@ -339,6 +339,43 @@ impl Probe {
         base_origin_from(raw)
     }
 
+    /// **Where the dashboard WINDOW should be opened** — which is not always
+    /// where the server is listening.
+    ///
+    /// Loopback, except when the instance's configured `APP_BASE_URL` is an
+    /// `https` address. Then it is that address, because on a loopback http
+    /// page the window can never hold a session: better-auth marks the session
+    /// cookie `Secure` for an https base URL (measured, 1.7.1) and a browser
+    /// discards a `Secure` cookie arriving over plain http.
+    ///
+    /// **This is the other half of spec 2026-09-18 § 15, and shipping without
+    /// it made the app unusable on exactly the instances § 15 was written for**
+    /// (operator's report, 2026-09-19). § 15 let the window FOLLOW a sign-in
+    /// onto the configured address and taught the guard to trust it there —
+    /// but nothing ever pointed it there, so an operator who set an https base
+    /// URL got a dashboard that explained why it could not sign in and no way
+    /// to act on it from that window. The trust half was necessary and was not
+    /// sufficient.
+    ///
+    /// Only `https` moves the window, so every http configuration — a LAN
+    /// address, the default `http://localhost:<port>`, no base URL at all —
+    /// opens exactly where it always did. And the dev SPA override outranks
+    /// both: it exists so a developer's window loads Vite, and an https base
+    /// URL on such a machine must not silently take the hot reload away.
+    ///
+    /// There is no reachability check, because this app has no HTTP client by
+    /// design. An https address the operator configured and cannot reach shows
+    /// a browser error in the window — and the way back is the tray's **Server
+    /// Addresses** screen, which drives the CLI and needs no session. That is
+    /// the screen's whole reason for existing.
+    pub fn window_origin(&self) -> Option<String> {
+        Some(window_origin_from(
+            self.origin()?,
+            self.base_origin().as_deref(),
+            dev_spa_origin().is_some(),
+        ))
+    }
+
     /// [`Probe::origin`] with the dev override passed IN rather than read from
     /// the environment.
     ///
@@ -460,6 +497,22 @@ fn dev_spa_origin_from(raw: Option<&str>) -> Option<String> {
         return None;
     }
     Some(url.origin().ascii_serialization())
+}
+
+/// Which of the two origins the dashboard window opens on.
+///
+/// Pure, and the whole rule: an `https` base URL wins, because a loopback http
+/// window cannot store the `Secure` cookie such an instance issues; anything
+/// else leaves the window where it has always been. A dev SPA override outranks
+/// both — see [`Probe::window_origin`].
+fn window_origin_from(loopback: String, base: Option<&str>, dev_override: bool) -> String {
+    if dev_override {
+        return loopback;
+    }
+    match base.and_then(|b| tauri::Url::parse(b).ok()) {
+        Some(url) if url.scheme() == "https" => url.origin().ascii_serialization(),
+        _ => loopback,
+    }
 }
 
 /// The validation half of [`Probe::base_origin`], with no probe in it.
@@ -2564,8 +2617,12 @@ pub fn desktop_open_main(app: AppHandle, settings: State<'_, SettingsState>) -> 
 pub fn open_main_now(app: &AppHandle) -> Result<(), String> {
     let configured = app.state::<SettingsState>();
     let probe = probe_now(configured.get().binary_path.as_deref(), configured.get().supervision);
+    // Where the WINDOW goes, which is loopback unless the instance's configured
+    // address is https — see `Probe::window_origin` for why that one case has
+    // to move. The readiness question is still loopback's: the server is what
+    // has to be up, whatever address a browser reaches it by.
     let origin = probe
-        .origin()
+        .window_origin()
         .ok_or_else(|| "the server has not reported a usable base URL yet".to_string())?;
     // The configured address rides along with the one being opened: it is the
     // other origin this window may sit on, and the probe that just answered is
@@ -3119,6 +3176,66 @@ pub fn desktop_shell_ready(app: AppHandle, overlay: bool) -> Result<(), String> 
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// **Where the dashboard window opens**, which is not always where the
+    /// server listens (operator's report, 2026-09-19).
+    ///
+    /// An `https` base URL moves it, because a loopback http window cannot
+    /// hold the `Secure` cookie such an instance issues — that was the whole
+    /// defect: spec § 15 taught the guard to TRUST the configured address and
+    /// nothing ever pointed the window there, so setting one produced a
+    /// dashboard that could explain why it would not sign in and could do
+    /// nothing about it.
+    #[test]
+    fn an_https_base_url_is_where_the_window_opens() {
+        let loop_back = "http://127.0.0.1:3080".to_string();
+        assert_eq!(
+            window_origin_from(loop_back.clone(), Some("https://subshell.example.com"), false),
+            "https://subshell.example.com"
+        );
+        // A port or a path on the configured address reduces to its origin,
+        // because that is what a window is opened on.
+        assert_eq!(
+            window_origin_from(loop_back.clone(), Some("https://subshell.example.com:8443"), false),
+            "https://subshell.example.com:8443"
+        );
+    }
+
+    /// Every OTHER configuration opens exactly where it always did — an http
+    /// base URL holds no `Secure` cookie, so loopback works and moving the
+    /// window would be a change with no reason behind it.
+    #[test]
+    fn an_http_base_url_leaves_the_window_on_loopback() {
+        let loop_back = "http://127.0.0.1:3080".to_string();
+        for base in [
+            None,
+            Some("http://localhost:3080"),
+            Some("http://192.168.1.10:3080"),
+            // Not a URL at all, and not this function's job to complain.
+            Some("nonsense"),
+        ] {
+            assert_eq!(
+                window_origin_from(loop_back.clone(), base, false),
+                loop_back,
+                "{base:?}"
+            );
+        }
+    }
+
+    /// The dev SPA override outranks both: it exists so a developer's window
+    /// loads Vite, and an https base URL on such a machine must not silently
+    /// take the hot reload away.
+    #[test]
+    fn the_dev_spa_override_outranks_a_configured_https_address() {
+        assert_eq!(
+            window_origin_from(
+                "http://localhost:5174".to_string(),
+                Some("https://subshell.example.com"),
+                true
+            ),
+            "http://localhost:5174"
+        );
+    }
 
     fn probe_with(status: Option<serde_json::Value>, service: Option<serde_json::Value>, has_server: bool) -> Probe {
         let mut p = Probe {

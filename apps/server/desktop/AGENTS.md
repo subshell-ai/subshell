@@ -210,20 +210,32 @@ screen at all.
 
 **Server Addresses** is the newest of them (spec 2026-09-18 § 14), and the
 only one the dashboard never names — because the machine it exists for is one
-whose dashboard cannot be signed into. Saving an `https://` base URL signs THIS
-APP's window out for good: better-auth marks the session cookie `Secure` for an
-https `APP_BASE_URL` (measured, 1.7.1) and this app OPENS its `main` window on
-`http://127.0.0.1:<port>`, so it can never store a session again. (The loopback
-PIN is gone as of the same day — the window may navigate anywhere http(s) and
-`trust.rs` is what gates its seven commands — but where the window is opened is
-unchanged, which is what keeps this consequence true.) Browsers on the https address are fine. The
-value that caused it could only be changed from the dashboard, which needs the
-session just lost — so the app had **no way back from inside itself**. The
-assistant is the way out structurally rather than conveniently: it is the
-BUNDLED page, it drives the CLI rather than the API, and it therefore needs no
-session. Read the app's own rule in the other direction — *if the act is what
-makes the server unreachable TO YOU, the page the server serves cannot be where
-you undo it.*
+whose dashboard cannot be REACHED, and these four values are otherwise
+editable only from that page. The assistant is the way out structurally rather
+than conveniently: it is the BUNDLED page, it drives the CLI rather than the
+API, and it therefore needs no session. Read the app's own rule in the other
+direction — *if the act is what makes the server unreachable TO YOU, the page
+the server serves cannot be where you undo it.*
+
+**The case it was BUILT for is fixed, and the fix is worth reading before the
+screen** (operator's report, 2026-09-19). Saving an `https://` base URL used to
+sign this app's window out for good: better-auth marks the session cookie
+`Secure` for an https `APP_BASE_URL` (measured, 1.7.1) and the window only ever
+opened on `http://127.0.0.1:<port>`, which cannot keep such a cookie. § 15 had
+taught `trust.rs` to trust the configured address and let the window FOLLOW a
+sign-in there — but nothing ever POINTED it there, so an operator who set an
+https address got a dashboard that explained why it would not sign in and could
+do nothing about it. The trust half was necessary and was not sufficient.
+`Probe::window_origin` is the other half: the window opens on the configured
+address when that address is https, and on loopback in every other case. What
+the person sees is a restart and a fresh sign-in on the new origin, which is
+what the card now says.
+
+What is left for this screen is the case with no other answer: an address the
+operator configured and this machine CANNOT reach — a tunnel that is down,
+split-horizon DNS, a typo — where the window lands on a browser error and the
+dashboard is not there to correct it from. That is rarer and it is exactly the
+shape the screen was designed for.
 
 Four things hold it up:
 

@@ -1883,9 +1883,34 @@ What the guard buys is that it is not a widening to the whole web: an identity
 provider's page, or anywhere else a redirect chain leads, can sign you in and
 can do nothing else.
 
-**Unchanged by it:** `Probe::origin` still builds the origin the window OPENS on
-from a validated port and a loopback host, never from `APP_BASE_URL`'s own
-scheme or port; the dev SPA override is still loopback-http-only and still
+**Extended on 2026-09-19: the window now OPENS on the configured address when
+that address is https** (`Probe::window_origin`). § 15 as shipped let the window
+FOLLOW a sign-in onto the instance's own address and taught the guard to trust
+it there — but nothing ever pointed it there, and on an https instance loopback
+is not merely suboptimal, it is unusable: better-auth marks the session cookie
+`Secure` for an https `APP_BASE_URL`, and a browser discards a `Secure` cookie
+arriving over plain http. So an operator who set one got a dashboard that
+explained why it would not sign in and gave them nothing to act on. The trust
+half was necessary and was not sufficient.
+
+The security consequence is a change of DEFAULT rather than of bound: the seven
+commands were already reachable from a page on that address, after a redirect;
+they are now reachable from the page the app opens there itself. Same trade as
+§ 15's, and the same operator's call — the address is one they configured, and
+without this the app cannot sign in to the server it manages. It is narrow in
+one way worth stating: **only https moves the window.** Every http
+configuration — a LAN address, the default `http://localhost:<port>`, no base
+URL at all — opens on loopback exactly as before, because there the `Secure`
+marking never happens and there is nothing to fix. There is no reachability
+check (this app has no HTTP client by design), so an address the operator
+cannot reach lands the window on a browser error; the tray's **Server
+Addresses** screen is the way back, and that is now the case it exists for.
+
+**Unchanged by it:** `Probe::origin` — the loopback origin, and still what
+decides whether the server is READY — is built from a validated port and a
+loopback host, never from `APP_BASE_URL`'s own scheme or port; the dev SPA
+override outranks a configured https address, so a developer's window still
+loads Vite; the dev SPA override is still loopback-http-only and still
 release-build-dead; the assistant (`wizard`) is not subject to the guard, since
 it is a bundled page and is the surface that repairs a machine whose server is
 unreachable; and window dragging still works on an untrusted page, because Tauri

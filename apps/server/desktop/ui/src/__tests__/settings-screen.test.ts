@@ -19,8 +19,8 @@ import { seedAddressForm } from "../lib/config-form";
 import type { Probe } from "../lib/ipc";
 import { PANE_WARNING } from "../lib/pane-force";
 import {
-  HTTPS_LOCKOUT_WARNING,
-  httpsLockout,
+  HTTPS_RESTART_NOTE,
+  httpsBaseUrl,
   SETTINGS_LABEL,
   SETTINGS_RESTART_NOTE,
   settingsEdited,
@@ -79,19 +79,19 @@ describe("the https warning", () => {
     // as a second problem. The dashboard states it before the save; this
     // states it at the same field, in the app that pays for it.
     const card = words(readFileSync(ADDRESSES_CARD, "utf8"));
-    expect(card).toContain(words(HTTPS_LOCKOUT_WARNING));
+    expect(card).toContain(words(HTTPS_RESTART_NOTE));
   });
 
   it("fires on an https base URL and on nothing else", () => {
-    expect(httpsLockout("https://subshell.example.com")).toBe(true);
+    expect(httpsBaseUrl("https://subshell.example.com")).toBe(true);
     // Typed, not yet tidied: a value on its way into a field carries whitespace
     // and whatever case the keyboard was in.
-    expect(httpsLockout("  HTTPS://Subshell.Example.COM  ")).toBe(true);
-    expect(httpsLockout("http://localhost:3080")).toBe(false);
-    expect(httpsLockout("")).toBe(false);
+    expect(httpsBaseUrl("  HTTPS://Subshell.Example.COM  ")).toBe(true);
+    expect(httpsBaseUrl("http://localhost:3080")).toBe(false);
+    expect(httpsBaseUrl("")).toBe(false);
     // The scheme, not the letters: a host that merely starts with the word is
     // an http address and costs this app nothing.
-    expect(httpsLockout("http://https.example.com")).toBe(false);
+    expect(httpsBaseUrl("http://https.example.com")).toBe(false);
   });
 });
 
