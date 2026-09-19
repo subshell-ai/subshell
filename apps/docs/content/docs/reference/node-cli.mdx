@@ -13,9 +13,9 @@ subshell: node daemon
 usage:
   subshell setup --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
                  [--no-service] [--yes] [--json]
-                          the whole enrollment: checks tmux, asks this machine's
-                          name, enrolls, then offers to run it in the background
-                          and start it at login. Without --name it ASKS (default:
+                          the whole enrollment: checks tmux, asks what to call
+                          this machine, enrolls, then offers to run it in the
+                          background and start it at login. Without --name it ASKS (default:
                           the hostname); --yes, --json or no terminal make the
                           name required instead. --no-service skips the service
                           question; --yes / a non-TTY take its default (yes).
@@ -28,7 +28,9 @@ usage:
                           key; restart the node to apply. Does NOT rename: the
                           plane owns a node's name (the Nodes page).
   subshell run
-  subshell service install|uninstall   (systemd user unit / launchd agent)
+  subshell service install [--no-autostart]   (systemd user unit / launchd agent)
+                          --no-autostart runs it now but not at login
+  subshell service uninstall
   subshell service status [--json]     (what the service manager reports)
   subshell service start|stop|restart  (restart takes --force: override the live-pane refusal)
   subshell maintenance on [--yes] [--json]
