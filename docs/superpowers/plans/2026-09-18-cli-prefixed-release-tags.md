@@ -1225,9 +1225,16 @@ Same three senses, applied to code. **A blanket find-and-replace breaks this rep
 
 ```bash
 cd /Users/theo/projects/subshell
-grep -rhoE '\b[A-Za-z_$][A-Za-z0-9_$]*[Aa]gent[A-Za-z0-9_$]*\b' \
-  --include="*.ts" --include="*.tsx" --include="*.rs" apps packages scripts crates e2e \
-  | sort | uniq -c | sort -rn
+# CORRECTED 2026-09-19. The pattern originally written here had TWO structural
+# holes, and Task 7's review measured both: it required at least one character
+# BEFORE `agent`, so every identifier STARTING with the word was invisible
+# (`agentVersion` alone has 226 occurrences), and `[Aa]gent` never matches
+# `AGENT`, so the all-caps forms were invisible too (`AGENT_VERSION`,
+# `NODE_AGENT_TOO_OLD`). 384 occurrences the prescribed sweep could not reach.
+# Case-insensitive, no leading-character requirement, and no --include list.
+grep -rIhoiE '[A-Za-z_$][A-Za-z0-9_$]*agent[A-Za-z0-9_$]*|agent[A-Za-z0-9_$]*' \
+  apps packages scripts crates e2e \
+  | grep -v node_modules | sort -f | uniq -ci | sort -rn
 ```
 
 Classify every name with a count into one of the four buckets above before renaming anything. A name not in any list is a name to decide on, not to sweep.
