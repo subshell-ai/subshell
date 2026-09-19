@@ -39,7 +39,7 @@ exit 2
 const BAKABLE_ORIGIN = /^[a-z][a-z0-9+.-]*:\/\/[A-Za-z0-9.\-:%[\]_]+$/i;
 
 /**
- * The address to bake as the node's `SERVER` — which the agent dials forever.
+ * The address to bake as the node's `SERVER` — which the node dials forever.
  *
  * `APP_BASE_URL` alone cannot answer this: it is one global spelling for an
  * instance that may be reachable at several (LAN IP, tailnet name, proxied
@@ -87,8 +87,8 @@ function resolveBakedServer(raw: string | undefined): string {
  *
  * Install dest / data dir: the DEFAULT install lands in `~/.local/bin/subshell`
  * — the same path Subshell Client's own installer writes — and runs the verb
- * WITHOUT `--data-dir`, so the agent keeps its own default data dir and a
- * stray `curl | bash` never relocates agent state. It used to be `./subshell`
+ * WITHOUT `--data-dir`, so the node keeps its own default data dir and a
+ * stray `curl | bash` never relocates node state. It used to be `./subshell`
  * in whatever directory the curl ran in, which a later `service install` then
  * baked into a unit file by absolute path: a stable home is what makes that
  * definition survive someone tidying up their downloads.
@@ -122,7 +122,7 @@ SERVER="${server}"
 KEY="${key}"
 
 # Install dest + setup --data-dir. Unset/empty SUBSHELL_DATA_DIR installs to
-# ~/.local/bin and runs WITHOUT --data-dir (the agent keeps its own default
+# ~/.local/bin and runs WITHOUT --data-dir (the node keeps its own default
 # data dir). Setting the knob OPTS INTO a relocated install: everything lands
 # under $SUBSHELL_DATA_DIR, which the installer creates (0700, with any
 # missing parents). The SETUP_DATA_DIR_ARGS expansion below is guarded
@@ -138,7 +138,7 @@ else
   # NOT the curl's CWD. A later \`subshell service install\` bakes this path
   # into a systemd unit or a launchd plist by absolute path, so the binary has
   # to live somewhere that outlives a tidied-up downloads folder — and this is
-  # the same path Subshell Client installs the agent to, so one machine cannot
+  # the same path Subshell Client installs the node CLI to, so one machine cannot
   # end up with two.
   BIN_DIR="$HOME/.local/bin"
   mkdir -p "$BIN_DIR"
@@ -205,7 +205,7 @@ fi
 echo "==> downloading subshell ($TARGET) from $SERVER"
 # Download to a temp path and only REPLACE $DEST after verification: curl
 # --fail leaves an existing output file byte-intact, so the historical
-# fetch-straight-into-$DEST made a failed re-run in an installed agent's
+# fetch-straight-into-$DEST made a failed re-run in an installed node's
 # directory a clobber-or-delete of a WORKING binary. The HTTP code is
 # inspected rather than curl's exit status alone — "404, this server has no
 # artifact" and "401, your key is spent" need different advice (bare curl(22)
@@ -338,7 +338,7 @@ const InstallQuerySchema = t.Object({
   server: t.Optional(
     t.String({
       description:
-        "Origin to bake as the node's SERVER (what the agent dials forever); accepted only when it is one of this instance's trusted origins, ignored otherwise",
+        "Origin to bake as the node's SERVER (what the node dials forever); accepted only when it is one of this instance's trusted origins, ignored otherwise",
     }),
   ),
 });
