@@ -33,7 +33,7 @@ commands.allow = ["node_probe"]
 [[permission]]
 identifier = "allow-node-install-agent"
 description = "Install the bundled subshell agent to ~/.local/bin, stopping the managed service first."
-commands.allow = ["node_install_agent"]
+commands.allow = ["node_install_cli"]
 
 [[permission]]
 identifier = "allow-node-install-tmux"

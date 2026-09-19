@@ -198,8 +198,17 @@ export interface ReleaseManifest {
   version: string;
   /** `NODE_PROTOCOL_VERSION` as of this build — the compatibility question. */
   nodeProtocol: number;
-  /** `MIN_AGENT_VERSION` as of this build. */
-  minAgentVersion: string;
+  /**
+   * `MIN_NODE_VERSION` as of this build.
+   *
+   * This field is inside the SIGNED manifest, so its name is wire format: a
+   * verifier reading an older release finds no such key. It was renamed from
+   * `minAgentVersion` on 2026-09-18, in the same change that moved the release
+   * tags to `cli-server-v`/`cli-node-v` — that cutover already makes every
+   * pre-rename release unreadable to a current build, so this costs nothing
+   * extra. Renaming it on its own would strand every installed binary.
+   */
+  minNodeVersion: string;
   /** The commit the release was cut from (`GITHUB_SHA`, else `git rev-parse HEAD`). */
   commit: string;
   /**
@@ -251,11 +260,11 @@ export function parseReleaseManifest(text: string): ReleaseManifest | null {
     return null;
   }
   if (parsed === null || typeof parsed !== "object") return null;
-  const { component, version, nodeProtocol, minAgentVersion, commit, assets } = parsed as Record<string, unknown>;
+  const { component, version, nodeProtocol, minNodeVersion, commit, assets } = parsed as Record<string, unknown>;
   if (typeof component !== "string" || !(RELEASE_COMPONENTS as readonly string[]).includes(component)) return null;
   if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) return null;
   if (typeof nodeProtocol !== "number" || !Number.isInteger(nodeProtocol)) return null;
-  if (typeof minAgentVersion !== "string" || !/^\d+\.\d+\.\d+$/.test(minAgentVersion)) return null;
+  if (typeof minNodeVersion !== "string" || !/^\d+\.\d+\.\d+$/.test(minNodeVersion)) return null;
   if (typeof commit !== "string" || commit === "") return null;
   const parsedAssets = parseAssets(assets);
   if (parsedAssets === null) return null;
@@ -263,7 +272,7 @@ export function parseReleaseManifest(text: string): ReleaseManifest | null {
     component: component as ReleaseComponent,
     version,
     nodeProtocol,
-    minAgentVersion,
+    minNodeVersion,
     commit,
     assets: parsedAssets,
   };

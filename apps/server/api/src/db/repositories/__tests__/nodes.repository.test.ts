@@ -138,7 +138,7 @@ describe("NodesRepository", () => {
     expect((await repo.findById(n.id))?.inventoryJson).toBe("[]");
   });
 
-  it("markStaleAgentsOffline: stale + never-seen flip, fresh + local survive", async () => {
+  it("markStaleNodesOffline: stale + never-seen flip, fresh + local survive", async () => {
     const owner = unique("u");
     const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
 
@@ -177,7 +177,7 @@ describe("NodesRepository", () => {
       .where("id", "=", alreadyOffline.id)
       .execute();
 
-    const flipped = await repo.markStaleAgentsOffline(iso(45_000));
+    const flipped = await repo.markStaleNodesOffline(iso(45_000));
     expect(flipped).toBeGreaterThanOrEqual(2); // exactly stale + neverSeen (plus any foreign leftovers)
 
     expect((await repo.findById(fresh.id))?.status).toBe("online");
@@ -187,13 +187,13 @@ describe("NodesRepository", () => {
     expect((await repo.findById(alreadyOffline.id))?.status).toBe("offline");
 
     // Idempotent: a second run finds nothing of ours left to flip.
-    const second = await repo.markStaleAgentsOffline(iso(45_000));
+    const second = await repo.markStaleNodesOffline(iso(45_000));
     expect(second).toBe(0);
 
     // Empty exclude array behaves EXACTLY like none — the clause is skipped,
     // not rendered as `not in ()` (which some builders turn into `(1=1)`/no-op
     // or invalid SQL depending on path).
-    expect(await repo.markStaleAgentsOffline(iso(45_000), [])).toBe(0);
+    expect(await repo.markStaleNodesOffline(iso(45_000), [])).toBe(0);
 
     // Registry-aware sweep: an excluded node (caller: has a LIVE socket) keeps
     // its `online` projection despite a stale lastSeenAt — a heartbeat-stalled
@@ -205,11 +205,11 @@ describe("NodesRepository", () => {
       .set({ lastSeenAt: iso(600_000) })
       .where("id", "=", stalledLive.id)
       .execute();
-    await repo.markStaleAgentsOffline(iso(45_000), [stalledLive.id, unique("n")]);
+    await repo.markStaleNodesOffline(iso(45_000), [stalledLive.id, unique("n")]);
     expect((await repo.findById(stalledLive.id))?.status).toBe("online");
 
     // Once it drops out of the exclude set (socket gone), the sweep catches it.
-    expect(await repo.markStaleAgentsOffline(iso(45_000))).toBe(1);
+    expect(await repo.markStaleNodesOffline(iso(45_000))).toBe(1);
     expect((await repo.findById(stalledLive.id))?.status).toBe("offline");
   });
 

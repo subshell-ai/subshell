@@ -405,7 +405,7 @@ async function main(): Promise<void> {
     );
   }
   process.stdout.write(
-    `  ${RELEASE_MANIFEST_NAME.padEnd(32)} protocol ${manifest.nodeProtocol}, min agent ${manifest.minAgentVersion}\n`,
+    `  ${RELEASE_MANIFEST_NAME.padEnd(32)} protocol ${manifest.nodeProtocol}, min agent ${manifest.minNodeVersion}\n`,
   );
   process.stdout.write(
     signed === "signed"

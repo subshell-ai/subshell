@@ -1,4 +1,4 @@
-import { AGENT_LOG_CAP_BYTES, agentLogPath, readAgentLogSlice } from "../log-file.js";
+import { AGENT_LOG_CAP_BYTES, agentLogPath, readNodeLogSlice } from "../log-file.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 
 /**
@@ -13,6 +13,6 @@ import type { Cmd, CommandContext, CommandResult } from "./context.js";
  */
 export async function execAgentLogRead(_ctx: CommandContext, cmd: Cmd<"agent_log_read">): Promise<CommandResult> {
   const maxBytes = Math.min(cmd.maxBytes, AGENT_LOG_CAP_BYTES);
-  const slice = await readAgentLogSlice(agentLogPath(), cmd.fromByte, maxBytes);
+  const slice = await readNodeLogSlice(agentLogPath(), cmd.fromByte, maxBytes);
   return { ok: true, data: { ...slice } };
 }

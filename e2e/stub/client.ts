@@ -18,7 +18,7 @@ export const STUB_PI = new URL("./pi", import.meta.url).pathname;
 const RING_CAP = 400;
 
 /** Everything one spawned agent needs; paths are the caller's (cleanup too). */
-export interface StartAgentOptions {
+export interface StartNodeOptions {
   /** `SUBSHELL_CONFIG_HOME` — config + daemon.lock live here. */
   home: string;
   /** `--data-dir` — identity keypair + subshell meta/logs on the node. */
@@ -34,7 +34,7 @@ export interface StartAgentOptions {
 }
 
 /** A live `subshell run` daemon + its operator-facing surface. */
-export interface RunningAgent {
+export interface RunningNode {
   /** The detached daemon — its pid IS its process-group id. */
   readonly child: ChildProcessByStdio<null, Readable, Readable>;
   /** SIGTERM the whole group (the daemon + its tmux children), SIGKILL-escalated. */
@@ -44,7 +44,7 @@ export interface RunningAgent {
 }
 
 /** The agent's env: config isolation + the stub harness + an owned tmux home. */
-function agentEnv(o: StartAgentOptions): NodeJS.ProcessEnv {
+function agentEnv(o: StartNodeOptions): NodeJS.ProcessEnv {
   // TMUX/TMUX_PANE must not leak in (a suite run from inside a tmux session
   // would otherwise nest the pane server inside the caller's), and
   // TMUX_TMPDIR redirects `-L` sockets into `tmuxBase` so the caller's
@@ -84,11 +84,11 @@ async function runOneShot(args: string[], env: NodeJS.ProcessEnv): Promise<{ cod
  * Enroll + run a REAL subshell from source (the Phase-3 stand-in for
  * `curl …/install.sh | bash && subshell run`): `enroll` is a one-shot that
  * must exit 0, `run` is the long-lived daemon — spawned `detached` into its
- * own process group so {@link RunningAgent.stop} can SIGTERM the whole tree
+ * own process group so {@link RunningNode.stop} can SIGTERM the whole tree
  * (bun forks; the tmux servers it daemonises escape the group and are the
  * caller's to sweep via `tmuxBase`).
  */
-export async function startAgent(o: StartAgentOptions): Promise<RunningAgent> {
+export async function startNode(o: StartNodeOptions): Promise<RunningNode> {
   const env = agentEnv(o);
   const enroll = await runOneShot(
     ["enroll", "--server", o.server ?? BASE_URL, "--key", o.setupKey, "--name", o.name, "--data-dir", o.dataDir],

@@ -131,7 +131,7 @@ export interface NodeUpdates {
   /** Why no node release can be offered; null when one can. */
   reason: string | null;
   /** The oldest node version this server accepts — half of a held row's sentence. */
-  minAgentVersion: string;
+  minNodeVersion: string;
   /** The node protocol this server speaks — the other half. */
   protocol: number;
   /** Every enrolled node; `local` is never here. */

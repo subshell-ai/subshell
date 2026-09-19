@@ -187,4 +187,4 @@ export {
   type ViewerCapacity,
 } from "./shared-geometry.js";
 export { MAX_UPLOAD_BYTES } from "./uploads.js";
-export { agentVersionSupported, MIN_AGENT_VERSION, semverLt } from "./versions.js";
+export { MIN_NODE_VERSION, nodeVersionSupported, semverLt } from "./versions.js";

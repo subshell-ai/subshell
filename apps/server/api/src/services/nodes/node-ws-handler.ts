@@ -1,10 +1,10 @@
 import {
-  agentVersionSupported,
-  MIN_AGENT_VERSION,
+  MIN_NODE_VERSION,
   NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
   type NodeEvent,
+  nodeVersionSupported,
   parseNodeEvent,
 } from "@internal/subshell-protocol";
 import { HttpError } from "@/api/auth-guard.js";
@@ -261,7 +261,7 @@ function frameBytes(raw: string | object): number {
  * its log — ten minutes later rather than at once, which is the price of the
  * window in which the plane could have fixed it from a browser.
  */
-async function holdRefusedAgent(
+async function holdRefusedNode(
   deps: NodeWsDeps,
   ws: NodeWsSocket,
   nodeId: string,
@@ -410,14 +410,14 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // the machine. Everything else about the refusal is unchanged — the
       // reason strings are the ones the agent already logs, and they travel
       // on the eventual idle close.
-      if (!agentVersionSupported(event.agentVersion)) {
-        await holdRefusedAgent(
+      if (!nodeVersionSupported(event.agentVersion)) {
+        await holdRefusedNode(
           deps,
           ws,
           nodeId,
           event,
           "below-floor",
-          `subshell ${MIN_AGENT_VERSION} or newer required (this node is ${event.agentVersion || "unversioned"})`,
+          `subshell ${MIN_NODE_VERSION} or newer required (this node is ${event.agentVersion || "unversioned"})`,
         );
         return;
       }
@@ -427,7 +427,7 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // parsing frames from an agent that does not speak them is worse than
       // refusing, and the message says which of the two failed.
       if (event.protocolVersion !== NODE_PROTOCOL_VERSION) {
-        await holdRefusedAgent(
+        await holdRefusedNode(
           deps,
           ws,
           nodeId,
@@ -613,7 +613,7 @@ export async function handleNodeClose(deps: NodeWsDeps, ws: NodeWsSocket): Promi
     // also disarms the idle timer, which would otherwise fire minutes later
     // to close something that is already gone.
     //
-    // The status projection is deliberately NOT touched: `holdRefusedAgent`
+    // The status projection is deliberately NOT touched: `holdRefusedNode`
     // already wrote `offline`, and a held node has no other state to leave.
     releaseHeld(nodeId, conn);
     // Superseded socket (4409) or an already-detached one: drain THIS

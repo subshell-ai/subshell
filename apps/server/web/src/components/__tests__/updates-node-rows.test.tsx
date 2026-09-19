@@ -26,7 +26,7 @@ function renderRows(fleet: NodeUpdates) {
 const updateAll = () => screen.getByRole("button", { name: /^Update all/ }) as HTMLButtonElement;
 
 describe("rowState", () => {
-  const fleet = { minAgentVersion: "0.7.0", protocol: 10 };
+  const fleet = { minNodeVersion: "0.7.0", protocol: 10 };
 
   it("says online or offline for a node the server will talk to", () => {
     expect(rowState(nodeRow(), fleet)).toBe("online");

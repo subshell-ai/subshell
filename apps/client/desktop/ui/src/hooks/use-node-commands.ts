@@ -25,7 +25,7 @@ import {
   type EnrollOutcome,
   nodeConfigure,
   nodeEnroll,
-  nodeInstallAgent,
+  nodeInstallCli,
   nodeInstallTmux,
   nodeOpenPath,
   nodeOpenPlane,
@@ -45,9 +45,9 @@ export interface NodeCommands {
   /** Re-read the machine. No CLI action of its own; the runner's re-probe IS the work. */
   refresh: () => void;
   /** Install the bundled node CLI with no confirmation — only ever offered where nothing exists to overwrite. */
-  installAgent: () => void;
+  installNode: () => void;
   /** Replace the INSTALLED node CLI with the bundled one. Always confirmed. */
-  updateAgent: () => void;
+  updateNode: () => void;
   /** One `service` verb, straight through. Never `restart` — that goes through {@link restart}. */
   service: (verb: ServiceVerb, opts?: { settle?: boolean }) => void;
   /** Restart, offering `--force` only behind the verbatim refusal `--force` answers. */
@@ -146,7 +146,7 @@ export function useNodeCommands(args: {
   return {
     refresh: () => runner.run(async () => finished(null)),
 
-    installAgent: () => runner.run(async () => finished(await nodeInstallAgent())),
+    installNode: () => runner.run(async () => finished(await nodeInstallCli())),
 
     /**
      * Replacing the installed node CLI is worth a confirmation even though it
@@ -156,7 +156,7 @@ export function useNodeCommands(args: {
      * would hide — see the messages below, which state it rather than the
      * stop-and-start this path has not done since spec 2026-09-15 § 7.1.
      */
-    updateAgent: () =>
+    updateNode: () =>
       runner.run(async () => {
         const messages = [
           `Install the node CLI that ships inside this app (${probe?.bundledVersion ?? "unknown version"}) over ` +
@@ -168,7 +168,7 @@ export function useNodeCommands(args: {
           // NOT started again. Start it from here afterwards." — false twice
           // over (operator's question, 2026-09-18):
           //
-          // - Nothing is stopped. `install_agent_now` passes a no-op closure
+          // - Nothing is stopped. `install_node_now` passes a no-op closure
           //   where the stop callback used to be, and the managed path goes
           //   through the CLI's `update --from`, whose swap is a `rename(2)`
           //   a running daemon never notices.
@@ -188,7 +188,7 @@ export function useNodeCommands(args: {
           title: "Update the node",
           messages,
           acceptLabel: "Update the node",
-          run: async () => finished(await nodeInstallAgent()),
+          run: async () => finished(await nodeInstallCli()),
         });
       }),
 
@@ -474,7 +474,7 @@ export function useNodeCommands(args: {
         // resumed run converge rather than refuse.
         if (probe?.step === "no-agent") {
           onPhase("installing");
-          const installed = await nodeInstallAgent();
+          const installed = await nodeInstallCli();
           if (!installed.ok) {
             onFailed("install");
             return finished(installed);

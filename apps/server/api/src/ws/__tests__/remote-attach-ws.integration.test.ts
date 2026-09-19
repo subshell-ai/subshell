@@ -118,7 +118,7 @@ function subIdOf(sim: ScriptedNode): string {
 
 let rowSeq = 0;
 /** Seeds a running agent-node row (synthetic owner — access resolves by row.userId). */
-async function seedAgentRow() {
+async function seedNodeRow() {
   rowSeq += 1;
   const id = crypto.randomUUID();
   const { repos } = getRequestlessContext();
@@ -148,7 +148,7 @@ afterEach(() => {
 
 describe("remote attach through the real handleSubshellWs dispatch", () => {
   it("token + row route to the relay: byte-exact browser contract over the real RPC loop", async () => {
-    const { id, userId } = await seedAgentRow();
+    const { id, userId } = await seedNodeRow();
     const sim = attachScriptedNode(NODE_ID, ATTACH_HANDLERS);
     const { ws, sent, closed } = await attach(userId, id);
     try {
@@ -209,7 +209,7 @@ describe("remote attach through the real handleSubshellWs dispatch", () => {
   });
 
   it("double cleanup closes the relay with EXACTLY ONE tail_stop (T11 parity carry, remote half)", async () => {
-    const { id, userId } = await seedAgentRow();
+    const { id, userId } = await seedNodeRow();
     const sim = attachScriptedNode(NODE_ID, ATTACH_HANDLERS);
     const { ws } = await attach(userId, id);
     try {

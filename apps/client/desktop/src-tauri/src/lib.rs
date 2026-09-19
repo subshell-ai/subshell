@@ -157,7 +157,7 @@ pub fn run() {
         .manage(reset::Stash::default())
         .invoke_handler(tauri::generate_handler![
             control::node_probe,
-            control::node_install_agent,
+            control::node_install_cli,
             control::node_install_tmux,
             control::node_enroll,
             control::node_configure,

@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import type { HarnessPlugin, McpLaunchSpec, McpRegistration } from "@internal/pane-runtime";
 import { APP_BASE_URL, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { resolveMcpLaunch } from "@/services/mcp-resolve.js";
-import type { NodeAgentFacts } from "@/services/nodes/node-registry.js";
+import type { NodeFacts } from "@/services/nodes/node-registry.js";
 
 /**
  * Everything per-subshell `subshell mcp` needs: how to spawn it in this deployment,
@@ -70,7 +70,7 @@ export function subshellMcpConfigPath(subshellId: string): string {
  * @param facts - the node's live facts (only `selfInvoke` is read)
  * @param subcommand - the verb to append
  */
-export function nodeSelfInvoke(facts: Pick<NodeAgentFacts, "selfInvoke">, subcommand: string): McpLaunchSpec {
+export function nodeSelfInvoke(facts: Pick<NodeFacts, "selfInvoke">, subcommand: string): McpLaunchSpec {
   const prefix = facts.selfInvoke;
   return prefix
     ? { command: prefix.command, args: [...prefix.args, subcommand] }
@@ -107,7 +107,7 @@ export function nodeSelfInvoke(facts: Pick<NodeAgentFacts, "selfInvoke">, subcom
 export function planRemoteSubshellMcp(
   harness: HarnessPlugin,
   subshellId: string,
-  facts: Pick<NodeAgentFacts, "dataDir" | "selfInvoke">,
+  facts: Pick<NodeFacts, "dataDir" | "selfInvoke">,
 ): { reg: McpRegistration; configPath: string } | undefined {
   const launch = nodeSelfInvoke(facts, "mcp");
   const configPath = `${facts.dataDir}/mcp/${subshellId}.json`;

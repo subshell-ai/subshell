@@ -681,7 +681,7 @@ posture:
   hand install. The Nodes dialog's "no agent binary" warning is kept for
   precisely that case, where it is still exactly true.
 - **Only a release this plane can TALK TO is offered** (tightened 2026-09-15).
-  The old rule was "newest above `MIN_AGENT_VERSION`", which could hand a
+  The old rule was "newest above `MIN_NODE_VERSION`", which could hand a
   machine an agent speaking a protocol this server does not — it would enrol,
   reconnect, and be refused forever. `compatibleNodeRelease()` now requires the
   release's own `release-manifest.json` to declare THIS server's

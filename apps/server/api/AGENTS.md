@@ -102,7 +102,7 @@ so the name stopped being the node CLI's. No alias — there is no installed
 base to keep compatible.) **The release a node is offered is the newest one
 whose SIGNED `release-manifest.json` says it speaks THIS server's
 `NODE_PROTOCOL_VERSION`** (`compatibleNodeRelease`), not merely the newest
-above `MIN_AGENT_VERSION`: the
+above `MIN_NODE_VERSION`: the
 old rule could install a node this plane cannot talk to, which enrolls,
 reconnects and is closed 4406 forever. A release carrying no manifest — every
 cut before 2026-09-15 — is refused BY NAME rather than guessed at, and since
@@ -253,7 +253,7 @@ the size it had been ASKED for. That asymmetry is gone; do not reintroduce it.)
 **A node is refused by TWO gates, in this order** (`node-ws-handler.ts`,
 both closing 4406 with a reason the node RELAYS to its own log):
 
-1. **The version floor.** `MIN_AGENT_VERSION`
+1. **The version floor.** `MIN_NODE_VERSION`
    (`@internal/subshell-protocol` `versions.ts`) is the operator-facing
    statement "this server needs subshell >= X". The reason names both the
    required and the found version. This is the gate an operator can act on,

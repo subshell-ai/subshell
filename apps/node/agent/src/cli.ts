@@ -15,7 +15,7 @@ import {
   type MaintenanceDeps,
   runMaintenance,
 } from "./maintenance-cli.js";
-import { runAgentMcp } from "./mcp/main.js";
+import { runNodeMcp } from "./mcp/main.js";
 import {
   controlService,
   DEFAULT_DEPS,
@@ -34,7 +34,7 @@ import {
   pendingMarkerPath,
   probeFileVersion,
   readMarker,
-  resolveAgentBinaryPath,
+  resolveNodeBinaryPath,
   resolveNodeRelease,
   rollbackUpdate,
   type UpdateFailure,
@@ -410,7 +410,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         } catch (err) {
           return fail(2, err);
         }
-        await runAgentMcp();
+        await runNodeMcp();
         // REACHABLE, and not the end: `connect()` resolves as soon as the
         // stdio transport attaches, so this await returns while the server is
         // still live. keepAlive is the contract that stops the entry from
@@ -684,7 +684,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
 
         if (parsed.flags.check === "1") {
           // SEMVER, not `!==`. The two answers differ exactly when the offer
-          // is OLDER, and that is not a hypothetical: `MIN_AGENT_VERSION` and
+          // is OLDER, and that is not a hypothetical: `MIN_NODE_VERSION` and
           // this package are bumped in the same commit as a protocol change,
           // so between that commit and the matching `cli-node-v*` cut the newest
           // published release IS older than the running agent. `!==` called
@@ -838,7 +838,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           // other reader of a service definition here is injected the same
           // way, for the same reason.
           const sd = deps.service ?? DEFAULT_DEPS(configExists);
-          const installed = await resolveAgentBinaryPath({
+          const installed = await resolveNodeBinaryPath({
             platform: sd.platform,
             home: sd.home,
             // `configDir` and `fileExists` are injected for the SAME reason as

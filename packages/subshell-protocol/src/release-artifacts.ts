@@ -23,7 +23,7 @@ import { basename, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { NODE_PROTOCOL_VERSION } from "./node-frames.js";
 import { RELEASE_MANIFEST_NAME, type ReleaseComponent, type ReleaseManifest } from "./releases.js";
-import { MIN_AGENT_VERSION, semverLt } from "./versions.js";
+import { MIN_NODE_VERSION, semverLt } from "./versions.js";
 
 /**
  * Streaming sha256 (lowercase hex) of a file — the ~100 MB compiled binaries
@@ -150,7 +150,7 @@ export async function writeReleaseManifest(
     component: manifest.component,
     version: manifest.version,
     nodeProtocol: NODE_PROTOCOL_VERSION,
-    minAgentVersion: MIN_AGENT_VERSION,
+    minNodeVersion: MIN_NODE_VERSION,
     commit: manifest.commit,
     assets: manifest.assets,
   };

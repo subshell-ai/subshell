@@ -72,7 +72,7 @@ function info(over: Record<string, unknown> = {}): Record<string, unknown> {
   };
 }
 
-const NODE_ID = "agent1";
+const NODE_ID = "node1";
 
 /** The install route's terminal frame for a run that worked. */
 const DONE = { ok: true, exitCode: 0, output: "", harness: { id: "claude", installed: true } };

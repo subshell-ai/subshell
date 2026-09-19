@@ -89,7 +89,7 @@ function releaseWith(fake: Fake, version: string, body: string, digestOverride?:
     component: "cli-server",
     version,
     nodeProtocol: 12,
-    minAgentVersion: "0.11.0",
+    minNodeVersion: "0.11.0",
     commit: "0".repeat(40),
     assets: { [names.binary]: digestOverride ?? sha256(bytes) },
   };

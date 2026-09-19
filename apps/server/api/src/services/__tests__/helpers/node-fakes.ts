@@ -1,11 +1,6 @@
 import { join } from "node:path";
 import type { LaunchPlan, NodeLauncher } from "@/services/nodes/node-launcher.js";
-import {
-  attachConnection,
-  detachConnection,
-  type NodeAgentFacts,
-  type NodeSocket,
-} from "@/services/nodes/node-registry.js";
+import { attachConnection, detachConnection, type NodeFacts, type NodeSocket } from "@/services/nodes/node-registry.js";
 
 /**
  * Shared fakes for the node/launcher seam, used by the subshell-manager suites
@@ -137,11 +132,7 @@ export class FakeNodeLauncher implements NodeLauncher {
  * @param over - fact overrides (dataDir etc.)
  * @returns the detach closure — call it in `finally` so the registry never leaks across tests
  */
-export function nodeOnline(
-  nodeId: string,
-  capabilities: string[] = [],
-  over: Partial<NodeAgentFacts> = {},
-): () => void {
+export function nodeOnline(nodeId: string, capabilities: string[] = [], over: Partial<NodeFacts> = {}): () => void {
   const ws: NodeSocket = { send: () => {}, close: () => {} };
   const conn = attachConnection(nodeId, ws);
   conn.agent = {

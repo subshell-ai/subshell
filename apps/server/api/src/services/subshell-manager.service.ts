@@ -31,7 +31,7 @@ import { probeReporterLaunch } from "@/services/mcp-resolve.js";
 import { launcherFor } from "@/services/nodes/launcher-registry.js";
 import { LocalLauncher } from "@/services/nodes/local-launcher.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
-import { getLive, isNodeOffline, type NodeAgentFacts } from "@/services/nodes/node-registry.js";
+import { getLive, isNodeOffline, type NodeFacts } from "@/services/nodes/node-registry.js";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 import { previewCacheDrop, previewCacheGet, previewCachePut } from "@/services/nodes/preview-cache.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
@@ -223,7 +223,7 @@ export class SubshellManagerService {
     harness: HarnessPlugin,
     subshellId: string,
     nodeId: string,
-  ): { mcp?: McpRegistration; mcpConfigPath?: string; facts?: NodeAgentFacts } {
+  ): { mcp?: McpRegistration; mcpConfigPath?: string; facts?: NodeFacts } {
     if (nodeId === LOCAL_NODE_ID) return { mcp: registerSubshellMcp(harness, subshellId) };
     const facts = getLive(nodeId)?.agent;
     if (!facts) throw new NodeRpcError("offline", `node "${nodeId}" has no live connection`, nodeId);
@@ -252,7 +252,7 @@ export class SubshellManagerService {
    * that reported no `selfInvoke`); the plugin then omits its hooks rather
    * than baking a command the pane cannot run.
    */
-  #planReporter(nodeId: string, facts?: NodeAgentFacts): ReporterSpec | undefined {
+  #planReporter(nodeId: string, facts?: NodeFacts): ReporterSpec | undefined {
     if (nodeId === LOCAL_NODE_ID) return probeReporterLaunch().spec ?? undefined;
     return facts ? nodeSelfInvoke(facts, "report") : undefined;
   }

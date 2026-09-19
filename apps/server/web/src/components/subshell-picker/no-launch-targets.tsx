@@ -3,7 +3,7 @@ import type { JSX } from "react";
 import { Button } from "@/components/ui/button";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { canAddNode } from "@/lib/node-enrollment";
-import { isOfflineAgent } from "@/lib/node-label";
+import { isOfflineNode } from "@/lib/node-label";
 import type { Node } from "@/types/node";
 
 /**
@@ -139,7 +139,7 @@ function blockedSentence(node: Node): string {
     // management on `local` and nobody "owns" it.
     return `${node.name} is in maintenance; ${node.kind === "local" ? "an admin" : "its owner"} can end it.`;
   }
-  if (isOfflineAgent(node)) return `${node.name} is offline.`;
+  if (isOfflineNode(node)) return `${node.name} is offline.`;
   if (!node.canLaunch) {
     // Reworded per spec 2026-09-14 §2: the host's launch switch is no longer
     // a switch at all. What is left on that row is its share set, so the

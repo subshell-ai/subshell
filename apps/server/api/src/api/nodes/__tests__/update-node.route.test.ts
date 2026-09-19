@@ -118,7 +118,7 @@ describe("POST /api/nodes/:id/update", () => {
   let release: ReturnType<typeof Bun.serve> | undefined;
 
   /** An offline agent node owned by alice, reporting a linux-x64 platform. */
-  async function mkAgent(): Promise<string> {
+  async function mkNode(): Promise<string> {
     const id = crypto.randomUUID();
     await nodes.create({ id, ownerUserId: aliceId, name: `nu-${id.slice(0, 8)}`, kind: "agent", status: "offline" });
     await nodes.applyReady(id, {
@@ -183,7 +183,7 @@ describe("POST /api/nodes/:id/update", () => {
             component: "cli-node",
             version: RELEASE_VERSION,
             nodeProtocol: NODE_PROTOCOL_VERSION,
-            minAgentVersion: "0.9.0",
+            minNodeVersion: "0.9.0",
             commit: "deadbeef",
             assets: { "subshell-node-cli-linux-x64": "a".repeat(64) },
           });
@@ -335,7 +335,7 @@ describe("POST /api/nodes/:id/update", () => {
 
   it("401 anonymous, 404 unknown node", async () => {
     useNoRelease();
-    const id = await mkAgent();
+    const id = await mkNode();
     expect((await req("POST", `/api/nodes/${id}/update`, { body: {} })).status).toBe(401);
     const missing = await req("POST", `/api/nodes/${crypto.randomUUID()}/update`, { cookie: aliceCookie, body: {} });
     expect(missing.status).toBe(404);
@@ -354,7 +354,7 @@ describe("POST /api/nodes/:id/update", () => {
   it("a view grantee is refused; an edit grantee is not", async () => {
     // The same gate `service restart` carries, because that is what this is.
     useNoRelease();
-    const id = await mkAgent();
+    const id = await mkNode();
     await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "view" }], aliceId);
     expect((await req("POST", `/api/nodes/${id}/update`, { cookie: carolCookie, body: {} })).status).toBe(403);
 
@@ -367,7 +367,7 @@ describe("POST /api/nodes/:id/update", () => {
 
   it("neither live nor held → 409 NODE_OFFLINE", async () => {
     useNoRelease();
-    const id = await mkAgent();
+    const id = await mkNode();
     const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
     expect(res.status).toBe(409);
     expect(await codeOf(res)).toBe("NODE_OFFLINE");
@@ -385,7 +385,7 @@ describe("POST /api/nodes/:id/update", () => {
 
   it("refuses an agent on an older protocol, naming both numbers", async () => {
     useFakeRelease();
-    const id = await mkAgent();
+    const id = await mkNode();
     await nodes.applyReady(id, {
       agentVersion: "0.10.0",
       protocolVersion: NODE_PROTOCOL_VERSION - 1,
@@ -409,7 +409,7 @@ describe("POST /api/nodes/:id/update", () => {
     // rescued — the row can hold an older `ready`'s number, and the fresher
     // answer is the honest one. Here it says "not capable", so that decides.
     useFakeRelease();
-    const id = await mkAgent();
+    const id = await mkNode();
     const sock = goHeld(id, NODE_PROTOCOL_VERSION - 1);
     const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
     expect(res.status).toBe(409);
@@ -434,7 +434,7 @@ describe("POST /api/nodes/:id/update", () => {
 
   it("no release source → 409 NODE_UPDATE_UNAVAILABLE naming the reason", async () => {
     useNoRelease();
-    const id = await mkAgent();
+    const id = await mkNode();
     goOnline(id);
     const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
     expect(res.status).toBe(409);
@@ -443,7 +443,7 @@ describe("POST /api/nodes/:id/update", () => {
 
   it("a platform with no published artifact → 409 NODE_UPDATE_UNAVAILABLE", async () => {
     useFakeRelease();
-    const id = await mkAgent();
+    const id = await mkNode();
     // An Intel Mac: a real platform this project publishes nothing for.
     await nodes.applyReady(id, {
       agentVersion: "0.8.0",
@@ -465,7 +465,7 @@ describe("POST /api/nodes/:id/update", () => {
 
   it("202 on success, with the version, a tokenless url, and an audit row", async () => {
     useFakeRelease();
-    const id = await mkAgent();
+    const id = await mkNode();
     const { res, cmd } = await updateWithAnswer(id, aliceCookie, {}, { ok: true });
     expect(res.status).toBe(202);
     const body = (await res.json()) as { ok: true; from: string; to: string; url: string };
@@ -504,7 +504,7 @@ describe("POST /api/nodes/:id/update", () => {
     // purpose. Being able to update it from a browser is the whole point of
     // holding the socket instead of closing it.
     useFakeRelease();
-    const id = await mkAgent();
+    const id = await mkNode();
     const { res, cmd } = await updateWithAnswer(id, aliceCookie, {}, { ok: true }, "held");
     expect(res.status).toBe(202);
     expect(cmd.type).toBe("update");
@@ -512,7 +512,7 @@ describe("POST /api/nodes/:id/update", () => {
 
   it("passes force through, and the audit row records it", async () => {
     useFakeRelease();
-    const id = await mkAgent();
+    const id = await mkNode();
     const { res, cmd } = await updateWithAnswer(id, aliceCookie, { force: true }, { ok: true });
     expect(res.status).toBe(202);
     expect(cmd.force).toBe(true);
@@ -538,7 +538,7 @@ describe("POST /api/nodes/:id/update", () => {
    */
   it("records node.update.unknown when the agent never answers", async () => {
     useFakeRelease();
-    const id = await mkAgent();
+    const id = await mkNode();
     const sock = goOnline(id);
     const record = getLive(id);
     if (!record) throw new Error("no connection record");
@@ -567,7 +567,7 @@ describe("POST /api/nodes/:id/update", () => {
     // "not supervised" did nothing, and a row claiming its state is unknown
     // would be worse than no row at all.
     useFakeRelease();
-    const id = await mkAgent();
+    const id = await mkNode();
     const { res } = await updateWithAnswer(id, aliceCookie, {}, { ok: false, error: NODE_RESULT_NOT_SUPERVISED });
     expect(res.status).toBe(409);
     const rows = await new AuditRepository(db).listLatest(20);
@@ -589,7 +589,7 @@ describe("POST /api/nodes/:id/update", () => {
       { error: "the disk is full", code: "NODE_UPDATE_FAILED" },
     ];
     for (const c of cases) {
-      const id = await mkAgent();
+      const id = await mkNode();
       const { res } = await updateWithAnswer(id, aliceCookie, {}, { ok: false, error: c.error });
       expect(res.status).toBe(409);
       expect(await codeOf(res)).toBe(c.code);
@@ -602,7 +602,7 @@ describe("POST /api/nodes/:id/update", () => {
     // agent below the floor has no `update` executor at all, and the only
     // remedy left is somebody typing at that keyboard.
     useFakeRelease();
-    const id = await mkAgent();
+    const id = await mkNode();
     const { res } = await updateWithAnswer(id, aliceCookie, {}, { ok: false, error: "unsupported" }, "held");
     expect(res.status).toBe(409);
     const err = (await res.json()) as { code: string; message: string };
@@ -617,7 +617,7 @@ describe("POST /api/nodes/:id/update", () => {
     // die when nobody could tell is how warnings get ignored.
     useFakeRelease();
     const unknown: NodeRuntimeReport = { ...runtime, service: { ...runtime.service, paneSafety: "unknown" } };
-    const id = await mkAgent();
+    const id = await mkNode();
     const { res } = await updateWithAnswer(
       id,
       aliceCookie,
@@ -629,7 +629,7 @@ describe("POST /api/nodes/:id/update", () => {
     expect(await codeOf(res)).toBe("NODE_RESTART_KILLS_PANES");
     resetNodeRegistryForTests();
 
-    const id2 = await mkAgent();
+    const id2 = await mkNode();
     const second = await updateWithAnswer(id2, aliceCookie, {}, { ok: false, error: NODE_RESULT_KILLS_PANES });
     expect(((await second.res.json()) as { message: string }).message).toContain("would close every subshell");
   });

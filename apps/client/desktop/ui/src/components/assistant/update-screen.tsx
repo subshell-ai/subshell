@@ -97,7 +97,7 @@ export function UpdateScreen(props: {
   const installApp = useMutation({
     // Takes the node row's checkbox, which is the whole of what crosses the
     // relaunch (§ 13.1): false writes no marker, so phase 2 never runs.
-    mutationFn: (installAgent: boolean) => nodeInstallAppUpdate(installAgent),
+    mutationFn: (installNode: boolean) => nodeInstallAppUpdate(installNode),
     onMutate: () => setProgress("Starting the download…"),
     // No `onSuccess`: this call does not resolve on success, because the app
     // restarts out from under this page.
@@ -115,7 +115,7 @@ export function UpdateScreen(props: {
    * about what just happened, exactly as `ranSetupHere` is on the server side,
    * and a restart from anywhere else or a later launch simply clears it.
    */
-  const [installedAgentHere, setInstalledAgentHere] = useState(false);
+  const [installedNodeHere, setInstalledNodeHere] = useState(false);
   const [restartedHere, setRestartedHere] = useState(false);
   /**
    * Which of this screen's two runner actions is awaiting its verdict, and
@@ -149,7 +149,7 @@ export function UpdateScreen(props: {
     if (!answered) return;
     const succeeded = runner.output?.ok === true;
     if (succeeded && awaiting.act === "agent") {
-      setInstalledAgentHere(true);
+      setInstalledNodeHere(true);
       setRestartedHere(false);
     }
     if (succeeded && awaiting.act === "restart") setRestartedHere(true);
@@ -175,8 +175,8 @@ export function UpdateScreen(props: {
     probe,
     checking: isFetching,
     installingApp: installApp.isPending,
-    installingAgent: awaiting?.act === "agent" && runner.busy,
-    installedAgentHere,
+    installingNode: awaiting?.act === "agent" && runner.busy,
+    installedNodeHere,
     restartedHere,
     busy: runner.busy,
     selection,
@@ -198,14 +198,14 @@ export function UpdateScreen(props: {
    * screen is refusing.
    */
   const resumed = useRef(false);
-  const installAgent = useRef(commands.installAgent);
-  installAgent.current = commands.installAgent;
+  const installNode = useRef(commands.installNode);
+  installNode.current = commands.installNode;
   const resuming = act.autoFinish;
   useEffect(() => {
     if (resumed.current || !resuming || runner.busy) return;
     resumed.current = true;
     watchFor("agent");
-    installAgent.current();
+    installNode.current();
   }, [resuming, runner.busy, watchFor]);
 
   const problem =
@@ -215,15 +215,15 @@ export function UpdateScreen(props: {
   const press = () => {
     if (!act.canPress) return;
     if (act.press === "app") {
-      installApp.mutate(act.pressInstallsAgent);
+      installApp.mutate(act.pressInstallsNodeCli);
       return;
     }
     watchFor("agent");
     // A resumed or retried act was already consented to in phase 1; a direct
     // press on a node CLI that is merely behind has had no such moment, so it
     // goes through the command that asks first.
-    if (act.resume) installAgent.current();
-    else commands.updateAgent();
+    if (act.resume) installNode.current();
+    else commands.updateNode();
   };
 
   return (

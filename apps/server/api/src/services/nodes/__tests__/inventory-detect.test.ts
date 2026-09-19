@@ -33,7 +33,7 @@ const nodes = new NodesRepository(db);
 const OWNER = `det-owner-${crypto.randomUUID().slice(0, 8)}`;
 const createdNodeIds: string[] = [];
 
-async function mkAgent(inv?: { json: unknown[]; at: string | null }): Promise<NodeTable> {
+async function mkNode(inv?: { json: unknown[]; at: string | null }): Promise<NodeTable> {
   const id = crypto.randomUUID();
   await nodes.create({
     id,
@@ -120,7 +120,7 @@ describe("detectEnvNames: the plane names what it asks for (spec §5 as amended)
 
   it("the driver sends the union on the wire (seam catalog; claude-code's real declaration pinned below)", async () => {
     await runMigrations(); // this describe sits outside the detectOnNode one (suite idiom)
-    const node = await mkAgent();
+    const node = await mkNode();
     const sent: Sent[] = [];
     await detectOnNode(node.id, {
       send: fakeSend({ results: [], env: {} }, sent),
@@ -165,7 +165,7 @@ describe("detectOnNode", () => {
     // hermes prints a banner, not a bare version, and is the only built-in
     // with parseVersion. The RAW text can only become "1.2.3" by running the
     // plugin's parser on THIS side of the wire.
-    const node = await mkAgent();
+    const node = await mkNode();
     const sent: Sent[] = [];
     await detectOnNode(node.id, {
       send: fakeSend(
@@ -190,7 +190,7 @@ describe("detectOnNode", () => {
   });
 
   it("a plugin without parseVersion stores the raw text as the version", async () => {
-    const node = await mkAgent();
+    const node = await mkNode();
     await detectOnNode(node.id, {
       send: fakeSend(
         {
@@ -205,7 +205,7 @@ describe("detectOnNode", () => {
   });
 
   it("a miss caches installed:false with its reason and no version", async () => {
-    const node = await mkAgent();
+    const node = await mkNode();
     await detectOnNode(node.id, {
       send: fakeSend({ results: [{ harnessId: "pi", installed: false, reason: "not-on-path" }], env: {} }, []),
     });
@@ -217,7 +217,7 @@ describe("detectOnNode", () => {
     // A third-party plugin only the node's own inventory reports must survive
     // a detect built from this server's registry — and the rows the detect
     // DOES answer are replaced, not aged alongside.
-    const node = await mkAgent({
+    const node = await mkNode({
       json: [
         { harnessId: "third-party-tool", installed: true, version: "0.1", checkedAt: "2026-09-01T00:00:00.000Z" },
         { harnessId: "hermes", installed: true, version: "stale", checkedAt: "2026-09-01T00:00:00.000Z" },
@@ -237,7 +237,7 @@ describe("detectOnNode", () => {
   });
 
   it("a node answered with garbage: rejects, and the cache is untouched", async () => {
-    const node = await mkAgent({
+    const node = await mkNode({
       json: [{ harnessId: "hermes", installed: true, version: "kept" }],
       at: new Date().toISOString(),
     });
@@ -250,7 +250,7 @@ describe("detectOnNode", () => {
 
   it("the row for a plugin this build has never heard of keeps its raw text", async () => {
     // No parser to apply — a banner still beats dropping the only version fact.
-    const node = await mkAgent();
+    const node = await mkNode();
     await detectOnNode(node.id, {
       send: fakeSend(
         { results: [{ harnessId: "third-party-tool", installed: true, rawVersion: "Tool v3 (weird)" }], env: {} },
@@ -271,7 +271,7 @@ describe("detectOnNode", () => {
    * because the property under test is precisely that the column survives.
    */
   it("a plugin-less agent's periodic inventory push (harnesses: []) does NOT wipe the detect cache", async () => {
-    const node = await mkAgent();
+    const node = await mkNode();
     await detectOnNode(node.id, {
       send: fakeSend(
         {
@@ -311,7 +311,7 @@ describe("detectOnNode", () => {
   it("a NON-empty harness list (a paired pre-inversion agent's real scan) still applies wholesale", async () => {
     // The guard is a no-claim rule, not a freeze: an agent from before the
     // demolition reports an honest scan, and that scan is still the snapshot.
-    const node = await mkAgent();
+    const node = await mkNode();
     const ws = {
       data: { nodeId: node.id },
       send: () => 0,
@@ -355,7 +355,7 @@ describe("detectOnNode", () => {
    * detect answer.
    */
   it("a detect answer carrying CLAUDE_CONFIG_DIR moves the resume path the launcher probes", async () => {
-    const node = await mkAgent(); // fresh: no inventory, and the connection below has no env
+    const node = await mkNode(); // fresh: no inventory, and the connection below has no env
     const socket = { send: () => {}, close: () => {} } as unknown as NodeSocket;
     const conn = attachConnection(node.id, socket);
     // Exactly what `ready` stashes on a real connection: home, no env.
@@ -399,7 +399,7 @@ describe("detectOnNode", () => {
   it("a later detect replaces the stashed env wholesale (fresh answer, not an append)", async () => {
     // The plane re-asks on every detect; a variable the node no longer has
     // must stop moving the path, exactly as `hostEnvAnswers` omits it.
-    const node = await mkAgent();
+    const node = await mkNode();
     const socket = { send: () => {}, close: () => {} } as unknown as NodeSocket;
     const conn = attachConnection(node.id, socket);
     conn.agent = {
@@ -428,7 +428,7 @@ describe("detectOnNode", () => {
     // tick calls this same driver through the same seam — so the request path
     // stayed one path. If a timer ever appears in THIS module, this test is
     // what says it belongs in that one.
-    const node = await mkAgent();
+    const node = await mkNode();
     const sent: Sent[] = [];
     const send = fakeSend({ results: [], env: {} }, sent);
     try {

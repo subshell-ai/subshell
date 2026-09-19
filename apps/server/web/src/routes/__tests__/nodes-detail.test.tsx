@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { MIN_AGENT_VERSION, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
+import { MIN_NODE_VERSION, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -18,7 +18,7 @@ import type { NodeDetail } from "@/types/node";
  */
 function agentNode(overrides: Partial<NodeDetail> = {}): NodeDetail {
   return {
-    id: "agent1",
+    id: "node1",
     name: "box",
     kind: "agent",
     os: "linux",
@@ -108,10 +108,10 @@ describe("NodeDetailPage re-check gating", () => {
   it("offers a `view` grantee no Re-check and POSTs nothing", async () => {
     const { calls, restore } = mockFetch(agentNode({ access: "view", canManage: false }));
     try {
-      renderDetail("agent1");
+      renderDetail("node1");
       await screen.findByText("Your access");
       expect(screen.queryByRole("button", { name: /Re-check/ })).toBeNull();
-      expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/agent1/recheck")).toBe(false);
+      expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/node1/recheck")).toBe(false);
     } finally {
       restore();
     }
@@ -120,12 +120,12 @@ describe("NodeDetailPage re-check gating", () => {
   it("offers an `edit` grantee a working Re-check despite not managing the node", async () => {
     const { calls, restore } = mockFetch(agentNode({ access: "edit", canManage: false }));
     try {
-      renderDetail("agent1");
+      renderDetail("node1");
       const btn = await screen.findByRole("button", { name: /Re-check/ });
       expect(btn.hasAttribute("disabled")).toBe(false);
       fireEvent.click(btn);
       await waitFor(() => {
-        expect(calls.filter((c) => c.method === "POST" && c.url === "/api/nodes/agent1/recheck")).toHaveLength(1);
+        expect(calls.filter((c) => c.method === "POST" && c.url === "/api/nodes/node1/recheck")).toHaveLength(1);
       });
       // Configure yes, manage no: Share/Delete stay gated on `canManage`.
       expect(screen.getByRole("button", { name: /Share/ }).hasAttribute("disabled")).toBe(true);
@@ -138,12 +138,12 @@ describe("NodeDetailPage re-check gating", () => {
   it("offers the owner a working Re-check that POSTs once", async () => {
     const { calls, restore } = mockFetch(agentNode());
     try {
-      renderDetail("agent1");
+      renderDetail("node1");
       const btn = await screen.findByRole("button", { name: /Re-check/ });
       expect(btn.hasAttribute("disabled")).toBe(false);
       fireEvent.click(btn);
       await waitFor(() => {
-        expect(calls.filter((c) => c.method === "POST" && c.url === "/api/nodes/agent1/recheck")).toHaveLength(1);
+        expect(calls.filter((c) => c.method === "POST" && c.url === "/api/nodes/node1/recheck")).toHaveLength(1);
       });
     } finally {
       restore();
@@ -186,7 +186,7 @@ describe("NodeDetailPage re-check gating", () => {
 
     const agent = mockFetch(agentNode());
     try {
-      renderDetail("agent1");
+      renderDetail("node1");
       await screen.findByText("Your access");
       expect(screen.getByText("Last seen")).toBeDefined();
       expect(screen.getByText("Node version")).toBeDefined();
@@ -200,14 +200,14 @@ describe("NodeDetailPage rename (owner-only PATCH)", () => {
   it("offers the inline editor to an enrolled node's owner and PATCHes the name on Enter", async () => {
     const { calls, restore } = mockFetch(agentNode());
     try {
-      renderDetail("agent1");
+      renderDetail("node1");
       const btn = await screen.findByRole("button", { name: "Rename node" });
       fireEvent.click(btn);
       const input = screen.getByRole("textbox", { name: "Rename node" }) as HTMLInputElement;
       fireEvent.change(input, { target: { value: "renamed" } });
       fireEvent.keyDown(input, { key: "Enter" });
       await waitFor(() => {
-        const patch = calls.find((c) => c.method === "PATCH" && c.url === "/api/nodes/agent1");
+        const patch = calls.find((c) => c.method === "PATCH" && c.url === "/api/nodes/node1");
         expect(JSON.parse(patch?.body ?? "{}")).toEqual({ name: "renamed" });
       });
     } finally {
@@ -243,7 +243,7 @@ describe("NodeDetailPage rename (owner-only PATCH)", () => {
   it("never renders the editor for a non-manager (the route 403s them too)", async () => {
     const { restore } = mockFetch(agentNode({ access: "edit", canManage: false }));
     try {
-      renderDetail("agent1");
+      renderDetail("node1");
       await screen.findByText("Your access");
       expect(screen.queryByRole("button", { name: "Rename node" })).toBeNull();
     } finally {
@@ -259,13 +259,13 @@ describe("NodeDetailPage rotate-key", () => {
     setConfirmHandler(() => Promise.resolve(true));
     const { calls, restore } = mockFetch(agentNode());
     try {
-      renderDetail("agent1");
+      renderDetail("node1");
       fireEvent.click(await screen.findByRole("button", { name: /Rotate key/ }));
       await waitFor(() => {
-        expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/agent1/rotate-key")).toBe(true);
+        expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/node1/rotate-key")).toBe(true);
       });
       // POST exactly once — the reveal must not re-fire the rotation.
-      expect(calls.filter((c) => c.method === "POST" && c.url === "/api/nodes/agent1/rotate-key").length).toBe(1);
+      expect(calls.filter((c) => c.method === "POST" && c.url === "/api/nodes/node1/rotate-key").length).toBe(1);
       const revealed = await screen.findByText("subshell_new_secret");
       expect(revealed.textContent).toBe("subshell_new_secret");
       expect(screen.getByText(/shown once/i)).toBeDefined();
@@ -287,14 +287,14 @@ describe("NodeDetailPage rotate-key", () => {
     );
     const { calls, restore } = mockFetch(agentNode());
     try {
-      renderDetail("agent1");
+      renderDetail("node1");
       fireEvent.click(await screen.findByRole("button", { name: /Rotate key/ }));
       // Gate on the decline having actually been processed instead of a fixed
       // sleep: `rotateKey` continues in the microtask right after this promise
       // settles, so if a rogue POST were fired it would be recorded before
       // waitFor's next poll (a macrotask) can observe `confirmAnswered`.
       await waitFor(() => expect(confirmAnswered).toBe(true));
-      expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/agent1/rotate-key")).toBe(false);
+      expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/node1/rotate-key")).toBe(false);
     } finally {
       restore();
     }
@@ -303,7 +303,7 @@ describe("NodeDetailPage rotate-key", () => {
   it("disables Rotate key for a non-manager", async () => {
     const { restore } = mockFetch(agentNode({ access: "edit", canManage: false }));
     try {
-      renderDetail("agent1");
+      renderDetail("node1");
       const btn = await screen.findByRole("button", { name: /Rotate key/ });
       expect(btn.hasAttribute("disabled")).toBe(true);
     } finally {
@@ -316,7 +316,7 @@ describe("NodeDetailPage protocol-mismatch chip", () => {
   it("chips an offline node whose reported protocol predates the control plane's", async () => {
     const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: 0 }));
     try {
-      renderDetail("agent1");
+      renderDetail("node1");
       await screen.findByText("Your access");
       expect(screen.getByText("node too old")).toBeDefined();
     } finally {
@@ -328,7 +328,7 @@ describe("NodeDetailPage protocol-mismatch chip", () => {
     // Rides the constant, so a bump cannot leave this asserting a literal.
     const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: NODE_PROTOCOL_VERSION }));
     try {
-      renderDetail("agent1");
+      renderDetail("node1");
       await screen.findByText("Your access");
       expect(screen.queryByText("node too old")).toBeNull();
     } finally {
@@ -343,7 +343,7 @@ describe("NodeDetailPage protocol-mismatch chip", () => {
     // any more: any mismatch is a deployment out of step.
     const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: NODE_PROTOCOL_VERSION + 1 }));
     try {
-      renderDetail("agent1");
+      renderDetail("node1");
       await screen.findByText("Your access");
       expect(screen.getByText("node too new")).toBeDefined();
     } finally {
@@ -354,7 +354,7 @@ describe("NodeDetailPage protocol-mismatch chip", () => {
   it("stays silent for a never-seen node (protocolVersion null)", async () => {
     const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: null }));
     try {
-      renderDetail("agent1");
+      renderDetail("node1");
       await screen.findByText("Your access");
       expect(screen.queryByText("node too old")).toBeNull();
     } finally {
@@ -365,7 +365,7 @@ describe("NodeDetailPage protocol-mismatch chip", () => {
   it("stays silent while the node is still online", async () => {
     const { restore } = mockFetch(agentNode({ status: "online", protocolVersion: 0 }));
     try {
-      renderDetail("agent1");
+      renderDetail("node1");
       await screen.findByText("Your access");
       expect(screen.queryByText("node too old")).toBeNull();
     } finally {
@@ -375,24 +375,24 @@ describe("NodeDetailPage protocol-mismatch chip", () => {
 });
 
 describe("NodeDetailPage node-version floor", () => {
-  it("badges a node below MIN_AGENT_VERSION, independently of the protocol chip", async () => {
+  it("badges a node below MIN_NODE_VERSION, independently of the protocol chip", async () => {
     // The Status page lists such a node and links HERE. Before this badge the
     // link landed on a page showing no warning at all, because the only chip
     // keys off protocolVersion — which a floor-refused node may well match.
     const { restore } = mockFetch(agentNode({ agentVersion: "0.0.1", protocolVersion: NODE_PROTOCOL_VERSION }));
     try {
-      renderDetail("agent1");
-      await waitFor(() => expect(screen.getByText(`below minimum (${MIN_AGENT_VERSION})`)).toBeDefined());
+      renderDetail("node1");
+      await waitFor(() => expect(screen.getByText(`below minimum (${MIN_NODE_VERSION})`)).toBeDefined());
     } finally {
       restore();
     }
   });
 
   it("does not badge a node that meets the floor", async () => {
-    const { restore } = mockFetch(agentNode({ agentVersion: MIN_AGENT_VERSION }));
+    const { restore } = mockFetch(agentNode({ agentVersion: MIN_NODE_VERSION }));
     try {
-      renderDetail("agent1");
-      await waitFor(() => expect(screen.getByText(MIN_AGENT_VERSION)).toBeDefined());
+      renderDetail("node1");
+      await waitFor(() => expect(screen.getByText(MIN_NODE_VERSION)).toBeDefined());
       expect(screen.queryByText(/below minimum/)).toBeNull();
     } finally {
       restore();

@@ -134,7 +134,7 @@ export function App() {
    * Raised as an OVERRIDE rather than as a router branch, and once per launch
    * rather than per probe: an override is a screen a Back can leave, where a
    * router that read the marker would route straight back to it on the next
-   * poll and make Back do nothing. `commands.installAgent` clears the marker
+   * poll and make Back do nothing. `commands.installNode` clears the marker
    * on success, so the raise cannot repeat either way; the ref is what keeps a
    * FAILED one from re-raising the screen every five seconds over whatever the
    * person navigated to instead.

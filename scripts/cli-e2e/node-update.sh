@@ -80,7 +80,7 @@ export SUBSHELL_RELEASE_URL=""   # `--from` only: this test reaches no network
 # so at length — and this scenario went without it until 2026-09-19, when the
 # omission bit a developer's machine.
 #
-# `SUBSHELL_CONFIG_HOME` is NOT enough. `resolveAgentBinary`
+# `SUBSHELL_CONFIG_HOME` is NOT enough. `resolveNodeBinary`
 # (`apps/node/agent/src/update.ts`) asks the SERVICE DEFINITION first, and it
 # hangs the plist/unit paths off `homedir()`, not off the config home. So on a
 # host carrying `~/Library/LaunchAgents/dev.subshell.client.plist` — every
@@ -215,7 +215,7 @@ const manifest = JSON.stringify({
   component: "cli-node",
   version: process.argv[4]!,
   nodeProtocol: 12,
-  minAgentVersion: "0.11.0",
+  minNodeVersion: "0.11.0",
   commit: "0".repeat(40),
   assets: { [binary]: digest },
 });
@@ -329,7 +329,7 @@ writeFileSync(outPath!, JSON.stringify({
   component: "cli-node",
   version: version!,
   nodeProtocol: 12,
-  minAgentVersion: "0.11.0",
+  minNodeVersion: "0.11.0",
   commit: "0".repeat(40),
   assets: { [binary]: digest },
 }));

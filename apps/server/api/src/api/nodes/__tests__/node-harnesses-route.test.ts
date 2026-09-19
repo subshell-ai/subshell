@@ -104,7 +104,7 @@ describe("/api/nodes harness state + recheck", () => {
   const createdSubshellIds: string[] = [];
 
   /** Agent node row optionally carrying a cached inventory snapshot. */
-  async function mkAgent(inv?: { json: unknown[]; at: string | null }): Promise<string> {
+  async function mkNode(inv?: { json: unknown[]; at: string | null }): Promise<string> {
     const id = crypto.randomUUID();
     await nodes.create({
       id,
@@ -199,7 +199,7 @@ describe("/api/nodes harness state + recheck", () => {
   // ── agent node view: instance catalog × cached detection ─────────────────
 
   it("view: the rows are the INSTANCE catalog, crossed with the node's inventory", async () => {
-    const id = await mkAgent({ json: [entry(H0, true, "9.9.9"), entry(H1, false)], at: freshAt() });
+    const id = await mkNode({ json: [entry(H0, true, "9.9.9"), entry(H1, false)], at: freshAt() });
 
     const view = await getNodeView(id);
     expect(view.inventoryStale).toBe(false);
@@ -228,13 +228,13 @@ describe("/api/nodes harness state + recheck", () => {
   it("view: a plugin the instance does not carry is absent, not shown broken — even with an inventory row", async () => {
     // The inversion's visible half on the node page: a stale/foreign
     // detection entry cannot mint a row.
-    const id = await mkAgent({ json: [entry("ghost-tool", true)], at: freshAt() });
+    const id = await mkNode({ json: [entry("ghost-tool", true)], at: freshAt() });
     const view = await getNodeView(id);
     expect(view.harnesses.find((h) => h.harnessId === "ghost-tool")).toBeUndefined();
   });
 
   it("view: inventoryStale is true for an aged AND for a never-detected snapshot", async () => {
-    const aged = await mkAgent({ json: [entry(H0, true, "1.0")], at: staleAt() });
+    const aged = await mkNode({ json: [entry(H0, true, "1.0")], at: staleAt() });
     const v1 = await getNodeView(aged);
     expect(v1.inventoryStale).toBe(true);
     // Stale values are still REPORTED — the view is informational; only the
@@ -245,7 +245,7 @@ describe("/api/nodes harness state + recheck", () => {
     // all saying installed=false, flagged stale. The rows state what the
     // INSTANCE offers; the stale flag states that this machine has not
     // answered about its binaries yet.
-    const never = await mkAgent();
+    const never = await mkNode();
     const v2 = await getNodeView(never);
     expect(v2.inventoryStale).toBe(true);
     expect(v2.harnesses.length).toBeGreaterThan(0);
@@ -334,7 +334,7 @@ describe("/api/nodes harness state + recheck", () => {
   /* --------------------------------------------------------------- */
 
   it("install/remove on a node's plugin path no longer exists (even for its owner or an admin)", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     // 404: the route module was deleted with its remote command bridge —
     // the `plugin_install`/`plugin_uninstall` frames left the protocol at v3,
     // and the interim cast that still sent them hung 10 s per attempt on
@@ -355,7 +355,7 @@ describe("/api/nodes harness state + recheck", () => {
   it("a disabled instance plugin vanishes from EVERY node view; re-enabling brings the rows back", async () => {
     // The §6.1 flag is a statement about the catalog, not about a node, so
     // one write removes the row from the host and from an agent alike.
-    const id = await mkAgent({ json: [entry(H0, true, "1.0")], at: freshAt() });
+    const id = await mkNode({ json: [entry(H0, true, "1.0")], at: freshAt() });
     try {
       await new PluginStateRepository(db).setEnabled(H0, false);
       expect((await getNodeView(id)).harnesses.find((h) => h.harnessId === H0)).toBeUndefined();
@@ -367,14 +367,14 @@ describe("/api/nodes harness state + recheck", () => {
   });
 
   it("recheck offline → 409 NODE_OFFLINE", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     const res = await req("POST", `/api/nodes/${id}/recheck`, { cookie: aliceCookie });
     expect(res.status).toBe(409);
     expect(((await res.json()) as { code: string }).code).toBe("NODE_OFFLINE");
   });
 
   it("recheck: view-grantee 403, local 400 (live probe needs no refresh), unknown 404, bearer 403, anon 401", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "view" }], aliceId);
     expect((await req("POST", `/api/nodes/${id}/recheck`, { cookie: carolCookie })).status).toBe(403);
     expect((await req("POST", `/api/nodes/local/recheck`, { cookie: aliceCookie })).status).toBe(400);
@@ -386,14 +386,14 @@ describe("/api/nodes harness state + recheck", () => {
   });
 
   it("recheck online: sends the signed detect command and nothing else; resolves {ok:true} on the answer", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     const res = await recheckWithAnswer(id);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
   });
 
   it("recheck online: an agent-reported failure maps to 409 NODE_UNREACHABLE", async () => {
-    const id = await mkAgent();
+    const id = await mkNode();
     const res = await recheckWithAnswer(id, { ok: false, error: "detect exploded" });
     expect(res.status).toBe(409);
     const body = (await res.json()) as { code: string; message: string };
@@ -406,7 +406,7 @@ describe("/api/nodes harness state + recheck", () => {
     // the fake node answers the banner text (what `--version` really prints)
     // and only "0.16.0" reaches the cache because the driver ran THIS
     // process's parseVersion. Nothing on this path can fabricate a version.
-    const id = await mkAgent();
+    const id = await mkNode();
     const banner = "Hermes Agent v0.16.0 (2026.6.5) - upstream 5e01a5db";
     const res = await recheckWithAnswer(id, {
       ok: true,
@@ -425,7 +425,7 @@ describe("/api/nodes harness state + recheck", () => {
     // "a deployed v2 agent predates the handler". Gate 2 (exact protocol
     // match, both directions) means no such agent can hold this socket, so
     // an `unsupported` answer is a genuinely broken node, not a compat state.
-    const id = await mkAgent();
+    const id = await mkNode();
     const res = await recheckWithAnswer(id, { ok: false, error: "unsupported" });
     expect(res.status).toBe(409);
     const body = (await res.json()) as { code: string };
@@ -437,7 +437,7 @@ describe("/api/nodes harness state + recheck", () => {
     // is NodeRpcError → 409 and everything else → global handler. A swallowed
     // garbage answer would make {ok:true} attest a snapshot that never
     // changed.
-    const id = await mkAgent();
+    const id = await mkNode();
     const res = await recheckWithAnswer(id, { ok: true, data: { results: "not rows" } });
     expect(res.status).toBe(500);
   });
@@ -445,7 +445,7 @@ describe("/api/nodes harness state + recheck", () => {
   it("node page load (GET /:id) fires detect best-effort and never waits for it", async () => {
     // The §4 request arm, page side: the GET resolves on cached values while
     // the detect frame is still in flight; the answer then lands in the cache.
-    const id = await mkAgent();
+    const id = await mkNode();
     const sock = fakeSocket();
     attachConnection(id, sock);
     try {

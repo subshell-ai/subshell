@@ -16,7 +16,7 @@ import {
   parseNodeEvent,
   parseNodeRuntimeReport,
 } from "../node-frames.js";
-import { MIN_AGENT_VERSION } from "../versions.js";
+import { MIN_NODE_VERSION } from "../versions.js";
 
 const launchCmd = {
   type: "launch",
@@ -646,7 +646,7 @@ describe("set_server_url command", () => {
 describe("maintenance (arrived at protocol 8)", () => {
   const base = {
     type: "ready",
-    agentVersion: MIN_AGENT_VERSION,
+    agentVersion: MIN_NODE_VERSION,
     protocolVersion: NODE_PROTOCOL_VERSION,
     os: "linux",
     arch: "x64",

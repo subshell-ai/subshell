@@ -276,7 +276,7 @@ describe("the CLI's own words", () => {
   it("renders stdout and stderr verbatim, in a monospace block", async () => {
     const stdout = "Installed subshell 1.9.0.";
     const stderr = "warning: this unit does not spare live panes — mint a new key if enroll fails";
-    await boot({ probe: FRESH, handlers: { node_install_agent: () => ({ ok: true, stdout, stderr }) } });
+    await boot({ probe: FRESH, handlers: { node_install_cli: () => ({ ok: true, stdout, stderr }) } });
 
     // The install screen's one button is the status screen's no-agent card
     // now. Same command, same unconfirmed offer, same reason it is safe: on a
@@ -301,7 +301,7 @@ describe("the CLI's own words", () => {
 describe("actions serialize", () => {
   it("ignores a second submission while one is in flight, and disables the UI", async () => {
     const gate = deferred<{ ok: boolean; stdout: string; stderr: string }>();
-    const fake = await boot({ probe: FRESH, handlers: { node_install_agent: () => gate.promise } });
+    const fake = await boot({ probe: FRESH, handlers: { node_install_cli: () => gate.promise } });
 
     fireEvent.click(button("Install the node"));
     await waitFor(() => expect(button("Install the node").disabled).toBe(true));
@@ -309,7 +309,7 @@ describe("actions serialize", () => {
     // Both the guard and the disabled attribute; a click dispatched anyway
     // (a stale reference, a synthetic event) must still not reach the CLI.
     fireEvent.click(button("Install the node"));
-    expect(fake.callsTo("node_install_agent").length).toBe(1);
+    expect(fake.callsTo("node_install_cli").length).toBe(1);
     expect(button("Install the node").disabled).toBe(true);
 
     gate.resolve({ ok: true, stdout: "Installed subshell.", stderr: "" });
@@ -318,7 +318,7 @@ describe("actions serialize", () => {
 
   it("keeps the UI disabled until the re-probe has landed", async () => {
     const gate = deferred<{ ok: boolean; stdout: string; stderr: string }>();
-    const fake = await boot({ probe: FRESH, handlers: { node_install_agent: () => gate.promise } });
+    const fake = await boot({ probe: FRESH, handlers: { node_install_cli: () => gate.promise } });
     const probesBefore = fake.callsTo("node_probe").length;
 
     fireEvent.click(button("Install the node"));
@@ -755,7 +755,7 @@ describe("replacing the installed node CLI", () => {
     const fake = await boot({
       probe: makeProbe({ agentChoice: "upgrade-available", bundledVersion: "1.10.0" }),
       handlers: {
-        node_install_agent: () => ({ ok: true, stdout: "Installed subshell", stderr: "" }),
+        node_install_cli: () => ({ ok: true, stdout: "Installed subshell", stderr: "" }),
         node_check_app_update: () => ({ current: "0.6.1", latest: null, notes: null, reason: null }),
       },
     });
@@ -765,7 +765,7 @@ describe("replacing the installed node CLI", () => {
     fireEvent.click(button("Install the node (1.10.0)"));
 
     await waitFor(() => expect(confirmPanelOrNull()).not.toBeNull());
-    expect(fake.callsTo("node_install_agent").length).toBe(0);
+    expect(fake.callsTo("node_install_cli").length).toBe(0);
     expect(confirmPanel().getByText(/Nothing is downloaded/)).toBeTruthy();
     // NOT "the service is stopped first" and NOT "start it afterwards": the
     // managed path swaps through the CLI's `update --from`, whose rename(2)
@@ -777,7 +777,7 @@ describe("replacing the installed node CLI", () => {
     expect(confirmPanel().getByText(/keeps running the previous version until you restart it/)).toBeTruthy();
 
     fireEvent.click(confirmPanel().getByRole("button", { name: "Update the node" }));
-    await waitFor(() => expect(fake.callsTo("node_install_agent").length).toBe(1));
+    await waitFor(() => expect(fake.callsTo("node_install_cli").length).toBe(1));
   });
 
   it("does not put the upgrade offer on the re-enroll screen", async () => {
@@ -808,7 +808,7 @@ describe("what the page never asks for", () => {
       "node_probe",
       "node_settings",
       "node_service",
-      "node_install_agent",
+      "node_install_cli",
       "node_enroll",
       "node_open_path",
       // The tray's screen request, ASKED for on mount — a window the tray just
@@ -847,7 +847,7 @@ describe("pacing", () => {
 
   it("does not poll while an action is in flight", async () => {
     const gate = deferred<{ ok: boolean; stdout: string; stderr: string }>();
-    const fake = await boot({ probe: FRESH, handlers: { node_install_agent: () => gate.promise } });
+    const fake = await boot({ probe: FRESH, handlers: { node_install_cli: () => gate.promise } });
 
     fireEvent.click(button("Install the node"));
     await waitFor(() => expect(button("Install the node").disabled).toBe(true));
@@ -943,7 +943,7 @@ describe("the first run", () => {
     await screen.findByRole("heading", { name: "Setting Up…" });
   };
 
-  const CHAIN = ["node_install_agent", "node_enroll", "node_service"];
+  const CHAIN = ["node_install_cli", "node_enroll", "node_service"];
   const chainOrder = (fake: FakeIpc) => fake.calls.filter((c) => CHAIN.includes(c.cmd)).map((c) => c.cmd);
 
   // Spec § 6: one press, three acts, in order — and § 6.2: the press IS the
@@ -958,7 +958,7 @@ describe("the first run", () => {
       settings: makeSettings({ planeUrl: null }),
       probe: untouched(),
       handlers: {
-        node_install_agent: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
+        node_install_cli: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
         node_enroll: () => enrolledOk,
         node_service: () => ({ ok: true, stdout: "installed the service", stderr: "" }),
       },
@@ -1013,7 +1013,7 @@ describe("the first run", () => {
       settings: makeSettings({ planeUrl: null }),
       probe: untouched(),
       handlers: {
-        node_install_agent: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
+        node_install_cli: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
         node_enroll: (args) =>
           args.confirm === true
             ? enrolledOk
@@ -1066,7 +1066,7 @@ describe("the first run", () => {
       settings: makeSettings({ planeUrl: null }),
       probe: untouched(),
       handlers: {
-        node_install_agent: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
+        node_install_cli: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
         node_enroll: (args) =>
           args.confirm === true
             ? enrolledOk
@@ -1093,7 +1093,7 @@ describe("the first run", () => {
     // the unconfirmed one that surfaces the advisory, then the confirmed one
     // the chain proceeds with on its own. That second call is the difference
     // from the `already-enrolled` case above, where it waits for a press.
-    expect(chainOrder(fake)).toEqual(["node_install_agent", "node_enroll", "node_enroll", "node_service"]);
+    expect(chainOrder(fake)).toEqual(["node_install_cli", "node_enroll", "node_enroll", "node_service"]);
     expect(fake.callsTo("node_enroll").map((a) => a.confirm)).toEqual([false, true]);
   });
 
@@ -1125,7 +1125,7 @@ describe("the first run", () => {
     expect(screen.queryByRole("heading", { name: "How This Node Runs" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Setting Up…" })).toBeNull();
     // And nothing ran: no agent installed, no key spent, no service written.
-    expect(fake.callsTo("node_install_agent")).toEqual([]);
+    expect(fake.callsTo("node_install_cli")).toEqual([]);
     expect(fake.callsTo("node_enroll")).toEqual([]);
     expect(fake.callsTo("node_service")).toEqual([]);
   });
@@ -1144,7 +1144,7 @@ describe("the first run", () => {
       settings: makeSettings({ planeUrl: null }),
       probe: untouched(),
       handlers: {
-        node_install_agent: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
+        node_install_cli: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
         node_enroll: () => ({
           ok: false,
           stdout: "",
@@ -1183,7 +1183,7 @@ describe("the first run", () => {
       settings: makeSettings({ planeUrl: null }),
       probe: untouched(),
       handlers: {
-        node_install_agent: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
+        node_install_cli: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
         node_enroll: () => enrolledOk,
         node_service: () => ({ ok: false, stdout: "", stderr: "Failed to start subshell.service" }),
       },
@@ -1212,7 +1212,7 @@ describe("the first run", () => {
       settings: makeSettings({ planeUrl: null }),
       probe: untouched(),
       handlers: {
-        node_install_agent: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
+        node_install_cli: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
         node_enroll: () => {
           // The machine really is a node from here on, so the probe says so —
           // which is the fact the resume reads, and the reason this is not a
@@ -1259,7 +1259,7 @@ describe("the first run", () => {
     expect(buttonOrNull(/^run subshells on this machine/i)).not.toBeNull();
     expect(buttonOrNull(/^connect to a server/i)).not.toBeNull();
     // And leaving touched nothing: no agent, no key, no service.
-    expect(fake.callsTo("node_install_agent")).toEqual([]);
+    expect(fake.callsTo("node_install_cli")).toEqual([]);
     expect(fake.callsTo("node_enroll")).toEqual([]);
     expect(fake.callsTo("node_service")).toEqual([]);
     expect(fake.callsTo("node_set_plane")).toEqual([]);
@@ -1427,7 +1427,7 @@ describe("the first run", () => {
     await waitFor(() => expect(fake.callsTo("node_set_plane")).toEqual([{ url: "https://watch.example" }]));
     // Nothing else was asked for. Every one of these is unstubbed, so a call
     // would have rejected loudly; the assertions say which absences matter.
-    expect(fake.callsTo("node_install_agent")).toEqual([]);
+    expect(fake.callsTo("node_install_cli")).toEqual([]);
     expect(fake.callsTo("node_enroll")).toEqual([]);
     expect(fake.callsTo("node_service")).toEqual([]);
     expect(fake.callsTo("node_open_plane")).toEqual([]);

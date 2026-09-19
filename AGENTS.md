@@ -828,7 +828,7 @@ which is why they share their own smoke, parameterized by app id.
   `.sha256` — and no AppImage (`linuxdeploy` cannot cross-compile and downloads at build time).
   **Every release also carries `release-manifest.json` + `release-manifest.json.sig`**
   (spec 2026-09-15 §3.2, signed by 2026-09-17 §7): the component id, the
-  version, `NODE_PROTOCOL_VERSION`, `MIN_AGENT_VERSION`, the commit sha and an
+  version, `NODE_PROTOCOL_VERSION`, `MIN_NODE_VERSION`, the commit sha and an
   `assets` map (published filename → sha256), written by each `release.ts` and
   shipped by the existing `files:` glob — plus the detached minisign signature
   over the manifest's EXACT bytes (shells out to `tauri signer sign` with

@@ -37,7 +37,7 @@ function shard(component: "cli-node" | "cli-server" | "desktop-server", assets: 
       component,
       version: "9.9.9",
       nodeProtocol: 12,
-      minAgentVersion: "0.11.0",
+      minNodeVersion: "0.11.0",
       commit: "0".repeat(40),
       assets,
     },

@@ -18,7 +18,7 @@ import { detectOnNodeBestEffort, readAgentInventory } from "./inventory.js";
 import { LOG_TAIL_BYTES, tailLinesFromWindowText } from "./log-tail.js";
 import { subscribeOutput } from "./node-events.js";
 import type { LaunchPlan, NodeLauncher } from "./node-launcher.js";
-import { getLive, type NodeAgentFacts } from "./node-registry.js";
+import { getLive, type NodeFacts } from "./node-registry.js";
 import { DEFAULT_COMMAND_TIMEOUT_MS, NodeRpcError, sendCommand } from "./node-rpc.js";
 
 /**
@@ -83,7 +83,7 @@ export interface RemoteLauncherDeps {
   /** Node-row lookup seam (default: `repos.nodes` off the requestless context). */
   nodes?: Pick<NodesRepository, "findById">;
   /** Agent-facts seam (default `getLive(nodeId)?.agent` — offline reads as undefined). */
-  facts?: (nodeId: string) => NodeAgentFacts | undefined;
+  facts?: (nodeId: string) => NodeFacts | undefined;
   /**
    * Launch-driven detection kick (default {@link detectOnNodeBestEffort}).
    * Test seam: production passes nothing. Synchronous-throwing seams are
@@ -117,7 +117,7 @@ export function isNodeOfflineError(err: unknown): boolean {
 }
 
 /** Resolve one agent-facts-derived absolute path (spec §6.4 composes). */
-function factsPath(facts: NodeAgentFacts, rel: string): string {
+function factsPath(facts: NodeFacts, rel: string): string {
   return `${facts.dataDir}/${rel}`;
 }
 
@@ -141,13 +141,13 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /** This node's live agent facts (undefined when offline or pre-`ready`). */
-  #facts(): NodeAgentFacts | undefined {
+  #facts(): NodeFacts | undefined {
     const read = this.#deps.facts ?? ((id: string) => getLive(id)?.agent);
     return read(this.#nodeId);
   }
 
   /** Facts or {@link NoLiveConnectionError} — the sync twin of the offline throw `sendCommand` gives with no socket. */
-  #requireFacts(): NodeAgentFacts {
+  #requireFacts(): NodeFacts {
     const facts = this.#facts();
     if (!facts) throw new NoLiveConnectionError(`node "${this.#nodeId}" has no live connection`);
     return facts;

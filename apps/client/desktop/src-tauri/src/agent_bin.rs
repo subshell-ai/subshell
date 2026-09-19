@@ -91,7 +91,7 @@ pub struct AgentBinary {
 }
 
 /// The version out of a `subshell <version> (node protocol vN)` line.
-pub fn parse_agent_version(stdout: &str) -> Option<String> {
+pub fn parse_node_version(stdout: &str) -> Option<String> {
     sidecar::parse_version_line(stdout, AGENT_SIDECAR.version_prefix)
 }
 
@@ -218,7 +218,7 @@ pub fn probe_version(argv: &[String]) -> Option<String> {
     let mut cmd = argv.to_vec();
     cmd.push("version".into());
     let out = run(&cmd, QUERY_TIMEOUT);
-    out.ok().then(|| parse_agent_version(&out.stdout)).flatten()
+    out.ok().then(|| parse_node_version(&out.stdout)).flatten()
 }
 
 fn exists(path: &str) -> bool {
@@ -238,7 +238,7 @@ pub fn managed_install_path() -> Option<String> {
 pub fn bundled_version() -> Option<String> {
     let path = sidecar::bundled_path(&AGENT_SIDECAR)?;
     let out = run(&[path.to_string_lossy().into_owned(), "version".into()], QUERY_TIMEOUT);
-    out.ok().then(|| parse_agent_version(&out.stdout)).flatten()
+    out.ok().then(|| parse_node_version(&out.stdout)).flatten()
 }
 
 /// Walk the ladder and return the first rung that yields a binary which can
@@ -261,7 +261,7 @@ pub fn resolve(configured: Option<&str>) -> Option<AgentBinary> {
 /// avoid. And the probe's `no-agent` step, which is what OFFERS the install,
 /// would then never fire on a machine that has no agent, so the shipped binary
 /// could never be installed at all. It is reported separately as
-/// `bundledVersion` and reached only through `node_install_agent`.
+/// `bundledVersion` and reached only through `node_install_cli`.
 pub fn candidates(configured: Option<&str>) -> Vec<(AgentSource, Vec<String>)> {
     let mut out: Vec<(AgentSource, Vec<String>)> = Vec::new();
     if let Ok(explicit) = std::env::var(AGENT_BIN_ENV) {
@@ -354,7 +354,7 @@ pub enum AgentChoice {
 
 /// Decide between the bundled and installed agents. Pure — the whole rule in
 /// one place, testable without a filesystem.
-pub fn decide_agent(bundled: Option<&str>, installed: Option<&str>) -> AgentChoice {
+pub fn decide_node(bundled: Option<&str>, installed: Option<&str>) -> AgentChoice {
     match (bundled, installed) {
         (None, _) => AgentChoice::NoBundled,
         // An installed agent that cannot state its version never resolves in
@@ -683,23 +683,23 @@ mod version_parse_tests {
     #[test]
     fn reads_the_version_off_the_first_line() {
         assert_eq!(
-            parse_agent_version("subshell 1.9.0 (node protocol v1)\n"),
+            parse_node_version("subshell 1.9.0 (node protocol v1)\n"),
             Some("1.9.0".into())
         );
-        assert_eq!(parse_agent_version("subshell 1.9.0"), Some("1.9.0".into()));
+        assert_eq!(parse_node_version("subshell 1.9.0"), Some("1.9.0".into()));
     }
 
     // The trailing space in the prefix is what keeps the two products apart.
     #[test]
     fn a_subshell_server_line_is_not_an_agent() {
-        assert_eq!(parse_agent_version("subshell-server 1.9.0"), None);
+        assert_eq!(parse_node_version("subshell-server 1.9.0"), None);
     }
 
     #[test]
     fn refuses_anything_that_is_not_that_line() {
-        assert_eq!(parse_agent_version(""), None);
-        assert_eq!(parse_agent_version("subshell "), None);
-        assert_eq!(parse_agent_version("bash: command not found"), None);
+        assert_eq!(parse_node_version(""), None);
+        assert_eq!(parse_node_version("subshell "), None);
+        assert_eq!(parse_node_version("bash: command not found"), None);
     }
 }
 
@@ -759,42 +759,39 @@ mod choice_tests {
 
     #[test]
     fn no_bundled_agent_leaves_the_installed_one_alone() {
-        assert_eq!(decide_agent(None, Some("1.9.0")), AgentChoice::NoBundled);
-        assert_eq!(decide_agent(None, None), AgentChoice::NoBundled);
+        assert_eq!(decide_node(None, Some("1.9.0")), AgentChoice::NoBundled);
+        assert_eq!(decide_node(None, None), AgentChoice::NoBundled);
     }
 
     #[test]
     fn nothing_installed_means_install_the_bundled_one() {
-        assert_eq!(decide_agent(Some("1.9.0"), None), AgentChoice::InstallBundled);
+        assert_eq!(decide_node(Some("1.9.0"), None), AgentChoice::InstallBundled);
     }
 
     #[test]
     fn the_same_version_is_up_to_date() {
-        assert_eq!(decide_agent(Some("1.9.0"), Some("1.9.0")), AgentChoice::UpToDate);
+        assert_eq!(decide_node(Some("1.9.0"), Some("1.9.0")), AgentChoice::UpToDate);
     }
 
     #[test]
     fn a_newer_bundled_agent_is_offered() {
-        assert_eq!(
-            decide_agent(Some("2.0.0"), Some("1.9.0")),
-            AgentChoice::UpgradeAvailable
-        );
+        assert_eq!(decide_node(Some("2.0.0"), Some("1.9.0")), AgentChoice::UpgradeAvailable);
     }
 
     // Never a downgrade: an older agent against a control plane that has moved
     // on is a node that enrolls, reports ONLINE and then refuses launches.
     #[test]
     fn a_newer_installed_agent_is_adopted_never_downgraded() {
-        assert_eq!(decide_agent(Some("1.9.0"), Some("2.0.0")), AgentChoice::AdoptInstalled);
-        assert_eq!(decide_agent(Some("1.9.0"), Some("1.10.0")), AgentChoice::AdoptInstalled);
+        assert_eq!(decide_node(Some("1.9.0"), Some("2.0.0")), AgentChoice::AdoptInstalled);
+        assert_eq!(decide_node(Some("1.9.0"), Some("1.10.0")), AgentChoice::AdoptInstalled);
     }
 
     #[test]
     fn comparison_is_numeric_not_lexical() {
         assert_eq!(
-            decide_agent(Some("1.10.0"), Some("1.9.0")),
+            decide_node(Some("1.10.0"), Some("1.9.0")),
             AgentChoice::UpgradeAvailable
         );
-        assert_eq!(decide_agent(Some("1.9.0"), Some("1.10.0")), AgentChoice::AdoptInstalled);
+        assert_eq!(decide_node(Some("1.9.0"), Some("1.10.0")), AgentChoice::AdoptInstalled);
     }
 }

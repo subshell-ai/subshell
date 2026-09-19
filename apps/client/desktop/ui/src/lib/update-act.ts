@@ -4,7 +4,7 @@
  * **This app SHIPS the node CLI it drives**, so "update Subshell Client" and
  * "update the node CLI" were never two independent things: each desktop
  * bundle carries the CLI it wraps (root `AGENTS.md`, "a desktop cut re-releases
- * that CLI"), and `node_install_agent` installs precisely that sidecar. Two
+ * that CLI"), and `node_install_cli` installs precisely that sidecar. Two
  * screens with two buttons made our packaging the person's problem, and
  * produced a loop that reads as a bug — update the app, and the next launch's
  * probe sees a bundled node CLI newer than the installed one and asks again.
@@ -132,7 +132,7 @@ export interface UpdateActInput {
   /** Whether the app download and install is running — phase 1. */
   installingApp: boolean;
   /** Whether the bundled node CLI's install is running — phase 2, or a direct press. */
-  installingAgent: boolean;
+  installingNode: boolean;
   /**
    * Whether THIS WINDOW installed the bundled node CLI and has not restarted the
    * daemon since.
@@ -144,7 +144,7 @@ export interface UpdateActInput {
    * its original inode, so the file says the new version while the process is
    * still the old one.
    */
-  installedAgentHere: boolean;
+  installedNodeHere: boolean;
   /** Whether the daemon has been restarted from this screen since that install. */
   restartedHere: boolean;
   /** An action is in flight on the shared runner — § 6's "already in flight". */
@@ -208,7 +208,7 @@ export interface UpdateAct {
    * Phase 2's own offer (§ 7.1): the node binary was replaced and the daemon is
    * still running the previous version.
    *
-   * Offered rather than done, because `node_install_agent` passes
+   * Offered rather than done, because `node_install_cli` passes
    * `--no-restart` and that stays: restarting a node kills every
    * subshell on a machine whose service definition does not spare panes, which
    * is why the CLI itself refuses without `--force`. Doing it unasked would be
@@ -228,7 +228,7 @@ export interface UpdateAct {
    * hand that is NEWER than the bundled one — where phase 2 answers
    * `Resume::Clear` and installs nothing.
    */
-  pressInstallsAgent: boolean;
+  pressInstallsNodeCli: boolean;
 }
 
 /**
@@ -270,11 +270,11 @@ const NOT_ASKED = "—";
  * is reachable from a fixture.
  */
 export function updateAct(input: UpdateActInput): UpdateAct {
-  const { check, probe, checking, installingApp, installingAgent, installedAgentHere, restartedHere, busy, selection } =
+  const { check, probe, checking, installingApp, installingNode, installedNodeHere, restartedHere, busy, selection } =
     input;
 
   const bundled = probe?.bundledVersion ?? null;
-  const installedAgent = probe?.agent?.version ?? null;
+  const installedNode = probe?.agent?.version ?? null;
 
   /**
    * Whether the node half can run at all.
@@ -295,7 +295,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
    *
    * `agentNewerInstalled` is the state § 13 was reported from: the ladder
    * ADOPTS a node CLI somebody installed by hand when it is newer than the one
-   * inside this app (`decide_agent`, which never downgrades), so there is no
+   * inside this app (`decide_node`, which never downgrades), so there is no
    * act here at all — and the screen used to name that newer version as a
    * target it would be replaced by.
    */
@@ -308,7 +308,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
    * The marker, weighed once more against the half that would finish it.
    *
    * Rust resolves both of these to `Resume::Clear` — an unmanaged machine and
-   * one running a newer node CLI than the bundle (`comparable_agent_version` is
+   * one running a newer node CLI than the bundle (`comparable_node_version` is
    * what `decide()` always compared) — so this is defence in depth. But it is
    * also the only layer that can SAY anything: a marker written by a build
    * that predates those fixes still exists on disk, and without this the act
@@ -378,14 +378,14 @@ export function updateAct(input: UpdateActInput): UpdateAct {
 
   const phase = decidePhase({
     installingApp,
-    installingAgent,
+    installingNode,
     resuming: resume !== null,
-    installedAgentHere,
+    installedNodeHere,
     checking,
     checked: check !== undefined,
   });
   /** Nothing is left to decide while something is running. */
-  const inFlight = installingApp || installingAgent || resume !== null;
+  const inFlight = installingApp || installingNode || resume !== null;
 
   const rows: UpdateActRow[] = [];
   /**
@@ -441,7 +441,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
     rows.push({
       id: "agent",
       label: NODE_CLI_LABEL,
-      from: installedAgent ?? NOT_INSTALLED,
+      from: installedNode ?? NOT_INSTALLED,
       // The target the row would take, ticked or not — an unticked row still
       // has to say what ticking it would do.
       to: agentRidesIfTicked
@@ -470,7 +470,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   // control at all, and the one state where the second phase does need a press
   // is the one it has stopped making on its own.
   const silent = phase === "finishing" && !retrying;
-  const offerRestart = installedAgentHere && !restartedHere && probe?.service?.installed === true;
+  const offerRestart = installedNodeHere && !restartedHere && probe?.service?.installed === true;
 
   // App first, always: the new bundle carries a newer node CLI, so installing
   // the CLI first installs the outgoing copy.
@@ -495,12 +495,12 @@ export function updateAct(input: UpdateActInput): UpdateAct {
     refusals,
     press: silent ? null : retrying ? "agent" : press,
     pressLabel: silent ? null : retrying ? "Retry" : pressLabel,
-    canPress: !silent && !busy && !installingApp && !installingAgent && (retrying || press !== null),
+    canPress: !silent && !busy && !installingApp && !installingNode && (retrying || press !== null),
     // A refusal is enough to make this false on its own: a machine running
     // somebody else's node CLI is not one this app may call up to date, and the
     // air-gapped `reason` it used to name explicitly is one of those refusals.
     upToDate:
-      rows.length === 0 && resume === null && !installedAgentHere && check !== undefined && refusals.length === 0,
+      rows.length === 0 && resume === null && !installedNodeHere && check !== undefined && refusals.length === 0,
     resume,
     autoFinish: resume !== null && !retrying,
     settled: phase === "done" && rows.length === 0 && !offerRestart,
@@ -508,7 +508,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
     // The same fact every other teardown action on this machine reads, never
     // a second reading of it.
     restartCostsPanes: paneRisk(probe),
-    pressInstallsAgent: agentRidesAlong,
+    pressInstallsNodeCli: agentRidesAlong,
   };
 }
 
@@ -556,15 +556,15 @@ function agentRowReason(at: {
  */
 function decidePhase(at: {
   installingApp: boolean;
-  installingAgent: boolean;
+  installingNode: boolean;
   resuming: boolean;
-  installedAgentHere: boolean;
+  installedNodeHere: boolean;
   checking: boolean;
   checked: boolean;
 }): UpdatePhase {
   if (at.installingApp) return "downloading";
-  if (at.installingAgent || at.resuming) return "finishing";
-  if (at.installedAgentHere) return "done";
+  if (at.installingNode || at.resuming) return "finishing";
+  if (at.installedNodeHere) return "done";
   if (at.checking && !at.checked) return "checking";
   return "idle";
 }

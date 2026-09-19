@@ -205,7 +205,7 @@ async function writeMarker(path: string, body: unknown): Promise<void> {
 /** Which rung named the binary. Reported so a person can tell "the unit says so" from "this is me". */
 export type AgentBinarySource = "service definition" | "this process";
 
-/** Injectable seams for {@link resolveAgentBinary}, so the ladder is testable without a real unit or plist. */
+/** Injectable seams for {@link resolveNodeBinary}, so the ladder is testable without a real unit or plist. */
 export interface AgentBinaryDeps {
   /** Runtime platform (default: `process.platform`). */
   platform?: NodeJS.Platform;
@@ -257,10 +257,10 @@ export interface AgentBinaryDeps {
  * discovered halfway through: a failed `rename` after a 70 MB download is a
  * worse way to learn it.
  */
-export async function resolveAgentBinary(
+export async function resolveNodeBinary(
   deps: AgentBinaryDeps = {},
 ): Promise<{ binary: string; dir: string; source: AgentBinarySource }> {
-  const { binary, source } = await resolveAgentBinaryPath(deps);
+  const { binary, source } = await resolveNodeBinaryPath(deps);
   const dir = dirname(binary);
   try {
     const info = await stat(binary);
@@ -296,7 +296,7 @@ export async function resolveAgentBinary(
  * would report `binary: null` for an un-writable directory — which is a true
  * thing about updating and a false thing about where this agent lives.
  */
-export async function resolveAgentBinaryPath(
+export async function resolveNodeBinaryPath(
   deps: AgentBinaryDeps = {},
 ): Promise<{ binary: string; source: AgentBinarySource }> {
   const argv = await serviceExecArgv({
@@ -579,7 +579,7 @@ export interface AppliedUpdate {
  * @throws {@link UpdateRefused} for every refusal the plane maps to a 409
  */
 export async function applyUpdate(input: ApplyUpdateInput): Promise<AppliedUpdate> {
-  const { binary, dir } = await resolveAgentBinary(input.binaryDeps);
+  const { binary, dir } = await resolveNodeBinary(input.binaryDeps);
   const temp = join(dir, `${basename(binary)}.download-${process.pid}`);
   const previous = `${binary}.previous`;
 
@@ -746,7 +746,7 @@ export async function rollbackUpdate(
   /** See {@link ApplyUpdateInput.binaryDeps} — the same host-independence seam. */
   binaryDeps: AgentBinaryDeps = {},
 ): Promise<{ binary: string; to: string }> {
-  const { binary } = await resolveAgentBinary(binaryDeps);
+  const { binary } = await resolveNodeBinary(binaryDeps);
   const previous = `${binary}.previous`;
   try {
     const info = await stat(previous);

@@ -28,7 +28,7 @@
  * directories.
  *
  * Refusals, all release-stopping: no shard manifests; shards that disagree
- * on component/version/nodeProtocol/minAgentVersion/commit (a half-cut, or
+ * on component/version/nodeProtocol/minNodeVersion/commit (a half-cut, or
  * two versions in one release — either way nobody can say what was published);
  * two shards naming one asset with different digests (the exact
  * two-artifacts-for-one-tag state the signature exists to catch); and, for
@@ -138,7 +138,7 @@ export function mergeReleaseManifests(shards: readonly ShardManifest[]): Release
   const first = shards[0]?.manifest;
   if (first === undefined) throw new Error("no shard manifests to merge");
   for (const shard of shards) {
-    for (const field of ["component", "version", "nodeProtocol", "minAgentVersion", "commit"] as const) {
+    for (const field of ["component", "version", "nodeProtocol", "minNodeVersion", "commit"] as const) {
       if (shard.manifest[field] !== first[field]) {
         throw new Error(
           `shards disagree on ${field}: ${first[field]} (${shards[0]?.origin}) vs ${shard.manifest[field]} (${shard.origin})`,

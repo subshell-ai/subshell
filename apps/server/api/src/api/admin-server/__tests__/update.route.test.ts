@@ -79,7 +79,7 @@ describe("POST /api/admin/server/update", () => {
           component: "cli-server",
           version,
           nodeProtocol: 12,
-          minAgentVersion: "0.11.0",
+          minNodeVersion: "0.11.0",
           commit: "0".repeat(40),
           assets: {},
         },

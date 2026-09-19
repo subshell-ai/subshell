@@ -89,7 +89,7 @@ export function semverLt(a: string, b: string): boolean {
  * and until the matching `cli-node-v*` cut publishes, held-node copy is what
  * explains the gap to the operator.
  */
-export const MIN_AGENT_VERSION = "0.11.0";
+export const MIN_NODE_VERSION = "0.11.0";
 
 /**
  * Whether an agent reporting `version` may connect.
@@ -98,8 +98,8 @@ export const MIN_AGENT_VERSION = "0.11.0";
  * cannot say what it is cannot be assumed current.
  *
  * @param version - the agent's self-reported `agentVersion` from `ready`
- * @returns True when the agent is at or above {@link MIN_AGENT_VERSION}
+ * @returns True when the agent is at or above {@link MIN_NODE_VERSION}
  */
-export function agentVersionSupported(version: string | null | undefined): boolean {
-  return typeof version === "string" && !semverLt(version, MIN_AGENT_VERSION);
+export function nodeVersionSupported(version: string | null | undefined): boolean {
+  return typeof version === "string" && !semverLt(version, MIN_NODE_VERSION);
 }

@@ -5,7 +5,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { BASE_URL } from "../ports";
 import { shortTmuxBase } from "../stack";
-import { AGENT_MAIN, type RunningAgent, startAgent } from "../stub/client";
+import { AGENT_MAIN, type RunningNode, startNode } from "../stub/client";
 import { ADMIN_STATE, dismissDirectoryPanel, openAgentPicker, pickAgent, renameSubshell } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
@@ -32,7 +32,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
  */
 async function pollUntil(
   label: string,
-  agent: RunningAgent | undefined,
+  agent: RunningNode | undefined,
   check: () => Promise<boolean>,
   tickMs = 500,
 ): Promise<void> {
@@ -283,11 +283,11 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   // form already spends ~75 of them (see shortTmuxBase in stack.ts).
   const tmuxBase = shortTmuxBase();
   mkdirSync(tmuxBase, { recursive: true }); // tmux will not mkdir the TMUX_TMPDIR base itself (stack.ts)
-  let agent: RunningAgent | undefined;
+  let agent: RunningNode | undefined;
   let nodeId: string | undefined;
   let subshellId: string | undefined;
   try {
-    agent = await startAgent({ home, dataDir, tmuxBase, setupKey, name: nodeName });
+    agent = await startNode({ home, dataDir, tmuxBase, setupKey, name: nodeName });
 
     // `ready` on the node socket flips the row online — poll the registry.
     // The row id is captured on EVERY iteration, not only on success: if the

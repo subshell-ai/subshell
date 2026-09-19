@@ -44,7 +44,7 @@ use subshell_desktop_core::shell_env::{home_dir, which};
 use subshell_desktop_core::sidecar;
 use subshell_desktop_core::tray::{effective_close_to_tray, tray_support};
 
-use crate::agent_bin::{self, decide_agent, AgentBinary, AgentChoice, AGENT_SIDECAR};
+use crate::agent_bin::{self, decide_node, AgentBinary, AgentChoice, AGENT_SIDECAR};
 
 /// What the page is told when nothing on the ladder answered.
 const NO_AGENT: &str = "no subshell agent found — install the bundled one first";
@@ -486,7 +486,7 @@ pub struct Probe {
     /// The second half of an app update that has not been finished yet.
     ///
     /// Filled by [`node_probe`] alone — [`probe_now`] is also what
-    /// [`install_agent_now`] reads the machine with, and a marker on that
+    /// [`install_node_now`] reads the machine with, and a marker on that
     /// answer would be a fact nobody asked for. See [`resume_view`] for why
     /// this rides the probe rather than `node_settings`.
     pub pending_install: Option<PendingInstall>,
@@ -506,7 +506,7 @@ pub struct Probe {
 /// `PendingUpdateView`/`pendingUpdate`/`exhausted` until 2026-09-18, which
 /// made a straight diff of the two screens read as a difference in design
 /// where there was only a difference in spelling. `attempts` is the one field
-/// this app had first (it counts at the FIRE — see [`node_install_agent`] —
+/// this app had first (it counts at the FIRE — see [`node_install_cli`] —
 /// which is the rule both apps now follow).
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -586,7 +586,7 @@ impl Probe {
     /// anyway at the next boot. One rule, asked in both places, is what makes
     /// the refusal hold across the relaunch. (Found in review; the server app
     /// carries the identical fix and the identical comment.)
-    fn comparable_agent_version(&self) -> Option<&str> {
+    fn comparable_node_version(&self) -> Option<&str> {
         if self.managed || self.agent.is_none() {
             self.agent.as_ref().and_then(|a| a.version.as_deref())
         } else {
@@ -595,7 +595,7 @@ impl Probe {
     }
 
     fn decide(&mut self) {
-        self.agent_choice = decide_agent(self.bundled_version.as_deref(), self.comparable_agent_version());
+        self.agent_choice = decide_node(self.bundled_version.as_deref(), self.comparable_node_version());
 
         self.step = if self.agent.is_none() {
             ProbeStep::NoAgent
@@ -698,9 +698,9 @@ fn resume_view(settings: &SettingsState, probe: &Probe) -> Option<PendingInstall
         Some(marker),
         probe.bundled_version.as_deref(),
         // The managed-aware version, the same one `decide()` compares — see
-        // `comparable_agent_version`. The raw installed version here let an
+        // `comparable_node_version`. The raw installed version here let an
         // unmanaged machine resume an install phase 1 had refused.
-        probe.comparable_agent_version(),
+        probe.comparable_node_version(),
     )?;
     let view = view_of(marker, &decision);
     if view.is_none() {
@@ -818,7 +818,7 @@ impl From<Run> for ActionResult {
 /// Why an install must not proceed, or `None` when it may.
 ///
 /// The one refusal is the DOWNGRADE, and it is stated here because nothing
-/// downstream states it: [`decide_agent`]'s rule is that a newer bundled agent
+/// downstream states it: [`decide_node`]'s rule is that a newer bundled agent
 /// is OFFERED and a newer installed one is ADOPTED — never overwritten, never
 /// even offered — but `sidecar::already_installed` compares size and version
 /// for EQUALITY, not order, so an older bundled binary would cheerfully
@@ -841,9 +841,9 @@ impl From<Run> for ActionResult {
 /// installed the newer one.
 pub fn install_refusal(bundled: Option<&str>, installed: Option<&str>) -> Option<String> {
     // Both versions are readable by construction: an agent that cannot state
-    // one never resolves, and `decide_agent` reaches AdoptInstalled only when
+    // one never resolves, and `decide_node` reaches AdoptInstalled only when
     // it has two to compare.
-    if decide_agent(bundled, installed) != AgentChoice::AdoptInstalled {
+    if decide_node(bundled, installed) != AgentChoice::AdoptInstalled {
         return None;
     }
     let (bundled, installed) = (bundled?, installed?);
@@ -897,7 +897,7 @@ const UPDATE_TIMEOUT: Duration = Duration::from_secs(300);
 /// screen OFFERS that restart rather than telling anyone to start something.
 /// Nothing here was ever stopped: the daemon is running, on the previous
 /// binary's inode, which is exactly the fact the offer exists to state.
-fn install_agent_now(settings: &SettingsState) -> Result<ActionResult, String> {
+fn install_node_now(settings: &SettingsState) -> Result<ActionResult, String> {
     let configured = settings.get().binary_path;
     let version = bundled_version();
     let probe = probe_now(configured.as_deref());
@@ -1043,7 +1043,7 @@ fn install_over_legacy(bundled: Option<&str>, installed: Option<&str>) -> Result
 /// A successful install by ANY of those routes finishes the act, because what
 /// the marker records is that the bundled agent had not been installed yet.
 #[tauri::command(async)]
-pub fn node_install_agent(settings: State<'_, SettingsState>) -> Result<ActionResult, String> {
+pub fn node_install_cli(settings: State<'_, SettingsState>) -> Result<ActionResult, String> {
     let resuming = settings.get().pending_bundled_install.is_some();
     if resuming {
         let _ = settings.update(|s| {
@@ -1052,7 +1052,7 @@ pub fn node_install_agent(settings: State<'_, SettingsState>) -> Result<ActionRe
             }
         });
     }
-    let outcome = install_agent_now(&settings);
+    let outcome = install_node_now(&settings);
     // Only a run that actually replaced the file clears it. A rejection or a
     // refusal leaves the marker for the Retry the screen offers, which is the
     // whole reason the marker outlives a failure.
@@ -1909,7 +1909,7 @@ pub async fn node_check_app_update(app: AppHandle) -> Result<crate::app_update::
 /// **Takes ONE bool and names no location.** The version to install is
 /// re-resolved here rather than carried back from the page — the same shape
 /// every other command in this file keeps: the page names an intent, never a
-/// path, a URL or a host. `install_agent` is the § 13 selection, and it is a
+/// path, a URL or a host. `install_node` is the § 13 selection, and it is a
 /// bool for exactly the reason the whole argument list is pinned by test: a
 /// `String` here would be the parameter that pin exists to catch.
 ///
@@ -1921,8 +1921,8 @@ pub async fn node_check_app_update(app: AppHandle) -> Result<crate::app_update::
 ///
 /// It does not return on success: `app.restart()` is `-> !`.
 #[tauri::command(async)]
-pub async fn node_install_app_update(app: AppHandle, install_agent: bool) -> Result<(), String> {
-    crate::app_update::install_app_update(&app, install_agent).await
+pub async fn node_install_app_update(app: AppHandle, install_node: bool) -> Result<(), String> {
+    crate::app_update::install_app_update(&app, install_node).await
 }
 
 /// Reveal one of a fixed set of the app's own directories or files.
@@ -2223,12 +2223,12 @@ mod resume_tests {
             ..Default::default()
         };
         // The bundle really IS newer; the raw comparison would say "work".
-        assert_eq!(p.comparable_agent_version(), Some("1.10.0"));
+        assert_eq!(p.comparable_node_version(), Some("1.10.0"));
         assert_eq!(
             resume_decision(
                 Some(&marker(0)),
                 p.bundled_version.as_deref(),
-                p.comparable_agent_version()
+                p.comparable_node_version()
             ),
             Some(Resume::Clear)
         );
@@ -2247,12 +2247,12 @@ mod resume_tests {
             managed: true,
             ..Default::default()
         };
-        assert_eq!(p.comparable_agent_version(), Some("1.8.0"));
+        assert_eq!(p.comparable_node_version(), Some("1.8.0"));
         assert_eq!(
             resume_decision(
                 Some(&marker(0)),
                 p.bundled_version.as_deref(),
-                p.comparable_agent_version()
+                p.comparable_node_version()
             ),
             Some(Resume::Install { forced: true })
         );
@@ -2641,7 +2641,7 @@ mod install_policy_tests {
         assert!(refusal.contains("2.0.0"), "{refusal}");
         assert!(refusal.contains("1.9.0"), "{refusal}");
         assert!(refusal.contains("downgrade"), "{refusal}");
-        // Numeric, not lexical — the comparison `decide_agent` already owns.
+        // Numeric, not lexical — the comparison `decide_node` already owns.
         assert!(install_refusal(Some("1.9.0"), Some("1.10.0")).is_some());
     }
 

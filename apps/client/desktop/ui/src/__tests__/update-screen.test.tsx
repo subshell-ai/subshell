@@ -52,7 +52,7 @@ describe("the status screen's button is a door (§ 7.4)", () => {
 
     await waitFor(() => expect(screen.getByText("Update Subshell Client")).toBeTruthy());
     // Nothing was installed by walking through the door — the act asks first.
-    expect(fake.callsTo("node_install_agent").length).toBe(0);
+    expect(fake.callsTo("node_install_cli").length).toBe(0);
     // The half that is behind carries its numbers and its own checkbox — the
     // app is current here, so the agent row is an act of its own (§ 13.1).
     expect(screen.getByText("Subshell Node CLI")).toBeTruthy();
@@ -122,11 +122,11 @@ describe("the second phase finishes an act this build did not start (§ 4.2)", (
       }),
       handlers: {
         node_check_app_update: () => APP_CURRENT,
-        node_install_agent: () => ({ ok: true, stdout: "Installed subshell 1.10.0", stderr: "" }),
+        node_install_cli: () => ({ ok: true, stdout: "Installed subshell 1.10.0", stderr: "" }),
       },
     });
 
-    await waitFor(() => expect(fake.callsTo("node_install_agent").length).toBe(1));
+    await waitFor(() => expect(fake.callsTo("node_install_cli").length).toBe(1));
     // And it raised the screen to say so, rather than doing it behind the
     // landing the person was looking at.
     expect(screen.getByText("Update Subshell Client")).toBeTruthy();
@@ -147,15 +147,15 @@ describe("the second phase finishes an act this build did not start (§ 4.2)", (
       }),
       handlers: {
         node_check_app_update: () => APP_CURRENT,
-        node_install_agent: () => ({ ok: true, stdout: "Installed subshell 1.10.0", stderr: "" }),
+        node_install_cli: () => ({ ok: true, stdout: "Installed subshell 1.10.0", stderr: "" }),
       },
     });
 
     await waitFor(() => expect(buttonOrNull("Retry")).not.toBeNull());
-    expect(fake.callsTo("node_install_agent").length).toBe(0);
+    expect(fake.callsTo("node_install_cli").length).toBe(0);
 
     fireEvent.click(button("Retry"));
-    await waitFor(() => expect(fake.callsTo("node_install_agent").length).toBe(1));
+    await waitFor(() => expect(fake.callsTo("node_install_cli").length).toBe(1));
   });
 });
 
@@ -175,7 +175,7 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
       }),
       handlers: {
         node_check_app_update: () => APP_CURRENT,
-        node_install_agent: () => {
+        node_install_cli: () => {
           // The install cleared the marker and moved the machine on, which is
           // exactly what the next probe reports.
           fake.setProbe(done);
@@ -225,7 +225,7 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
       }),
       handlers: {
         node_check_app_update: () => APP_CURRENT,
-        node_install_agent: () => {
+        node_install_cli: () => {
           fake.setProbe(makeProbe({ agentChoice: "up-to-date", bundledVersion: "1.10.0", service: risky }));
           return { ok: true, stdout: "Installed subshell 1.10.0", stderr: "" };
         },
@@ -249,7 +249,7 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
       }),
       handlers: {
         node_check_app_update: () => APP_CURRENT,
-        node_install_agent: () => {
+        node_install_cli: () => {
           fake.setProbe(done);
           return { ok: true, stdout: "Installed subshell 1.10.0", stderr: "" };
         },

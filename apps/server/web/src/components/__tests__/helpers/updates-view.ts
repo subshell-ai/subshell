@@ -33,7 +33,7 @@ export function nodeUpdates(over: Partial<NodeUpdates> = {}): NodeUpdates {
   return {
     release: { version: "0.9.0", tag: "cli-node-v0.9.0", publishedAt: null },
     reason: null,
-    minAgentVersion: "0.7.0",
+    minNodeVersion: "0.7.0",
     protocol: 10,
     rows: [],
     ...over,

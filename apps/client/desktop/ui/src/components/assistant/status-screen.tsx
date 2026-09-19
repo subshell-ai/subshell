@@ -341,7 +341,7 @@ export function StatusScreen(props: {
           </p>
           {probe?.bundledVersion ? (
             <div className="mt-2">
-              <Button variant="outline" size="sm" disabled={busy} onClick={commands.installAgent}>
+              <Button variant="outline" size="sm" disabled={busy} onClick={commands.installNode}>
                 Install the node
               </Button>
             </div>

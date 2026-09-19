@@ -1,6 +1,6 @@
 import {
   hostReleaseTarget,
-  MIN_AGENT_VERSION,
+  MIN_NODE_VERSION,
   NODE_PROTOCOL_VERSION,
   NODE_SIGNED_UPDATES_PROTOCOL_VERSION,
   semverLt,
@@ -93,7 +93,7 @@ const AdminUpdatesSchema = t.Object({
       // ("speaks protocol 9, this server speaks 10"), and half a comparison
       // arriving from a second query is how a page renders "speaks protocol 9,
       // this server speaks undefined" for one paint.
-      minAgentVersion: t.String({ description: "The oldest node version this server will accept on /ws/node" }),
+      minNodeVersion: t.String({ description: "The oldest node version this server will accept on /ws/node" }),
       protocol: t.Number({ description: "The node protocol this server speaks; nodes must match it EXACTLY" }),
       rows: t.Array(NodeUpdateRowSchema, { description: "Every enrolled node; `local` is never here" }),
     },
@@ -182,7 +182,7 @@ export const adminUpdatesRoutes = new Elysia({ prefix: "/api/admin" }).use(requi
       nodes: {
         release: rels.node,
         reason: rels.nodeReason,
-        minAgentVersion: MIN_AGENT_VERSION,
+        minNodeVersion: MIN_NODE_VERSION,
         protocol: NODE_PROTOCOL_VERSION,
         rows,
       },

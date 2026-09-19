@@ -55,7 +55,7 @@ export interface NodeRestartWait {
  * @param before - the value the page held when the restart was requested
  * @param now - the value the node is reporting now
  */
-export function isNewAgentProcess(before: string | undefined, now: string): boolean {
+export function isNewNodeProcess(before: string | undefined, now: string): boolean {
   return before === undefined || now !== before;
 }
 
@@ -110,7 +110,7 @@ export function useNodeRestartWait(id: string): NodeRestartWait {
         // The ordinary restart's test is unchanged.
         const back = heldWait.current
           ? detail.held === null && detail.status === "online"
-          : detail.status === "online" && detail.runtime && isNewAgentProcess(before.current, detail.runtime.startedAt);
+          : detail.status === "online" && detail.runtime && isNewNodeProcess(before.current, detail.runtime.startedAt);
         if (back) {
           if (cancelled) return;
           setOutcome("back");

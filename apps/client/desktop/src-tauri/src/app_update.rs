@@ -187,14 +187,14 @@ pub async fn check_app_update(app: &AppHandle) -> Result<AppUpdateCheck, String>
 /// install, because deciding that is `resume_decision`'s job and not this
 /// one's — a marker whose work turns out to be done is cleared without acting.
 ///
-/// **What it is NOT written for is a cleared agent row.** `install_agent`
+/// **What it is NOT written for is a cleared agent row.** `install_node`
 /// false writes no marker at all, so phase 2 never runs: the selection crosses
 /// the relaunch as the marker's PRESENCE, which is how Subshell Server does it
 /// and how there comes to be no second field for the two halves to disagree
 /// about.
 ///
 /// **`app.restart()` never returns**: it is `-> !`.
-pub async fn install_app_update(app: &AppHandle, install_agent: bool) -> Result<(), String> {
+pub async fn install_app_update(app: &AppHandle, install_node: bool) -> Result<(), String> {
     let Some(endpoint) = release_feed::release_api(std::env::var(release_feed::RELEASE_URL_ENV).ok()) else {
         return Err("no release source is configured (SUBSHELL_RELEASE_URL is empty)".into());
     };
@@ -238,7 +238,7 @@ pub async fn install_app_update(app: &AppHandle, install_agent: bool) -> Result<
     // that restart rather than performing it (spec § 7.1). The field exists
     // for Subshell Server, which does restart, and the two apps share the
     // struct's format and never the file.
-    let marker = install_agent.then(|| PendingBundledInstall {
+    let marker = install_node.then(|| PendingBundledInstall {
         from_app_version: app.package_info().version.to_string(),
         started_at: format_rfc3339(now_epoch_secs()),
         attempts: 0,

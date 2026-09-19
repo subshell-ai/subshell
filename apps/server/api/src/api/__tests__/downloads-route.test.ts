@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  MIN_AGENT_VERSION,
+  MIN_NODE_VERSION,
   NODE_PROTOCOL_VERSION,
   parseReleaseManifest,
   RELEASE_MANIFEST_NAME,
@@ -1001,7 +1001,7 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
             component: "cli-node",
             version: "9.9.9",
             nodeProtocol: NODE_PROTOCOL_VERSION,
-            minAgentVersion: MIN_AGENT_VERSION,
+            minNodeVersion: MIN_NODE_VERSION,
             commit: "0123456789abcdef0123456789abcdef01234567",
             assets: { [`subshell-node-cli-${TARGET}`]: digest },
           });

@@ -328,8 +328,8 @@ export function nodeSettings(): Promise<NodeSettings> {
  * Rejects with a plain string (a Rust `Err`) when the build ships no node CLI; a
  * downgrade comes back as `ok: false` with the reason on `stderr` instead.
  */
-export function nodeInstallAgent(): Promise<ActionResult> {
-  return invoke<ActionResult>("node_install_agent");
+export function nodeInstallCli(): Promise<ActionResult> {
+  return invoke<ActionResult>("node_install_cli");
 }
 
 /**
@@ -617,11 +617,11 @@ export function nodeCheckAppUpdate(): Promise<AppUpdateCheck> {
  * reads it back as {@link Probe.pendingInstall} and installs that bundled
  * CLI, which is the half this call deliberately does not do.
  *
- * @param installAgent - the § 13 selection: the node row's checkbox. FALSE
+ * @param installNode - the § 13 selection: the node row's checkbox. FALSE
  *   writes no marker at all, so phase 2 never runs and a deliberately older
  *   installed node CLI survives the app update. It is a bool rather than anything
  *   richer because the ACL test pins that this command names no location.
  */
-export function nodeInstallAppUpdate(installAgent: boolean): Promise<void> {
-  return invoke<void>("node_install_app_update", { installAgent });
+export function nodeInstallAppUpdate(installNode: boolean): Promise<void> {
+  return invoke<void>("node_install_app_update", { installNode });
 }

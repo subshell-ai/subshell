@@ -50,7 +50,7 @@
 import { rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  MIN_AGENT_VERSION,
+  MIN_NODE_VERSION,
   NODE_PROTOCOL_VERSION,
   type NodeTarget,
   newestRelease,
@@ -392,7 +392,7 @@ export interface CompatibleNodeRelease {
  * (spec §3.2) is what makes the sharper question answerable without
  * downloading a binary — so the release offered is the newest `cli-node`
  * release whose manifest's `nodeProtocol` EQUALS this server's, and whose version
- * clears `MIN_AGENT_VERSION`.
+ * clears `MIN_NODE_VERSION`.
  *
  * Only the newest is considered, deliberately: walking back through older
  * releases looking for a protocol match would hand a machine a build nobody
@@ -410,11 +410,11 @@ export async function compatibleNodeRelease(): Promise<CompatibleNodeRelease> {
   const release = index.byComponent["cli-node"];
   if (release === null)
     return { release: null, reason: "the release source publishes no cli-node-v* release", manifest: null };
-  if (semverLt(release.version, MIN_AGENT_VERSION)) {
+  if (semverLt(release.version, MIN_NODE_VERSION)) {
     return {
       release: null,
       manifest: null,
-      reason: `the newest node release (${release.tag}) is older than this server's minimum node version ${MIN_AGENT_VERSION}`,
+      reason: `the newest node release (${release.tag}) is older than this server's minimum node version ${MIN_NODE_VERSION}`,
     };
   }
   const outcome = await checkReleaseManifest(release);

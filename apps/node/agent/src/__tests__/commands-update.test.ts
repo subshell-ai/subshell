@@ -213,7 +213,7 @@ describe("execUpdate success", () => {
       component: "cli-node",
       version: "0.9.9",
       nodeProtocol: 12,
-      minAgentVersion: "0.11.0",
+      minNodeVersion: "0.11.0",
       commit: "0".repeat(40),
       assets: { [hostAsset]: digest },
     });

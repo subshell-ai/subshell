@@ -248,7 +248,7 @@ export class NodesRepository extends BaseRepository {
    * `not in ()`.
    * @returns the number of rows flipped
    */
-  async markStaleAgentsOffline(olderThanIso: string, excludeNodeIds?: string[]): Promise<number> {
+  async markStaleNodesOffline(olderThanIso: string, excludeNodeIds?: string[]): Promise<number> {
     let query = this.db
       .updateTable("nodes")
       .set({ status: "offline", updatedAt: new Date().toISOString() })

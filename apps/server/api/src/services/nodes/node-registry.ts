@@ -58,7 +58,7 @@ export interface PendingEntry {
  * `inventory.ts` writes them when an answer lands), so a reconnect carries
  * homeDir from the fresh `ready` and no env until the next detect.
  */
-export interface NodeAgentFacts {
+export interface NodeFacts {
   /** agent-side `<dataDir>` — composes log/mcp paths (spec §6.4) */
   dataDir: string;
   /** capability strings from ready ("uploads", "mcp") */
@@ -138,7 +138,7 @@ export interface NodeConnection {
    * until `ready` lands — a socket that connects but never readies stays
    * `agent: undefined` and reads as such to every consumer.
    */
-  agent?: NodeAgentFacts;
+  agent?: NodeFacts;
 }
 
 const live = new Map<string, NodeConnection>();

@@ -5,7 +5,7 @@ import { apiFetch } from "@/lib/api";
 export const ADMIN_STATUS_QUERY_KEY = ["admin-status"] as const;
 
 /** An enrolled agent this control plane would refuse at connect. */
-export interface OutdatedAgent {
+export interface OutdatedNode {
   /** Node id */
   id: string;
   /** Node display name */
@@ -22,7 +22,7 @@ export interface AdminStatus {
     /** Node protocol version this control plane speaks; agents must match exactly */
     nodeProtocol: number;
     /** Oldest agent version accepted on /ws/node */
-    minAgent: string;
+    minNode: string;
     /** Bun runtime version */
     bun: string;
   };
@@ -67,7 +67,7 @@ export interface AdminStatus {
   inventory: {
     users: { total: number; admins: number };
     subshells: { total: number; running: number };
-    nodes: { total: number; online: number; needingUpdate: OutdatedAgent[] };
+    nodes: { total: number; online: number; needingUpdate: OutdatedNode[] };
     workspaces: number;
     channels: number;
     presets: number;

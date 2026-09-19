@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  MIN_AGENT_VERSION,
+  MIN_NODE_VERSION,
   NODE_PROTOCOL_VERSION,
   parseReleaseManifest,
   RELEASE_MANIFEST_NAME,
@@ -114,7 +114,7 @@ function manifestBody(over: Record<string, unknown> = {}): Uint8Array {
       component: "cli-node",
       version: "9.9.9",
       nodeProtocol: NODE_PROTOCOL_VERSION,
-      minAgentVersion: MIN_AGENT_VERSION,
+      minNodeVersion: MIN_NODE_VERSION,
       commit: "0123456789abcdef0123456789abcdef01234567",
       assets: { [BINARY]: BINARY_PAYLOAD.digest },
       ...over,

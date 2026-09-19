@@ -358,7 +358,7 @@ drawn on this desktop at all.)
 
 ## Installing the bundled node is a TRANSACTION, not a copy
 
-**`node_install_agent` has two paths, and the split is whether there is an
+**`node_install_cli` has two paths, and the split is whether there is an
 installed CLI to ask** (spec 2026-09-15 § 7.1):
 
 - **A REPLACE of the managed copy** (`probe.managed` — the binary this machine
@@ -382,7 +382,7 @@ Two things went away with the stop, and neither was a loss:
   something that was never stopped. `rename(2)` leaves the running process on
   its original inode, so after a successful install the file is the new node
   and the daemon is the old one, and nothing on screen used to say so.
-- **`node_install_agent` also settles the update marker.** It counts an
+- **`node_install_cli` also settles the update marker.** It counts an
   attempt before the install and drops the marker after one that succeeded, so
   every route into the node half — the resumed act, the Retry the screen
   offers once it has halted, and the status screen's own door — is bounded and
@@ -496,7 +496,7 @@ holding:
   capability change**. `node_probe` already computes the bundled version
   against the installed one, which is exactly the pair the decision weighs, and
   the page already reads it every few seconds.
-- **`node_install_agent` counts and clears.** An attempt is counted before the
+- **`node_install_cli` counts and clears.** An attempt is counted before the
   install, the marker dropped after one that succeeded, so the resumed act, the
   Retry, and the status screen's door are all bounded and finishing by one
   piece of code. `MAX_RESUME_ATTEMPTS` is 2: at the limit the marker STAYS —
@@ -514,7 +514,7 @@ spellings, adopted here on 2026-09-18 (this app said `PendingUpdateView`,
 difference in design rather than in vocabulary — they are read side by side
 whenever either changes. `attempts` is the field this app had first, and its
 rule is now the shared one: **an attempt is counted at the FIRE**, in
-`node_install_agent`, because an attempt is an attempt whoever asked for it.
+`node_install_cli`, because an attempt is an attempt whoever asked for it.
 `forced` stays the server's alone, per the bullet above. What genuinely differs:
 
 - **Who raises the screen.** This app does it IN THE WEBVIEW (`app.tsx`, the
@@ -537,7 +537,7 @@ offers `--force` behind it and points at *Rewrite the service definition*. The
 pane-safety sentence lives THERE and not on the install: the swap is a
 `rename(2)` a running daemon never notices, so nothing about installing an
 node can close a subshell, while the restart can. Whether to offer it is page
-state (`installedAgentHere`), the `ranSetupHere` pattern, because the running
+state (`installedNodeHere`), the `ranSetupHere` pattern, because the running
 daemon's version is not something any probe here can read.
 
 One shape in `update-screen.tsx` is a fix for a measured defect rather than a
@@ -551,7 +551,7 @@ success as the restart's, retiring the offer nobody had taken.
 simplification exactly while the two halves point the same way; when they
 diverge it is a claim about the machine that is wrong. They diverge whenever
 somebody installs a `subshell` by hand that is NEWER than the one this bundle
-ships: `decide_agent` ADOPTS it (it never downgrades), so phase 2 would answer
+ships: `decide_node` ADOPTS it (it never downgrades), so phase 2 would answer
 `Resume::Clear` and install nothing — while the screen named that newer version
 as a target it would be replaced by, and the press promised the install
 underneath it. Reported against Subshell Server; identical here.
@@ -581,7 +581,7 @@ defects above:
   node half is that act's TAIL — the node that lands is the NEW bundle's,
   whose version this build cannot know, so the cell reads "ships with the new
   app" rather than a number — but it is still a choice: clearing it makes
-  `node_install_app_update(install_agent: false)` write NO marker, so phase 2
+  `node_install_app_update(install_node: false)` write NO marker, so phase 2
   never runs and a deliberately older `~/.local/bin/subshell` survives the app
   update. Untick the app instead and the node row becomes an act of its own,
   with the number in hand.
@@ -591,7 +591,7 @@ defects above:
   true of the command as written and was filed as a structural fact. Subshell
   Server had already disproved it — it makes the marker's PRESENCE the
   selection — so what the sentence actually described was one missing boolean.
-- **Every sentence promising the node half reads off `pressInstallsAgent`**,
+- **Every sentence promising the node half reads off `pressInstallsNodeCli`**,
   including the air-gapped refusal's "can still be installed". A promise that
   outlives the half it describes is the defect, not the act.
 

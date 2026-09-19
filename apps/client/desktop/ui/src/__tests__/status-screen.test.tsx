@@ -52,8 +52,8 @@ function makeCommands(calls: Call[]): NodeCommands {
     };
   return {
     refresh: rec("refresh"),
-    installAgent: rec("installAgent"),
-    updateAgent: rec("updateAgent"),
+    installNode: rec("installNode"),
+    updateNode: rec("updateNode"),
     service: rec("service"),
     restart: rec("restart"),
     uninstall: rec("uninstall"),

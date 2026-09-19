@@ -22,8 +22,8 @@ function act(overrides: Partial<UpdateActInput> = {}) {
     probe: makeProbe(),
     checking: false,
     installingApp: false,
-    installingAgent: false,
-    installedAgentHere: false,
+    installingNode: false,
+    installedNodeHere: false,
     restartedHere: false,
     busy: false,
     // Nothing ticked by hand: every actionable row is selected by default
@@ -75,7 +75,7 @@ describe("what the screen states (§ 4.1)", () => {
         selectable: true,
       }),
     ]);
-    expect(a.pressInstallsAgent).toBe(true);
+    expect(a.pressInstallsNodeCli).toBe(true);
     expect(a.press).toBe("app");
     expect(a.pressLabel).toBe("Download and Install 0.8.1");
   });
@@ -245,7 +245,7 @@ describe("the second phase (§§ 4.2, 5)", () => {
   /**
    * A marker on a machine whose agent this app must not replace.
    *
-   * Rust resolves that to `Resume::Clear` now (`comparable_agent_version` is
+   * Rust resolves that to `Resume::Clear` now (`comparable_node_version` is
    * what `decide()` always compared), so the only way here is a marker an
    * OLDER build left on disk. This layer is nonetheless the only one that can
    * SAY anything, and the worst possible reading is the one it used to
@@ -297,14 +297,14 @@ describe("the second phase (§§ 4.2, 5)", () => {
 
 describe("the restart the act offers rather than performs (§ 7.1)", () => {
   /**
-   * `node_install_agent` passes `--no-restart` and that stays — restarting a
+   * `node_install_cli` passes `--no-restart` and that stays — restarting a
    * node agent kills every subshell on a machine whose definition does not
    * spare panes. What changed is that the app now SAYS so: `rename(2)` leaves
    * the running process on its original inode, so the file is new and the
    * daemon is old, and before this nothing on screen mentioned it.
    */
   it("offers a restart once this window replaced the agent", () => {
-    const a = act({ installedAgentHere: true });
+    const a = act({ installedNodeHere: true });
     expect(a.offerRestart).toBe(true);
     expect(a.phase).toBe("done");
     // The offer IS what the screen says here, so there is nothing to settle.
@@ -312,11 +312,11 @@ describe("the restart the act offers rather than performs (§ 7.1)", () => {
   });
 
   it("stops offering it once the restart has happened", () => {
-    expect(act({ installedAgentHere: true, restartedHere: true }).offerRestart).toBe(false);
+    expect(act({ installedNodeHere: true, restartedHere: true }).offerRestart).toBe(false);
   });
 
   it("offers nothing to restart on a machine with no service", () => {
-    const a = act({ installedAgentHere: true, probe: makeProbe({ service: { installed: false } }) });
+    const a = act({ installedNodeHere: true, probe: makeProbe({ service: { installed: false } }) });
     expect(a.offerRestart).toBe(false);
   });
 
@@ -327,19 +327,19 @@ describe("the restart the act offers rather than performs (§ 7.1)", () => {
    * a successful act reads as one that lost the thread.
    */
   it("says the act is finished once there is nothing left to offer", () => {
-    expect(act({ installedAgentHere: true, restartedHere: true }).settled).toBe(true);
-    expect(act({ installedAgentHere: true, probe: makeProbe({ service: { installed: false } }) }).settled).toBe(true);
+    expect(act({ installedNodeHere: true, restartedHere: true }).settled).toBe(true);
+    expect(act({ installedNodeHere: true, probe: makeProbe({ service: { installed: false } }) }).settled).toBe(true);
     // Not while a half is still named on screen — an app update that landed
     // after the agent one must not be covered by "both up to date".
-    expect(act({ installedAgentHere: true, restartedHere: true, check: check({ latest: "0.9.0" }) }).settled).toBe(
+    expect(act({ installedNodeHere: true, restartedHere: true, check: check({ latest: "0.9.0" }) }).settled).toBe(
       false,
     );
   });
 
   it("warns about panes only where the definition does not spare them", () => {
-    expect(act({ installedAgentHere: true }).restartCostsPanes).toBe(false);
+    expect(act({ installedNodeHere: true }).restartCostsPanes).toBe(false);
     const risky = act({
-      installedAgentHere: true,
+      installedNodeHere: true,
       probe: makeProbe({ service: { installed: true, state: "running", paneSafety: "kills" } }),
     });
     expect(risky.restartCostsPanes).toBe(true);
@@ -348,7 +348,7 @@ describe("the restart the act offers rather than performs (§ 7.1)", () => {
   /** `unknown` fails closed everywhere else here, and must here too. */
   it("fails closed on a definition it could not read", () => {
     const a = act({
-      installedAgentHere: true,
+      installedNodeHere: true,
       probe: makeProbe({ service: { installed: true, state: "running", paneSafety: "unknown" } }),
     });
     expect(a.restartCostsPanes).toBe(true);
@@ -358,7 +358,7 @@ describe("the restart the act offers rather than performs (§ 7.1)", () => {
 /**
  * Reported by the operator on 2026-09-18, against Subshell Server and true of
  * this app for the same structural reason: a CLI updated by hand outranks the
- * one inside the bundle (`decide_agent` adopts it and never downgrades), and
+ * one inside the bundle (`decide_node` adopts it and never downgrades), and
  * the screen went on naming it as a target it would be replaced by.
  */
 describe("the act is a selection, not always both halves (§ 13)", () => {
@@ -384,7 +384,7 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
     );
     // And the sentence beside the press stops promising the half that will
     // not run: phase 2 answers `Resume::Clear` on this machine.
-    expect(a.pressInstallsAgent).toBe(false);
+    expect(a.pressInstallsNodeCli).toBe(false);
     // The app half is untouched by any of it.
     expect(a.press).toBe("app");
     expect(a.canPress).toBe(true);
@@ -418,7 +418,7 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
     );
     expect(appOff.press).toBe("agent");
     expect(appOff.pressLabel).toBe("Install the node (1.10.0)");
-    expect(appOff.pressInstallsAgent).toBe(false);
+    expect(appOff.pressInstallsNodeCli).toBe(false);
   });
 
   /**
@@ -427,7 +427,7 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
    *
    * It was not offerable at all: the row rendered ticked and disabled, on the
    * reasoning that the marker carries no selection. It carries one now, as its
-   * own PRESENCE — `node_install_app_update(install_agent: false)` writes none,
+   * own PRESENCE — `node_install_app_update(install_node: false)` writes none,
    * so phase 2 never runs and a deliberately older `~/.local/bin/subshell`
    * survives the app update.
    */
@@ -447,7 +447,7 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
     // The app press is unchanged, and stops promising the half it will not do.
     expect(a.press).toBe("app");
     expect(a.pressLabel).toBe("Download and Install 0.8.1");
-    expect(a.pressInstallsAgent).toBe(false);
+    expect(a.pressInstallsNodeCli).toBe(false);
   });
 
   it("is dead, and says why, when everything is unticked", () => {

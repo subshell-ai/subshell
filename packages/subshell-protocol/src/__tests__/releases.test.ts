@@ -16,7 +16,7 @@ import {
   releaseAssetNames,
   SUBSHELL_REPO_SLUG,
 } from "../releases.js";
-import { MIN_AGENT_VERSION } from "../versions.js";
+import { MIN_NODE_VERSION } from "../versions.js";
 
 describe("parseReleaseTag", () => {
   it("takes the version out of each component's own tag", () => {
@@ -146,7 +146,7 @@ describe("parseReleaseManifest", () => {
     component: "cli-node",
     version: "0.9.0",
     nodeProtocol: NODE_PROTOCOL_VERSION,
-    minAgentVersion: MIN_AGENT_VERSION,
+    minNodeVersion: MIN_NODE_VERSION,
     commit: "0123456789abcdef0123456789abcdef01234567",
     assets: { "subshell-node-cli-linux-x64": "84b7f6ab0d7fc1242440131aa86e26707b187860e94be68b83ef2698e93319e0" },
   };
@@ -175,7 +175,7 @@ describe("parseReleaseManifest", () => {
     expect(parseReleaseManifest(spoiled({ version: "0.9" }))).toBeNull();
     expect(parseReleaseManifest(spoiled({ nodeProtocol: "10" }))).toBeNull();
     expect(parseReleaseManifest(spoiled({ nodeProtocol: 9.5 }))).toBeNull();
-    expect(parseReleaseManifest(spoiled({ minAgentVersion: "" }))).toBeNull();
+    expect(parseReleaseManifest(spoiled({ minNodeVersion: "" }))).toBeNull();
     expect(parseReleaseManifest(spoiled({ commit: "" }))).toBeNull();
   });
 

@@ -17,9 +17,9 @@ import type { NodeUpdateRow, NodeUpdates } from "@/types/updates";
  * @param row - the node
  * @param fleet - the server's own floor and protocol, the other half of the sentence
  */
-export function rowState(row: NodeUpdateRow, fleet: Pick<NodeUpdates, "minAgentVersion" | "protocol">): string {
+export function rowState(row: NodeUpdateRow, fleet: Pick<NodeUpdates, "minNodeVersion" | "protocol">): string {
   if (row.held?.reason === "below-floor") {
-    return `needs update — below this server's minimum (${fleet.minAgentVersion})`;
+    return `needs update — below this server's minimum (${fleet.minNodeVersion})`;
   }
   if (row.held?.reason === "protocol-mismatch") {
     return `needs update — speaks protocol ${row.protocolVersion ?? "?"}, this server speaks ${fleet.protocol}`;
