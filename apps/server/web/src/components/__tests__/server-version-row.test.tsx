@@ -74,7 +74,10 @@ describe("ServerVersionRow", () => {
       const { container } = renderRow();
       await waitFor(() => expect(screen.getByText(/Subshell Server 0\.11\.1/)).toBeTruthy());
       expect(screen.queryByRole("button")).toBeNull();
-      expect(container.querySelectorAll(".bg-warning")).toHaveLength(0);
+      // The slot is always in the layout for alignment; "no news" is the slot
+      // being `invisible`. Asserting `.bg-warning` here would now pass
+      // vacuously — that class no longer exists anywhere.
+      expect(container.querySelector("span[aria-hidden]")?.className).toContain("invisible");
       // The admin read is never even attempted — a non-admin mount firing a
       // doomed 403 is the gate `/settings/status` established.
       expect(fake.calls).not.toContain("/api/admin/updates");
@@ -83,13 +86,18 @@ describe("ServerVersionRow", () => {
     }
   });
 
-  it("gives an admin the dot and a door to the Updates page", async () => {
+  it("gives an admin the upgrade icon and a door to the Updates page", async () => {
     const fake = mockFetch({ admin: true, updateTo: "0.12.0" });
     try {
       const { container } = renderRow();
-      await waitFor(() => expect(screen.getByText(/v0\.12\.0 available/)).toBeTruthy());
-      expect(container.querySelectorAll(".bg-warning")).toHaveLength(1);
-      expect(screen.getByRole("button", { name: /Open updates/ })).toBeTruthy();
+      await waitFor(() => expect(screen.getByRole("button", { name: /Open updates/ })).toBeTruthy());
+      // The newer version is NOT in the visible line since 2026-09-19 — the
+      // sidebar truncated it to an ellipsis — so it is asserted on the
+      // accessible name below, and the icon carries it on screen.
+      expect(screen.queryByText(/available/)).toBeNull();
+      expect(container.querySelector("span[aria-hidden]")?.className).not.toContain("invisible");
+      expect(container.querySelectorAll(".text-warning")).toHaveLength(1);
+      expect(screen.getByRole("button", { name: /v0\.12\.0 available/ })).toBeTruthy();
     } finally {
       fake.restore();
     }
@@ -100,7 +108,10 @@ describe("ServerVersionRow", () => {
     try {
       const { container } = renderRow();
       await waitFor(() => expect(screen.getByText(/Subshell Server 0\.11\.1/)).toBeTruthy());
-      expect(container.querySelectorAll(".bg-warning")).toHaveLength(0);
+      // The slot is always in the layout for alignment; "no news" is the slot
+      // being `invisible`. Asserting `.bg-warning` here would now pass
+      // vacuously — that class no longer exists anywhere.
+      expect(container.querySelector("span[aria-hidden]")?.className).toContain("invisible");
       expect(screen.queryByText(/available/)).toBeNull();
       // Still a door: "no update known" is not "up to date", and the Updates
       // page is where an admin finds out.
@@ -134,11 +145,11 @@ describe("ServerVersionRow", () => {
     }
   });
 
-  it("collapses to the dot alone when there IS news", async () => {
+  it("collapses to the upgrade icon alone when there IS news", async () => {
     const fake = mockFetch({ admin: true, updateTo: "0.12.0" });
     try {
       const { container } = renderRow(true);
-      await waitFor(() => expect(container.querySelectorAll(".bg-warning")).toHaveLength(1));
+      await waitFor(() => expect(container.querySelectorAll(".text-warning")).toHaveLength(1));
       // The words survive for a screen reader, laid out only as `sr-only`.
       expect(screen.getByRole("button", { name: /v0\.12\.0 available/ })).toBeTruthy();
       expect(container.querySelector(".sr-only")).not.toBeNull();

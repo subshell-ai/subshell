@@ -32,10 +32,14 @@ export function DesktopServerPill({ collapsed }: { collapsed: boolean }) {
 
   const body = (
     <>
-      <Circle
-        aria-hidden
-        className={cn("size-2 shrink-0 fill-current", offline ? "text-destructive" : "text-success")}
-      />
+      {/* The dot stays 8px — it is a status light, not an affordance — but it
+          sits in the same fixed `size-3.5` slot `VersionRow` uses below, so the
+          two footer rows agree on where their text starts even though one
+          carries a dot and the other a 14px icon (operator's report,
+          2026-09-19). */}
+      <span aria-hidden className="flex size-3.5 shrink-0 items-center justify-center">
+        <Circle className={cn("size-2 fill-current", offline ? "text-destructive" : "text-success")} />
+      </span>
       {/* Kept in the DOM when collapsed rather than dropped: it is the
           accessible name of the whole row, button or not. */}
       <span className={cn("truncate text-muted-foreground", collapsed && "sr-only")}>{label}</span>
