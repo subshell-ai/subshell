@@ -502,19 +502,41 @@ describe("the assistant's IPC contract", () => {
     expect(dialog.sort()).toEqual(["dialog:allow-open"]);
   });
 
-  it("keeps the assistant's core:window grants to `default` plus closing itself", () => {
+  it("keeps the assistant's core grants to `default` and NO window verb", () => {
     // `core:default` is read-only window facts; `close` is not in it (checked
-    // against `gen/schemas/acl-manifests.json` on 2026-09-17), so the update
-    // screen's **Later** button (spec 2026-09-17 § 5.4) had to be granted by
-    // name. It is the narrowest window verb there is from the page's side —
-    // `getCurrentWindow().close()` closes THIS window, and the bundled page
-    // is this window — but it is still a window verb, and a grant list that
-    // grows by "it's only core" is how the assistant would end up able to
-    // hide, minimize or resize frames it does not own. `setSize`/`hide`/
-    // `show` are what a later erosion would look like; this line is where
-    // that stops being quiet.
+    // against `gen/schemas/acl-manifests.json` on 2026-09-17). It was granted
+    // by name for the update screen's **Later** button (spec 2026-09-17
+    // § 5.4) — the narrowest window verb there is from the page's side, since
+    // `getCurrentWindow().close()` closes THIS window and the bundled page IS
+    // this window. Consolidating that screen's two dismissals into one Close
+    // that merely leaves the screen (2026-09-18) left it with no caller, so
+    // it went with the button.
+    //
+    // A grant list that grows by "it's only core" is how the assistant would
+    // end up able to hide, minimize or resize frames it does not own;
+    // `setSize`/`hide`/`show` are what a later erosion would look like. This
+    // line is where that stops being quiet, and it is stricter now than the
+    // day it was written.
     const core = capabilityPermissions("wizard.json").filter((id) => id.startsWith("core:"));
-    expect(core.sort()).toEqual(["core:default", "core:window:allow-close"]);
+    expect(core.sort()).toEqual(["core:default"]);
+  });
+
+  it("imports no window verb from `@tauri-apps/api/window`", () => {
+    // `wizard.ts` imported `getCurrentWindow` for the update screen's Later
+    // button alone, and that was the one page call to a core window verb —
+    // the reason `core:window:allow-close` was granted above. With the two
+    // dismissals consolidated (2026-09-18) the import is gone, and its
+    // absence is what keeps the grant list honest: re-adding it is how the
+    // permission would quietly come back, so the check names the module
+    // rather than the one symbol it used to pull from it.
+    //
+    // `@tauri-apps/api/event` and `/window`'s SIBLINGS are a different
+    // question and are not covered here: `listen` needs no permission.
+    const offenders = sourceFiles()
+      .filter((file) => !file.includes("__tests__"))
+      .filter((file) => /from "@tauri-apps\/api\/window"/.test(readFileSync(file, "utf8")))
+      .map((file) => file.slice(UI_SRC.length + 1));
+    expect(offenders).toEqual([]);
   });
 
   it("mentions no command the console took with it", () => {

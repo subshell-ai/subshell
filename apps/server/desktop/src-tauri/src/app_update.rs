@@ -397,17 +397,12 @@ pub fn check_on_launch(app: &AppHandle) {
     });
 }
 
-/// Force the check now, ignoring the daily gate: the tray's "Check for
-/// Updates…" press (spec 2026-09-17 § 5.2).
-///
-/// The item stays pressable precisely because a person may not want to wait
-/// for tomorrow's daily check. Like it, this opens nothing — the answer lands
-/// in the settings file and on the tray label, and a press that had found an
-/// update routes the NEXT press to the `update` screen.
-pub fn check_now(app: &AppHandle) {
-    let handle = app.clone();
-    tauri::async_runtime::spawn(async move { run_check(&handle).await });
-}
+// There is deliberately no `check_now` here any more (2026-09-18). The tray's
+// press used to call one — a forced background check that opened nothing and
+// answered only on the tray's own label, which the press had just closed the
+// menu on. The item now opens the update screen instead, and that screen runs
+// `runUpdateCheck` itself on entry, so the forced check lives where its answer
+// is visible rather than in a second copy behind a menu.
 
 /// Whether a check is already in flight (the tray press and the launch timer
 /// are two askers for the SAME answer). A second overlapping check was benign

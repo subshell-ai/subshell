@@ -24,7 +24,6 @@
  * is trying to repair.
  */
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { copyButton } from "./assistant/copy-button";
 import { type AssistantHost, el, errText } from "./assistant/host";
@@ -1753,32 +1752,31 @@ function renderUpdate(p: Probe): void {
     afterRender(() => void finishUpdate(p, forced));
   }
 
-  el("bar-left").append(button("Not Now", () => host.close(), "ghost"));
+  // **ONE dismissal, and it is `host.close()`** (operator's call,
+  // 2026-09-18). This screen carried two: **Not Now**, which left the screen
+  // for whatever the probe implies, and **Later** (spec 2026-09-17 § 5.4),
+  // which closed the window outright. In code they were different acts; on
+  // screen they were two ghost buttons a few words apart saying the same
+  // thing, and nothing told a reader which was which.
+  //
+  // The survivor is the leave, not the close, because it is right from every
+  // door this screen has. On a ready machine leaving lands on the handoff,
+  // which opens the dashboard — and `open_main` closes this window itself, so
+  // what a person sees is the window going away, exactly what **Later** did.
+  // From the RECOVERY screen's link there is somewhere to go back TO, and
+  // closing the window would have thrown that away. Neither meaning is lost
+  // and the surviving one cannot strand anybody.
+  //
+  // The update itself stays exactly where it is either way: no state, no
+  // snooze. The dismissal that DOES exist lives per app run in the SPA row's
+  // sessionStorage, and the tray item is not dismissed away at all — it is a
+  // request surface, not a notification.
+  el("bar-left").append(button("Close", () => host.close(), "ghost"));
   // Hidden while anything is in flight: re-checking mid-act asks a question
-  // nothing will read, and closing this window out from under a running
-  // download is how the app would quit mid-update.
+  // nothing will read.
   if (updateState === "idle" && !busy && view.phase !== "finishing") {
     el("bar-right").append(button("Check Again", () => void runUpdateCheck(true), "ghost"));
-    // **Later** (spec 2026-09-17 § 5.4): the update stays exactly where it
-    // is, and so does this window's part in remembering it — no state, no
-    // snooze. The dismissal that DOES exist lives per app run in the SPA
-    // row's sessionStorage, and the tray item is not dismissed away at all:
-    // it is a request surface, not a notification.
-    el("bar-right").append(button("Later", () => void closeAssistantWindow(), "ghost"));
   }
-}
-
-/**
- * Close this window through the Tauri core window API — the one page action
- * that is about the WINDOW rather than the machine, which is why it goes
- * around `lib/ipc.ts`: the exact-set pins there are about the `desktop_*`
- * commands, and this invokes no command of ours. The grant lives in
- * `capabilities/wizard.json` (`core:window:allow-close`), and
- * `ipc-acl.test.ts` pins the wizard window's core grants to exactly
- * `core:default` plus it.
- */
-function closeAssistantWindow(): void {
-  void getCurrentWindow().close().catch(setProblem);
 }
 
 /**
