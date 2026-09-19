@@ -148,7 +148,7 @@ pub fn node_reset(app: AppHandle, settings: State<'_, SettingsState>, typed: Str
         .clone()
         .ok_or_else(|| "no reset plan is staged; the reset screen must be opened again".to_string())?;
     // The one thing the confirmation promised to keep: this app's managed copy
-    // of the agent, resolved exactly as the installer resolves it.
+    // of the node CLI, resolved exactly as the installer resolves it.
     let keep = sidecar::install_path(&NODE_SIDECAR)
         .ok_or_else(|| "cannot locate this app's managed node CLI copy to protect it".to_string())?;
     // Canonicalize so containment compares real locations rather than
