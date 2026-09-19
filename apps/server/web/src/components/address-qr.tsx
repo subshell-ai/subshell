@@ -27,17 +27,10 @@ import { installAddresses } from "@/lib/install-addresses";
  * public-settings payload every signed-in page already holds.
  */
 export function AddressQr({
-  active,
   path = "",
   label = "Address to open",
   origin = typeof window === "undefined" ? "" : window.location.origin,
 }: {
-  /**
-   * Whether the surface holding this is on screen. Drives the refetch below;
-   * a prop rather than a mount effect because both callers keep their dialog
-   * mounted and toggle `open`.
-   */
-  active: boolean;
   /**
    * Appended to the chosen origin — `/subshells/<id>`, `/workspaces/<id>`.
    * Empty encodes the origin itself, which is the install dialog's case.
@@ -50,16 +43,23 @@ export function AddressQr({
   origin?: string;
 }) {
   const { data: settings, refetch } = usePublicSettings();
-  // refetch-on-open (the Nodes dialog's precedent, `add-node-dialog.tsx`):
+  // refetch-on-MOUNT (the Nodes dialog's precedent, `add-node-dialog.tsx`):
   // the shared query is 30 s fresh, but the list is the whole payload and
   // the person opening this has often JUST joined a network — from another
   // tab, a phone, or the CLI, none of which this tab hears about. The
   // allowlist is live on the server (2026-09-16); a picker that lagged it
   // by half a minute would send someone back to Networking to check on a
   // join that had already landed.
+  //
+  // Mount IS open, which is why this took an `active` prop and no longer
+  // does (review, 2026-09-19). Both callers put this inside `DialogContent`,
+  // whose children Base UI unmounts when the dialog closes — measured, not
+  // assumed — so a prop tracking `open` was always `true` at mount and bought
+  // nothing. The comment it carried, "both callers keep their dialog mounted
+  // and toggle `open`", was false of both.
   useEffect(() => {
-    if (active) void refetch();
-  }, [active, refetch]);
+    void refetch();
+  }, [refetch]);
   const ids = { address: useId() };
   const [chosen, setChosen] = useState<string | null>(null);
 
@@ -72,6 +72,13 @@ export function AddressQr({
   // the settings query lands, and shrinks if an origin is removed while this
   // is open. Deriving instead of syncing in an effect is what keeps the
   // selection from surviving as a stale string.
+  //
+  // It also resets per OPEN, which the extraction changed: this state used to
+  // live in `MobileInstallDialog`, which stays mounted while `open` toggles,
+  // so a pick survived a close and reopen. Left as a reset rather than
+  // hoisted back into both callers — the address list is re-read on the way
+  // in, so what a reopen offers is the instance as it is NOW rather than a
+  // pick made before someone joined or left a network.
   const selected = addresses.find((a) => a.url === chosen) ?? addresses[0];
   // The origin is already canonical (`URL.origin`, from `installAddresses`),
   // so this is a join rather than a parse — and `path` is ours, never typed.

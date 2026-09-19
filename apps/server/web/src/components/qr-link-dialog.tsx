@@ -51,7 +51,7 @@ export function QrLinkDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <AddressQr active={open} path={path} origin={origin} />
+        <AddressQr path={path} origin={origin} />
       </DialogContent>
     </Dialog>
   );

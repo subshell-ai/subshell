@@ -1679,6 +1679,47 @@ const ESCAPE_SEQUENCE =
   /\x1b[\]_P^X][\s\S]*?(?:\x1b\\|\x07|$)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[ -/]+(?:[0-~]|$)|\x1b[@-Z\\-_]/g;
 
 /**
+ * A terminal-protocol payload with its introducer already gone.
+ *
+ * `ESC _ G i=31,s=1,v=1,a=q,t=d,f=24 ; AAAA ESC \\` is Kitty's
+ * graphics-capability query, which agent CLIs emit at startup to ask whether
+ * images are supported. {@link ESCAPE_SEQUENCE} removes it whole when the
+ * `ESC _` is present — but tmux stores a DECODED `pane_title`, so what reaches
+ * us can be the payload alone, and then there is no escape sequence left to
+ * sweep. Measured 2026-09-19 against the real function: the two ESC-bearing
+ * forms normalize to "", and `_Gi=31,…;AAAA` survives intact.
+ *
+ * That is why the earlier fix did not hold. Its comment blamed this function's
+ * own laundering — the control pass deleting an `ESC` and the punctuation trim
+ * eating the `_` — which was one true route, and closing it left the other
+ * open: a payload that never had an introducer by the time we saw it.
+ *
+ * **The root cause upstream is NOT established.** Something between the agent
+ * and `#{pane_title}` is putting an APC payload where a title belongs, and
+ * this recognises the result rather than explaining it. Worth chasing if it
+ * recurs in another shape; the shape below is narrow enough that a wrong guess
+ * costs one unusual title rather than a class of them.
+ *
+ * **Narrow, and narrower than it first was** (review, 2026-09-19). The rule is:
+ * at least TWO `key=value` pairs, no whitespace anywhere in a value, then `;`,
+ * then at least four base64 characters. Nothing else in the string.
+ *
+ * Each clause bought back a class of real titles. The first version allowed one
+ * pair, any non-`,;` value, and an EMPTY tail, which made it "a word, `=`,
+ * anything, `;`, optionally a word" — and it ate `PATH=/usr/bin;ls`,
+ * `TZ=UTC;date`, `host=db;psql`, `branch=feat/qr;push` and
+ * `task=Fix the login bug;`, all measured against the real function. The
+ * comment said "a human title does not look like this" while the regex said
+ * something much broader; the comment was the part that was wrong.
+ *
+ * The Kitty query clears all three clauses with room to spare — six pairs, no
+ * whitespace, a four-character tail — so nothing was given up to buy them.
+ * `-` and `_` are in the tail class because base64url spells the same payload
+ * with them, which the first version missed.
+ */
+const PROTOCOL_PAYLOAD = /^[A-Za-z]?(?:[A-Za-z]+=[^,;\s]*)(?:,[A-Za-z]+=[^,;\s]*)+;[A-Za-z0-9+/=_-]{4,}$/;
+
+/**
  * Cleans a raw tmux `pane_title` for use as a subshell name: escape sequences
  * are removed whole, control residue collapses to single spaces, a leading
  * status decoration is dropped (Claude Code prefixes the title with a cycling
@@ -1713,34 +1754,6 @@ const ESCAPE_SEQUENCE =
  * byte survived as a stray `(`: one character rather than a payload, but it is
  * the class this function claims to close (review, 2026-09-18).
  */
-/**
- * A terminal-protocol payload with its introducer already gone.
- *
- * `ESC _ G i=31,s=1,v=1,a=q,t=d,f=24 ; AAAA ESC \\` is Kitty's
- * graphics-capability query, which agent CLIs emit at startup to ask whether
- * images are supported. {@link ESCAPE_SEQUENCE} removes it whole when the
- * `ESC _` is present — but tmux stores a DECODED `pane_title`, so what reaches
- * us can be the payload alone, and then there is no escape sequence left to
- * sweep. Measured 2026-09-19 against the real function: the two ESC-bearing
- * forms normalize to "", and `_Gi=31,…;AAAA` survives intact.
- *
- * That is why the earlier fix did not hold. Its comment blamed this function's
- * own laundering — the control pass deleting an `ESC` and the punctuation trim
- * eating the `_` — which was one true route, and closing it left the other
- * open: a payload that never had an introducer by the time we saw it.
- *
- * **The root cause upstream is NOT established.** Something between the agent
- * and `#{pane_title}` is putting an APC payload where a title belongs, and
- * this recognises the result rather than explaining it. Worth chasing if it
- * recurs in another shape; the shape below is narrow enough that a wrong guess
- * costs one unusual title rather than a class of them.
- *
- * Narrow on purpose: a run of `key=value` pairs, then `;`, then a base64-ish
- * tail, and NOTHING else in the string. A human title does not look like this,
- * and requiring the `;` keeps an ordinary `FOO=bar` title safe.
- */
-const PROTOCOL_PAYLOAD = /^[A-Za-z]?(?:[A-Za-z]+=[^,;]*)(?:,[A-Za-z]+=[^,;]*)*;[A-Za-z0-9+/=]*$/;
-
 function normalizePaneTitle(raw: string): string {
   const withoutSequences = raw.replace(ESCAPE_SEQUENCE, " ");
   // Intentional: whatever control characters survive a sequence sweep are

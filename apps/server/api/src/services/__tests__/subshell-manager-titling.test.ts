@@ -253,6 +253,14 @@ describe("normalizePaneTitle", () => {
    * rather than a sequence and a wrong guess eats a real title. These are the
    * neighbours it must not touch.
    */
+  /**
+   * The payload rule recognises a SHAPE, so every clause of it is really a
+   * promise about titles it will NOT eat. The first version made that promise
+   * far too broadly (review, 2026-09-19): one pair, any non-`,;` value and an
+   * empty tail all counted, so `task=Fix the login bug;` and `PATH=/usr/bin;ls`
+   * normalized to "". Every string below was measured against the real
+   * function and eaten before the rule was narrowed.
+   */
   it("keeps titles that merely contain `=` or `;`", () => {
     expect(norm("FOO=bar")).toBe("FOO=bar");
     expect(norm("one; two")).toBe("one; two");
@@ -261,6 +269,43 @@ describe("normalizePaneTitle", () => {
     // No `;`, so not the payload shape — requiring it is what keeps an
     // ordinary assignment-looking title safe.
     expect(norm("i=31,s=1")).toBe("i=31,s=1");
+  });
+
+  it("keeps a ONE-pair title, whatever follows the semicolon", () => {
+    // Two pairs minimum. A shell one-liner is the commonest shape here and
+    // every one of these was eaten by the first version.
+    for (const title of [
+      "PATH=/usr/bin;ls",
+      "TZ=UTC;date",
+      "PORT=3000;bun",
+      "host=db;psql",
+      "tag=v1.2.3;deploy",
+      "branch=feat/qr;push",
+      "q=hello;",
+    ]) {
+      expect(norm(title)).toBe(title);
+    }
+  });
+
+  it("keeps a title whose value contains a space", () => {
+    // No whitespace in a value. A machine payload has none; prose has little
+    // else.
+    expect(norm("name=My Project;")).toBe("name=My Project;");
+    expect(norm("task=Fix the login bug;")).toBe("task=Fix the login bug;");
+    expect(norm("a=one two,b=three four;AAAA")).toBe("a=one two,b=three four;AAAA");
+  });
+
+  it("keeps a two-pair title with no real tail after the semicolon", () => {
+    // At least four base64 characters. An empty or stubby tail is prose.
+    expect(norm("a=1,b=2;")).toBe("a=1,b=2;");
+    expect(norm("a=1,b=2;go")).toBe("a=1,b=2;go");
+  });
+
+  it("still drops the payload spelled in base64url", () => {
+    // `-` and `_` are the base64url alphabet's two substitutions, and the
+    // first version's tail class omitted them — so the same payload survived
+    // by being spelled differently.
+    expect(norm("Gi=31,s=1,v=1,a=q,t=d,f=24;AA-_BB")).toBe("");
   });
 
   it("drops an OSC string whole", () => {

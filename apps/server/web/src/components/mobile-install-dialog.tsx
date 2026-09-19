@@ -80,7 +80,7 @@ export function MobileInstallDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <AddressQr active={open} origin={origin} />
+        <AddressQr origin={origin} />
 
         <div className="space-y-2">
           <Segmented
