@@ -430,8 +430,17 @@ export const SURFACE_GLOBS: Record<Surface, { root: string; include: RegExp; exc
  * `styles.css`, so they are SPA code for every rule except the directory.
  * Scanning them under `spa` is what keeps "moved to a package" from becoming
  * "escaped the role system".
+ *
+ * `apps/node/web` is the node's OWN dashboard SPA (spec 2026-09-19). It ships
+ * its own `styles.css` — a byte-for-byte copy of the SPA palette minus the
+ * terminal rungs — so its components obey the identical rules under the
+ * identical surface. It is not a fifth `CSS_SURFACES` entry (nothing compares
+ * its values cross-surface; it simply must not escape the role system either),
+ * which is why it joins `spa` as a scan root rather than as a new surface.
  */
-const SCAN_ROOTS: Partial<Record<Surface, string[]>> = { spa: ["packages/node-admin/src"] };
+const SCAN_ROOTS: Partial<Record<Surface, string[]>> = {
+  spa: ["packages/node-admin/src", "apps/node/web/src"],
+};
 
 // ---------------------------------------------------------------------------
 // Contrast: computed from the tokens, every run, rather than trusted from the

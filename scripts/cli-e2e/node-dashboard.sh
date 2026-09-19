@@ -52,8 +52,8 @@ JSON
 chmod 600 "$SUBSHELL_CONFIG_HOME/config.json"
 
 echo "== 1. the daemon starts with the dashboard bound"
-tmux -L ss-e2e-dash new-session -d -s census true 2>/dev/null || true
-(cd "$NODE_APP" && SUBSHELL_DASHBOARD_PORT=$PORT ./dist/subshell run >"$W/daemon.log" 2>&1) &
+tmux -L ss-e2e-dash new-session -d -s census true >/dev/null 2>&1 || true
+(cd "$NODE_APP" && SUBSHELL_DASHBOARD_PORT=$PORT ./dist/subshell run >"$W/daemon.log" 2>&1 >/dev/null) </dev/null &
 NODEPID=$!
 for _ in $(seq 1 50); do
   curl -sf "$BASE/api/self" >/dev/null 2>&1 && break
@@ -121,7 +121,7 @@ echo "== 9. SUBSHELL_DASHBOARD=0 means no dashboard at all"
 # step is the ABSENCE of a listener — on a port nothing else can answer on,
 # "connection refused" is the only honest proof the opt-out worked.
 NOPORT=31993
-(cd "$NODE_APP" && SUBSHELL_DASHBOARD=0 SUBSHELL_DASHBOARD_PORT=$NOPORT ./dist/subshell run >"$W/nodash.log" 2>&1) &
+(cd "$NODE_APP" && SUBSHELL_DASHBOARD=0 SUBSHELL_DASHBOARD_PORT=$NOPORT ./dist/subshell run >"$W/nodash.log" 2>&1 >/dev/null) </dev/null &
 NOPID=$!
 sleep 1.5
 curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$NOPORT/api/self" && fail "SUBSHELL_DASHBOARD=0 still served a dashboard"

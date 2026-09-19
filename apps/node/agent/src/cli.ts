@@ -463,12 +463,13 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         if (!Number.isInteger(port) || port < 0 || port > 65535) {
           return fail(2, new Error(`--dashboard-port: not a port: ${String(rawPort)}`));
         }
-        // loadConfig's enroll-pointing throw is a USAGE-level answer for this
-        // verb — exit 2 before anything binds, the same rule `configure`
-        // follows for a command that spends nothing on the plane. Checked
+        // loadConfig's enroll-pointing throw is the ONE thing that answers
+        // before anything binds — the same operational refusal (exit 1) `setup`,
+        // `configure` and `status` give for a machine with nothing enrolled,
+        // reached through the outer catch that maps a plain Error to 1. Checked
         // AFTER the port parse: a machine with nothing enrolled and a typo'd
-        // port deserves to hear about the typo, which is the one thing it
-        // can act on tonight.
+        // port deserves to hear about the typo (that one IS a usage error, so
+        // exit 2 above it), which is the thing it can act on tonight.
         const cfg = await loadConfig();
         const dash = await startNodeDashboard(cfg, { port });
         logger.info(`dashboard: http://127.0.0.1:${dash.port}/ (${dash.webSource} pages) — no daemon; Ctrl-C to stop`);

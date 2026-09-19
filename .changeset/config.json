@@ -16,6 +16,7 @@
     "@internal/mcp-core",
     "@internal/mobile",
     "@internal/node-admin",
+    "@internal/node-web",
     "@internal/pane-runtime",
     "@internal/server-web",
     "@internal/subshell-protocol",

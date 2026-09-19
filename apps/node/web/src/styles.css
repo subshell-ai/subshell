@@ -1,0 +1,145 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Subshell node dashboard theme — dark only, same as the rest of the product.
+ *
+ * The token layer is the SPA's palette VERBATIM (apps/server/web/src/styles.css,
+ * minus the terminal/workspace/dockview rungs this page draws none of). Shared
+ * by design: the node-admin cards render under whatever stylesheet hosts them,
+ * and a machine's own dashboard showing the same machine in a different palette
+ * would be the drift the design system exists to end. Keep this block in step
+ * with the SPA's; `bun run lint:design` scans this app's `src` under the SPA's
+ * rules (the escape scan, not the cross-surface value agreement), so a literal
+ * size or colour here fails just as it does there.
+ */
+:root,
+.dark {
+  --background: oklch(0.224 0.035 296);
+  --foreground: oklch(0.92 0.03 312);
+
+  --card: oklch(0.255 0.032 296);
+  --card-foreground: oklch(0.92 0.03 312);
+
+  --popover: oklch(0.255 0.032 296);
+  --popover-foreground: oklch(0.92 0.03 312);
+
+  --primary: oklch(0.75 0.17 322);
+  --primary-foreground: oklch(0.16 0.05 322);
+
+  --secondary: oklch(0.29 0.034 296);
+  --secondary-foreground: oklch(0.9 0.025 312);
+
+  --muted: oklch(0.29 0.034 296);
+  --muted-foreground: oklch(0.74 0.04 310);
+
+  --accent: oklch(0.33 0.04 296);
+  --accent-foreground: oklch(0.95 0.02 315);
+
+  --destructive: oklch(0.65 0.2 25);
+  --destructive-foreground: oklch(0.98 0 0);
+
+  --border: oklch(0.33 0.035 296);
+  --input: oklch(0.33 0.035 296);
+  --ring: oklch(0.62 0.13 322);
+
+  --success: oklch(0.765 0.177 163.223);
+  --warning: oklch(0.828 0.189 84.429);
+
+  --scrim: #000000b3;
+
+  --button-primary-from: oklch(0.34 0.1 322);
+  --button-primary-to: oklch(0.4 0.1 340);
+  --button-primary-hover-from: oklch(0.4 0.11 322);
+  --button-primary-hover-to: oklch(0.46 0.11 340);
+  --button-primary-foreground: oklch(0.9 0.05 320);
+  --nav-active-from: oklch(0.3 0.1 322);
+  --nav-active-to: oklch(0.38 0.11 340);
+
+  --radius: 0.5rem;
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-scrim: var(--scrim);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  /* Type roles (design-system.md § Type). Tailwind v4 makes `text-<role>` from
+     `--text-<role>`; two weights only. `--text-sm` is pinned to 14px so it is
+     `body` by definition — the one accepted alias. `--text-xs` is absent: 12px
+     left the scale, and `detail` (13px) is the floor. */
+  --text-display: 30px;
+  --text-display--line-height: 1.2;
+  --text-heading: 20px;
+  --text-heading--line-height: 1.2;
+  --text-label: 15px;
+  --text-label--line-height: 1.5;
+  --text-body: 14px;
+  --text-body--line-height: 1.5;
+  --text-detail: 13px;
+  --text-detail--line-height: 1.5;
+  --text-sm: 14px;
+  --text-sm--line-height: 1.5;
+  --font-weight-strong: 600;
+  --font-weight-regular: 400;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The 16px touch-input floor (iOS auto-zooms a sub-16px field on focus and the
+   scale can persist); desktop keeps the 14px field size. Same rule the SPA
+   carries for its own form fields. */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+  button,
+  a,
+  [role="button"],
+  [role="tab"] {
+    touch-action: manipulation;
+  }
+}

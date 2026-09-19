@@ -37,4 +37,6 @@ echo
 echo
 "$HERE/node-update.sh"
 echo
+"$HERE/node-dashboard.sh"
+echo
 echo "✓ headless CLI end-to-end suite passed"
