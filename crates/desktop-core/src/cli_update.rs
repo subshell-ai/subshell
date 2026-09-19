@@ -386,11 +386,11 @@ mod tests {
     // wrong thing. What it really loses is the rollback point.
     #[test]
     fn the_nodes_sentence_claims_no_database() {
-        let said = legacy_install_summary(Some("0.8.0"), Some("0.9.0"), "agent", Unrecorded::Rollback);
+        let said = legacy_install_summary(Some("0.8.0"), Some("0.9.0"), "node CLI", Unrecorded::Rollback);
         assert!(!said.contains("database"), "{said}");
         assert_eq!(
             said,
-            "Installed 0.9.0 over 0.8.0. No rollback point was recorded: the previous agent predates \
+            "Installed 0.9.0 over 0.8.0. No rollback point was recorded: the previous node CLI predates \
              the update command, so this install cannot be undone automatically."
         );
     }

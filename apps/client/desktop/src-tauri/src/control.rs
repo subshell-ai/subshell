@@ -47,7 +47,7 @@ use subshell_desktop_core::tray::{effective_close_to_tray, tray_support};
 use crate::node_bin::{self, decide_node, NodeBinary, NodeChoice, NODE_SIDECAR};
 
 /// What the page is told when nothing on the ladder answered.
-const NO_NODE: &str = "no subshell agent found — install the bundled one first";
+const NO_NODE: &str = "no subshell node CLI found — install the bundled one first";
 
 /// The mint shape of a node setup key: `nsk_` plus 32 url-safe base64
 /// characters (`randomBytes(24).toString("base64url")` in
@@ -907,7 +907,7 @@ fn install_node_now(settings: &SettingsState) -> Result<ActionResult, String> {
     }
     if probe.managed {
         let Some(staged) = sidecar::bundled_path(&NODE_SIDECAR) else {
-            return Err("this build ships no subshell agent".into());
+            return Err("this build ships no subshell node CLI".into());
         };
         let installed = probe.node_binary.as_ref().and_then(|a| a.version.clone());
         return delegate_update(
@@ -918,8 +918,8 @@ fn install_node_now(settings: &SettingsState) -> Result<ActionResult, String> {
         );
     }
     match sidecar::install_bundled(&NODE_SIDECAR, version.as_deref(), || {})? {
-        sidecar::InstallOutcome::NoSidecar => Err("this build ships no subshell agent".into()),
-        sidecar::InstallOutcome::UpToDate => Ok(ActionResult::said("The bundled agent is already installed.")),
+        sidecar::InstallOutcome::NoSidecar => Err("this build ships no subshell node CLI".into()),
+        sidecar::InstallOutcome::UpToDate => Ok(ActionResult::said("The bundled node CLI is already installed.")),
         sidecar::InstallOutcome::Installed => {
             let where_ = sidecar::install_path(&NODE_SIDECAR)
                 .map(|p| p.display().to_string())
@@ -1019,15 +1019,15 @@ fn classify_update(run: Run) -> AfterUpdate {
 /// site of the wrong verb I9 fixed one function up).
 fn install_over_legacy(bundled: Option<&str>, installed: Option<&str>) -> Result<ActionResult, String> {
     match sidecar::install_bundled(&NODE_SIDECAR, bundled, || {})? {
-        sidecar::InstallOutcome::NoSidecar => Err("this build ships no subshell agent".into()),
+        sidecar::InstallOutcome::NoSidecar => Err("this build ships no subshell node CLI".into()),
         // `update` refused the verb, so the installed copy is NOT this one —
         // a size-and-version match here would mean the probe and the binary
         // disagree, which is worth saying rather than smoothing over.
-        sidecar::InstallOutcome::UpToDate => Ok(ActionResult::said("The bundled agent is already installed.")),
+        sidecar::InstallOutcome::UpToDate => Ok(ActionResult::said("The bundled node CLI is already installed.")),
         sidecar::InstallOutcome::Installed => Ok(ActionResult::said(cli_update::legacy_install_summary(
             installed,
             bundled,
-            "agent",
+            "node CLI",
             cli_update::Unrecorded::Rollback,
         ))),
     }
