@@ -130,7 +130,6 @@ export {
   verifyCommand,
 } from "./node-signing.js";
 export {
-  AGENT_SIDECAR_NAME,
   CLI_SUFFIX,
   DEFAULT_DATABASE_PATH,
   DESKTOP_CLIENT_BUNDLE_ID,
@@ -143,6 +142,7 @@ export {
   defaultSubshellServerDataDir,
   desktopArtifactFileName,
   desktopSidecarFileName,
+  NODE_SIDECAR_NAME,
   NODE_TARGETS,
   type NodeArtifactsEnv,
   type NodeTarget,

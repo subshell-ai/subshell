@@ -274,7 +274,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
     input;
 
   const bundled = probe?.bundledVersion ?? null;
-  const installedNode = probe?.agent?.version ?? null;
+  const installedNode = probe?.nodeBinary?.version ?? null;
 
   /**
    * Whether the node half can run at all.
@@ -287,7 +287,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
    * convention"). A machine with NO node CLI at all is not that case: there is
    * nothing to disagree with, and the install is a first install.
    */
-  const unmanaged = probe !== undefined && probe.agent !== null && !probe.managed;
+  const unmanaged = probe !== undefined && probe.nodeBinary !== null && !probe.managed;
   const nodeHalfRuns = bundled !== null && !unmanaged;
 
   /**
@@ -300,8 +300,8 @@ export function updateAct(input: UpdateActInput): UpdateAct {
    * target it would be replaced by.
    */
   const appAvailable = check?.latest != null;
-  const nodeBehind = probe?.agentChoice === "upgrade-available" || probe?.agentChoice === "install-bundled";
-  const nodeNewerInstalled = probe?.agentChoice === "adopt-installed";
+  const nodeBehind = probe?.nodeChoice === "upgrade-available" || probe?.nodeChoice === "install-bundled";
+  const nodeNewerInstalled = probe?.nodeChoice === "adopt-installed";
   const nodeAvailable = nodeHalfRuns && nodeBehind;
 
   /**
@@ -356,7 +356,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
 
   const refusals: string[] = [];
   if (unmanaged) {
-    const runs = probe?.agent?.argv[0] ?? "a binary this app did not install";
+    const runs = probe?.nodeBinary?.argv[0] ?? "a binary this app did not install";
     refusals.push(
       `The node CLI this machine runs is ${runs}, which this app did not install and will not replace.` +
         (appAvailable ? " The app half of this update still runs;" : "") +

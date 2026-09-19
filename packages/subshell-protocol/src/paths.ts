@@ -172,13 +172,13 @@ const RUST_TARGET_TRIPLES: Record<DesktopTarget, string> = {
 export const SERVER_SIDECAR_NAME = "subshell-server-bundled";
 
 /** The in-bundle name of the node agent Subshell Client ships. */
-export const AGENT_SIDECAR_NAME = "subshell-node-bundled";
+export const NODE_SIDECAR_NAME = "subshell-node-bundled";
 
 /**
  * The name a release script STAGES a sidecar under, which carries the Rust
  * triple. Its stripped form is the `sidecarName` it was given.
  *
- * @param sidecarName - {@link SERVER_SIDECAR_NAME} or {@link AGENT_SIDECAR_NAME}
+ * @param sidecarName - {@link SERVER_SIDECAR_NAME} or {@link NODE_SIDECAR_NAME}
  * @param target - a {@link DesktopTarget}
  */
 export function desktopSidecarFileName(sidecarName: string, target: string): string {

@@ -73,7 +73,7 @@ const STOPPED = makeProbe({
 });
 
 /** A machine with no node CLI at all — nothing to stop, overwrite or downgrade. */
-const FRESH = makeProbe({ step: "no-agent", agent: null, status: null, service: null });
+const FRESH = makeProbe({ step: "no-node", nodeBinary: null, status: null, service: null });
 
 let ipc: FakeIpc | undefined;
 
@@ -753,7 +753,7 @@ describe("replacing the installed node CLI", () => {
    */
   it("confirms first, and never applies it unasked", async () => {
     const fake = await boot({
-      probe: makeProbe({ agentChoice: "upgrade-available", bundledVersion: "1.10.0" }),
+      probe: makeProbe({ nodeChoice: "upgrade-available", bundledVersion: "1.10.0" }),
       handlers: {
         node_install_cli: () => ({ ok: true, stdout: "Installed subshell", stderr: "" }),
         node_check_app_update: () => ({ current: "0.6.1", latest: null, notes: null, reason: null }),
@@ -781,7 +781,7 @@ describe("replacing the installed node CLI", () => {
   });
 
   it("does not put the upgrade offer on the re-enroll screen", async () => {
-    await boot({ probe: makeProbe({ agentChoice: "upgrade-available", bundledVersion: "1.10.0" }) });
+    await boot({ probe: makeProbe({ nodeChoice: "upgrade-available", bundledVersion: "1.10.0" }) });
     expect(buttonOrNull("Update the node to 1.10.0")).not.toBeNull();
     fireEvent.click(button("Re-enroll…"));
     // That screen ends in a destructive button; an unrelated one beside it is
@@ -867,7 +867,7 @@ describe("pacing", () => {
 describe("the first run", () => {
   /** Untouched: nothing stored, no node, no node config. */
   const untouched = (over: Partial<ReturnType<typeof makeProbe>> = {}) =>
-    makeProbe({ step: "no-agent", agent: null, status: null, service: null, ...over });
+    makeProbe({ step: "no-node", nodeBinary: null, status: null, service: null, ...over });
 
   /**
    * A CONFIGURED client that is not a node: it has an address it watches and
@@ -1444,7 +1444,7 @@ describe("the screens", () => {
   // split between them decides what may be offered at all. What the screen
   // looks like changed; the split did not.
   it("offers the install only when nothing answered at all", async () => {
-    await boot({ probe: makeProbe({ step: "no-agent", agent: null, status: null, service: null }) });
+    await boot({ probe: makeProbe({ step: "no-node", nodeBinary: null, status: null, service: null }) });
     expect(buttonOrNull("Install the node")).not.toBeNull();
     expect(screen.getByText(/Installing it copies the copy that ships inside this app/)).toBeTruthy();
     // And registering is NOT offered beside it. A machine with no agent cannot
@@ -1457,7 +1457,7 @@ describe("the screens", () => {
 
     // An agent that answered `version` but not `status --json`: enrolling here
     // would overwrite a live config and discard its node key.
-    await boot({ probe: makeProbe({ step: "no-agent", status: null }) });
+    await boot({ probe: makeProbe({ step: "no-node", status: null }) });
     expect(buttonOrNull("Install the node")).toBeNull();
     expect(buttonOrNull("Register this machine")).toBeNull();
     expect(buttonOrNull("Enroll")).toBeNull();

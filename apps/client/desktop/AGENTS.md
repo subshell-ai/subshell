@@ -328,7 +328,7 @@ are free-form and are not `productName`.
 
 ```
 src-tauri/src/
-├── agent_bin.rs   the resolution ladder for `subshell`, and the bundled-vs-installed policy
+├── node_bin.rs   the resolution ladder for `subshell`, and the bundled-vs-installed policy
 ├── control.rs     the `node_*` commands, and Probe
 ├── reset.rs       the delete plan, the stashed consent, and the chain that honours it
 ├── windows.rs     the two windows — the plane's page, and the bundled node assistant
@@ -775,7 +775,7 @@ by any of that:
   file — the unit redirects nothing, so the fallback is the journal sentence).
   A rung counts only when it has CONTENT, not merely when it exists, because
   the capped writer truncates to zero and starts over — the same rule
-  `server_log_tail` follows. `agent_log_from` takes its two roots and a
+  `server_log_tail` follows. `node_log_paths_from` takes its two roots and a
   content predicate so the ORDER is tested without a machine in a particular
   state.
 - **The plane's second door.** `node_open_plane_url` opens the settled control

@@ -472,7 +472,7 @@ export function useNodeCommands(args: {
 
         // A no-op where a node CLI is already installed, which is what makes a
         // resumed run converge rather than refuse.
-        if (probe?.step === "no-agent") {
+        if (probe?.step === "no-node") {
           onPhase("installing");
           const installed = await nodeInstallCli();
           if (!installed.ok) {

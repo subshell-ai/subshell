@@ -1,7 +1,7 @@
 //! Finding a `subshell` node agent to drive.
 //!
 //! The app SHIPS one (`subshell_desktop_core::sidecar`, driven from here
-//! through [`AGENT_SIDECAR`]), but it must never assume the shipped copy is the
+//! through [`NODE_SIDECAR`]), but it must never assume the shipped copy is the
 //! one in charge: the user may already have installed an agent with
 //! `install.sh`, and the installed service definition is the authority on which
 //! binary this machine actually runs. So resolution is a ladder, each rung
@@ -36,7 +36,7 @@ use subshell_desktop_core::version::version_lt;
 /// line is `subshell 1.9.0 (node protocol v1)` and the server app's is
 /// `subshell-server 1.9.0`, so without the space this prefix matches the SERVER
 /// too and reports its version as `-server`.
-pub const AGENT_SIDECAR: SidecarSpec = SidecarSpec {
+pub const NODE_SIDECAR: SidecarSpec = SidecarSpec {
     bundled_name: "subshell-node-bundled",
     installed_name: "subshell",
     version_prefix: "subshell ",
@@ -45,7 +45,7 @@ pub const AGENT_SIDECAR: SidecarSpec = SidecarSpec {
 /// The desktop app's own override for the resolved agent. Unknown to the CLI —
 /// it exists so a developer running `tauri dev` can point the app at a repo
 /// build without installing anything.
-const AGENT_BIN_ENV: &str = "SUBSHELL_AGENT_BIN";
+const NODE_BIN_ENV: &str = "SUBSHELL_AGENT_BIN";
 
 /// The systemd user unit `apps/node/agent/src/service.ts` installs.
 ///
@@ -63,8 +63,8 @@ const SERVICE_VERB: &str = "run";
 /// Which rung of the ladder answered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum AgentSource {
-    /// [`AGENT_BIN_ENV`].
+pub enum NodeSource {
+    /// [`NODE_BIN_ENV`].
     Env,
     /// A path the user chose by hand.
     Configured,
@@ -81,18 +81,18 @@ pub enum AgentSource {
 /// A resolved agent, plus the rung it was found on.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentBinary {
+pub struct NodeBinary {
     /// The command PREFIX to invoke — one token for a compiled binary, two for
     /// a dev-form install. Never carries a verb: see [`command_prefix`].
     pub argv: Vec<String>,
-    pub source: AgentSource,
+    pub source: NodeSource,
     /// `<argv> version` output, when it ran and looked like a version.
     pub version: Option<String>,
 }
 
 /// The version out of a `subshell <version> (node protocol vN)` line.
 pub fn parse_node_version(stdout: &str) -> Option<String> {
-    sidecar::parse_version_line(stdout, AGENT_SIDECAR.version_prefix)
+    sidecar::parse_version_line(stdout, NODE_SIDECAR.version_prefix)
 }
 
 /// systemd word-splits `ExecStart=` itself (it is NOT run through a shell), so
@@ -228,7 +228,7 @@ fn exists(path: &str) -> bool {
 /// Where the sidecar install lands, and the first place to look for an agent
 /// this app installed on an earlier run.
 pub fn managed_install_path() -> Option<String> {
-    sidecar::install_path(&AGENT_SIDECAR).map(|p| p.to_string_lossy().into_owned())
+    sidecar::install_path(&NODE_SIDECAR).map(|p| p.to_string_lossy().into_owned())
 }
 
 /// What the shipped binary says it is, if this build carries one.
@@ -236,7 +236,7 @@ pub fn managed_install_path() -> Option<String> {
 /// Not memoized here — [`crate::control`] holds the `OnceLock`, because it is
 /// the caller that runs on every probe.
 pub fn bundled_version() -> Option<String> {
-    let path = sidecar::bundled_path(&AGENT_SIDECAR)?;
+    let path = sidecar::bundled_path(&NODE_SIDECAR)?;
     let out = run(&[path.to_string_lossy().into_owned(), "version".into()], QUERY_TIMEOUT);
     out.ok().then(|| parse_node_version(&out.stdout)).flatten()
 }
@@ -246,7 +246,7 @@ pub fn bundled_version() -> Option<String> {
 ///
 /// `configured` is the path the user picked by hand, if any — it outranks
 /// everything except an explicit environment override.
-pub fn resolve(configured: Option<&str>) -> Option<AgentBinary> {
+pub fn resolve(configured: Option<&str>) -> Option<NodeBinary> {
     resolve_with(&candidates(configured), probe_version, exists)
 }
 
@@ -262,15 +262,15 @@ pub fn resolve(configured: Option<&str>) -> Option<AgentBinary> {
 /// would then never fire on a machine that has no agent, so the shipped binary
 /// could never be installed at all. It is reported separately as
 /// `bundledVersion` and reached only through `node_install_cli`.
-pub fn candidates(configured: Option<&str>) -> Vec<(AgentSource, Vec<String>)> {
-    let mut out: Vec<(AgentSource, Vec<String>)> = Vec::new();
-    if let Ok(explicit) = std::env::var(AGENT_BIN_ENV) {
+pub fn candidates(configured: Option<&str>) -> Vec<(NodeSource, Vec<String>)> {
+    let mut out: Vec<(NodeSource, Vec<String>)> = Vec::new();
+    if let Ok(explicit) = std::env::var(NODE_BIN_ENV) {
         if !explicit.is_empty() {
-            out.push((AgentSource::Env, vec![explicit]));
+            out.push((NodeSource::Env, vec![explicit]));
         }
     }
     if let Some(path) = configured.filter(|p| !p.is_empty()) {
-        out.push((AgentSource::Configured, vec![path.to_string()]));
+        out.push((NodeSource::Configured, vec![path.to_string()]));
     }
     // The service definition is the AUTHORITY on what is installed: whatever
     // the manager starts is the agent this machine actually runs, and it is
@@ -278,10 +278,10 @@ pub fn candidates(configured: Option<&str>) -> Vec<(AgentSource, Vec<String>)> {
     // ~/.local/bin above it would let the app report one binary's version
     // while systemd ran another's.
     if let Some(argv) = from_systemd_unit().or_else(from_launchd_plist) {
-        out.push((AgentSource::Service, argv));
+        out.push((NodeSource::Service, argv));
     }
     if let Some(managed) = managed_install_path() {
-        out.push((AgentSource::LocalBin, vec![managed]));
+        out.push((NodeSource::LocalBin, vec![managed]));
     }
     // The LOGIN path, not the process's. A GUI app inherits
     // `/usr/bin:/bin:/usr/sbin:/sbin`, so searching that would miss exactly the
@@ -289,10 +289,10 @@ pub fn candidates(configured: Option<&str>) -> Vec<(AgentSource, Vec<String>)> {
     // already runs with the login PATH. Searching a narrower PATH than we
     // execute with is the inconsistency that makes "it works in my terminal" true.
     for dir in login_path().split(':').filter(|d| !d.is_empty()) {
-        out.push((AgentSource::Path, vec![format!("{dir}/subshell")]));
+        out.push((NodeSource::Path, vec![format!("{dir}/subshell")]));
     }
     for dir in ["/usr/local/bin", "/opt/homebrew/bin", "/usr/bin"] {
-        out.push((AgentSource::WellKnown, vec![format!("{dir}/subshell")]));
+        out.push((NodeSource::WellKnown, vec![format!("{dir}/subshell")]));
     }
     out
 }
@@ -301,10 +301,10 @@ pub fn candidates(configured: Option<&str>) -> Vec<(AgentSource, Vec<String>)> {
 /// state its own version. The two effects are injected so the ORDER and the
 /// skip rules can be tested without executing anything.
 pub fn resolve_with(
-    candidates: &[(AgentSource, Vec<String>)],
+    candidates: &[(NodeSource, Vec<String>)],
     mut probe: impl FnMut(&[String]) -> Option<String>,
     file_exists: impl Fn(&str) -> bool,
-) -> Option<AgentBinary> {
+) -> Option<NodeBinary> {
     let mut seen: Vec<&Vec<String>> = Vec::new();
     for (source, argv) in candidates {
         if argv.is_empty() || seen.contains(&argv) {
@@ -317,7 +317,7 @@ pub fn resolve_with(
             continue;
         }
         if let Some(version) = probe(argv) {
-            return Some(AgentBinary {
+            return Some(NodeBinary {
                 argv: argv.clone(),
                 source: *source,
                 version: Some(version),
@@ -339,7 +339,7 @@ pub fn resolve_with(
 /// ADOPTED: never overwritten, never even offered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum AgentChoice {
+pub enum NodeChoice {
     /// This build ships no agent; whatever is installed is all there is.
     NoBundled,
     /// Nothing installed — install the bundled one.
@@ -354,15 +354,15 @@ pub enum AgentChoice {
 
 /// Decide between the bundled and installed agents. Pure — the whole rule in
 /// one place, testable without a filesystem.
-pub fn decide_node(bundled: Option<&str>, installed: Option<&str>) -> AgentChoice {
+pub fn decide_node(bundled: Option<&str>, installed: Option<&str>) -> NodeChoice {
     match (bundled, installed) {
-        (None, _) => AgentChoice::NoBundled,
+        (None, _) => NodeChoice::NoBundled,
         // An installed agent that cannot state its version never resolves in
         // the first place, so "absent" and "unparseable" are already one case.
-        (Some(_), None) => AgentChoice::InstallBundled,
-        (Some(b), Some(i)) if version_lt(i, b) => AgentChoice::UpgradeAvailable,
-        (Some(b), Some(i)) if version_lt(b, i) => AgentChoice::AdoptInstalled,
-        _ => AgentChoice::UpToDate,
+        (Some(_), None) => NodeChoice::InstallBundled,
+        (Some(b), Some(i)) if version_lt(i, b) => NodeChoice::UpgradeAvailable,
+        (Some(b), Some(i)) if version_lt(b, i) => NodeChoice::AdoptInstalled,
+        _ => NodeChoice::UpToDate,
     }
 }
 
@@ -501,7 +501,7 @@ mod command_prefix_tests {
 mod ladder_tests {
     use super::*;
 
-    fn rung(source: AgentSource, path: &str) -> (AgentSource, Vec<String>) {
+    fn rung(source: NodeSource, path: &str) -> (NodeSource, Vec<String>) {
         (source, vec![path.to_string()])
     }
 
@@ -513,31 +513,31 @@ mod ladder_tests {
     #[test]
     fn takes_the_first_rung_that_answers() {
         let c = vec![
-            rung(AgentSource::Env, "/env/subshell"),
-            rung(AgentSource::Service, "/svc/subshell"),
+            rung(NodeSource::Env, "/env/subshell"),
+            rung(NodeSource::Service, "/svc/subshell"),
         ];
         let found = resolve_with(&c, probe_for(&["/env/subshell", "/svc/subshell"]), |_| true).unwrap();
-        assert_eq!(found.source, AgentSource::Env);
+        assert_eq!(found.source, NodeSource::Env);
     }
 
     // A file can exist and still not be an agent — a shim, a wrapper, an old
     // build, or `apps/server/desktop`'s `subshell-server` under a symlink.
     // Existence alone must never end the search.
     #[test]
-    fn a_file_that_exists_but_is_not_an_agent_is_skipped() {
+    fn a_file_that_exists_but_is_not_a_node_is_skipped() {
         let c = vec![
-            rung(AgentSource::Configured, "/not/an/agent"),
-            rung(AgentSource::LocalBin, "/good/subshell"),
+            rung(NodeSource::Configured, "/not/an/agent"),
+            rung(NodeSource::LocalBin, "/good/subshell"),
         ];
         let found = resolve_with(&c, probe_for(&["/good/subshell"]), |_| true).unwrap();
-        assert_eq!(found.source, AgentSource::LocalBin);
+        assert_eq!(found.source, NodeSource::LocalBin);
         assert_eq!(found.version.as_deref(), Some("1.9.0"));
     }
 
     #[test]
     fn a_missing_file_is_never_probed() {
         let mut probed: Vec<String> = Vec::new();
-        let c = vec![rung(AgentSource::Path, "/gone/subshell")];
+        let c = vec![rung(NodeSource::Path, "/gone/subshell")];
         let found = resolve_with(
             &c,
             |argv| {
@@ -556,8 +556,8 @@ mod ladder_tests {
     fn a_repeated_path_is_probed_only_once() {
         let mut count = 0;
         let c = vec![
-            rung(AgentSource::LocalBin, "/home/u/.local/bin/subshell"),
-            rung(AgentSource::Path, "/home/u/.local/bin/subshell"),
+            rung(NodeSource::LocalBin, "/home/u/.local/bin/subshell"),
+            rung(NodeSource::Path, "/home/u/.local/bin/subshell"),
         ];
         let found = resolve_with(
             &c,
@@ -581,7 +581,7 @@ mod ladder_tests {
     #[test]
     fn a_two_token_dev_form_entry_survives_intact() {
         let c = vec![(
-            AgentSource::Service,
+            NodeSource::Service,
             vec!["/bin/bun".to_string(), "/repo/main.ts".to_string()],
         )];
         let found = resolve_with(
@@ -599,15 +599,15 @@ mod ladder_tests {
     // passes for the wrong reason.
     #[test]
     fn the_real_ladder_keeps_its_documented_order() {
-        const CANONICAL: [AgentSource; 6] = [
-            AgentSource::Env,
-            AgentSource::Configured,
-            AgentSource::Service,
-            AgentSource::LocalBin,
-            AgentSource::Path,
-            AgentSource::WellKnown,
+        const CANONICAL: [NodeSource; 6] = [
+            NodeSource::Env,
+            NodeSource::Configured,
+            NodeSource::Service,
+            NodeSource::LocalBin,
+            NodeSource::Path,
+            NodeSource::WellKnown,
         ];
-        let mut seen: Vec<AgentSource> = candidates(Some("/chosen/subshell"))
+        let mut seen: Vec<NodeSource> = candidates(Some("/chosen/subshell"))
             .into_iter()
             .map(|(s, _)| s)
             .collect();
@@ -625,8 +625,8 @@ mod ladder_tests {
         }
         // The one rung that is always present, and the configured path must
         // outrank it or a hand-picked binary would be ignored.
-        assert!(seen.contains(&AgentSource::Configured));
-        assert!(seen.contains(&AgentSource::WellKnown));
+        assert!(seen.contains(&NodeSource::Configured));
+        assert!(seen.contains(&NodeSource::WellKnown));
     }
 
     // Every spawn already runs with the login PATH; searching a narrower one
@@ -635,7 +635,7 @@ mod ladder_tests {
     fn the_path_rung_searches_the_login_path() {
         let paths: Vec<String> = candidates(None)
             .into_iter()
-            .filter(|(s, _)| *s == AgentSource::Path)
+            .filter(|(s, _)| *s == NodeSource::Path)
             .map(|(_, a)| a[0].clone())
             .collect();
         for dir in login_path().split(':').filter(|d| !d.is_empty()) {
@@ -667,7 +667,7 @@ mod ladder_tests {
         for (source, argv) in candidates(None) {
             for token in argv {
                 assert!(
-                    !token.contains(AGENT_SIDECAR.bundled_name),
+                    !token.contains(NODE_SIDECAR.bundled_name),
                     "{source:?} rung would run the in-bundle sidecar: {token}"
                 );
             }
@@ -691,7 +691,7 @@ mod version_parse_tests {
 
     // The trailing space in the prefix is what keeps the two products apart.
     #[test]
-    fn a_subshell_server_line_is_not_an_agent() {
+    fn a_subshell_server_line_is_not_a_node() {
         assert_eq!(parse_node_version("subshell-server 1.9.0"), None);
     }
 
@@ -711,13 +711,13 @@ mod sidecar_spec_tests {
     // both strip it on copy, so anything looking for the STAGED filename inside
     // a built app finds nothing. Pinned here rather than in the shared crate
     // because it is this app's shipped name, and it has to agree with
-    // `AGENT_SIDECAR_NAME` in `packages/subshell-protocol/src/paths.ts` and
+    // `NODE_SIDECAR_NAME` in `packages/subshell-protocol/src/paths.ts` and
     // with `externalBin` in `tauri.conf.json`.
     #[test]
     fn bundled_name_carries_no_target_triple() {
-        assert_eq!(AGENT_SIDECAR.bundled_name, "subshell-node-bundled");
-        assert!(!AGENT_SIDECAR.bundled_name.contains("apple-darwin"));
-        assert!(!AGENT_SIDECAR.bundled_name.contains("unknown-linux"));
+        assert_eq!(NODE_SIDECAR.bundled_name, "subshell-node-bundled");
+        assert!(!NODE_SIDECAR.bundled_name.contains("apple-darwin"));
+        assert!(!NODE_SIDECAR.bundled_name.contains("unknown-linux"));
     }
 
     // What `install.sh` and the CLI's own docs call the agent. Installing it
@@ -725,8 +725,8 @@ mod sidecar_spec_tests {
     // looking for a file this app never writes.
     #[test]
     fn the_installed_name_is_what_the_cli_is_called() {
-        assert_eq!(AGENT_SIDECAR.installed_name, "subshell");
-        assert_eq!(AGENT_SIDECAR.version_prefix, "subshell ");
+        assert_eq!(NODE_SIDECAR.installed_name, "subshell");
+        assert_eq!(NODE_SIDECAR.version_prefix, "subshell ");
     }
 
     // The ladder's `LocalBin` rung and the sidecar's install target are the
@@ -738,7 +738,7 @@ mod sidecar_spec_tests {
         assert!(managed.ends_with("/.local/bin/subshell"), "{managed}");
         assert_eq!(
             Some(managed),
-            sidecar::install_path(&AGENT_SIDECAR).map(|p| p.to_string_lossy().into_owned())
+            sidecar::install_path(&NODE_SIDECAR).map(|p| p.to_string_lossy().into_owned())
         );
     }
 
@@ -758,40 +758,37 @@ mod choice_tests {
     use super::*;
 
     #[test]
-    fn no_bundled_agent_leaves_the_installed_one_alone() {
-        assert_eq!(decide_node(None, Some("1.9.0")), AgentChoice::NoBundled);
-        assert_eq!(decide_node(None, None), AgentChoice::NoBundled);
+    fn no_bundled_node_leaves_the_installed_one_alone() {
+        assert_eq!(decide_node(None, Some("1.9.0")), NodeChoice::NoBundled);
+        assert_eq!(decide_node(None, None), NodeChoice::NoBundled);
     }
 
     #[test]
     fn nothing_installed_means_install_the_bundled_one() {
-        assert_eq!(decide_node(Some("1.9.0"), None), AgentChoice::InstallBundled);
+        assert_eq!(decide_node(Some("1.9.0"), None), NodeChoice::InstallBundled);
     }
 
     #[test]
     fn the_same_version_is_up_to_date() {
-        assert_eq!(decide_node(Some("1.9.0"), Some("1.9.0")), AgentChoice::UpToDate);
+        assert_eq!(decide_node(Some("1.9.0"), Some("1.9.0")), NodeChoice::UpToDate);
     }
 
     #[test]
-    fn a_newer_bundled_agent_is_offered() {
-        assert_eq!(decide_node(Some("2.0.0"), Some("1.9.0")), AgentChoice::UpgradeAvailable);
+    fn a_newer_bundled_node_is_offered() {
+        assert_eq!(decide_node(Some("2.0.0"), Some("1.9.0")), NodeChoice::UpgradeAvailable);
     }
 
     // Never a downgrade: an older agent against a control plane that has moved
     // on is a node that enrolls, reports ONLINE and then refuses launches.
     #[test]
-    fn a_newer_installed_agent_is_adopted_never_downgraded() {
-        assert_eq!(decide_node(Some("1.9.0"), Some("2.0.0")), AgentChoice::AdoptInstalled);
-        assert_eq!(decide_node(Some("1.9.0"), Some("1.10.0")), AgentChoice::AdoptInstalled);
+    fn a_newer_installed_node_is_adopted_never_downgraded() {
+        assert_eq!(decide_node(Some("1.9.0"), Some("2.0.0")), NodeChoice::AdoptInstalled);
+        assert_eq!(decide_node(Some("1.9.0"), Some("1.10.0")), NodeChoice::AdoptInstalled);
     }
 
     #[test]
     fn comparison_is_numeric_not_lexical() {
-        assert_eq!(
-            decide_node(Some("1.10.0"), Some("1.9.0")),
-            AgentChoice::UpgradeAvailable
-        );
-        assert_eq!(decide_node(Some("1.9.0"), Some("1.10.0")), AgentChoice::AdoptInstalled);
+        assert_eq!(decide_node(Some("1.10.0"), Some("1.9.0")), NodeChoice::UpgradeAvailable);
+        assert_eq!(decide_node(Some("1.9.0"), Some("1.10.0")), NodeChoice::AdoptInstalled);
     }
 }

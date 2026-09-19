@@ -39,11 +39,11 @@ import { mkdir, readdir, rename, rm } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  AGENT_SIDECAR_NAME,
   DESKTOP_CLIENT_PRODUCT,
   DESKTOP_TARGETS,
   desktopArtifactFileName,
   desktopSidecarFileName,
+  NODE_SIDECAR_NAME,
   nodeArtifactFileName,
   RELEASE_MANIFEST_NAME,
 } from "@internal/subshell-protocol";
@@ -196,7 +196,7 @@ export async function stageSidecar(deps: DesktopReleaseDeps, triple: string): Pr
   // Anything that stages this file by copying its bytes (a CI artifact
   // download, an unzip) must restore the mode — `install -m 755` — because a
   // sidecar that ships 0644 dies EACCES at exec, invisibly until first run.
-  await deps.move(built, join(SIDECAR_DIR, desktopSidecarFileName(AGENT_SIDECAR_NAME, triple)));
+  await deps.move(built, join(SIDECAR_DIR, desktopSidecarFileName(NODE_SIDECAR_NAME, triple)));
   return true;
 }
 
@@ -524,7 +524,7 @@ async function main(): Promise<void> {
     // staged files — `binaries/.gitkeep` is tracked, and wiping the directory
     // would delete it on every successful build.
     for (const target of DESKTOP_TARGETS) {
-      await rm(join(SIDECAR_DIR, desktopSidecarFileName(AGENT_SIDECAR_NAME, target)), { force: true });
+      await rm(join(SIDECAR_DIR, desktopSidecarFileName(NODE_SIDECAR_NAME, target)), { force: true });
     }
   }
 

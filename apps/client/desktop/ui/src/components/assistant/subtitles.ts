@@ -84,7 +84,7 @@ export function subtitleFor(
     case "enroll":
       return probe?.status?.nodeId
         ? `Register ${here} again, with a different control plane or as a new node.`
-        : `${probe?.agent ? "This machine has a node CLI but is" : "This machine is"} not registered with a control plane yet.`;
+        : `${probe?.nodeBinary ? "This machine has a node CLI but is" : "This machine is"} not registered with a control plane yet.`;
     case "reset":
       // Says what is deleted rather than where it lives, which is the same
       // reason the title names no machine (node-assistant-state.ts explains).

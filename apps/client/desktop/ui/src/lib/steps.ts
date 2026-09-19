@@ -16,7 +16,7 @@ import type { Probe, ProbeStep } from "@/lib/ipc";
  * Kebab-case, matching `#[serde(rename_all = "kebab-case")]` on `ProbeStep`.
  */
 export const PROBE_STEPS: readonly ProbeStep[] = [
-  "no-agent",
+  "no-node",
   "not-enrolled",
   "no-service",
   "stopped",
@@ -42,7 +42,7 @@ const STEP_LABELS: Record<ProbeStep, string> = {
   stopped: "Service stopped",
   "no-service": "Not running in the background",
   "not-enrolled": "Not enrolled",
-  "no-agent": "No node",
+  "no-node": "No node",
 };
 
 /** The chip's tone, which is also the dot's colour. */
@@ -54,7 +54,7 @@ const STEP_TONES: Record<ProbeStep, Tone> = {
   stopped: "warn",
   "no-service": "warn",
   "not-enrolled": "neutral",
-  "no-agent": "neutral",
+  "no-node": "neutral",
 };
 
 /**

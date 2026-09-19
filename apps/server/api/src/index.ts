@@ -312,7 +312,7 @@ async function bootServer(): Promise<void> {
     // registry is authoritative for reachability, and flipping their row
     // would desync the DB projection from a registry an RPC still succeeds on.
     void nodes
-      .markStaleNodesOffline(new Date(Date.now() - 45_000).toISOString(), listOnline())
+      .markStaleAgentsOffline(new Date(Date.now() - 45_000).toISOString(), listOnline())
       .catch((err: unknown) => getLogger().withError(err).warn("node offline sweep failed"));
   }, 60_000);
 

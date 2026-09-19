@@ -300,7 +300,7 @@ describe("what the connected screen offered is still offered", () => {
    */
   it("announces a newer bundled node CLI and opens the one update screen", () => {
     const { calls, pressed } = mount({
-      probe: makeProbe({ agentChoice: "upgrade-available", bundledVersion: "2.0.0" }),
+      probe: makeProbe({ nodeChoice: "upgrade-available", bundledVersion: "2.0.0" }),
     });
     fireEvent.click(button(/update the node to 2\.0\.0/i));
     expect(pressed).toEqual(["update"]);

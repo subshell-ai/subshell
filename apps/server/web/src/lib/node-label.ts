@@ -7,9 +7,18 @@ import type { Node } from "@/types/node";
  * states, the " (offline)" label, the compat matrix (`lib/subshell-compat`)
  * and the launch hints all derive from this so they cannot disagree about
  * what offline means.
+ *
+ * **`Agent` and not `Node`, deliberately** (2026-09-18, when every other
+ * node-daemon identifier moved). It gates on `kind === "agent"`, so it answers
+ * false for an offline `local` — a node. `isOfflineNode` would name something
+ * this function does not compute. It moves with the `kind` discriminant, in the
+ * migration-shaped follow-up that also covers `listAgents`,
+ * `#reconcileAgentRows`, `#applyAgentAlive`, `markStaleAgentsOffline` and
+ * `NODE_AGENT_TOO_OLD`.
+ *
  * @param node - Any node row (list or detail)
  */
-export function isOfflineNode(node: Pick<Node, "kind" | "status">): boolean {
+export function isOfflineAgent(node: Pick<Node, "kind" | "status">): boolean {
   return node.kind === "agent" && node.status === "offline";
 }
 
@@ -35,7 +44,7 @@ export function nodeOptionLabel(node: Pick<Node, "kind" | "status" | "name" | "o
   // "mac-mini · darwin/arm64" — only when the node actually reported both
   // (a young node's ready may still be in flight).
   const platform = node.os !== null && node.arch !== null ? ` · ${node.os}/${node.arch}` : "";
-  const offline = isOfflineNode(node) ? " (offline)" : "";
+  const offline = isOfflineAgent(node) ? " (offline)" : "";
   // A node in maintenance stays VISIBLE and greyed rather than vanishing
   // (spec 2026-09-14 §6) — unlike the share-narrowed host, which keeps
   // disappearing — so this word is the whole reason the row is still there.

@@ -198,7 +198,7 @@ export const BackendErrorCodeDefs = {
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_NOT_SUPERVISED]: {
-    message: "Node agent is not running under a service manager",
+    message: "This node is not running under a service manager",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_ONLINE]: {

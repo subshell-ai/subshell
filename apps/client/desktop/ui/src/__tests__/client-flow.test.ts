@@ -2,10 +2,10 @@ import { describe, expect, it } from "bun:test";
 import { clientScreen, configured, type FteStep, type RegisterPhase, registerSteps } from "@/lib/client-flow";
 import type { NodeSettings, Probe, ProbeStep } from "@/lib/ipc";
 
-const settings = (planeUrl: string | null): NodeSettings => ({ planeUrl, agentBinPath: null }) as NodeSettings;
+const settings = (planeUrl: string | null): NodeSettings => ({ planeUrl, nodeBinPath: null }) as NodeSettings;
 
 /** A machine with tmux and nothing else — the true first run, unless told otherwise. */
-const probe = (over: Partial<Probe> = {}): Probe => ({ step: "no-agent", tmux: "/usr/bin/tmux", ...over }) as Probe;
+const probe = (over: Partial<Probe> = {}): Probe => ({ step: "no-node", tmux: "/usr/bin/tmux", ...over }) as Probe;
 
 /** An enrolled machine: a node config exists, so `status` names a node. */
 const enrolled = (step: ProbeStep): Probe => probe({ step, status: { nodeId: "n1", serverUrl: "https://plane.test" } });
@@ -59,7 +59,7 @@ describe("clientScreen", () => {
     // The rule this module exists for: a configured client never auto-opens
     // the dashboard and never resumes a setup walk. Every one of these used
     // to be its own screen; the contextual action lives inside Status now.
-    for (const step of ["online", "stopped", "offline", "no-service", "not-enrolled", "no-agent"] as const) {
+    for (const step of ["online", "stopped", "offline", "no-service", "not-enrolled", "no-node"] as const) {
       expect(
         clientScreen({ probe: probe({ step }), settings: settings("https://plane.test"), step: null, override: null }),
       ).toBe("status");

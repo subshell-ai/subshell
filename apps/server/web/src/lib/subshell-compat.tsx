@@ -1,7 +1,7 @@
 import { PluginIcon } from "@/components/plugin-icon";
 import type { ComboboxOption } from "@/components/ui/combobox";
 import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
-import { isOfflineNode, nodeOptionLabel } from "@/lib/node-label";
+import { isOfflineAgent, nodeOptionLabel } from "@/lib/node-label";
 import { usableFirst } from "@/lib/option-order";
 import type { Node } from "@/types/node";
 
@@ -34,7 +34,7 @@ export type IncompatReason = "offline" | "not-installed";
  * @returns null when usable, else the reason code
  */
 export function harnessFitsNode(node: Node, harnessId: string): IncompatReason | null {
-  if (isOfflineNode(node)) return "offline";
+  if (isOfflineAgent(node)) return "offline";
   const entry = node.harnesses.find((h) => h.harnessId === harnessId);
   if (!entry?.installed) return "not-installed";
   return null;
@@ -135,7 +135,7 @@ export function defaultAgentId(
 export function buildNodeOptions(nodes: readonly Node[], agent: LaunchAgent | null): ComboboxOption[] {
   return usableFirst(
     nodes.map((n) => {
-      const offline = isOfflineNode(n);
+      const offline = isOfflineAgent(n);
       // The one unlaunchable row the picker KEEPS (spec 2026-09-14 §6), so it
       // is the one that has to explain itself here. Harness fit is not even
       // asked: a machine nobody may launch on does not owe an answer about

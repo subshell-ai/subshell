@@ -36,9 +36,9 @@ async function boot(init: Parameters<typeof installFakeIpc>[0] = {}) {
 
 /** The agent this app ships is newer than the one installed. */
 const BEHIND = makeProbe({
-  agentChoice: "upgrade-available",
+  nodeChoice: "upgrade-available",
   bundledVersion: "1.10.0",
-  agent: { argv: ["/home/u/.local/bin/subshell"], source: "local-bin", version: "1.9.0" },
+  nodeBinary: { argv: ["/home/u/.local/bin/subshell"], source: "local-bin", version: "1.9.0" },
 });
 
 describe("the status screen's button is a door (§ 7.4)", () => {
@@ -167,7 +167,7 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
    * so the file is new and the daemon is old, and nothing said so.
    */
   it("says the daemon is still on the previous version, and offers the restart", async () => {
-    const done = makeProbe({ agentChoice: "up-to-date", bundledVersion: "1.10.0" });
+    const done = makeProbe({ nodeChoice: "up-to-date", bundledVersion: "1.10.0" });
     const fake = await boot({
       probe: makeProbe({
         ...BEHIND,
@@ -226,7 +226,7 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
       handlers: {
         node_check_app_update: () => APP_CURRENT,
         node_install_cli: () => {
-          fake.setProbe(makeProbe({ agentChoice: "up-to-date", bundledVersion: "1.10.0", service: risky }));
+          fake.setProbe(makeProbe({ nodeChoice: "up-to-date", bundledVersion: "1.10.0", service: risky }));
           return { ok: true, stdout: "Installed subshell 1.10.0", stderr: "" };
         },
       },
@@ -241,7 +241,7 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
    * the person is left with a daemon on the old binary and no way to say yes.
    */
   it("keeps the offer standing when the CLI refuses", async () => {
-    const done = makeProbe({ agentChoice: "up-to-date", bundledVersion: "1.10.0" });
+    const done = makeProbe({ nodeChoice: "up-to-date", bundledVersion: "1.10.0" });
     const fake = await boot({
       probe: makeProbe({
         ...BEHIND,
@@ -286,9 +286,9 @@ describe("the act is a selection (§ 13)", () => {
   const APP_BEHIND = { current: "0.6.1", latest: "0.7.0", notes: null, reason: null };
   /** An agent somebody installed by hand, newer than the one in this bundle. */
   const NODE_NEWER = makeProbe({
-    agentChoice: "adopt-installed",
+    nodeChoice: "adopt-installed",
     bundledVersion: "1.9.0",
-    agent: { argv: ["/home/u/.local/bin/subshell"], source: "local-bin", version: "1.11.0" },
+    nodeBinary: { argv: ["/home/u/.local/bin/subshell"], source: "local-bin", version: "1.11.0" },
   });
 
   async function openUpdate(init: Parameters<typeof installFakeIpc>[0]) {

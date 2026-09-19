@@ -6,7 +6,7 @@
  * mirror `src-tauri/src/control.rs` and `apps/node/agent`'s `status --json` /
  * `service status --json` bodies. Nothing here decides anything.
  */
-import type { AgentChoice, AgentSource, EnrolledNodeBody, NodeSettings, Probe } from "@/lib/ipc";
+import type { EnrolledNodeBody, NodeChoice, NodeSettings, NodeSource, Probe } from "@/lib/ipc";
 import type { Tone } from "@/lib/steps";
 
 /** One `dt`/`dd` pair. */
@@ -17,7 +17,7 @@ export interface Fact {
 }
 
 /** How each rung of the node-binary ladder reads to someone who has never met the CLI. */
-const SOURCE_LABEL: Record<AgentSource, string> = {
+const SOURCE_LABEL: Record<NodeSource, string> = {
   env: "the SUBSHELL_AGENT_BIN environment variable",
   configured: "a binary you chose",
   service: "the installed service definition",
@@ -27,13 +27,13 @@ const SOURCE_LABEL: Record<AgentSource, string> = {
 };
 
 /**
- * What each `AgentChoice` means for the version fact.
+ * What each `NodeChoice` means for the version fact.
  *
  * Only the two that are news. `install-bundled` and `no-bundled` are already
  * the whole content of the `no-agent` screen, and `up-to-date` is the silent
  * case by definition.
  */
-const AGENT_CHOICE_NOTE: Partial<Record<AgentChoice, string>> = {
+const NODE_CHOICE_NOTE: Partial<Record<NodeChoice, string>> = {
   "upgrade-available": " (newer than the installed node CLI)",
   "adopt-installed": " (the installed node CLI is newer, so it is the one in use)",
 };
@@ -61,18 +61,18 @@ export function probeFacts(args: {
   const st = probe.status;
   const svc = probe.service;
 
-  if (probe.agent) {
+  if (probe.nodeBinary) {
     out.push({
       key: "node binary",
-      value: `${probe.agent.version ?? "version unknown"} (${probe.agent.argv.join(" ")})`,
+      value: `${probe.nodeBinary.version ?? "version unknown"} (${probe.nodeBinary.argv.join(" ")})`,
     });
-    out.push({ key: "found via", value: SOURCE_LABEL[probe.agent.source] ?? probe.agent.source });
+    out.push({ key: "found via", value: SOURCE_LABEL[probe.nodeBinary.source] ?? probe.nodeBinary.source });
   }
   if (probe.bundledVersion) {
-    const note = AGENT_CHOICE_NOTE[probe.agentChoice] ?? "";
+    const note = NODE_CHOICE_NOTE[probe.nodeChoice] ?? "";
     out.push({ key: "bundled", value: probe.bundledVersion + note, tone: note ? "warn" : undefined });
   }
-  if (settings?.agentBinPath) out.push({ key: "chosen binary", value: settings.agentBinPath });
+  if (settings?.nodeBinPath) out.push({ key: "chosen binary", value: settings.nodeBinPath });
 
   if (st?.nodeId) {
     // The name only when THIS session chose it: `status --json` reports
@@ -131,8 +131,8 @@ export function probeFacts(args: {
     // Where the node's own output goes. macOS: the file the plist names, and
     // the "Open the node log" button reveals it. Linux: the journal, and the
     // row says so — the hint sentence is the Rust side's, not a copy here.
-    if (probe.paths?.agentLog) out.push({ key: "logs", value: probe.paths.agentLog });
-    else if (probe.paths?.agentLogHint) out.push({ key: "logs", value: probe.paths.agentLogHint });
+    if (probe.paths?.nodeLog) out.push({ key: "logs", value: probe.paths.nodeLog });
+    else if (probe.paths?.nodeLogHint) out.push({ key: "logs", value: probe.paths.nodeLogHint });
   }
 
   // From the PROBE, not from `status`: tmux is a hard stop on `enroll` — which

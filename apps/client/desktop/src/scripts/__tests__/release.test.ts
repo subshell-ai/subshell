@@ -2,13 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  AGENT_SIDECAR_NAME,
   DESKTOP_CLIENT_PRODUCT,
   DESKTOP_SERVER_BUNDLE_ID,
   DESKTOP_SERVER_PRODUCT,
   DESKTOP_TARGETS,
   desktopArtifactFileName,
   desktopSidecarFileName,
+  NODE_SIDECAR_NAME,
   nodeArtifactFileName,
   RELEASE_MANIFEST_NAME,
   rustTargetTriple,
@@ -129,7 +129,7 @@ describe("stageSidecar", () => {
     expect(s.moves).toEqual([
       [
         join(SIDECAR_DIR, nodeArtifactFileName("darwin-arm64")),
-        join(SIDECAR_DIR, desktopSidecarFileName(AGENT_SIDECAR_NAME, "darwin-arm64")),
+        join(SIDECAR_DIR, desktopSidecarFileName(NODE_SIDECAR_NAME, "darwin-arm64")),
       ],
     ]);
     // Anything grepping for the STAGED name inside a built bundle finds

@@ -41,9 +41,9 @@ function row(over: Partial<UpdateActRow> & Pick<UpdateActRow, "id" | "label" | "
 /** A machine whose installed agent is older than the one inside this app. */
 function nodeBehind(overrides: Partial<Probe> = {}): Probe {
   return makeProbe({
-    agentChoice: "upgrade-available",
+    nodeChoice: "upgrade-available",
     bundledVersion: "1.10.0",
-    agent: { argv: ["/home/u/.local/bin/subshell"], source: "local-bin", version: "1.9.0" },
+    nodeBinary: { argv: ["/home/u/.local/bin/subshell"], source: "local-bin", version: "1.9.0" },
     ...overrides,
   });
 }
@@ -124,7 +124,7 @@ describe("what the screen states (§ 4.1)", () => {
   /** A machine with no node CLI at all is a first install, not an upgrade. */
   it("names an uninstalled agent by what it is rather than by a version", () => {
     const a = act({
-      probe: makeProbe({ agentChoice: "install-bundled", agent: null, managed: false, bundledVersion: "1.10.0" }),
+      probe: makeProbe({ nodeChoice: "install-bundled", nodeBinary: null, managed: false, bundledVersion: "1.10.0" }),
     });
     expect(a.rows).toEqual([
       row({ id: "app", label: "Subshell Client App", from: "0.8.0", to: { kind: "none" }, reason: "up to date" }),
@@ -179,8 +179,8 @@ describe("the refusals (§ 6)", () => {
       check: check({ latest: "0.8.1" }),
       probe: makeProbe({
         managed: false,
-        agentChoice: "upgrade-available",
-        agent: { argv: ["/opt/subshell/bin/subshell"], source: "service", version: "1.9.0" },
+        nodeChoice: "upgrade-available",
+        nodeBinary: { argv: ["/opt/subshell/bin/subshell"], source: "service", version: "1.9.0" },
       }),
     });
     expect(a.rows.map((r) => r.id)).toEqual(["app", "node"]);
@@ -215,8 +215,8 @@ describe("the refusals (§ 6)", () => {
       check: check({ reason: "the release source answered 503" }),
       probe: makeProbe({
         managed: false,
-        agentChoice: "upgrade-available",
-        agent: { argv: ["/opt/subshell/bin/subshell"], source: "service", version: "1.9.0" },
+        nodeChoice: "upgrade-available",
+        nodeBinary: { argv: ["/opt/subshell/bin/subshell"], source: "service", version: "1.9.0" },
       }),
     });
     expect(a.refusals.length).toBe(2);
@@ -256,9 +256,9 @@ describe("the second phase (§§ 4.2, 5)", () => {
     const a = act({
       probe: makeProbe({
         managed: false,
-        agentChoice: "upgrade-available",
+        nodeChoice: "upgrade-available",
         bundledVersion: "1.10.0",
-        agent: { argv: ["/opt/subshell/bin/subshell"], source: "service", version: "1.9.0" },
+        nodeBinary: { argv: ["/opt/subshell/bin/subshell"], source: "service", version: "1.9.0" },
         pendingInstall: { fromAppVersion: "0.8.0", attempts: 0, halted: false },
       }),
     });
@@ -365,9 +365,9 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
   /** A machine running an agent NEWER than the one this app ships. */
   const nodeNewer = (overrides: Partial<Probe> = {}): Probe =>
     makeProbe({
-      agentChoice: "adopt-installed",
+      nodeChoice: "adopt-installed",
       bundledVersion: "1.9.0",
-      agent: { argv: ["/home/u/.local/bin/subshell"], source: "local-bin", version: "1.11.0" },
+      nodeBinary: { argv: ["/home/u/.local/bin/subshell"], source: "local-bin", version: "1.11.0" },
       ...overrides,
     });
 

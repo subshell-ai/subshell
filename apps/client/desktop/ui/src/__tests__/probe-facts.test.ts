@@ -33,7 +33,7 @@ describe("probeFacts", () => {
 
   it("translates the ladder rung into something a non-CLI user can read", () => {
     const list = facts({
-      probe: makeProbe({ agent: { argv: ["/usr/bin/subshell"], source: "service", version: "1.9.0" } }),
+      probe: makeProbe({ nodeBinary: { argv: ["/usr/bin/subshell"], source: "service", version: "1.9.0" } }),
       settings: undefined,
       enrolledNode: null,
     });
@@ -96,7 +96,7 @@ describe("probeFacts", () => {
       ["up-to-date", undefined],
       ["install-bundled", undefined],
     ] as const) {
-      const list = facts({ probe: makeProbe({ agentChoice: choice }), settings: undefined, enrolledNode: null });
+      const list = facts({ probe: makeProbe({ nodeChoice: choice }), settings: undefined, enrolledNode: null });
       expect(value(list, "bundled")?.tone, choice).toBe(expected);
     }
   });
@@ -118,7 +118,7 @@ describe("probeFacts", () => {
   it("surfaces a hand-chosen binary, since that path is executed every launch", () => {
     const list = facts({
       probe: makeProbe(),
-      settings: makeSettings({ agentBinPath: "/opt/subshell/subshell" }),
+      settings: makeSettings({ nodeBinPath: "/opt/subshell/subshell" }),
       enrolledNode: null,
     });
     expect(value(list, "chosen binary")?.value).toBe("/opt/subshell/subshell");
@@ -161,8 +161,8 @@ describe("probeFacts", () => {
           configDir: "/Users/u/.config/subshell",
           configFile: "/Users/u/.config/subshell/config.json",
           dataDir: "/Users/u/.config/subshell/data",
-          agentLog: "/Users/u/Library/Logs/subshell.log",
-          agentLogHint: null,
+          nodeLog: "/Users/u/Library/Logs/subshell.log",
+          nodeLogHint: null,
         },
       }),
       settings: undefined,

@@ -385,7 +385,7 @@ mod tests {
     // name something its own `update` never does either — alarming about the
     // wrong thing. What it really loses is the rollback point.
     #[test]
-    fn the_agents_sentence_claims_no_database() {
+    fn the_nodes_sentence_claims_no_database() {
         let said = legacy_install_summary(Some("0.8.0"), Some("0.9.0"), "agent", Unrecorded::Rollback);
         assert!(!said.contains("database"), "{said}");
         assert_eq!(

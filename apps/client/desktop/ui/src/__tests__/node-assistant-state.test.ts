@@ -102,7 +102,7 @@ describe("serviceAction", () => {
     expect(serviceAction("stopped")).toEqual({ label: "Start", verb: "start" });
     expect(serviceAction("offline")).toEqual({ label: "Restart", verb: "restart" });
     expect(serviceAction("online")).toBeNull();
-    expect(serviceAction("no-agent")).toBeNull();
+    expect(serviceAction("no-node")).toBeNull();
     expect(serviceAction("not-enrolled")).toBeNull();
   });
 });

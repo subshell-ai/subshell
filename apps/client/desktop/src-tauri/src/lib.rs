@@ -12,9 +12,9 @@
 //! showing the plane's page. See `windows.rs` for why that split is the
 //! security boundary.
 
-mod agent_bin;
 mod app_update;
 mod control;
+mod node_bin;
 mod reset;
 // macOS only: a GTK menu bar is per-window chrome rather than a system bar, so
 // Linux has none — and a module compiled there would be entirely dead code.

@@ -191,7 +191,7 @@ export function StatusScreen(props: {
    * read failure is not consent, and the register chain sends `confirm: true`,
    * which is precisely what would blow past the Rust side's own guard.
    */
-  const mute = probe?.step === "no-agent" && probe.agent != null;
+  const mute = probe?.step === "no-node" && probe.nodeBinary != null;
   /**
    * Nothing on the resolution ladder answered at all.
    *
@@ -201,7 +201,7 @@ export function StatusScreen(props: {
    * whether it already has a node config, so the install comes first and the
    * probe that follows is what reveals which machine this is.
    */
-  const noAgent = probe?.step === "no-agent" && probe.agent == null;
+  const noNode = probe?.step === "no-node" && probe.nodeBinary == null;
 
   /**
    * The node's name, and ONLY when this session chose it: `status --json`
@@ -242,7 +242,7 @@ export function StatusScreen(props: {
               <Button variant="ghost" disabled={busy} onClick={() => commands.openPath("config-dir")}>
                 Reveal configuration
               </Button>
-              <Button variant="ghost" disabled={busy} onClick={() => commands.openPath("agent-log")}>
+              <Button variant="ghost" disabled={busy} onClick={() => commands.openPath("node-log")}>
                 Open the node log
               </Button>
             </>
@@ -332,7 +332,7 @@ export function StatusScreen(props: {
         </div>
       )}
 
-      {noAgent && (
+      {noNode && (
         <div className="mt-6 rounded-md border border-border p-3">
           <p className="text-detail leading-relaxed">
             The node is the small program that holds this machine's connection to the control plane and starts the
@@ -379,8 +379,8 @@ export function StatusScreen(props: {
            * from a healthy start from out here. On Linux this is the
            * `journalctl` line, which is the only place a person finds it.
            */}
-          {probe?.step === "offline" && probe.paths?.agentLogHint && (
-            <p className="mt-2 text-detail text-muted-foreground">{probe.paths.agentLogHint}</p>
+          {probe?.step === "offline" && probe.paths?.nodeLogHint && (
+            <p className="mt-2 text-detail text-muted-foreground">{probe.paths.nodeLogHint}</p>
           )}
         </div>
       )}
@@ -419,7 +419,7 @@ export function StatusScreen(props: {
        * has actually READ — hence `probe` as well as `known` — and found to be
        * no node.
        */}
-      {probe !== undefined && !enrolled && known && !mute && !noAgent && (
+      {probe !== undefined && !enrolled && known && !mute && !noNode && (
         <div className="mt-6 rounded-md border border-border p-3">
           <p className="text-detail leading-relaxed">
             Registering installs the node, enrolls this machine with a setup key from that server, and runs it in the
@@ -663,7 +663,7 @@ export function StatusScreen(props: {
              * waiting too, and installing one of the two in isolation is what
              * produced the loop where the next launch asked again.
              */}
-            {probe?.agentChoice === "upgrade-available" && (
+            {probe?.nodeChoice === "upgrade-available" && (
               <Button variant="outline" size="sm" disabled={busy} onClick={onUpdate}>
                 Update the node to {probe.bundledVersion}
               </Button>
@@ -682,7 +682,7 @@ export function StatusScreen(props: {
              * spec 2026-09-18 § 1 exists to remove — read side by side they
              * look like two different acts with two different costs.
              */}
-            {probe?.agentChoice !== "upgrade-available" && (
+            {probe?.nodeChoice !== "upgrade-available" && (
               <Button variant="outline" size="sm" disabled={busy} onClick={onUpdate}>
                 Check for updates…
               </Button>

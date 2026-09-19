@@ -14,7 +14,7 @@ import { useNodes } from "@/hooks/use-nodes";
 import { usePresets } from "@/hooks/use-presets";
 import { useRecentPaths } from "@/hooks/use-recent-paths";
 import { useSubshellsList } from "@/hooks/use-subshells";
-import { isOfflineNode } from "@/lib/node-label";
+import { isOfflineAgent } from "@/lib/node-label";
 import { buildAgentOptions, buildNodeOptions, defaultAgentId } from "@/lib/subshell-compat";
 import { sortByCreation } from "@/lib/subshell-order";
 import type { Node } from "@/types/node";
@@ -59,7 +59,7 @@ export function isSelectable(n: Node): boolean {
   // into `canLaunch` (spec 2026-09-14): this row is the one unlaunchable node
   // the list keeps, so a payload cached before the flip would otherwise offer
   // a launch the node itself refuses at the pane.
-  return !isOfflineNode(n) && n.canLaunch && !n.maintenance;
+  return !isOfflineAgent(n) && n.canLaunch && !n.maintenance;
 }
 
 /**
@@ -339,7 +339,7 @@ export function NewSubshellForm({
     nodes !== null &&
     selectedNode !== null &&
     plugins !== undefined &&
-    !isOfflineNode(selectedNode) &&
+    !isOfflineAgent(selectedNode) &&
     agentOptions.every((o) => o.disabled);
   const noNodeHere = nodes !== null && selectedAgent !== undefined && nodeOptions.every((o) => o.disabled);
 

@@ -2,7 +2,7 @@
  * The typed edge of the IPC boundary — one function per `node_*` command.
  *
  * Every type below MIRRORS a Rust type in `src-tauri/src/control.rs` (or, for
- * the two ladder types, `src-tauri/src/agent_bin.rs`), which serializes with
+ * the two ladder types, `src-tauri/src/node_bin.rs`), which serializes with
  * `#[serde(rename_all = "camelCase")]` on structs and `kebab-case`/`lowercase`
  * on the enums. Three-way agreement is what makes this file worth having:
  *
@@ -26,20 +26,20 @@
 import { invoke } from "@tauri-apps/api/core";
 
 // ---------------------------------------------------------------------------
-// The ladder (src-tauri/src/agent_bin.rs)
+// The ladder (src-tauri/src/node_bin.rs)
 // ---------------------------------------------------------------------------
 
-/** Which rung of the resolution ladder answered. `AgentSource`, kebab-case. */
-export type AgentSource = "env" | "configured" | "service" | "local-bin" | "path" | "well-known";
+/** Which rung of the resolution ladder answered. `NodeSource`, kebab-case. */
+export type NodeSource = "env" | "configured" | "service" | "local-bin" | "path" | "well-known";
 
-/** What to do about the shipped node CLI versus the installed one. `AgentChoice`, kebab-case. */
-export type AgentChoice = "no-bundled" | "install-bundled" | "up-to-date" | "upgrade-available" | "adopt-installed";
+/** What to do about the shipped node CLI versus the installed one. `NodeChoice`, kebab-case. */
+export type NodeChoice = "no-bundled" | "install-bundled" | "up-to-date" | "upgrade-available" | "adopt-installed";
 
-/** A resolved node binary, plus the rung it was found on. `AgentBinary`. */
-export interface AgentBinary {
+/** A resolved node binary, plus the rung it was found on. `NodeBinary`. */
+export interface NodeBinary {
   /** The command PREFIX — one token for a compiled binary, two for a dev-form install. Never a verb. */
   argv: string[];
-  source: AgentSource;
+  source: NodeSource;
   /** `<argv> version` output, when it ran and looked like a version. */
   version: string | null;
 }
@@ -116,7 +116,7 @@ export interface EnrolledNodeBody {
  * second as "not enrolled" would route a transient read failure to the step
  * that overwrites `config.json`.
  */
-export type ProbeStep = "no-agent" | "not-enrolled" | "no-service" | "stopped" | "offline" | "online";
+export type ProbeStep = "no-node" | "not-enrolled" | "no-service" | "stopped" | "offline" | "online";
 
 /** The closed set of paths the window may name. `NodePaths`. */
 export interface NodePaths {
@@ -125,9 +125,9 @@ export interface NodePaths {
   configFile: string | null;
   dataDir: string | null;
   /** The node's log FILE, where the platform has one (macOS). */
-  agentLog: string | null;
+  nodeLog: string | null;
   /** What to do instead, where it does not (Linux: the `journalctl` line). */
-  agentLogHint: string | null;
+  nodeLogHint: string | null;
 }
 
 /**
@@ -168,12 +168,12 @@ export interface PendingInstall {
 /** Everything the window needs to decide what to offer, in one round trip. `Probe`. */
 export interface Probe {
   bundledVersion: string | null;
-  agent: AgentBinary | null;
+  nodeBinary: NodeBinary | null;
   /** Whether the resolved node binary is the copy THIS APP installed and can replace. */
   managed: boolean;
   status: NodeStatusBody | null;
   service: ServiceStatusBody | null;
-  agentChoice: AgentChoice;
+  nodeChoice: NodeChoice;
   step: ProbeStep;
   /** The CLI's own words when a step FAILED rather than merely being pending. */
   error: string | null;
@@ -275,11 +275,11 @@ export interface NodeSettings {
   /**
    * An explicitly chosen node binary, if the settings file names one.
    *
-   * READ-ONLY from this app as of the picker's removal: `agent_bin::resolve`
+   * READ-ONLY from this app as of the picker's removal: `node_bin::resolve`
    * still honours it and `probe-facts.ts` still shows it, so a hand-edited
    * `settings.json` is supported exactly as before — nothing here writes it.
    */
-  agentBinPath: string | null;
+  nodeBinPath: string | null;
   /**
    * The control plane this client shows, once one is known — the stored
    * address, else the enrolled node's own `serverUrl`.
@@ -292,7 +292,7 @@ export interface NodeSettings {
 }
 
 /** The directories and files the window may ask to reveal. `OpenTarget`, kebab-case. */
-export type OpenTarget = "config-dir" | "data-dir" | "agent-log";
+export type OpenTarget = "config-dir" | "data-dir" | "node-log";
 
 // ---------------------------------------------------------------------------
 // The commands
