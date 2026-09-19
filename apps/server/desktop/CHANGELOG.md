@@ -1,5 +1,20 @@
 # @internal/desktop-server
 
+## 0.10.1
+
+### Patch Changes
+
+- [#89](https://github.com/subshell-ai/subshell/pull/89) [`5eab666`](https://github.com/subshell-ai/subshell/commit/5eab6660a7b98c4172243a48758057d71cdf2d6f) Thanks [@theogravity](https://github.com/theogravity)! - Setting an https address for your server no longer locks the app out of it.
+  
+  The app kept opening its own window on `http://127.0.0.1:<port>`, and a server
+  whose public address is https marks its session cookies so a browser will not
+  keep them on an http page — so the window explained why it could not sign in
+  and offered nothing to do about it. It opens on the address you configured now,
+  and the field says what to expect: a restart and a sign-in.
+  
+  Only an https address moves the window. Every other setting opens exactly where
+  it always did.
+
 ## 0.10.0
 
 ### Minor Changes
