@@ -117,25 +117,39 @@ describe("NodeMaintenanceCard", () => {
     }
   });
 
-  it("reads 'Accepting subshells' while the flag is off", () => {
+  /**
+   * The label names the SWITCH and never changes; the state is its own line.
+   * The old pair put "Accepting subshells" beside an OFF switch — an
+   * affirmative label on a negated position reads as "accepting: off", the
+   * opposite of the truth, which is why the two roles are now split.
+   */
+  it("labels the switch 'Maintenance mode' in BOTH positions, with the state on its own line", () => {
     const { restore } = mockFetch();
     try {
       renderCard(node());
       expect(screen.getByText("Maintenance")).toBeDefined();
-      expect(screen.getByText("Accepting subshells")).toBeDefined();
+      expect(screen.getByText("Maintenance mode")).toBeDefined();
+      expect(screen.getByText("Accepting new subshells")).toBeDefined();
       expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("false");
+      // On: same label, different state line.
+      cleanup();
+      renderCard(node({ maintenance: true }));
+      expect(screen.getByText("Maintenance mode")).toBeDefined();
+      expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("true");
+      expect(screen.queryByText("Accepting new subshells")).toBeNull();
     } finally {
       restore();
     }
   });
 
   it("names the machine in the switch's own label, not just in the heading", () => {
-    // Several cards on this page carry a switch; a bare "Maintenance" would
-    // read identically on all of them to a screen reader.
+    // Several cards on this page carry a switch; a bare "Maintenance mode"
+    // would read identically on all of them to a screen reader. The visible
+    // label must stay a substring of this (label-in-name).
     const { restore } = mockFetch();
     try {
       renderCard(node());
-      expect(screen.getByLabelText("Maintenance on mac mini")).toBeDefined();
+      expect(screen.getByLabelText("Maintenance mode on mac mini")).toBeDefined();
     } finally {
       restore();
     }

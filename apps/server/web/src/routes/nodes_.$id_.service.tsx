@@ -3,7 +3,7 @@ import { NodePageShell } from "@/components/nodes/node-page-shell";
 import { NodeRuntimeCard } from "@/components/nodes/node-runtime-card";
 import { NodeServiceCard } from "@/components/nodes/node-service-card";
 
-export const Route = createFileRoute("/nodes_/$id/service")({ component: NodeServicePage });
+export const Route = createFileRoute("/nodes_/$id_/service")({ component: NodeServicePage });
 
 /**
  * One node's Service section (spec 2026-09-12, node half § 2) — the mirror of

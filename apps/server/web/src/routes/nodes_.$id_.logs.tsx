@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { NodeLogCard } from "@/components/nodes/node-log-card";
 import { NodePageShell } from "@/components/nodes/node-page-shell";
 
-export const Route = createFileRoute("/nodes_/$id/logs")({ component: NodeLogsPage });
+export const Route = createFileRoute("/nodes_/$id_/logs")({ component: NodeLogsPage });
 
 /**
  * One node's Logs section (spec 2026-09-12, node half § 4).

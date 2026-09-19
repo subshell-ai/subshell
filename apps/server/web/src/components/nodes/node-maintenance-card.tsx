@@ -75,12 +75,10 @@ export function NodeMaintenanceCard({ node }: { node: NodeDetail }): JSX.Element
       <CardHeader>
         <CardTitle>Maintenance</CardTitle>
         <CardDescription>
-          While a node is in maintenance nobody can start a subshell on it — not its owner, not the people it is shared
-          with, not admins. Everything else keeps working: service control, logs, agent detection and restart all answer
-          as usual. Subshells stopped by turning this on stay in the list and can be restarted once maintenance ends;
-          the ones set to restart by themselves will <strong>not</strong> come back on their own. Running{" "}
-          <code>subshell maintenance on</code> or <code>off</code> at the machine does the same thing — it is one flag,
-          settable from either end.
+          While this is on nobody can start a subshell here — not its owner, not the people it is shared with, not
+          admins. Subshells running when you turn it on are stopped, and the ones set to relaunch will not come back on
+          their own — restart them after it ends. Everything else keeps answering as usual (
+          <code>subshell maintenance on|off</code> at the machine sets the same flag).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -90,11 +88,19 @@ export function NodeMaintenanceCard({ node }: { node: NodeDetail }): JSX.Element
             onCheckedChange={toggle}
             disabled={setMaintenance.isPending}
             // Named, because a node's page carries several switches and a bare
-            // "Maintenance" reads identically on all of them.
-            aria-label={`Maintenance on ${node.name}`}
+            // "Maintenance mode" reads identically on all of them. The visible
+            // words stay a substring of this, per the label-in-name rule.
+            aria-label={`Maintenance mode on ${node.name}`}
           />
-          <Label>{node.maintenance ? maintenanceSinceLabel(node) : "Accepting subshells"}</Label>
+          {/* The label names WHICH SWITCH this is and never changes; the state
+              got its own line below. It used to flip to "Accepting subshells"
+              exactly when the switch was OFF, which reads as "accepting: off"
+              — the opposite of the truth. */}
+          <Label>Maintenance mode</Label>
         </div>
+        <p className="text-detail text-muted-foreground">
+          {node.maintenance ? maintenanceSinceLabel(node) : "Accepting new subshells"}
+        </p>
         {error && (
           <p role="alert" className="text-destructive text-detail">
             {error}
