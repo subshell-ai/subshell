@@ -81,13 +81,25 @@ const UPDATE_ID: &str = "tray:update";
 /// the only way to look would be to wait a day.
 pub struct UpdateItem(MenuItem<Wry>);
 
-/// The item's label, with the version when the last check found one.
+/// The item's label: a full notice when the last check found an update, the
+/// ask otherwise.
+///
+/// The old form was a SUFFIX — "Check for Updates… (0.8.0 available)" — which
+/// made the notice a decoration on the request. The sibling app dropped it on
+/// 2026-09-17 (spec § 5.2) and this one kept it until 2026-09-18; the two are
+/// one product and a person running both should not meet two grammars for one
+/// fact. Now the two states are two different items: an update that is KNOWN
+/// says so as a sentence.
+///
+/// Both labels open the same window, and both are honest about it: "Check for
+/// Updates…" opens a screen that checks — the macOS convention — and the notice
+/// opens the screen that installs what it names.
 ///
 /// Pure, so the one thing a person reads about updates is testable without a
 /// tray, a menu or a display server.
 pub fn update_label(available: Option<&str>) -> String {
     match available {
-        Some(version) if !version.is_empty() => format!("Check for Updates… ({version} available)"),
+        Some(version) if !version.is_empty() => format!("Update available — Subshell Client {version}"),
         _ => "Check for Updates…".to_string(),
     }
 }
@@ -162,7 +174,20 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let update = MenuItem::with_id(
         app,
         UPDATE_ID,
-        update_label(app.state::<SettingsState>().get().last_update_version.as_deref()),
+        // Seeded from what the LAST check found, because the launch check runs
+        // after this menu is built and may not run at all today — an item that
+        // only ever said "Check for Updates…" until a check happened would hide
+        // a waiting update for up to a day. Filtered through `notice_for`: this
+        // seed paints STORED state with no source consulted, which is precisely
+        // where an installed-update lie survives (a hand-replaced bundle never
+        // clears the field).
+        update_label(
+            subshell_desktop_core::version::notice_for(
+                &app.package_info().version.to_string(),
+                app.state::<SettingsState>().get().last_update_version.as_deref(),
+            )
+            .as_deref(),
+        ),
         true,
         None::<&str>,
     )?;
@@ -344,5 +369,33 @@ mod tests {
     fn the_browser_id_is_not_the_menu_bars() {
         assert_ne!(BROWSER_ID, crate::control::MENU_BROWSER_ID);
         assert_ne!(BROWSER_ID, crate::zoom::IN_ID);
+    }
+
+    /// The label is the NOTICE, in the sibling app's grammar (2026-09-18).
+    /// Both apps are one product and one publisher, so a person running both
+    /// must not meet two wordings for the same fact — this one carried the
+    /// retired suffix form ("Check for Updates… (0.8.0 available)") for a day
+    /// after the server app dropped it.
+    ///
+    /// "no answer yet" and "checked, nothing newer" render identically, and
+    /// deliberately: both mean there is nothing to announce, and the item's job
+    /// reverts to being the early door.
+    #[test]
+    fn the_update_item_announces_or_asks() {
+        assert_eq!(update_label(Some("0.8.0")), "Update available — Subshell Client 0.8.0");
+        assert_eq!(update_label(None), "Check for Updates…");
+        // An empty stored version is the "nothing known" case, not a version.
+        assert_eq!(update_label(Some("")), "Check for Updates…");
+    }
+
+    /// It names THIS app. The two labels are built from the same shape, so a
+    /// copy-paste from the sibling would read "Subshell Server" on a menu bar
+    /// belonging to the client — and both may be installed on one machine,
+    /// which is the whole reason their identities are four-way distinct.
+    #[test]
+    fn the_notice_names_this_app_and_not_the_other() {
+        let notice = update_label(Some("1.2.3"));
+        assert!(notice.contains("Subshell Client"), "{notice}");
+        assert!(!notice.contains("Subshell Server"), "{notice}");
     }
 }

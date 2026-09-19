@@ -105,7 +105,7 @@ describe("DesktopAppUpdateRow", () => {
     expect(invocations).toContainEqual({ command: "desktop_open_assistant", args: { screen: "update" } });
   });
 
-  it("shows the version line with no affordance when no update is known", async () => {
+  it("still claims nothing when no update is known, and offers no Update or Dismiss", async () => {
     setUA(SERVER_UA);
     fakeTauri({ currentVersion: "0.7.2", availableVersion: null });
     renderRow();
@@ -114,6 +114,25 @@ describe("DesktopAppUpdateRow", () => {
     expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Dismiss update notice" })).toBeNull();
     expect(screen.queryByText(/available/)).toBeNull();
+  });
+
+  /**
+   * "No update known" is not "up to date" — the daily check may not have run
+   * today or may not have answered — so the version line is a DOOR to the
+   * screen that can find out (operator's call, 2026-09-18). It was the last
+   * place in the app where knowing the version led nowhere, and it is the same
+   * fix the tray item's "Check for Updates…" label got the same day.
+   */
+  it("opens the update screen when there is no update known", async () => {
+    setUA(SERVER_UA);
+    const invocations = fakeTauri({ currentVersion: "0.7.2", availableVersion: null });
+    renderRow();
+    const row = await screen.findByRole("button", { name: "Subshell Server 0.7.2. Check for updates." });
+    fireEvent.click(row);
+    expect(invocations).toContainEqual({ command: "desktop_open_assistant", args: { screen: "update" } });
+    // The SAME screen the [Update] press raises — one door, not a second one
+    // that only checks.
+    expect(invocations.filter((i) => i.command === "desktop_install_app_update")).toEqual([]);
   });
 
   it("renders nothing in a browser, which is inside no app", async () => {

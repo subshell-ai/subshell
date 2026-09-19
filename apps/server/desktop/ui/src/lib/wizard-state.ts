@@ -235,6 +235,33 @@ export function screensFor(probe: Probe, onboarded: boolean): ScreenId[] {
 }
 
 /**
+ * What the way out of a REQUESTED screen should be called — `Back` when there
+ * is something behind it, `Close` when the press ends the window.
+ *
+ * `host.close()` does not navigate: it drops the requested screen and renders
+ * whatever the probe implies. On a machine that is not ready that is a real
+ * screen — recovery, or the first run — and the word is honest. On a READY
+ * one {@link screensFor} answers empty, so the handoff renders, `openWhenReady`
+ * fires, and `open_main` opens the dashboard and closes this window. "Back"
+ * there is the button lying about where it leads (operator's report,
+ * 2026-09-18: Server Addresses opened from the TRAY, where nothing is behind
+ * it, offering Back).
+ *
+ * The permissions screen already made this distinction by hand for its own two
+ * doors — its `Continue` from the setup handoff exists for exactly this reason
+ * — and this is that argument applied to the door every requested screen
+ * shares. Derived from `screensFor` rather than from a second reading of the
+ * probe, so a screen family added later cannot make the two disagree.
+ *
+ * @param probe - The latest probe
+ * @param onboarded - Whether this machine has completed setup
+ * @returns The label for the ghost leave button
+ */
+export function leaveLabel(probe: Probe, onboarded: boolean): "Back" | "Close" {
+  return screensFor(probe, onboarded).length > 0 ? "Back" : "Close";
+}
+
+/**
  * Whether the first-run setup screen may FIRE ITSELF, or must show the form
  * (spec 2026-09-17 § 4.2/§ 4.3).
  *

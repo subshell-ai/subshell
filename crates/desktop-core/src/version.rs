@@ -29,6 +29,34 @@ pub fn version_lt(a: &str, b: &str) -> bool {
     false
 }
 
+/// The one rule behind every rendering of a STORED update notice: it may name
+/// only a version strictly newer than what is running.
+///
+/// `last_update_version` is what the last answering check found, and the answer
+/// goes stale the moment the person installs what was announced. Each app's
+/// install clears the field, but a HAND replacement of the bundle does not, and
+/// an app that updated itself across a crash between the write and the clear
+/// will not answer the release source again for a day. So every site that
+/// paints the stored value without consulting the source — the tray seed, the
+/// launch check's not-due branch, the unanswered-check branch, and the server
+/// app's SPA-facing status view — routes through here, and
+/// "Update available — 0.8.0" can never be shown BY 0.8.0.
+///
+/// Shared rather than copied per app (2026-09-18): it was the server app's
+/// alone, added by review on 2026-09-17, and Subshell Client shipped the defect
+/// it closes for a day. `version_lt` ignores suffixes on both sides, so a
+/// canary of the announced version counts as installed — the same rule every
+/// other comparison here uses.
+///
+/// @param current - The version this app is running
+/// @param stored - What the last answering check recorded, if any
+/// @returns The version to announce, or `None` when there is nothing to say
+pub fn notice_for(current: &str, stored: Option<&str>) -> Option<String> {
+    stored
+        .filter(|version| version_lt(current, version))
+        .map(str::to_string)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -62,5 +90,19 @@ mod tests {
     fn unparseable_reads_as_zero() {
         assert!(version_lt("", "0.0.1"));
         assert!(version_lt("not-a-version", "0.0.1"));
+    }
+
+    /// A stored version this app now IS is not a notice. The shape the server
+    /// app's review found on 2026-09-17, and the one Subshell Client shipped
+    /// until this moved here.
+    #[test]
+    fn a_stored_version_we_already_run_is_no_notice() {
+        assert_eq!(notice_for("0.8.0", Some("0.9.0")), Some("0.9.0".to_string()));
+        assert_eq!(notice_for("0.9.0", Some("0.9.0")), None);
+        assert_eq!(notice_for("0.10.0", Some("0.9.0")), None);
+        assert_eq!(notice_for("0.9.0", None), None);
+        // Suffixes are ignored on both sides, as everywhere else here: a
+        // canary of the announced version counts as installed.
+        assert_eq!(notice_for("0.9.0-canary.1", Some("0.9.0")), None);
     }
 }

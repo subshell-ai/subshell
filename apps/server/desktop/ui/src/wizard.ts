@@ -82,6 +82,7 @@ import {
   handoffView,
   isRequestedScreen,
   lastLine,
+  leaveLabel,
   MIN_AUTOSTART_SERVER_VERSION,
   permissionsAfterSetup,
   prereqState,
@@ -1870,12 +1871,13 @@ function renderPermissions(p: Probe): void {
     ul.append(li);
   }
   content.append(ul);
-  // Two doors, and the button says which one it came through. From a
-  // dashboard notice there is somewhere to go back TO, and Back drops the
-  // screen for whatever the probe implies. From the ready handoff there is
-  // not: this window's whole remaining job is to open the dashboard, so the
+  // Two doors, and the button says which one it came through. From the ready
+  // handoff this window's whole remaining job is to open the dashboard, so the
   // press is a Continue that does it — a "Back" there would be the button
-  // lying about where it leads.
+  // lying about where it leads. Every OTHER door falls through to the shared
+  // ghost below, whose word `leaveLabel` picks by the same argument: this
+  // screen made the distinction by hand first, and that reasoning is now the
+  // rule for the leave every requested screen shares.
   if (permissionsAfterHandoff) {
     el("bar-right").append(
       button(
@@ -1889,7 +1891,7 @@ function renderPermissions(p: Probe): void {
     );
     return;
   }
-  el("bar-left").append(button("Back", () => host.close(), "ghost"));
+  el("bar-left").append(button(leaveLabel(p, p.onboarded), () => host.close(), "ghost"));
 }
 
 /**
@@ -2057,7 +2059,7 @@ function renderSupervision(p: Probe): void {
 
   const current = { background: p.supervision !== "app", autostart: p.service?.enabled === true };
   const unchanged = current.background === chosen.background && current.autostart === chosen.autostart;
-  el("bar-left").append(button("Back", () => host.close(), "ghost"));
+  el("bar-left").append(button(leaveLabel(p, p.onboarded), () => host.close(), "ghost"));
   el("bar-right").append(
     button(
       "Apply",
@@ -2138,7 +2140,7 @@ function renderSettings(p: Probe): void {
       content.append(text("p", why, "hint warn-text"));
       content.append(text("p", SETTINGS_BLIND_WARNING, "hint"));
     }
-    el("bar-left").append(button("Back", () => host.close(), "ghost"));
+    el("bar-left").append(button(leaveLabel(p, p.onboarded), () => host.close(), "ghost"));
     if (why !== null && p.error !== null) {
       el("bar-right").append(
         button(
@@ -2221,7 +2223,7 @@ function renderSettings(p: Probe): void {
 
   const refusal = settingsSaveRefusal(p, settingsBlind);
   const locked = busy || running;
-  el("bar-left").append(button("Back", () => host.close(), "ghost"));
+  el("bar-left").append(button(leaveLabel(p, p.onboarded), () => host.close(), "ghost"));
   if (refusal !== null) el("bar-right").append(text("span", refusal, "reason"));
   // Restart is offered whatever the form holds: someone who reached this screen
   // because their server is unreachable may have nothing to save and still need

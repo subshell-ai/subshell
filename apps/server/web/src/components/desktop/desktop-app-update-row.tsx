@@ -31,27 +31,41 @@ export function DesktopAppUpdateRow({ collapsed }: { collapsed: boolean }) {
 
   if (!data) return null;
   const available = data.availableVersion;
-  if (available === null) {
-    // Nothing to offer, so the row says only which app this is — and in a
-    // 56px rail there is no room to say even that, so it says nothing.
-    if (collapsed) return null;
-    return (
-      <p
-        className="truncate px-2 py-1.5 text-detail text-muted-foreground"
-        title={`Subshell Server ${data.currentVersion}`}
-      >
-        Subshell Server {data.currentVersion}
-      </p>
-    );
-  }
-  if (!appUpdateRowVisible(data, dismissed)) return null;
-
   // `update`, not the deleted `app-update` (spec 2026-09-18 D3). The two
   // assistant update screens collapsed into ONE act — the app and the server
   // it ships are updated by one press — and the old id now parses to `Home`,
   // so a stale string here raised the assistant at whatever the probe implied
   // instead of the update screen, silently.
   const openAssistant = () => void desktopInvoke("desktop_open_assistant", { screen: "update" });
+  if (available === null) {
+    // Nothing to offer, so the row says only which app this is — and in a
+    // 56px rail there is no room to say even that, so it says nothing.
+    if (collapsed) return null;
+    // **It is still a DOOR** (operator's call, 2026-09-18). This branch means
+    // "no update known", which is not "up to date" — the daily check may not
+    // have run today, or may not have answered — so a line that could only be
+    // read was the last place in the app where knowing that led nowhere. The
+    // screen it opens does the checking itself, exactly as the tray item's
+    // "Check for Updates…" label now does, so one press answers the question
+    // the version number raises.
+    //
+    // No [Update] button and no ×: there is nothing to apply and nothing to
+    // dismiss. The affordance is the row, which is why the accessible name
+    // says what pressing it does rather than repeating the version.
+    return (
+      <button
+        type="button"
+        onClick={openAssistant}
+        title={`Subshell Server ${data.currentVersion} — check for updates`}
+        aria-label={`Subshell Server ${data.currentVersion}. Check for updates.`}
+        className="flex w-full cursor-pointer items-center rounded-md px-2 py-1.5 text-detail text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+      >
+        <span className="truncate">Subshell Server {data.currentVersion}</span>
+      </button>
+    );
+  }
+  if (!appUpdateRowVisible(data, dismissed)) return null;
+
   const dismiss = () => {
     rememberAppUpdateDismissal(available);
     setDismissed(available);
