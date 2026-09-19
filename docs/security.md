@@ -772,6 +772,66 @@ Nothing else changes: for a viewer who was never boosted the two readings are
 the same value, and the machine-actor path (`allowAdminAndShares: false`)
 resolves them identically, so a bearer token neither gains nor loses anything.
 
+### The node's loopback dashboard (spec 2026-09-19)
+
+`subshell run` binds an HTTP surface on **127.0.0.1:3090** that answers the
+control plane's own `/api/nodes/:id/*` contract about THIS machine — the
+Status / Node Settings / Updates pages a node owner used to need either a
+plane session or a terminal for. It has **no login**, and that is the design,
+not an oversight: the access control is the listen address plus the OS user.
+Whoever can reach this port is whoever can run `subshell` as this user, and
+every act the dashboard performs (service stop, maintenance, repoint, binary
+update) is an act that same user can type at the keyboard. The dashboard
+grants nothing new; it *removes the terminal* from the path.
+
+The browser, however, is new, and three refusals cover it (`dashboard/guards.ts`):
+
+- **`Host` must name loopback.** DNS rebinding: a hostile domain with a short
+  TTL resolves to 127.0.0.1 inside the victim's browser, whose same-origin
+  math then lets that page read a no-credential API. The header is the
+  interface cannot see, so the header is what answers — the same hole the
+  plane's `TRUSTED_ORIGINS` closes from its end (§8), closed here by
+  having no non-loopback names to trust.
+- **`Origin`, when present, must be loopback too.** A cross-site page CAN
+  open no-cors reads against 127.0.0.1; the same-origin check is what stops
+  any page in the browser from pressing service stop on a hunch.
+- **Mutations require `content-type: application/json`.** A form-encoded or
+  text/plain POST is a “simple request” a cross-origin form sends with
+  no preflight at all — and no `Origin` to check; requiring JSON forces the
+  preflight the Origin rule can then defend.
+
+What is deliberately NOT here: tokens, cookies, sessions, CORS. Nothing sets
+a cookie, so there is nothing to steal; the API answers any loopback-HOST
+request. **The accepted gap is the multi-user host**: another local user can
+reach 127.0.0.1 as readily as this one, and can flip maintenance, stop the
+service, or repoint the agent — exactly what they can already do by running
+`subshell` (and by attaching the world-executable tmux server, and, for that
+matter, by reading the 0600 `config.json` they own). Same class as every
+local-OS-user exposure in §11; the dashboard adds a keyboard-less path, not
+a new privilege. Single-user machines — the product's assumption — have no
+second user to worry about. `SUBSHELL_DASHBOARD=0` turns the surface off
+entirely for anyone who does not want it.
+
+The rest is the standing accounting, unchanged by this surface:
+
+- **Update acts trust the publisher key, not the page.** The local route
+  runs the same `execUpdate` the plane-commanded one does: signed release
+  manifest, compiled-in pubkey, digest from the signed `assets` map
+  (§11.12). The dashboard IS the machine's keyboard; the trust rule never
+  softened because a browser pressed it.
+- **Allowed-dirs is read-only here.** The list is the plane's push, enforced
+  at launch against the plane's copy first; a local edit would silently
+  diverge and reappear on the next `ready`.
+- **There is no audit row.** The plane audits every mutation with a named
+  actor; this surface has no actor beyond the machine's own user, and its
+  record is the agent log file (§10), which already holds launches and
+  refusals and never holds argv or pane content.
+- **`maintenance on` here kills.** The node's own CLI semantics — flag
+  first, then stop every subshell, re-probe each kill — are carried
+  verbatim, not the plane's no-kill version. The card asks first; the page
+  says plainly that it stops subshell panes, the same disclosure the
+  plane's flip makes.
+
 ### Plugin installs from the registry (spec 2026-09-09; instance-level since 2026-09-10)
 
 Phase 3 taught the plugin system a network source, and the 2026-09-10

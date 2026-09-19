@@ -458,6 +458,42 @@ describe("configure — repoint an enrolled node", () => {
   });
 });
 
+describe("dashboard verb (spec 2026-09-19)", () => {
+  test("the flag parses, with a value; the command slot accepts the verb", () => {
+    const parsed = parseArgs(["dashboard", "--dashboard-port", "31998"]);
+    expect(parsed.command).toBe("dashboard");
+    expect(parsed.flags.dashboardPort).toBe("31998");
+    expect(() => parseArgs(["dashboard", "--dashboard-port"])).toThrow(/requires a value/);
+  });
+
+  test("run accepts the same port flag", () => {
+    expect(parseArgs(["run", "--dashboard-port", "0"]).flags.dashboardPort).toBe("0");
+  });
+
+  test("a non-numeric port is a usage error before anything binds", async () => {
+    const res = await run(["dashboard", "--dashboard-port", "http://nope"]);
+    expect(res.code).toBe(2);
+    expect(res.out).toBe("");
+    expect(res.err).toInclude("not a port");
+  });
+
+  test("the unenrolled machine gets the enroll-pointing refusal, not a server", async () => {
+    // newHome() means no config.json; the verb answers code 2 with the
+    // pointer — the same rule `configure` follows for a command that
+    // changes nothing on the plane.
+    newHome();
+    const res = await run(["dashboard"]);
+    expect(res.code).toBe(2);
+    expect(res.err.length).toBeGreaterThan(0);
+    expect(res.err).toInclude("subshell enroll");
+  });
+
+  test("usage lists the verb beside run", async () => {
+    const res = await run(["frobnicate"]);
+    expect(res.err).toInclude("subshell dashboard");
+  });
+});
+
 describe("plugin is gone from the CLI (inversion §6)", () => {
   test("`plugin` is an unknown command now, in every position", () => {
     expect(() => parseArgs(["plugin"])).toThrow(/unknown command 'plugin'/);

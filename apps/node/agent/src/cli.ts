@@ -82,6 +82,11 @@ usage:
   subshell run [--dashboard-port <n>]
                           the daemon; --dashboard-port (or SUBSHELL_DASHBOARD_PORT)
                           moves the loopback dashboard off :3090
+  subshell dashboard [--dashboard-port <n>]
+                          the loopback dashboard WITHOUT the daemon: reads and
+                          maintenance work, restart/update say "not supervised".
+                          For a stopped or broken agent — the machine's page
+                          should not need the machine's plane socket
   subshell service install [--no-autostart]   (systemd user unit / launchd agent)
                           --no-autostart runs it now but not at login
   subshell service uninstall
@@ -115,6 +120,7 @@ class UsageError extends Error {}
 
 const COMMANDS = new Set([
   "configure",
+  "dashboard",
   "enroll",
   "license",
   "maintenance",
@@ -200,10 +206,10 @@ const FLAGS: Record<string, boolean> = {
   "--from": true,
   "--no-restart": false,
   "--rollback": false,
-  // Moves the loopback dashboard off :3090 for this `run` — the spelled-out
-  // equivalent of SUBSHELL_DASHBOARD_PORT, which the service definition cannot
-  // carry per-start. Exists for the cli-e2e scenario (a suite must never bind
-  // the port a developer's node owns) as much as for an operator.
+  // Moves the loopback dashboard off :3090 — the spelled-out equivalent of
+  // SUBSHELL_DASHBOARD_PORT, which the service definition cannot carry
+  // per-start. Exists for the cli-e2e scenario (a suite must never bind the
+  // port a developer's node owns) as much as for an operator.
   "--dashboard-port": true,
 };
 /** Every flag any subtoken of `command` accepts — the union {@link SUBCOMMAND_FLAGS} narrows. */
@@ -217,6 +223,7 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   // the enroll body, so a rename here would be a lie.
   configure: ["--server", "--json"],
   enroll: ["--server", "--key", "--name", "--data-dir", "--json"],
+  dashboard: ["--dashboard-port"],
   license: [],
   // Derived, never hand-listed — see `service` below.
   maintenance: subcommandFlagUnion("maintenance"),
@@ -358,6 +365,12 @@ function assertSubcommandFlags(command: string, sub: string, used: string[]): vo
  * launchd on whatever machine the suite happens to run on.
  */
 export interface RunDeps {
+  /**
+   * Process-exit hook for verbs that hold a live handle (`dashboard`), so a
+   * test can drive the signal path without killing the suite's process.
+   * Production omits it and the signal just lets the default exit run.
+   */
+  exit?: (code: number) => never;
   /** Service-manager + filesystem seams for `service` (default: {@link DEFAULT_DEPS}). */
   service?: ServiceDeps;
   /**
@@ -434,6 +447,40 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         // notification, never a turn.
         await runReport(parsed.sub ? [parsed.sub, ...(parsed.arg ? [parsed.arg] : [])] : []);
         return { code: 0, out: "", err: "" };
+      }
+      case "dashboard": {
+        // The standalone dashboard (spec 2026-09-19): the SAME surface
+        // `case "run"` starts, without the daemon. Read endpoints and the
+        // maintenance write answer honestly off disk — a human who stopped
+        // the agent to fix it still gets the page — and the two verbs that
+        // can only be lies without a daemon (restart/update exit through a
+        // process that is not this one) answer "not supervised" from the
+        // same route gates. loadConfig() throws the enroll-pointing message
+        // through this path like every config verb, with the CLI's usage
+        // exit (the `configure` rule: this verb spends nothing).
+        const rawPort = parsed.flags.dashboardPort ?? process.env.SUBSHELL_DASHBOARD_PORT;
+        const port = rawPort === undefined || rawPort.trim() === "" ? 3090 : Number(rawPort);
+        if (!Number.isInteger(port) || port < 0 || port > 65535) {
+          return fail(2, new Error(`--dashboard-port: not a port: ${String(rawPort)}`));
+        }
+        // loadConfig's enroll-pointing throw is a USAGE-level answer for this
+        // verb — exit 2 before anything binds, the same rule `configure`
+        // follows for a command that spends nothing on the plane. Checked
+        // AFTER the port parse: a machine with nothing enrolled and a typo'd
+        // port deserves to hear about the typo, which is the one thing it
+        // can act on tonight.
+        const cfg = await loadConfig();
+        const dash = await startNodeDashboard(cfg, { port });
+        logger.info(`dashboard: http://127.0.0.1:${dash.port}/ (${dash.webSource} pages) — no daemon; Ctrl-C to stop`);
+        // Exit only on a signal: the keep-alive is the server itself. The
+        // exit hook (not a direct process.exit) so tests can drive the verb.
+        const stop = () => {
+          dash.stop();
+          deps.exit?.(0);
+        };
+        process.once("SIGINT", stop);
+        process.once("SIGTERM", stop);
+        return { code: 0, out: "", err: "", keepAlive: true };
       }
       case "run": {
         // The daemon is a foreground process that owns its own lifetime: it
