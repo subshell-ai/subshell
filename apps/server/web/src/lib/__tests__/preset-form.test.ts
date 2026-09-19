@@ -334,6 +334,62 @@ describe("parseCommandPaste", () => {
   it("throws on an unterminated quote rather than guessing", () => {
     expect(() => parseCommandPaste('claude --p "oops')).toThrow(/quote/i);
   });
+
+  /**
+   * Quotes inside quotes are DATA (fixed 2026-09-19). The tokenizer already
+   * consumes the shell quoting, so `K="a b"` reaches the assignment branch as
+   * the single token `K=a b`; calling `unquote` on that again stripped a
+   * second, literal pair. Found by round-tripping hostile values, where
+   * `K="''"` came back as the empty string.
+   *
+   * `parseEnvPaste` keeps its own `unquote` and must — it splits lines and
+   * never tokenizes, so the quotes reach it intact. The two are not the same
+   * situation, which is why the fix is not symmetric.
+   */
+  it("keeps quotes that are part of the value, having already been unquoted once", () => {
+    expect(parseCommandPaste(`K="'x'"`).env).toEqual([{ key: "K", value: "'x'" }]);
+    expect(parseCommandPaste(`K="''"`).env).toEqual([{ key: "K", value: "''" }]);
+    expect(parseCommandPaste(`K='"y"'`).env).toEqual([{ key: "K", value: '"y"' }]);
+    // The ordinary case is untouched: one layer of shell quoting is removed
+    // by the tokenizer and nothing else is.
+    expect(parseCommandPaste(`K="a b"`).env).toEqual([{ key: "K", value: "a b" }]);
+    expect(parseCommandPaste("K=plain").env).toEqual([{ key: "K", value: "plain" }]);
+  });
+
+  it("round-trips every value shape presetFormToCommand can emit", () => {
+    // The property the pair exists for, over the values that actually broke
+    // it or nearly did. Flag values are compared trimmed because
+    // `presetFormToCommand` trims them, exactly as `formToFlagTokens` does.
+    const values = [
+      "$HOME",
+      "`date`",
+      "a\nb",
+      "c:\\",
+      'a"b',
+      "it's mine",
+      "a b",
+      "",
+      "#hash",
+      "a=b",
+      "''",
+      '"',
+      "\\",
+      "ünïcødé",
+      "$(whoami)",
+      "a  b",
+    ];
+    for (const value of values) {
+      const form = {
+        ...emptyPresetForm(),
+        envRows: [{ key: "K", value }],
+        flagRows: [{ flag: "--f", value }],
+      };
+      const parsed = parseCommandPaste(presetFormToCommand(form, "claude"));
+      expect(parsed.env).toEqual([{ key: "K", value }]);
+      expect(parsed.flags).toEqual([{ flag: "--f", value: value.trim() }]);
+      expect(parsed.command).toBe("claude");
+    }
+  });
 });
 
 describe("presetFormToCommand", () => {

@@ -367,7 +367,13 @@ export function parseCommandPaste(text: string): ParsedCommand {
   for (; index < tokens.length; index++) {
     const match = /^([A-Za-z_][A-Za-z0-9_]*)=([\s\S]*)$/.exec(tokens[index]);
     if (!match) break;
-    env.push({ key: match[1], value: unquote(match[2]) });
+    // NOT `unquote`, deliberately (fixed 2026-09-19). The tokenizer has
+    // already consumed the shell quoting — `K="a b"` arrives here as the one
+    // token `K=a b` — so a second strip would remove a LITERAL pair from the
+    // data: `K="'x'"` became `x` rather than `'x'`, and `K="''"` became the
+    // empty string. `parseEnvPaste` still calls `unquote` and must, because
+    // it splits lines and never tokenizes, so the quotes reach it intact.
+    env.push({ key: match[1], value: match[2] });
   }
   const rest = tokens.slice(index);
   // A token that opens a flag is not a command: a paste may be flags alone.
