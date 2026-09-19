@@ -208,9 +208,9 @@ describe("execUpdate success", () => {
     const digest = new Bun.CryptoHasher("sha256").update(next).digest("hex");
     const host = hostReleaseTarget(process.platform, process.arch);
     if (host === null) throw new Error("test host has no published node target");
-    const hostAsset = releaseAssetNames("node", host).binary;
+    const hostAsset = releaseAssetNames("cli-node", host).binary;
     const manifestBytes = JSON.stringify({
-      component: "node",
+      component: "cli-node",
       version: "0.9.9",
       nodeProtocol: 12,
       minAgentVersion: "0.11.0",

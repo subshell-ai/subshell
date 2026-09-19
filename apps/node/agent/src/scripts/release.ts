@@ -243,7 +243,7 @@ async function main(): Promise<void> {
   const assets: Record<string, string> = {};
   for (const [, { path, digest }] of result.artifacts) assets[basename(path)] = digest;
   const manifest = await writeReleaseManifest(destDir, {
-    component: "node",
+    component: "cli-node",
     version: pkg.version,
     commit: releaseCommit(),
     assets,
@@ -252,7 +252,7 @@ async function main(): Promise<void> {
   // (spec 2026-09-17). With `TAURI_SIGNING_PRIVATE_KEY` set (CI sets it for
   // every shard; the workflow refuses the shard before this step when it is
   // missing), the release is signed and every plane can verify it offline.
-  // Without it the artifacts still publish — a local `release:node` into
+  // Without it the artifacts still publish — a local `release:cli-node` into
   // one's own instance is a legitimate digest-served install — but the
   // operator hears, from this pipeline's own output, that no plane will
   // OFFER it for update until a shard with the key cuts the release.

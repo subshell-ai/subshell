@@ -179,7 +179,7 @@ export interface StatusView {
    *
    * The enroll one-liner (`/install.sh`) can only hand out what sits on this
    * disk, and a binary-only install ships NONE of them — so the Nodes page
-   * fails at the user's terminal until someone runs `release:node`. Same
+   * fails at the user's terminal until someone runs `release:cli-node`. Same
    * class of deploy-time fact as tmux and the MCP rung: print it before
    * anyone has to discover it.
    */

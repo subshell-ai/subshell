@@ -35,7 +35,7 @@ function mockFetch(opts: { admin?: boolean; updateTo?: string | null } = {}) {
             server: {
               current: PUBLIC.serverVersion,
               updateAvailable: to !== null,
-              latest: to === null ? null : { version: to, tag: `server-v${to}` },
+              latest: to === null ? null : { version: to, tag: `cli-server-v${to}` },
             },
           }),
         ),

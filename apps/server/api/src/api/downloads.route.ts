@@ -194,7 +194,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
       "Content-Disposition": `attachment; filename=${nodeArtifactFileName(params.target)}`,
       "Cache-Control": "private, no-cache",
     };
-    // On disk wins, always: a binary an operator published with `release:node`
+    // On disk wins, always: a binary an operator published with `release:cli-node`
     // is what this instance serves, and nothing here second-guesses it.
     if (artifactStat(params.target)) {
       return new Response(Bun.file(artifactPath(params.target)), { headers });

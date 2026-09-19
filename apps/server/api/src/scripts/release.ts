@@ -386,7 +386,7 @@ async function main(): Promise<void> {
   const assets: Record<string, string> = {};
   for (const [, { path, digest }] of result.artifacts) assets[basename(path)] = digest;
   const manifest = await writeReleaseManifest(destDir, {
-    component: "server",
+    component: "cli-server",
     version: pkg.version,
     commit: releaseCommit(),
     assets,

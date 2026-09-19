@@ -504,7 +504,7 @@ async function verifySignedManifest(
     );
   }
   const checked = await updateSeams.verifyManifest(source.manifest.bytes, source.manifest.sig, updateSeams.pubkey, {
-    component: "node",
+    component: "cli-node",
     version,
   });
   if (!checked.ok) {
@@ -513,7 +513,7 @@ async function verifySignedManifest(
       `the release manifest did not verify against the compiled-in publisher pubkey: ${checked.reason}`,
     );
   }
-  const asset = releaseAssetNames("node", target).binary;
+  const asset = releaseAssetNames("cli-node", target).binary;
   const named = checked.manifest.assets[asset];
   if (named === undefined) {
     throw new UpdateRefused(NODE_RESULT_DIGEST_MISMATCH, `the signed manifest for ${version} names no ${asset}`);
@@ -869,13 +869,13 @@ export async function resolveNodeRelease(want?: string): Promise<NodeReleaseOffe
 
   const tags = [...byTag.keys()];
   const chosen = want
-    ? (tags.map((tag) => ({ tag, version: parseReleaseTag("node", tag) })).find((c) => c.version === want) ?? null)
-    : newestRelease("node", tags);
+    ? (tags.map((tag) => ({ tag, version: parseReleaseTag("cli-node", tag) })).find((c) => c.version === want) ?? null)
+    : newestRelease("cli-node", tags);
   if (chosen === null || chosen.version === null) {
-    throw new Error(want ? `${api} publishes no node release ${want}` : `${api} publishes no node-v* release`);
+    throw new Error(want ? `${api} publishes no node release ${want}` : `${api} publishes no cli-node-v* release`);
   }
   const assets = byTag.get(chosen.tag) ?? new Map<string, string>();
-  const { binary } = releaseAssetNames("node", target);
+  const { binary } = releaseAssetNames("cli-node", target);
   const url = assets.get(binary);
   if (!url) throw new Error(`${chosen.tag} publishes no ${binary}`);
 
@@ -916,7 +916,7 @@ export async function resolveNodeRelease(want?: string): Promise<NodeReleaseOffe
     );
   }
   const checked = await updateSeams.verifyManifest(bytes, sig, updateSeams.pubkey, {
-    component: "node",
+    component: "cli-node",
     version: chosen.version,
   });
   if (!checked.ok) throw new Error(`${chosen.tag} is not installable: ${checked.reason}`);

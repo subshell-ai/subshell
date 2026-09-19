@@ -26,7 +26,8 @@ export const SUBSHELL_REPO_SLUG = "subshell-ai/subshell";
  * the whole repository, and this repo publishes four app components plus a
  * release per npm package, so the latest release is very often not the one a
  * caller wants (measured 2026-09-15: `server-v0.6.0` beat `node-v0.8.0` by
- * seconds). The caller filters by tag prefix instead.
+ * seconds — those are the pre-2026-09-18 spellings of what are now
+ * `cli-server-v`/`cli-node-v`). The caller filters by tag prefix instead.
  *
  * `per_page=100` rather than the API's default 30: merging ONE version PR can
  * publish four app releases plus seven npm package releases, so a default page
@@ -38,23 +39,35 @@ export const DEFAULT_RELEASE_API = `https://api.github.com/repos/${SUBSHELL_REPO
 /**
  * The four things this repository cuts releases of — the release-component
  * IDS (`release.yml`'s `matrix.app`), never the directory names.
+ *
+ * Every id reads `<form>-<role>`: which shape a user installs, then which of
+ * the product's three words it is. The CLI pair carried no form marker until
+ * 2026-09-18 (`server`, `node`); `client` as an id stays RETIRED, because it
+ * once published the node agent — the exact overload the vocabulary removes.
  */
-export type ReleaseComponent = "server" | "node" | "desktop-server" | "desktop-client";
+export type ReleaseComponent = "cli-server" | "cli-node" | "desktop-server" | "desktop-client";
 
 /** Every component, for iteration and validation. */
-export const RELEASE_COMPONENTS: readonly ReleaseComponent[] = ["server", "node", "desktop-server", "desktop-client"];
+export const RELEASE_COMPONENTS: readonly ReleaseComponent[] = [
+  "cli-server",
+  "cli-node",
+  "desktop-server",
+  "desktop-client",
+];
 
 /**
  * The git tag prefix each component publishes under.
  *
- * Note that `desktop-server-v` has `server-v` as a suffix but NOT as a prefix,
- * which is why {@link parseReleaseTag} can be a plain `startsWith` — but it is
- * also why {@link newestRelease} must be given a component rather than
- * inferring one from a tag.
+ * No prefix is a prefix OR a suffix of another, which is what lets
+ * {@link parseReleaseTag} be a plain `startsWith`. (Before 2026-09-18 the
+ * suffix half was false — `desktop-server-v` ended with `server-v` — and this
+ * comment existed to say so.) {@link newestRelease} is still given a
+ * component rather than inferring one, because a tag names its component only
+ * by convention and an updater must not guess.
  */
 export const RELEASE_TAG_PREFIX: Record<ReleaseComponent, string> = {
-  server: "server-v",
-  node: "node-v",
+  "cli-server": "cli-server-v",
+  "cli-node": "cli-node-v",
   "desktop-server": "desktop-server-v",
   "desktop-client": "desktop-client-v",
 };
@@ -102,15 +115,18 @@ export function newestRelease(component: ReleaseComponent, tags: readonly string
 /**
  * The two asset names a CLI release carries for one platform.
  *
- * Only `server` and `node` have bare-binary assets; the two desktop components
- * publish bundles whose names carry a version and are built by
+ * Only `cli-server` and `cli-node` have bare-binary assets; the two desktop
+ * components publish bundles whose names carry a version and are built by
  * `desktopArtifactFileName`, so they are not nameable from a target alone.
+ *
+ * The asset names themselves are unchanged by the tag rename — they already
+ * carried `cli`, in the trailing position.
  */
 export function releaseAssetNames(
-  component: "server" | "node",
+  component: "cli-server" | "cli-node",
   target: NodeTarget | ServerTarget,
 ): { binary: string; sidecar: string } {
-  const binary = component === "node" ? nodeArtifactFileName(target) : serverArtifactFileName(target);
+  const binary = component === "cli-node" ? nodeArtifactFileName(target) : serverArtifactFileName(target);
   return { binary, sidecar: `${binary}.sha256` };
 }
 

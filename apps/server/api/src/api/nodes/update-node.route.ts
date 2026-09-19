@@ -269,7 +269,7 @@ export const updateNodeRoute = new Elysia()
           409,
           apiErrorBody({
             code: BackendErrorCodes.NODE_UPDATE_UNAVAILABLE,
-            message: `This server has no ${target} agent binary published and fetches no releases (SUBSHELL_RELEASE_URL is empty); publish one with \`bun run release:node\`, or update that machine by hand`,
+            message: `This server has no ${target} agent binary published and fetches no releases (SUBSHELL_RELEASE_URL is empty); publish one with \`bun run release:cli-node\`, or update that machine by hand`,
           }),
         );
       }

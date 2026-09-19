@@ -81,7 +81,7 @@ const runtime: NodeRuntimeReport = {
 
 /** The version the fake release publishes, chosen above any real one. */
 const RELEASE_VERSION = "9.9.9";
-const RELEASE_TAG = `node-v${RELEASE_VERSION}`;
+const RELEASE_TAG = `cli-node-v${RELEASE_VERSION}`;
 
 /** The armor the fake verifier accepts; the fake release serves exactly this at `/sig`. */
 const TEST_ARMOR = "TEST-ARMOR";
@@ -180,7 +180,7 @@ describe("POST /api/nodes/:id/update", () => {
         }
         if (url.pathname === "/manifest") {
           return Response.json({
-            component: "node",
+            component: "cli-node",
             version: RELEASE_VERSION,
             nodeProtocol: NODE_PROTOCOL_VERSION,
             minAgentVersion: "0.9.0",
@@ -484,7 +484,7 @@ describe("POST /api/nodes/:id/update", () => {
     // rather than trusting this server's bytes.
     expect(cmd.sha256).toBe("a".repeat(64));
     expect(JSON.parse(Buffer.from(String(cmd.manifest), "base64").toString("utf8"))).toMatchObject({
-      component: "node",
+      component: "cli-node",
       version: RELEASE_VERSION,
     });
     expect(cmd.manifestSig).toBe(TEST_ARMOR);

@@ -156,9 +156,9 @@ export function useSetupKeyVerdict() {
     <p className="text-amber-600 text-detail dark:text-amber-400">
       This server has no agent binary for: {missingTargets.join(", ")}, and it is configured not to download one. The
       install command 404s on those machines. Publish the binaries on the server (run{" "}
-      <code className="font-mono">bun run release:node</code> from a checkout, or copy them from a node-vX.Y.Z GitHub
-      Release into that dir), or install the agent another way and run <code className="font-mono">setup</code> there —
-      or add the machine with the Subshell Client app, which ships its own agent.
+      <code className="font-mono">bun run release:cli-node</code> from a checkout, or copy them from a cli-node-vX.Y.Z
+      GitHub Release into that dir), or install the agent another way and run <code className="font-mono">setup</code>{" "}
+      there — or add the machine with the Subshell Client app, which ships its own agent.
     </p>
   );
   // Settings neither loaded nor errored ⇒ no verdict exists; say so instead of

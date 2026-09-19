@@ -83,7 +83,7 @@ export const CLI_SUFFIX = "cli";
  * alongside it). The agent's release pipeline and the backend's downloads route
  * must agree — drift is a 404 on install, which is also why renaming this is a
  * DEPLOY-ORDER fact: an instance's existing `node-artifacts` dir holds the old
- * names until `release:node` republishes into it. `target` is normally a
+ * names until `release:cli-node` republishes into it. `target` is normally a
  * {@link NodeTarget}; the parameter stays a plain string because the release
  * pipeline's scope override schedules a plain-string subset through the same
  * naming.

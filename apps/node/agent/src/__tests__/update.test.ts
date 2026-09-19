@@ -81,12 +81,15 @@ const sha256 = (text: string): string => new Bun.CryptoHasher("sha256").update(t
  * which is exactly what `verifySignedManifest` requires (the digest a node
  * checks is the one the signed map names for the file IT fetched).
  */
-const HOST_ASSET = releaseAssetNames("node", hostReleaseTarget(process.platform, process.arch) ?? "linux-x64").binary;
+const HOST_ASSET = releaseAssetNames(
+  "cli-node",
+  hostReleaseTarget(process.platform, process.arch) ?? "linux-x64",
+).binary;
 
 function signedManifest(digest: string, version = "0.9.1"): UpdateManifestSource {
   return {
     bytes: JSON.stringify({
-      component: "node",
+      component: "cli-node",
       version,
       nodeProtocol: 12,
       minAgentVersion: "0.11.0",
@@ -771,7 +774,7 @@ describe("resolveNodeRelease", () => {
   /** The gh-JSON list shape `resolveNodeRelease` reads: tags with named assets. */
   function releaseList(origin: string, tag: string, names: string[]): string {
     return JSON.stringify([
-      { tag_name: "node-v0.8.0", draft: false, assets: [] },
+      { tag_name: "cli-node-v0.8.0", draft: false, assets: [] },
       {
         tag_name: tag,
         draft: false,
@@ -785,7 +788,7 @@ describe("resolveNodeRelease", () => {
 
   const releaseManifest = (version = "0.9.1"): string =>
     JSON.stringify({
-      component: "node",
+      component: "cli-node",
       version,
       nodeProtocol: 12,
       minAgentVersion: "0.11.0",
@@ -799,7 +802,7 @@ describe("resolveNodeRelease", () => {
   /** The whole fake release: list, manifest, sig, artifact, and a LYING sidecar. */
   function fakeRelease(source: ReturnType<typeof serveReleaseSource>, manifestText: string): void {
     const { origin, routes } = source;
-    routes["/releases"] = releaseList(origin, "node-v0.9.1", [
+    routes["/releases"] = releaseList(origin, "cli-node-v0.9.1", [
       HOST_ASSET,
       `${HOST_ASSET}.sha256`,
       RELEASE_MANIFEST_NAME,
@@ -843,7 +846,7 @@ describe("resolveNodeRelease", () => {
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       // Newest node release wins…
-      expect(result.offer).toMatchObject({ version: "0.9.1", tag: "node-v0.9.1" });
+      expect(result.offer).toMatchObject({ version: "0.9.1", tag: "cli-node-v0.9.1" });
       // …for THIS host's exact artifact, not the decoy triple in the list…
       expect(result.offer.url).toBe(`${source.origin}/dl/${HOST_ASSET}`);
       // …with the digest the signed map names, never the sidecar's. A
@@ -878,7 +881,7 @@ describe("resolveNodeRelease", () => {
       const result = await resolveAgainst(source);
       expect(result.ok).toBe(false);
       if (result.ok) return;
-      expect(result.error.message).toBe("node-v0.9.1 is not installable: test: the fixture signature was refused");
+      expect(result.error.message).toBe("cli-node-v0.9.1 is not installable: test: the fixture signature was refused");
       expect(result.error.message).not.toContain("--from");
       expect([...source.requested].sort()).toEqual(
         [`/dl/${RELEASE_MANIFEST_NAME}`, `/dl/${RELEASE_MANIFEST_SIG_NAME}`, "/releases"].sort(),

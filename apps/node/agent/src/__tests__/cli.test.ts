@@ -852,7 +852,7 @@ describe("update verb (spec 2026-09-15 §5.2)", () => {
    *
    * It bites in an ordinary state rather than a contrived one: `MIN_AGENT_VERSION`
    * and this package are bumped in the SAME commit as a protocol change, so
-   * between that commit and the matching `node-v*` cut the newest published
+   * between that commit and the matching `cli-node-v*` cut the newest published
    * release is genuinely older than the running agent. Under `!==` that read
    * as "available", and a bare `subshell update` then downloaded ~70 MB,
    * swapped the binary, restarted, and was held by the plane's own version

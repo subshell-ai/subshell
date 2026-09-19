@@ -111,7 +111,7 @@ const BINARY_PAYLOAD = payload("a convincing binary");
 function manifestBody(over: Record<string, unknown> = {}): Uint8Array {
   return enc(
     JSON.stringify({
-      component: "node",
+      component: "cli-node",
       version: "9.9.9",
       nodeProtocol: NODE_PROTOCOL_VERSION,
       minAgentVersion: MIN_AGENT_VERSION,
@@ -130,7 +130,7 @@ let fake: Fake;
 
 beforeEach(() => {
   fake = startFakeRelease();
-  fake.tags = [{ tag: "node-v9.9.9" }];
+  fake.tags = [{ tag: "cli-node-v9.9.9" }];
   fake.assets.set(BINARY, BINARY_PAYLOAD.bytes);
   fake.assets.set(SIDECAR, enc(`${BINARY_PAYLOAD.digest}\n`));
   fake.assets.set(RELEASE_MANIFEST_NAME, manifestBody());
@@ -175,16 +175,16 @@ describe("autoFetchEnabled", () => {
 describe("resolveReleases", () => {
   it("indexes the newest release of EVERY component from one read", async () => {
     fake.tags = [
-      { tag: "server-v50.0.0" },
-      { tag: "server-v1.0.0" },
-      { tag: "node-v9.9.9" },
-      { tag: "node-v1.0.0" },
+      { tag: "cli-server-v50.0.0" },
+      { tag: "cli-server-v1.0.0" },
+      { tag: "cli-node-v9.9.9" },
+      { tag: "cli-node-v1.0.0" },
       { tag: "desktop-server-v2.0.0" },
       { tag: "@subshell-ai/plugin-api@1.0.0" },
     ];
     const index = await resolveReleases();
-    expect(index.byComponent.server?.version).toBe("50.0.0");
-    expect(index.byComponent.node?.version).toBe("9.9.9");
+    expect(index.byComponent["cli-server"]?.version).toBe("50.0.0");
+    expect(index.byComponent["cli-node"]?.version).toBe("9.9.9");
     expect(index.byComponent["desktop-server"]?.version).toBe("2.0.0");
     // Nothing published it, so the answer is null rather than a throw: three
     // components resolving must not fail because a fourth has no release.
@@ -205,8 +205,8 @@ describe("resolveReleases", () => {
   it("skips drafts", async () => {
     // The release pipeline publishes draft-then-live, so a cut in flight must
     // never be handed to anyone.
-    fake.tags = [{ tag: "node-v99.0.0", draft: true }, { tag: "node-v9.9.9" }];
-    expect((await resolveReleases()).byComponent.node?.tag).toBe("node-v9.9.9");
+    fake.tags = [{ tag: "cli-node-v99.0.0", draft: true }, { tag: "cli-node-v9.9.9" }];
+    expect((await resolveReleases()).byComponent["cli-node"]?.tag).toBe("cli-node-v9.9.9");
   });
 
   it("names the URL it could not read", async () => {
@@ -223,12 +223,12 @@ describe("resolveReleases", () => {
 describe("compatibleNodeRelease", () => {
   it("offers the newest node release whose manifest matches this server's protocol", async () => {
     const { release, reason } = await compatibleNodeRelease();
-    expect(release?.tag).toBe("node-v9.9.9");
+    expect(release?.tag).toBe("cli-node-v9.9.9");
     expect(reason).toBeNull();
   });
 
   it("refuses a release below the server's own agent floor", async () => {
-    fake.tags = [{ tag: "node-v0.0.1" }];
+    fake.tags = [{ tag: "cli-node-v0.0.1" }];
     const { release, reason } = await compatibleNodeRelease();
     expect(release).toBeNull();
     expect(reason).toMatch(/minimum agent version/);
@@ -277,15 +277,15 @@ describe("compatibleNodeRelease", () => {
   });
 
   it("refuses when the repository publishes no node release", async () => {
-    fake.tags = [{ tag: "server-v1.0.0" }];
-    expect((await compatibleNodeRelease()).reason).toMatch(/no node-v\* release/);
+    fake.tags = [{ tag: "cli-server-v1.0.0" }];
+    expect((await compatibleNodeRelease()).reason).toMatch(/no cli-node-v\* release/);
   });
 });
 
 describe("fetchArtifact", () => {
   it("streams the bytes and caches them once verified", async () => {
     const fetched = await fetchArtifact(TARGET);
-    expect(fetched.tag).toBe("node-v9.9.9");
+    expect(fetched.tag).toBe("cli-node-v9.9.9");
     const bytes = await drain(fetched.stream);
     expect(bytes).toBe(fake.assets.get(BINARY)?.byteLength ?? -1);
     // Cached only after the digest matched, with its sidecar beside it so the
@@ -297,7 +297,7 @@ describe("fetchArtifact", () => {
   it("records what it fetched — tag and the signed manifest's commit — so the file is known to be ours", async () => {
     await drain((await fetchArtifact(TARGET)).stream);
     const manifest = JSON.parse(readFileSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), "utf8"));
-    expect(manifest[TARGET]?.tag).toBe("node-v9.9.9");
+    expect(manifest[TARGET]?.tag).toBe("cli-node-v9.9.9");
     expect(manifest[TARGET]?.digest).toBe((await fetchArtifact(TARGET)).digest);
     // The commit the VERIFIED manifest named (spec 2026-09-17 §5) — the audit
     // trail says what was checked, not merely which tag was current.
@@ -353,7 +353,7 @@ describe("superseding", () => {
     writeFileSync(join(NODE_ARTIFACTS_DIR, "subshell-node-cli-darwin-arm64"), "the operator's own");
     writeFileSync(
       join(NODE_ARTIFACTS_DIR, ".fetched.json"),
-      JSON.stringify({ [TARGET]: { tag: "node-v1.0.0", digest: "x", fetchedAt: "2026-01-01T00:00:00.000Z" } }),
+      JSON.stringify({ [TARGET]: { tag: "cli-node-v1.0.0", digest: "x", fetchedAt: "2026-01-01T00:00:00.000Z" } }),
     );
 
     await drain((await fetchArtifact(TARGET)).stream);
@@ -372,7 +372,9 @@ describe("superseding", () => {
     writeFileSync(darwin, "old darwin build");
     writeFileSync(
       join(NODE_ARTIFACTS_DIR, ".fetched.json"),
-      JSON.stringify({ "darwin-arm64": { tag: "node-v1.0.0", digest: "x", fetchedAt: "2026-01-01T00:00:00.000Z" } }),
+      JSON.stringify({
+        "darwin-arm64": { tag: "cli-node-v1.0.0", digest: "x", fetchedAt: "2026-01-01T00:00:00.000Z" },
+      }),
     );
 
     await drain((await fetchArtifact(TARGET)).stream);
@@ -386,7 +388,9 @@ describe("superseding", () => {
     writeFileSync(join(NODE_ARTIFACTS_DIR, "subshell-node-cli-darwin-arm64"), "current darwin build");
     writeFileSync(
       join(NODE_ARTIFACTS_DIR, ".fetched.json"),
-      JSON.stringify({ "darwin-arm64": { tag: "node-v9.9.9", digest: "x", fetchedAt: "2026-01-01T00:00:00.000Z" } }),
+      JSON.stringify({
+        "darwin-arm64": { tag: "cli-node-v9.9.9", digest: "x", fetchedAt: "2026-01-01T00:00:00.000Z" },
+      }),
     );
     await drain((await fetchArtifact(TARGET)).stream);
     expect(readFileSync(join(NODE_ARTIFACTS_DIR, "subshell-node-cli-darwin-arm64"), "utf8")).toBe(

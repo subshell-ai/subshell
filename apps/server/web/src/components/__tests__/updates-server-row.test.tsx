@@ -47,7 +47,7 @@ describe("the three states of the Server row", () => {
     renderRow(
       serverUpdateView({
         updateAvailable: false,
-        latest: { version: "0.6.0", tag: "server-v0.6.0", publishedAt: null },
+        latest: { version: "0.6.0", tag: "cli-server-v0.6.0", publishedAt: null },
       }),
     );
     // Running and Newest carry the same version — that equality is the sentence.

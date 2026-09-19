@@ -52,7 +52,7 @@ export const updateSeams = {
 };
 
 async function installableCliReleaseServer(): Promise<CliReleaseCheck> {
-  return installableCliRelease("server");
+  return installableCliRelease("cli-server");
 }
 
 /**

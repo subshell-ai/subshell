@@ -24,7 +24,7 @@ const sigText = (): Promise<string> => Bun.file(join(FIX, "release-manifest.sig"
 const publisherPubkey = (): Promise<string> => Bun.file(join(FIX, "publisher-pubkey.txt")).text();
 const otherPubkey = (): Promise<string> => Bun.file(join(FIX, "other-pubkey.txt")).text();
 
-const EXPECTED = { component: "node", version: "9.9.9" } as const;
+const EXPECTED = { component: "cli-node", version: "9.9.9" } as const;
 
 describe("the fixture trio is well-formed", () => {
   it("parses with the production parser, and its digests are digests", async () => {
@@ -32,7 +32,7 @@ describe("the fixture trio is well-formed", () => {
     // would make "the verifier accepts the fixture" test the wrong thing.
     const parsed = parseReleaseManifest((await manifestBytes()).toString("utf8"));
     expect(parsed).not.toBeNull();
-    expect(parsed?.component).toBe("node");
+    expect(parsed?.component).toBe("cli-node");
     expect(parsed?.version).toBe("9.9.9");
     for (const digest of Object.values(parsed?.assets ?? {})) expect(digest).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -77,21 +77,21 @@ describe("verifyReleaseManifest", () => {
     expect(res.ok).toBe(false);
   });
 
-  it("refuses a node release's signature when asked to install a server release — the payload-binding claim", async () => {
+  it("refuses a cli-node release's signature when asked to install a cli-server release — the payload-binding claim", async () => {
     // The signature is VALID and the key is right; the payload just does not
     // say what the caller was told to install. This is the cross-component
     // replay refusal, tested (§5 d).
     const res = await verifyReleaseManifest(await manifestBytes(), await sigText(), await publisherPubkey(), {
-      component: "server",
+      component: "cli-server",
       version: "9.9.9",
     });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.reason).toContain('"server"');
+    if (!res.ok) expect(res.reason).toContain('"cli-server"');
   });
 
   it("refuses a version other than the one the manifest names", async () => {
     const res = await verifyReleaseManifest(await manifestBytes(), await sigText(), await publisherPubkey(), {
-      component: "node",
+      component: "cli-node",
       version: "9.9.8",
     });
     expect(res.ok).toBe(false);
@@ -210,9 +210,9 @@ describe("signReleaseManifestArtifacts", () => {
     await expect(
       signReleaseManifestArtifacts("sk", (await manifestBytes()).toString("utf8"), {
         ...manifest,
-        component: "server",
+        component: "cli-server",
       }),
-    ).rejects.toThrow(/not server 9.9.9/);
+    ).rejects.toThrow(/not cli-server 9.9.9/);
   });
 
   it("shells to the CLI with the key in the ENVIRONMENT only, and returns the .sig beside the file", async () => {

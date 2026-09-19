@@ -76,7 +76,7 @@ function sha256(bytes: Uint8Array): string {
 /** A release whose assets resolve against the fake server. */
 function releaseWith(fake: Fake, version: string, body: string, digestOverride?: string): ResolvedRelease {
   // Every non-host platform is irrelevant here: the job asks for exactly one.
-  const names = releaseAssetNames("server", HOST_TARGET ?? "linux-x64");
+  const names = releaseAssetNames("cli-server", HOST_TARGET ?? "linux-x64");
   const bytes = enc(body);
   fake.assets.set(names.binary, bytes);
   // The job's digest comes from the SIGNED MANIFEST (spec 2026-09-17 §5
@@ -86,7 +86,7 @@ function releaseWith(fake: Fake, version: string, body: string, digestOverride?:
   // stands in for the crypto — the real verifier is pinned by the protocol
   // package's fixture trio.
   const manifest = {
-    component: "server",
+    component: "cli-server",
     version,
     nodeProtocol: 12,
     minAgentVersion: "0.11.0",
@@ -103,8 +103,8 @@ function releaseWith(fake: Fake, version: string, body: string, digestOverride?:
     [RELEASE_MANIFEST_SIG_NAME, assetUrl(RELEASE_MANIFEST_SIG_NAME)],
   ]);
   return {
-    component: "server",
-    tag: `server-v${version}`,
+    component: "cli-server",
+    tag: `cli-server-v${version}`,
     version,
     assets,
     manifest: null,

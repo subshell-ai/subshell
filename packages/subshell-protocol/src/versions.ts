@@ -86,7 +86,7 @@ export function semverLt(a: string, b: string): boolean {
  * it would install whatever digest a commanding plane names, which is the
  * exact silent-downgrade the protocol bump exists to make impossible — so
  * the floor and {@link NODE_SIGNED_UPDATES_PROTOCOL_VERSION} tell one story,
- * and until the matching `node-v*` cut publishes, held-node copy is what
+ * and until the matching `cli-node-v*` cut publishes, held-node copy is what
  * explains the gap to the operator.
  */
 export const MIN_AGENT_VERSION = "0.11.0";

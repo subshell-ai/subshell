@@ -29,7 +29,7 @@
  * - **A file we fetched is ours to replace; a file the operator put there is
  *   not.** Cached artifacts are recorded in a manifest with the release tag
  *   they came from, and only manifest-recorded files are ever superseded or
- *   deleted. A binary published by `release:node` has no manifest entry and is
+ *   deleted. A binary published by `release:cli-node` has no manifest entry and is
  *   left alone forever.
  * - **A node release with no `release-manifest.json` is never offered.** The
  *   manifest is what says which protocol that agent speaks (spec §3.2), and
@@ -407,9 +407,9 @@ export interface CompatibleNodeRelease {
  */
 export async function compatibleNodeRelease(): Promise<CompatibleNodeRelease> {
   const index = await resolveReleases();
-  const release = index.byComponent.node;
+  const release = index.byComponent["cli-node"];
   if (release === null)
-    return { release: null, reason: "the release source publishes no node-v* release", manifest: null };
+    return { release: null, reason: "the release source publishes no cli-node-v* release", manifest: null };
   if (semverLt(release.version, MIN_AGENT_VERSION)) {
     return {
       release: null,
@@ -467,7 +467,7 @@ export type CliReleaseCheck =
  * — a plane must also match protocol and floor — so anything offering a
  * release TO A NODE uses {@link compatibleNodeRelease} instead.
  */
-export async function installableCliRelease(component: "server" | "node"): Promise<CliReleaseCheck> {
+export async function installableCliRelease(component: "cli-server" | "cli-node"): Promise<CliReleaseCheck> {
   let index: ReleaseIndex;
   try {
     index = await resolveReleases();
@@ -553,7 +553,7 @@ async function writeManifest(manifest: FetchedManifest): Promise<void> {
  * laziness the rest of this module keeps.
  *
  * Only manifest-recorded files are touched. A binary an operator published
- * with `release:node` has no entry and is never removed, whatever its age:
+ * with `release:cli-node` has no entry and is never removed, whatever its age:
  * this instance did not put it there and cannot know what it is.
  */
 async function supersede(tag: string): Promise<void> {
@@ -631,7 +631,7 @@ async function fetchArtifactUncoordinated(target: NodeTarget): Promise<FetchedAr
   // reclaims before it spends.
   await supersede(release.tag);
 
-  const names = releaseAssetNames("node", target);
+  const names = releaseAssetNames("cli-node", target);
   const binaryUrl = release.assets.get(names.binary);
   if (!binaryUrl) {
     throw new Error(`${release.tag} publishes no ${names.binary} — this platform is not in that release`);
@@ -728,7 +728,7 @@ async function discard(sink: { end: () => unknown }, tmp: string): Promise<void>
  */
 export async function fetchDigest(target: NodeTarget): Promise<string> {
   const { release, manifest } = await compatibleNodeReleaseOrThrow();
-  const { binary } = releaseAssetNames("node", target);
+  const { binary } = releaseAssetNames("cli-node", target);
   const digest = manifest.manifest.assets[binary];
   if (digest === undefined) throw new Error(`${release.tag}'s signed manifest names no ${binary}`);
   return digest;

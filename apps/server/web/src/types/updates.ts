@@ -12,7 +12,7 @@
 export interface ReleaseRef {
   /** Strict `X.Y.Z`, off the tag. */
   version: string;
-  /** The git tag the release carries (`server-v0.7.0`) — also what a link to the release page needs. */
+  /** The git tag the release carries (`cli-server-v0.7.0`) — also what a link to the release page needs. */
   tag: string;
   /** ISO 8601 from the release source, or null when it did not say. */
   publishedAt: string | null;

@@ -63,8 +63,8 @@ describe("POST /api/admin/server/update", () => {
    */
   function release(version: string): CliReleaseCheck {
     const r: ResolvedRelease = {
-      component: "server",
-      tag: `server-v${version}`,
+      component: "cli-server",
+      tag: `cli-server-v${version}`,
       version,
       assets: new Map(),
       manifest: null,
@@ -76,7 +76,7 @@ describe("POST /api/admin/server/update", () => {
       release: r,
       verified: {
         manifest: {
-          component: "server",
+          component: "cli-server",
           version,
           nodeProtocol: 12,
           minAgentVersion: "0.11.0",

@@ -686,7 +686,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           // SEMVER, not `!==`. The two answers differ exactly when the offer
           // is OLDER, and that is not a hypothetical: `MIN_AGENT_VERSION` and
           // this package are bumped in the same commit as a protocol change,
-          // so between that commit and the matching `node-v*` cut the newest
+          // so between that commit and the matching `cli-node-v*` cut the newest
           // published release IS older than the running agent. `!==` called
           // that "available" and a bare `subshell update` then downloaded
           // ~70 MB, swapped, restarted, and was held by the plane's own floor.

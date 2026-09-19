@@ -8,7 +8,7 @@
  * ```
  *
  * Why a merge step exists at all: every build shard writes its OWN
- * `release-manifest.json` beside its artifact (the local `release:node` run
+ * `release-manifest.json` beside its artifact (the local `release:cli-node` run
  * writes one because it builds every triple in a single process; CI does not
  * — it runs one shard per triple). Before the `assets` map, those per-shard
  * files were byte-identical, so softprops' upload-by-basename collision was
@@ -122,8 +122,8 @@ export function loadShardManifests(paths: readonly string[]): ShardManifest[] {
  * legitimate cuts for no consumer's sake.
  */
 function requiredAssets(manifest: ReleaseManifest): string[] | null {
-  if (manifest.component === "node") return NODE_TARGETS.map((t) => releaseAssetNames("node", t).binary);
-  if (manifest.component === "server") return SERVER_TARGETS.map((t) => releaseAssetNames("server", t).binary);
+  if (manifest.component === "cli-node") return NODE_TARGETS.map((t) => releaseAssetNames("cli-node", t).binary);
+  if (manifest.component === "cli-server") return SERVER_TARGETS.map((t) => releaseAssetNames("cli-server", t).binary);
   return null;
 }
 

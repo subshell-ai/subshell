@@ -316,7 +316,7 @@ export async function signReleaseManifestArtifacts(
  *
  * The key arrives through `TAURI_SIGNING_PRIVATE_KEY` (the desktop shards'
  * secret, reused per D1). Absent key ⇒ `"unsigned-no-key"` and NOTHING is
- * written: a local `release:node` publish-to-your-own-instance stays legal
+ * written: a local `release:cli-node` publish-to-your-own-instance stays legal
  * unsigned — those artifacts are served by digest through the authenticated
  * downloads route — while an operator sees on the pipeline's own output that
  * the release will not be offered for update by any plane. The CI shards

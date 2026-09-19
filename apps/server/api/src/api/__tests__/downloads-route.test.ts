@@ -865,7 +865,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         expect(gone404.stderr).toContain("could not provide a linux-x64 agent binary");
         expect(gone404.stderr).toContain("SUBSHELL_RELEASE_URL");
         expect(gone404.stderr).toContain("subshell-node-cli-linux-x64");
-        expect(gone404.stderr).toContain("GitHub Release"); // the binary-only-host path, not just release:node
+        expect(gone404.stderr).toContain("GitHub Release"); // the binary-only-host path, not just release:cli-node
         // …and it names the ASSET to copy. That name is the artifact name, so
         // it moves whenever the artifact does.
         expect(gone404.stderr).toContain("'subshell-node-cli-linux-x64' asset");
@@ -975,7 +975,7 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
         if (url.pathname === "/releases") {
           return Response.json([
             {
-              tag_name: "node-v9.9.9",
+              tag_name: "cli-node-v9.9.9",
               draft: false,
               assets: [
                 { name: `subshell-node-cli-${TARGET}`, browser_download_url: `${base}/bin` },
@@ -998,7 +998,7 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
         if (url.pathname === "/sig") return new Response(TEST_ARMOR);
         if (url.pathname === "/manifest") {
           return Response.json({
-            component: "node",
+            component: "cli-node",
             version: "9.9.9",
             nodeProtocol: NODE_PROTOCOL_VERSION,
             minAgentVersion: MIN_AGENT_VERSION,
