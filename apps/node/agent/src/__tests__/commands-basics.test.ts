@@ -16,7 +16,7 @@ import {
 import { PROBE_RESULT_BUDGET_BYTES } from "../commands/basics.js";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
-import type { AgentConfig } from "../config.js";
+import type { NodeConfig } from "../config.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
 
 /**
@@ -86,7 +86,7 @@ function makeCtx(spec: Spec, events: NodeEvent[]): { ctx: CommandContext; tmux: 
     paneExitCode: method("paneExitCode"),
     paneSize: method("paneSize"),
   };
-  const config: AgentConfig = {
+  const config: NodeConfig = {
     serverUrl: "http://localhost:1",
     nodeId: "node-1",
     nodeKey: "k",

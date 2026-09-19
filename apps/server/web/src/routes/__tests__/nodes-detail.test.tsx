@@ -16,7 +16,7 @@ import type { NodeDetail } from "@/types/node";
  * rendered through the real route object (its `useParams` is strict), mounted
  * under a minimal memory router the way routeTree.gen wires it.
  */
-function agentNode(overrides: Partial<NodeDetail> = {}): NodeDetail {
+function enrolledNode(overrides: Partial<NodeDetail> = {}): NodeDetail {
   return {
     id: "node1",
     name: "box",
@@ -106,7 +106,7 @@ describe("NodeDetailPage re-check gating", () => {
   // it from them would strip a documented, server-honoured capability.
   // `local` never shows it: its probe is live on every read and recheck 400s.
   it("offers a `view` grantee no Re-check and POSTs nothing", async () => {
-    const { calls, restore } = mockFetch(agentNode({ access: "view", canManage: false }));
+    const { calls, restore } = mockFetch(enrolledNode({ access: "view", canManage: false }));
     try {
       renderDetail("node1");
       await screen.findByText("Your access");
@@ -118,7 +118,7 @@ describe("NodeDetailPage re-check gating", () => {
   });
 
   it("offers an `edit` grantee a working Re-check despite not managing the node", async () => {
-    const { calls, restore } = mockFetch(agentNode({ access: "edit", canManage: false }));
+    const { calls, restore } = mockFetch(enrolledNode({ access: "edit", canManage: false }));
     try {
       renderDetail("node1");
       const btn = await screen.findByRole("button", { name: /Re-check/ });
@@ -136,7 +136,7 @@ describe("NodeDetailPage re-check gating", () => {
   });
 
   it("offers the owner a working Re-check that POSTs once", async () => {
-    const { calls, restore } = mockFetch(agentNode());
+    const { calls, restore } = mockFetch(enrolledNode());
     try {
       renderDetail("node1");
       const btn = await screen.findByRole("button", { name: /Re-check/ });
@@ -151,7 +151,7 @@ describe("NodeDetailPage re-check gating", () => {
   });
 
   it("never offers Re-check on the local node (its probe is live on every read)", async () => {
-    const { restore } = mockFetch(agentNode({ id: "local", kind: "local", access: "owner", canManage: true }));
+    const { restore } = mockFetch(enrolledNode({ id: "local", kind: "local", access: "owner", canManage: true }));
     try {
       renderDetail("local");
       await screen.findByText("Your access");
@@ -169,7 +169,7 @@ describe("NodeDetailPage re-check gating", () => {
    * going to answer.
    */
   it("omits the node-only facts on the local node, and keeps them on an enrolled node", async () => {
-    const local = mockFetch(agentNode({ id: "local", kind: "local", access: "owner", canManage: true }));
+    const local = mockFetch(enrolledNode({ id: "local", kind: "local", access: "owner", canManage: true }));
     try {
       renderDetail("local");
       await screen.findByText("Your access");
@@ -184,7 +184,7 @@ describe("NodeDetailPage re-check gating", () => {
 
     cleanup();
 
-    const agent = mockFetch(agentNode());
+    const agent = mockFetch(enrolledNode());
     try {
       renderDetail("node1");
       await screen.findByText("Your access");
@@ -198,7 +198,7 @@ describe("NodeDetailPage re-check gating", () => {
 
 describe("NodeDetailPage rename (owner-only PATCH)", () => {
   it("offers the inline editor to an enrolled node's owner and PATCHes the name on Enter", async () => {
-    const { calls, restore } = mockFetch(agentNode());
+    const { calls, restore } = mockFetch(enrolledNode());
     try {
       renderDetail("node1");
       const btn = await screen.findByRole("button", { name: "Rename node" });
@@ -219,7 +219,7 @@ describe("NodeDetailPage rename (owner-only PATCH)", () => {
     // The control-plane host's row used to be unrenameable for everyone, which
     // left "Local" reading as the viewer's own machine (spec 2026-09-08). Its
     // `canManage` resolves to admin server-side, so that is the whole gate.
-    const { restore } = mockFetch(agentNode({ id: "local", kind: "local", canManage: true }));
+    const { restore } = mockFetch(enrolledNode({ id: "local", kind: "local", canManage: true }));
     try {
       renderDetail("local");
       await screen.findByText("Your access");
@@ -230,7 +230,7 @@ describe("NodeDetailPage rename (owner-only PATCH)", () => {
   });
 
   it("does not render the editor for `local` when the viewer does not manage it", async () => {
-    const { restore } = mockFetch(agentNode({ id: "local", kind: "local", access: "edit", canManage: false }));
+    const { restore } = mockFetch(enrolledNode({ id: "local", kind: "local", access: "edit", canManage: false }));
     try {
       renderDetail("local");
       await screen.findByText("Your access");
@@ -241,7 +241,7 @@ describe("NodeDetailPage rename (owner-only PATCH)", () => {
   });
 
   it("never renders the editor for a non-manager (the route 403s them too)", async () => {
-    const { restore } = mockFetch(agentNode({ access: "edit", canManage: false }));
+    const { restore } = mockFetch(enrolledNode({ access: "edit", canManage: false }));
     try {
       renderDetail("node1");
       await screen.findByText("Your access");
@@ -257,7 +257,7 @@ describe("NodeDetailPage rotate-key", () => {
 
   it("confirms, POSTs once, and reveals the plaintext key (shown-once card)", async () => {
     setConfirmHandler(() => Promise.resolve(true));
-    const { calls, restore } = mockFetch(agentNode());
+    const { calls, restore } = mockFetch(enrolledNode());
     try {
       renderDetail("node1");
       fireEvent.click(await screen.findByRole("button", { name: /Rotate key/ }));
@@ -285,7 +285,7 @@ describe("NodeDetailPage rotate-key", () => {
         return ok;
       }),
     );
-    const { calls, restore } = mockFetch(agentNode());
+    const { calls, restore } = mockFetch(enrolledNode());
     try {
       renderDetail("node1");
       fireEvent.click(await screen.findByRole("button", { name: /Rotate key/ }));
@@ -301,7 +301,7 @@ describe("NodeDetailPage rotate-key", () => {
   });
 
   it("disables Rotate key for a non-manager", async () => {
-    const { restore } = mockFetch(agentNode({ access: "edit", canManage: false }));
+    const { restore } = mockFetch(enrolledNode({ access: "edit", canManage: false }));
     try {
       renderDetail("node1");
       const btn = await screen.findByRole("button", { name: /Rotate key/ });
@@ -314,7 +314,7 @@ describe("NodeDetailPage rotate-key", () => {
 
 describe("NodeDetailPage protocol-mismatch chip", () => {
   it("chips an offline node whose reported protocol predates the control plane's", async () => {
-    const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: 0 }));
+    const { restore } = mockFetch(enrolledNode({ status: "offline", protocolVersion: 0 }));
     try {
       renderDetail("node1");
       await screen.findByText("Your access");
@@ -326,7 +326,7 @@ describe("NodeDetailPage protocol-mismatch chip", () => {
 
   it("stays silent for a current protocol", async () => {
     // Rides the constant, so a bump cannot leave this asserting a literal.
-    const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: NODE_PROTOCOL_VERSION }));
+    const { restore } = mockFetch(enrolledNode({ status: "offline", protocolVersion: NODE_PROTOCOL_VERSION }));
     try {
       renderDetail("node1");
       await screen.findByText("Your access");
@@ -341,7 +341,7 @@ describe("NodeDetailPage protocol-mismatch chip", () => {
     // plane is refused too — and "offline" alone would send someone to
     // upgrade the node, which is the wrong end. There is no in-window case
     // any more: any mismatch is a deployment out of step.
-    const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: NODE_PROTOCOL_VERSION + 1 }));
+    const { restore } = mockFetch(enrolledNode({ status: "offline", protocolVersion: NODE_PROTOCOL_VERSION + 1 }));
     try {
       renderDetail("node1");
       await screen.findByText("Your access");
@@ -352,7 +352,7 @@ describe("NodeDetailPage protocol-mismatch chip", () => {
   });
 
   it("stays silent for a never-seen node (protocolVersion null)", async () => {
-    const { restore } = mockFetch(agentNode({ status: "offline", protocolVersion: null }));
+    const { restore } = mockFetch(enrolledNode({ status: "offline", protocolVersion: null }));
     try {
       renderDetail("node1");
       await screen.findByText("Your access");
@@ -363,7 +363,7 @@ describe("NodeDetailPage protocol-mismatch chip", () => {
   });
 
   it("stays silent while the node is still online", async () => {
-    const { restore } = mockFetch(agentNode({ status: "online", protocolVersion: 0 }));
+    const { restore } = mockFetch(enrolledNode({ status: "online", protocolVersion: 0 }));
     try {
       renderDetail("node1");
       await screen.findByText("Your access");
@@ -379,7 +379,7 @@ describe("NodeDetailPage node-version floor", () => {
     // The Status page lists such a node and links HERE. Before this badge the
     // link landed on a page showing no warning at all, because the only chip
     // keys off protocolVersion — which a floor-refused node may well match.
-    const { restore } = mockFetch(agentNode({ agentVersion: "0.0.1", protocolVersion: NODE_PROTOCOL_VERSION }));
+    const { restore } = mockFetch(enrolledNode({ agentVersion: "0.0.1", protocolVersion: NODE_PROTOCOL_VERSION }));
     try {
       renderDetail("node1");
       await waitFor(() => expect(screen.getByText(`below minimum (${MIN_NODE_VERSION})`)).toBeDefined());
@@ -389,7 +389,7 @@ describe("NodeDetailPage node-version floor", () => {
   });
 
   it("does not badge a node that meets the floor", async () => {
-    const { restore } = mockFetch(agentNode({ agentVersion: MIN_NODE_VERSION }));
+    const { restore } = mockFetch(enrolledNode({ agentVersion: MIN_NODE_VERSION }));
     try {
       renderDetail("node1");
       await waitFor(() => expect(screen.getByText(MIN_NODE_VERSION)).toBeDefined());

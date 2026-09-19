@@ -6,7 +6,7 @@
 
 export { NODE_CLOSE_SUPERSEDED, NODE_CLOSE_UPDATE_REQUIRED } from "@internal/subshell-protocol";
 export { BACKOFF_BASE_MS, BACKOFF_CAP_MS, backoffDelay } from "./backoff.js";
-export { type AgentConfig, clientHome, configPath, loadConfig, saveConfig } from "./config.js";
+export { clientHome, configPath, loadConfig, type NodeConfig, saveConfig } from "./config.js";
 export {
   type DaemonDeps,
   HEARTBEAT_MS,
@@ -17,7 +17,7 @@ export {
   wsUrlFor,
 } from "./daemon.js";
 export { type EnrollOptions, type EnrollResult, mapOs, type NodeOs, runEnroll } from "./enroll.js";
-export { type AgentIdentity, identityPath, loadOrCreateIdentity } from "./identity.js";
+export { identityPath, loadOrCreateIdentity, type NodeIdentity } from "./identity.js";
 export { buildInventoryEvent, type InventoryEvent } from "./inventory.js";
 export { clearLock, type DaemonLock, isPidAlive, lockPath, readLock, writeLock } from "./lock.js";
 export { runNodeMcp } from "./mcp/main.js";
@@ -33,4 +33,4 @@ export {
   type ServiceState,
   type ServiceVerb,
 } from "./service.js";
-export { AGENT_VERSION } from "./version.js";
+export { NODE_VERSION } from "./version.js";

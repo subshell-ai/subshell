@@ -25,7 +25,17 @@ export enum BackendErrorCodes {
    * NODE_OFFLINE, and the plain 403/404s it produces).
    */
   NODE_LAUNCH_NOT_READY = "NODE_LAUNCH_NOT_READY",
-  /** `POST /api/nodes/:id/restart`: the node's binary predates the `restart` command. */
+  /**
+   * `POST /api/nodes/:id/restart`: the node's binary predates the `restart` command.
+   *
+   * **`AGENT` here is the node daemon, and it stays.** The member name and its
+   * VALUE are the same token, and that value ships as `code` in 409 bodies from
+   * four routes, so it is a published API contract rather than an internal
+   * name — unlike every other node-daemon identifier renamed on 2026-09-18.
+   * Moving it belongs with the `nodes.kind = "agent"` column value, in a change
+   * shaped like a migration. Do not "finish the job" here; the SENTENCES beside
+   * this code are free to say "node", and do.
+   */
   NODE_AGENT_TOO_OLD = "NODE_AGENT_TOO_OLD",
   NODE_NAME_TAKEN = "NODE_NAME_TAKEN",
   /** `POST /api/nodes/:id/restart`: the node is not the process its service manager started, so exiting would not be a restart. */
@@ -164,7 +174,7 @@ export const BackendErrorCodeDefs = {
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_AGENT_TOO_OLD]: {
-    message: "Node agent is too old for this command",
+    message: "This node's binary is too old for this command",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_NAME_TAKEN]: {

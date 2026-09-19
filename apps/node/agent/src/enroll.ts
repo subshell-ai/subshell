@@ -4,7 +4,7 @@ import { BackendErrorCodes } from "@internal/backend-errors";
 import { NODE_NAME_MAX, normalizeNodeName } from "@internal/subshell-protocol";
 import { clientHome, saveConfig } from "./config.js";
 import { loadOrCreateIdentity } from "./identity.js";
-import { AGENT_VERSION } from "./version.js";
+import { NODE_VERSION } from "./version.js";
 
 /**
  * The control plane's os vocabulary — mirrors the `t.Literal` set of
@@ -100,7 +100,7 @@ export async function runEnroll(opts: EnrollOptions): Promise<EnrollResult> {
     os: mapOs(process.platform),
     arch: process.arch,
     hostname: hostname(),
-    agentVersion: AGENT_VERSION,
+    agentVersion: NODE_VERSION,
     publicKey: identity.publicJwk,
   };
 

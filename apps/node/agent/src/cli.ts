@@ -1,6 +1,6 @@
 import { ATTENTION_KINDS, REPORT_VERBS, readMcpEnv, runReport } from "@internal/mcp-core";
 import { licenseNotice, NODE_PROTOCOL_VERSION, semverLt } from "@internal/subshell-protocol";
-import { type AgentConfig, configPath, loadConfig } from "./config.js";
+import { configPath, loadConfig, type NodeConfig } from "./config.js";
 import { runConfigure } from "./configure.js";
 import { probeOnline, runDaemon } from "./daemon.js";
 import { runEnroll } from "./enroll.js";
@@ -39,7 +39,7 @@ import {
   rollbackUpdate,
   type UpdateFailure,
 } from "./update.js";
-import { AGENT_VERSION } from "./version.js";
+import { NODE_VERSION } from "./version.js";
 
 /** Collected output + exit code instead of direct stdio writes, so tests assert both. */
 export interface CliResult {
@@ -391,14 +391,14 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
   try {
     switch (parsed.command) {
       case "version":
-        return { code: 0, out: `subshell ${AGENT_VERSION} (node protocol v${NODE_PROTOCOL_VERSION})\n`, err: "" };
+        return { code: 0, out: `subshell ${NODE_VERSION} (node protocol v${NODE_PROTOCOL_VERSION})\n`, err: "" };
       // Separate from `version` on purpose: `version` is a machine contract
       // (the release smoke matches it, scripts parse it), and this binary
       // ships as a bare single file with no LICENSE beside it — so this
       // subcommand is how a recipient gets the terms both licences oblige us
       // to hand over.
       case "license":
-        return { code: 0, out: licenseNotice("subshell", AGENT_VERSION), err: "" };
+        return { code: 0, out: licenseNotice("subshell", NODE_VERSION), err: "" };
       case "mcp": {
         // The stdio MCP server for one subshell pane (spec §6.4). It is NOT
         // an enrolled-daemon command: no config, no lock, no socket — just the
@@ -692,23 +692,23 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           // ~70 MB, swapped, restarted, and was held by the plane's own floor.
           // `subshell-server update` has always compared this way
           // (`commands/update.ts`); this is the half that had not.
-          const available = semverLt(AGENT_VERSION, offer.version);
+          const available = semverLt(NODE_VERSION, offer.version);
           if (json) {
-            const body = { installed: AGENT_VERSION, latest: offer.version, updateAvailable: available };
+            const body = { installed: NODE_VERSION, latest: offer.version, updateAvailable: available };
             return { code: 0, out: `${JSON.stringify(body, null, 2)}\n`, err: "" };
           }
           const line = available
-            ? `subshell ${offer.version} is available (${offer.where}); this agent is ${AGENT_VERSION}`
-            : `subshell ${AGENT_VERSION} is the newest available`;
+            ? `subshell ${offer.version} is available (${offer.where}); this agent is ${NODE_VERSION}`
+            : `subshell ${NODE_VERSION} is the newest available`;
           return { code: 0, out: `${line}\n${planeHint}`, err: "" };
         }
 
-        if (offer.version === AGENT_VERSION) {
-          const line = `already at subshell ${AGENT_VERSION}`;
+        if (offer.version === NODE_VERSION) {
+          const line = `already at subshell ${NODE_VERSION}`;
           if (json) {
             return {
               code: 0,
-              out: `${JSON.stringify({ from: AGENT_VERSION, to: AGENT_VERSION, changed: false }, null, 2)}\n`,
+              out: `${JSON.stringify({ from: NODE_VERSION, to: NODE_VERSION, changed: false }, null, 2)}\n`,
               err: "",
             };
           }
@@ -720,11 +720,11 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         // the same refusal `subshell-server update` uses; it is deliberately
         // not a silent no-op, because `--from <an older build>` is a real
         // thing to want and only the person holding the file knows why.
-        if (semverLt(offer.version, AGENT_VERSION) && parsed.flags.force !== "1") {
+        if (semverLt(offer.version, NODE_VERSION) && parsed.flags.force !== "1") {
           return {
             code: 1,
             out: "",
-            err: `subshell: ${offer.version} is older than the running ${AGENT_VERSION}; pass --force to install it anyway\n`,
+            err: `subshell: ${offer.version} is older than the running ${NODE_VERSION}; pass --force to install it anyway\n`,
           };
         }
 
@@ -766,13 +766,13 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         // explicit opt-in to the WS connect probe, which can supersede-kick a remote-run
         // agent (registry newest-wins) and says so loudly on stderr. Exit 0 iff online.
         // The nodeKey is NEVER echoed — not even via --json; the 0600 config file is its only home.
-        let cfg: AgentConfig;
+        let cfg: NodeConfig;
         try {
           cfg = await loadConfig();
         } catch (err) {
           const reason = err instanceof Error ? err.message : String(err);
           if (!parsed.flags.json) return fail(1, err);
-          const missing = { nodeId: null, serverUrl: null, online: false, agentVersion: AGENT_VERSION, reason };
+          const missing = { nodeId: null, serverUrl: null, online: false, agentVersion: NODE_VERSION, reason };
           return { code: 1, out: `${JSON.stringify(missing, null, 2)}\n`, err: "" };
         }
         let lock = readLock();
@@ -858,7 +858,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
             nodeId: cfg.nodeId,
             serverUrl: cfg.serverUrl,
             online,
-            agentVersion: AGENT_VERSION,
+            agentVersion: NODE_VERSION,
             // Which rung named `paths.binary`, so "the unit says so" is
             // legible from "this is me". NOT inside `paths`: it is not a path,
             // and that object's key set is pinned as the reset's deletion set.

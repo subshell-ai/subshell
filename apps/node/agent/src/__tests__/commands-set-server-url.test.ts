@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
-import type { AgentConfig } from "../config.js";
+import type { NodeConfig } from "../config.js";
 import { configPath, saveConfig } from "../config.js";
 
 /**
@@ -18,7 +18,7 @@ function isolate(): void {
   process.env.SUBSHELL_CONFIG_HOME = mkdtempSync(join(tmpdir(), "subshell-repoint-"));
 }
 
-const ENROLLED: AgentConfig = {
+const ENROLLED: NodeConfig = {
   serverUrl: "https://old.example.com",
   nodeId: "node-1",
   nodeKey: "nsk_secret",
@@ -50,7 +50,7 @@ describe("set_server_url", () => {
     const res = await dispatchCommand(ctx(), { type: "set_server_url", url: "https://new.example.com" });
     expect(res).toEqual({ ok: true, data: "https://new.example.com" });
 
-    const written = JSON.parse(await readFile(configPath(), "utf8")) as AgentConfig;
+    const written = JSON.parse(await readFile(configPath(), "utf8")) as NodeConfig;
     expect(written.serverUrl).toBe("https://new.example.com");
     // The identity is the whole reason this is not an enroll: the node key's
     // only home is this file, and the plane still has to see the same node.
@@ -66,7 +66,7 @@ describe("set_server_url", () => {
     isolate();
     await saveConfig(ENROLLED);
     await dispatchCommand(ctx(), { type: "set_server_url", url: "https://new.example.com" });
-    const written = JSON.parse(await readFile(configPath(), "utf8")) as AgentConfig;
+    const written = JSON.parse(await readFile(configPath(), "utf8")) as NodeConfig;
     expect(written.nodeWsUrl).toBeUndefined();
   });
 

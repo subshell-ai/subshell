@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { exportJWK, generateKeyPair } from "jose";
 
 /** The node's persisted keypair (JWKs as JSON strings, mirroring the backend store). */
-export interface AgentIdentity {
+export interface NodeIdentity {
   /** Public JWK JSON (P-256 / ECDH-ES) — sent at enroll, registered for sealed delivery. */
   publicJwk: string;
   /** Private JWK JSON — never leaves this file. */
@@ -27,7 +27,7 @@ export function identityPath(dataDir: string): string {
 }
 
 /** Loads the node's keypair, generating and persisting one on first run. */
-export async function loadOrCreateIdentity(dataDir: string): Promise<AgentIdentity> {
+export async function loadOrCreateIdentity(dataDir: string): Promise<NodeIdentity> {
   // The dir will hold the private key material, so a dir WE create gets 0700 —
   // unconditionally chmod'd, because mkdir's `mode` option is masked by the
   // umask and cannot guarantee it. A dir that already exists is left alone:
@@ -63,20 +63,20 @@ export async function loadOrCreateIdentity(dataDir: string): Promise<AgentIdenti
   }
 }
 
-function isIdentity(v: unknown): v is AgentIdentity {
+function isIdentity(v: unknown): v is NodeIdentity {
   return (
     typeof v === "object" &&
     v !== null &&
-    typeof (v as AgentIdentity).publicJwk === "string" &&
-    typeof (v as AgentIdentity).privateJwk === "string"
+    typeof (v as NodeIdentity).publicJwk === "string" &&
+    typeof (v as NodeIdentity).privateJwk === "string"
   );
 }
 
-async function writeFresh(file: string): Promise<AgentIdentity> {
+async function writeFresh(file: string): Promise<NodeIdentity> {
   // Bun's crypto.subtle lacks ECDH generateKey; jose falls back to node:crypto
   // internally (same path @internal/mcp-core's crypto.ts documents).
   const { publicKey, privateKey } = await generateKeyPair("ECDH-ES", { crv: "P-256", extractable: true });
-  const identity: AgentIdentity = {
+  const identity: NodeIdentity = {
     publicJwk: JSON.stringify(await exportJWK(publicKey)),
     privateJwk: JSON.stringify(await exportJWK(privateKey)),
   };

@@ -19,7 +19,7 @@ import { dispatchCommand } from "./commands/index.js";
 import { buildSubshellsReport, maybeReportMaintenance, seedMaintenanceMemo } from "./commands/report.js";
 import { stopAllTails } from "./commands/tail.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
-import type { AgentConfig } from "./config.js";
+import type { NodeConfig } from "./config.js";
 import { loadAndApplyDebugLogging } from "./debug-logging.js";
 import { mapOs } from "./enroll.js";
 import { reportHomeDir } from "./host-env.js";
@@ -30,7 +30,7 @@ import { collectRuntime } from "./runtime.js";
 import { selfInvokePrefix } from "./self-invoke.js";
 import { SubshellMetaStore } from "./subshell-meta.js";
 import { completeUpdate, revertAfterRefusal } from "./update.js";
-import { AGENT_VERSION } from "./version.js";
+import { NODE_VERSION } from "./version.js";
 
 /**
  * `subshell run` — the signed-frame execution loop (spec 2026-08-31 §7).
@@ -203,7 +203,7 @@ export function wsUrlFor(serverUrl: string): string {
  * same node.
  * @param config - the enrolled node's config
  */
-function resolveWsUrl(config: AgentConfig): string {
+function resolveWsUrl(config: NodeConfig): string {
   return config.nodeWsUrl ?? wsUrlFor(config.serverUrl);
 }
 
@@ -270,13 +270,13 @@ export function updateRequiredMessage(reason: string | undefined): string {
 }
 
 function readyEvent(
-  config: AgentConfig,
+  config: NodeConfig,
   runtime: NodeRuntimeReport | null,
   maintenance: NodeMaintenanceWire | undefined,
 ): Extract<NodeEvent, { type: "ready" }> {
   return {
     type: "ready",
-    agentVersion: AGENT_VERSION,
+    agentVersion: NODE_VERSION,
     protocolVersion: NODE_PROTOCOL_VERSION,
     os: mapOs(process.platform),
     arch: process.arch,
@@ -339,7 +339,7 @@ function readyEvent(
  * @param deps - test seams; production omits them entirely
  * @returns `never` — resolves only if the injected `exit` returns (test seam)
  */
-export async function runDaemon(config: AgentConfig, deps: DaemonDeps = {}): Promise<never> {
+export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Promise<never> {
   const rand = deps.rand ?? Math.random;
   const exit = deps.exit ?? ((code: number): never => process.exit(code));
   const WebSocketImpl = deps.WebSocketImpl ?? (globalThis.WebSocket as unknown as WsConstructor);
@@ -880,7 +880,7 @@ export interface OnlineProbeDeps {
  * @param deps - seams for tests
  * @returns true when a socket opened within the cap
  */
-export function probeOnline(config: AgentConfig, deps: OnlineProbeDeps = {}): Promise<boolean> {
+export function probeOnline(config: NodeConfig, deps: OnlineProbeDeps = {}): Promise<boolean> {
   const WebSocketImpl = deps.WebSocketImpl ?? (globalThis.WebSocket as unknown as WsConstructor);
   const timeoutMs = deps.timeoutMs ?? STATUS_PROBE_TIMEOUT_MS;
   return new Promise<boolean>((resolve) => {

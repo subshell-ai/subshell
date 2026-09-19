@@ -68,7 +68,7 @@ describe("screenTitle", () => {
     expect(NODE_SCREEN_IDS as readonly string[]).toContain("update");
     expect(NODE_SCREEN_IDS as readonly string[]).not.toContain("app-update");
     // The title names the APP because the app is what the person opened and
-    // what relaunches. The agent half is the tail of that same act and is
+    // what relaunches. The node half is the tail of that same act and is
     // stated on the screen — `update-act.test.ts` pins both rows — rather than
     // in a heading that would then name two products.
     expect(screenTitle("update")).toBe("Update Subshell Client");

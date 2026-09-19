@@ -24,7 +24,7 @@ afterEach(() => {
 const button = (name: string | RegExp) => screen.getByRole("button", { name }) as HTMLButtonElement;
 const buttonOrNull = (name: string | RegExp) => screen.queryByRole("button", { name }) as HTMLButtonElement | null;
 
-/** An app already at the newest release, so only the agent half can be behind. */
+/** An app already at the newest release, so only the node half can be behind. */
 const APP_CURRENT = { current: "0.6.1", latest: null, notes: null, reason: null };
 
 async function boot(init: Parameters<typeof installFakeIpc>[0] = {}) {
@@ -54,7 +54,7 @@ describe("the status screen's button is a door (§ 7.4)", () => {
     // Nothing was installed by walking through the door — the act asks first.
     expect(fake.callsTo("node_install_cli").length).toBe(0);
     // The half that is behind carries its numbers and its own checkbox — the
-    // app is current here, so the agent row is an act of its own (§ 13.1).
+    // app is current here, so the node row is an act of its own (§ 13.1).
     expect(screen.getByText("Subshell Node CLI")).toBeTruthy();
     expect(screen.getByText("1.9.0")).toBeTruthy();
     expect(screen.getByText("1.10.0")).toBeTruthy();
@@ -285,7 +285,7 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
 describe("the act is a selection (§ 13)", () => {
   const APP_BEHIND = { current: "0.6.1", latest: "0.7.0", notes: null, reason: null };
   /** An agent somebody installed by hand, newer than the one in this bundle. */
-  const AGENT_NEWER = makeProbe({
+  const NODE_NEWER = makeProbe({
     agentChoice: "adopt-installed",
     bundledVersion: "1.9.0",
     agent: { argv: ["/home/u/.local/bin/subshell"], source: "local-bin", version: "1.11.0" },
@@ -299,7 +299,7 @@ describe("the act is a selection (§ 13)", () => {
   }
 
   it("states a newer installed agent rather than naming it as a target", async () => {
-    await openUpdate({ probe: AGENT_NEWER, handlers: { node_check_app_update: () => APP_BEHIND } });
+    await openUpdate({ probe: NODE_NEWER, handlers: { node_check_app_update: () => APP_BEHIND } });
 
     expect(screen.getByText("you run a newer one")).toBeTruthy();
     // Never a disabled checkbox: the reason IS the content of that cell.
@@ -311,7 +311,7 @@ describe("the act is a selection (§ 13)", () => {
     expect(button(/Download and Install 0\.7\.0/).disabled).toBe(false);
   });
 
-  it("hands the agent half its own checkbox once the app half is unticked", async () => {
+  it("hands the node half its own checkbox once the app half is unticked", async () => {
     await openUpdate({ probe: BEHIND, handlers: { node_check_app_update: () => APP_BEHIND } });
 
     // Both behind: both are part of the act, and both are choices. The agent

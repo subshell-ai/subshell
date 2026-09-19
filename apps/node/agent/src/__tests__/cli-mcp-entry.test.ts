@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
  * best-effort `POST /api/identities` (server.ts) — a 2xx JSON stub answers it
  * cleanly. The 12 h token-extension timer is unref'd and never fires here.
  */
-const AGENT_MAIN = fileURLToPath(new URL("../main.ts", import.meta.url));
+const NODE_MAIN = fileURLToPath(new URL("../main.ts", import.meta.url));
 
 test("`subshell mcp` stays alive after connect and answers initialize", async () => {
   const stub = Bun.serve({
@@ -30,7 +30,7 @@ test("`subshell mcp` stays alive after connect and answers initialize", async ()
     fetch: () => Response.json({ ok: true }),
   });
   const dataDir = mkdtempSync(join(tmpdir(), "subshell-mcp-entry-"));
-  const child = Bun.spawn([process.execPath, AGENT_MAIN, "mcp"], {
+  const child = Bun.spawn([process.execPath, NODE_MAIN, "mcp"], {
     cwd: dataDir,
     stdin: "pipe",
     stdout: "pipe",

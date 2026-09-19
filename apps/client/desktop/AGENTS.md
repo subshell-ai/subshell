@@ -1008,7 +1008,7 @@ would take it), and a Subshell Server on the same machine is untouched.
   which spawns `--name` unconditionally now that `subshell enroll` refuses
   without it). It is the same question `subshell setup` asks on a terminal, asked
   here instead because this app hands the CLI arguments rather than a keyboard:
-  `AgentCommand::Enroll` carries `name: String`, so a nameless enroll is not
+  `NodeCommand::Enroll` carries `name: String`, so a nameless enroll is not
   representable. What the control plane stores is `normalizeNodeName`'s output —
   imported from `@internal/subshell-protocol` rather than re-implemented here —
   so a pasted name cannot be clean in this app and collapsed only at the server.

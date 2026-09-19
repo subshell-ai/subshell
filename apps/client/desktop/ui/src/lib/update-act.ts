@@ -48,7 +48,7 @@ import type { AppUpdateCheck, PendingInstall, Probe } from "@/lib/ipc";
 import { paneRisk } from "@/lib/steps";
 
 /** Which half of the act a row is about. */
-export type UpdateRowId = "app" | "agent";
+export type UpdateRowId = "app" | "node";
 
 /**
  * What a component would become.
@@ -119,7 +119,7 @@ export type UpdateSelection = Partial<Record<UpdateRowId, boolean>>;
 export type UpdatePhase = "checking" | "idle" | "downloading" | "finishing" | "done";
 
 /** Which half the primary press runs. */
-export type UpdatePress = "app" | "agent";
+export type UpdatePress = "app" | "node";
 
 /** Everything the act is decided from. */
 export interface UpdateActInput {
@@ -288,21 +288,21 @@ export function updateAct(input: UpdateActInput): UpdateAct {
    * nothing to disagree with, and the install is a first install.
    */
   const unmanaged = probe !== undefined && probe.agent !== null && !probe.managed;
-  const agentHalfRuns = bundled !== null && !unmanaged;
+  const nodeHalfRuns = bundled !== null && !unmanaged;
 
   /**
    * What each half can do, before anyone ticks anything.
    *
-   * `agentNewerInstalled` is the state § 13 was reported from: the ladder
+   * `nodeNewerInstalled` is the state § 13 was reported from: the ladder
    * ADOPTS a node CLI somebody installed by hand when it is newer than the one
    * inside this app (`decide_node`, which never downgrades), so there is no
    * act here at all — and the screen used to name that newer version as a
    * target it would be replaced by.
    */
   const appAvailable = check?.latest != null;
-  const agentBehind = probe?.agentChoice === "upgrade-available" || probe?.agentChoice === "install-bundled";
-  const agentNewerInstalled = probe?.agentChoice === "adopt-installed";
-  const agentAvailable = agentHalfRuns && agentBehind;
+  const nodeBehind = probe?.agentChoice === "upgrade-available" || probe?.agentChoice === "install-bundled";
+  const nodeNewerInstalled = probe?.agentChoice === "adopt-installed";
+  const nodeAvailable = nodeHalfRuns && nodeBehind;
 
   /**
    * The marker, weighed once more against the half that would finish it.
@@ -320,7 +320,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
    * installed one under ANY consent, and an auto-firing marker is a consent
    * given before the machine was in that state.
    */
-  const resume = agentHalfRuns && !agentNewerInstalled ? (probe?.pendingInstall ?? null) : null;
+  const resume = nodeHalfRuns && !nodeNewerInstalled ? (probe?.pendingInstall ?? null) : null;
 
   /**
    * The ticks, resolved.
@@ -345,14 +345,14 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   const appSelected = appAvailable && ticked("app");
   // An act of its OWN, rather than the app act's tail — which is what decides
   // whether the row names a version or says it ships with the new app.
-  const agentStandalone = agentAvailable && !appSelected;
-  const agentSelected = agentStandalone && ticked("agent");
+  const nodeStandalone = nodeAvailable && !appSelected;
+  const nodeSelected = nodeStandalone && ticked("node");
   /** Whether the node half is the app press's TAIL, if the row stays ticked. */
-  const agentRidesIfTicked = appSelected && agentHalfRuns && !agentNewerInstalled;
+  const nodeRidesIfTicked = appSelected && nodeHalfRuns && !nodeNewerInstalled;
   /** Whether the app press ends by installing the node CLI that lands with it. */
-  const agentRidesAlong = agentRidesIfTicked && ticked("agent");
+  const nodeRidesAlong = nodeRidesIfTicked && ticked("node");
   /** Whether the node row is a checkbox at all, on either footing. */
-  const agentTickable = agentStandalone || agentRidesIfTicked;
+  const nodeTickable = nodeStandalone || nodeRidesIfTicked;
 
   const refusals: string[] = [];
   if (unmanaged) {
@@ -370,9 +370,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   // there is nothing here to install.
   if (check?.reason) {
     refusals.push(
-      agentAvailable
-        ? `${check.reason}. The node CLI that ships inside this app can still be installed.`
-        : check.reason,
+      nodeAvailable ? `${check.reason}. The node CLI that ships inside this app can still be installed.` : check.reason,
     );
   }
 
@@ -405,8 +403,8 @@ export function updateAct(input: UpdateActInput): UpdateAct {
    * is what Subshell Server does unconditionally.
    */
   const appInQuestion = check !== undefined && (appAvailable || check.reason !== null);
-  const agentInQuestion = agentBehind || unmanaged;
-  const showTable = appInQuestion || agentInQuestion;
+  const nodeInQuestion = nodeBehind || unmanaged;
+  const showTable = appInQuestion || nodeInQuestion;
   if (showTable) {
     rows.push({
       id: "app",
@@ -439,22 +437,22 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   // The node CLI's own row, on the same gate as the app's — see `showTable`.
   if (showTable) {
     rows.push({
-      id: "agent",
+      id: "node",
       label: NODE_CLI_LABEL,
       from: installedNode ?? NOT_INSTALLED,
       // The target the row would take, ticked or not — an unticked row still
       // has to say what ticking it would do.
-      to: agentRidesIfTicked
+      to: nodeRidesIfTicked
         ? { kind: "with-app" }
-        : agentStandalone
+        : nodeStandalone
           ? { kind: "version", version: bundled }
           : { kind: "none" },
-      selected: agentSelected || agentRidesAlong,
-      selectable: agentTickable && !inFlight,
-      reason: agentRowReason({
+      selected: nodeSelected || nodeRidesAlong,
+      selectable: nodeTickable && !inFlight,
+      reason: nodeRowReason({
         unmanaged,
-        agentNewerInstalled,
-        agentTickable,
+        nodeNewerInstalled,
+        nodeTickable,
         inFlight,
         unknownBundle: bundled === null,
       }),
@@ -474,13 +472,13 @@ export function updateAct(input: UpdateActInput): UpdateAct {
 
   // App first, always: the new bundle carries a newer node CLI, so installing
   // the CLI first installs the outgoing copy.
-  const press: UpdatePress | null = appSelected ? "app" : agentSelected ? "agent" : null;
+  const press: UpdatePress | null = appSelected ? "app" : nodeSelected ? "node" : null;
   /** Something is offered, and the person has unticked all of it. */
-  const nothingSelected = press === null && (appAvailable || agentAvailable);
+  const nothingSelected = press === null && (appAvailable || nodeAvailable);
   const pressLabel =
     press === "app"
       ? `Download and Install ${check?.latest ?? ""}`.trim()
-      : press === "agent"
+      : press === "node"
         ? `Install the node${bundled ? ` (${bundled})` : ""}`
         : // Dead rather than absent (§ 13.1), and lettered with the reason it is
           // dead: a button that still named an act nobody selected would be
@@ -493,7 +491,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
     phase,
     rows,
     refusals,
-    press: silent ? null : retrying ? "agent" : press,
+    press: silent ? null : retrying ? "node" : press,
     pressLabel: silent ? null : retrying ? "Retry" : pressLabel,
     canPress: !silent && !busy && !installingApp && !installingNode && (retrying || press !== null),
     // A refusal is enough to make this false on its own: a machine running
@@ -508,7 +506,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
     // The same fact every other teardown action on this machine reads, never
     // a second reading of it.
     restartCostsPanes: paneRisk(probe),
-    pressInstallsNodeCli: agentRidesAlong,
+    pressInstallsNodeCli: nodeRidesAlong,
   };
 }
 
@@ -519,11 +517,11 @@ export function updateAct(input: UpdateActInput): UpdateAct {
  * flight, nothing at all: the decision has been made and the progress line is
  * what the screen has to say.
  */
-function agentRowReason(at: {
+function nodeRowReason(at: {
   unmanaged: boolean;
-  agentNewerInstalled: boolean;
+  nodeNewerInstalled: boolean;
   /** A checkbox renders here, so nothing else may. */
-  agentTickable: boolean;
+  nodeTickable: boolean;
   inFlight: boolean;
   /** This build does not say which node CLI it ships, so nothing can be offered. */
   unknownBundle: boolean;
@@ -537,12 +535,12 @@ function agentRowReason(at: {
   // machine, and above everything else because a build that will not name what
   // it ships cannot be up to date or behind — it is unanswerable.
   if (at.unknownBundle) return "this build does not say which node CLI it ships";
-  if (at.agentNewerInstalled) return "you run a newer one";
+  if (at.nodeNewerInstalled) return "you run a newer one";
   // A checkbox and a reason are alternatives, never both: a reason beside a
   // live control says "not now" about something that is plainly on offer.
   // "installs with the app" used to sit here, when the row under an app press
   // was a statement rather than a choice; the `to` cell says that now.
-  if (at.agentTickable || at.inFlight) return null;
+  if (at.nodeTickable || at.inFlight) return null;
   return "up to date";
 }
 

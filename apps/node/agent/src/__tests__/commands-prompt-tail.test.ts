@@ -13,7 +13,7 @@ import type { CommandContext, CommandWs } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
 import { execPromptDeliver } from "../commands/prompt.js";
 import { stopAllTails, TAIL_BACKPRESSURE_BYTES, TAIL_CHUNK_BYTES, TAIL_POLL_MS } from "../commands/tail.js";
-import type { AgentConfig } from "../config.js";
+import type { NodeConfig } from "../config.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
 
 /**
@@ -135,7 +135,7 @@ function makeCtx(
   opts: { nowMs?: () => number; ws?: FakeWs } = {},
 ): { ctx: CommandContext; ws: FakeWs } {
   const ws = opts.ws ?? fakeWs();
-  const config: AgentConfig = {
+  const config: NodeConfig = {
     serverUrl: "http://localhost:1",
     nodeId: "node-1",
     nodeKey: "k",

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { type AgentConfig, clientHome, configPath, loadConfig, saveConfig } from "../config.js";
+import { clientHome, configPath, loadConfig, type NodeConfig, saveConfig } from "../config.js";
 import { newHome } from "../test-preload.js";
 
-const sample: AgentConfig = {
+const sample: NodeConfig = {
   serverUrl: "http://localhost:4000",
   nodeId: "node_123",
   nodeKey: "subshell_secret_never_printed",
@@ -72,7 +72,7 @@ test("a hand-edited empty/blank nodeWsUrl is junk → absent, so resolveWsUrl de
  * disk — an old config must load as exactly the shape this code understands,
  * junk keys included.
  */
-test("a stale registryUrl key is inert: loadConfig drops it, the loaded shape is exactly AgentConfig", async () => {
+test("a stale registryUrl key is inert: loadConfig drops it, the loaded shape is exactly NodeConfig", async () => {
   newHome();
   for (const junk of ["http://mirror.internal:4873", "", "   ", 42]) {
     writeFileSync(configPath(), JSON.stringify({ ...sample, registryUrl: junk }));

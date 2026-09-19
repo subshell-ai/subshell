@@ -104,9 +104,9 @@ const CLAUDE = plugin({ id: "claude-code", name: "Claude Code", type: "agent-har
 const TERM = plugin({ id: "terminal", name: "Terminal", type: "terminal" });
 
 const LOCAL = node({ id: "local", name: "this host", kind: "local", access: "view", harnesses: [CLAUDE_ON] });
-const AGENT_ONLINE = node({ id: "a1", name: "mac mini", status: "online", harnesses: [CLAUDE_ON] });
-const AGENT_INCOMPAT = node({ id: "a3", name: "studio", harnesses: [] });
-const AGENT_OFFLINE = node({ id: "a2", name: "old laptop", status: "offline", harnesses: [CLAUDE_ON] });
+const ENROLLED_ONLINE = node({ id: "a1", name: "mac mini", status: "online", harnesses: [CLAUDE_ON] });
+const ENROLLED_INCOMPAT = node({ id: "a3", name: "studio", harnesses: [] });
+const ENROLLED_OFFLINE = node({ id: "a2", name: "old laptop", status: "offline", harnesses: [CLAUDE_ON] });
 
 /** Pathname+search of the most recent /api/presets request — the wire pin. */
 let lastPresetsUrl: string | null = null;
@@ -232,21 +232,21 @@ afterEach(cleanup);
 
 describe("pickNodeDefault", () => {
   it("keeps a valid pick and the local default while local is present", () => {
-    const nodes = [LOCAL, AGENT_ONLINE, AGENT_OFFLINE];
+    const nodes = [LOCAL, ENROLLED_ONLINE, ENROLLED_OFFLINE];
     expect(pickNodeDefault(nodes, "local")).toBe("local");
     expect(pickNodeDefault(nodes, "a1")).toBe("a1");
   });
   it("falls to the sole selectable option when local vanished", () => {
-    expect(pickNodeDefault([AGENT_ONLINE, AGENT_OFFLINE], "local")).toBe("a1");
+    expect(pickNodeDefault([ENROLLED_ONLINE, ENROLLED_OFFLINE], "local")).toBe("a1");
   });
   it("forces an explicit choice when local vanished and several nodes remain", () => {
-    expect(pickNodeDefault([AGENT_ONLINE, AGENT_INCOMPAT], "local")).toBe("");
+    expect(pickNodeDefault([ENROLLED_ONLINE, ENROLLED_INCOMPAT], "local")).toBe("");
   });
 });
 
 describe("NewSubshellForm agent/preset defaults", () => {
   it("defaults to Local, picks an agent, is submittable, and asks Agent before Preset before Node", async () => {
-    const restore = mockFetch([LOCAL, AGENT_ONLINE, AGENT_OFFLINE], [CLAUDE]);
+    const restore = mockFetch([LOCAL, ENROLLED_ONLINE, ENROLLED_OFFLINE], [CLAUDE]);
     try {
       const { latest } = await renderForm();
       expect(screen.getByPlaceholderText("Choose a node")).toBeDefined();
@@ -391,8 +391,8 @@ describe("NewSubshellForm agent/preset defaults", () => {
     // only. Reading the disabled set against the left-behind row parked the
     // old form on an unusable pairing — the agent default must read the node
     // the pick ENDS UP on.
-    const AGENT_ONLY = node({ id: "a1", name: "mac", harnesses: [TERM_ON] });
-    const restore = mockFetch([AGENT_ONLY], [CLAUDE, TERM]);
+    const ENROLLED_ONLY = node({ id: "a1", name: "mac", harnesses: [TERM_ON] });
+    const restore = mockFetch([ENROLLED_ONLY], [CLAUDE, TERM]);
     try {
       const { latest } = await renderForm();
       await waitFor(() => expect(latest().nodeId).toBe("a1"));
@@ -406,7 +406,7 @@ describe("NewSubshellForm agent/preset defaults", () => {
 describe("NewSubshellForm preset row", () => {
   it("lists None first and keeps a foreign preset from surviving the guard", async () => {
     const restore = mockFetch(
-      [LOCAL, AGENT_ONLINE],
+      [LOCAL, ENROLLED_ONLINE],
       [CLAUDE, plugin({ id: "pi", name: "Pi", type: "agent-harness" })],
       [
         preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" }),
@@ -445,7 +445,7 @@ describe("NewSubshellForm preset row", () => {
       harnesses: [TERM_ON],
     });
     const restore = mockFetch(
-      [NO_CLAUDE_LOCAL, AGENT_ONLINE],
+      [NO_CLAUDE_LOCAL, ENROLLED_ONLINE],
       [CLAUDE, TERM],
       [preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" })],
     );
@@ -493,7 +493,7 @@ describe("NewSubshellForm preset row", () => {
       harnesses: [CLAUDE_ON, { harnessId: "pi", name: "Pi", installed: true }],
     });
     const restore = mockFetch(
-      [host, AGENT_ONLINE],
+      [host, ENROLLED_ONLINE],
       [CLAUDE, plugin({ id: "pi", name: "Pi", type: "agent-harness" })],
       [preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" })],
     );
@@ -564,7 +564,7 @@ describe("NewSubshellForm preset row", () => {
 
   it("first run hides the Preset row entirely", async () => {
     // A second machine so the Machine field is on screen at all.
-    const restore = mockFetch([LOCAL, AGENT_ONLINE], [CLAUDE]);
+    const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE]);
     try {
       await renderForm(emptyNewSubshellForm(), false, true);
       const labels = Array.from(document.querySelectorAll("label"), (l) => l.textContent);
@@ -614,7 +614,7 @@ describe("NewSubshellForm honest hints", () => {
   });
 
   it("an offline chosen node never gets the 'nothing installed there' misdiagnosis", async () => {
-    const restore = mockFetch([LOCAL, AGENT_OFFLINE], [CLAUDE]);
+    const restore = mockFetch([LOCAL, ENROLLED_OFFLINE], [CLAUDE]);
     try {
       // holdValue pins the pick on the offline node — the live form re-homes
       // it — so this probes the gate itself: the row reasons already say
@@ -629,7 +629,7 @@ describe("NewSubshellForm honest hints", () => {
   });
 
   it("chosen agent runnable on no visible node → the mirror hint", async () => {
-    const restore = mockFetch([AGENT_INCOMPAT], [CLAUDE]);
+    const restore = mockFetch([ENROLLED_INCOMPAT], [CLAUDE]);
     try {
       await renderForm({ harnessId: "claude-code", presetId: null, workingDir: "/tmp/x", nodeId: "a3" });
       expect(await screen.findByText(/No available node can run Claude Code/)).toBeDefined();
@@ -672,8 +672,8 @@ describe("NewSubshellForm working-dir defaults", () => {
   });
 
   it("takes the directory default from the node the pick ends up on", async () => {
-    const AGENT_ONLY = node({ id: "a1", name: "mac", harnesses: [TERM_ON] });
-    const restore = mockFetch([AGENT_ONLY], [], [], [], (n) => ({
+    const ENROLLED_ONLY = node({ id: "a1", name: "mac", harnesses: [TERM_ON] });
+    const restore = mockFetch([ENROLLED_ONLY], [], [], [], (n) => ({
       paths: [],
       home: n === "a1" ? "/home/on-a1" : "/home/left-behind",
     }));
@@ -693,9 +693,9 @@ describe("NewSubshellForm working-dir defaults", () => {
     // directory that exists only on the abandoned node. The same-pass
     // `reHomed` guard cannot see this ordering; only waiting for the node
     // list can.
-    const AGENT_ONLY = node({ id: "a1", name: "mac", harnesses: [TERM_ON] });
+    const ENROLLED_ONLY = node({ id: "a1", name: "mac", harnesses: [TERM_ON] });
     const restore = mockFetch(
-      [AGENT_ONLY],
+      [ENROLLED_ONLY],
       [],
       [],
       [],
@@ -753,12 +753,12 @@ describe("hideMachineField", () => {
   });
 
   it("keeps it for a lone AGENT — a second machine exists, so the answer is news", () => {
-    expect(hideMachineField([AGENT_ONLINE])).toBe(false);
+    expect(hideMachineField([ENROLLED_ONLINE])).toBe(false);
   });
 
   it("keeps it whenever there is a choice", () => {
-    expect(hideMachineField([LOCAL, AGENT_ONLINE])).toBe(false);
-    expect(hideMachineField([AGENT_ONLINE, AGENT_OFFLINE])).toBe(false);
+    expect(hideMachineField([LOCAL, ENROLLED_ONLINE])).toBe(false);
+    expect(hideMachineField([ENROLLED_ONLINE, ENROLLED_OFFLINE])).toBe(false);
   });
 
   // Nothing to hide, and nothing to ask: the empty state renders instead.
@@ -771,7 +771,7 @@ describe("hideMachineField", () => {
   // beside it is the sole one — and that one keeps the field.
   it("reads canLaunch, not merely the row count", () => {
     const off = node({ id: "local", kind: "local", canLaunch: false });
-    expect(hideMachineField([off, AGENT_ONLINE])).toBe(false);
+    expect(hideMachineField([off, ENROLLED_ONLINE])).toBe(false);
     expect(hideMachineField([off, node({ id: "local2", kind: "local" })])).toBe(true);
   });
 });
@@ -792,12 +792,12 @@ describe("maintenance in the picker's pure rules", () => {
     // the field, would otherwise offer a launch the node itself refuses.
     expect(isSelectable(MAINT)).toBe(false);
     expect(isSelectable({ ...MAINT, canLaunch: true })).toBe(false);
-    expect(isSelectable(AGENT_ONLINE)).toBe(true);
+    expect(isSelectable(ENROLLED_ONLINE)).toBe(true);
   });
 
   it("stays in the launchable list, unlike the share-narrowed host", () => {
     const narrowed = node({ id: "local", kind: "local", canLaunch: false });
-    expect(launchableNodes([MAINT, narrowed, AGENT_ONLINE]).map((n) => n.id)).toEqual(["m1", "a1"]);
+    expect(launchableNodes([MAINT, narrowed, ENROLLED_ONLINE]).map((n) => n.id)).toEqual(["m1", "a1"]);
   });
 
   it("is never auto-picked as the sole option", () => {
@@ -822,13 +822,13 @@ describe("maintenance in the picker's pure rules", () => {
 describe("launchableNodes", () => {
   it("drops what the server says this viewer cannot launch on", () => {
     const off = node({ id: "local", kind: "local", canLaunch: false });
-    expect(launchableNodes([off, AGENT_ONLINE]).map((n) => n.id)).toEqual(["a1"]);
+    expect(launchableNodes([off, ENROLLED_ONLINE]).map((n) => n.id)).toEqual(["a1"]);
   });
 
   // An older server omits the field entirely. It must read as launchable, or
   // a cached page would show "nowhere to launch" against a healthy instance.
   it("treats an absent answer as launchable", () => {
-    expect(launchableNodes([LOCAL, AGENT_ONLINE]).length).toBe(2);
+    expect(launchableNodes([LOCAL, ENROLLED_ONLINE]).length).toBe(2);
   });
 });
 

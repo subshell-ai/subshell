@@ -611,7 +611,7 @@ function offerAppRow(appUpdate: AppUpdateCheck | null, selection: UpdateActSelec
  * prints "Already at X." and exits 0, so the install "succeeds" and the
  * service is restarted: on a definition that does not spare panes, every live
  * subshell on the machine closed for an install that changed nothing. Subshell
- * Client had this right from the start (`agentStandalone = agentAvailable &&
+ * Client had this right from the start (`nodeStandalone = nodeAvailable &&
  * !appSelected`), which is what the two models being read against each other
  * found.
  *

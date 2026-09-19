@@ -501,10 +501,10 @@ describe("terminate / killSubshell", () => {
   });
 
   it("killSubshell swallows the already-gone class only", async () => {
-    for (const agentMsg of ["can't find session: s1", "no session: s1"]) {
+    for (const nodeMsg of ["can't find session: s1", "no session: s1"]) {
       const h = makeHarness();
       h.answer("kill", () => {
-        throw new NodeRpcError("failed", `node "node-1" reported: ${agentMsg}`, "node-1");
+        throw new NodeRpcError("failed", `node "node-1" reported: ${nodeMsg}`, "node-1");
       });
       await h.launcher.killSubshell("subshell-abc", "s1"); // resolves
       expect(h.calls).toEqual([{ cmd: { type: "kill", subshellId: "s1" }, timeoutMs: 10_000 }]);

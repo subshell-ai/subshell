@@ -285,10 +285,10 @@ describe("nodeOffline on views (spec §5.6)", () => {
     });
     const nodeId = "rmgr-node-view";
     const localId = crypto.randomUUID();
-    const agentId = crypto.randomUUID();
+    const remoteSubshellId = crypto.randomUUID();
     for (const [id, node] of [
       [localId, LOCAL_NODE_ID],
-      [agentId, nodeId],
+      [remoteSubshellId, nodeId],
     ] as const) {
       await subshellsRepo.create({
         id,
@@ -305,18 +305,18 @@ describe("nodeOffline on views (spec §5.6)", () => {
     const views = await manager.toViews(await subshellsRepo.listByUser("u1"));
     const byId = new Map(views.map((v) => [v.id, v]));
     expect(byId.get(localId)?.nodeOffline).toBe(false);
-    expect(byId.get(agentId)?.nodeOffline).toBe(true);
+    expect(byId.get(remoteSubshellId)?.nodeOffline).toBe(true);
 
     const off = nodeOnline(nodeId, ["mcp"]);
     try {
       const online = await manager.toViews(await subshellsRepo.listByUser("u1"));
-      expect(new Map(online.map((v) => [v.id, v])).get(agentId)?.nodeOffline).toBe(false);
-      const single = await manager.getSubshell("u1", agentId);
+      expect(new Map(online.map((v) => [v.id, v])).get(remoteSubshellId)?.nodeOffline).toBe(false);
+      const single = await manager.getSubshell("u1", remoteSubshellId);
       expect(single?.nodeOffline).toBe(false);
     } finally {
       off();
     }
-    const singleOffline = await manager.getSubshell("u1", agentId);
+    const singleOffline = await manager.getSubshell("u1", remoteSubshellId);
     expect(singleOffline?.nodeOffline).toBe(true);
   });
 });

@@ -21,7 +21,7 @@ import { clientHome } from "./config.js";
 import { log } from "./log.js";
 import { looksLikeEntryScript, selfInvokePrefix } from "./self-invoke.js";
 import { serviceExecArgv } from "./service.js";
-import { AGENT_VERSION } from "./version.js";
+import { NODE_VERSION } from "./version.js";
 
 /**
  * Replacing this node's own binary (spec 2026-09-15 §5.2).
@@ -116,7 +116,7 @@ export interface ApplyUpdateInput {
   /**
    * How the binary to replace is resolved (default: the real ladder).
    *
-   * A seam for the same reason {@link AgentBinaryDeps} exists at all: the
+   * A seam for the same reason {@link NodeBinaryDeps} exists at all: the
    * ladder asks the SERVICE DEFINITION first, and that read reaches the real
    * launchd/systemd user domain — which no temp directory can hide, because
    * `homedir()` answers from the password database rather than `$HOME`. So on
@@ -124,7 +124,7 @@ export interface ApplyUpdateInput {
    * the developer's own installed agent instead of their fixture, and failed
    * for being right about the host (measured 2026-09-18).
    */
-  binaryDeps?: AgentBinaryDeps;
+  binaryDeps?: NodeBinaryDeps;
 }
 
 /** What the marker file holds, on either side of the swap. */
@@ -203,10 +203,10 @@ async function writeMarker(path: string, body: unknown): Promise<void> {
 }
 
 /** Which rung named the binary. Reported so a person can tell "the unit says so" from "this is me". */
-export type AgentBinarySource = "service definition" | "this process";
+export type NodeBinarySource = "service definition" | "this process";
 
 /** Injectable seams for {@link resolveNodeBinary}, so the ladder is testable without a real unit or plist. */
-export interface AgentBinaryDeps {
+export interface NodeBinaryDeps {
   /** Runtime platform (default: `process.platform`). */
   platform?: NodeJS.Platform;
   /** User home the unit/plist paths hang off (default: `homedir()`). */
@@ -258,8 +258,8 @@ export interface AgentBinaryDeps {
  * worse way to learn it.
  */
 export async function resolveNodeBinary(
-  deps: AgentBinaryDeps = {},
-): Promise<{ binary: string; dir: string; source: AgentBinarySource }> {
+  deps: NodeBinaryDeps = {},
+): Promise<{ binary: string; dir: string; source: NodeBinarySource }> {
   const { binary, source } = await resolveNodeBinaryPath(deps);
   const dir = dirname(binary);
   try {
@@ -297,8 +297,8 @@ export async function resolveNodeBinary(
  * thing about updating and a false thing about where this agent lives.
  */
 export async function resolveNodeBinaryPath(
-  deps: AgentBinaryDeps = {},
-): Promise<{ binary: string; source: AgentBinarySource }> {
+  deps: NodeBinaryDeps = {},
+): Promise<{ binary: string; source: NodeBinarySource }> {
   const argv = await serviceExecArgv({
     platform: deps.platform ?? process.platform,
     home: deps.home ?? homedir(),
@@ -324,7 +324,7 @@ export async function resolveNodeBinaryPath(
   });
 
   let binary: string;
-  let source: AgentBinarySource;
+  let source: NodeBinarySource;
   if (argv !== null) {
     // `execLine()` writes `[...selfInvokePrefix(), <verb>]`, so this agent's
     // definition ALWAYS carries a trailing `run` — a compiled install reads
@@ -622,7 +622,7 @@ export async function applyUpdate(input: ApplyUpdateInput): Promise<AppliedUpdat
   }
 
   const marker: UpdateMarker = {
-    from: AGENT_VERSION,
+    from: NODE_VERSION,
     to: input.version,
     binary,
     previousBinary: previous,
@@ -650,12 +650,12 @@ export async function applyUpdate(input: ApplyUpdateInput): Promise<AppliedUpdat
   log(`installed subshell ${input.version} at ${binary} (previous kept at ${previous})`);
 
   if (!input.restart) {
-    return { from: AGENT_VERSION, to: input.version, binary, restarted: false };
+    return { from: NODE_VERSION, to: input.version, binary, restarted: false };
   }
 
   if (!input.restartService) {
     return {
-      from: AGENT_VERSION,
+      from: NODE_VERSION,
       to: input.version,
       binary,
       restarted: false,
@@ -665,14 +665,14 @@ export async function applyUpdate(input: ApplyUpdateInput): Promise<AppliedUpdat
   const res = await input.restartService(input.force === true);
   if (res.code !== 0) {
     return {
-      from: AGENT_VERSION,
+      from: NODE_VERSION,
       to: input.version,
       binary,
       restarted: false,
       note: (res.err.trim() || res.out.trim() || "the service manager refused the restart").split("\n")[0] ?? "",
     };
   }
-  return { from: AGENT_VERSION, to: input.version, binary, restarted: true };
+  return { from: NODE_VERSION, to: input.version, binary, restarted: true };
 }
 
 /**
@@ -744,7 +744,7 @@ export async function completeUpdate(dataDir: string): Promise<UpdateMarker | nu
 export async function rollbackUpdate(
   dataDir: string,
   /** See {@link ApplyUpdateInput.binaryDeps} — the same host-independence seam. */
-  binaryDeps: AgentBinaryDeps = {},
+  binaryDeps: NodeBinaryDeps = {},
 ): Promise<{ binary: string; to: string }> {
   const { binary } = await resolveNodeBinary(binaryDeps);
   const previous = `${binary}.previous`;

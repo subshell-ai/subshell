@@ -467,7 +467,7 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /**
-   * The pane log's path ON THE NODE (`<agentDataDir>/subshells/<id>.log`,
+   * The pane log's path ON THE NODE (`<nodeDataDir>/subshells/<id>.log`,
    * spec §6.4) — composed from the `ready` facts, no round-trip. Throws
    * {@link NoLiveConnectionError} when the node has no live `ready` (sync
    * member; there is no honest path to answer without facts).
@@ -478,7 +478,7 @@ export class RemoteLauncher implements NodeLauncher {
 
   /**
    * The agent's per-subshell record ON THE NODE:
-   * `<agentDataDir>/subshells/<id>.meta.json` — the twin of
+   * `<nodeDataDir>/subshells/<id>.meta.json` — the twin of
    * `apps/node/agent/src/subshell-meta.ts` (`SubshellMetaStore.metaPath` =
    * `join(dataDir, "subshells", `${id}${".meta.json"}`); pinned equal by test).
    * A deliberate kill leaves this file behind on purpose: the manager feeds it
@@ -494,7 +494,7 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /**
-   * The subshell's MCP registration ON THE NODE: `<agentDataDir>/mcp/<id>.json`
+   * The subshell's MCP registration ON THE NODE: `<nodeDataDir>/mcp/<id>.json`
    * (spec §6.4) — the delete-side twin of the launch-side path
    * `mcp-launch.ts`'s `planRemoteSubshellMcp` composes into the `launch`
    * command from the same facts. The template is deliberately duplicated, not

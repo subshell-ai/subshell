@@ -232,12 +232,12 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
     const id = await makeSubshell(ws, nodeId);
     // Fresh fake agent per upload: its `received` total is stream-running,
     // and each relay is a fresh stream the agent restarts at 0.
-    const agentA = attachFakeNode(nodeId);
+    const nodeA = attachFakeNode(nodeId);
     const resA = await uploadsRoutes.fetch(
       uploadRequest(id, ownerToken, new File([payload(8)], "dup.bin", { type: "application/octet-stream" })),
     );
-    agentA.detach();
-    const agentB = attachFakeNode(nodeId);
+    nodeA.detach();
+    const nodeB = attachFakeNode(nodeId);
     try {
       const resB = await uploadsRoutes.fetch(
         uploadRequest(id, ownerToken, new File([payload(8)], "dup.bin", { type: "application/octet-stream" })),
@@ -258,10 +258,10 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
       expect(a.path).not.toBe(b.path);
       expect(a.path).toBe(join(ws, ".subshell", "uploads", a.name));
       expect(b.path).toBe(join(ws, ".subshell", "uploads", b.name));
-      expect(agentA.cmds.map((c) => c.path)).toEqual([a.path]);
-      expect(agentB.cmds.map((c) => c.path)).toEqual([b.path]);
+      expect(nodeA.cmds.map((c) => c.path)).toEqual([a.path]);
+      expect(nodeB.cmds.map((c) => c.path)).toEqual([b.path]);
     } finally {
-      agentB.detach();
+      nodeB.detach();
     }
   });
 

@@ -8,7 +8,7 @@ import { enforceMode } from "@internal/pane-runtime";
  * node is, its bearer secret, and the pinned control key. Written by
  * `subshell enroll`, read by `run` (T13).
  */
-export interface AgentConfig {
+export interface NodeConfig {
   /** Control-plane base URL as passed to `--server` at enroll time. */
   serverUrl: string;
   /** Server-assigned node id (uuid). */
@@ -60,7 +60,7 @@ export function configPath(): string {
 const REQUIRED_FIELDS = ["serverUrl", "nodeId", "nodeKey", "controlPublicKey", "dataDir", "name"] as const;
 
 /** Persists the config with 0700 dir / 0600 file, then verifies the modes. */
-export async function saveConfig(cfg: AgentConfig): Promise<void> {
+export async function saveConfig(cfg: NodeConfig): Promise<void> {
   const file = configPath();
   const dir = dirname(file);
   // mkdir's mode applies only to the created leaf AND is masked by umask, so
@@ -76,7 +76,7 @@ export async function saveConfig(cfg: AgentConfig): Promise<void> {
  * @throws actionable error when missing (points at `enroll`) or corrupt
  * (never silently re-enrolled — the message says what is wrong).
  */
-export async function loadConfig(): Promise<AgentConfig> {
+export async function loadConfig(): Promise<NodeConfig> {
   const file = configPath();
   let raw: string;
   try {

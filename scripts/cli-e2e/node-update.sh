@@ -38,13 +38,13 @@
 # steps 10 and 11's throwaway ports are the only network anything here opens.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-AGENT="$ROOT/apps/node/agent"
+NODE_APP="$ROOT/apps/node/agent"
 W=$(mktemp -d /tmp/ss-nupd-XXXX)
 # The version bump below is a WORKING-TREE edit, restored on every exit path
 # from a COPY of the file's bytes rather than with `git checkout` — several
 # sessions share one checkout here, and `git checkout -- <path>` would also
 # discard an uncommitted edit somebody else was holding in that file.
-PKG="$AGENT/package.json"
+PKG="$NODE_APP/package.json"
 PKG_BACKUP="$(mktemp /tmp/ss-nupd-pkg-XXXX)"
 cp "$PKG" "$PKG_BACKUP"
 # Step 11 patches the publisher pubkey the way step 2 patches the version —
@@ -93,11 +93,11 @@ export SUBSHELL_RELEASE_URL=""   # `--from` only: this test reaches no network
 export HOME="$W/home"
 mkdir -p "$SUBSHELL_CONFIG_HOME" "$W/data" "$W/bin" "$HOME"
 
-CURRENT=$(bun -e "console.log(require('$AGENT/package.json').version)")
+CURRENT=$(bun -e "console.log(require('$NODE_APP/package.json').version)")
 NEXT="99.0.0"
 
 echo "== 1. install the CURRENT build as ~/bin/subshell ($CURRENT)"
-cp "$AGENT/dist/subshell" "$W/bin/subshell"
+cp "$NODE_APP/dist/subshell" "$W/bin/subshell"
 chmod +x "$W/bin/subshell"
 INSTALLED="$W/bin/subshell"
 "$INSTALLED" version | grep -q "subshell $CURRENT" || fail "the installed binary does not report $CURRENT"
@@ -107,14 +107,14 @@ echo "== 2. build a $NEXT binary from the same source"
 # The version is inlined from package.json by the bundler, so a different
 # version means a different package.json at build time. Edited and restored.
 bun -e "
-  const p = '$AGENT/package.json';
+  const p = '$NODE_APP/package.json';
   const j = JSON.parse(require('fs').readFileSync(p, 'utf8'));
   j.version = '$NEXT';
   require('fs').writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
 "
 # The SAME flags `bun run compile` uses — see server-update.sh for why that is
 # load-bearing rather than tidy.
-(cd "$AGENT" && bun build --compile --bytecode --minify --sourcemap ./src/main.ts \
+(cd "$NODE_APP" && bun build --compile --bytecode --minify --sourcemap ./src/main.ts \
    --outfile "$W/next-subshell" >/dev/null) || fail "could not build the $NEXT binary"
 cp "$PKG_BACKUP" "$PKG"
 "$W/next-subshell" version | grep -q "subshell $NEXT" || fail "the new binary does not report $NEXT"
@@ -298,7 +298,7 @@ mkdir -p "$W/bin2"
 # The SAME flags `bun run compile` uses (see step 2's note on why that is
 # load-bearing). The compiled agent bundles the protocol package's DIST, so
 # the rebuild above is what puts the throwaway armor inside this binary.
-(cd "$AGENT" && bun build --compile --bytecode --minify --sourcemap ./src/main.ts \
+(cd "$NODE_APP" && bun build --compile --bytecode --minify --sourcemap ./src/main.ts \
    --outfile "$W/bin2/subshell" >/dev/null) || fail "could not build the patched-pubkey binary"
 # Restore the source, rebuild the dist FROM it, and retire the backup only
 # after the rebuild succeeded. Retiring it first was the ordering bug: `fail`

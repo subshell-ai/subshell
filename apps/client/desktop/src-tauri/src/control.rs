@@ -16,7 +16,7 @@
 //! paint the "Working…" state it set before calling.
 //!
 //! Three invocations are absent BY CONSTRUCTION rather than by convention, and
-//! [`AgentCommand`] is the closed set that keeps them absent:
+//! [`NodeCommand`] is the closed set that keeps them absent:
 //!
 //! - `subshell status --probe` DIALS the control plane, and the node registry
 //!   is newest-wins, so a probe supersede-kicks whatever agent is live —
@@ -101,7 +101,7 @@ impl ServiceCommand {
 /// [`agent_bin::probe_version`] appends it while walking the ladder, before
 /// there is an agent to build a command for.)
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AgentCommand {
+pub enum NodeCommand {
     /// `status --json` — LOCAL truth only, read from the daemon lock file.
     Status,
     /// `service status --json` — what the service manager reports.
@@ -132,7 +132,7 @@ pub enum AgentCommand {
     Enroll { server: String, key: String, name: String },
     /// `configure --json` — repoint an ALREADY-enrolled node.
     ///
-    /// The non-destructive counterpart to [`AgentCommand::Enroll`], and the
+    /// The non-destructive counterpart to [`NodeCommand::Enroll`], and the
     /// reason it is a separate variant rather than a flag on that one: it
     /// carries no setup key, keeps this node's id and node key, and mints no
     /// second node row. "The control plane moved" had no other answer.
@@ -143,26 +143,26 @@ pub enum AgentCommand {
     Configure { server: String },
 }
 
-impl AgentCommand {
+impl NodeCommand {
     /// The arguments to append to a resolved agent's command prefix.
     pub fn args(&self) -> Vec<String> {
         match self {
-            AgentCommand::Status => vec!["status".into(), "--json".into()],
-            AgentCommand::ServiceStatus => vec!["service".into(), "status".into(), "--json".into()],
+            NodeCommand::Status => vec!["status".into(), "--json".into()],
+            NodeCommand::ServiceStatus => vec!["service".into(), "status".into(), "--json".into()],
             // The CLI refuses `--force` anywhere but `restart`, so passing it
             // elsewhere would turn a stop into a usage error.
-            AgentCommand::Service { verb, force, .. } if *force && *verb == ServiceCommand::Restart => {
+            NodeCommand::Service { verb, force, .. } if *force && *verb == ServiceCommand::Restart => {
                 vec!["service".into(), verb.as_str().into(), "--force".into()]
             }
             // The CLI accepts `--no-autostart` on `install` alone (it is in
             // that subcommand's flag allowlist and nowhere else), so passing
             // it on a stop or a restart would turn the verb into a usage
             // error — the same rule `--force` follows one arm above.
-            AgentCommand::Service { verb, autostart, .. } if *verb == ServiceCommand::Install && !*autostart => {
+            NodeCommand::Service { verb, autostart, .. } if *verb == ServiceCommand::Install && !*autostart => {
                 vec!["service".into(), "install".into(), "--no-autostart".into()]
             }
-            AgentCommand::Service { verb, .. } => vec!["service".into(), verb.as_str().into()],
-            AgentCommand::Enroll { server, key, name } => {
+            NodeCommand::Service { verb, .. } => vec!["service".into(), verb.as_str().into()],
+            NodeCommand::Enroll { server, key, name } => {
                 let mut args = vec![
                     "enroll".into(),
                     "--server".into(),
@@ -177,7 +177,7 @@ impl AgentCommand {
                 args.push("--json".into());
                 args
             }
-            AgentCommand::Configure { server } => {
+            NodeCommand::Configure { server } => {
                 // `--json` for the same reason enroll uses it: the node id and
                 // the stored address come back as data, never screen-scraped
                 // off a human line. The body omits the node key.
@@ -190,22 +190,20 @@ impl AgentCommand {
     /// the service manager or talks to the control plane is not.
     fn timeout(&self) -> Duration {
         match self {
-            AgentCommand::Status | AgentCommand::ServiceStatus => QUERY_TIMEOUT,
-            AgentCommand::Service { .. } | AgentCommand::Enroll { .. } | AgentCommand::Configure { .. } => {
-                ACTION_TIMEOUT
-            }
+            NodeCommand::Status | NodeCommand::ServiceStatus => QUERY_TIMEOUT,
+            NodeCommand::Service { .. } | NodeCommand::Enroll { .. } | NodeCommand::Configure { .. } => ACTION_TIMEOUT,
         }
     }
 }
 
 /// `<agent> <args…>`, or `None` when nothing resolved.
-fn agent_cmd(agent: Option<&AgentBinary>, command: &AgentCommand) -> Option<Vec<String>> {
+fn agent_cmd(agent: Option<&AgentBinary>, command: &NodeCommand) -> Option<Vec<String>> {
     let mut cmd = agent?.argv.clone();
     cmd.extend(command.args());
     Some(cmd)
 }
 
-fn run_agent(agent: Option<&AgentBinary>, command: &AgentCommand) -> Option<Run> {
+fn run_agent(agent: Option<&AgentBinary>, command: &NodeCommand) -> Option<Run> {
     agent_cmd(agent, command).map(|cmd| run(&cmd, command.timeout()))
 }
 
@@ -750,13 +748,13 @@ pub(crate) fn probe_now(configured: Option<&str>) -> Probe {
         ..Default::default()
     };
 
-    if let Some(out) = run_agent(p.agent.as_ref(), &AgentCommand::Status) {
+    if let Some(out) = run_agent(p.agent.as_ref(), &NodeCommand::Status) {
         p.status = json_of(&out);
         if p.status.is_none() {
             p.error = Some(format!("`status --json` failed: {}", out.detail()));
         }
     }
-    if let Some(out) = run_agent(p.agent.as_ref(), &AgentCommand::ServiceStatus) {
+    if let Some(out) = run_agent(p.agent.as_ref(), &NodeCommand::ServiceStatus) {
         p.service = json_of(&out);
         if p.service.is_none() && p.error.is_none() {
             p.error = Some(format!("`service status --json` failed: {}", out.detail()));
@@ -1143,7 +1141,7 @@ pub(crate) fn service_now(
     autostart: bool,
 ) -> ActionResult {
     let agent = agent_bin::resolve(settings.get().binary_path.as_deref());
-    match run_agent(agent.as_ref(), &AgentCommand::Service { verb, force, autostart }) {
+    match run_agent(agent.as_ref(), &NodeCommand::Service { verb, force, autostart }) {
         Some(out) => out.into(),
         None => ActionResult::refused(NO_AGENT),
     }
@@ -1176,7 +1174,7 @@ pub fn node_configure(settings: State<'_, SettingsState>, server: Option<String>
         None => return ActionResult::refused("enter the control plane's URL to repoint this node"),
     };
     let agent = agent_bin::resolve(settings.get().binary_path.as_deref());
-    let command = AgentCommand::Configure { server: server.clone() };
+    let command = NodeCommand::Configure { server: server.clone() };
     let Some(out) = run_agent(agent.as_ref(), &command) else {
         return ActionResult::refused(NO_AGENT);
     };
@@ -1469,7 +1467,7 @@ pub fn node_enroll(
         }
     }
 
-    let Some(out) = run_agent(agent.as_ref(), &AgentCommand::Enroll { server, key, name }) else {
+    let Some(out) = run_agent(agent.as_ref(), &NodeCommand::Enroll { server, key, name }) else {
         return EnrollOutcome::refused(NO_AGENT);
     };
     let node = out.ok().then(|| json_of(&out)).flatten();
@@ -1944,8 +1942,8 @@ pub fn node_open_path(app: AppHandle, target: OpenTarget) -> Result<(), String> 
 mod command_set_tests {
     use super::*;
 
-    fn every_command() -> Vec<AgentCommand> {
-        let mut out = vec![AgentCommand::Status, AgentCommand::ServiceStatus];
+    fn every_command() -> Vec<NodeCommand> {
+        let mut out = vec![NodeCommand::Status, NodeCommand::ServiceStatus];
         for verb in [
             ServiceCommand::Install,
             ServiceCommand::Uninstall,
@@ -1954,14 +1952,14 @@ mod command_set_tests {
             ServiceCommand::Restart,
         ] {
             for force in [false, true] {
-                out.push(AgentCommand::Service {
+                out.push(NodeCommand::Service {
                     verb,
                     force,
                     autostart: true,
                 });
             }
         }
-        out.push(AgentCommand::Enroll {
+        out.push(NodeCommand::Enroll {
             server: "https://subshell.example.com".into(),
             key: "nsk_0123456789012345678901234567890a".into(),
             name: "workstation".into(),
@@ -2000,8 +1998,8 @@ mod command_set_tests {
 
     #[test]
     fn reads_ask_for_json() {
-        assert_eq!(AgentCommand::Status.args(), ["status", "--json"]);
-        assert_eq!(AgentCommand::ServiceStatus.args(), ["service", "status", "--json"]);
+        assert_eq!(NodeCommand::Status.args(), ["status", "--json"]);
+        assert_eq!(NodeCommand::ServiceStatus.args(), ["service", "status", "--json"]);
     }
 
     // The CLI refuses `--force` anywhere but `restart`, so a stop that carried
@@ -2014,7 +2012,7 @@ mod command_set_tests {
             ServiceCommand::Start,
             ServiceCommand::Stop,
         ] {
-            let args = AgentCommand::Service {
+            let args = NodeCommand::Service {
                 verb,
                 force: true,
                 autostart: true,
@@ -2023,7 +2021,7 @@ mod command_set_tests {
             assert!(!args.iter().any(|a| a == "--force"), "{verb:?} kept --force: {args:?}");
         }
         assert_eq!(
-            AgentCommand::Service {
+            NodeCommand::Service {
                 verb: ServiceCommand::Restart,
                 force: true,
                 autostart: true
@@ -2032,7 +2030,7 @@ mod command_set_tests {
             ["service", "restart", "--force"]
         );
         assert_eq!(
-            AgentCommand::Service {
+            NodeCommand::Service {
                 verb: ServiceCommand::Restart,
                 force: false,
                 autostart: true
@@ -2054,7 +2052,7 @@ mod command_set_tests {
             ServiceCommand::Stop,
             ServiceCommand::Restart,
         ] {
-            let args = AgentCommand::Service {
+            let args = NodeCommand::Service {
                 verb,
                 force: false,
                 autostart: false,
@@ -2066,7 +2064,7 @@ mod command_set_tests {
             );
         }
         assert_eq!(
-            AgentCommand::Service {
+            NodeCommand::Service {
                 verb: ServiceCommand::Install,
                 force: false,
                 autostart: false
@@ -2078,7 +2076,7 @@ mod command_set_tests {
         // must keep coming back at login, which is what every caller before
         // the start-up screen expected.
         assert_eq!(
-            AgentCommand::Service {
+            NodeCommand::Service {
                 verb: ServiceCommand::Install,
                 force: false,
                 autostart: true
@@ -2093,7 +2091,7 @@ mod command_set_tests {
         // There is no nameless spelling to test: the variant cannot hold one, and
         // the CLI would refuse it as a usage error. This pins the argv a nameless
         // spawn used to produce — `enroll` without `--name` — is impossible.
-        let args = AgentCommand::Enroll {
+        let args = NodeCommand::Enroll {
             server: "https://x.example".into(),
             key: "nsk_k".into(),
             name: "box".into(),
@@ -2120,7 +2118,7 @@ mod command_set_tests {
     /// either — the plane owns a node's name, and the CLI rejects the flag.
     #[test]
     fn configure_repoints_without_a_setup_key_or_a_rename() {
-        let args = AgentCommand::Configure {
+        let args = NodeCommand::Configure {
             server: "https://subshell.example".into(),
         }
         .args();
@@ -2136,7 +2134,7 @@ mod command_set_tests {
     #[test]
     fn a_repoint_gets_the_action_deadline() {
         assert_eq!(
-            AgentCommand::Configure {
+            NodeCommand::Configure {
                 server: "https://subshell.example".into(),
             }
             .timeout(),
@@ -2148,10 +2146,10 @@ mod command_set_tests {
     // 15 — the CLI's own network deadline is 30.
     #[test]
     fn deadlines_match_what_each_invocation_does() {
-        assert_eq!(AgentCommand::Status.timeout(), QUERY_TIMEOUT);
-        assert_eq!(AgentCommand::ServiceStatus.timeout(), QUERY_TIMEOUT);
+        assert_eq!(NodeCommand::Status.timeout(), QUERY_TIMEOUT);
+        assert_eq!(NodeCommand::ServiceStatus.timeout(), QUERY_TIMEOUT);
         assert_eq!(
-            AgentCommand::Enroll {
+            NodeCommand::Enroll {
                 server: "https://x.example".into(),
                 key: "nsk_k".into(),
                 name: "box".into(),
@@ -2170,10 +2168,10 @@ mod command_set_tests {
             version: Some("1.9.0".into()),
         };
         assert_eq!(
-            agent_cmd(Some(&agent), &AgentCommand::Status).unwrap(),
+            agent_cmd(Some(&agent), &NodeCommand::Status).unwrap(),
             ["/bin/bun", "/repo/main.ts", "status", "--json"]
         );
-        assert!(agent_cmd(None, &AgentCommand::Status).is_none());
+        assert!(agent_cmd(None, &NodeCommand::Status).is_none());
     }
 }
 

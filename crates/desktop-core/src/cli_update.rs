@@ -309,7 +309,7 @@ mod tests {
     ///   `return fail(2, new UsageError(\`unknown command '${parsed.command}'\`))`.
     const SERVER_0_6_0_STDERR: &str =
         "subshell-server: unknown command 'update'\nusage:\n  subshell-server init\n  subshell-server status\n";
-    const AGENT_0_8_0_STDERR: &str = "unknown command 'update'\n";
+    const NODE_0_8_0_STDERR: &str = "unknown command 'update'\n";
 
     // The whole point of the fallback: every install that exists today
     // predates the verb, so without this the desktop offer fails on exactly
@@ -320,9 +320,9 @@ mod tests {
         // usage errors through fail(2). Keying on either number would have
         // silently excluded one app.
         assert!(lacks_update_verb(&run_of(Some(1), "", SERVER_0_6_0_STDERR)));
-        assert!(lacks_update_verb(&run_of(Some(2), "", AGENT_0_8_0_STDERR)));
+        assert!(lacks_update_verb(&run_of(Some(2), "", NODE_0_8_0_STDERR)));
         // And on stdout, in case a future CLI moves its usage text there.
-        assert!(lacks_update_verb(&run_of(Some(1), AGENT_0_8_0_STDERR, "")));
+        assert!(lacks_update_verb(&run_of(Some(1), NODE_0_8_0_STDERR, "")));
     }
 
     // The refusals that must NEVER fall back. Each is a real answer about this

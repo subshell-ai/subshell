@@ -295,7 +295,7 @@ describe("the invocations that must stay unreachable", () => {
   // `status --probe` DIALS the control plane, and the node registry is
   // newest-wins, so a probe supersede-kicks whatever agent is live — possibly
   // one on another machine for this same node (close 4409). The Rust side's
-  // `AgentCommand` enum is the real guard; this is the other half, so the page
+  // `NodeCommand` enum is the real guard; this is the other half, so the page
   // cannot grow an affordance that asks for it.
   it("can emit --probe from no code path", () => {
     for (const file of sourceFiles()) {

@@ -251,9 +251,9 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
       // per-node harness gate must reject it. A local-probe bug would fall
       // through to a real launch (200) instead of this 409. The AGENT copy
       // must name the node, not "this machine".
-      const agentRes = await post({ ...base(claudePresetId, "claude-code"), nodeId });
-      expect(agentRes.status).toBe(409);
-      expect(((await agentRes.json()) as { message: string }).message).toBe(
+      const nodeRes = await post({ ...base(claudePresetId, "claude-code"), nodeId });
+      expect(nodeRes.status).toBe(409);
+      expect(((await nodeRes.json()) as { message: string }).message).toBe(
         "That harness is disabled or not installed on that node",
       );
     } finally {

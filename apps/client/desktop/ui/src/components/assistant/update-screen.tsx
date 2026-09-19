@@ -128,9 +128,9 @@ export function UpdateScreen(props: {
    * press records the output it saw, and a verdict is only read once the
    * runner has produced a different one.
    */
-  const [awaiting, setAwaiting] = useState<{ act: "agent" | "restart"; since: ActionResult | null } | null>(null);
+  const [awaiting, setAwaiting] = useState<{ act: "node" | "restart"; since: ActionResult | null } | null>(null);
   const watchFor = useCallback(
-    (act: "agent" | "restart") => setAwaiting({ act, since: runner.output }),
+    (act: "node" | "restart") => setAwaiting({ act, since: runner.output }),
     [runner.output],
   );
 
@@ -148,7 +148,7 @@ export function UpdateScreen(props: {
     const answered = runner.output !== awaiting.since || runner.failure !== "";
     if (!answered) return;
     const succeeded = runner.output?.ok === true;
-    if (succeeded && awaiting.act === "agent") {
+    if (succeeded && awaiting.act === "node") {
       setInstalledNodeHere(true);
       setRestartedHere(false);
     }
@@ -175,7 +175,7 @@ export function UpdateScreen(props: {
     probe,
     checking: isFetching,
     installingApp: installApp.isPending,
-    installingNode: awaiting?.act === "agent" && runner.busy,
+    installingNode: awaiting?.act === "node" && runner.busy,
     installedNodeHere,
     restartedHere,
     busy: runner.busy,
@@ -204,7 +204,7 @@ export function UpdateScreen(props: {
   useEffect(() => {
     if (resumed.current || !resuming || runner.busy) return;
     resumed.current = true;
-    watchFor("agent");
+    watchFor("node");
     installNode.current();
   }, [resuming, runner.busy, watchFor]);
 
@@ -218,7 +218,7 @@ export function UpdateScreen(props: {
       installApp.mutate(act.pressInstallsNodeCli);
       return;
     }
-    watchFor("agent");
+    watchFor("node");
     // A resumed or retried act was already consented to in phase 1; a direct
     // press on a node CLI that is merely behind has had no such moment, so it
     // goes through the command that asks first.

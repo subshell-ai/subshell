@@ -12,7 +12,7 @@ import { lockPath } from "../lock.js";
 import { agentLogPath } from "../log-file.js";
 import { DEFAULT_DEPS } from "../service.js";
 import { newHome } from "../test-preload.js";
-import { AGENT_VERSION } from "../version.js";
+import { NODE_VERSION } from "../version.js";
 
 /** The canned 201 the real route sends (spec §5.2). */
 const CANNED = {
@@ -97,7 +97,7 @@ test("enroll posts the route-shaped body, persists config at 0600, exits 0", asy
   expect(seen?.name).toBe("test node"); // required now; the hostname default is gone
   expect(seen?.hostname).toBe(hostname());
   expect(seen?.setupKey).toBe("nsk_test_0123456789");
-  expect(seen?.agentVersion).toBe(AGENT_VERSION);
+  expect(seen?.agentVersion).toBe(NODE_VERSION);
   const pub = JSON.parse(String(seen?.publicKey));
   expect(pub).toMatchObject({ kty: "EC", crv: "P-256" });
   expect("d" in pub).toBe(false);
@@ -417,7 +417,7 @@ test("version prints agent version + node protocol version", async () => {
   // package.json (changesets bumped 0.1.0 → 0.2.0 and this assertion red on
   // the FIRST release PR) and the protocol rides the constant
   // (`node-frames.test.ts` pins the constant itself).
-  expect(res.out).toInclude(AGENT_VERSION);
+  expect(res.out).toInclude(NODE_VERSION);
   expect(res.out).toInclude(`protocol v${NODE_PROTOCOL_VERSION}`);
 });
 
@@ -437,7 +437,7 @@ test("status probes the node socket (T13) and never prints the node key", async 
   const json = await run(["status", "--json"]);
   expect(json.code).toBe(1);
   const parsed = JSON.parse(json.out) as Record<string, unknown>;
-  expect(parsed).toMatchObject({ nodeId: "node_test_1", serverUrl: url, online: false, agentVersion: AGENT_VERSION });
+  expect(parsed).toMatchObject({ nodeId: "node_test_1", serverUrl: url, online: false, agentVersion: NODE_VERSION });
   expect("nodeKey" in parsed).toBe(false);
 });
 
@@ -449,7 +449,7 @@ test("status --json without a config: JSON still prints (online:false + reason),
   expect(parsed.online).toBe(false);
   expect(parsed.nodeId).toBeNull();
   expect(typeof parsed.reason).toBe("string");
-  expect(parsed.agentVersion).toBe(AGENT_VERSION);
+  expect(parsed.agentVersion).toBe(NODE_VERSION);
   // Nothing to name a reset's targets against — no cfg, no dataDir.
   expect("paths" in parsed).toBe(false);
   // The WHOLE key set, not a field list: `status` is a surface a person pastes

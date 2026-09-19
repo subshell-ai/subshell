@@ -9,7 +9,7 @@ import { BASE_URL } from "../ports";
  * Resolved from `import.meta.url` like `ADMIN_STATE`, so the CWD the run is
  * launched from never matters.
  */
-export const AGENT_MAIN = new URL("../../apps/node/agent/src/main.ts", import.meta.url).pathname;
+export const NODE_MAIN = new URL("../../apps/node/agent/src/main.ts", import.meta.url).pathname;
 
 /** The e2e stub `pi` harness — the agent's inventory reports it (via PI_PATH). */
 export const STUB_PI = new URL("./pi", import.meta.url).pathname;
@@ -44,7 +44,7 @@ export interface RunningNode {
 }
 
 /** The agent's env: config isolation + the stub harness + an owned tmux home. */
-function agentEnv(o: StartNodeOptions): NodeJS.ProcessEnv {
+function nodeEnv(o: StartNodeOptions): NodeJS.ProcessEnv {
   // TMUX/TMUX_PANE must not leak in (a suite run from inside a tmux session
   // would otherwise nest the pane server inside the caller's), and
   // TMUX_TMPDIR redirects `-L` sockets into `tmuxBase` so the caller's
@@ -61,7 +61,7 @@ function agentEnv(o: StartNodeOptions): NodeJS.ProcessEnv {
 /** Runs a one-shot agent invocation (enroll) to completion, output captured. */
 async function runOneShot(args: string[], env: NodeJS.ProcessEnv): Promise<{ code: number; out: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn("bun", [AGENT_MAIN, ...args], { env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("bun", [NODE_MAIN, ...args], { env, stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     child.stdout.on("data", (d: Buffer) => (out += d.toString()));
     child.stderr.on("data", (d: Buffer) => (out += d.toString()));
@@ -89,7 +89,7 @@ async function runOneShot(args: string[], env: NodeJS.ProcessEnv): Promise<{ cod
  * caller's to sweep via `tmuxBase`).
  */
 export async function startNode(o: StartNodeOptions): Promise<RunningNode> {
-  const env = agentEnv(o);
+  const env = nodeEnv(o);
   const enroll = await runOneShot(
     ["enroll", "--server", o.server ?? BASE_URL, "--key", o.setupKey, "--name", o.name, "--data-dir", o.dataDir],
     env,
@@ -98,7 +98,7 @@ export async function startNode(o: StartNodeOptions): Promise<RunningNode> {
     throw new Error(`subshell enroll exited ${enroll.code}\n--- agent output ---\n${enroll.out}`);
   }
 
-  const child = spawn("bun", [AGENT_MAIN, "run"], { detached: true, env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn("bun", [NODE_MAIN, "run"], { detached: true, env, stdio: ["ignore", "pipe", "pipe"] });
   // A successful spawn always has a pid; the type just cannot prove it.
   const pgid = child.pid as number;
   const ring: string[] = [];
