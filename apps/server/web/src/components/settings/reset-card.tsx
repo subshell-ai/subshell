@@ -31,7 +31,7 @@ export function ResetServerCard(): JSX.Element {
         <CardDescription>
           Stops and uninstalls the Subshell Server service, closes this machine&apos;s panes, and deletes the instance
           data: accounts, sessions, API keys, signing keys, pane logs, plugins, and the server configuration. Enrolled
-          nodes and any subshell node on this machine are not touched and will need to be re-enrolled or stopped
+          nodes and any subshell daemon on this machine are not touched and will need to be re-enrolled or stopped
           separately. The installed server binary stays. There is no undo.
         </CardDescription>
       </CardHeader>

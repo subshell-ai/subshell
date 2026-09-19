@@ -1498,7 +1498,7 @@ describe("the screens", () => {
   it("says it does not recognise a step this build predates", async () => {
     await boot({ probe: makeProbe({ step: "quantum-superposition" as never }) });
     expect(screen.getByText(/does not recognise the state "quantum-superposition"/)).toBeTruthy();
-    expect(screen.getByText(/older than the node CLI it/)).toBeTruthy();
+    expect(screen.getByText(/older than the node CLI it is managing/)).toBeTruthy();
     expect(screen.getByText("Unknown")).toBeTruthy();
     expect(buttonOrNull("Refresh")).not.toBeNull();
     expect(screen.getByText("Show Details")).toBeTruthy();

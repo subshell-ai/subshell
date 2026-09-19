@@ -34,8 +34,8 @@ const UpdateBodySchema = t.Object({
 });
 
 const UpdateResponseSchema = t.Object({
-  ok: t.Literal(true, { description: "The agent accepted the update and is restarting into the new binary" }),
-  from: t.String({ description: "The agent version that was running there" }),
+  ok: t.Literal(true, { description: "The node accepted the update and is restarting into the new binary" }),
+  from: t.String({ description: "The node version that was running there" }),
   to: t.String({ description: "The version installed" }),
   url: t.String({
     description:
@@ -50,16 +50,16 @@ interface Refusal {
 }
 
 /**
- * The agent's refusal → an API code and message.
+ * The node's refusal → an API code and message.
  *
- * Matched on `NodeRpcError.detail` — the agent's `result.error` VERBATIM — by
+ * Matched on `NodeRpcError.detail` — the node's `result.error` VERBATIM — by
  * equality against the protocol's own constants, exactly as
  * `service-node.route.ts` does and for the same reason: `err.message` wraps
  * that string in a sentence this module does not own, so a substring match
  * would change meaning the day the sentence is reworded.
  *
  * `unsupported` is the one that matters most here, because it is the ORDINARY
- * answer from the machines this feature exists for: an agent below the floor
+ * answer from the machines this feature exists for: a node below the floor
  * has no `update` executor, so a held node running anything older than 0.9.0
  * lands here. The message names the verb to type at the keyboard, which is the
  * only remedy left for it.
@@ -72,14 +72,14 @@ function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown"
     return {
       code: BackendErrorCodes.NODE_AGENT_TOO_OLD,
       message:
-        "That agent predates the update command, so this server cannot replace it from here; update this node by hand with `subshell update` on that machine",
+        "That node predates the update command, so this server cannot replace it from here; update this node by hand with `subshell update` on that machine",
     };
   }
   if (err.detail === NODE_RESULT_NOT_SUPERVISED) {
     return {
       code: BackendErrorCodes.NODE_NOT_SUPERVISED,
       message:
-        "That agent is not running under a service manager, so nothing would restart it into the new binary; update it where it was started",
+        "That node is not running under a service manager, so nothing would restart it into the new binary; update it where it was started",
     };
   }
   if (err.detail === NODE_RESULT_KILLS_PANES) {
@@ -95,7 +95,7 @@ function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown"
     return {
       code: BackendErrorCodes.NODE_UPDATE_FAILED,
       message:
-        "That agent runs from a source checkout rather than a compiled binary, so there is no file to replace; update that checkout instead",
+        "That node runs from a source checkout rather than a compiled binary, so there is no file to replace; update that checkout instead",
     };
   }
   if (err.detail === NODE_RESULT_DOWNLOAD_FAILED) {
@@ -122,13 +122,13 @@ function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown"
   if (err.detail === NODE_RESULT_MANIFEST_UNVERIFIED) {
     // The node refused on the PUBLISHER's signature. The plane verified the
     // same manifest before sending, so this detail arriving here means the
-    // two ends disagree about the release — which names the agent's build
+    // two ends disagree about the release — which names the node's build
     // (an old pubkey baked in) or the release source (two assets for one
     // tag), not this command.
     return {
       code: BackendErrorCodes.NODE_UPDATE_FAILED,
       message:
-        "That node refused the release because the publisher signature on its manifest did not verify against the key compiled into the agent, so nothing was installed there. Its binary is untouched",
+        "That node refused the release because the publisher signature on its manifest did not verify against the key compiled into its binary, so nothing was installed there. Its binary is untouched",
     };
   }
   if (err.code === "failed") {
@@ -138,10 +138,10 @@ function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown"
 }
 
 /**
- * `POST /api/nodes/:id/update` — replace an enrolled node's agent binary
+ * `POST /api/nodes/:id/update` — replace an enrolled node's own binary
  * (spec 2026-09-15 §5.3).
  *
- * **This is the route a HELD node exists for.** An agent the plane refuses for
+ * **This is the route a HELD node exists for.** A node the plane refuses for
  * its version or its protocol is no longer dropped: `node-ws-handler` holds its
  * socket, offline for every purpose but this one, and `sendCommand` routes to
  * the held socket when there is no live one. So the machine that most needs
@@ -163,7 +163,7 @@ function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown"
  * **The URL carries a single-use token, not a node credential.** A node key can
  * do nothing on REST (security §5.5) and that stays true — `update-tokens.ts`
  * mints a value good for one download of one triple for ten minutes, which the
- * agent presents instead.
+ * node presents instead.
  */
 export const updateNodeRoute = new Elysia()
   .use(authGuard)
@@ -203,7 +203,7 @@ export const updateNodeRoute = new Elysia()
         );
       }
 
-      // Protocol before anything else (spec 2026-09-17 §6): an agent below 12
+      // Protocol before anything else (spec 2026-09-17 §6): a node below 12
       // parses the `update` command but IGNORES `manifest`/`manifestSig`, so
       // sending it the signed release would silently install on the old
       // trust rule — the exact downgrade this whole change closes. Held rows
@@ -222,7 +222,7 @@ export const updateNodeRoute = new Elysia()
       }
 
       // WHICH version to offer is `compatibleNodeRelease`, never "the newest":
-      // installing an agent this plane cannot talk to would enrol, reconnect
+      // installing a node this plane cannot talk to would enrol, reconnect
       // and be held forever — which is the exact state this route exists to
       // get a machine OUT of, so producing it here would be a loop.
       const { release, reason, manifest } = await compatibleNodeRelease().catch((err: unknown) => ({
@@ -262,7 +262,7 @@ export const updateNodeRoute = new Elysia()
       }
 
       // The node downloads from THIS server, so the artifact has to be on disk
-      // or fetchable before the command goes out — otherwise the agent gets a
+      // or fetchable before the command goes out — otherwise the node gets a
       // 404 and reports a download failure whose real cause is here.
       if (!artifactStat(target) && !autoFetchEnabled()) {
         return status(
@@ -326,8 +326,8 @@ export const updateNodeRoute = new Elysia()
       } catch (err) {
         if (err instanceof NodeRpcError) {
           // A TIMEOUT is the one failure that may not be one. Every other
-          // refusal here is the agent SAYING it did nothing; a timeout is the
-          // agent saying nothing at all, and this command's deadline is five
+          // refusal here is the node SAYING it did nothing; a timeout is the
+          // node saying nothing at all, and this command's deadline is five
           // minutes because it contains a ~70 MB download — so a node whose
           // link is slower than that installs the binary, restarts, and comes
           // back on the new version while this request answers 409. Without
@@ -377,7 +377,7 @@ export const updateNodeRoute = new Elysia()
         operationId: "updateNode",
         tags: ["nodes"],
         description:
-          "Replace an enrolled node's agent binary with the release this server can talk to, and restart it into the new version. Works on a HELD node — one the plane refuses for its version or protocol — which is the case it exists for. 409 when offline, when no compatible release can be offered, when there is no artifact for that platform, and for every refusal the agent itself raises",
+          "Replace an enrolled node's own binary with the release this server can talk to, and restart it into the new version. Works on a HELD node — one the plane refuses for its version or protocol — which is the case it exists for. 409 when offline, when no compatible release can be offered, when there is no artifact for that platform, and for every refusal the node itself raises",
       },
     },
   );

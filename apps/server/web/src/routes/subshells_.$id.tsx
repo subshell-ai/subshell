@@ -206,7 +206,7 @@ function SubshellPage() {
         subtitle={subshell?.workingDir}
         actions={
           <>
-            {/* Node-offline outranks `exited` (spec §5.6): with no live agent
+            {/* Node-offline outranks `exited` (spec §5.6): with no live node
                 the process state is unobservable, not dead — same precedence
                 the home cards use. `findTakesRow` covers the phone Find-bar
                 vacate (see its definition). */}

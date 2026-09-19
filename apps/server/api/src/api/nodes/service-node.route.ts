@@ -20,7 +20,7 @@ import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 const ServiceBodySchema = t.Object({
   verb: t.Union(
     NODE_SERVICE_VERBS.map((v) => t.Literal(v)),
-    { description: "Which service-manager action to perform on the node's agent" },
+    { description: "Which service-manager action to perform on the node" },
   ),
   force: t.Optional(
     t.Boolean({
@@ -30,15 +30,15 @@ const ServiceBodySchema = t.Object({
 });
 
 const ServiceResponseSchema = t.Object({
-  ok: t.Literal(true, { description: "The agent accepted the verb" }),
-  detail: t.Optional(t.String({ description: "The agent's own words about what it did, when it said anything" })),
+  ok: t.Literal(true, { description: "The node accepted the verb" }),
+  detail: t.Optional(t.String({ description: "The node's own words about what it did, when it said anything" })),
 });
 
 /**
  * The two verbs an `edit` grantee may not perform.
  *
  * Not a permission subtlety — a structural one. Every command reaches a node
- * over the AGENT'S OWN socket, so the plane can never start an agent that is
+ * over the NODE'S OWN socket, so the plane can never start a node that is
  * not running: `stop` and `uninstall` end the connection that would have
  * carried the verb undoing them. They are one-way from a browser, and only
  * someone with a shell on that machine can reverse them.
@@ -56,9 +56,9 @@ interface Refusal {
 }
 
 /**
- * The agent's refusal → an API code and message.
+ * The node's refusal → an API code and message.
  *
- * Matched on `NodeRpcError.detail`, the agent's `result.error` VERBATIM,
+ * Matched on `NodeRpcError.detail`, the node's `result.error` VERBATIM,
  * by equality against the protocol's own constants. Not on `err.message`,
  * which wraps that string in a sentence this module does not own — a
  * substring match there would silently change meaning the day that sentence
@@ -67,7 +67,7 @@ interface Refusal {
  * unreachable code rather than being guessed at.
  *
  * `paneSafety` decides the WORDING of the kills-panes refusal but never the
- * code: the agent sends one string for both `kills` and `unknown`, because
+ * code: the node sends one string for both `kills` and `unknown`, because
  * its destructive verbs fail closed on a definition they could not read. Only
  * the plane knows which of the two it was, and telling someone their panes
  * WILL die when the truth is that nobody could tell is the kind of certainty
@@ -87,7 +87,7 @@ function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown"
     return {
       code: BackendErrorCodes.NODE_NOT_SUPERVISED,
       message:
-        "That agent is not running under a service manager, so exiting it would stop it rather than restart it; restart it where it was started",
+        "That node is not running under a service manager, so exiting it would stop it rather than restart it; restart it where it was started",
     };
   }
   if (err.detail === NODE_RESULT_NO_SERVICE) {
@@ -114,7 +114,7 @@ function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown"
  * (spec 2026-09-12, node half § 5).
  *
  * One route for all five verbs, because they are one manager and one set of
- * refusals. `restart` is the verb this route used to BE: the agent exits 0 and
+ * refusals. `restart` is the verb this route used to BE: the node exits 0 and
  * its manager respawns it.
  *
  * Gate: cookie only, owner or `edit` (`nodeCanConfigure`, the same gate
@@ -125,7 +125,7 @@ function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown"
  *
  * No new trust: the plane already runs arbitrary launches on an enrolled node,
  * and the command travels the same signed channel as every other one. The
- * AGENT decides — it refuses when its manager did not start it, when nothing
+ * NODE decides — it refuses when its manager did not start it, when nothing
  * is installed, and (like `subshell service restart`) when its definition
  * would take live panes down without `force`.
  *
@@ -176,7 +176,7 @@ export const serviceNodeRoute = new Elysia()
           }),
         );
       }
-      // Read before sending: the connection is what carries the agent's own
+      // Read before sending: the connection is what carries the node's own
       // pane-safety report, and the command is about to take that socket down.
       const paneSafety = getLive(gate.row.id)?.agent?.runtime?.service.paneSafety;
       let detail: string | undefined;

@@ -10,7 +10,7 @@ import { newHome } from "../test-preload.js";
 import { darwinServiceStub, LOG, linuxServiceStub, serviceStub, TARGET, UNIT } from "./helpers/service-stub.js";
 
 /** A line only the usage block carries — proof an exit-2 path printed it. */
-const USAGE_MARKER = "subshell: node agent daemon";
+const USAGE_MARKER = "subshell: node daemon";
 
 describe("--flag=value parsing", () => {
   test("=-form fills the same flag map as the space form", () => {

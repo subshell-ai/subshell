@@ -59,7 +59,7 @@ export interface CliResult {
   keepAlive?: boolean;
 }
 
-const USAGE = `subshell: node agent daemon
+const USAGE = `subshell: node daemon
 
 usage:
   subshell setup --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
@@ -76,7 +76,7 @@ usage:
   subshell configure --server <url> [--json]
                           repoint an ALREADY-enrolled node at a different control
                           plane. Keeps this node's identity and spends no setup
-                          key; restart the agent to apply. Does NOT rename: the
+                          key; restart the node to apply. Does NOT rename: the
                           plane owns a node's name (the Nodes page).
   subshell run
   subshell service install [--no-autostart]   (systemd user unit / launchd agent)
@@ -93,7 +93,7 @@ usage:
   subshell status [--json] [--probe]
   subshell update [--check] [--to <version>] [--from <file>] [--force] [--yes]
                   [--json] [--no-restart]
-                          replace this agent's own binary with a newer one and
+                          replace this node's own binary with a newer one and
                           restart into it. --check only says what is available.
                           --from installs a local file instead of downloading.
                           --force allows a downgrade, and overrides the
@@ -611,7 +611,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           code: 0,
           out:
             `node ${next.nodeId} "${next.name}" now points at ${next.serverUrl}\n` +
-            "restart the agent to apply it: subshell service restart (or restart `subshell run`)\n",
+            "restart the node to apply it: subshell service restart (or restart `subshell run`)\n",
           err: "",
         };
       }

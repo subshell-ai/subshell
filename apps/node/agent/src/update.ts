@@ -24,7 +24,7 @@ import { serviceExecArgv } from "./service.js";
 import { AGENT_VERSION } from "./version.js";
 
 /**
- * Replacing this agent's own binary (spec 2026-09-15 §5.2).
+ * Replacing this node's own binary (spec 2026-09-15 §5.2).
  *
  * The node half of the shared shape: **every install of a binary is a
  * transaction the NEW binary completes at boot.** The updater process cannot
@@ -270,7 +270,7 @@ export async function resolveAgentBinary(
       NODE_RESULT_NOT_COMPILED,
       source === "service definition"
         ? `the installed service names ${binary}, which cannot be read: ${err instanceof Error ? err.message : String(err)}`
-        : `cannot read this agent's own binary at ${binary}: ${err instanceof Error ? err.message : String(err)}`,
+        : `cannot read this node's own binary at ${binary}: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   try {
