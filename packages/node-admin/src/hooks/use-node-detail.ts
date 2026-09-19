@@ -165,12 +165,12 @@ export function useNodeService(id: string) {
         body: JSON.stringify(body),
       }),
     // Every verb here changes the runtime report the card is drawn from —
-    // whether a definition exists, whether it starts at login, the pid — and
-    // this mutation used to write nothing back. The node detail query does NOT
-    // poll, so "Install service" left the card showing "not installed" until
-    // someone navigated away and back. `restart` is the one verb with its own
-    // waiter (the node's socket has to return first); the rest are answered
-    // by the node that is still connected, so a refetch now is correct.
+    // whether a definition exists, whether it starts at login, the pid. The
+    // view DOES poll (5 s), so a change self-heals within a poll cycle — but
+    // this invalidates so "Install service" reads installed NOW rather than up
+    // to five seconds later. `restart` is the one verb with its own waiter (the
+    // socket has to return first); the rest are answered by the node that is
+    // still connected, so a refetch now is correct.
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] });
     },
@@ -181,8 +181,9 @@ export function useNodeService(id: string) {
  * The debug-logging switch for one node.
  *
  * Writes the fresh flag straight into the node cache on success rather than
- * refetching: the answer IS the new state, and the node detail query does not
- * poll, so an invalidation would be a round trip for something already known.
+ * invalidating: the answer IS the new state, so a write-through beats a refetch
+ * round trip for something already known (the view's 5 s poll would land it
+ * anyway, but a poll-cycle later and for no added truth).
  */
 export function useSetNodeLogging(id: string) {
   const queryClient = useQueryClient();

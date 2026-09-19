@@ -802,15 +802,22 @@ The browser, however, is new, and three refusals cover it (`dashboard/guards.ts`
 
 What is deliberately NOT here: tokens, cookies, sessions, CORS. Nothing sets
 a cookie, so there is nothing to steal; the API answers any loopback-HOST
-request. **The accepted gap is the multi-user host**: another local user can
-reach 127.0.0.1 as readily as this one, and can flip maintenance, stop the
-service, or repoint the agent — exactly what they can already do by running
-`subshell` (and by attaching the world-executable tmux server, and, for that
-matter, by reading the 0600 `config.json` they own). Same class as every
-local-OS-user exposure in §11; the dashboard adds a keyboard-less path, not
-a new privilege. Single-user machines — the product's assumption — have no
-second user to worry about. `SUBSHELL_DASHBOARD=0` turns the surface off
-entirely for anyone who does not want it.
+request. **The accepted gap is the multi-user host, and it is a widening, not a
+parity.** A second local user can reach `127.0.0.1` as readily as the owner
+and, because the port has no credential, flip maintenance (killing the owner's
+panes), stop the service, or **repoint the agent** — and that last one is a real
+disclosure, not a restatement: the daemon dials whatever address is typed
+carrying `Authorization: Bearer <nodeKey>`, a credential valid on the plane. It
+is NOT true that such a user could already do this: they cannot read the owner's
+0600 `config.json` (that mode is precisely why the key is kept from them), and
+their own `subshell` drives their own node, not the victim's. The no-auth
+loopback port hands them a keyboard-less path to acts the file's permissions
+were meant to withhold. We accept it on the product's **single-user assumption**
+— a machine with a second untrusted user is outside the posture §12 is written
+for — and say so plainly rather than dressing it as "no new privilege," so the
+next reader does not cite this as precedent that the 0600 boundary was already
+defeated. On such a host, `SUBSHELL_DASHBOARD=0` turns the surface off entirely;
+it is the right default there, and only the operator can decide to set it.
 
 The rest is the standing accounting, unchanged by this surface:
 

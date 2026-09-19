@@ -153,21 +153,24 @@ test("PUT logging answers the setting echo; the env-forced case refuses 409", as
   }
 });
 
-test("service verbs answer the plane's ServiceResult, and refusals are DATA (ok:false), not status", async () => {
+test("service refusals answer 409 with the plane's sentence — the shape the card treats as failure", async () => {
   const cfg = await enrolled();
-  // No daemon state ⇒ runtime null ⇒ the most specific refusal, verbatim
-  // constant, in a 200 body — the plane's 409 mapping is the web's job and
-  // the cards already do it.
+  // No daemon state ⇒ runtime null ⇒ the most specific refusal. It MUST be a
+  // non-2xx: `useNodeService` resolves on any 2xx and `NodeServiceCard.run()`
+  // prints `res.detail` as a *success* line, reaching its red-failure branch
+  // only when the fetch rejects — which is exactly how the plane's 409 refusal
+  // surfaces. A 200-with-ok:false would render "no service manager" as if the
+  // verb had worked.
   setDaemonState({ runtime: null });
   const r = await call(cfg, "POST", "/api/nodes/self/service", { verb: "restart" });
-  expect(r.status).toBe(200);
+  expect(r.status).toBe(409);
   const b = await r.json();
-  expect(b.ok).toBe(false);
-  // The plane's contract for a refused verb is a SENTENCE the card prints,
-  // not the wire constant — the dashboard owns its half of that mapping
-  // (`serviceRefusal`), and "that node" reads wrong on the machine itself.
-  expect(b.detail).toContain("not running under a service manager");
-  expect(b.detail.startsWith("This ")).toBe(true);
+  // `message` is the key `lib/api.ts` reads; `error` is this surface's own key.
+  // Both carry the sentence the dashboard mapped (`serviceRefusal`), and
+  // "that node" reads wrong on the machine itself.
+  expect(b.message).toContain("not running under a service manager");
+  expect(b.error).toBe(b.message);
+  expect(b.message.startsWith("This ")).toBe(true);
 
   // A verb the schema does not know never reaches the executor: Elysia's own
   // validation answers it (a 4xx of its making, not a ServiceResult) before

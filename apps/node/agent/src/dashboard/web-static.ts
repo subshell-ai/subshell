@@ -136,7 +136,7 @@ export function openWebStatic(distDir = dashboardDistDir()): WebStatic {
       source: "embedded",
       serve: (pathname) => {
         const key = safeKey(pathname);
-        if (key !== undefined && key !== null && EMBEDDED_WEB[key] !== undefined) {
+        if (key !== null && EMBEDDED_WEB[key] !== undefined) {
           const e = entryFor(key);
           const ext = extOf(key);
           const cc = ext === ".html" ? HTML_HEADERS["Cache-Control"] : assetCacheControl(ext);

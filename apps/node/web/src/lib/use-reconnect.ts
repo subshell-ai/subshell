@@ -31,7 +31,11 @@ export function useReconnect(): boolean {
 
   const { error } = useQuery({
     queryKey: ["reachability"],
-    queryFn: () => apiFetch<unknown>("/api/nodes/self"),
+    // `/api/self` on purpose, not `/api/nodes/self`: the probe only needs to
+    // know whether the daemon answers, and `/api/self` is config-only, while
+    // the node view runs `liveSubshellCount` — one `tmux has-subshell` spawn
+    // per meta record, every 1.5 s here, on top of the pages' own 5 s poll.
+    queryFn: () => apiFetch<unknown>("/api/self"),
     refetchInterval: 1_500,
     retry: 0,
     staleTime: 0,

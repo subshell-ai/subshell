@@ -464,9 +464,12 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           return fail(2, new Error(`--dashboard-port: not a port: ${String(rawPort)}`));
         }
         // loadConfig's enroll-pointing throw is the ONE thing that answers
-        // before anything binds — the same operational refusal (exit 1) `setup`,
-        // `configure` and `status` give for a machine with nothing enrolled,
-        // reached through the outer catch that maps a plain Error to 1. Checked
+        // before anything binds — the same operational refusal (exit 1) every
+        // config-reading verb (`configure`, `status`, `run`, `maintenance`,
+        // `update`) gives for a machine with nothing enrolled, reached through
+        // the outer catch that maps a plain Error to 1. (`setup` is the one
+        // config-adjacent verb that exits 0 here — it CREATES the enrollment.)
+        // Checked
         // AFTER the port parse: a machine with nothing enrolled and a typo'd
         // port deserves to hear about the typo (that one IS a usage error, so
         // exit 2 above it), which is the thing it can act on tonight.

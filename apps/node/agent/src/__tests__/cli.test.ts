@@ -479,10 +479,12 @@ describe("dashboard verb (spec 2026-09-19)", () => {
 
   test("the unenrolled machine gets the enroll-pointing refusal, not a server", async () => {
     // newHome() means no config.json; the verb answers code 1 with the
-    // pointer — the same rule `setup`, `configure` and `status` follow for a
-    // command with nothing enrolled (AGENTS.md: "refuses (exit 1, nothing
-    // enrolled)"). It is `parseArgs` and the port flag that are the usage
-    // (exit 2) half; a missing config is the operational-refusal (exit 1) half.
+    // pointer — the same operational refusal every config-reading verb
+    // (`configure`, `status`, `run`, `maintenance`, `update`) gives for a
+    // machine with nothing enrolled. (`setup` is the exception: it CREATES the
+    // enrollment, so an unenrolled machine is its happy path, not a refusal.)
+    // `parseArgs` and the port flag are the usage (exit 2) half; a missing
+    // config is the operational-refusal (exit 1) half.
     newHome();
     const res = await run(["dashboard"]);
     expect(res.code).toBe(1);

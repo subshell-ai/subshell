@@ -75,9 +75,19 @@ function notFound(): Response {
   });
 }
 
-/** A refusal in the plane's error shape: `{ error }` with a status. */
+/**
+ * A refusal with a status. The body carries the sentence under BOTH `message`
+ * and `error`: `message` is the key `lib/api.ts`'s `parseErrorBody` reads, so
+ * the shared cards' `errMessage` shows the clean sentence ("API 409: <sentence>")
+ * exactly as it does for a plane 409 (`apiErrorBody`'s `{message}`) — not the
+ * raw JSON; `error` is kept because that is the shape this surface's own
+ * `notFound` and its tests speak.
+ */
 function refuse(status: number, message: string): Response {
-  return new Response(JSON.stringify({ error: message }), { status, headers: { "Content-Type": "application/json" } });
+  return new Response(JSON.stringify({ error: message, message }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 /** The `CommandContext` subset `execService` reads, built from what the daemon published. */
@@ -92,6 +102,20 @@ function updateCtx(cfg: NodeConfig): UpdateExecContext {
     config: cfg,
     requestRestart: () => void requestDaemonRestart(),
   };
+}
+
+/**
+ * Would exiting THIS process be a restart or a stop? The update route asks
+ * before installing; rollback asks before it would exit into nothing. Uses the
+ * daemon's frozen report when a daemon is live, else re-proves it with one
+ * manager query (the same fallback the update route uses).
+ */
+async function isSupervisedForRestart(): Promise<boolean> {
+  const runtime = getDaemonState().runtime;
+  if (runtime) return runtime.supervised;
+  return queryService(DEFAULT_DEPS(async () => true))
+    .then((s) => s.state === "running" && s.pid === process.pid)
+    .catch(() => false);
 }
 
 /**
@@ -125,12 +149,22 @@ function serviceRefusal(error: string): string {
   return error;
 }
 
-/** Body of the service route → the plane's `ServiceResult`: refusals are DATA, ok:false with a sentence. */
+/**
+ * Body of the service route → the plane's contract.
+ *
+ * A SUCCESS is `200 {ok:true}` (the install-text case is answered with a
+ * `detail` at the call site, before this); a REFUSAL is a `409 {message}`,
+ * mapping the node's wire constant to the same sentence the plane's
+ * `service-node.route.ts` sends. This is deliberately NOT a 200-with-ok:false:
+ * the shared `useNodeService` hook and `NodeServiceCard` resolve on any 2xx and
+ * print `res.detail` as a success line, and reach their red-failure branch only
+ * on a non-2xx — so on the plane a refusal is a 409 (rejected → red), and the
+ * mirror must answer 409 too or the machine's own card would render "no service
+ * definition installed" in the muted *done* slot as if it had worked.
+ */
 function serviceResult(result: { ok: true; data?: unknown } | { ok: false; error: string }): Response {
-  // 200-with-ok:false is the plane's shape; `useNodeService` reads `detail`
-  // off a successful body and prints it.
   if (result.ok) return Response.json({ ok: true });
-  return Response.json({ ok: false, detail: serviceRefusal(result.error) });
+  return refuse(409, serviceRefusal(result.error));
 }
 
 /**
@@ -140,14 +174,11 @@ function serviceResult(result: { ok: true; data?: unknown } | { ok: false; error
  * check loudly rather than reaching the manager as an unchecked string.
  */
 const ServiceBody = t.Object({
-  verb: t.Union([
-    t.Literal("start"),
-    t.Literal("stop"),
-    t.Literal("restart"),
-    t.Literal("install"),
-    t.Literal("uninstall"),
-  ]),
-  force: t.Optional(t.Boolean()),
+  verb: t.Union(
+    [t.Literal("start"), t.Literal("stop"), t.Literal("restart"), t.Literal("install"), t.Literal("uninstall")],
+    { description: "The service-manager verb to run on this node" },
+  ),
+  force: t.Optional(t.Boolean({ description: "Proceed even when the definition would close running subshells" })),
 });
 
 /**
@@ -206,8 +237,8 @@ export function buildRoutes(cfg: NodeConfig) {
       },
       {
         query: t.Object({
-          fromByte: t.Optional(t.Numeric()),
-          maxBytes: t.Optional(t.Numeric()),
+          fromByte: t.Optional(t.Numeric({ description: "Byte offset to read from (0 = start; clamped at EOF)" })),
+          maxBytes: t.Optional(t.Numeric({ description: "Max bytes to return (capped at the agent log's own limit)" })),
         }),
       },
     )
@@ -245,7 +276,11 @@ export function buildRoutes(cfg: NodeConfig) {
         writeMaintenance(cfg.dataDir, { on: false, changedAt: new Date().toISOString() });
         return Response.json({ ...(await buildLocalNodeView(cfg)), stopped: [] });
       },
-      { body: t.Object({ on: t.Boolean() }) },
+      {
+        body: t.Object({
+          on: t.Boolean({ description: "true = enter maintenance (stops every subshell here); false = leave" }),
+        }),
+      },
     )
     .post(
       "/api/nodes/:id/service",
@@ -287,7 +322,11 @@ export function buildRoutes(cfg: NodeConfig) {
           return refuse(409, err instanceof Error ? err.message : String(err));
         }
       },
-      { body: t.Object({ debug: t.Boolean() }) },
+      {
+        body: t.Object({
+          debug: t.Boolean({ description: "Whether debug-level lines reach the node's own log file" }),
+        }),
+      },
     )
     .patch(
       "/api/nodes/:id/config",
@@ -301,7 +340,7 @@ export function buildRoutes(cfg: NodeConfig) {
           return refuse(409, err instanceof Error ? err.message : String(err));
         }
       },
-      { body: t.Object({ serverUrl: t.String() }) },
+      { body: t.Object({ serverUrl: t.String({ description: "Control-plane URL to dial on the next restart" }) }) },
     )
     .get("/api/self/update", async () => ({
       currentVersion: NODE_VERSION,
@@ -371,7 +410,12 @@ export function buildRoutes(cfg: NodeConfig) {
         // leaves first. Nothing here waits, and nothing here exits.
         return Response.json({ ok: true, version: offer.version });
       },
-      { body: t.Object({ to: t.Optional(t.String()), force: t.Optional(t.Boolean()) }) },
+      {
+        body: t.Object({
+          to: t.Optional(t.String({ description: "Specific published version to install (blank = newest release)" })),
+          force: t.Optional(t.Boolean({ description: "Allow a downgrade / proceed past the pane-safety refusal" })),
+        }),
+      },
     )
     .post("/api/self/update/rollback", async () => {
       try {
@@ -380,10 +424,16 @@ export function buildRoutes(cfg: NodeConfig) {
         // was installed is `rollbackUpdate`'s sentence, not an invention
         // of this route.
         const r = await rollbackUpdate(cfg.dataDir);
-        // Rollback is the CLI's own verb: file swap + the operator's
-        // restart. When a daemon is live in this process it can take the
-        // clean exit itself; otherwise the answer says what did NOT happen.
-        const restarted = requestDaemonRestart();
+        // The file swap is always safe to do — the running process keeps its
+        // in-memory version until it next boots. EXITING is not. The CLI's
+        // `--rollback` never restarts for exactly this reason, and the update
+        // route three handlers up refuses to exit an unsupervised node; this
+        // path must not be the one that silently turns a rollback into a stop
+        // on a `subshell run` in a terminal (nothing would respawn it). So ask
+        // the daemon to exit only where the manager would bring it back, and
+        // otherwise report `restarted:false` — the card then tells the operator
+        // to restart it where it was started.
+        const restarted = (await isSupervisedForRestart()) ? requestDaemonRestart() : false;
         return Response.json({ ok: true, to: r.to, restarted });
       } catch (err) {
         return refuse(409, err instanceof Error ? err.message : String(err));
