@@ -148,7 +148,7 @@ describe("DesktopAppUpdateRow", () => {
     setUA(SERVER_UA);
     fakeTauri({ currentVersion: "0.7.2", availableVersion: "0.8.0" });
     renderRow();
-    await waitFor(() => expect(screen.getByText(/Subshell Server app 0\.7\.2/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Subshell Server App 0\.7\.2/)).toBeTruthy());
     // The VERSION IS NOT IN THE VISIBLE LINE (operator's report, 2026-09-19):
     // the sidebar truncated it to an ellipsis, so it moved to the tooltip and
     // the accessible name, which is what the next assertion reads.
@@ -156,7 +156,7 @@ describe("DesktopAppUpdateRow", () => {
     // One row, and its accessible name carries both facts. No [Update]
     // button: pressing the row is what the button did.
     expect(
-      screen.getByRole("button", { name: "Subshell Server app 0.7.2 — v0.8.0 available. Open updates." }),
+      screen.getByRole("button", { name: "Subshell Server App 0.7.2 — v0.8.0 available. Open updates." }),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
   });
@@ -167,7 +167,7 @@ describe("DesktopAppUpdateRow", () => {
     renderRow();
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Subshell Server app 0.7.2 — v0.8.0 available. Open updates." }),
+        screen.getByRole("button", { name: "Subshell Server App 0.7.2 — v0.8.0 available. Open updates." }),
       ).toBeTruthy(),
     );
     expect(invocations.filter((i) => i.command === "desktop_app_update")).toHaveLength(1);
@@ -178,7 +178,7 @@ describe("DesktopAppUpdateRow", () => {
     const invocations = fakeTauri({ currentVersion: "0.7.2", availableVersion: "0.8.0" });
     renderRow();
     const row = await screen.findByRole("button", {
-      name: "Subshell Server app 0.7.2 — v0.8.0 available. Open updates.",
+      name: "Subshell Server App 0.7.2 — v0.8.0 available. Open updates.",
     });
     fireEvent.click(row);
     await waitFor(() => expect(landedOn).toBe("/settings/updates"));
@@ -189,7 +189,7 @@ describe("DesktopAppUpdateRow", () => {
     setUA(SERVER_UA);
     fakeTauri({ currentVersion: "0.7.2", availableVersion: null });
     renderRow();
-    await waitFor(() => expect(screen.getByText(/Subshell Server app 0\.7\.2/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Subshell Server App 0\.7\.2/)).toBeTruthy());
     // Not "up to date" — nothing here claims what the next check will find.
     expect(screen.queryByText(/available/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Dismiss update notice" })).toBeNull();
@@ -199,7 +199,7 @@ describe("DesktopAppUpdateRow", () => {
     setUA(SERVER_UA);
     fakeTauri({ currentVersion: "0.7.2", availableVersion: null });
     const { container } = renderRow();
-    await waitFor(() => expect(screen.getByText(/Subshell Server app 0\.7\.2/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Subshell Server App 0\.7\.2/)).toBeTruthy());
     // The icon is always in the DOM for alignment; what changes is whether its
     // SLOT is `invisible`. So the news test reads the slot, not the glyph.
     expect(container.querySelector("span[aria-hidden]")?.className).toContain("invisible");
@@ -208,7 +208,7 @@ describe("DesktopAppUpdateRow", () => {
     const withNews = renderRow();
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Subshell Server app 0.7.2 — v0.8.0 available. Open updates." }),
+        screen.getByRole("button", { name: "Subshell Server App 0.7.2 — v0.8.0 available. Open updates." }),
       ).toBeTruthy(),
     );
     expect(withNews.container.querySelector("span[aria-hidden]")?.className).not.toContain("invisible");
@@ -226,7 +226,7 @@ describe("DesktopAppUpdateRow", () => {
     setUA(SERVER_UA);
     fakeTauri({ currentVersion: "0.7.2", availableVersion: null });
     const quiet = renderRow();
-    await waitFor(() => expect(screen.getByText(/Subshell Server app 0\.7\.2/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Subshell Server App 0\.7\.2/)).toBeTruthy());
     const quietSpacer = quiet.container.querySelector("span[aria-hidden]");
     expect(quietSpacer).not.toBeNull();
     expect(quietSpacer?.className).toContain("invisible");
@@ -236,7 +236,7 @@ describe("DesktopAppUpdateRow", () => {
     const loud = renderRow();
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Subshell Server app 0.7.2 — v0.8.0 available. Open updates." }),
+        screen.getByRole("button", { name: "Subshell Server App 0.7.2 — v0.8.0 available. Open updates." }),
       ).toBeTruthy(),
     );
     const loudSpacer = loud.container.querySelector("span[aria-hidden]");
@@ -260,7 +260,7 @@ describe("DesktopAppUpdateRow", () => {
     setUA(SERVER_UA);
     fakeTauri({ currentVersion: "0.8.0", availableVersion: "0.8.0" });
     const { container } = renderRow();
-    await waitFor(() => expect(screen.getByText("Subshell Server app 0.8.0")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Subshell Server App 0.8.0")).toBeTruthy());
     // The slot is always in the layout for alignment; "no news" is the slot
     // being `invisible`. Asserting `.bg-warning` here would now pass
     // vacuously — that class no longer exists anywhere.
@@ -282,7 +282,7 @@ describe("DesktopAppUpdateRow", () => {
     // The visible text is a version, which does not say it is pressable — the
     // accessible name has to carry the act. "no update known" is not "up to
     // date", and the page it opens is where an admin finds out.
-    const row = await screen.findByRole("button", { name: "Subshell Server app 0.7.2. Open updates." });
+    const row = await screen.findByRole("button", { name: "Subshell Server App 0.7.2. Open updates." });
     fireEvent.click(row);
     await waitFor(() => expect(landedOn).toBe("/settings/updates"));
     // It goes to the PAGE, never straight at the bundled window: inside this
@@ -304,7 +304,7 @@ describe("DesktopAppUpdateRow", () => {
     const invocations = fakeTauri({ currentVersion: "0.7.2", availableVersion: "0.8.0" });
     renderRow(false, false);
     const row = await screen.findByRole("button", {
-      name: "Subshell Server app 0.7.2 — v0.8.0 available. Check for updates.",
+      name: "Subshell Server App 0.7.2 — v0.8.0 available. Check for updates.",
     });
     fireEvent.click(row);
     expect(invocations).toContainEqual({ command: "desktop_open_assistant", args: { screen: "update" } });
@@ -349,7 +349,7 @@ describe("DesktopAppUpdateRow", () => {
     // The label names the offer, not an act the row never performs —
     // clicking opens the update screen, it does not update.
     const button = await screen.findByRole("button", {
-      name: "Subshell Server app 0.7.2 — v0.8.0 available. Open updates.",
+      name: "Subshell Server App 0.7.2 — v0.8.0 available. Open updates.",
     });
     // The text is `sr-only` in the rail: readable to a screen reader, and not
     // laid out in 56px.
