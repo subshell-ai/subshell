@@ -170,7 +170,7 @@ pub enum Unrecorded {
 ///
 /// @param from - the version being replaced, when the probe knew it
 /// @param to - the version being installed, when this build knows it
-/// @param what - `"server"` or `"agent"`
+/// @param what - `"server"` or `"node CLI"`
 pub fn legacy_install_summary(from: Option<&str>, to: Option<&str>, what: &str, missing: Unrecorded) -> String {
     let installed = match (to, from) {
         (Some(to), Some(from)) => format!("Installed {to} over {from}."),

@@ -80,7 +80,7 @@ export const rotateNodeKeyRoute = new Elysia()
       return {
         nodeKey: created.key,
         message:
-          "New key active. Re-configure the agent with it manually (subshell config keeps the old key until you replace it); the live connection was closed.",
+          "New key active. Re-configure the node with it manually (subshell config keeps the old key until you replace it); the live connection was closed.",
       };
     },
     {
@@ -95,7 +95,7 @@ export const rotateNodeKeyRoute = new Elysia()
         operationId: "rotateNodeKey",
         tags: ["nodes"],
         description:
-          "Rotate a node's bearer key (manager only); the plaintext is returned once and the agent needs manual re-configuration",
+          "Rotate a node's bearer key (manager only); the plaintext is returned once and the node needs manual re-configuration",
       },
     },
   );

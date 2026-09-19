@@ -130,7 +130,7 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/subshells" })
                     // re-running the upload NEVER succeeds — only a relaunch
                     // does. Do not promise a self-heal here.
                     message:
-                      "The node failed to store the file; the agent only accepts files for a running subshell; restart the subshell and upload again",
+                      "The node failed to store the file; the node only accepts files for a running subshell; restart the subshell and upload again",
                   }),
                 );
           }

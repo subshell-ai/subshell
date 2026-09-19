@@ -12,7 +12,7 @@ import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 const RecheckResponseSchema = t.Object({
   ok: t.Boolean({
     description:
-      "True once the agent answered the `detect` command AND the parsed rows are stored: the command is awaited, and the answer merges over the snapshot before this response is sent, so an immediate refetch sees the new state",
+      "True once the node answered the `detect` command AND the parsed rows are stored: the command is awaited, and the answer merges over the snapshot before this response is sent, so an immediate refetch sees the new state",
   }),
 });
 

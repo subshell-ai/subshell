@@ -150,7 +150,7 @@ pub fn node_reset(app: AppHandle, settings: State<'_, SettingsState>, typed: Str
     // The one thing the confirmation promised to keep: this app's managed copy
     // of the agent, resolved exactly as the installer resolves it.
     let keep = sidecar::install_path(&NODE_SIDECAR)
-        .ok_or_else(|| "cannot locate this app's managed agent copy to protect it".to_string())?;
+        .ok_or_else(|| "cannot locate this app's managed node CLI copy to protect it".to_string())?;
     // Canonicalize so containment compares real locations rather than
     // spellings. An ABSENT binary keeps the uncanonicalized path and
     // containment still refuses a target that would contain it: that path is
@@ -182,7 +182,7 @@ pub fn node_reset(app: AppHandle, settings: State<'_, SettingsState>, typed: Str
         })?;
         if !delete_guard_ok(&canonical, &keep) {
             return Err(format!(
-                "refusing to delete {:?}: it contains the installed agent binary this reset promises to keep",
+                "refusing to delete {:?}: it contains the installed node binary this reset promises to keep",
                 plan.data_dir
             ));
         }

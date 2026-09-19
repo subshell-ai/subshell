@@ -111,11 +111,11 @@ const InventorySchema = t.Object({
     total: t.Number({ description: "Enrolled nodes, including the seeded `local` row" }),
     online: t.Number({
       description:
-        "Nodes reachable right now: agents holding a live socket in the in-memory registry, plus the seeded `local` row, which holds no socket and is up whenever this server is",
+        "Nodes reachable right now: nodes holding a live socket in the in-memory registry, plus the seeded `local` row, which holds no socket and is up whenever this server is",
     }),
     needingUpdate: t.Array(OutdatedNodeSchema, {
       description:
-        "Enrolled agents below the minimum version; they are refused at connect, so they appear offline with no other explanation",
+        "Enrolled nodes below the minimum version; they are refused at connect, so they appear offline with no other explanation",
     }),
   }),
   workspaces: t.Number({ description: "Workspaces across all users" }),

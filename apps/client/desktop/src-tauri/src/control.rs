@@ -354,9 +354,9 @@ fn node_log_paths_from(
 /// the fallback each has: macOS keeps a second file the plist names, Linux has
 /// the journal and will never grow a file at all.
 const NO_LOG_FILE: &str = if cfg!(target_os = "macos") {
-    "the agent has not written a log yet — it appears at ~/.config/subshell/logs/agent.log once the agent runs, and the service manager keeps its own copy at ~/Library/Logs/subshell.log"
+    "the node has not written a log yet — it appears at ~/.config/subshell/logs/agent.log once the node runs, and the service manager keeps its own copy at ~/Library/Logs/subshell.log"
 } else {
-    "the agent has not written a log yet — it appears at ~/.config/subshell/logs/agent.log once the agent runs; the service manager's own copy is the journal (`journalctl --user -u subshell.service -f`)"
+    "the node has not written a log yet — it appears at ~/.config/subshell/logs/agent.log once the node runs; the service manager's own copy is the journal (`journalctl --user -u subshell.service -f`)"
 };
 
 /// The paths the window may name, and the ones it may ask to reveal.
@@ -963,7 +963,7 @@ fn delegate_update(
     installed: Option<&str>,
 ) -> Result<ActionResult, String> {
     let Some(argv) = update_argv(node_binary, staged) else {
-        return Ok(ActionResult::refused("no installed subshell agent to update"));
+        return Ok(ActionResult::refused("no installed subshell node CLI to update"));
     };
     match classify_update(run(&argv, UPDATE_TIMEOUT)) {
         AfterUpdate::Legacy => install_over_legacy(bundled, installed),
