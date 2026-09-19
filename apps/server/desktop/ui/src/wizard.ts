@@ -9,9 +9,12 @@
  * screen (spec 2026-09-18: the app and the server it ships, in one act across
  * the relaunch between them), and Reset — and it is the only page granted the
  * commands that drive the CLI. `screensFor(probe, onboarded)` picks the
- * family; `update`, `permissions` and `reset` are entered by REQUEST, from the
- * SPA's own cards over `desktop_open_assistant`, from the tray, or from the
- * recovery screen's links.
+ * family; `update`, `permissions`, `reset`, `supervision` and `settings` are
+ * entered by REQUEST, from the SPA's own cards over `desktop_open_assistant`,
+ * from the tray, or from the recovery screen's links. `settings` — **Server
+ * Addresses**, spec 2026-09-18 § 14 — is the one no dashboard names: it is the
+ * way back from a base URL that signed this app's own window out, so its doors
+ * have to be ones a signed-out machine still has.
  *
  * DOM only. Every judgment is imported from `lib/wizard-state.ts` and
  * `lib/recovery-model.ts`, both pure and tested without a webview, and every
@@ -29,22 +32,46 @@ import { renderOutput, renderTail } from "./assistant/logs";
 import { createResetView } from "./assistant/reset-view";
 import { buildTmuxWarning, type TmuxWarning } from "./assistant/tmux-warning";
 import {
+  type AddressForm,
   CONFIG_FIELDS,
+  type ConfigField,
   configPayload,
   dashboardUrl,
   derivedBaseUrl,
   type ExplicitMap,
   effectiveForm,
-  explicitFields,
+  type FormName,
   type FormValues,
   fieldProblems,
+  seedAddressForm,
 } from "./lib/config-form";
 import { type ManualRoute, manualTmuxRoutes, tmuxInstallPlan } from "./lib/installers";
 import type { About, ActionResult, AppUpdateCheck, LogTail, Probe } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
 import { type PermissionRequest, permissionRows } from "./lib/permissions-model";
-import { paneRisk, recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
-import { type ActState, rejectedResult, UPDATE_TITLE, updateAct } from "./lib/update-act";
+import { recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
+import {
+  HTTPS_LOCKOUT_WARNING,
+  httpsLockout,
+  SETTINGS_BLIND_WARNING,
+  SETTINGS_LABEL,
+  SETTINGS_RESTART_NOTE,
+  SETTINGS_SUBTITLE,
+  settingsEdited,
+  settingsForce,
+  settingsKnown,
+  settingsPayload,
+  settingsSaveRefusal,
+  settingsUnreadable,
+} from "./lib/settings-screen";
+import {
+  type ActState,
+  NO_SELECTION,
+  rejectedResult,
+  UPDATE_TITLE,
+  type UpdateActSelection,
+  updateAct,
+} from "./lib/update-act";
 import {
   applySupervisionChoice,
   autoSetupDecision,
@@ -267,6 +294,17 @@ let updateResult: ActionResult | null = null;
  * for the same install.
  */
 let resumeFired = false;
+/**
+ * What the person has ticked on the update screen (spec 2026-09-18 § 13).
+ *
+ * Page state for the reason {@link detailsOpen} is — `#content` is rebuilt on
+ * every render and the poll renders twice a second, so a tick living in the DOM
+ * would be cleared under the hand that made it. Held as OVERRIDES rather than
+ * as the answer: an absent row id means untouched, so the model's default
+ * ("everything actionable, ticked") follows the machine as the probe changes,
+ * and a box cleared for a row that stops existing takes nothing with it.
+ */
+let updateSelection: UpdateActSelection = NO_SELECTION;
 const form: FormValues = effectiveForm(undefined);
 const explicit: ExplicitMap = {};
 /** The two supervision boxes on the setup screen; reset with the form. */
@@ -279,6 +317,32 @@ let supervision: SupervisionChoice = DEFAULT_SUPERVISION;
  */
 let supervisionForm: SupervisionChoice | null = null;
 let seeded = false;
+/**
+ * The **Server Addresses** screen's own form, seeded on its first render of a
+ * visit and cleared when the screen is left.
+ *
+ * Separate from the setup screen's `form`/`explicit` deliberately. They are the
+ * same four fields, but a half-typed port left behind on one screen is not an
+ * answer the other should show — and this screen is reached over whatever was
+ * on screen, first run included. `null` means "not seeded for this visit".
+ */
+let settingsForm: AddressForm | null = null;
+/**
+ * Whether the person chose to configure Server Addresses without a reading of
+ * the machine (review, 2026-09-18).
+ *
+ * Page state beside {@link settingsForm} and cleared with it, because it is a
+ * decision about THIS visit: a later one starts by looking again, which on a
+ * machine that has since been fixed is the right place to start.
+ */
+let settingsBlind = false;
+/**
+ * That screen's Force box, once touched; `null` is untouched, and untouched
+ * means unticked — an override that arrives pre-accepted is not an override.
+ */
+let settingsForceChecked: boolean | null = null;
+/** That screen's own last Save or Restart, so it renders nobody else's words. */
+let settingsResult: ActionResult | null = null;
 /**
  * The last port this page asked about, and the answer for it.
  *
@@ -388,7 +452,14 @@ const host: AssistantHost = {
     resetView.hide();
     // A pending selection belongs to one visit: leaving and coming back must
     // show the machine's real state, not what someone half-chose last time.
+    // The address form and its Force box follow the same rule, and for the
+    // address form it is the stronger one — its fields are PREFILLED from the
+    // machine, so a stale draft would read as the configuration.
     supervisionForm = null;
+    settingsForm = null;
+    settingsBlind = false;
+    settingsForceChecked = null;
+    settingsResult = null;
     screen = null;
     render();
   },
@@ -411,12 +482,15 @@ const resetView = createResetView(host);
  */
 const tmuxWarn: TmuxWarning = buildTmuxWarning(host, () => startTmuxInstall());
 
-// Screens. Each fills #content and the bar; ordering comes from screensFor.
+// Screens. Each fills #content and the bar; ordering comes from screensFor for
+// the probe's own family, and from `REQUESTED_SCREENS` for the rest.
 //
-// Welcome is GONE (spec 2026-09-17 D1). It announced what the setup chain
-// would do, and the chain now does it on sight — the progress checklist that
-// used to follow the announcement is the first screen, and it names each act
-// as it happens, which is the announcement, at the moment it is true.
+// Welcome was deleted by spec 2026-09-17 (D1) and restored the next day by
+// operator request — "reset / initial state should always show it again" — and
+// D1's zero-touch half survived the restoration intact: the intro does not
+// re-arm the journey, it PRECEDES it, and the auto-fire lives in `renderSetup`,
+// which the welcome screen does not call. So nothing touches this machine until
+// the press.
 // ---------------------------------------------------------------------------
 /**
  * Redraws the install screen once a second while it runs.
@@ -796,7 +870,7 @@ function manualRouteSteps(route: ManualRoute): HTMLElement {
 /**
  * The port the setup chain would actually bind.
  *
- * Seeded the way {@link addressForm} seeds its own field, because the form may
+ * Seeded the way {@link setupAddressForm} seeds its own field, because the form may
  * never have been opened: `form.port` stays empty until it renders once, so
  * reading it alone would ask about port 3080 on a machine configured for 4000.
  * `effectiveForm` is the one place that turns `status --json`'s settings into
@@ -1012,7 +1086,7 @@ function renderSetup(p: Probe): void {
   if (p.serverChoice === "no-bundled")
     links.append(button("Choose an existing server…", () => void pickBinary(), "linkish"));
   content.append(links);
-  if (customizeOpen) content.append(addressForm(p));
+  if (customizeOpen) content.append(setupAddressForm(p));
   // No Back: this is the first screen a machine without tmux trouble ever
   // shows, and the form is the whole screen, not a step with a step before
   // it. The gate and button stay because the fallback path is walked by hand:
@@ -1272,6 +1346,12 @@ function renderRecovery(p: Probe): void {
   // appeared only after an answer nobody had asked for would mean checking on
   // the poll.
   content.append(button("Check for updates…", () => go("update"), "linkish"));
+  // The third link here for the third instance of one reason: a machine on this
+  // screen has no dashboard, and a wrong port or bind address is one of the few
+  // things that puts it here. The tray carries the same door for the case this
+  // screen never renders — a server that answers but will not accept a sign-in
+  // (spec 2026-09-18 § 14.1).
+  content.append(button(`${SETTINGS_LABEL}…`, () => go("settings"), "linkish"));
   content.append(detailsDisclosure());
   // The ellipsis stays: it correctly says a screen follows rather than an act.
   el("bar-left").append(button(`${RESET_LABEL}…`, () => void openReset(), "ghost"));
@@ -1404,14 +1484,20 @@ async function runUpdateCheck(force: boolean): Promise<void> {
  * the CLI half runs in the build that comes up (see {@link finishUpdate}). A
  * rejection is therefore always a real failure, which is why the `catch` puts
  * it on the problem line rather than treating it as a state to render.
+ *
+ * **Both arguments are the SELECTION** (spec § 13), and they are the only
+ * things this press carries: `bundled` false writes no marker, so phase 2 does
+ * not run at all, and `forced` is the Force box's answer to a restart that
+ * happens in another process. Neither is re-derived on the far side — the
+ * marker IS the record, which is what keeps one answer in one place.
  */
-async function startAppUpdate(): Promise<void> {
+async function startAppUpdate(forced: boolean, bundled: boolean): Promise<void> {
   if (updateState !== "idle") return;
   updateState = "downloading";
   updateProgress = "Starting the download…";
   render();
   try {
-    await ipc.installAppUpdate();
+    await ipc.installAppUpdate(forced, bundled);
   } catch (err) {
     setProblem(err);
     updateState = "idle";
@@ -1425,18 +1511,19 @@ async function startAppUpdate(): Promise<void> {
  *
  * Both phases end here — the act when the app is already current, and phase 2
  * after the relaunch — because it is the same two steps either way. What
- * differs is only the pane-safety answer, and the difference is a consent
- * rule rather than a mechanism:
+ * differs is only the pane-safety answer, which the CALLER supplies, and the
+ * difference is a consent rule rather than a mechanism:
  *
- * - **A PRESS consents to what this screen says now.** The warning above the
- *   button names the risk the current definition carries, so `paneRisk(p)` is
- *   the answer the person just agreed to.
+ * - **A PRESS consents to what this screen says now**, through the Force box
+ *   under the table (spec § 13.2). Unticked is an ordinary restart, which the
+ *   CLI refuses where the definition would close live panes — and that refusal
+ *   renders here, with the box still on screen to answer it.
  * - **The automatic resume consents to nothing new.** It carries the answer
  *   phase 1 recorded (`pendingInstall.forced`), because the person who pressed
  *   Update is not at this window and cannot be asked again. Where the
  *   definition has changed under it the CLI refuses, this screen shows that
- *   refusal verbatim, and the Try Again under the fresh warning is where the
- *   new consent comes from.
+ *   refusal verbatim, and the Try Again under the fresh box is where the new
+ *   consent comes from.
  *
  * **A REJECTION is recorded as a result too**, which is not bookkeeping: `act`
  * turns a throw into the problem line and leaves `updateResult` null, and null
@@ -1446,11 +1533,23 @@ async function startAppUpdate(): Promise<void> {
  * there was nothing left to press (review, 2026-09-18). The throw is re-raised
  * so `act` still says what went wrong.
  */
-async function finishUpdate(p: Probe, pressed: boolean): Promise<void> {
-  const forced = pressed ? paneRisk(p) : (p.pendingInstall?.forced ?? false);
+async function finishUpdate(_p: Probe, forced: boolean): Promise<void> {
   await act(async () => {
+    // **Set INSIDE the callback, so the `finally` below always answers it**
+    // (review, 2026-09-18). `act` early-returns when something else is already
+    // in flight, and this line lived outside it — so a declined run left
+    // "Installing the server it ships…" on screen for the rest of the visit
+    // with nothing running behind it. The reachable case is the automatic
+    // resume, which burns its once-per-visit latch before deferring here, so
+    // there was then no press and no Try Again either.
+    //
+    // The line exists because the CLI half can take minutes — `update --from`
+    // is budgeted at 300 s — and emits nothing on the way, so the screen would
+    // otherwise be silent beside a dead button.
+    updateProgress = "Installing the server it ships…";
     try {
       const installed = await ipc.installServer();
+      updateProgress = "Restarting the server…";
       updateResult = installed;
       if (!installed.ok) return installed;
       // `--force` only where the definition would refuse over live panes; the
@@ -1461,6 +1560,8 @@ async function finishUpdate(p: Probe, pressed: boolean): Promise<void> {
     } catch (err) {
       updateResult = rejectedResult(errText(err));
       throw err;
+    } finally {
+      updateProgress = "";
     }
   }, true);
 }
@@ -1488,27 +1589,75 @@ async function finishUpdate(p: Probe, pressed: boolean): Promise<void> {
  * grants on `main`). It renders over a RUNNING server, which is why `render()`
  * lets a requested screen outrank the ready handoff.
  *
+ * **It is a SELECTION, not always both halves** (spec § 13). An operator at
+ * app 0.8.1 with a hand-updated `subshell-server` 0.10.1 was told the screen
+ * wanted to install a server older than the one they were running: the CLI row
+ * was pushed whenever the app was behind, while the ladder would have ADOPTED
+ * the installed copy and installed nothing. So both components get a row, each
+ * carrying a checkbox where there is something to do and the reason where there
+ * is not, and one press runs what is ticked — which, with both halves behind,
+ * is still both halves under one press.
+ *
  * **Every judgment is in `lib/update-act.ts`**, which is pure and tested; what
- * is left here is the DOM and the two presses.
+ * is left here is the DOM, the ticks, and the two presses.
  */
 function renderUpdate(p: Probe): void {
-  const view = updateAct({ probe: p, appUpdate, state: updateState, finished: updateResult });
+  const view = updateAct({
+    probe: p,
+    appUpdate,
+    state: updateState,
+    finished: updateResult,
+    selection: updateSelection,
+    // The CLI half runs through `act`, which sets `busy` and never touches
+    // `updateState` — so without this the primary button stayed live through a
+    // five-minute `update --from` (review, 2026-09-18).
+    busy,
+  });
   setFrame("none", UPDATE_TITLE, view.subtitle);
   const content = el("content");
 
-  if (view.rows.length > 0) {
-    const dl = document.createElement("dl");
-    dl.className = "facts";
-    for (const row of view.rows) {
-      const dt = document.createElement("dt");
-      dt.textContent = row.label;
-      const dd = document.createElement("dd");
-      // A null target is the one number this build cannot know: only the new
-      // bundle knows which server it carries (spec § 4.3).
-      dd.append(text("span", row.to === null ? `${row.from} → the server it ships` : `${row.from} → ${row.to}`));
-      dl.append(dt, dd);
+  // The selection table (spec § 13.1). One line per component: what it runs,
+  // what it would become, and either a checkbox or the reason there is none.
+  const locked = busy || updateState !== "idle";
+  for (const row of view.rows) {
+    const id = `update-row-${row.id}`;
+    // A `<label>` only where there is a control to label — a label pointing at
+    // nothing is a click target that does nothing.
+    const line = document.createElement(row.selected === null ? "div" : "label");
+    line.className = "update-row";
+    if (line instanceof HTMLLabelElement) line.htmlFor = id;
+    const copy = document.createElement("div");
+    copy.append(text("div", row.label, "label"));
+    // A null target on a row that CAN act is the one number this build cannot
+    // know: only the new bundle knows which server it carries (§ 4.3). On a row
+    // that cannot act there is nothing it becomes, so the arrow goes with it.
+    const versions =
+      row.to !== null
+        ? `${row.from} → ${row.to}`
+        : row.selected !== null
+          ? `${row.from} → the server it ships`
+          : row.from;
+    copy.append(text("div", versions, "hint"));
+    line.append(copy);
+    if (row.selected === null) {
+      // The reason renders in the cell the checkbox would have occupied, and
+      // there is deliberately no disabled checkbox to render it beside: "not
+      // now" without a why is exactly what § 13 removed.
+      if (row.reason !== null) line.append(text("span", row.reason, "update-reason"));
+    } else {
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.id = id;
+      box.checked = row.selected;
+      box.disabled = locked;
+      box.addEventListener("change", () => {
+        updateSelection = { ...updateSelection, rows: { ...updateSelection.rows, [row.id]: box.checked } };
+        render();
+        refocus(id);
+      });
+      line.append(box);
     }
-    content.append(dl);
+    content.append(line);
   }
 
   if (updateProgress !== "") content.append(text("p", updateProgress, "hint"));
@@ -1523,23 +1672,49 @@ function renderUpdate(p: Probe): void {
 
   for (const note of view.notes) content.append(text("p", note, "hint"));
 
-  if (view.paneWarning) {
-    content.append(
-      text(
-        "p",
-        "The installed service definition does not spare live panes, so this restart closes every subshell running here.",
-        "hint warn-text",
-      ),
-    );
+  // The Force box, under the table it governs (§ 13.2). The amber sentence
+  // states what the restart costs; the box beside it is the only refusal on
+  // this screen a person may overrule — never the downgrade the adopt-installed
+  // row explains, which no box may perform.
+  if (view.force !== null) {
+    const force = view.force;
+    content.append(text("p", force.warning, "hint warn-text"));
+    const line = document.createElement("label");
+    line.className = "switch update-force";
+    line.htmlFor = "update-force";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.id = "update-force";
+    box.checked = force.checked;
+    box.disabled = locked;
+    box.addEventListener("change", () => {
+      updateSelection = { ...updateSelection, force: box.checked };
+      render();
+      refocus("update-force");
+    });
+    line.append(box, text("span", force.label, "label"));
+    content.append(line);
   }
 
   if (view.press !== null) {
-    if (view.press.kind === "app") {
+    const press = view.press;
+    if (press.kind === "app") {
+      // **"Open subshells keep running" is only true where nothing refuses the
+      // restart** (review, 2026-09-18). On a pane-risk machine the Force box
+      // above this line carries the amber sentence saying the restart closes
+      // every subshell here — and this sentence then promised the opposite,
+      // about the same press, two lines apart. The box's own presence is the
+      // condition, because it renders exactly when the definition would refuse.
+      const panesKeepRunning = view.force === null;
       content.append(
         text(
           "p",
-          "The update is downloaded, its signature is checked against the key built into this app, and then " +
-            "Subshell Server restarts and installs the server it ships. Open subshells keep running throughout.",
+          press.bundled
+            ? "The update is downloaded, its signature is checked against the key built into this app, and then " +
+                "Subshell Server restarts and installs the server it ships." +
+                (panesKeepRunning ? " Open subshells keep running throughout." : "")
+            : "The update is downloaded, its signature is checked against the key built into this app, and then " +
+                "Subshell Server restarts. The server on this machine is left as it is.",
           "hint",
         ),
       );
@@ -1553,11 +1728,11 @@ function renderUpdate(p: Probe): void {
         );
       }
     }
-    const press = view.press;
     content.append(
       button(
         press.label,
-        () => (press.kind === "app" ? void startAppUpdate() : void finishUpdate(p, true)),
+        () =>
+          press.kind === "app" ? void startAppUpdate(press.forced, press.bundled) : void finishUpdate(p, press.forced),
         "primary big",
         !press.enabled,
       ),
@@ -1568,11 +1743,14 @@ function renderUpdate(p: Probe): void {
   // without a press, and it is the SECOND half of a press already made. Fired
   // once per VISIT to this screen (`applyScreen` clears the latch), like the
   // first run's chain: the poll re-renders twice a second, and what bounds
-  // automatic RETRIES is the marker's own attempt count, not this. Deferred
-  // for the reason {@link afterRender} gives.
+  // automatic RETRIES is the marker's own attempt count, not this. It carries
+  // the consent the marker recorded rather than anything on screen — nobody is
+  // here to answer, which is the whole of § 5's argument. Deferred for the
+  // reason {@link afterRender} gives.
   if (view.phase === "finishing" && view.press === null && !resumeFired) {
     resumeFired = true;
-    afterRender(() => void finishUpdate(p, false));
+    const forced = p.pendingInstall?.forced ?? false;
+    afterRender(() => void finishUpdate(p, forced));
   }
 
   el("bar-left").append(button("Not Now", () => host.close(), "ghost"));
@@ -1885,6 +2063,183 @@ function renderSupervision(p: Probe): void {
   );
 }
 
+/** The https warning's one handle, shared by the render and the input toggle. */
+const HTTPS_NOTE_ID = "settings-https-note";
+
+/**
+ * **Server Addresses** (spec 2026-09-18 § 14) — the four values that decide
+ * whether this server is reachable, edited from the one page that needs no
+ * session to save them.
+ *
+ * It exists because of a lockout this app could not undo from inside itself:
+ * an `https://` base URL marks the session cookie `Secure`, this app opens its
+ * `main` window on loopback http, and the only place that value could be
+ * changed was the dashboard that had just stopped accepting a sign-in. So the warning
+ * under the base URL field is the dashboard's own sentence, verbatim
+ * (`HTTPS_LOCKOUT_WARNING`, pinned against `addresses-card.tsx` by test): the
+ * person who lands here has already met the consequence, and two surfaces
+ * describing it differently would leave them wondering whether these are two
+ * different things.
+ *
+ * **Two acts, kept apart.** Save writes config.env through `desktop_setup` —
+ * no new command, which is a requirement of § 14.2 rather than an outcome:
+ * a screen that needed a fresh grant would widen the IPC surface in the name
+ * of fixing a lockout. Restart is `desktop_service`, with the pane-safety
+ * refusal and its Force override exactly as the update act has them. Nothing
+ * here changes supervision — `settingsPayload` sends the machine's own answer
+ * so an edit to a port cannot install a service — and **How Your Server Runs**
+ * is one screen away for that.
+ */
+function renderSettings(p: Probe): void {
+  // Seeded once per VISIT, not once per load: this screen is opened to look at
+  // what the machine currently has, and a value left over from a visit before
+  // a CLI-side edit would be the stale field the prefill exists to prevent.
+  // `applyScreen` and `host.close()` clear it on the way out.
+  //
+  // **And never from a probe that could not read the machine** (review,
+  // 2026-09-18). `p.status` is null both for a failed `status --json` spawn and
+  // for a machine with no server at all, and seeding on the first is how a
+  // configured port 4000 gets a form full of 3080 and a Save that looks like a
+  // repair. `settingsKnown` is the distinction; until it is true the screen
+  // renders its own "reading this machine" line and no form, and
+  // `settingsSaveRefusal` holds Save in the same state.
+  if (settingsForm === null && (settingsKnown(p) || settingsBlind)) {
+    settingsForm = seedAddressForm(p.status?.settings);
+  }
+  const state = settingsForm;
+  setFrame("none", SETTINGS_LABEL, SETTINGS_SUBTITLE);
+  const content = el("content");
+  if (state === null) {
+    // **A hold needs a way out** (second review, 2026-09-18). While the read is
+    // merely pending this is a moment — the poll is 1500 ms and the bar still
+    // carries Back and Restart. But a server binary whose `status --json` keeps
+    // failing would sit here forever, on the machine this screen exists for, so
+    // the probe's own words appear as soon as it has any and the person can
+    // choose to configure without a reading.
+    const why = settingsUnreadable(p);
+    content.append(text("p", "Reading this machine's configuration…", "hint"));
+    if (why !== null && p.error !== null) {
+      content.append(text("p", why, "hint warn-text"));
+      content.append(text("p", SETTINGS_BLIND_WARNING, "hint"));
+    }
+    el("bar-left").append(button("Back", () => host.close(), "ghost"));
+    if (why !== null && p.error !== null) {
+      el("bar-right").append(
+        button(
+          "Configure anyway",
+          () => {
+            settingsBlind = true;
+            render();
+          },
+          "ghost",
+          busy || running,
+        ),
+      );
+    }
+    el("bar-right").append(
+      button("Restart", () => void runSettings(() => ipc.service("restart", false)), "ghost", busy || running),
+    );
+    return;
+  }
+  // The same sentence, now above the fields it is about: they are a proposal
+  // rather than a reading, and someone who joined here would otherwise read
+  // defaults as the machine's own settings.
+  if (settingsBlind && !settingsKnown(p)) content.append(text("p", SETTINGS_BLIND_WARNING, "hint warn-text"));
+  content.append(
+    addressForm(p, state, {
+      // Toggled IN PLACE as the field is typed, never by a re-render: the poll
+      // skips a render while a hand is in an input, so a warning that waited
+      // for one would appear only once the person had left the field — which
+      // for this sentence is the moment they reach for Save. The element is
+      // always built and merely hidden, so the toggle needs no rebuild.
+      note: (field, values) => {
+        if (field.name !== "baseUrl") return null;
+        const note = text("p", HTTPS_LOCKOUT_WARNING, "hint warn-text");
+        note.id = HTTPS_NOTE_ID;
+        note.hidden = !httpsLockout(values.baseUrl);
+        return note;
+      },
+      onEdit: () => {
+        // Both fields, because the port moves the base URL too while nobody
+        // has chosen one (`addressForm`'s mirror).
+        const note = document.getElementById(HTTPS_NOTE_ID);
+        if (note) note.hidden = !httpsLockout(state.values.baseUrl);
+      },
+    }),
+  );
+  content.append(text("p", SETTINGS_RESTART_NOTE, "hint"));
+
+  // The Force box, above the bar that carries the Restart it governs — the same
+  // box, the same sentence and the same fail-closed rule as the update act's,
+  // because it is the same restart of the same server.
+  const force = settingsForce(p, settingsForceChecked ?? false);
+  if (force !== null) {
+    content.append(text("p", force.warning, "hint warn-text"));
+    const line = document.createElement("label");
+    line.className = "switch update-force";
+    line.htmlFor = "settings-force";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.id = "settings-force";
+    box.checked = force.checked;
+    box.disabled = busy || running;
+    box.addEventListener("change", () => {
+      settingsForceChecked = box.checked;
+      render();
+      refocus("settings-force");
+    });
+    line.append(box, text("span", force.label, "label"));
+    content.append(line);
+  }
+
+  // The CLI's own words where the person still is — `init`'s refusals name the
+  // config key they are about, and this screen is where that is actionable.
+  // THIS screen's result, not the page's `lastResult`: that one is written by
+  // every action on every screen, so a recovery Start from ten seconds ago
+  // would render here as though Save had said it.
+  if (settingsResult !== null) {
+    const out = document.createElement("pre");
+    out.className = "pane-pre";
+    if (renderOutput(out, settingsResult)) content.append(out);
+  }
+
+  const refusal = settingsSaveRefusal(p, settingsBlind);
+  const locked = busy || running;
+  el("bar-left").append(button("Back", () => host.close(), "ghost"));
+  if (refusal !== null) el("bar-right").append(text("span", refusal, "reason"));
+  // Restart is offered whatever the form holds: someone who reached this screen
+  // because their server is unreachable may have nothing to save and still need
+  // the restart that applies a change made elsewhere.
+  el("bar-right").append(
+    button("Restart", () => void runSettings(() => ipc.service("restart", force?.checked === true)), "ghost", locked),
+  );
+  el("bar-right").append(
+    button(
+      "Save",
+      () => void runSettings(() => ipc.setup(settingsPayload(p, state))),
+      "primary",
+      locked || refusal !== null || !settingsEdited(p, state),
+    ),
+  );
+}
+
+/**
+ * Run one of this screen's two acts, keeping its result where the screen can
+ * render it.
+ *
+ * `act` already settles and re-probes; what it cannot do is say WHICH screen
+ * the words belong to, because `lastResult` is the page's and every screen
+ * writes it. One wrapper rather than two, so Save and Restart cannot come to
+ * report themselves differently.
+ */
+async function runSettings(fn: () => Promise<ActionResult>): Promise<void> {
+  settingsResult = null;
+  await act(async () => {
+    settingsResult = await fn();
+    return settingsResult;
+  }, true);
+}
+
 /**
  * Whether focus is somewhere a redraw would destroy typing.
  *
@@ -1970,15 +2325,33 @@ function checklist(p: Probe, undoneState: "active" | "failed"): HTMLUListElement
   return ul;
 }
 
-function addressForm(p: Probe): HTMLElement {
-  if (!seeded) {
-    const s = effectiveForm(p.status?.settings);
-    for (const { name } of CONFIG_FIELDS) form[name] = form[name] || s[name];
-    for (const [name, on] of Object.entries(explicitFields(p.status?.settings)) as [keyof ExplicitMap, boolean][]) {
-      if (on) explicit[name] = true;
-    }
-    seeded = true;
-  }
+/**
+ * The four address fields, drawn from {@link CONFIG_FIELDS}.
+ *
+ * Shared by the two screens that edit them — the first run's *Customize port
+ * and addresses…* and **Server Addresses** — because what they draw is one
+ * contract (`lib/config-form.ts`) and a second copy of the grid is a second
+ * place for the send rules to drift. What differs is passed in: each screen
+ * brings its OWN state, so neither shows the other's half-typed values, and
+ * `onEdit` is where the setup screen re-measures the port and mirrors the
+ * dashboard row.
+ *
+ * The base-URL-follows-the-port mirror stays HERE rather than in a hook,
+ * because it is a rule about these fields rather than about either screen: a
+ * base URL nobody chose is derived from the port, so a filled field reading
+ * `http://localhost:3080` beside a port of 4000 would look like the value about
+ * to be written. Neither the mirror nor `onEdit` may force a re-render — that
+ * would take the cursor out of the field mid-keystroke.
+ */
+function addressForm(
+  p: Probe,
+  state: AddressForm,
+  opts: {
+    onEdit?: (name: FormName) => void;
+    note?: (field: ConfigField, values: FormValues) => HTMLElement | null;
+  } = {},
+): HTMLElement {
+  const { values, explicit: chosen } = state;
   const grid = document.createElement("div");
   grid.className = "mt-4 grid w-full grid-cols-2 gap-2.5";
   for (const field of CONFIG_FIELDS) {
@@ -1989,41 +2362,68 @@ function addressForm(p: Probe): HTMLElement {
     label.textContent = field.label;
     const input = document.createElement("input");
     input.id = `field-${field.name}`;
-    input.value = form[field.name];
+    input.value = values[field.name];
     input.placeholder = field.placeholder;
     input.spellcheck = false;
     input.autocapitalize = "off";
     if (field.numeric) input.inputMode = "numeric";
     input.addEventListener("input", () => {
-      form[field.name] = input.value;
-      explicit[field.name] = true;
-      if (field.name === "port") {
-        if (explicit.baseUrl !== true) {
-          form.baseUrl = derivedBaseUrl(input.value);
-          const mirror = document.getElementById("field-baseUrl") as HTMLInputElement | null;
-          if (mirror) mirror.value = form.baseUrl;
-        }
-        // Ask about the new number now rather than at the next render. The
-        // poll skips a tick while a text field has focus (`tick()`), so
-        // without this the answer for a port someone just typed would not
-        // start being measured until they left the field — and the screen
-        // would keep naming the old conflict while they looked at the fix.
-        checkPort(chosenPort(p));
+      values[field.name] = input.value;
+      chosen[field.name] = true;
+      if (field.name === "port" && chosen.baseUrl !== true) {
+        values.baseUrl = derivedBaseUrl(input.value);
+        const mirror = document.getElementById("field-baseUrl") as HTMLInputElement | null;
+        if (mirror) mirror.value = values.baseUrl;
       }
-      // Two things mirror the port as it is typed: the baseUrl field,
-      // updated in place above, and the dashboard row at the top of the
-      // screen — neither may force a re-render, which would take the cursor
-      // out of the field mid-keystroke. The next poll's render picks the
-      // values up from `form` regardless.
-      if (field.name === "port" || field.name === "baseUrl") syncDashboardUrl(p);
+      opts.onEdit?.(field.name);
     });
     cell.append(label, input);
     if (field.hint) cell.append(text("p", field.hint, "hint"));
+    const note = opts.note?.(field, values);
+    if (note) cell.append(note);
     for (const pe of fieldProblems(p.status?.settings, field.name)) cell.append(text("p", pe.reason, "hint warn-text"));
     grid.append(cell);
   }
   return grid;
 }
+
+/**
+ * The setup screen's arm of {@link addressForm}: its own state, seeded once
+ * per page load and preserved across renders, plus the two things only that
+ * screen mirrors.
+ *
+ * The seeding keeps whatever has been typed (`values[name] || seeded[name]`),
+ * because this form opens and closes under the Customize link while the page
+ * stays loaded — unlike Server Addresses, which is seeded fresh on every visit.
+ */
+function setupAddressForm(p: Probe): HTMLElement {
+  if (!seeded) {
+    const s = seedAddressForm(p.status?.settings);
+    for (const { name } of CONFIG_FIELDS) form[name] = form[name] || s.values[name];
+    for (const [name, on] of Object.entries(s.explicit) as [keyof ExplicitMap, boolean][]) {
+      if (on) explicit[name] = true;
+    }
+    seeded = true;
+  }
+  return addressForm(
+    p,
+    { values: form, explicit },
+    {
+      onEdit: (name) => {
+        // Ask about a new number now rather than at the next render. The poll
+        // skips a tick while a text field has focus (`tick()`), so without this
+        // the answer for a port someone just typed would not start being
+        // measured until they left the field — and the screen would keep naming
+        // the old conflict while they looked at the fix.
+        if (name === "port") checkPort(chosenPort(p));
+        // The dashboard row at the top of the screen mirrors both of these; it
+        // is patched in place for the same reason the baseUrl field is.
+        if (name === "port" || name === "baseUrl") syncDashboardUrl(p);
+      },
+    },
+  );
+}
+
 function resetForm(): void {
   for (const { name } of CONFIG_FIELDS) {
     form[name] = "";
@@ -2272,6 +2672,7 @@ function render(): void {
     }
     if (screen === "supervision") renderSupervision(p);
     if (screen === "permissions") renderPermissions(p);
+    if (screen === "settings") renderSettings(p);
     return;
   }
   if (list.length === 0) {
@@ -2389,6 +2790,13 @@ function applyScreen(payload: string): void {
   // this is its other exit: the sidebar pill, an Update request or a Reset
   // request all land here while that screen may be showing.
   supervisionForm = null;
+  // Server Addresses has the same two exits and the same rule: its fields are
+  // seeded from the machine, so a draft surviving into the next visit would be
+  // showing a configuration the machine may no longer have.
+  settingsForm = null;
+  settingsBlind = false;
+  settingsForceChecked = null;
+  settingsResult = null;
   // Same rule for the update act: its result and its fired-once latch belong
   // to ONE visit. Without this a window that finished an update and came back
   // would render "up to date" from a page fact rather than from the machine —
@@ -2397,6 +2805,9 @@ function applyScreen(payload: string): void {
   // hangs off the result this would otherwise have kept.
   updateResult = null;
   resumeFired = false;
+  // The ticks belong to one visit too: a selection made against the machine as
+  // it was is not an answer about the machine as it is now.
+  updateSelection = NO_SELECTION;
   // A REQUESTED permissions screen is not the handoff's, whatever this window
   // was doing a moment ago: it was asked for from somewhere the person can go
   // back to, so it takes Back rather than the Continue that opens a dashboard.

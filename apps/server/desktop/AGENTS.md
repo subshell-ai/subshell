@@ -88,7 +88,10 @@ Addresses card, there since 2026-09-17; on Service before it) and a
 restart later, the dashboard is a window fetching a dead port, and nothing was
 watching for it. `origin_changed(current, probe)` is pure and tested; the
 navigate goes through `windows::open_main`'s existing existing-window branch,
-which also re-validates the origin as loopback and re-arms the origin pin.
+which also re-validates the origin against the two this app may point at and
+recomputes the window's trust flag. It refreshes the configured base URL on
+every tick as well (spec 2026-09-18 § 15): that address is the second trusted
+origin, and an admin can move it without moving the port this function watches.
 
 Three rules it keeps:
 
@@ -170,7 +173,9 @@ own both, and `lib/recovery-model.ts` owns the subtitle and the facts. Behind a
 **Show Details** disclosure: the pre-boot facts (binary and its rung, config
 file, service definition, manager state and detail, log location), the server's
 own log tail, the last action's verbatim output, and what this app itself is.
-A footer link reaches Reset.
+A footer link reaches Reset, and three more reach **Update Subshell Server**,
+**How Your Server Runs** and **Server Addresses** — each here for the same
+reason: a machine on this screen has no dashboard to open those doors from.
 
 **A requested screen is routed off `REQUESTED_SCREENS`, never a literal.**
 `screenForRequest` (in `lib/wizard-state.ts`) maps the payload, and the reason
@@ -193,15 +198,65 @@ aliased** — this product has no installed base to keep compatible, so a caller
 still sending that word falls to `Home` where it can be seen. See "Updating in
 one act" below.
 
-**Update Subshell Server**, **Reset**, **How Your Server Runs** and **What macOS Will Ask** are never in `screensFor`'s list. They are
+**Update Subshell Server**, **Reset**, **How Your Server Runs**, **What macOS Will Ask** and **Server Addresses** are never in `screensFor`'s list. They are
 entered by REQUEST — a `desktop-screen` event (a LIVE window), the `desktop_pending_screen` pull (a window still coming up, which is also how the BOOT resume routes) — carrying a member of the closed
-`reset::Screen` enum (`home` | `reset` | `update` | `supervision` | `permissions`; `home` parses to "whatever the probe implies") — which is what lets one
+`reset::Screen` enum (`home` | `reset` | `update` | `supervision` | `permissions` | `settings`; `home` parses to "whatever the probe implies") — which is what lets one
 appear over a first run as readily as over a recovery without either family
 naming them. A requested screen outranks the ready handoff in `render()`, or
 the SPA's Update deep link would bounce the window straight back to the
 dashboard it was asked to leave — and, since 2026-09-18, a machine that came up
 to finish an update would open the dashboard over it and never show the
 screen at all.
+
+**Server Addresses** is the newest of them (spec 2026-09-18 § 14), and the
+only one the dashboard never names — because the machine it exists for is one
+whose dashboard cannot be signed into. Saving an `https://` base URL signs THIS
+APP's window out for good: better-auth marks the session cookie `Secure` for an
+https `APP_BASE_URL` (measured, 1.7.1) and this app OPENS its `main` window on
+`http://127.0.0.1:<port>`, so it can never store a session again. (The loopback
+PIN is gone as of the same day — the window may navigate anywhere http(s) and
+`trust.rs` is what gates its seven commands — but where the window is opened is
+unchanged, which is what keeps this consequence true.) Browsers on the https address are fine. The
+value that caused it could only be changed from the dashboard, which needs the
+session just lost — so the app had **no way back from inside itself**. The
+assistant is the way out structurally rather than conveniently: it is the
+BUNDLED page, it drives the CLI rather than the API, and it therefore needs no
+session. Read the app's own rule in the other direction — *if the act is what
+makes the server unreachable TO YOU, the page the server serves cannot be where
+you undo it.*
+
+Four things hold it up:
+
+- **No new Tauri command, and that was a requirement rather than an outcome**
+  (§ 14.2). Save goes through `desktop_setup` and Restart through
+  `desktop_service`, both already granted to `wizard`; `ipc-acl.test.ts`'s
+  exact-set pin is therefore untouched. A screen that needed a fresh grant
+  would have widened the IPC surface in the name of fixing a lockout.
+- **It sends the machine's OWN supervision, every time** (`settingsSupervision`).
+  `desktop_setup`'s `supervision` argument is optional and its absence means
+  "a background service, armed for login" — today's first-run chain — so a save
+  that omitted it would install a service on a machine deliberately left in app
+  mode, as a side effect of editing a port. What the chain still does beyond
+  writing config.env is install the bundled server where it is newer than the
+  installed one; that is the update screen's own act rather than a new one, and
+  it is stated at `settingsPayload`.
+- **The https sentence is the DASHBOARD's, verbatim** —
+  `apps/server/web/src/components/networking/addresses-card.tsx` renders it at
+  the same field, and `settings-screen.test.ts` reads that file and pins the two
+  equal. Someone who lands here has already met the consequence; two wordings
+  would read as two problems.
+- **The Force box is the update act's box**, moved to `lib/pane-force.ts` when
+  the second screen needed it: same sentence, same fail-closed `paneRisk`, same
+  unticked default. This restart IS that restart.
+
+Its doors are the TRAY (**Server Addresses…**, which raises the bundled page
+through `arm_and_raise` and so works with the server down, stopped, or running
+and refusing every sign-in) and the recovery screen's link. Not the dashboard,
+which is the point. `SETTINGS_LABEL` is one string across both doors and the
+screen's own title, and the tray's Rust copy is pinned to it by an
+`include_str!` containment test; it is deliberately NOT "Server Settings",
+which is the View menu's ⌘4 into the SPA's settings routes — the pages that
+need the session this screen exists to get back.
 
 **Show Details keeps its openness in PAGE state**, not the element's.
 `#content` is rebuilt on every render and the poll renders every 1500 ms, so a
@@ -376,6 +431,37 @@ is forced rather than chosen — the new app carries the newer server, so
 installing the server first installs the OUTGOING bundle's copy and leaves the
 machine behind again the moment the app lands.
 
+**It is a SELECTION, and that is not a reversal** (spec 2026-09-18 § 13). The
+screen is a table: one row per component — what it runs, what it would become,
+and a checkbox where there is something to do, ticked by default — plus one
+Force box below it. With both halves behind, both are ticked and one press does
+both, which is the paragraph above unchanged. What the table adds is the case
+where the two halves point in DIFFERENT directions, and it was a real machine:
+an operator at app 0.8.1 with a `subshell-server` they had updated by hand to
+0.10.1 was told the screen would install a server older than the one they were
+running. The CLI row was pushed whenever the app was behind, and the subtitle
+promised "installing it also installs the server it ships", while the ladder's
+answer was `adopt-installed` — so phase 2 would have answered `Resume::Clear`
+and installed nothing. The ACT was never unsafe; the DISPLAY was false.
+
+Three rules the table keeps, each with the defect behind it:
+
+- **A row with nothing to do states WHY, never a disabled checkbox.** "Not now"
+  with no reason is what sent the operator looking for a bug. The cell is short
+  ("you run a newer one", "not this app's", "could not check", "up to date");
+  the long form is a sentence under the table, which is what `notes` is.
+- **Force governs the pane-safety refusal and nothing else.** It is the one
+  refusal a person may overrule, it is UNTICKED by default — an override that
+  arrives pre-accepted is not an override — and it renders only where a
+  definition would actually refuse. It may **never** install an older bundled
+  CLI over a newer installed one: boot's migrator is forward-only, so that is
+  data loss rather than a choice to present, which is why the adopt-installed
+  row explains `subshell-server update --from <file>` instead of offering a box.
+- **The selection crosses the relaunch as the marker's PRESENCE.** A cleared
+  CLI row writes no `PendingBundledInstall` at all, so phase 2 does not run —
+  there is no second field for the two to disagree about. That is why
+  `desktop_install_app_update` takes two booleans now (below).
+
 | | phase 1 | phase 2 |
 |---|---|---|
 | runs in | the process the person pressed in | the build that came up |
@@ -410,11 +496,14 @@ Four things about the seam:
 - **The pane-safety consent crosses in the marker's `forced`.** The confirm
   happens in phase 1 and the restart it consents to happens in phase 2, in
   another process, so re-asking would be asking again for something already
-  granted on a screen nobody chose to open. The answer is READ in Rust at the
-  press (`control::pane_risk_now`, the twin of the page's `paneRisk`) rather
-  than passed from the page, because `desktop_install_app_update` takes no
-  argument and that is the whole case for granting it. A Try Again on the
-  phase-2 screen is a FRESH consent and uses today's answer instead.
+  granted on a screen nobody chose to open. It is the page's Force box that
+  answers now (§ 13.2) — it used to be read in Rust at the press, on the
+  grounds that the command took no argument — and Rust still NARROWS it:
+  `install_app_update` ANDs the page's answer with `control::pane_risk_now`,
+  the twin of the page's `paneRisk`, so a page asking to force a restart no
+  definition would refuse gets an ordinary one. A Try Again on the phase-2
+  screen is a FRESH consent, and the box is live under it, seeded from what the
+  marker recorded.
 
 **Two things here differ from Subshell Client STRUCTURALLY**, and both are
 worth stating because the two apps' docblocks would otherwise read as
@@ -488,9 +577,13 @@ Four more things carry the weight of the app half specifically:
 **Both commands are `wizard`-only**, and the check is there too even though it
 looks harmless: its sibling replaces the application, and the dashboard reaches
 this screen by NAME (`desktop_open_assistant({ screen: "update" })`) — a
-grant it already has. Neither takes an argument, which is the whole of the
-case for granting them: the release is re-resolved in Rust, so the page asks
-for "the newest" and can never name a URL. `ipc-acl.test.ts` pins both facts.
+grant it already has. Neither names a LOCATION, which is the whole of the case
+for granting them: the release is re-resolved in Rust, so the page asks for
+"the newest" and can never name a URL. `desktop_check_app_update` takes no
+argument at all; `desktop_install_app_update` takes exactly two booleans, the
+§ 13 selection (`forced`, `install_server`). `ipc-acl.test.ts` pins the
+parameter list of each and that every argument past the handle is a `bool` — a
+`String` there is the parameter this pin has always existed to catch.
 
 **The signing key is the operator's, and losing it is unrecoverable.** One
 keypair for BOTH desktop apps — they are one publisher, and a public key is
@@ -1083,12 +1176,14 @@ ui/
 │   │   ├── wizard-state.ts   # screensFor, autoSetupDecision, recoveryTitle/Action, RESET_LABEL, the checklist
 │   │   ├── recovery-model.ts # the recovery screen's subtitle, facts and pane risk
 │   │   ├── update-act.ts     # the ONE update act: rows, phases, presses, refusals
+│   │   ├── pane-force.ts     # the pane-safety Force box, shared by both screens that restart
+│   │   ├── settings-screen.ts # Server Addresses: the https warning, what Save sends, its refusals
 │   │   ├── permissions-model.ts # the four macOS rows: glyph, suffix, action, pane
 │   │   ├── copy-flash.ts     # the Copy button's copied/failed state, by key and by clock
 │   │   └── reset.ts          # the reset screen's pure decisions: rows, refusal, arming
 │   └── __tests__/      # pure pins: config-form, installers, wizard-state, recovery-model,
-│                       # update-act, permissions-model, copy-flash, reset, wire-names,
-│                       # ipc-acl, tauri-config
+│                       # update-act, settings-screen, permissions-model, copy-flash,
+│                       # reset, wire-names, ipc-acl, tauri-config
 └── dist/               # `frontendDist` — built, gitignored, never hand-edited
 ```
 
@@ -1128,14 +1223,20 @@ Four things about that arrangement are load-bearing:
   attribute outlived its only reader by three months.)
 - **`lib/update-act.ts` holds every judgment the update screen makes**, for
   the same reason and with a sharper edge: the screen has six phases, two
-  presses and three sentences it refuses in — a server this app did not
-  install, a release source that would not answer, and the automatic attempts
-  being spent — never more than TWO of them at once, since a phase-2 screen
-  returns before the release answer is consulted. None of it could be covered
-  at all from inside `renderUpdate`. Which rows appear, which press they get,
-  what the act will not do, and whether phase 2 fires by itself are all
-  decisions there, and `update-act.test.ts` walks § 4.1's four cases, § 4.2's
-  two phases and each of § 6's refusals.
+  presses and four sentences it refuses in — a server this app did not
+  install, one NEWER than the bundle, a release source that would not answer,
+  and the automatic attempts being spent — never more than two of them at once,
+  since a phase-2 screen returns before the release answer is consulted. None
+  of it could be covered at all from inside `renderUpdate`. Which rows appear,
+  which of them carry a checkbox and which carry a reason instead, what is
+  ticked by default, whether the Force box renders, what the press is called
+  and what it will do, and whether phase 2 fires by itself are all decisions
+  there, and `update-act.test.ts` walks § 4.1's four cases, § 4.2's two phases,
+  § 13's selection and each of § 6's refusals. The SELECTION itself is page
+  state in `wizard.ts` — held as overrides, so an absent id is the model's
+  default and a tick made against a row that stops existing takes nothing with
+  it — because the model is pure and is handed the answer rather than keeping
+  it.
 - **`lib/recovery-model.ts` exists so the recovery screen's WORDS are
   testable.** Its subtitle and its facts were the console's step table and
   Details list — DOM, in a render that needs a webview, which is why neither
@@ -1228,7 +1329,7 @@ With it, the split is enforced, and the split is window KIND:
 | Window | Gets |
 | --- | --- |
 | `wizard` | the twenty-two its page invokes — probe, port in use, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, request Photos, open a System Settings pane, check for an app update, install one — plus `dialog:allow-open`, `opener:allow-reveal-item-in-dir`, and its core grants: `core:default` and `core:window:allow-close` (spec 2026-09-17's **Later** button; `core:default` does NOT include it — verified against `gen/schemas/acl-manifests.json`, and pinned in `ipc-acl.test.ts`, which also pins that `main` holds NEITHER close nor the update verbs) |
-| `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, window dragging — and `desktop_set_supervision` (below) — over loopback only |
+| `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, window dragging — and `desktop_set_supervision` (below) — on a TRUSTED origin only (loopback, or the instance's configured `APP_BASE_URL`; see below) |
 
 Six of `main`'s seven commands are chosen for what they cannot do: raise a
 window at a named screen, drop this app's own title bar, display one
@@ -1251,15 +1352,15 @@ eighth is loud.
 harmlessness is in the ARGUMENT: it takes a PATH — no scheme, no
 protocol-relative `//host`, no backslash, no whitespace or control characters,
 all refused by `crates/desktop-core`'s shared `browser` module — and joins it
-onto this window's own loopback origin, so the page names the route and Rust
+onto a TRUSTED origin this side chose, so the page names the route and Rust
 names the host. Its signature is pinned as well as its name, because an
 exception is only as narrow as its arguments. A webview has no address bar and
 no second tab, which is the whole reason it exists; the tray's and the View
 menu's "Open in Browser" reach the same act from Rust and need no grant at all.
 Two things a person will notice and that this does not try to fix: the browser
 carries no session cookie from the webview, so they sign in again; and the
-origin opened is LOOPBACK, where a passkey works only if `APP_BASE_URL` is
-loopback.
+origin opened is whichever trusted one the window is on — usually LOOPBACK,
+where a passkey works only if `APP_BASE_URL` is loopback.
 Nothing else that touches the CLI, the config, the service or the filesystem
 is reachable from a page the server serves. `desktop_open_assistant` takes an OPTIONAL
 `screen` argument, and the SPA sends it from the Settings danger card
@@ -1282,6 +1383,65 @@ old word parses to `Home`, so a sender left behind raises the assistant at
 whatever the probe implies — visibly wrong on a machine whose server is
 running, rather than silently correct until someone notices the wrong screen.
 Two senders were found exactly that way while this work was in flight.
+
+### The dashboard window's two trusted origins
+
+**The capability's scope stopped being the boundary on 2026-09-18** (spec
+2026-09-18 § 15, operator's decision with the trade stated; `docs/security.md`
+§ 11.11a has the accounting). It was: `capabilities/main.json` named
+`http://localhost:*` and `http://127.0.0.1:*`, `open_main` refused anything
+else, and `on_navigation` pinned the window to the origin it opened with. Under
+that rule a control plane behind an OAuth proxy could not be shown in this app
+at all — a proxied sign-in bounces the window to an identity provider on a third
+origin and back, and the window would not follow. Subshell Client was unblocked
+the same way for the same report (`f1c2aa68`).
+
+So `remote.urls` is a wildcard now (`http://*:*`, `https://*:*` — `http://*`
+alone does not match a non-default port in Tauri 2.11.5's urlpattern, which
+would silently exclude the default `:3080` plane), and **`src-tauri/src/trust.rs`
+is the boundary**. Four facts to hold:
+
+- **Two origins, one predicate.** Trusted means this machine's loopback (either
+  spelling, http, any port — exactly what the old scope named) or the instance's
+  configured `APP_BASE_URL`. `MainTrust::trusts` answers both "where may
+  `open_main` POINT the window" and "may this page invoke anything", so where we
+  aim it and what it may do cannot drift apart.
+- **The flag belongs to the COMMITTED document, never to a page and never to a
+  navigation request.** `allow_navigation` refuses any non-http(s) scheme (the
+  window must not be steerable into `file:` or a custom handler) and **arms
+  nothing** — it runs at request time and fires for subframes, so an untrusted
+  page could otherwise arm all seven commands by aiming at a loopback port that
+  refuses the connection, or by embedding an iframe. Arming is
+  `on_page_load(PageLoadEvent::Started)`, which wry raises from
+  `didCommitNavigation:` (macOS) and `LoadEvent::Committed` (GTK) — main-frame
+  only, at commit, and before any script in the new page runs, so the SPA's own
+  title-bar handshake is never refused. `open_main` sets it for the URL it
+  opens a NEW window with (nothing can be invoking yet) and CLEARS it when it
+  re-points an existing one; a destroyed window clears it.
+- **The guard sits at the INVOKE HANDLER** (`trust::guarding` wraps
+  `generate_handler!` in `lib.rs`), keyed on the calling webview's label, and is
+  uniform over all seven. Not per-command, because Tauri identifies a caller
+  through an injected `Webview` argument and three of the seven are pinned to
+  taking no argument precisely so they cannot be aimed — `desktop_permissions`
+  takes nothing at all. Plugin commands never reach the app handler, so window
+  dragging still works on an untrusted page; the assistant is not subject to it
+  at all, and must not be: it is the surface that repairs a machine whose server
+  is unreachable.
+- **The base URL is live, not captured.** It arrives as `Probe::base_origin()` —
+  passed into `open_main` by both callers, and refreshed each tick by
+  `watch.rs`, which already takes a probe — because an admin can move
+  `APP_BASE_URL` from the Service page without moving the port, and the watch's
+  own re-point trigger only watches the port.
+
+Two Rust-side conveniences follow the same line rather than the window's current
+address: `browser_origin` uses the window's origin only while it is trusted, and
+`current_path` answers `/` when it is not, so a tray click mid-sign-in cannot
+carry an identity provider's path onto this server's origin.
+
+What it costs: a page on the instance's own address now holds what a loopback
+page held, including `desktop_set_supervision`, and that address may be
+reachable from a network. That is the operator's call. What the guard buys is
+that it is not a widening to the whole web.
 
 **`dialog:allow-ask` is deliberately NOT granted.** It was the console's, for
 its update and restart confirmations. Both of those are screens now, with
@@ -1310,8 +1470,8 @@ is worse than the default, and starting a second Vite would fight the one
 when set explicitly, which is what makes a non-default port possible.
 Three things make it safe rather than a hole: it is read only under
 `debug_assertions`, so a release build ignores the variable before looking at
-it; the value must be a loopback `http://` origin, which `open_main` re-checks
-independently; and it is applied inside `Probe::origin` rather than at the
+it; the value must be a loopback `http://` origin — one of the two `open_main`
+accepts, and it re-checks independently; and it is applied inside `Probe::origin` rather than at the
 `open_main` call sites, because `watch.rs` compares the window's URL against
 that same answer and would otherwise navigate back to the server's port on the
 next tick. The substitution is printed on stderr every time.
@@ -1353,9 +1513,17 @@ module under `ui/src/assistant/` — are EXACTLY the set `wizard.json` grants,
 that `ipc.ts` hides nothing extra, that no capability names an undefined
 permission, that no defined permission goes ungranted, and that `main` still
 holds exactly its seven commands plus window dragging — by name, by count, by
-SCOPE (loopback both spellings, `local: false`, one window id), and for every
-one that takes arguments, by Rust signature — the two reads,
-`desktop_permissions` and `desktop_app_update`, pinned to an EMPTY list.
+SCOPE, and for every one that takes arguments, by Rust signature — the two
+reads, `desktop_permissions` and `desktop_app_update`, pinned to an EMPTY list.
+
+**The SCOPE assertion changed shape on 2026-09-18** and is worth reading before
+touching it. It used to pin loopback, both spellings; `remote.urls` is a
+wildcard now and the boundary is `trust.rs` (above), so the same test pins the
+wildcard AS WRITTEN plus the guard that replaced it — the two-origin predicate,
+the recompute on navigation, the wrapper around `generate_handler!`, and
+`open_main`'s refusal. A wildcard scope with nothing behind it is exactly the
+failure that assertion exists to catch, and it is the one pin in that file § 15
+was allowed to move.
 
 **The count is a number worth a test**, because "a few harmless ones" is how a
 boundary erodes. Three more pins arrived with the console's deletion: that
@@ -1390,10 +1558,8 @@ the plugin side; the app commands are gated by their own permission entries
 here.
 
 `main`'s page is served by the subshell-server this app manages, so it is
-treated as remote content. `capabilities/main.json` carries `remote.urls`
-scoped to loopback, and `open_main` additionally refuses a non-loopback origin
-and pins `on_navigation` to the origin it was opened with — three independent
-gates, because the window holds privileged globals.
+treated as remote content. Its `remote.urls` USED to be the gate — see "The
+dashboard window's two trusted origins" below for what replaced it, and why.
 
 The bundled page has a real CSP (`script-src 'self'`), which is why its logic is a
 module rather than an inline script. The page is TypeScript built by Vite into
@@ -1678,6 +1844,19 @@ libayatana-appindicator can still fall back to `GtkStatusIcon`; that is why
 every string says "none was detected" rather than "there is none". And every
 tray action also exists in the window UI or the menu bar regardless — the tray
 is a shortcut, never the only route.
+
+**One item is a near-exception, and it is worth stating rather than
+discovering.** **Server Addresses…** (spec 2026-09-18 § 14) exists in the
+window UI too — the recovery screen's link — but that screen renders only while
+the server is not answering, and the case this item was added for is a server
+that answers and refuses every sign-in. So on a Linux desktop with no
+StatusNotifier host, and on that particular machine, the tray really is the
+only route: the remaining doors are `subshell-server configure` at a terminal
+and hand-editing config.env, which are the CLI acts this screen wraps. macOS
+keeps the menu bar, where the item is not duplicated for a different reason —
+the View menu's ⌘4 already reads "Server Settings" and points at the SPA, and
+two items a word apart leading to two places would cost more than the
+shortcut buys.
 
 ### Notifications
 

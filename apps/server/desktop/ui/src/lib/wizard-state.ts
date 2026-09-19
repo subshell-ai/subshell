@@ -23,9 +23,16 @@ import type { ActionResult, Probe, ProbeStep } from "./ipc";
  * welcome's press because it lives in `renderSetup`). `recovery` is what a
  * machine that
  * has been set up sees while its server is not answering, and `permissions`,
- * `update`, `reset` and `supervision` are entered by REQUEST — a
+ * `update`, `reset`, `supervision` and `settings` are entered by REQUEST — a
  * `desktop-screen` event from the SPA or the tray, or a link on the recovery
  * screen — over whatever is showing.
+ *
+ * `settings` is **Server Addresses** (spec 2026-09-18 § 14): the four values
+ * that decide whether this server is reachable, edited from the one page that
+ * needs no session to save them. It is the only requested screen the dashboard
+ * never names — a machine signed out of its own dashboard by an https base URL
+ * is precisely why it exists — so its doors are the tray and the recovery
+ * screen.
  *
  * `update` is ONE screen since spec 2026-09-18 § 8: it updates the app and the
  * server that app ships, in one act across the relaunch between them. The
@@ -51,7 +58,16 @@ import type { ActionResult, Probe, ProbeStep } from "./ipc";
  * the intro (the gate is structural — the fire lives in `renderSetup`, which
  * the welcome screen does not call).
  */
-export type ScreenId = "welcome" | "tmux" | "setup" | "recovery" | "permissions" | "update" | "reset" | "supervision";
+export type ScreenId =
+  | "welcome"
+  | "tmux"
+  | "setup"
+  | "recovery"
+  | "permissions"
+  | "update"
+  | "reset"
+  | "supervision"
+  | "settings";
 
 /**
  * The label on the way into the Reset screen, and the Reset screen's own
@@ -130,8 +146,18 @@ export function prereqState(probe: Probe): PrereqState {
  * 2026-09-18 with no routing change at all: the ready screen's Continue names
  * it the same way a dashboard notice does (see {@link permissionsAfterSetup}),
  * so there is still exactly one way into it.
+ *
+ * `settings` — **Server Addresses** (spec 2026-09-18 § 14) — is the newest, and
+ * its doors say what it is for: the TRAY, and a link on the recovery screen.
+ * No dashboard surface links it, because the machine it exists for is the one
+ * whose dashboard cannot be signed into — a description of what we built, not
+ * a rule anything enforces: `settings` is a member of this list like the
+ * others, so a dashboard surface could name it tomorrow through the
+ * `desktop_open_assistant` grant it already holds. That would be a decision to
+ * take on its merits rather than a hole; the screen changes nothing a signed-in
+ * admin cannot change on the Networking page.
  */
-export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "reset", "supervision", "permissions"];
+export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "reset", "supervision", "permissions", "settings"];
 
 /**
  * Whether this screen was asked for rather than implied by the probe.

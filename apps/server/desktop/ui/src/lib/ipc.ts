@@ -424,14 +424,26 @@ export const checkAppUpdate = (): Promise<AppUpdateCheck> => invoke<AppUpdateChe
 /**
  * Install the newest app and relaunch into it.
  *
- * **Takes no argument**, which is what lets it be a command at all: the
- * release is re-resolved in Rust, so this page asks for "the newest" and never
- * names a URL. The bytes are refused unless they carry a minisign signature
- * matching the public key compiled into this build.
+ * **Names no URL**, which is what lets it be a command at all: the release is
+ * re-resolved in Rust, so this page asks for "the newest". The bytes are
+ * refused unless they carry a minisign signature matching the public key
+ * compiled into this build.
+ *
+ * Its two arguments are the phase-1 SELECTION, carried across the relaunch in
+ * the marker because phase 2 runs in a process that cannot ask (spec
+ * 2026-09-18 § 5, § 13):
+ *
+ * - `installServer` is whether the person left the `subshell-server CLI` row
+ *   ticked. False writes NO marker, so the new build offers the server half on
+ *   its own terms instead of performing an install that was unticked.
+ * - `forced` is the pane-safety override, and Rust still narrows it with its
+ *   own `pane_risk_now` — a page asking to force a restart that would not
+ *   refuse gets an ordinary restart.
  *
  * It does not resolve on success — the app restarts.
  */
-export const installAppUpdate = (): Promise<void> => invoke<void>("desktop_install_app_update");
+export const installAppUpdate = (forced: boolean, installServer: boolean): Promise<void> =>
+  invoke<void>("desktop_install_app_update", { forced, installServer });
 
 /**
  * Ask macOS for permission to post notifications, and answer where that left

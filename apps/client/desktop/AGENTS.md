@@ -55,7 +55,12 @@ manager, their extensions — is the one they are looking at.
   same attack in another spelling), no whitespace and no control characters.
   The rule and its tests are `crates/desktop-core`'s `browser` module, shared
   with the other app so the two cannot disagree about what a path is. The
-  ORIGIN comes from `PlanePin` — the same value `on_navigation` enforces — so
+  ORIGIN comes from `PlanePin` — the origin this window was OPENED with, which
+  is no longer what `on_navigation` enforces (it follows any http(s) URL since
+  2026-09-18, so a plane behind an OAuth proxy can complete its sign-in). That
+  is precisely why the command reads the pin rather than the page: a page
+  anywhere a redirect leads can still only open a path of the plane this window
+  opened with. So
   the page names the route and Rust names the host. The worst an XSS in a
   plane's SPA gains is opening a page of that same plane, which the person can
   do by typing the address.
@@ -74,7 +79,10 @@ manager, their extensions — is the one they are looking at.
   So there is still no `shell_ready` handshake and no `bridge.rs` CustomEvent
   bus here: this window's whole Tauri surface is one command.
   `withGlobalTauri` is `true` for the same reason (see below).
-- **What IS kept:** an `on_navigation` origin pin, `disable_drag_drop_handler`
+- **What IS kept:** an `on_navigation` SCHEME refusal (the origin pin went on
+  2026-09-18 — see above; the window follows http(s) so a proxied sign-in
+  works, and non-http(s) is still refused so it cannot be steered into
+  anything the OS would act on), `disable_drag_drop_handler`
   (Tauri's native file-drop handler otherwise swallows the HTML5 drags behind
   drag-a-subshell-into-a-workspace and the terminal's uploads), and a 360x240
   minimum size — a third of the SPA's 1024px tiling breakpoint, so the window
@@ -539,11 +547,73 @@ same commit as the press, so an effect guarded on `busy` alone ran once with
 the previous action's output still in place — and read the agent install's
 success as the restart's, retiring the offer nobody had taken.
 
+**It is a SELECTION, not always both halves** (§ 13, 2026-09-18). One act is a
+simplification exactly while the two halves point the same way; when they
+diverge it is a claim about the machine that is wrong. They diverge whenever
+somebody installs a `subshell` by hand that is NEWER than the one this bundle
+ships: `decide_agent` ADOPTS it (it never downgrades), so phase 2 would answer
+`Resume::Clear` and install nothing — while the screen named that newer version
+as a target it would be replaced by, and the press promised the install
+underneath it. Reported against Subshell Server; identical here.
+
+So the screen is a table — component, what it runs, what it would become, and a
+checkbox where there is something to do. Four rules, each closing one of the
+defects above:
+
+- **The table is all-or-nothing.** Where nothing is in question there are no
+  rows at all — that is this app's "everything is current", and what
+  `upToDate` and `settled` read — and where anything is, BOTH components are
+  stated. Asked as two separate gates it could drop a component from a table
+  its sibling had opened (review, 2026-09-18): an air-gapped check beside a
+  current agent said nothing about the agent, a current app beside a behind
+  agent said nothing about the app. Subshell Server states both rows
+  unconditionally because it has no empty-table state to protect; this is the
+  same rule with one.
+- **A row with an available act carries a checkbox, ticked by default**, so
+  both halves behind is still ONE press. That default is D1 unchanged.
+- **A row with no available act states WHY where its checkbox would be** —
+  *runs another binary*, *you run a newer one*, *this build does not say which
+  agent it ships*, *up to date*, *cannot be checked* — and **never a disabled
+  checkbox**, which says "not now" without saying anything. (*installs with the
+  app* was one of these until 2026-09-18; that row is a checkbox now, and its
+  target cell is what says so.)
+- **Both halves are checkboxes, on either footing.** Under an app press the
+  agent half is that act's TAIL — the agent that lands is the NEW bundle's,
+  whose version this build cannot know, so the cell reads "ships with the new
+  app" rather than a number — but it is still a choice: clearing it makes
+  `node_install_app_update(install_agent: false)` write NO marker, so phase 2
+  never runs and a deliberately older `~/.local/bin/subshell` survives the app
+  update. Untick the app instead and the agent row becomes an act of its own,
+  with the number in hand.
+
+  It was not a choice until review on 2026-09-18, and the reason recorded for
+  that is worth keeping as a warning: "the marker carries no selection" was
+  true of the command as written and was filed as a structural fact. Subshell
+  Server had already disproved it — it makes the marker's PRESENCE the
+  selection — so what the sentence actually described was one missing boolean.
+- **Every sentence promising the agent half reads off `pressInstallsAgent`**,
+  including the air-gapped refusal's "can still be installed". A promise that
+  outlives the half it describes is the defect, not the act.
+
+**There is no Force checkbox here, deliberately** (§ 13.3). Force overrides the
+pane-safety refusal on a service RESTART; phase 2 in this app restarts nothing,
+it OFFERS the restart, and that offer carries its own override behind the CLI's
+verbatim refusal. A control governing nothing, rendered for symmetry with
+Subshell Server's screen, would be a promise of the same kind. A test pins its
+absence.
+
+The same amendment added one refusal that is not cosmetic: a marker on a
+machine running a NEWER agent is dropped here as well as in Rust, because
+§ 13.2 forbids installing an older bundled CLI over a newer installed one under
+any consent — and an auto-firing marker is a consent given before the machine
+was in that state.
+
 Everything with a contract rather than a rendering is `lib/update-act.ts`:
-which rows the screen states, which phase it is in, which halves are refused
-and whether the press is live. It is mirrored, not shared, with the server
-app's — one is React and one is vanilla DOM, exactly as the tmux screens are,
-and a diff between them is the drift signal.
+which rows the screen states, which of them carry a checkbox and which carry a
+reason, which phase it is in, which halves are refused and what the press says
+it will do. It is mirrored, not shared, with the server app's — one is React
+and one is vanilla DOM, exactly as the tmux screens are, and a diff between
+them is the drift signal.
 
 ## The IPC boundary
 

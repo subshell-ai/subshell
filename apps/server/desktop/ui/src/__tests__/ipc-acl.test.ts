@@ -12,11 +12,16 @@
  *
  * - `wizard` is the assistant — a bundled `tauri://` page this repo ships — and
  *   it holds every command that drives the CLI, the destructive ones included.
- * - `main` shows the SERVER's own SPA. Unlike Subshell Client's remote window
- *   (which holds ONE path-only command, because a control plane can live
- *   anywhere and only the argument can be narrow there), this one shows the
- *   server THIS APP manages over loopback, so its origin is enumerable in
- *   `main.json`. It holds exactly SEVEN commands, and the count
+ * - `main` shows the SERVER's own SPA. It holds exactly SEVEN commands where
+ *   Subshell Client's remote window holds one, and the reason USED to be that
+ *   its origin was enumerable: loopback, named in `main.json`. That stopped
+ *   being true on 2026-09-18 (spec § 15) — the window may now navigate anywhere
+ *   http(s), because a plane behind an OAuth proxy cannot be signed into
+ *   otherwise, and the scope is a wildcard. The seven survived by moving the
+ *   boundary rather than removing it: `src-tauri/src/trust.rs` refuses every
+ *   command from this window unless the page is on loopback or the instance's
+ *   configured `APP_BASE_URL`, and the scope test below pins that guard
+ *   alongside the wildcard. The count
  *   is worth a test because "a few harmless ones" is how a boundary erodes —
  *   which is precisely what `desktop_set_supervision` proves can happen: six
  *   of them cannot reach the CLI at all, and that one can. It is an
@@ -61,6 +66,11 @@ const UI_SRC = join(import.meta.dir, "..");
 const ipcSource = readFileSync(join(UI_SRC, "lib/ipc.ts"), "utf8");
 
 /** The commands `lib/ipc.ts` actually invokes. */
+/** The window builder's own source — where the trust guard is wired up. */
+function windows_src(): string {
+  return readFileSync(join(TAURI_DIR, "src/windows.rs"), "utf8");
+}
+
 function invokedCommands(): Set<string> {
   // `invoke<Probe>("desktop_probe")` and `invoke<void>("desktop_open_path", args)`.
   const found = new Set<string>();
@@ -274,28 +284,73 @@ describe("the assistant's IPC contract", () => {
     expect(main.has("desktop_check_app_update")).toBe(false);
   });
 
-  it("keeps `main`'s SCOPE pinned, not just its permission list", () => {
-    // The list above says WHICH commands. This says WHO gets them, and until
-    // now nothing held it: widening `remote.urls` to `http://*`, flipping
-    // `local` to true, or adding a window id would hand this grant — the one
-    // that includes `desktop_set_supervision` — to a page on any host, with
-    // every command-name assertion in this file still passing.
+  it("keeps `main`'s SCOPE pinned, and says where the boundary went", () => {
+    // The list above says WHICH commands. This says WHO gets them — and the
+    // answer changed on 2026-09-18 (spec § 15). The scope USED to be the whole
+    // boundary: loopback, both spellings, and Tauri refused everything else. A
+    // control plane behind an OAuth proxy could not be shown under that rule,
+    // because a proxied sign-in bounces the window to an identity provider on a
+    // third origin and back and the window would not follow. The operator's
+    // call was to allow it and keep the seven commands, so the scope is now a
+    // wildcard and the boundary is a RUNTIME GUARD in Rust.
+    //
+    // This test therefore pins two things rather than one: the wildcard as
+    // written (note that `http://*` alone does not match a non-default port in
+    // Tauri 2.11.5's urlpattern, which would silently exclude the default
+    // `:3080` plane — the client app hit exactly that), and the existence of
+    // the thing that replaced it. A wildcard scope with no guard behind it is
+    // this grant — `desktop_set_supervision` included — handed to any page on
+    // any host, with every command-name assertion in this file still green.
     const capability = JSON.parse(readFileSync(join(TAURI_DIR, "capabilities", "main.json"), "utf8")) as {
       local?: boolean;
       remote?: { urls?: string[] };
       windows?: string[];
     };
-    // Loopback, both spellings, any port — the server this app itself manages.
-    // A wildcard host here is the failure this pins.
-    expect(capability.remote?.urls?.slice().sort()).toEqual(["http://127.0.0.1:*", "http://localhost:*"]);
-    for (const url of capability.remote?.urls ?? []) {
-      expect(url.startsWith("http://localhost:") || url.startsWith("http://127.0.0.1:")).toBe(true);
-    }
+    expect(capability.remote?.urls?.slice().sort()).toEqual(["http://*:*", "https://*:*"]);
     // `local: false` is what makes this a REMOTE capability. True would apply
     // the same grant to bundled `tauri://` pages as well.
     expect(capability.local).toBe(false);
     // One window, by name. A second id added here inherits the whole grant.
     expect(capability.windows).toEqual(["main"]);
+
+    // The guard, and the three properties § 15 rests on. Named from here
+    // because THIS is the file that would otherwise report a wide-open scope
+    // as correct.
+    const trust = readFileSync(join(TAURI_DIR, "src/trust.rs"), "utf8");
+    // Two origins and no more: loopback, or the instance's configured base URL.
+    expect(trust).toContain("pub fn trusts(");
+    expect(trust).toContain("crate::control::is_loopback");
+    // Navigation decides the SCHEME and arms nothing — it runs at request time
+    // and fires for subframes.
+    expect(trust).toContain("pub fn allow_navigation(");
+    expect(trust).toContain("browsable_scheme(url.scheme())");
+    // The arming is the COMMIT, and it is pinned at both ends (review,
+    // 2026-09-18). Deleting the `on_page_load` block leaves every other
+    // assertion in this file green and the guard armed permanently from
+    // `open_main`'s pre-build evaluate — a guard that fails OPEN, which is the
+    // one failure this file exists to make loud.
+    expect(trust).toContain("pub fn committed(");
+    expect(windows_src()).toContain("PageLoadEvent::Started");
+    expect(windows_src()).toContain("committed(payload.url())");
+    // And re-deciding never re-reads the WINDOW (review, 2026-09-18): its
+    // `url()` is WebKit's ACTIVE url, which is the REQUESTED one while a load
+    // is in flight, so `evaluate`ing it on a timer hands the guard to a page
+    // that loops `location.href` at a port nothing answers on. Both re-check
+    // paths go through `revalidate`, which judges the last COMMITTED address.
+    expect(trust).toContain("pub fn revalidate(");
+    for (const src of [windows_src(), readFileSync(join(TAURI_DIR, "src/watch.rs"), "utf8")]) {
+      expect(src).not.toMatch(/evaluate\(&?(current|u|here)\b/);
+    }
+    // And applied in front of every command, keyed on the calling window.
+    expect(trust).toContain("pub fn guarding<");
+    const lib = readFileSync(join(TAURI_DIR, "src/lib.rs"), "utf8");
+    expect(lib, "the invoke handler is no longer wrapped in the trust guard").toContain(
+      "trust::guarding(tauri::generate_handler![",
+    );
+    // `open_main` points the window at those same two origins and no other,
+    // which is what leaves "a page navigated there" as the only way onto a
+    // third one.
+    expect(windows_src()).toContain("trust.trusts(&url, base_origin)");
   });
 
   it("keeps the served page's one CLI-driving command to its known signature", () => {
@@ -399,22 +454,42 @@ describe("the assistant's IPC contract", () => {
     expect(main.has("desktop_install_app_update")).toBe(false);
   });
 
-  it("keeps the app installer to NO arguments, so a page names no release", () => {
+  it("keeps the app installer naming NO release, whatever else it takes", () => {
     // The whole reason this command can exist behind a single press: the
     // release to install is re-resolved in Rust, so the page asks for "the
-    // newest" and can never name a URL, a tag or a file. A parameter added
-    // later would make it a different command with the same name, and no ACL
+    // newest" and can never name a URL, a tag or a file.
+    //
+    // It is pinned as an exact parameter LIST rather than as "no arguments",
+    // which it was until spec 2026-09-18 § 13 made the act a selection. Two
+    // booleans carry what the person ticked — `install_server`, which decides
+    // whether a marker is written at all, and `forced`, the pane-safety
+    // override, which Rust narrows with its own `pane_risk_now` — and neither
+    // is a location. The list is the assertion: a `String` added here would be
+    // the parameter this test has always existed to catch, and no other
     // assertion in this file would see it.
     const rust = readFileSync(join(TAURI_DIR, "src/control.rs"), "utf8");
-    for (const name of ["desktop_check_app_update", "desktop_install_app_update"]) {
+    const signatures: Record<string, string[]> = {
+      desktop_check_app_update: ["app"],
+      desktop_install_app_update: ["app", "forced", "install_server"],
+    };
+    for (const [name, expected] of Object.entries(signatures)) {
       const signature = rust.slice(rust.indexOf(`pub async fn ${name}(`));
       const params = signature.slice(signature.indexOf("(") + 1, signature.indexOf(")"));
-      const names = params
+      const parsed = params
         .split(",")
         .map((line) => line.trim())
         .filter(Boolean)
-        .map((line) => line.split(":")[0]?.trim());
-      expect(names, `${name} takes more than an AppHandle`).toEqual(["app"]);
+        .map((line) => [line.split(":")[0]?.trim(), line.split(":")[1]?.trim()] as const);
+      expect(
+        parsed.map(([n]) => n),
+        `${name} does not take what it is pinned to`,
+      ).toEqual(expected);
+      // And every argument beyond the handle is a BOOLEAN, which is the
+      // property that makes "names no release" true by shape rather than by
+      // reading the body.
+      for (const [n, type] of parsed.slice(1)) {
+        expect(type, `${name}'s ${n} is not a bool`).toBe("bool");
+      }
     }
   });
 

@@ -18,8 +18,6 @@ use subshell_desktop_core::zoom::assistant_frame;
 use tauri::{AppHandle, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
 
-use crate::control::is_loopback;
-
 /// The narrowest the dashboard may be dragged.
 ///
 /// This was 1024x640 — the SPA's `useIsWide()` breakpoint
@@ -290,24 +288,66 @@ pub fn open_assistant(app: &AppHandle) -> Result<WebviewWindow, String> {
 }
 
 /// Create (or focus) the window that shows the server's SPA at `origin`.
-pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
+///
+/// `base_origin` is the instance's configured `APP_BASE_URL` origin, as the
+/// caller's probe reported it (`Probe::base_origin`). It is the SECOND origin
+/// this app may point the window at (spec 2026-09-18 § 15), and it is passed in
+/// rather than read here because both callers already hold a fresh probe —
+/// making the address this window may load a fact about the machine right now
+/// rather than one cached at startup.
+pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Result<(), String> {
     let url: tauri::Url = origin
         .parse()
         .map_err(|e| format!("the server reported an unusable base URL '{origin}': {e}"))?;
-    // Belt and braces over `Probe::origin`, which already builds this from a
-    // validated port and a loopback host: this window carries privileged
-    // globals, so the last thing between a config value and pointing it at an
-    // arbitrary host should be a refusal, not a comment.
-    if !url.host_str().map(is_loopback).unwrap_or(false) {
-        return Err(format!("refusing to open a non-loopback origin: {origin}"));
+    // **The app points this window at exactly two origins: loopback and the
+    // instance's own configured address.** Whatever a PAGE then does, this is
+    // the last thing between a config value and a window that carries
+    // privileged globals — and it is the same predicate the commands
+    // themselves are guarded by, so "where we may point it" and "what may
+    // drive us" cannot drift apart. Navigation away from here is a page's
+    // doing, and `crate::trust` covers that case.
+    let trust = crate::trust::window_state();
+    if !trust.trusts(&url, base_origin) {
+        return Err(format!("refusing to open an untrusted origin: {origin}"));
     }
+    trust.set_base(base_origin.map(str::to_string));
 
     if let Some(w) = app.get_webview_window("main") {
         // The server may have been reconfigured to another port since this
         // window opened. Focusing a window pointed at a dead origin looks like
         // the app is broken; navigating it is the whole fix.
-        if w.url().map(|u| u.origin() != url.origin()).unwrap_or(false) {
-            let _ = w.navigate(url);
+        let current = w.url().ok();
+        if current.as_ref().map(|u| u.origin() != url.origin()).unwrap_or(false) {
+            // **Disarm, and let the COMMIT re-arm** (review, 2026-09-18). This
+            // used to `evaluate(&url)` on the grounds that the navigation was
+            // ours rather than a page's — but `navigate()` is asynchronous and
+            // the page on screen keeps running until the new document commits,
+            // or forever if it never does. Arming for the TARGET is the same
+            // escalation that was removed from `on_navigation`, reached from
+            // the app's side: a window sitting on a third origin (mid proxied
+            // sign-in, say) would hold all seven commands the moment someone
+            // clicked the tray, for as long as loopback took to answer.
+            //
+            // Nothing is lost by waiting: `PageLoadEvent::Started` fires
+            // before any script in the new page runs, so the SPA's own
+            // title-bar handshake is never refused.
+            trust.clear();
+            let _ = w.navigate(url.clone());
+        } else {
+            // Nothing to re-point — but the base may have moved under a page
+            // that stayed put, and this is the call that learns it. Against the
+            // last COMMITTED page, never against `w.url()`, which is the
+            // ACTIVE url and may be one a page merely asked for (see
+            // `trust::MainTrust::page`).
+            //
+            // **This arm also covers a window that will not report its URL**,
+            // which used to `clear()` on the reasoning that an unreadable URL
+            // is not evidence of a trusted one. That reasoning belonged to the
+            // model where the flag was decided from what the window said; now
+            // the committed page is the authority, the flag can only be true
+            // because a commit made it so, and asking the window nothing is the
+            // correct response to it telling us nothing (review, 2026-09-18).
+            trust.revalidate();
         }
         raise(&w);
         return Ok(());
@@ -329,13 +369,63 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
 
     let level = crate::zoom::level(app);
     let floor = clamped_floor(level, work_area(app));
-    let allowed = url.origin();
+    // **Before the window exists**, for the address THIS SIDE chose — the
+    // refusal above already returned for anything untrusted, and no page can be
+    // invoking in the meantime, because this branch runs only when no `main`
+    // window exists.
+    //
+    // It does NOT exist to beat the page to the guard (review, 2026-09-18): the
+    // old comment claimed a trailing guard "would refuse the SPA's own
+    // title-bar handshake on a fast machine", which is not a race that exists.
+    // `PageLoadEvent::Started` is raised from `didCommitNavigation:` (macOS)
+    // and `LoadEvent::Committed` (GTK), both BEFORE the document's scripts run,
+    // so arming always precedes the first `invoke()`. Leaving that claim here
+    // would be the precedent for the next eager arm, which is exactly how the
+    // one this batch removed came to exist.
+    trust.evaluate(&url);
     let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
-        // The page is the SERVER's, and this window holds Tauri globals. A
-        // navigation away from the server's own origin — a redirect, an href
-        // in rendered content, an injected script — must not carry those
-        // anywhere else. Same-origin navigation is the SPA doing its job.
-        .on_navigation(move |u| u.origin() == allowed)
+        // **Navigation follows the sign-in; the PRIVILEGES do not** (operator's
+        // decision, spec 2026-09-18 § 15 — the same fix Subshell Client took in
+        // `f1c2aa68`, for the same report).
+        //
+        // This refused any URL whose origin was not the one the window opened
+        // with, which is exactly what a proxied sign-in does: an instance
+        // behind an OAuth proxy bounces the window to an identity provider on
+        // a third origin and back. Such a plane could not be shown in this app
+        // at all.
+        //
+        // What makes allowing it survivable — this window holds seven
+        // commands, one of which switches who runs the server — is that the
+        // handler RECOMPUTES what the page may do for every URL it commits to
+        // (`crate::trust`), so the privileges belong to the address rather than
+        // to the window. Scheme is checked rather than origin so the window
+        // still cannot be steered into `file:`, a custom handler, or anything
+        // else the OS would act on.
+        .on_navigation(move |u| crate::trust::window_state().allow_navigation(u))
+        // **Arming happens HERE, on a committed main-frame load** (review,
+        // 2026-09-18). `on_navigation` runs at request time and fires for
+        // subframes, so a page that navigated somewhere trusted-looking and
+        // FAILED — or that merely embedded an iframe — could arm the guard
+        // while its own document stayed on screen. `PageLoadEvent::Started` is
+        // raised from `didCommitNavigation:` (macOS) and `LoadEvent::Committed`
+        // (GTK), both main-frame-only and both after the document is really
+        // this window's.
+        //
+        // **One property holds this, and it is worth naming because no wry API
+        // asserts it**: the URL wry reads inside `didCommitNavigation:` is the
+        // same `WKWebView.URL` that prefers a PENDING load over the committed
+        // one, so a second main-frame load already in flight at that instant
+        // would be what gets recorded. WebKit keeps one provisional main-frame
+        // load per frame and the committing document's scripts have not run
+        // yet, so a page cannot arrange it — and the only load this app starts
+        // itself is `open_main`'s `navigate()`, which CLEARS before it
+        // navigates. Keep it that way: an app-initiated load that did not clear
+        // first would be the one way to record a URL the window is not on.
+        .on_page_load(|_webview, payload| {
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+                crate::trust::window_state().committed(payload.url());
+            }
+        })
         .on_new_window({
             // Tauri DENIES a page's request for a new window (`target="_blank"`,
             // `window.open`) unless a handler answers it, and it denies SILENTLY —
@@ -380,9 +470,14 @@ pub fn open_main(app: &AppHandle, origin: &str) -> Result<(), String> {
         None => builder,
     };
 
-    let window = builder
-        .build()
-        .map_err(|e| format!("could not open the main window: {e}"))?;
+    let window = builder.build().map_err(|e| {
+        // A window that never opened leaves nothing trusted behind it. Nothing
+        // could have invoked through it anyway — the grant is scoped to a
+        // window that does not exist — but a true flag with no page is the kind
+        // of state nobody thinks to check.
+        trust.clear();
+        format!("could not open the main window: {e}")
+    })?;
 
     // On the built window, not the builder: zoom is a webview property, and
     // the SPA has to come up at the size the user chose rather than resize

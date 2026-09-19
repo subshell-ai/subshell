@@ -97,6 +97,20 @@ pub fn resume_decision(
         // A bundle with nothing installed is work: the first install.
         (Some(_), None) => true,
         // No bundle to install FROM. Nothing this marker can mean.
+        //
+        // **This arm cannot tell that from an unanswerable probe** (review,
+        // 2026-09-18): the caller's `bundled` is `None` both for a build that
+        // ships no CLI and for one whose `<sidecar> version` spawn timed out —
+        // and that answer is memoized for the rest of the process, so a
+        // cold-disk boot can drop a pending marker AND suppress the ordinary
+        // bundled-server offer until the next launch.
+        //
+        // Availability rather than data loss: nothing is installed, the next
+        // launch re-derives from the machine, and `version_lt` is strict, so no
+        // older CLI can go over a newer one by this route. Left as it is
+        // deliberately — the honest fix is a third answer from the probe rather
+        // than a guess here — but written down rather than reading as a
+        // considered `false`.
         (None, _) => false,
     };
     if !has_work {

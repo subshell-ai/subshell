@@ -314,6 +314,31 @@ impl Probe {
         self.origin_with(dev_spa_origin().as_deref())
     }
 
+    /// The instance's configured public address, as an origin — the SECOND
+    /// place this app may point the dashboard window (spec 2026-09-18 § 15).
+    ///
+    /// Unlike [`Probe::origin`] this does NOT fall back to loopback and does
+    /// not touch the port: it answers what `APP_BASE_URL` says and nothing
+    /// else, because its whole job is to name the one non-loopback origin the
+    /// operator configured. `None` on a machine that configured none, which
+    /// leaves loopback as the only trusted address — exactly the behaviour
+    /// this app had before § 15.
+    ///
+    /// Reduced to an ORIGIN with the webview's own parser, for the reason
+    /// `dev_spa_origin_from` is: a hand-rolled host split disagrees with WHATWG
+    /// on inputs like `http://evil.com\@localhost:3080/`, and two parsers that
+    /// disagree about what a value even is are how a guard is walked past.
+    pub fn base_origin(&self) -> Option<String> {
+        let raw = self
+            .status
+            .as_ref()?
+            .get("settings")?
+            .get("APP_BASE_URL")?
+            .get("value")?
+            .as_str()?;
+        base_origin_from(raw)
+    }
+
     /// [`Probe::origin`] with the dev override passed IN rather than read from
     /// the environment.
     ///
@@ -370,7 +395,9 @@ impl Probe {
 /// **It cannot exist in a release build.** `debug_assertions` is off there, so
 /// this returns `None` before reading the environment at all; a variable left
 /// set in a user's shell reaches nothing. The value is still required to be a
-/// loopback http origin, and `open_main` re-checks that independently.
+/// loopback http origin, which `open_main` still accepts as one of the two it
+/// may point the window at (spec 2026-09-18 § 15) — and it re-checks
+/// independently.
 #[cfg(not(test))]
 fn dev_spa_origin() -> Option<String> {
     if !cfg!(debug_assertions) {
@@ -408,8 +435,11 @@ fn dev_spa_origin() -> Option<String> {
 ///
 /// Loopback http only. The dashboard window holds privileged globals, and a
 /// convenience for developers is not the place to widen where those may be
-/// served from — `open_main` refuses a non-loopback origin independently, so
-/// this agreeing with it is belt and braces rather than the only gate.
+/// served from — a Vite server on a LAN address would be trusted with the
+/// seven commands for the life of the session. `open_main` refuses an
+/// untrusted origin independently (loopback, or the instance's configured
+/// base URL — never this variable's own idea of one), so this agreeing with it
+/// is belt and braces rather than the only gate.
 fn dev_spa_origin_from(raw: Option<&str>) -> Option<String> {
     // Parsed with the SAME parser the webview will use, and reduced to an
     // actual origin. The hand-rolled `url_host` disagreed with WHATWG on
@@ -432,6 +462,21 @@ fn dev_spa_origin_from(raw: Option<&str>) -> Option<String> {
     Some(url.origin().ascii_serialization())
 }
 
+/// The validation half of [`Probe::base_origin`], with no probe in it.
+///
+/// http(s) only, and a real (tuple) origin: a `file:` or a bare word in that
+/// config field must buy the page nothing, and an opaque origin compares equal
+/// to no other — including a second reading of itself — so refusing it here is
+/// clearer than relying on that.
+fn base_origin_from(raw: &str) -> Option<String> {
+    let url: tauri::Url = raw.trim().parse().ok()?;
+    if !subshell_desktop_core::browser::browsable_scheme(url.scheme()) {
+        return None;
+    }
+    let origin = url.origin();
+    origin.is_tuple().then(|| origin.ascii_serialization())
+}
+
 /// Host of an http(s) URL, without pulling in a URL crate for one field.
 fn url_host(url: &str) -> Option<String> {
     let rest = url.split_once("://")?.1;
@@ -446,13 +491,21 @@ fn url_host(url: &str) -> Option<String> {
 /// The loopback spellings this app will open a window on.
 ///
 /// Deliberately NARROWER than the server's own `localOriginsFor()`, which also
-/// trusts `::1`. `capabilities/main.json` has to name the same origins, and a
-/// bracketed IPv6 host is not expressible in the URL patterns Tauri matches —
-/// so accepting `[::1]` here produced a window that loaded fine and whose every
-/// IPC call was then silently refused: no title-bar handshake, no server pill,
-/// no notifications, all with no error anywhere. Falling back to `127.0.0.1`
-/// for an IPv6 base URL loses the hostname's cookie jar, which is visible and
-/// recoverable, where the alternative was invisible.
+/// trusts `::1`, and it answers two questions at once: what `Probe::origin`
+/// may BUILD, and what `trust::MainTrust::trusts` accepts as loopback. Keeping
+/// those one function is what stops the app opening a window on an address its
+/// own guard would then refuse.
+///
+/// The narrowness was learned rather than chosen. It used to be forced by
+/// `capabilities/main.json`, which had to name the same origins and cannot
+/// express a bracketed IPv6 host in Tauri's URL patterns — so accepting
+/// `[::1]` produced a window that loaded fine and whose every IPC call was
+/// then silently refused: no title-bar handshake, no server pill, no
+/// notifications, no error anywhere. That scope is a wildcard since
+/// 2026-09-18 (spec § 15) and no longer constrains this, but the answer is
+/// unchanged: falling back to `127.0.0.1` for an IPv6 base URL loses the
+/// hostname's cookie jar, which is visible and recoverable, where the
+/// alternative was invisible.
 pub fn is_loopback(host: &str) -> bool {
     matches!(host, "localhost" | "127.0.0.1")
 }
@@ -1335,18 +1388,27 @@ pub async fn desktop_check_app_update(app: AppHandle) -> Result<crate::app_updat
 
 /// Download, verify, install and relaunch into the newest app.
 ///
-/// **Takes no argument.** The version to install is re-resolved here rather
-/// than carried back from the page — the same shape every other command in
-/// this file keeps, and the reason this one can be granted at all: a page can
-/// ask for "the newest", never for a URL. That is also why the pane-safety
-/// consent this act carries into its second half is READ here rather than
-/// passed: see `app_update::install_app_update`.
+/// **Names no URL.** The version to install is re-resolved here rather than
+/// carried back from the page — the same shape every other command in this
+/// file keeps, and the reason this one can be granted at all: a page can ask
+/// for "the newest", never for a location.
+///
+/// The two booleans are the phase-1 SELECTION (spec 2026-09-18 § 13), and they
+/// are arguments rather than reads because only the page knows what was ticked:
+///
+/// - `install_server` is the `subshell-server CLI` row. False writes no marker,
+///   so phase 2 never installs a half the person unticked — the marker's
+///   PRESENCE is the selection, which is what keeps it from being recorded in
+///   two places that can disagree.
+/// - `forced` is the pane-safety override. It is still ANDed with this
+///   machine's own `pane_risk_now` inside `install_app_update`, so a page
+///   asking to force a restart that would not refuse gets an ordinary one.
 ///
 /// It does not return on success: `app.restart()` is `-> !`.
 #[tauri::command(async)]
-pub async fn desktop_install_app_update(app: AppHandle) -> Result<(), String> {
+pub async fn desktop_install_app_update(app: AppHandle, forced: bool, install_server: bool) -> Result<(), String> {
     let _guard = ActionGuard::new();
-    crate::app_update::install_app_update(&app).await
+    crate::app_update::install_app_update(&app, forced, install_server).await
 }
 
 /// The app's version and the update the daily check found, for the SPA's
@@ -2197,8 +2259,10 @@ fn pane_safety_now(settings: &SettingsState) -> Option<String> {
 /// unreadable definition counts as risk because absence of evidence is not
 /// evidence of safety. It exists because the app update's phase 1 has to
 /// record the pane-safety consent for a phase 2 that runs in another process
-/// (spec 2026-09-18 § 5), and the page cannot pass it — `desktop_install_app_update`
-/// takes no argument, which is the whole case for granting it at all.
+/// (spec 2026-09-18 § 5) — and, since § 13 made the override an explicit Force
+/// box, to NARROW what the page asks for: the two are ANDed, so a page that
+/// requests `--force` where no definition would refuse cannot turn an ordinary
+/// restart into a forced one.
 pub(crate) fn pane_risk_now(settings: &SettingsState) -> bool {
     matches!(pane_safety_now(settings).as_deref(), Some(word) if word != "keeps")
 }
@@ -2503,7 +2567,10 @@ pub fn open_main_now(app: &AppHandle) -> Result<(), String> {
     let origin = probe
         .origin()
         .ok_or_else(|| "the server has not reported a usable base URL yet".to_string())?;
-    crate::windows::open_main(app, &origin)?;
+    // The configured address rides along with the one being opened: it is the
+    // other origin this window may sit on, and the probe that just answered is
+    // the freshest reading of it there is (spec 2026-09-18 § 15).
+    crate::windows::open_main(app, &origin, probe.base_origin().as_deref())?;
     // The wizard's job ends at the dashboard - by either door. The Done press
     // lives in the wizard page, which has no window-close permission (and
     // should not: a page that can close its own window can close it at the
@@ -2744,12 +2811,27 @@ pub fn desktop_open_tmux_docs(app: AppHandle) -> Result<(), String> {
 /// actually looking at — a port changed from the Service page moves it, and
 /// `watch.rs` re-points the window rather than re-creating it. A fresh probe is
 /// the fallback for the window not existing yet (the tray item on a machine
-/// sitting on the assistant), and it answers the same loopback origin
-/// `open_main_now` would open.
+/// sitting on the assistant), and it answers the same origin `open_main_now`
+/// would open.
+///
+/// **The window's url is used only while it is a TRUSTED one** (spec
+/// 2026-09-18 § 15). That window may now follow a sign-in onto a third origin,
+/// and `crate::trust` is what stops a page there from invoking this command at
+/// all — but the tray and the View menu reach the same act from Rust with no
+/// page involved, and joining "the current route" onto an identity provider's
+/// origin is not a page of this server. The probe's answer is the honest
+/// fallback, exactly as it is when there is no window.
 ///
 /// Either way the origin is THIS SIDE's: nothing a page sends reaches it.
 fn browser_origin(app: &AppHandle) -> Option<String> {
-    if let Some(url) = app.get_webview_window("main").and_then(|w| w.url().ok()) {
+    let trust = crate::trust::window_state();
+    let base = trust.base();
+    // The COMMITTED page, never `w.url()` — that is the ACTIVE url, which a
+    // page can point at anything it likes while the load hangs (review,
+    // 2026-09-18). What this decides is which page of this server opens in the
+    // person's real browser, with their cookies.
+    let trusted = trust.committed_url().filter(|url| trust.trusts(url, base.as_deref()));
+    if let Some(url) = trusted {
         return Some(url.origin().ascii_serialization());
     }
     let settings = app.state::<SettingsState>();
@@ -2767,9 +2849,9 @@ fn browser_origin(app: &AppHandle) -> Option<String> {
 ///
 /// Two things a person will notice, and neither is a bug this command should
 /// paper over: the browser carries no session cookie from the webview, so they
-/// sign in again; and this app's window is pinned to LOOPBACK, so the address
-/// that opens is the loopback one — where a passkey works only if
-/// `APP_BASE_URL` is loopback too.
+/// sign in again; and the address that opens is whichever of this app's two
+/// trusted origins the window is on — usually the loopback one, where a passkey
+/// works only if `APP_BASE_URL` is loopback too.
 #[tauri::command(async)]
 pub fn desktop_open_in_browser(app: AppHandle, path: String) -> Result<(), String> {
     let origin = browser_origin(&app).ok_or_else(|| "the server has not reported a usable base URL yet".to_string())?;
@@ -2781,18 +2863,29 @@ pub fn desktop_open_in_browser(app: AppHandle, path: String) -> Result<(), Strin
 
 /// The path "Open in Browser" opens from the tray or the View menu.
 ///
-/// The CURRENT route when a window is showing one, so the menu item and the
-/// SPA's own row do the same thing; `/` when there is no window (or its url
-/// cannot be read), because the app still has a sensible page to offer and a
+/// The CURRENT route of the page the window last COMMITTED to, so the menu
+/// item and the SPA's own row do the same thing; `/` when no page has
+/// committed, because the app still has a sensible page to offer and a
 /// disabled menu item would need a probe to know it should be.
+///
+/// `/` as well when the window is on an UNTRUSTED origin (spec 2026-09-18
+/// § 15): mid-sign-in the window's path belongs to an identity provider, and
+/// carrying `/authorize?client_id=…` onto this server's origin would open a
+/// page that is not the person's and does not exist.
 ///
 /// Rust-side, deliberately: this is not a `DesktopAction`. Those are
 /// ROUTER-level operations the page performs, and they need a page — here the
 /// act is opening another program, which works with no window at all.
-fn current_path(app: &AppHandle) -> String {
-    let Some(url) = app.get_webview_window("main").and_then(|w| w.url().ok()) else {
+fn current_path() -> String {
+    let trust = crate::trust::window_state();
+    // The COMMITTED page, for `browser_origin`'s reason: the active url is a
+    // page's to choose, and this one becomes a path in the person's browser.
+    let Some(url) = trust.committed_url() else {
         return "/".to_string();
     };
+    if !trust.trusts(&url, trust.base().as_deref()) {
+        return "/".to_string();
+    }
     let mut path = url.path().to_string();
     if let Some(query) = url.query() {
         path.push('?');
@@ -2826,7 +2919,7 @@ pub const MENU_BROWSER_ID: &str = "menu:browser";
 /// ways this fails (no server address yet, no browser) are both states the
 /// person can see for themselves.
 pub fn open_current_in_browser(app: &AppHandle) {
-    let path = current_path(app);
+    let path = current_path();
     if let Err(err) = desktop_open_in_browser(app.clone(), path) {
         eprintln!("subshell: could not open this page in a browser: {err}");
     }
@@ -3532,7 +3625,8 @@ mod tests {
         // WHATWG.** A backslash terminates the authority, so `Url` reads the
         // host as `evil.com` where the old `url_host` read `localhost` and
         // let it through — safe only because `open_main` refused it
-        // afterwards. Parsing with the webview's own parser makes the two
+        // afterwards (it still would: `evil.com` is neither loopback nor a
+        // configured base URL). Parsing with the webview's own parser makes the two
         // agree here instead of downstream.
         assert_eq!(dev_spa_origin_from(Some("http://evil.com\\@localhost:5174/")), None);
         // Reduced to an ORIGIN: a path, query or fragment is dropped rather
@@ -3573,6 +3667,75 @@ mod tests {
         );
         // And without one, the server's own address, unchanged.
         assert_eq!(up.origin_with(None).as_deref(), Some("http://127.0.0.1:3080"));
+    }
+
+    /// The SECOND origin the dashboard window may sit on (spec 2026-09-18
+    /// § 15), and the one place `APP_BASE_URL` is taken at its word.
+    ///
+    /// `Probe::origin` deliberately keeps only the base URL's HOST and only
+    /// when it is loopback; this keeps the whole origin, because its job is to
+    /// name the public address the operator configured. What it does not do is
+    /// invent one: a machine that configured none answers `None` and trusts
+    /// loopback alone.
+    #[test]
+    fn base_origin_is_the_configured_address_and_nothing_else() {
+        let p = probe_with(
+            Some(json!({
+                "configEnv": {"exists": true},
+                "settings": {"APP_BASE_URL": {"value": "https://plane.example.com/"}},
+                "listen": {"portValid": true, "port": 3080, "listening": true}
+            })),
+            Some(json!({"installed": true, "state": "running"})),
+            true,
+        );
+        assert_eq!(p.base_origin().as_deref(), Some("https://plane.example.com"));
+        // The window still OPENS on loopback — the two answers are different
+        // questions, and only the trust guard reads this one.
+        assert_eq!(p.origin().as_deref(), Some("http://127.0.0.1:3080"));
+
+        let none = probe_with(
+            Some(json!({
+                "configEnv": {"exists": true},
+                "listen": {"portValid": true, "port": 3080, "listening": true}
+            })),
+            Some(json!({"installed": true, "state": "running"})),
+            true,
+        );
+        assert_eq!(none.base_origin(), None);
+    }
+
+    /// The validation half, driven directly: this field is a line in a
+    /// config.env a person can hand-edit.
+    #[test]
+    fn base_origin_takes_http_s_origins_and_refuses_the_rest() {
+        // Reduced to an origin — a path, query or fragment is dropped, so the
+        // stored value is comparable to what a webview reports.
+        assert_eq!(
+            base_origin_from("https://plane.example.com:8443/app?a=b#c").as_deref(),
+            Some("https://plane.example.com:8443")
+        );
+        assert_eq!(
+            base_origin_from("  http://plane.example.com  ").as_deref(),
+            Some("http://plane.example.com")
+        );
+        // The WHATWG disagreement `dev_spa_origin_from` was fixed for: the
+        // host here is `evil.com`, and this must say so rather than read
+        // `localhost` out of it.
+        assert_eq!(
+            base_origin_from("http://evil.com\\@localhost:3080/").as_deref(),
+            Some("http://evil.com")
+        );
+        for no in [
+            "",
+            "   ",
+            "3080",
+            "plane.example.com",
+            "file:///srv",
+            "tailscale://plane",
+            "data:text/html,x",
+        ] {
+            assert_eq!(base_origin_from(no), None, "{no}");
+        }
     }
 
     #[test]

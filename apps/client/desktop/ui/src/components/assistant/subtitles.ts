@@ -96,10 +96,12 @@ export function subtitleFor(
       // a NETWORK read the screen itself makes, and a subtitle that claimed
       // either way would be drawn before anything had been asked.
       //
-      // It names BOTH halves because the act is both: this app ships the agent
-      // it drives, so replacing the app is only ever the first of two steps,
-      // and a sentence about the application alone would make our packaging
-      // the reader's problem (spec 2026-09-18 § 1).
+      // It names BOTH halves because both get a ROW: this app ships the agent
+      // it drives, and a sentence about the application alone would make our
+      // packaging the reader's problem (spec 2026-09-18 § 1). It stops there
+      // deliberately — since § 13 the act is a selection, so which halves run
+      // is the table's answer and never a subtitle drawn before the probe and
+      // the release check have landed.
       return "This app and the node agent that ships inside it.";
   }
 }

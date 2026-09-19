@@ -644,9 +644,15 @@ entry names this host and a name proves nothing. Properties to keep:
   it. Adding wildcard support would need this section rewritten first.
 - **`APP_BASE_URL` is also better-auth's passkey rpID.** Changing it moves
   which host passkeys work on, so an existing passkey stops working on the old
-  address — including the Subshell Server desktop app's own window, which is
-  pinned to loopback. Adding a LAN name to `TRUSTED_ORIGINS` does NOT have that
-  effect and is the right lever for "also reachable at".
+  address — including the Subshell Server desktop app's own window, which loads
+  this machine over http. Adding a LAN name to `TRUSTED_ORIGINS` does NOT have
+  that effect and is the right lever for "also reachable at".
+  **The same field has a second consequence for that app** (2026-09-18): an
+  `https` base URL makes better-auth mark the session cookie `Secure`, and that
+  window is http-on-loopback, so it can never store a session again — the
+  Addresses card warns before the save, the sign-in page explains it after, and
+  the assistant's **Server Addresses** screen is the way back, since it drives
+  the CLI and needs no session.
 
 ## Network plugins publish this server on a network (spec 2026-09-15)
 
@@ -758,10 +764,15 @@ grant equal to what the page actually invokes. The `csp` in each
 `tauri.conf.json` governs the bundled pages only — the remote window carries
 whatever CSP the plane sends.
 
-- **The server app's remote window is PINNED TO LOOPBACK and holds seven
-  commands — six harmless, one deliberate exception.** It loads `http://127.0.0.1:<port>` or `http://localhost:<port>` —
-  the server this app itself manages — so `capabilities/main.json` scopes it
-  with `remote.urls` to loopback and grants only commands that cannot touch the
+- **The server app's remote window loads TWO origins and holds seven
+  commands — six harmless, one deliberate exception.** It loads
+  `http://127.0.0.1:<port>` / `http://localhost:<port>` — the server this app
+  itself manages — or the instance's configured `APP_BASE_URL` (2026-09-18,
+  spec § 15: a plane behind an OAuth proxy could not be shown otherwise).
+  `capabilities/main.json` can no longer scope that, since the base URL is a
+  config value and the file is static, so its `remote.urls` is a wildcard and
+  `trust.rs` is the boundary instead. The grant is still only commands that
+  cannot touch the
   CLI, the config, the service or the filesystem (drop this app's own title
   bar, display one fixed-shape notification, raise the assistant at a named
   screen, open a page of THIS server in the system browser, read this
@@ -782,9 +793,22 @@ whatever CSP the plane sends.
   server is a restart with a different respawner, and an admin page already
   holds the restart route, so the assistant window that carried the consent
   defended less than it cost. `docs/security.md` carries the accounting.
-  `open_main` independently refuses a non-loopback origin, and `on_navigation`
-  pins the window to the origin it opened with. An XSS in the SPA reaches
-  those six commands and nothing else.
+  **The loopback pin is GONE as of 2026-09-18, and what replaced it is a
+  runtime guard.** The window may now load the instance's configured
+  `APP_BASE_URL` as well as loopback, because a control plane behind an OAuth
+  proxy could not be shown at all — a proxied sign-in bounces through an
+  identity provider on a third origin. The capability's `remote.urls` is
+  therefore a wildcard and is no longer the boundary. The boundary is
+  `apps/server/desktop/src-tauri/src/trust.rs`: the window may NAVIGATE
+  anywhere http(s), and the seven commands answer only while it is ON loopback
+  or that base URL. `open_main` still points it at those two origins and
+  nothing else.
+  **Only a COMMITTED main-frame load may arm that guard** — it was briefly
+  armed from the navigation handler, which runs at request time and fires for
+  subframes, so a page that aimed at a loopback URL that could not connect (or
+  merely embedded an iframe) armed all seven commands while its own document
+  stayed on screen. An XSS in the SPA reaches those seven commands; a page on
+  any other origin reaches none of them.
 
   Three caveats on that trade, all in `docs/security.md` and none of them
   decoration: the grant is scoped to the WINDOW, not to an admin session, so a
@@ -839,8 +863,13 @@ whatever CSP the plane sends.
   `SubshellClient/…` user-agent marker, a DIFFERENT product token from the
   server app's, and the SPA branches on it — `isServerDesktop()` gates every
   Subshell Server surface (overlay title bar, update, reset, supervision,
-  notifications), `isDesktop()` gates only "Open in browser". `on_navigation`
-  still pins the window to the origin it opened with.
+  notifications), `isDesktop()` gates only "Open in browser". **`on_navigation`
+  no longer pins the window to one origin** (2026-09-18): it follows any
+  http(s) URL, because a plane behind an OAuth proxy could not otherwise be
+  signed into. What bounds this app is unchanged and does not depend on that
+  pin — the one granted command takes a PATH and joins it onto `PlanePin`'s
+  origin, not the page's, so a page anywhere a redirect leads can still only
+  open a path of the plane the window was OPENED with.
 - **Each app's ACL manifest is load-bearing BY EXISTENCE.** Tauri gates an app
   command only when `plugin_command.is_some() || has_app_acl_manifest ||
   !is_local`, so deleting `permissions/desktop.toml` leaves every command

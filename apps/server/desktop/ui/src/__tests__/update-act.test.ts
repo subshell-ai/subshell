@@ -1,5 +1,5 @@
 /**
- * The one update act's whole decision (spec 2026-09-18 § 4, § 6).
+ * The one update act's whole decision (spec 2026-09-18 § 4, § 6, § 13).
  *
  * This file is where the screen is actually covered. `ui/src/__tests__/` has
  * no DOM harness — nothing here can mount `wizard.ts` — so a judgment left in
@@ -8,12 +8,20 @@
  *
  * What it pins, in the order the spec states it: the four cases of § 4.1 (app
  * behind, server behind, both, neither), the two phases of § 4.2 across the
- * relaunch, and each refusal of § 6 — a server this app did not install, an
- * air-gapped source, and an act already in flight.
+ * relaunch, each refusal of § 6 — a server this app did not install, an
+ * air-gapped source, and an act already in flight — and § 13's amendment, which
+ * turned the act into a SELECTION after an operator was shown a screen
+ * promising to install a server older than the one they were running.
  */
 import { describe, expect, it } from "bun:test";
 import type { AppUpdateCheck, PendingInstall, Probe } from "../lib/ipc";
-import { rejectedResult, UPDATE_TITLE, type UpdateActInput, updateAct } from "../lib/update-act";
+import {
+  rejectedResult,
+  UPDATE_TITLE,
+  type UpdateActInput,
+  type UpdateActSelection,
+  updateAct,
+} from "../lib/update-act";
 
 /** A machine with a managed server running, current with what this app ships. */
 function machine(over: Partial<Probe> = {}): Probe {
@@ -42,6 +50,15 @@ const SERVER_BEHIND: Partial<Probe> = {
   server: { argv: ["/home/u/.local/bin/subshell-server"], source: "local-bin", version: "0.9.0" },
 };
 
+/**
+ * The § 13 machine: a `subshell-server` updated by hand, NEWER than the one
+ * this app ships. The ladder adopts it, so there is nothing for the act to do.
+ */
+const SERVER_AHEAD: Partial<Probe> = {
+  serverChoice: "adopt-installed",
+  server: { argv: ["/home/u/.local/bin/subshell-server"], source: "local-bin", version: "0.10.1" },
+};
+
 /** A definition that does NOT spare live panes. */
 const KILLS_PANES: Partial<Probe> = {
   service: { installed: true, state: "running", paneSafety: "kills" },
@@ -65,35 +82,74 @@ function marker(over: Partial<PendingInstall> = {}): PendingInstall {
   return { fromAppVersion: "0.8.0", forced: false, halted: false, ...over };
 }
 
+/** Nothing ticked by hand — the screen as it is first drawn. */
+const UNTOUCHED: UpdateActSelection = { rows: {}, force: null };
+
 function act(over: Partial<UpdateActInput> = {}) {
-  return updateAct({ probe: machine(), appUpdate: NO_APP_UPDATE, state: "idle", finished: null, ...over });
+  return updateAct({
+    probe: machine(),
+    appUpdate: NO_APP_UPDATE,
+    state: "idle",
+    finished: null,
+    selection: UNTOUCHED,
+    busy: false,
+    ...over,
+  });
 }
 
-/** The row for one half, or undefined when the screen does not state it. */
+/** The row for one half. Both are always stated on the offer (§ 13.1). */
 const row = (view: ReturnType<typeof act>, id: "app" | "cli") => view.rows.find((r) => r.id === id);
 
 describe("the four cases of §4.1", () => {
-  it("states both halves when both are behind, and the server's target is unknown", () => {
+  it("states both halves when both are behind, and ticks both", () => {
     const view = act({ probe: machine(SERVER_BEHIND), appUpdate: APP_BEHIND });
     expect(view.phase).toBe("idle");
-    expect(row(view, "app")).toEqual({ id: "app", label: "Subshell Server app", from: "0.8.0", to: "0.8.1" });
-    // `to: null` is the honest answer rather than a missing row: a desktop
+    expect(row(view, "app")).toEqual({
+      id: "app",
+      label: "Subshell Server app",
+      from: "0.8.0",
+      to: "0.8.1",
+      selected: true,
+      reason: null,
+    });
+    // `to: null` is the honest answer rather than a missing number: a desktop
     // release manifest carries the component's version and its asset digests,
     // never the version of the CLI inside the bundle (§ 4.3). The number
     // appears after the relaunch, and the screen says "the server it ships"
     // until then.
-    expect(row(view, "cli")).toEqual({ id: "cli", label: "subshell-server CLI", from: "0.9.0", to: null });
-    expect(view.press).toEqual({ label: "Download and Install 0.8.1", kind: "app", enabled: true });
+    expect(row(view, "cli")).toEqual({
+      id: "cli",
+      label: "subshell-server CLI",
+      from: "0.9.0",
+      to: null,
+      selected: true,
+      reason: null,
+    });
+    // D1 unchanged: both ticked, one press does both.
+    expect(view.press).toEqual({
+      label: "Download and Install 0.8.1",
+      kind: "app",
+      enabled: true,
+      bundled: true,
+      forced: false,
+    });
   });
 
-  it("still states the server half when only the APP is behind", () => {
-    // The app ships the server, so the act always installs one — even from a
-    // machine whose server is current, where the NEW bundle's copy is newer
-    // than what is here. A screen that showed the app row alone would be
-    // describing half of what its own button does.
+  it("still ticks the server half when only the APP is behind", () => {
+    // The app ships the server, so the act installs one even from a machine
+    // whose server is current: the NEW bundle's copy is newer than what is
+    // here. A screen that showed the app row alone would describe half of what
+    // its own button does.
     const view = act({ appUpdate: APP_BEHIND });
     expect(row(view, "app")?.to).toBe("0.8.1");
-    expect(row(view, "cli")).toEqual({ id: "cli", label: "subshell-server CLI", from: "0.10.0", to: null });
+    expect(row(view, "cli")).toEqual({
+      id: "cli",
+      label: "subshell-server CLI",
+      from: "0.10.0",
+      to: null,
+      selected: true,
+      reason: null,
+    });
   });
 
   it("names both numbers when only the SERVER is behind, and does not relaunch", () => {
@@ -101,14 +157,32 @@ describe("the four cases of §4.1", () => {
     // already carries is installed here and now, and its target version is a
     // number this build knows.
     const view = act({ probe: machine(SERVER_BEHIND) });
-    expect(row(view, "app")).toBeUndefined();
-    expect(row(view, "cli")).toEqual({ id: "cli", label: "subshell-server CLI", from: "0.9.0", to: "0.10.0" });
-    expect(view.press).toEqual({ label: "Update and Restart", kind: "cli", enabled: true });
+    expect(row(view, "app")).toEqual({
+      id: "app",
+      label: "Subshell Server app",
+      from: "0.8.0",
+      to: null,
+      selected: null,
+      reason: "up to date",
+    });
+    expect(row(view, "cli")?.to).toBe("0.10.0");
+    expect(view.press).toEqual({
+      label: "Update and Restart",
+      kind: "cli",
+      enabled: true,
+      bundled: true,
+      forced: false,
+    });
   });
 
-  it("offers nothing when neither is behind", () => {
+  it("states both halves and offers nothing when neither is behind", () => {
     const view = act();
-    expect(view.rows).toEqual([]);
+    // The rows are still there — a component the screen knows about and does
+    // not state is one the reader has to guess at (§ 13.1).
+    expect(view.rows.map((r) => [r.id, r.selected, r.reason])).toEqual([
+      ["app", null, "up to date"],
+      ["cli", null, "up to date"],
+    ]);
     expect(view.press).toBeNull();
     expect(view.subtitle).toContain("both current");
   });
@@ -119,22 +193,15 @@ describe("the four cases of §4.1", () => {
     // writes. It is reachable here through the boot resume on a machine whose
     // server was removed between the press and the relaunch.
     const view = act({ probe: machine({ serverChoice: "install-bundled", server: null, managed: false }) });
-    expect(row(view, "cli")).toEqual({ id: "cli", label: "subshell-server CLI", from: "not installed", to: "0.10.0" });
-    expect(view.press?.kind).toBe("cli");
-  });
-
-  it("offers nothing for a server NEWER than the one this app ships", () => {
-    // `adopt-installed`: boot's migrator is forward-only, so a newer installed
-    // server is adopted and never overwritten. Offering it here would be the
-    // one downgrade this product treats as data loss.
-    const view = act({
-      probe: machine({
-        serverChoice: "adopt-installed",
-        server: { argv: ["/home/u/.local/bin/subshell-server"], source: "local-bin", version: "0.11.0" },
-      }),
+    expect(row(view, "cli")).toEqual({
+      id: "cli",
+      label: "subshell-server CLI",
+      from: "not installed",
+      to: "0.10.0",
+      selected: true,
+      reason: null,
     });
-    expect(view.rows).toEqual([]);
-    expect(view.press).toBeNull();
+    expect(view.press?.kind).toBe("cli");
   });
 });
 
@@ -147,6 +214,15 @@ describe("the two phases of §4.2", () => {
     expect(view.phase).toBe("finishing");
     expect(view.press).toBeNull();
     expect(view.subtitle).toContain("updated from 0.8.0");
+  });
+
+  it("states the one component it is acting on, and offers no checkbox for it", () => {
+    // No SELECTION in phase 2: the act was chosen in the previous process, so
+    // the row states it rather than offering it.
+    const view = act({ probe: machine({ ...SERVER_BEHIND, pendingInstall: marker() }) });
+    expect(view.rows).toEqual([
+      { id: "cli", label: "subshell-server CLI", from: "0.9.0", to: "0.10.0", selected: null, reason: null },
+    ]);
   });
 
   it("outranks every phase-1 question, including a release answer already in hand", () => {
@@ -165,12 +241,7 @@ describe("the two phases of §4.2", () => {
     // nothing persists a REASON across the relaunch, so the versions are what
     // the screen can honestly state).
     const behind = { ...SERVER_BEHIND, pendingInstall: marker() };
-    expect(row(act({ probe: machine(behind) }), "cli")).toEqual({
-      id: "cli",
-      label: "subshell-server CLI",
-      from: "0.9.0",
-      to: "0.10.0",
-    });
+    expect(row(act({ probe: machine(behind) }), "cli")?.to).toBe("0.10.0");
     expect(row(act({ probe: machine({ ...behind, pendingInstall: marker({ halted: true }) }) }), "cli")?.to).toBe(
       "0.10.0",
     );
@@ -194,8 +265,9 @@ describe("the two phases of §4.2", () => {
     // NOT `finishing`: that phase fires by itself when it carries no press.
     expect(view.phase).toBe("halted");
     expect(view.press).toBeNull();
+    expect(row(view, "cli")?.reason).toBe("not this app's");
     expect(view.notes.join(" ")).toContain("/usr/bin/subshell-server");
-    expect(view.paneWarning).toBe(false);
+    expect(view.force).toBeNull();
   });
 
   it("turns a rejection into an attempt that failed, so the screen keeps a control", () => {
@@ -207,7 +279,7 @@ describe("the two phases of §4.2", () => {
       probe: machine({ ...SERVER_BEHIND, pendingInstall: marker() }),
       finished: rejectedResult("the server is already being updated"),
     });
-    expect(view.press).toEqual({ label: "Try Again", kind: "cli", enabled: true });
+    expect(view.press).toEqual({ label: "Try Again", kind: "cli", enabled: true, bundled: true, forced: false });
   });
 
   it("offers Try Again when the finishing install failed here", () => {
@@ -216,7 +288,7 @@ describe("the two phases of §4.2", () => {
       finished: { ok: false },
     });
     expect(view.phase).toBe("finishing");
-    expect(view.press).toEqual({ label: "Try Again", kind: "cli", enabled: true });
+    expect(view.press?.label).toBe("Try Again");
   });
 
   it("stops firing by itself once the attempts are spent, and says what is running", () => {
@@ -225,7 +297,7 @@ describe("the two phases of §4.2", () => {
     // on every launch, forever.
     const view = act({ probe: machine({ ...SERVER_BEHIND, pendingInstall: marker({ halted: true }) }) });
     expect(view.phase).toBe("halted");
-    expect(view.press).toEqual({ label: "Try Again", kind: "cli", enabled: true });
+    expect(view.press?.label).toBe("Try Again");
     expect(view.notes.join(" ")).toContain("server it had before the update");
   });
 
@@ -237,6 +309,33 @@ describe("the two phases of §4.2", () => {
     expect(view.phase).toBe("done");
     expect(view.press).toBeNull();
     expect(view.rows).toEqual([]);
+    expect(view.subtitle).toBe("Subshell Server and the server it ships are both up to date.");
+  });
+
+  /**
+   * A closing sentence may only speak for what was installed (review,
+   * 2026-09-18). § 13 made the act a selection, so a CLI-only press — the app
+   * row unticked — used to end on "both up to date" over an app a release
+   * behind, which is the same overclaim the table was rebuilt to remove.
+   */
+  it("does not call the app current after a press that only touched the server", () => {
+    const view = act({ finished: { ok: true }, appUpdate: APP_BEHIND });
+    expect(view.subtitle).toBe("The server on this machine is up to date. Subshell Server 0.8.1 is still available.");
+  });
+
+  /**
+   * **`busy` is not `state`** (review, 2026-09-18). `state` tracks the APP
+   * install's phases; the CLI half runs through the page's action runner and
+   * never touches it. Without this the primary button stayed live through a
+   * `subshell-server update --from` budgeted at 300 s — greyed checkboxes, a
+   * live-looking button and no progress line, which reads as a hung screen.
+   */
+  it("goes dead while this window is already doing something", () => {
+    const running = act({ probe: machine(SERVER_BEHIND), appUpdate: APP_BEHIND, busy: true });
+    expect(running.press?.enabled).toBe(false);
+    // The press is still NAMED: a button that vanished mid-act would take the
+    // only description of what is happening with it.
+    expect(running.press?.label).toBe("Download and Install 0.8.1");
   });
 
   it("says the app restarts while the download runs", () => {
@@ -255,6 +354,170 @@ describe("the two phases of §4.2", () => {
   });
 });
 
+describe("§13: the act is a selection", () => {
+  it("does not offer to install a server older than the one running", () => {
+    // The operator's report, 2026-09-18: app 0.8.1, a hand-updated CLI at
+    // 0.10.1, and a screen naming a version older than the running one as a
+    // target while promising an install `Resume::Clear` would never perform.
+    const view = act({ probe: machine(SERVER_AHEAD), appUpdate: APP_BEHIND });
+    expect(row(view, "cli")).toEqual({
+      id: "cli",
+      label: "subshell-server CLI",
+      from: "0.10.1",
+      to: null,
+      selected: null,
+      reason: "you run a newer one",
+    });
+    // The app half still runs — it was never the false half.
+    expect(view.press?.kind).toBe("app");
+    // And the marker is not written, so phase 2 does not fire on the far side.
+    expect(view.press?.bundled).toBe(false);
+  });
+
+  it("stops the subtitle promising the CLI half when it will not run", () => {
+    expect(act({ probe: machine(SERVER_AHEAD), appUpdate: APP_BEHIND }).subtitle).not.toContain(
+      "also installs the server it ships",
+    );
+    // Where it WILL run, the sentence is unchanged.
+    expect(act({ probe: machine(SERVER_BEHIND), appUpdate: APP_BEHIND }).subtitle).toContain(
+      "also installs the server it ships",
+    );
+  });
+
+  it("names the supported way to move a server backwards instead of offering one", () => {
+    // § 13.2: boot's migrator is forward-only, so an older server cannot boot
+    // on a database a newer one migrated. Force may not make that a checkbox.
+    const view = act({ probe: machine(SERVER_AHEAD) });
+    expect(view.notes.join(" ")).toContain("update --from");
+    expect(view.press).toBeNull();
+    expect(view.subtitle).toContain("newer server than this app ships");
+  });
+
+  it("runs only what is ticked, and is dead when nothing is", () => {
+    const both = { probe: machine(SERVER_BEHIND), appUpdate: APP_BEHIND };
+    // Untick the CLI: the app half still runs, and no marker is written.
+    const appOnly = act({ ...both, selection: { rows: { cli: false }, force: null } });
+    expect(appOnly.press).toEqual({
+      label: "Download and Install 0.8.1",
+      kind: "app",
+      enabled: true,
+      bundled: false,
+      forced: false,
+    });
+    expect(appOnly.subtitle).toContain("not part of this update");
+    // Untick the app: the CLI half runs here and now.
+    const cliOnly = act({ ...both, selection: { rows: { app: false }, force: null } });
+    expect(cliOnly.press?.kind).toBe("cli");
+    expect(cliOnly.press?.label).toBe("Update and Restart");
+    // Untick both: the button stays, so the table does not jump under the hand
+    // that cleared the last box, and it is dead.
+    const neither = act({ ...both, selection: { rows: { app: false, cli: false }, force: null } });
+    expect(neither.press).toEqual({ label: "Update", kind: "app", enabled: false, bundled: false, forced: false });
+  });
+
+  /**
+   * **Unticking the app must not leave a restart behind** (review, 2026-09-18).
+   *
+   * The CLI row rode the app row's TICKABILITY, so on the commonest shape of
+   * all — a behind app beside a current server — clearing the app box left the
+   * CLI box ticked and the press became `Update and Restart`. That press is
+   * not a no-op: `subshell-server update --from` prints "Already at X." and
+   * exits 0, so the install reports success and the service is restarted —
+   * closing every live subshell on a machine whose definition does not spare
+   * them, for an install that changed nothing.
+   */
+  it("leaves nothing to press when the app is unticked and the server is current", () => {
+    const appBehindOnly = { probe: machine(KILLS_PANES), appUpdate: APP_BEHIND };
+    const ticked = act(appBehindOnly);
+    expect(ticked.press?.kind).toBe("app");
+    // The CLI rides along while the app runs — that is § 4.3, unchanged.
+    expect(row(ticked, "cli")?.selected).toBe(true);
+
+    const cleared = act({ ...appBehindOnly, selection: { rows: { app: false }, force: null } });
+    // Re-derived as a standalone act, which does not exist on this machine.
+    expect(row(cleared, "cli")).toMatchObject({ selected: null, reason: "up to date" });
+    expect(cleared.press?.enabled).toBe(false);
+    // And no Force box, because nothing here restarts anything.
+    expect(cleared.force).toBeNull();
+    // The sentence may not promise the app install either.
+    expect(cleared.subtitle).not.toContain("also installs the server it ships");
+  });
+
+  /** The same clearing on a machine where the server IS behind keeps its act. */
+  it("keeps the server's own act when the app is unticked and the server is behind", () => {
+    const cleared = act({
+      probe: machine(SERVER_BEHIND),
+      appUpdate: APP_BEHIND,
+      selection: { rows: { app: false }, force: null },
+    });
+    expect(row(cleared, "cli")).toMatchObject({ selected: true, to: "0.10.0" });
+    expect(cleared.press?.label).toBe("Update and Restart");
+  });
+
+  /**
+   * **An explicit answer outlives the row within a visit** (review,
+   * 2026-09-18). The selection's own docblock implied a stale tick could never
+   * outlive its row; that is true of an ABSENT entry and not of a deliberate
+   * one, and the difference had no test. It is the right behaviour — the
+   * machine changing under someone is not them changing their mind — so it is
+   * pinned rather than removed.
+   */
+  it("remembers a cleared row across a machine that changes under it", () => {
+    const cleared: UpdateActSelection = { rows: { cli: false }, force: null };
+    // The CLI half is behind on its own, and deliberately declined.
+    const behind = act({ probe: machine(SERVER_BEHIND), selection: cleared });
+    expect(row(behind, "cli")?.selected).toBe(false);
+    expect(behind.press?.enabled).toBe(false);
+
+    // The machine catches up by itself — the row has no act, so no tick, and
+    // the cleared answer is not what made it so.
+    const caughtUp = act({ probe: machine(), selection: cleared });
+    expect(row(caughtUp, "cli")).toMatchObject({ selected: null, reason: "up to date" });
+
+    // And falls behind again: still declined, not silently re-ticked.
+    const again = act({ probe: machine(SERVER_BEHIND), selection: cleared });
+    expect(row(again, "cli")?.selected).toBe(false);
+  });
+
+  it("offers Force only where a definition would actually refuse", () => {
+    // § 13.2: the ONE refusal a person may overrule, and only where there is
+    // one. `paneRisk` fails closed, so an unreadable definition counts.
+    expect(act({ probe: machine({ ...SERVER_BEHIND, ...KILLS_PANES }) }).force).toEqual({
+      checked: false,
+      warning: expect.stringContaining("closes every subshell"),
+      label: expect.stringContaining("Restart anyway"),
+    });
+    // A definition that spares panes has nothing to overrule.
+    expect(act({ probe: machine(SERVER_BEHIND) }).force).toBeNull();
+    // Neither has an act that restarts nothing: app ticked, CLI unticked.
+    expect(
+      act({
+        probe: machine({ ...SERVER_AHEAD, ...KILLS_PANES }),
+        appUpdate: APP_BEHIND,
+      }).force,
+    ).toBeNull();
+  });
+
+  it("carries a ticked Force into the press, and unticked is the default", () => {
+    const behind = { probe: machine({ ...SERVER_BEHIND, ...KILLS_PANES }) };
+    // An override that arrives pre-accepted is not an override.
+    expect(act(behind).press?.forced).toBe(false);
+    expect(act({ ...behind, selection: { rows: {}, force: true } }).press?.forced).toBe(true);
+  });
+
+  it("shows phase 2 the answer phase 1 recorded, and lets a retry change it", () => {
+    // § 5: the consent crosses the relaunch in the marker, so the box is
+    // already ticked rather than asked for again — but a Try Again is a fresh
+    // press and the box is live under it.
+    const halted = {
+      probe: machine({ ...SERVER_BEHIND, ...KILLS_PANES, pendingInstall: marker({ halted: true, forced: true }) }),
+    };
+    expect(act(halted).force?.checked).toBe(true);
+    expect(act(halted).press?.forced).toBe(true);
+    expect(act({ ...halted, selection: { rows: {}, force: false } }).press?.forced).toBe(false);
+  });
+});
+
 describe("the refusals of §6", () => {
   it("leaves a server this app did not install alone, and names the path", () => {
     // Writing `~/.local/bin` cannot change what a service pointing elsewhere
@@ -267,20 +530,23 @@ describe("the refusals of §6", () => {
       }),
       appUpdate: APP_BEHIND,
     });
-    expect(row(view, "cli")).toBeUndefined();
+    expect(row(view, "cli")?.selected).toBeNull();
+    expect(row(view, "cli")?.reason).toBe("not this app's");
     expect(view.notes.join(" ")).toContain("/usr/bin/subshell-server");
     expect(view.press?.kind).toBe("app");
-    // And nothing restarts, so the pane warning has nothing to warn about.
-    expect(view.paneWarning).toBe(false);
+    expect(view.press?.bundled).toBe(false);
+    // And nothing restarts, so there is no refusal to overrule.
+    expect(view.force).toBeNull();
   });
 
   it("says the source is air-gapped by name, and still offers the local half", () => {
     // The bundled-server half is entirely local, so the screen still has a job
-    // on a machine that can never reach a release source.
+    // on a machine that can never reach a release source. The long sentence is
+    // a note; the cell says only that the check did not happen.
     const view = act({ probe: machine(SERVER_BEHIND), appUpdate: AIR_GAPPED });
     expect(view.notes.join(" ")).toContain("SUBSHELL_RELEASE_URL");
+    expect(row(view, "app")?.reason).toBe("could not check");
     expect(view.press?.kind).toBe("cli");
-    expect(row(view, "app")).toBeUndefined();
   });
 
   it("does not report a source that could not answer as being up to date", () => {
@@ -289,22 +555,17 @@ describe("the refusals of §6", () => {
     // not checked since it was installed that it is current.
     expect(act({ appUpdate: AIR_GAPPED }).subtitle).toContain("could not check");
     expect(act({ appUpdate: NO_APP_UPDATE }).subtitle).toContain("both current");
+    // A check that threw leaves no answer at all, and says the same thing.
+    expect(act({ appUpdate: null }).subtitle).toContain("could not check");
   });
 
-  it("warns about live panes wherever the act restarts the service", () => {
-    // `unknown` counts as unsafe for the same reason `paneRisk` does: the
-    // warning that turns out to be unnecessary costs a sentence, and the one
-    // that was needed and absent costs someone's running sessions.
-    expect(act({ probe: machine({ ...SERVER_BEHIND, ...KILLS_PANES }) }).paneWarning).toBe(true);
-    expect(act({ probe: machine(SERVER_BEHIND) }).paneWarning).toBe(false);
-    // It carries into the combined act: the restart is step 2 of 2, not a
-    // separate thing to be consented to after the relaunch.
-    expect(act({ probe: machine({ ...SERVER_BEHIND, ...KILLS_PANES }), appUpdate: APP_BEHIND }).paneWarning).toBe(true);
-    // And onto the phase-2 screen, where a Try Again is the fresh consent.
+  it("carries the pane question into the combined act rather than after it", () => {
+    // The restart is step 2 of 2, not a separate thing to consent to after the
+    // relaunch — so the box is on the screen that does the pressing.
+    expect(act({ probe: machine({ ...SERVER_BEHIND, ...KILLS_PANES }), appUpdate: APP_BEHIND }).force).not.toBeNull();
     expect(
-      act({ probe: machine({ ...SERVER_BEHIND, ...KILLS_PANES, pendingInstall: marker({ halted: true }) }) })
-        .paneWarning,
-    ).toBe(true);
+      act({ probe: machine({ ...SERVER_BEHIND, ...KILLS_PANES, pendingInstall: marker({ halted: true }) }) }).force,
+    ).not.toBeNull();
   });
 
   it("does not call a machine current when the act failed here", () => {
@@ -317,25 +578,33 @@ describe("the refusals of §6", () => {
     expect(view.phase).toBe("idle");
     expect(view.subtitle).not.toContain("both current");
     expect(view.subtitle).toContain("restart did not finish");
-    expect(view.press).toEqual({ label: "Try Again", kind: "cli", enabled: true });
-    // And that Try Again restarts the service, so it carries the warning even
-    // with no row on screen to hang it off.
-    expect(act({ probe: machine(KILLS_PANES), finished: { ok: false } }).paneWarning).toBe(true);
+    expect(view.press?.label).toBe("Try Again");
+    // That Try Again IS the restart that failed, so the box it needs is there
+    // even with no tickable row on screen to hang it off.
+    expect(act({ probe: machine(KILLS_PANES), finished: { ok: false } }).force).not.toBeNull();
   });
 
-  it("never warns where there is nothing to press", () => {
+  it("never offers Force where there is nothing to press", () => {
     // A warning over a machine with nothing to do is a sentence that teaches
     // people to ignore warnings.
-    expect(act({ probe: machine(KILLS_PANES) }).paneWarning).toBe(false);
+    expect(act({ probe: machine(KILLS_PANES) }).force).toBeNull();
   });
 
-  it("disables the press while an act is in flight", () => {
+  it("disables the press while an act is in flight, on EITHER half's flag", () => {
     // The refusal that matters is Rust's `ActionGuard`; this is the screen not
     // inviting a second press at something already running.
+    //
+    // Two flags, because the two halves run through different machinery
+    // (review, 2026-09-18): `state` is the APP install's phases, and the CLI
+    // half runs through the page's action runner, which only sets `busy`. This
+    // varied `state` alone, so the property was pinned exactly on the path
+    // that already had it.
+    const halted = { probe: machine({ ...SERVER_BEHIND, pendingInstall: marker({ halted: true }) }) };
     for (const state of ["checking", "downloading", "installing"] as const) {
-      const view = act({ probe: machine({ ...SERVER_BEHIND, pendingInstall: marker({ halted: true }) }), state });
-      expect(view.press?.enabled, state).toBe(false);
+      expect(act({ ...halted, state }).press?.enabled, state).toBe(false);
     }
+    expect(act({ ...halted, busy: true }).press?.enabled, "busy").toBe(false);
+    expect(act(halted).press?.enabled, "idle and not busy").toBe(true);
   });
 });
 

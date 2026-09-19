@@ -616,7 +616,12 @@ export function nodeCheckAppUpdate(): Promise<AppUpdateCheck> {
  * that makes this phase 1 of one act (spec 2026-09-18 § 4.2) — the new build
  * reads it back as {@link Probe.pendingInstall} and installs that bundled
  * agent, which is the half this call deliberately does not do.
+ *
+ * @param installAgent - the § 13 selection: the agent row's checkbox. FALSE
+ *   writes no marker at all, so phase 2 never runs and a deliberately older
+ *   installed agent survives the app update. It is a bool rather than anything
+ *   richer because the ACL test pins that this command names no location.
  */
-export function nodeInstallAppUpdate(): Promise<void> {
-  return invoke<void>("node_install_app_update");
+export function nodeInstallAppUpdate(installAgent: boolean): Promise<void> {
+  return invoke<void>("node_install_app_update", { installAgent });
 }

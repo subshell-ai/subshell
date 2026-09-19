@@ -24,6 +24,7 @@ mod reset;
 mod server_bin;
 mod supervisor;
 mod tray;
+mod trust;
 mod watch;
 mod windows;
 mod zoom;
@@ -158,7 +159,15 @@ pub fn run() {
         // and a window reload must not be able to lose or repeat it.
         .manage(reset::Stash::default())
         .manage(supervisor::Supervisor::new())
-        .invoke_handler(tauri::generate_handler![
+        // **Every app command answers a trusted page or none** (spec
+        // 2026-09-18 § 15). The dashboard window may now navigate anywhere
+        // http(s) — a proxied sign-in bounces through an identity provider and
+        // back — so the capability's scope stopped being the boundary and
+        // `trust::guarding` became it: a command invoked from `main` while that
+        // window is on anything but loopback or the instance's configured
+        // address is refused before the handler sees it. The assistant is not
+        // subject to it, and plugin commands (window dragging) never reach here.
+        .invoke_handler(trust::guarding(tauri::generate_handler![
             control::desktop_probe,
             control::desktop_port_in_use,
             control::desktop_logs,
@@ -187,7 +196,7 @@ pub fn run() {
             control::desktop_check_app_update,
             control::desktop_install_app_update,
             control::desktop_app_update,
-        ])
+        ]))
         .on_window_event(|window, event| {
             // The assistant's page can no longer hear an event once its window
             // is destroyed, and the flag that says it can must not outlive it —
@@ -196,6 +205,13 @@ pub fn run() {
             // closed (2026-09-12).
             if window.label() == "wizard" && matches!(event, tauri::WindowEvent::Destroyed) {
                 window.app_handle().state::<reset::Stash>().page_gone();
+            }
+            // A page's privileges must not outlive the page. `open_main`
+            // re-earns them for whatever it points the next window at, and
+            // nothing can invoke in between — but a flag left true by a window
+            // that is gone is the kind of state nobody thinks to check.
+            if window.label() == trust::MAIN && matches!(event, tauri::WindowEvent::Destroyed) {
+                trust::window_state().clear();
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // Close-to-tray is opt-in, and the check RE-PROBES the desktop

@@ -258,22 +258,27 @@ describe("the window that is granted one command", () => {
     expect(mainGrants).not.toContain("allow-node-install-app-update");
   });
 
-  it("keeps the app-update commands to NO arguments, so a page names no release", () => {
+  it("lets the app-update commands name no location, whatever else they take", () => {
     // The whole reason they can be commands at all: the release to install is
     // re-resolved in Rust, so the page asks for "the newest" and can never
-    // name a URL, a tag or a file. A parameter added later would make either
-    // one a different command with the same name, and no assertion above
+    // name a URL, a tag or a file. So the pin is on the TYPES past the handle,
+    // not on the count — `node_install_app_update` gained the § 13 selection
+    // in review (2026-09-18) and it is a bool. A `String` there is exactly the
+    // parameter this assertion exists to catch, and nothing else in this file
     // would see it.
     const rust = readFileSync(join(TAURI_DIR, "src/control.rs"), "utf8");
     for (const name of ["node_check_app_update", "node_install_app_update"]) {
       const signature = rust.slice(rust.indexOf(`pub async fn ${name}(`));
       const params = signature.slice(signature.indexOf("(") + 1, signature.indexOf(")"));
-      const names = params
+      const args = params
         .split(",")
         .map((line) => line.trim())
         .filter(Boolean)
-        .map((line) => line.split(":")[0]?.trim());
-      expect(names, `${name} takes more than an AppHandle`).toEqual(["app"]);
+        .map((line) => line.split(":").map((half) => half.trim()));
+      expect(args[0]?.[0], `${name} does not take the app handle first`).toBe("app");
+      for (const [argName, type] of args.slice(1)) {
+        expect(type, `${name}'s ${argName} is not a bool`).toBe("bool");
+      }
     }
   });
 

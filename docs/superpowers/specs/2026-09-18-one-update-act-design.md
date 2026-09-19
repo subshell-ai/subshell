@@ -436,3 +436,212 @@ Each wave is independently verifiable and leaves the product working:
    The screen's unnumbered fallback is what ships.
 7. **Docs** — both apps' `AGENTS.md`, which carry the "two screens say update"
    section this spec deletes.
+
+## 13. Amendment (2026-09-18): the act is a SELECTION, not always both halves
+
+Operator's report, with the app at 0.8.1 and a `subshell-server` CLI updated
+separately to 0.10.1: *"it says subshell-server is older than the currently
+running version."*
+
+**The defect.** When the app is behind, `updateAct` pushed the CLI row
+unconditionally (bar the not-managed refusal) and the subtitle promised
+"Installing it also installs the server it ships". But `serverChoice` was
+`adopt-installed` — the ladder ADOPTS a newer installed copy — so phase 2
+would answer `Resume::Clear` and install nothing. The screen named a version
+older than the running one as a target, and promised an install that could not
+happen. The act itself was never unsafe (`version_lt(installed, bundled)` is
+false, so nothing downgrades); the DISPLAY was false, which is the defect class
+§11 exists to keep out of a release.
+
+**Why this is not a reversal of D1.** D1's argument was that being asked to
+perform two updates for one thing makes our packaging the user's problem. That
+holds exactly while the two halves point the same way. When they diverge — a
+newer CLI installed by hand, an app behind — one act is not a simplification,
+it is a claim about the machine that is wrong. A selection degenerates
+correctly: with both halves behind, both are selected and one press does both,
+which is D1 unchanged.
+
+### 13.1 The table
+
+Every component the screen knows about gets a row: what it runs, what it would
+become, and a checkbox where there is something to do.
+
+```
+Component                Running   New      Update
+Subshell Server app      0.8.1     0.9.0    [x]
+subshell-server CLI      0.10.1    —        you run a newer one
+```
+
+- **A row with an available act carries a checkbox, selected by default.** The
+  default IS the old behaviour: everything actionable, one press.
+- **A row with no available act states WHY, in the cell where its checkbox
+  would be** — never a disabled checkbox, which says "not now" without saying
+  anything. The reasons are §6's, plus the new one below.
+- The press names what it will do, and is dead when nothing is selected.
+
+### 13.2 Force, and the one thing it may not do
+
+One checkbox below the table: **override the pane-safety refusal** for the
+selections above. That is the only refusal a person may overrule, and it is
+already the one `--force` means everywhere else in this product.
+
+**Force may NOT install an older bundled CLI over a newer installed one, and
+this is a hard rule rather than a scope decision.** Root `AGENTS.md`: *"Never
+downgrade the installed server. Boot runs `migrator.migrateToLatest()`, which
+is forward-only… the reverse is data loss, not a choice to present."* An older
+server cannot boot on a database a newer one has migrated, so a checkbox
+offering it would be offering an unbootable machine. The row says so instead,
+and the supported path — `subshell-server update --from <file>`, which takes
+the database backup first — stays where it is.
+
+### 13.3 Subshell Client
+
+Identical shape, identical divergence (an agent installed by hand outranks the
+bundle), with one difference that follows from §7.1: the agent half has no
+restart to force, so Force applies to the server app's rows only and is not
+rendered where nothing it governs is selectable.
+
+**Amended in review, 2026-09-18.** A second difference had shipped and was not
+declared here: the client's agent row was ticked-and-disabled under an app
+press, on the recorded reasoning that the marker crossing the relaunch carries
+no selection. It does carry one — as its own PRESENCE — which is how Subshell
+Server implements the same rule, so the difference was one missing boolean on
+`node_install_app_update`. It takes `install_agent` now and the row is a real
+checkbox, which makes "identical shape, one difference" true as written.
+
+### 13.4 Two decisions taken on the operator's "do what you think is best"
+
+**Force stays scoped to the pane-safety refusal.** The request was that it
+"force any selections". It governs the one refusal a person may legitimately
+overrule — a restart that closes live subshells — and nothing else. The
+refusal it may NOT overrule is the adopt-installed one, because
+`migrator.migrateToLatest()` is forward-only: an older server cannot boot on a
+database a newer one has migrated, so the checkbox would be offering an
+unbootable machine rather than a risk someone can accept. Root `AGENTS.md`
+already calls that "data loss, not a choice to present"; this is that rule
+applied to a control, not a new judgement.
+
+**The update screen does NOT name `update --from`.** Wanting an older CLI is a
+recovery motive — the newer one is broken — and this screen is about moving
+forward. Putting a downgrade command on it would advertise the act to everyone
+who came to do the opposite, and the people who need it are not looking here.
+
+They are looking at the RECOVERY screen, which already carries
+**"Choose subshell-server…"** (`recoveryAction`, the `no-server` step) — the
+affordance for pointing this app at a different binary, on the screen a person
+reaches when their server will not run. The path exists and is reachable from
+the state that motivates it, which is the test that matters; it does not also
+need to be on the screen where it would be a temptation.
+
+## 14. Amendment (2026-09-18): Server Settings without a dashboard
+
+Operator's request, after the base-URL lockout below: **a tray item that opens
+a native window for editing the address values, with a Restart button.**
+
+### 14.1 Why this is the fix, and not just a convenience
+
+Setting an `https://` base URL signs Subshell Server's own window out
+permanently: better-auth marks the session cookie `Secure` for an https
+`APP_BASE_URL`, and that window is pinned to `http://127.0.0.1:<port>`, so it
+can never store one again. The value that caused it can only be changed from
+the dashboard — which needs a session — so the app had **no way back from
+inside itself**. `apps/server/web`'s sign-in page now explains the state
+(`lib/sign-in-diagnosis.ts`), but explaining a trap is not the same as
+offering the way out.
+
+The assistant is the way out, and for a structural reason rather than a
+convenient one: it is the BUNDLED page, it drives the CLI rather than the API,
+and it therefore needs no session at all. Everything it changes, it changes
+the way a person at a terminal would.
+
+This is the same rule the whole app already follows — *if the act leaves the
+server unreachable, it cannot be driven from a page the server serves* — read
+in the other direction: **if the act is what makes the server unreachable TO
+YOU, the page the server serves cannot be where you undo it.**
+
+### 14.2 The screen
+
+A new requested screen, `settings`, beside `update`, `reset`, `supervision`
+and `permissions` — reached from a tray item and from the recovery screen,
+never on a journey.
+
+It renders the four address fields the assistant already models
+(`CONFIG_FIELDS`: port, bind address, public base URL, other trusted
+addresses), prefilled from the running configuration, with:
+
+- **Save** — the existing config write.
+- **Restart** — the existing `service restart`, with the pane-safety refusal
+  and its `--force` override exactly as everywhere else.
+
+**No new Tauri command, and that is a requirement rather than an outcome.**
+The write goes through `desktop_setup` (idempotent: install no-ops, init
+rewrites config.env, service install no-ops) and the restart through
+`desktop_service` — both already granted to the `wizard` window. A settings
+screen that needed a new grant would be widening the surface in the name of
+fixing a lockout, which is the wrong trade to make twice.
+
+### 14.3 What it does NOT do
+
+- **It is not a second Networking page.** The dashboard keeps network
+  plugins, the trusted-origin registry and everything else; this is the four
+  values that decide whether the server is reachable at all, which is the set
+  that can strand someone.
+- **It states the https cost at the base URL field**, exactly as the
+  dashboard's Addresses card does — the same sentence, since two surfaces
+  disagreeing about a consequence is worse than either wording alone.
+
+## 15. Amendment (2026-09-18): the dashboard window may leave loopback
+
+Operator's decision, taken with the trade stated: **yes, let Subshell Server's
+window load the instance's own address, and keep its abilities.** This section
+is how that is built so the second half is survivable.
+
+### 15.1 What forced the question
+
+A control plane behind an OAuth proxy cannot be shown at all today. The window
+refuses any URL whose origin is not the one it opened with, and a proxied
+sign-in is exactly a bounce to an identity provider on another origin and back.
+Subshell Client had the same blockage and is fixed the same way (`f1c2aa68`).
+
+### 15.2 The boundary moves from the SCOPE to a runtime guard
+
+The capability's `remote.urls` cannot name the instance's address — it is a
+static file and the address is a config value — so the scope becomes a
+wildcard, as Subshell Client's already is. **That means the scope stops being
+the boundary, and something else must become it**, because unlike the client
+this window holds seven commands and one of them switches who runs the server.
+
+So: the window may NAVIGATE anywhere http(s) — that is what makes a proxied
+sign-in work — and the seven commands answer only while it is ON a trusted
+origin. Trusted means this machine's loopback, or the configured
+`APP_BASE_URL`. An identity provider's page can sign you in; it cannot restart
+your server, switch your supervisor, raise the reset screen, or post a
+notification in this app's name.
+
+Three rules, each load-bearing:
+
+- **The trust flag is set by a COMMITTED page load, never by a page and never
+  by a navigation request.** It is recomputed for every document the window
+  commits to, so it cannot be left true by a redirect chain that ends somewhere
+  else. (Amended in review, 2026-09-18: as first built this ran in the
+  navigation handler, which fires at request time and for subframes — so a page
+  could arm it by aiming at a loopback port that would not answer. Arming moved
+  to `on_page_load(PageLoadEvent::Started)`.)
+- **`on_navigation` still refuses non-http(s).** The window must not be
+  steerable into `file:`, a custom handler, or anything the OS would act on —
+  that is unchanged and is why the scheme is checked rather than nothing.
+- **`open_main` accepts exactly two origins**, loopback and the configured base
+  URL, and refuses the rest. The app itself therefore never POINTS the window
+  anywhere untrusted; navigation away can only happen because a page did it,
+  and the guard covers that case.
+
+### 15.3 What this costs, stated plainly
+
+A page on the instance's own address now holds what a loopback page held. That
+is the operator's decision and it is defensible — it is the same server, and a
+page there already holds the admin routes — but it is a real widening, because
+that address may be reachable from a network rather than only from this
+machine. `docs/security.md` §11.11 carries the accounting; this section is the
+mechanism.
+
+The guard is what keeps it from being a widening to the whole web.

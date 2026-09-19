@@ -7,7 +7,9 @@
 //! app is what makes a newer server available to install. They are separated
 //! only by the relaunch — which is why [`install_app_update`] ends by writing
 //! the marker the new build finishes from, rather than by leaving a second
-//! press for the person to know to make.
+//! press for the person to know to make. It writes one only when the person
+//! left that half TICKED (spec 2026-09-18 § 13): the act is a selection, and
+//! the marker's presence is where the selection is recorded.
 //!
 //! `tauri-plugin-updater` does the download; what lives here is the two
 //! decisions the plugin does not make.
@@ -222,8 +224,7 @@ pub async fn check_app_update(app: &AppHandle) -> Result<AppUpdateCheck, String>
 /// Download and install the newest app, then relaunch into it.
 ///
 /// Re-resolves the release rather than taking one from the page: the check's
-/// answer travelled to a webview and back, and the only argument this command
-/// accepts is therefore no argument at all.
+/// answer travelled to a webview and back, so this command names no URL.
 ///
 /// **This is PHASE 1 of one act** (spec 2026-09-18 § 4.2). The new bundle
 /// ships a newer `subshell-server` than the one installed here, and installing
@@ -233,12 +234,19 @@ pub async fn check_app_update(app: &AppHandle) -> Result<AppUpdateCheck, String>
 /// BEFORE `app.restart()` and never after: a crash between the two must leave
 /// a machine that knows what it was doing.
 ///
+/// **`install_server` is what the person TICKED** (spec 2026-09-18 § 13). The
+/// act became a selection the day an operator met a screen promising to
+/// install a server older than the one they were running, so the CLI half is
+/// no longer implied by the app half: false writes no marker at all, and the
+/// build that comes up makes its own offer. The marker's PRESENCE is the
+/// selection, which is what keeps the answer from living in two places.
+///
 /// **`app.restart()` never returns.** It is `-> !` and `exit(0)`s when it
 /// cannot resolve the current executable, which is why the install is awaited
 /// first and why the caller is the bundled page rather than a background
 /// thread — see this app's `AGENTS.md` on the reset chain's three details,
 /// which apply verbatim.
-pub async fn install_app_update(app: &AppHandle) -> Result<(), String> {
+pub async fn install_app_update(app: &AppHandle, forced: bool, install_server: bool) -> Result<(), String> {
     let Some(endpoint) = release_feed::release_api(std::env::var(release_feed::RELEASE_URL_ENV).ok()) else {
         return Err("no release source is configured (SUBSHELL_RELEASE_URL is empty)".into());
     };
@@ -270,20 +278,25 @@ pub async fn install_app_update(app: &AppHandle) -> Result<(), String> {
         )
         .await
         .map_err(|e| e.to_string())?;
-    // The pane-safety answer is taken HERE, at the press, for the same reason
-    // the screen renders the warning here: this is the moment the person
-    // consents. Phase 2 runs in another process, on a machine whose service
-    // definition it re-reads for nothing — the consent it needs is the one
-    // given under the sentence that was on screen, so it travels in the marker
-    // (spec § 5, "`forced` is why the consent is not asked twice"). One
-    // bounded `service status --json` before a ~100 MB download costs nothing.
-    let forced = crate::control::pane_risk_now(&app.state::<SettingsState>());
-    let marker = subshell_desktop_core::settings::PendingBundledInstall {
+    // The pane-safety answer is consented to HERE, at the press, for the same
+    // reason the screen renders the Force box here: this is the moment the
+    // person answers. Phase 2 runs in another process, on a machine whose
+    // service definition it re-reads for nothing — the consent it needs is the
+    // one given under the sentence that was on screen, so it travels in the
+    // marker (spec § 5, "`forced` is why the consent is not asked twice").
+    //
+    // The page's answer is NARROWED by this machine's own reading rather than
+    // trusted outright: `pane_risk_now` is the Rust twin of the page's
+    // `paneRisk`, and ANDing them means a page that asks to force a restart no
+    // definition would refuse still gets an ordinary restart. One bounded
+    // `service status --json` before a ~100 MB download costs nothing.
+    let forced = forced && crate::control::pane_risk_now(&app.state::<SettingsState>());
+    let marker = install_server.then(|| subshell_desktop_core::settings::PendingBundledInstall {
         from_app_version: app.package_info().version.to_string(),
         started_at: format_rfc3339(now_epoch_secs()),
         attempts: 0,
         forced,
-    };
+    });
     // ONE write, because both edits must land before the relaunch and
     // `SettingsState::update` takes the lock across edit and save — two calls
     // would be two saves with a window between them in which the process is
@@ -299,7 +312,9 @@ pub async fn install_app_update(app: &AppHandle) -> Result<(), String> {
     // found nothing newer.
     let _ = app.state::<SettingsState>().update(|s| {
         s.last_update_version = None;
-        s.pending_bundled_install = Some(marker);
+        // `None` where the person unticked the server row: no marker, no
+        // phase 2, and the new build simply offers what it ships.
+        s.pending_bundled_install = marker;
     });
     app.restart();
 }

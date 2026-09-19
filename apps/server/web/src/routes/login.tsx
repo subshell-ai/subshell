@@ -6,9 +6,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch } from "@/lib/api";
-import { useCurrentUser } from "@/lib/auth";
+import { getSessionUser, useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
+import { isServerDesktop } from "@/lib/desktop";
 import { safeRedirect } from "@/lib/redirect";
+import { SESSION_CHECK_FAILED, signInDiagnosis } from "@/lib/sign-in-diagnosis";
 import { passkeysSupported } from "@/lib/webauthn";
 
 export const Route = createFileRoute("/login")({
@@ -42,6 +44,46 @@ function LoginPage() {
   if (isLoading) return null;
   if (user) return <Navigate to={redirect ?? "/"} />;
 
+  /**
+   * Leave for the app, unless the session did not actually take.
+   *
+   * **A 200 is not a session** (operator's report, 2026-09-18). better-auth
+   * derives cookie security from `APP_BASE_URL` rather than from the request,
+   * so an instance whose base URL is an https address marks its session cookie
+   * `Secure` and prefixes it `__Secure-` — and a browser on an http page
+   * discards it on receipt. The sign-in then succeeds, this line navigates to
+   * `/`, `/` finds no session and bounces back here: the "brief transition"
+   * that looks like the form rejecting a correct password.
+   *
+   * So the redirect is gated on the session EXISTING. One extra round trip on
+   * the one press where being wrong costs a person their way in.
+   *
+   * **A check that could not run is its own answer** (review, 2026-09-18).
+   * `getSessionUser` returns null only for a 401/403 and THROWS on anything
+   * else, precisely so a failed read is never read as signed-out — so
+   * swallowing that into null here would put the cookie diagnosis on screen
+   * for a dropped request, which has nothing to do with cookies and whose
+   * remedy would send someone to change a working address.
+   */
+  async function leaveIfSignedIn() {
+    let user: Awaited<ReturnType<typeof getSessionUser>>;
+    try {
+      user = await getSessionUser();
+    } catch {
+      setError(SESSION_CHECK_FAILED);
+      return;
+    }
+    if (user !== null) {
+      window.location.href = redirect ?? "/";
+      return;
+    }
+    const { message, remedy } = signInDiagnosis({
+      inServerApp: isServerDesktop(),
+      protocol: window.location.protocol,
+    });
+    setError(remedy === "" ? message : `${message} ${remedy}`);
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -52,7 +94,7 @@ function LoginPage() {
         setError(signInError.message ?? "Sign-in failed");
         return;
       }
-      window.location.href = redirect ?? "/";
+      await leaveIfSignedIn();
     } catch {
       setError("Network error");
     } finally {
@@ -71,7 +113,7 @@ function LoginPage() {
         if (code !== "AUTH_CANCELLED") setError(pkError.message ?? "Passkey sign-in failed");
         return;
       }
-      window.location.href = redirect ?? "/";
+      await leaveIfSignedIn();
     } finally {
       setBusy(false);
     }

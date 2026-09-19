@@ -166,8 +166,9 @@ pub async fn check_app_update(app: &AppHandle) -> Result<AppUpdateCheck, String>
 /// Download and install the newest app, then relaunch into it.
 ///
 /// Re-resolves the release rather than taking one from the page: the check's
-/// answer travelled to a webview and back, and the only argument this command
-/// accepts is therefore no argument at all.
+/// answer travelled to a webview and back, so no location this command uses
+/// comes from there. Its one argument is the § 13 selection — whether the
+/// agent half rides along — and it names nothing.
 ///
 /// **This is PHASE 1 of one act** (spec 2026-09-18 § 4.2). Replacing this app
 /// replaces the agent it BUNDLES, which is a source to install FROM and is on
@@ -186,8 +187,14 @@ pub async fn check_app_update(app: &AppHandle) -> Result<AppUpdateCheck, String>
 /// install, because deciding that is `resume_decision`'s job and not this
 /// one's — a marker whose work turns out to be done is cleared without acting.
 ///
+/// **What it is NOT written for is a cleared agent row.** `install_agent`
+/// false writes no marker at all, so phase 2 never runs: the selection crosses
+/// the relaunch as the marker's PRESENCE, which is how Subshell Server does it
+/// and how there comes to be no second field for the two halves to disagree
+/// about.
+///
 /// **`app.restart()` never returns**: it is `-> !`.
-pub async fn install_app_update(app: &AppHandle) -> Result<(), String> {
+pub async fn install_app_update(app: &AppHandle, install_agent: bool) -> Result<(), String> {
     let Some(endpoint) = release_feed::release_api(std::env::var(release_feed::RELEASE_URL_ENV).ok()) else {
         return Err("no release source is configured (SUBSHELL_RELEASE_URL is empty)".into());
     };
@@ -220,21 +227,29 @@ pub async fn install_app_update(app: &AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
 
+    // **The selection crosses the relaunch as the marker's PRESENCE** (§ 13.1,
+    // mirrored from Subshell Server in review, 2026-09-18). A cleared agent row
+    // writes no marker at all, so phase 2 does not run and there is no second
+    // field for the two halves to disagree about. The person who unticked it
+    // keeps the agent they deliberately left where it is.
+    //
     // `forced` is always false here, and that is not an omission: it carries a
     // pane-safety consent for a service RESTART, and this app's phase 2 offers
     // that restart rather than performing it (spec § 7.1). The field exists
     // for Subshell Server, which does restart, and the two apps share the
     // struct's format and never the file.
-    let started_at = format_rfc3339(now_epoch_secs());
-    let from_app_version = app.package_info().version.to_string();
-    let _ = app.state::<SettingsState>().update(|s| {
-        s.pending_bundled_install = Some(PendingBundledInstall {
-            from_app_version,
-            started_at,
-            attempts: 0,
-            forced: false,
+    if install_agent {
+        let started_at = format_rfc3339(now_epoch_secs());
+        let from_app_version = app.package_info().version.to_string();
+        let _ = app.state::<SettingsState>().update(|s| {
+            s.pending_bundled_install = Some(PendingBundledInstall {
+                from_app_version,
+                started_at,
+                attempts: 0,
+                forced: false,
+            });
         });
-    });
+    }
 
     app.restart();
 }

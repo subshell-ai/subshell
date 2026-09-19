@@ -46,10 +46,26 @@ pub fn origin_changed(current: Option<&str>, probe: &Probe) -> Option<String> {
         return None;
     }
     let next = probe.origin()?;
+    let here = tauri::Url::parse(current).ok()?;
+    // **Only a window on LOOPBACK is re-pointed** (review, 2026-09-18). Since
+    // the window may leave loopback (spec § 15), it is expected to sit on the
+    // instance's own address — or, mid-sign-in, on an identity provider. This
+    // check compared against `probe.origin()`, which is always loopback, so
+    // every 5 s tick dragged such a window home: a proxied sign-in could never
+    // complete, and the window could never rest on the second trusted origin
+    // the whole guard exists for.
+    //
+    // A moved PORT on loopback is the case this function was written for and
+    // is still worth repairing — the window would otherwise sit on a dead
+    // origin — and it is the only one that can be told from a deliberate
+    // departure without asking the page where it meant to be.
+    if !here.host_str().map(crate::control::is_loopback).unwrap_or(false) {
+        return None;
+    }
     // Compared as ORIGINS, not as strings: the window reports a full URL with
     // whatever path the SPA has routed to, and `Probe::origin` reports a bare
     // scheme/host/port.
-    let same = tauri::Url::parse(current).ok().map(|u| u.origin()) == tauri::Url::parse(&next).ok().map(|u| u.origin());
+    let same = Some(here.origin()) == tauri::Url::parse(&next).ok().map(|u| u.origin());
     if same {
         None
     } else {
@@ -77,12 +93,40 @@ pub fn spawn(app: AppHandle) {
         };
         let settings = app.state::<subshell_desktop_core::settings::SettingsState>();
         let probe = crate::control::probe_now(settings.get().binary_path.as_deref(), settings.get().supervision);
+        // **The second duty, and it costs one field of a probe already taken.**
+        // The instance's configured address is one of the two origins the
+        // dashboard window may hold its commands on (spec 2026-09-18 § 15), and
+        // an admin can move it from the Service page without moving the PORT —
+        // which is the one thing `origin_changed` watches. Without this, the
+        // trust state would keep answering for an address the machine no longer
+        // has until something happened to re-open the window.
+        crate::trust::window_state().set_base(probe.base_origin());
+        // **Recording the new base is not applying it** (review, 2026-09-18).
+        // The flag is written when a page COMMITS, so a base that moves under
+        // a window nobody navigated leaves that page answering for an address
+        // the machine no longer has — for as long as it sits there.
+        //
+        // `revalidate`, NOT a re-read of the window (second review, same day):
+        // `WebviewWindow::url()` is WebKit's ACTIVE url, which is the REQUESTED
+        // one while a load is in flight — so re-deciding from it would let a
+        // page keep `location.href = "http://127.0.0.1:1/"` in a loop and wait
+        // for a tick to land inside one of those provisional moments, arming
+        // all seven commands for a document that never moved. The guard re-runs
+        // over the last COMMITTED address instead.
+        crate::trust::window_state().revalidate();
+        // **Routing only, never privileges** (review, 2026-09-18). This is the
+        // ACTIVE url, so a page can put a value of its choosing here — which
+        // buys it nothing but being navigated to a trusted origin, with
+        // `open_main` clearing trust before it goes. Anything DECIDING from it
+        // must use `trust::MainTrust::committed_url()` instead; this read is
+        // one line from the guard and the next reuse of it will not know.
         let current = window.url().ok().map(|u| u.to_string());
         if let Some(next) = origin_changed(current.as_deref(), &probe) {
             // `open_main`'s existing-window branch navigates and re-raises;
-            // it also re-validates the origin as loopback, which is the gate
-            // that must not be bypassed just because this side built the URL.
-            if let Err(e) = crate::windows::open_main(&app, &next) {
+            // it also re-validates the origin against the two this app may
+            // point at, which is the gate that must not be bypassed just
+            // because this side built the URL.
+            if let Err(e) = crate::windows::open_main(&app, &next, probe.base_origin().as_deref()) {
                 eprintln!("subshell: could not follow the server to {next}: {e}");
             }
         }
@@ -115,5 +159,43 @@ mod tests {
         p.next = ProbeStep::Start;
         // Not ready: leave the window alone.
         assert_eq!(origin_changed(Some("http://localhost:3080"), &p), None);
+    }
+
+    /// **A window that is not on loopback is not one this poll may drag home**
+    /// (review, 2026-09-18), and that guard had no test of its own.
+    ///
+    /// The dashboard window may leave loopback since spec § 15 — a proxied
+    /// sign-in bounces it to an identity provider and back — and this poll
+    /// re-points a window whose SERVER moved. Without the guard it re-pointed
+    /// one whose server had not moved at all, five seconds into a sign-in,
+    /// which is the report that made § 15 necessary in the first place.
+    #[test]
+    fn a_window_that_has_left_loopback_is_left_where_it_is() {
+        let mut p = Probe {
+            next: ProbeStep::Ready,
+            ..Probe::default()
+        };
+        p.status = Some(serde_json::json!({
+            "listen": { "portValid": true, "port": 3090 },
+            "settings": { "APP_BASE_URL": { "value": "http://localhost:3090" } }
+        }));
+
+        // Mid sign-in at an identity provider: the origin differs from the
+        // server's, and that is precisely not this poll's business.
+        assert_eq!(origin_changed(Some("https://idp.example.com/authorize"), &p), None);
+        // Nor is a plane on the instance's own public address.
+        assert_eq!(origin_changed(Some("https://plane.example.com/"), &p), None);
+        // Both loopback spellings still are, which is what the poll is FOR —
+        // including with a path on them, so the guard cannot be "fixed" into
+        // swallowing the case the function exists for (a moved port under an
+        // SPA that has routed somewhere).
+        assert_eq!(
+            origin_changed(Some("http://127.0.0.1:3080"), &p),
+            Some("http://localhost:3090".to_string())
+        );
+        assert_eq!(
+            origin_changed(Some("http://localhost:3080/settings/networking"), &p),
+            Some("http://localhost:3090".to_string())
+        );
     }
 }

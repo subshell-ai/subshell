@@ -1,11 +1,12 @@
 /**
  * The one update act, on screen (spec 2026-09-18 §§ 4.2, 7.1, 7.4).
  *
- * `update-act.test.ts` pins the decisions; these are the three things only a
- * rendered page can answer — that the status screen's button is a door rather
- * than an install, that a marker left by a previous BUILD finishes the act by
- * itself, and that when it does, the screen says the daemon is still on the
- * old agent and offers the restart the CLI will not do unasked.
+ * `update-act.test.ts` pins the decisions; these are the things only a rendered
+ * page can answer — that the status screen's button is a door rather than an
+ * install, that a marker left by a previous BUILD finishes the act by itself,
+ * that when it does the screen says the daemon is still on the old agent and
+ * offers the restart the CLI will not do unasked, and that the table is a
+ * SELECTION whose checkboxes move what the press says it will do (§ 13).
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -52,9 +53,12 @@ describe("the status screen's button is a door (§ 7.4)", () => {
     await waitFor(() => expect(screen.getByText("Update Subshell Client")).toBeTruthy());
     // Nothing was installed by walking through the door — the act asks first.
     expect(fake.callsTo("node_install_agent").length).toBe(0);
-    // Both halves are named, and the half that is behind carries its numbers.
+    // The half that is behind carries its numbers and its own checkbox — the
+    // app is current here, so the agent row is an act of its own (§ 13.1).
     expect(screen.getByText("subshell CLI")).toBeTruthy();
-    expect(screen.getByText(/1\.9\.0 →/)).toBeTruthy();
+    expect(screen.getByText("1.9.0")).toBeTruthy();
+    expect(screen.getByText("1.10.0")).toBeTruthy();
+    expect((screen.getByRole("checkbox", { name: "Update subshell CLI" }) as HTMLInputElement).checked).toBe(true);
   });
 
   it("leaves by its own Back, because an override is a screen and not a verdict", async () => {
@@ -228,5 +232,75 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
     expect(within(screen.getByRole("region")).getByText(/refusing to restart/)).toBeTruthy();
     // And the offer is still there to take once that conversation is over.
     expect(buttonOrNull("Restart the agent")).not.toBeNull();
+  });
+});
+
+/**
+ * The table, and the two things only a rendered page can answer about it: that
+ * a row with nothing to do carries its REASON where its checkbox would be, and
+ * that unticking a row changes what the press says it will do.
+ *
+ * Reported against Subshell Server on 2026-09-18 and structural to both apps:
+ * an agent installed by hand outranks the one inside the bundle, and the
+ * screen named that newer version as a target it would be replaced by.
+ */
+describe("the act is a selection (§ 13)", () => {
+  const APP_BEHIND = { current: "0.6.1", latest: "0.7.0", notes: null, reason: null };
+  /** An agent somebody installed by hand, newer than the one in this bundle. */
+  const AGENT_NEWER = makeProbe({
+    agentChoice: "adopt-installed",
+    bundledVersion: "1.9.0",
+    agent: { argv: ["/home/u/.local/bin/subshell"], source: "local-bin", version: "1.11.0" },
+  });
+
+  async function openUpdate(init: Parameters<typeof installFakeIpc>[0]) {
+    const fake = await boot(init);
+    fireEvent.click(button(/Update the agent to|Check for updates/));
+    await waitFor(() => expect(screen.getByText("Update Subshell Client")).toBeTruthy());
+    return fake;
+  }
+
+  it("states a newer installed agent rather than naming it as a target", async () => {
+    await openUpdate({ probe: AGENT_NEWER, handlers: { node_check_app_update: () => APP_BEHIND } });
+
+    expect(screen.getByText("you run a newer one")).toBeTruthy();
+    // Never a disabled checkbox: the reason IS the content of that cell.
+    expect(screen.queryByRole("checkbox", { name: "Update subshell CLI" })).toBeNull();
+    // And the press stops promising the half that will not run.
+    expect(screen.queryByText(/It finishes by installing the node agent it ships/)).toBeNull();
+    expect(screen.getByText(/left exactly as it is/)).toBeTruthy();
+    expect(button(/Download and Install 0\.7\.0/).disabled).toBe(false);
+  });
+
+  it("hands the agent half its own checkbox once the app half is unticked", async () => {
+    await openUpdate({ probe: BEHIND, handlers: { node_check_app_update: () => APP_BEHIND } });
+
+    // Both behind: both are part of the act, and both are choices. The agent
+    // row rides along across the relaunch — its cell says so — but it is a
+    // checkbox, because clearing it writes no marker and phase 2 then never
+    // runs (review, 2026-09-18).
+    expect(screen.getByText("ships with the new app")).toBeTruthy();
+    expect((screen.getByRole("checkbox", { name: "Update Subshell Client app" }) as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect((screen.getByRole("checkbox", { name: "Update subshell CLI" }) as HTMLInputElement).checked).toBe(true);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Update Subshell Client app" }));
+    await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Update subshell CLI" })).not.toBeNull());
+    expect(button(/Install the agent \(1\.10\.0\)/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Update subshell CLI" }));
+    await waitFor(() => expect(button("Nothing selected").disabled).toBe(true));
+  });
+
+  /**
+   * § 13.3: Force overrides the pane-safety refusal on a service RESTART, and
+   * phase 2 here restarts nothing — it offers the restart, whose override
+   * rides on the CLI's own refusal. A control governing nothing would be the
+   * same false promise this amendment removes.
+   */
+  it("renders no Force control anywhere", async () => {
+    await openUpdate({ probe: BEHIND, handlers: { node_check_app_update: () => APP_BEHIND } });
+    expect(screen.queryByText(/force/i)).toBeNull();
   });
 });

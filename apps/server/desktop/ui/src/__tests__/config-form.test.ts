@@ -264,21 +264,36 @@ describe("the assistant's wiring, pinned at the source", () => {
 
   /**
    * The form is prefilled, so `configPayload` decides what to send from an
-   * `explicit` map rather than from blankness. That map MUST be seeded from
-   * `explicitFields` when the form is built: keyed on editing alone, opening
-   * Customize and pressing Set Up without touching the addresses field sends
-   * an empty `trustedOrigins`, which means "no extra addresses" and wipes a
-   * stored list. Pinned at the source because this wiring imports Tauri and
-   * cannot be loaded here.
+   * `explicit` map rather than from blankness. That map MUST be seeded when the
+   * form is built: keyed on editing alone, opening Customize and pressing Set
+   * Up without touching the addresses field sends an empty `trustedOrigins`,
+   * which means "no extra addresses" and wipes a stored list.
+   *
+   * **Both screens that draw these fields are covered here**, and the seeding
+   * moved into `seedAddressForm` (spec 2026-09-18 § 14) precisely so there is
+   * one act to pin rather than one per screen: it returns the values and the
+   * explicit map together, so neither can be seeded a field apart from the
+   * other. Pinned at the source because this wiring imports Tauri and cannot be
+   * loaded here.
    */
-  test("the address form seeds `explicit` from explicitFields, not from editing alone", () => {
-    const at = wizard.indexOf("function addressForm(");
-    expect(at, "the assistant must build an address form").toBeGreaterThan(-1);
+  test("both address forms seed `explicit` from the machine, not from editing alone", () => {
+    // The first run's Customize form: seeded once per page load, keeping
+    // whatever has been typed since.
+    const at = wizard.indexOf("function setupAddressForm(");
+    expect(at, "the assistant must build the setup screen's address form").toBeGreaterThan(-1);
     const body = wizard.slice(at, wizard.indexOf("\nfunction ", at + 1));
-    expect(body).toContain("explicitFields(");
-    // And every send goes through the map. The floor is load-bearing: with
-    // zero matches the loop passes vacuously, so renaming the call site would
-    // silently erase this pin.
+    expect(body).toContain("seedAddressForm(");
+    // Server Addresses: seeded once per VISIT, which is the same rule against a
+    // different clock — the screen states the machine's configuration, so a
+    // draft from a previous visit would read as what the server has.
+    const settings = wizard.indexOf("function renderSettings(");
+    expect(settings, "the assistant must build the Server Addresses screen").toBeGreaterThan(-1);
+    expect(wizard.slice(settings, wizard.indexOf("\nfunction ", settings + 1))).toContain("seedAddressForm(");
+    // And every send goes through a map. The floor is load-bearing: with zero
+    // matches the loop passes vacuously, so renaming the call site would
+    // silently erase this pin. Server Addresses sends through
+    // `settingsPayload`, which calls `configPayload` with its own state and is
+    // covered in `settings-screen.test.ts`.
     const sends = wizard.match(/configPayload\([^)]*\)/g) ?? [];
     expect(sends.length).toBeGreaterThanOrEqual(1);
     for (const call of sends) expect(call).toBe("configPayload(form, explicit)");

@@ -197,7 +197,7 @@ commands.allow = ["desktop_check_app_update"]
 
 [[permission]]
 identifier = "allow-desktop-install-app-update"
-description = "Download, verify, install and relaunch into the newest Subshell Server app. Takes NO argument — the release is re-resolved here, so a page can ask for 'the newest' and never for a URL — and the bytes are refused unless they carry a minisign signature matching the public key in tauri.conf.json, which is what keeps the release host able only to withhold an update. On Linux it hands the .deb to dpkg behind a polkit prompt. Assistant only: this replaces the application."
+description = "Download, verify, install and relaunch into the newest Subshell Server app. Names NO location — the release is re-resolved here, so a page can ask for 'the newest' and never for a URL — and the bytes are refused unless they carry a minisign signature matching the public key in tauri.conf.json, which is what keeps the release host able only to withhold an update. Its two arguments are booleans and nothing else (spec 2026-09-18 § 13): install_server is whether the person left the bundled-CLI row ticked, and false writes no resume marker at all; forced is the pane-safety override, ANDed here with this machine's own reading, so a page cannot turn a restart no definition would refuse into a forced one. On Linux it hands the .deb to dpkg behind a polkit prompt. Assistant only: this replaces the application."
 commands.allow = ["desktop_install_app_update"]
 
 [[permission]]

@@ -1080,16 +1080,23 @@ update and reset. What differs between the apps is how much the remote window
 gets, and the difference follows from whether its origin can be known ahead of
 time.
 
-**Subshell Server — loopback, seven commands.** Its `main` window loads
-`http://127.0.0.1:<port>`: the SPA served by the very server this app manages,
-so the origin is knowable and is pinned four ways.
+**Subshell Server — two trusted origins, seven commands.** Its `main` window
+opens on `http://127.0.0.1:<port>`: the SPA served by the very server this app
+manages. Until 2026-09-18 that was the whole story — the window could go
+nowhere else, and the capability's loopback scope was the boundary. It is not
+any more (spec 2026-09-18 § 15, §11.11a below): the window may NAVIGATE
+anywhere http(s), because a control plane behind an OAuth proxy cannot be
+signed into otherwise, and what bounds the seven commands is a runtime guard
+instead.
 
 | Gate | What it does |
 | --- | --- |
-| `capabilities/main.json` | scopes the window to loopback URLs (`local: false`, `windows: ["main"]`) and grants only `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, `desktop_set_supervision` and window dragging |
-| `Probe::origin` | builds the URL from a VALIDATED port and a loopback host, never from `APP_BASE_URL`'s own scheme or port |
-| `open_main` | refuses a non-loopback origin outright |
-| `on_navigation` | pins the window to the origin it was opened with |
+| `capabilities/main.json` | grants only `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, `desktop_set_supervision` and window dragging, to one window (`local: false`, `windows: ["main"]`). Its `remote.urls` is a WILDCARD and no longer bounds anything |
+| `src/trust.rs` | refuses every command invoked from that window unless the page is on one of TWO origins: this machine's loopback (either spelling, http, any port) or the instance's configured `APP_BASE_URL`. Recomputed for every page the window COMMITS to, so a redirect chain cannot leave it true |
+| `Probe::origin` | builds the URL the window OPENS on from a VALIDATED port and a loopback host, never from `APP_BASE_URL`'s own scheme or port |
+| `open_main` | points the window at those same two origins and refuses every other — so reaching a third one is always a page's doing, never the app's |
+| `on_navigation` | refuses any scheme the OS would act on (`file:`, a custom handler) and nothing else. It arms nothing: it runs at REQUEST time and fires for subframes, so a navigation that never commits — and an embedded iframe — would otherwise move a flag that belongs to the document on screen |
+| `on_page_load` | recomputes the flag, on `PageLoadEvent::Started` — raised from `didCommitNavigation:` (macOS) and `LoadEvent::Committed` (GTK), main-frame only, after the document is really this window's |
 
 Six of the seven are chosen for what they cannot do: raise the assistant at a
 named screen, drop this app's own title bar, display one fixed-shape
@@ -1099,11 +1106,15 @@ all — see the paragraph after the table), and read this app's own two update
 version facts (no argument, no fetch — see the paragraph after that). The
 seventh, `desktop_set_supervision`,
 **does** drive the CLI and is the one deliberate exception; its accounting, including the three
-caveats that make it honest, is §11.11 below. The count and the SCOPE are both
-pinned — by `ui/src/__tests__/ipc-acl.test.ts` and again in Rust by
-`control.rs` — because "a few harmless ones" is how a boundary erodes, and
-because widening `remote.urls` would hand the same grant to a page on any
-host with every command-name assertion still green.
+caveats that make it honest, is §11.11 below. The count is pinned by
+`ui/src/__tests__/ipc-acl.test.ts` and again in Rust by `control.rs`, because
+"a few harmless ones" is how a boundary erodes. What that file used to pin
+beside the count was the SCOPE — widening `remote.urls` would have handed the
+same grant to a page on any host with every command-name assertion still
+green. The scope IS wide now, by decision, so the same test pins the guard that
+replaced it: the two trusted origins, the recompute on navigation, and the
+wrapper in front of every command. A wildcard scope with nothing behind it is
+the failure it exists to catch.
 
 **The permissions read, and the argument for it (2026-09-14).** `AGENTS.md`
 held `main` at five and said a sixth needs the case made in writing. Here it
@@ -1185,12 +1196,18 @@ The accounting, stated plainly:
   about what a path is. It touches no CLI, no config, no service manager and no
   file. No `node_*` verb, no plugin permission and no `core:default` is granted
   to that window, and the ACL test asserts each of those by name.
-- **Why the wildcard scope is sound.** It is not a widening of WHO may invoke.
-  `on_navigation` pins the window to the origin it was opened with — and the
-  pin follows a deliberate plane switch rather than being fixed at build time —
-  so any page loaded there is the plane the person chose. The scope has to be a
-  wildcard because that plane's address is the user's, not ours; the command
-  behind it is what makes the grant narrow.
+- **Why the wildcard scope is sound — and what the residual is.** The scope has
+  to be a wildcard because a plane's address is the user's, not ours, and since
+  2026-09-18 the window follows any http(s) URL so a plane behind an OAuth proxy
+  can complete its sign-in. So the bound is NOT "only the plane's own pages can
+  invoke this". It is the two things underneath: `PlanePin` — the origin this
+  window was OPENED with, which a deliberate plane switch moves and a redirect
+  does not — and the path validator above. The command joins a validated path
+  onto the pin, so the honest residual is that **any http(s) page this window
+  reaches can open an arbitrary PATH of the pinned plane in the person's
+  browser**. That is a page of a control plane the person chose, in a browser
+  where they are signed out, and it is the whole of it: no host, no scheme, no
+  CLI, no file, no other command.
 - **The marker now exists.** That window shipped no `SubshellDesktop/…`
   user-agent marker precisely because it was granted nothing: the marker is how
   `apps/server/web` decides it is in a shell, and every call it invited would
@@ -1684,10 +1701,11 @@ browser: the reader is not at that machine, disarming it strands the server at
 the next reboot, and the label that used to offer it ("start at login") reads
 on a headless host as a question about a desktop session it does not have.
 
-### One CLI-touching command reaches the loopback SPA window
+### One CLI-touching command reaches the dashboard SPA window
 
-The Subshell Server app's `main` window is served content pinned to loopback,
-and its standing grant is commands that cannot touch the CLI, the config, the
+The Subshell Server app's `main` window is served content — since 2026-09-18 on
+either of two trusted origins rather than loopback alone (§11.11a) — and its
+standing grant is commands that cannot touch the CLI, the config, the
 service or the filesystem. **`desktop_set_supervision` is now the one
 deliberate exception** (operator's call, 2026-09-12): the dashboard's
 supervision card confirms in its own dialog and invokes the switch directly.
@@ -1709,7 +1727,7 @@ What an XSS in the SPA can now do that it could not before: flip the machine
 to app mode, so the server dies when the app quits, or back. It cannot reach
 `desktop_reset`, `desktop_setup`, `desktop_service` or any other CLI verb;
 those stay assistant-only, and `ipc-acl.test.ts` (TS) and `control.rs` (Rust)
-both pin `main` at exactly five app commands plus
+both pin `main` at exactly seven app commands plus
 `core:window:allow-start-dragging`. The dialog on the page is a confirmation
 for the PERSON, and is not counted as a defence against the page.
 
@@ -1723,8 +1741,11 @@ stated here rather than left to be discovered.**
   invoke `desktop_set_supervision`. Rust has no way to check a cookie it
   never sees, so this is a real difference from the route, not parity. What
   bounds it is who can reach that window at all: it is a local desktop window
-  pinned to loopback, so the actor is someone at the keyboard — who could
-  quit the app and run the CLI — or an XSS in the served SPA.
+  showing one of two trusted origins (§11.11a), so the actor is someone at the
+  keyboard — who could quit the app and run the CLI — or an XSS in a page the
+  instance itself served. Before 2026-09-18 the second of those origins did not
+  exist and "the served SPA" meant a loopback page; it can now mean a page on
+  the instance's public address, which is the widening §11.11a accounts for.
 - **Uninstalling a service can kill live panes, and that is where the "no more
   permissive than restart" claim was actually false.** `service uninstall`
   gates on nothing by design, so a stranded unit can always come down; on a
@@ -1796,6 +1817,80 @@ The app earns the `paneSafety: "keeps"` it reports: its supervisor signals the
 main pid and never the process group, which is what `KillMode=process` and
 `AbandonProcessGroup=true` buy under the two managers. A person quitting the
 app stops the server and keeps every live pane.
+
+## 11.11a The dashboard window may leave loopback
+
+**Operator's decision, 2026-09-18, taken with the trade stated** (spec
+2026-09-18 § 15). Subshell Server's `main` window may now load and follow any
+http(s) address, and it keeps all seven commands. What forced it: a control
+plane behind an OAuth proxy could not be shown in this app at all. The window
+refused any URL whose origin was not the one it opened with, and a proxied
+sign-in is precisely a bounce to an identity provider on a third origin and
+back. Subshell Client was unblocked the same way for the same report
+(`f1c2aa68`).
+
+**The boundary moved from the SCOPE to a runtime guard.** A capability file is
+static and an instance's address is a config value, so `remote.urls` could never
+name it; the scope is a wildcard now, as the client's already was. That makes
+the scope stop being a boundary, and unlike the client — which grants its plane
+window ONE path-only command — this window holds seven, one of which switches
+who runs the server. So:
+
+- **The window may NAVIGATE anywhere http(s)**, which is what makes a proxied
+  sign-in work, and `on_navigation` still refuses everything else: the window
+  must not be steerable into `file:`, a custom handler, or anything the OS
+  would act on. What it does NOT do is decide the privileges: a request is not
+  a document, and a subframe is not the page. The flag is recomputed when a
+  main-frame load COMMITS (`on_page_load`), so an embedded iframe and a
+  navigation that never arrives both leave it exactly as the document on screen
+  earned it.
+- **The seven commands answer only while the page is on a TRUSTED origin** —
+  this machine's loopback (either spelling, http, any port: exactly what the old
+  scope named) or the instance's configured `APP_BASE_URL`. The check
+  (`src-tauri/src/trust.rs`) runs at the invoke handler, in front of every app
+  command, keyed on the calling webview's label, and it is uniform across all
+  seven. Three of them take no argument by design — `desktop_permissions` takes
+  nothing at all — so a per-command check would have had to widen the very
+  signatures §11.11 relies on being narrow; and a rule with exceptions is a rule
+  someone has to re-derive.
+- **The flag is set by a COMMITTED page load, never by a page and never by a
+  navigation REQUEST.** It is recomputed for every document the window commits
+  to, so a redirect chain that ends elsewhere cannot leave it true, and it is
+  cleared when the window is destroyed. A navigation that is merely asked for
+  moves nothing — which is what stops an untrusted page arming all seven
+  commands by aiming at a loopback port that refuses the connection, and stops
+  an embedded iframe arming them without the top frame moving at all.
+- **`open_main` accepts exactly those two origins** and refuses the rest, using
+  the same predicate. The app therefore never POINTS the window anywhere
+  untrusted; reaching a third origin is always a page's doing, and the guard
+  covers that case.
+- Two Rust-side conveniences follow the same line rather than the window's
+  current address: "Open in browser" joins its path onto a TRUSTED origin, and
+  the tray's "open this page" falls back to `/` when the window is elsewhere —
+  otherwise a menu click mid-sign-in would carry an identity provider's path
+  onto this server's origin.
+
+**What it costs, stated plainly.** A page on the instance's own address now
+holds what a loopback page held: it can raise the assistant (including at the
+reset screen), post a notification in this app's name, and switch who
+supervises the server. That address may be reachable from a network rather than
+only from this machine, so the "someone at the keyboard, or an XSS in the served
+SPA" bound in §11.11 now includes an XSS in a page served on the public address.
+It is defensible — it is the same server, and an admin session on that page
+already holds `POST /api/admin/server/restart` and the whole `/api/admin/server`
+group — but it is a real widening and is the operator's call, not a derivation.
+What the guard buys is that it is not a widening to the whole web: an identity
+provider's page, or anywhere else a redirect chain leads, can sign you in and
+can do nothing else.
+
+**Unchanged by it:** `Probe::origin` still builds the origin the window OPENS on
+from a validated port and a loopback host, never from `APP_BASE_URL`'s own
+scheme or port; the dev SPA override is still loopback-http-only and still
+release-build-dead; the assistant (`wizard`) is not subject to the guard, since
+it is a bundled page and is the surface that repairs a machine whose server is
+unreachable; and window dragging still works on an untrusted page, because Tauri
+routes plugin commands before the app's handler and a window nobody can move is
+a worse outcome than one showing a page that can do nothing else.
 
 ## 11.12 Updates
 
@@ -1959,11 +2054,20 @@ happens in phase 1; the act happens after the relaunch. So the answer is
 written to `settings.json` as `pendingBundledInstall.forced` and read by the
 new build. Re-asking would be asking again for something already granted, on a
 screen nobody chose to open — but it IS a destructive consent at rest, so it is
-narrow by construction: one boolean, about one restart, cleared with the marker
-that carries it, and never written by the page (`desktop_install_app_update`
-takes no argument; the answer is read in Rust at the press). Its worst case is
-what the file's owner can already do by hand — that user can stop the service
-themselves — which is why a hand-edited `true` buys nothing.
+narrow by construction: one boolean, about one restart, and cleared with the
+marker that carries it.
+
+**The page ASKS for it and cannot grant it.** `desktop_install_app_update`
+takes two booleans since 2026-09-18 — `forced`, and whether the CLI half was
+ticked (spec § 13) — because a selection made before the relaunch has to reach
+the process that acts after it. `forced` is ANDed in Rust with the machine's
+own `pane_risk_now`, so a page claiming `true` on a definition that spares
+panes still gets `false`: the page can decline a force, never manufacture one.
+The command still names no release and no path — every argument is a boolean,
+which `ipc-acl.test.ts` pins by shape rather than by count.
+
+Its worst case is what the file's owner can already do by hand — that user can
+stop the service themselves — which is why a hand-edited `true` buys nothing.
 
 **The marker never decides that work exists.** Whether phase 2 has anything to
 install is re-derived at boot from the machine (the bundled version against the
