@@ -760,7 +760,7 @@ The rules ported from the Subshell Server console in 2026-09-08 are unchanged
 by any of that:
 
 - **Reveals name an intent, never a path.** `node_open_path` takes the closed
-  `config-dir | data-dir | node-log` enum; an `node-log` rejection IS the
+  `config-dir | data-dir | node-log` enum; a `node-log` rejection IS the
   remedy (the path it will appear at, plus the `journalctl` command on Linux),
   and the facts list also shows the log location so it is readable without
   clicking.

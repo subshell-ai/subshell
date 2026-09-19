@@ -78,7 +78,7 @@ pub enum NodeSource {
     WellKnown,
 }
 
-/// A resolved agent, plus the rung it was found on.
+/// A resolved node binary, plus the rung it was found on.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeBinary {
@@ -213,7 +213,7 @@ fn from_launchd_plist() -> Option<Vec<String>> {
     command_prefix(argv)
 }
 
-/// Ask a candidate what it is. A candidate that cannot answer is not an agent.
+/// Ask a candidate what it is. A candidate that cannot answer is not a node binary.
 pub fn probe_version(argv: &[String]) -> Option<String> {
     let mut cmd = argv.to_vec();
     cmd.push("version".into());
@@ -225,7 +225,7 @@ fn exists(path: &str) -> bool {
     Path::new(path).is_file()
 }
 
-/// Where the sidecar install lands, and the first place to look for an agent
+/// Where the sidecar install lands, and the first place to look for a node binary
 /// this app installed on an earlier run.
 pub fn managed_install_path() -> Option<String> {
     sidecar::install_path(&NODE_SIDECAR).map(|p| p.to_string_lossy().into_owned())
@@ -259,7 +259,7 @@ pub fn resolve(configured: Option<&str>) -> Option<NodeBinary> {
 /// the signature-sealed bundle produces a service that dies the moment the app
 /// is moved, replaced or removed — the exact failure `sidecar.rs` exists to
 /// avoid. And the probe's `no-node` step, which is what OFFERS the install,
-/// would then never fire on a machine that has no agent, so the shipped binary
+/// would then never fire on a machine that has no node binary, so the shipped binary
 /// could never be installed at all. It is reported separately as
 /// `bundledVersion` and reached only through `node_install_cli`.
 pub fn candidates(configured: Option<&str>) -> Vec<(NodeSource, Vec<String>)> {
@@ -273,7 +273,7 @@ pub fn candidates(configured: Option<&str>) -> Vec<(NodeSource, Vec<String>)> {
         out.push((NodeSource::Configured, vec![path.to_string()]));
     }
     // The service definition is the AUTHORITY on what is installed: whatever
-    // the manager starts is the agent this machine actually runs, and it is
+    // the manager starts is the node binary this machine actually runs, and it is
     // the argv every `service` verb here will act on. Ranking the copy in
     // ~/.local/bin above it would let the app report one binary's version
     // while systemd ran another's.
@@ -327,37 +327,37 @@ pub fn resolve_with(
     None
 }
 
-/// What to do about the agent this app SHIPS versus the one already installed.
+/// What to do about the node CLI this app SHIPS versus the one already installed.
 ///
-/// The asymmetry between the two directions is deliberate. A node agent talks
+/// The asymmetry between the two directions is deliberate. A node CLI talks
 /// a versioned wire protocol to the control plane and owns on-disk state the
 /// control plane pushes to it (`identity.json`, `allowed-dirs.json`), so
-/// replacing a newer installed agent with an older bundled one silently trades
+/// replacing a newer installed node CLI with an older bundled one silently trades
 /// a working node for one that may not speak what the plane sends — and the
 /// symptom is a node that enrolls, comes up ONLINE and then refuses launches.
-/// So a newer bundled agent is OFFERED, and a newer installed agent is
+/// So a newer bundled node CLI is OFFERED, and a newer installed one is
 /// ADOPTED: never overwritten, never even offered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum NodeChoice {
-    /// This build ships no agent; whatever is installed is all there is.
+    /// This build ships no node CLI; whatever is installed is all there is.
     NoBundled,
     /// Nothing installed — install the bundled one.
     InstallBundled,
-    /// The installed agent already is the bundled version.
+    /// The installed node CLI already is the bundled version.
     UpToDate,
-    /// The bundled agent is newer. Offer it; never apply it unasked.
+    /// The bundled node CLI is newer. Offer it; never apply it unasked.
     UpgradeAvailable,
-    /// The installed agent is newer. Use it and say so once.
+    /// The installed node CLI is newer. Use it and say so once.
     AdoptInstalled,
 }
 
-/// Decide between the bundled and installed agents. Pure — the whole rule in
+/// Decide between the bundled and installed node CLIs. Pure — the whole rule in
 /// one place, testable without a filesystem.
 pub fn decide_node(bundled: Option<&str>, installed: Option<&str>) -> NodeChoice {
     match (bundled, installed) {
         (None, _) => NodeChoice::NoBundled,
-        // An installed agent that cannot state its version never resolves in
+        // An installed node CLI that cannot state its version never resolves in
         // the first place, so "absent" and "unparseable" are already one case.
         (Some(_), None) => NodeChoice::InstallBundled,
         (Some(b), Some(i)) if version_lt(i, b) => NodeChoice::UpgradeAvailable,
@@ -520,13 +520,13 @@ mod ladder_tests {
         assert_eq!(found.source, NodeSource::Env);
     }
 
-    // A file can exist and still not be an agent — a shim, a wrapper, an old
+    // A file can exist and still not be a node binary — a shim, a wrapper, an old
     // build, or `apps/server/desktop`'s `subshell-server` under a symlink.
     // Existence alone must never end the search.
     #[test]
     fn a_file_that_exists_but_is_not_a_node_is_skipped() {
         let c = vec![
-            rung(NodeSource::Configured, "/not/an/agent"),
+            rung(NodeSource::Configured, "/not/a/node"),
             rung(NodeSource::LocalBin, "/good/subshell"),
         ];
         let found = resolve_with(&c, probe_for(&["/good/subshell"]), |_| true).unwrap();
@@ -630,7 +630,7 @@ mod ladder_tests {
     }
 
     // Every spawn already runs with the login PATH; searching a narrower one
-    // would let the ladder fail to FIND an agent it could perfectly well run.
+    // would let the ladder fail to FIND a node binary it could perfectly well run.
     #[test]
     fn the_path_rung_searches_the_login_path() {
         let paths: Vec<String> = candidates(None)
@@ -646,7 +646,7 @@ mod ladder_tests {
         }
     }
 
-    // Every rung looks for the AGENT. A rung spelled `subshell-server` would
+    // Every rung looks for the NODE. A rung spelled `subshell-server` would
     // resolve the other desktop app's binary and then drive it with node verbs
     // it does not have.
     #[test]
@@ -679,7 +679,7 @@ mod ladder_tests {
 mod version_parse_tests {
     use super::*;
 
-    // The agent's line carries a parenthetical the server's does not.
+    // The node CLI's line carries a parenthetical the server's does not.
     #[test]
     fn reads_the_version_off_the_first_line() {
         assert_eq!(
@@ -720,7 +720,7 @@ mod sidecar_spec_tests {
         assert!(!NODE_SIDECAR.bundled_name.contains("unknown-linux"));
     }
 
-    // What `install.sh` and the CLI's own docs call the agent. Installing it
+    // What `install.sh` and the CLI's own docs call the node CLI. Installing it
     // under any other name would leave the ladder's Path/WellKnown rungs
     // looking for a file this app never writes.
     #[test]
@@ -730,7 +730,7 @@ mod sidecar_spec_tests {
     }
 
     // The ladder's `LocalBin` rung and the sidecar's install target are the
-    // same file; two spellings of it would let the app install an agent it then
+    // same file; two spellings of it would let the app install a node CLI it then
     // refuses to find.
     #[test]
     fn the_local_bin_rung_is_the_path_the_sidecar_installs_to() {
@@ -778,7 +778,7 @@ mod choice_tests {
         assert_eq!(decide_node(Some("2.0.0"), Some("1.9.0")), NodeChoice::UpgradeAvailable);
     }
 
-    // Never a downgrade: an older agent against a control plane that has moved
+    // Never a downgrade: an older node CLI against a control plane that has moved
     // on is a node that enrolls, reports ONLINE and then refuses launches.
     #[test]
     fn a_newer_installed_node_is_adopted_never_downgraded() {
