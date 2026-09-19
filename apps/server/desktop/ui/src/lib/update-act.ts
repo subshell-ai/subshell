@@ -521,6 +521,16 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   // for a retry to do there.
   const failedHere = finished?.ok === false;
   const retryable = failedHere && !cliHalfRefused(probe);
+  // The ONE thing the removed offer subtitle said that no row says. Every
+  // other sentence it carried restated the table; this one reports an outcome
+  // the table cannot show — the files are in place and the process is not —
+  // so it moves to a note rather than disappearing with the subtitle, and
+  // Try Again keeps explaining itself.
+  if (failedHere) {
+    notes.push(
+      "The server it ships is installed, but the restart did not finish — this machine is still running the server it had.",
+    );
+  }
   // The act restarts the service only where the CLI half is part of it: an
   // app-only update leaves the running server exactly where it is. The retry
   // counts, and has to — it IS the restart that failed, so a screen offering it
@@ -540,7 +550,11 @@ export function updateAct(input: UpdateActInput): UpdateAct {
 
   return {
     phase: "idle",
-    subtitle: subtitleForOffer(probe, appUpdate, appRow, cliRow, failedHere),
+    // The offer carries NO subtitle (2026-09-18). It used to be one of seven
+    // sentences restating what the rows already show, and keeping the two in
+    // agreement was a standing cost — the § 13 fix was exactly a subtitle that
+    // had drifted from its own table. The rows are the answer now.
+    subtitle: "",
     rows,
     press,
     notes,
@@ -675,56 +689,4 @@ function offerPress(o: {
     return { label: "Try Again", kind: "cli", enabled, bundled: true, forced: o.forced };
   }
   return null;
-}
-
-/**
- * The offer's one sentence.
- *
- * Split out because there are six of them and inlining a ternary that deep is
- * how a screen ends up saying "up to date" to a machine that has not been able
- * to check since it was installed — `latest` absent with a `reason` is "we
- * could not tell", which is a different fact from "nothing newer exists".
- *
- * It reads the ROWS rather than the probe wherever it can, which is what keeps
- * § 13's promise: the subtitle claimed "installing it also installs the server
- * it ships" from the app's version alone, over a machine whose CLI row could
- * not act. A sentence derived from the same rows the table renders cannot
- * diverge from it.
- */
-function subtitleForOffer(
-  probe: Probe,
-  appUpdate: AppUpdateCheck | null,
-  appRow: UpdateActRow,
-  cliRow: UpdateActRow,
-  failedHere: boolean,
-): string {
-  // Keyed on TICKED rather than on tickable, in BOTH halves: a row the person
-  // cleared and a row that cannot act are the same fact to this sentence —
-  // that half is not going to run — and promising it in either case is the
-  // § 13 lie. The outer guard read `!== null` until 2026-09-18 (review), so an
-  // unticked app row still produced "Subshell Server 0.8.1 is available.
-  // Installing it also installs the server it ships." over a press that
-  // installs no app at all.
-  if (appRow.selected === true && appRow.to !== null) {
-    return cliRow.selected === true
-      ? `Subshell Server ${appRow.to} is available. Installing it also installs the server it ships.`
-      : `Subshell Server ${appRow.to} is available. The server on this machine is not part of this update.`;
-  }
-  if (cliRow.selected !== null) {
-    return `This app ships ${probe.bundledVersion ?? "a server"}; this machine runs ${probe.server?.version ?? "an unknown version"}.`;
-  }
-  // The act ran here and failed with nothing left to install, i.e. the install
-  // landed and the restart did not. Saying "both current" there would be true
-  // of the FILES and false of the machine, which is still running the server
-  // it had — the one sentence a person would act on, phrased backwards.
-  if (failedHere) {
-    return "The server it ships is installed, but the restart did not finish — this machine is still running the server it had.";
-  }
-  if (appRow.reason === "could not check") {
-    return "This app could not check for a newer version of itself.";
-  }
-  if (cliOutranksBundle(probe)) {
-    return `Subshell Server is current, and this machine already runs a newer server than this app ships.`;
-  }
-  return `This app and the server it ships are both current${appUpdate?.current ? ` — Subshell Server ${appUpdate.current}` : ""}.`;
 }

@@ -368,37 +368,25 @@ export function UpdateScreen(props: {
 
       {progress !== "" && <p className="mt-4 text-center text-detail text-muted-foreground">{progress}</p>}
 
-      {act.press === "app" && (
-        <div className="mt-4 space-y-2 text-center text-detail text-muted-foreground">
-          {/*
-           * The agent half is promised only where it will actually run (spec
-           * § 13). On the machine that report came from — an agent installed
-           * by hand that is NEWER than the one inside this app — phase 2
-           * answers `Resume::Clear` and installs nothing, and a sentence
-           * saying otherwise is the defect rather than the act.
-           *
-           * There is deliberately NO Force checkbox in this app (§ 13.3):
-           * Force overrides the pane-safety refusal on a service RESTART, and
-           * phase 2 here restarts nothing — it OFFERS the restart (§ 7.1),
-           * which carries its own override behind the CLI's own refusal. A
-           * control governing nothing, rendered for symmetry with Subshell
-           * Server, would be a promise of the same kind.
-           */}
-          <p>
-            The update is downloaded, its signature is checked against the key built into this app, and then Subshell
-            Client restarts.
-            {act.pressInstallsAgent
-              ? " It finishes by installing the node agent it ships; the daemon on this machine keeps running the previous agent until you restart it."
-              : " The agent on this machine is left exactly as it is."}
-          </p>
-          {/*
-           * Linux installs through dpkg, which raises a system password sheet.
-           * A sheet nobody was told about reads as malware — which is why this
-           * one sentence branches on the platform: it is a genuine difference
-           * in what the person has to DO, not in voice.
-           */}
-          {!IS_MACOS && <p>Linux installs the package with dpkg, so your system will ask for your password.</p>}
-        </div>
+      {/*
+       * Linux installs through dpkg, which raises a system password sheet. A
+       * sheet nobody was told about reads as malware — which is why this one
+       * sentence branches on the platform: it is a genuine difference in what
+       * the person has to DO, not in voice. It is all that is left of this
+       * block, so the wrapper is gated too rather than leaving macOS an empty
+       * spacer div.
+       *
+       * There is deliberately NO Force checkbox in this app (§ 13.3): Force
+       * overrides the pane-safety refusal on a service RESTART, and phase 2
+       * here restarts nothing — it OFFERS the restart (§ 7.1), which carries
+       * its own override behind the CLI's own refusal. A control governing
+       * nothing, rendered for symmetry with Subshell Server, would be a
+       * promise of the same kind.
+       */}
+      {act.press === "app" && !IS_MACOS && (
+        <p className="mt-4 text-center text-detail text-muted-foreground">
+          Linux installs the package with dpkg, so your system will ask for your password.
+        </p>
       )}
 
       {act.offerRestart && (

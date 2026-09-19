@@ -304,9 +304,10 @@ describe("the act is a selection (§ 13)", () => {
     expect(screen.getByText("you run a newer one")).toBeTruthy();
     // Never a disabled checkbox: the reason IS the content of that cell.
     expect(screen.queryByRole("checkbox", { name: "Update subshell CLI" })).toBeNull();
-    // And the press stops promising the half that will not run.
+    // The press used to carry a paragraph promising or disclaiming the agent
+    // half; it was removed on 2026-09-18, so the cell above is now the only
+    // place that says so — which is why this still asserts nothing renders it.
     expect(screen.queryByText(/It finishes by installing the node agent it ships/)).toBeNull();
-    expect(screen.getByText(/left exactly as it is/)).toBeTruthy();
     expect(button(/Download and Install 0\.7\.0/).disabled).toBe(false);
   });
 
