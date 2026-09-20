@@ -20,16 +20,44 @@ const DOT_CLASS: Record<SubshellIndicator, string> = {
 };
 
 /**
- * The 6px state dot on a sidebar recent row. `aria-hidden` with a `title` —
- * the tooltip spells the word; the link text beside it stays the row's only
- * read-aloud content (planning deviation from spec §2, deliberate).
+ * The 6px state dot for one subshell — the rail's recent rows, and (since
+ * 2026-09-20) the subshell page's own header, where it replaced a status
+ * badge. Both read the SHARED indicator precedence, so a subshell can never
+ * say one thing in the rail and another above its own terminal.
+ *
+ * `data-status` carries the RAW lifecycle status beside the rendered
+ * indicator. The two are different questions — the indicator is what a person
+ * should see (working, waiting, unreachable), the status is what the server
+ * recorded — and the header used to spell the raw one out in words. Keeping
+ * it as an attribute is what lets a test assert "the pane is genuinely
+ * running" without depending on activity timing, which swings between
+ * "working" and "idle" on a clock.
  */
-export function SubshellDot({ subshell, className }: { subshell: SubshellView; className?: string }) {
+export function SubshellDot({
+  subshell,
+  className,
+  accessible = false,
+}: {
+  subshell: SubshellView;
+  className?: string;
+  /**
+   * Announce the state to assistive technology.
+   *
+   * Off by default, which is the RAIL's posture: the row's link text is its
+   * read-aloud content and a dot repeating the state would be noise (planning
+   * deviation from spec §2, deliberate). The subshell page's header turns it
+   * on, because there the dot is the only thing carrying the state — nothing
+   * beside it says the word.
+   */
+  accessible?: boolean;
+}) {
   const indicator = subshellIndicator(subshell);
+  const label = INDICATOR_LABEL[indicator];
   return (
     <span
-      aria-hidden
-      title={INDICATOR_LABEL[indicator]}
+      {...(accessible ? { role: "img", "aria-label": label } : { "aria-hidden": true })}
+      title={label}
+      data-status={subshell.status}
       className={cn("mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full", DOT_CLASS[indicator], className)}
     />
   );

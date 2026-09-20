@@ -1,5 +1,5 @@
-import { describe, expect, it } from "bun:test";
-import { render } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "bun:test";
+import { cleanup, render } from "@testing-library/react";
 import { SubshellDot } from "@/components/sidebar/SubshellDot";
 import type { SubshellView } from "@/types/subshell";
 
@@ -30,5 +30,33 @@ describe("SubshellDot", () => {
       expect(dot?.getAttribute("title")).toBe(label);
       unmount();
     }
+  });
+});
+
+describe("SubshellDot — the header's variant (2026-09-20)", () => {
+  // Each case queries the document, so a leftover render would answer for it.
+  afterEach(cleanup);
+
+  it("is aria-hidden by default: in the rail the row's link text says which subshell it is", () => {
+    render(<SubshellDot subshell={probe()} />);
+    expect(document.querySelector('[aria-hidden="true"]')).toBeTruthy();
+    expect(document.querySelector('[role="img"]')).toBeNull();
+  });
+
+  it("announces the state when `accessible` — the header has nothing else carrying it", () => {
+    // It replaced a badge that spelled the word out, so dropping the word
+    // entirely would have removed the state from a screen reader.
+    render(<SubshellDot subshell={probe({ waitingSince: "2026-09-20T00:00:00.000Z" })} accessible />);
+    const dot = document.querySelector('[role="img"]');
+    expect(dot?.getAttribute("aria-label")).toBe("waiting for you");
+    expect(dot?.getAttribute("aria-hidden")).toBeNull();
+  });
+
+  it("carries the RAW lifecycle status beside the rendered indicator", () => {
+    // Two different questions: the indicator is what a person should see, the
+    // status is what the server recorded. The e2e suite asserts liveness on
+    // this attribute, which does not swing with the activity clock.
+    render(<SubshellDot subshell={probe({ activity: "idle" })} accessible />);
+    expect(document.querySelector('[role="img"]')?.getAttribute("data-status")).toBe("running");
   });
 });

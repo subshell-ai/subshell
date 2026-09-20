@@ -58,6 +58,28 @@ export async function newSubshellName(page: Page, before: string[], timeout = 30
 }
 
 /**
+ * Waits until the open subshell page reports the pane genuinely RUNNING.
+ *
+ * Specs used to assert the literal text "running" — the word in the header's
+ * status badge. The badge is gone (2026-09-20): the state is a dot beside the
+ * subshell's name, rendering the SHARED indicator, whose word swings between
+ * "working" and "idle" on a 60 s activity clock and so cannot be asserted on.
+ * The dot carries the raw lifecycle status as `data-status`, which is the same
+ * signal the badge spelled out and is not timing-dependent.
+ *
+ * What it proves is unchanged: the launch RPC answered ok AND the reconcile
+ * saw the pane alive in tmux. A dead-on-arrival subshell reads "terminated".
+ *
+ * @param page - the page, already on /subshells/<id>
+ * @param timeout - the caller's spawn budget
+ */
+export async function expectSubshellRunning(page: Page, timeout: number): Promise<void> {
+  await expect(page.locator('[role="img"][data-status]').first()).toHaveAttribute("data-status", "running", {
+    timeout,
+  });
+}
+
+/**
  * Renames the subshell whose detail page is open, to a name the caller chose.
  *
  * Specs use it for the reason they used to type a name into the launch form,

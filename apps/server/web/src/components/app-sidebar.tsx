@@ -26,18 +26,23 @@ import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } fr
 import { AboutDialog } from "@/components/about-dialog";
 import { MobileInstallDialog } from "@/components/mobile-install-dialog";
 import { useQuickAdd } from "@/components/quick-add";
+import { SubshellNodeGroup } from "@/components/sidebar/SubshellNodeGroup";
 import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
 import { UserMenu } from "@/components/user-menu";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
 import { useClockTick } from "@/hooks/use-clock-tick";
+import { useInstancePlugins } from "@/hooks/use-instance-plugins";
+import { useNodes } from "@/hooks/use-nodes";
 import { useOrderedSubshells } from "@/hooks/use-ordered-subshells";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useWorkspaces } from "@/hooks/use-workspaces";
 import { signOutAndRedirect, useCurrentUser } from "@/lib/auth";
 import { desktopInvoke, isDesktop, onDesktopAction } from "@/lib/desktop";
+import { collapsedNodeGroups, setCollapsedNodeGroups, toggleNodeGroup } from "@/lib/sidebar-node-group-pref";
 import { RECENT_LIMIT, recentWorkspaceLinks } from "@/lib/sidebar-recents";
 import { filterSubshells } from "@/lib/subshell-filter";
 import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
+import { groupSubshellsByNode } from "@/lib/subshell-node-groups";
 
 /** localStorage key for the collapsed state (persists across reloads). */
 const COLLAPSED_KEY = "subshell.sidebarCollapsed";
@@ -276,7 +281,32 @@ export function AppSidebar({
   // use-ordered-subshells), so a pile of old ended sessions can never crowd a
   // live one out of the rail. The filter mode shares the same run.
   const byStatus = useOrderedSubshells();
-  const listedSubshells = q ? filterSubshells(byStatus, subshellQuery) : byStatus.slice(0, RECENT_LIMIT);
+  // Grouped by the MACHINE each runs on, with the cap applied per node — so a
+  // second machine's work can never be crowded out by the first's, and every
+  // group's own pile of ended sessions still loses to its own live ones.
+  // Filter mode caps nothing: a search that hid its own ninth match would be
+  // lying about what the instance holds.
+  const { data: nodeData, isPending: nodesPending } = useNodes();
+  // Names only, over the catalog the launch pickers already cache. An
+  // unresolvable harness degrades to its id, which is a readable slug
+  // ("claude-code") — see the clone dialog, which makes the same trade.
+  const { data: pluginData } = useInstancePlugins();
+  const agentLabel = useCallback(
+    (harnessId: string) => pluginData?.plugins.find((p) => p.id === harnessId)?.name ?? harnessId,
+    [pluginData],
+  );
+  const nodeGroups = groupSubshellsByNode(q ? filterSubshells(byStatus, subshellQuery) : byStatus, nodeData?.nodes, {
+    limit: q ? undefined : RECENT_LIMIT,
+    pending: nodesPending,
+  });
+  const listedCount = nodeGroups.reduce((sum, group) => sum + group.subshells.length, 0);
+  // Which node groups this device has shut. Read once at mount — the rail
+  // lives for the session, so re-reading storage on every render would buy
+  // nothing but a synchronous read per frame.
+  const [collapsedGroups, setCollapsedGroups] = useState(collapsedNodeGroups);
+  const toggleNodeGroupOpen = useCallback((nodeId: string) => {
+    setCollapsedGroups((prev) => setCollapsedNodeGroups(toggleNodeGroup(prev, nodeId)));
+  }, []);
   const [collapsedState, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(COLLAPSED_KEY) === "1";
@@ -566,17 +596,33 @@ export function AppSidebar({
                   />
                 </div>
               )}
-              {!collapsed && item.to === "/" && q !== "" && listedSubshells.length === 0 && (
+              {!collapsed && item.to === "/" && q !== "" && listedCount === 0 && (
                 <p className="px-3 py-1 text-detail text-muted-foreground">No matches.</p>
               )}
               {!collapsed &&
                 item.to === "/" &&
-                listedSubshells.map((sub) => (
-                  <SubshellRecentRow
-                    key={sub.id}
-                    subshell={sub}
-                    active={location.pathname === `/subshells/${sub.id}`}
-                  />
+                nodeGroups.map((group) => (
+                  <SubshellNodeGroup
+                    key={group.nodeId}
+                    nodeId={group.nodeId}
+                    label={group.label}
+                    count={group.total}
+                    // While filtering, every group is open whatever this
+                    // device remembers: a match hidden inside a shut group
+                    // reads as a filter that does not work.
+                    open={q !== "" || !collapsedGroups.includes(group.nodeId)}
+                    onToggle={() => toggleNodeGroupOpen(group.nodeId)}
+                  >
+                    {group.subshells.map((sub) => (
+                      <SubshellRecentRow
+                        key={sub.id}
+                        subshell={sub}
+                        active={location.pathname === `/subshells/${sub.id}`}
+                        nodeLabel={group.label}
+                        agentLabel={agentLabel(sub.harnessId)}
+                      />
+                    ))}
+                  </SubshellNodeGroup>
                 ))}
               {!collapsed &&
                 item.to === "/workspaces" &&

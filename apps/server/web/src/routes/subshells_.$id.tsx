@@ -1,4 +1,4 @@
-import { apiFetch, Badge, Button, cn } from "@internal/node-admin";
+import { apiFetch, Button, cn } from "@internal/node-admin";
 import type { ViewersState } from "@internal/subshell-protocol";
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
@@ -9,6 +9,7 @@ import { useMemo, useRef, useState } from "react";
 import { DetailBackHeader } from "@/components/detail-back-header";
 import { EditableText } from "@/components/editable-text";
 import { SubshellNotFoundCard } from "@/components/not-found-page";
+import { SubshellDot } from "@/components/sidebar/SubshellDot";
 import { SplitSubshellButton } from "@/components/split-subshell-button";
 import { StatusPill } from "@/components/status-pill";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
@@ -19,6 +20,7 @@ import { TerminalKeyBar } from "@/components/terminal-key-bar";
 import { TranscriptSearch } from "@/components/transcript-search";
 import { TrustIndicators } from "@/components/trust-indicators";
 import { TrustNoticeBanner } from "@/components/trust-notice-banner";
+import { useClockTick } from "@/hooks/use-clock-tick";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
 import { useSwipeOrderedSubshells } from "@/hooks/use-ordered-subshells";
@@ -29,6 +31,7 @@ import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
 import { useSwipeNav } from "@/hooks/use-swipe-nav";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
+import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
 import { findNeighbors } from "@/lib/subshell-neighbors";
 import { swipeNavEnabled } from "@/lib/swipe-nav-pref";
 
@@ -38,6 +41,12 @@ export const Route = createFileRoute("/subshells_/$id")({
 
 function SubshellPage() {
   const { id } = useParams({ from: "/subshells_/$id" });
+  // The header's status dot derives active/idle from a CLOCK, not from a
+  // frame — with the feed event-driven nothing arrives to mark elapsed time,
+  // so a pane that simply goes quiet would read as working forever. One tick
+  // for this page, per the rule in AGENTS.md ("any NEW surface rendering
+  // `subshellIndicator` needs its own tick").
+  useClockTick(ACTIVITY_TICK_MS);
   // Terminal handles published by <SubshellTerminal> on every (re-)create and
   // withdrawn on dispose; "/" commands and the transcript finder drive the
   // terminal through them.
@@ -59,7 +68,10 @@ function SubshellPage() {
   const [findOpen, setFindOpen] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { subshell, isLoading, isError, isNotFound, exited, dead } = useSubshellData(id);
+  // `exited` is deliberately not read here any more: the header's own
+  // exited/offline precedence was this page's second copy of a rule that lives
+  // in `subshellIndicator`, and the dot consumes that one directly.
+  const { subshell, isLoading, isError, isNotFound, dead } = useSubshellData(id);
   // What this subshell discloses and to whom (foreign node / shared). The
   // icons render always; the banner shows once per exposure.
   const trustNotices = useTrustNotices(subshell);
@@ -186,42 +198,49 @@ function SubshellPage() {
         backLabel="Back to subshells"
         hideBack={findTakesRow}
         title={
-          stacked ? (
-            <span className={cn("truncate", !subshell?.name && "text-muted-foreground")}>{subshell?.name || id}</span>
-          ) : (
-            /* Click to rename; the id stands in, muted, until the record loads. */
-            <EditableText
-              value={subshell?.name ?? ""}
-              placeholder={id}
-              label="Rename subshell"
-              onSave={saveName}
-              className="font-strong"
-              inputClassName="w-56"
-            />
-          )
+          /* The state rides BESIDE the name rather than in the actions row,
+             where it used to be a word in a badge. Two reasons it moved: the
+             thing a person looks at is the name, so the state belongs in the
+             same glance — and the actions row is where the controls are, which
+             made the one non-control there read as another one. It renders the
+             SHARED indicator, so this page, the rail and the home card can
+             never say three things about one subshell. `accessible` because
+             here the dot is the only carrier of the state; the rail's rows
+             have their link text. */
+          <span className="flex min-w-0 items-center gap-2">
+            {subshell && <SubshellDot subshell={subshell} accessible className="mt-0 h-2 w-2" />}
+            {stacked ? (
+              <span className={cn("truncate", !subshell?.name && "text-muted-foreground")}>{subshell?.name || id}</span>
+            ) : (
+              /* Click to rename; the id stands in, muted, until the record loads. */
+              <EditableText
+                value={subshell?.name ?? ""}
+                placeholder={id}
+                label="Rename subshell"
+                onSave={saveName}
+                className="font-strong"
+                inputClassName="w-56"
+              />
+            )}
+          </span>
         }
-        subtitle={subshell?.workingDir}
+        /* Indented past the dot so the path lines up with the NAME rather
+           than with the dot, which otherwise leaves the title looking
+           accidentally nudged right. `pl-4` is the dot's own box: `w-2` (8px)
+           plus the title row's `gap-2` (8px) — keep the three in step. The
+           dot renders only once the record has loaded, and so does this: the
+           condition is the same `subshell?.workingDir`. */
+        subtitle={subshell?.workingDir ? <span className="block truncate pl-4">{subshell.workingDir}</span> : undefined}
         actions={
           <>
-            {/* Node-offline outranks `exited` (spec §5.6): with no live node
-                the process state is unobservable, not dead — same precedence
-                the home cards use. `findTakesRow` covers the phone Find-bar
-                vacate (see its definition). */}
+            {/* The status badge that used to open this row is gone — the state
+                is a dot beside the name now (see `title` above), where it is
+                in the same glance as the thing it describes and where the
+                node-offline-outranks-exited precedence is the SHARED one
+                rather than this page's own copy of it. `findTakesRow` covers
+                the phone Find-bar vacate (see its definition). */}
             {!findTakesRow && (
               <>
-                <Badge
-                  variant={
-                    subshell?.nodeOffline
-                      ? "warning"
-                      : exited
-                        ? "warning"
-                        : subshell?.status === "running"
-                          ? "success"
-                          : "muted"
-                  }
-                >
-                  {subshell?.nodeOffline ? "node unreachable" : exited ? "exited" : (subshell?.status ?? "…")}
-                </Badge>
                 {subshell && subshell.backoffCount > 0 && (
                   <span className="text-detail text-muted-foreground">restart #{subshell.backoffCount} pending</span>
                 )}

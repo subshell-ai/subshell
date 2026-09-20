@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, dismissDirectoryPanel, pickAgent, renameSubshell } from "./helpers";
+import { ADMIN_STATE, dismissDirectoryPanel, expectSubshellRunning, pickAgent, renameSubshell } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -61,9 +61,10 @@ test("subshell: create -> attach -> terminate -> delete", async ({ page }) => {
   expect(ws.url()).toContain("/ws?subshell=");
   await expect(page.getByText("reconnecting…")).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
 
-  // The header badge shows the raw server status — proof the stub harness is
-  // alive in its pane (a dead-on-arrival subshell would read "exited").
-  await expect(page.getByText("running", { exact: true }).first()).toBeVisible({ timeout: SPAWN_TIMEOUT });
+  // The header's status dot carries the raw server status — proof the stub
+  // harness is alive in its pane (a dead-on-arrival subshell reads
+  // "terminated"). It replaced a badge that spelled the word out.
+  await expectSubshellRunning(page, SPAWN_TIMEOUT);
 
   await renameSubshell(page, name);
 
