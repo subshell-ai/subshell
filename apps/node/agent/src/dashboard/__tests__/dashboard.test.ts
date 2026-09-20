@@ -34,8 +34,14 @@ async function enrolled(): Promise<NodeConfig> {
 }
 
 /** The request helper: loopback Host, loopback Origin (browser-like), JSON mutations. */
-async function call(cfg: NodeConfig, method: string, path: string, body?: unknown): Promise<Response> {
-  const app = buildRoutes(cfg);
+async function call(
+  cfg: NodeConfig,
+  method: string,
+  path: string,
+  body?: unknown,
+  opts: { rollback?: (dataDir: string) => Promise<{ binary: string; to: string }> } = {},
+): Promise<Response> {
+  const app = buildRoutes(cfg, opts);
   const hdrs: Record<string, string> = {
     host: "127.0.0.1:3090",
     origin: "http://127.0.0.1:3090",
@@ -245,6 +251,39 @@ test("POST rollback with nothing to roll back to refuses honestly and never rest
     expect(asked).toBe(0); // a refusal never restarts
   } finally {
     registerRestart(null);
+  }
+});
+
+test("POST rollback swaps always but EXITS only when supervised — never stops a foreground daemon", async () => {
+  // The restart gate's own coverage. The binary swap is harmless (the running
+  // process keeps its in-memory version until it next boots), but EXITING is
+  // only a restart when a manager would bring the process back. A hand-run
+  // `subshell run` has no such manager, so a rollback there that exited would
+  // take the node — and its own page — down for good. `rollback` is injected so
+  // the swap is a no-op stub and the gate is what's under test.
+  const cfg = await enrolled();
+  const rollback = async () => ({ binary: "/tmp/subshell-under-test", to: "1.8.0" });
+  let asked = 0;
+  registerRestart(() => {
+    asked += 1;
+  });
+  try {
+    setDaemonState({ runtime: fakeRuntime(false, "keeps") });
+    const rb = await call(cfg, "POST", "/api/self/update/rollback", {}, { rollback });
+    expect(rb.status).toBe(200);
+    const b = await rb.json();
+    expect(b.ok).toBe(true);
+    expect(b.to).toBe("1.8.0");
+    expect(b.restarted).toBe(false);
+    expect(asked).toBe(0); // unsupervised: the swap ran, the exit did not
+
+    setDaemonState({ runtime: fakeRuntime(true, "keeps") });
+    const rb2 = await call(cfg, "POST", "/api/self/update/rollback", {}, { rollback });
+    expect((await rb2.json()).restarted).toBe(true);
+    expect(asked).toBe(1); // supervised: exiting IS the restart
+  } finally {
+    registerRestart(null);
+    setDaemonState({ runtime: null });
   }
 });
 

@@ -197,13 +197,23 @@ export function guardResponse(request: Request): Response | null {
   });
 }
 
+/** The rollback executor the route runs — the shape of `rollbackUpdate`, so a
+ *  test can hand in a fake and observe the restart gate without a real binary
+ *  swap (which resolves through the process's own install and renames a real
+ *  file, none of which a unit test should touch). */
+type RollbackFn = (dataDir: string) => Promise<{ binary: string; to: string }>;
+
 /**
  * The dashboard's `/api` surface, behind {@link guardResponse} on THIS
  * instance (Elysia lifecycle hooks are definition-ordered); every route below
  * is therefore already host/origin/content-type checked, and nothing in this
  * file re-checks — the guard is the one gate.
+ *
+ * `rollback` is an injectable seam (default: the real `rollbackUpdate`) purely
+ * so the restart-after-rollback supervision gate is unit-testable; production
+ * callers pass nothing and get the real binary resolution.
  */
-export function buildRoutes(cfg: NodeConfig) {
+export function buildRoutes(cfg: NodeConfig, opts: { rollback?: RollbackFn } = {}) {
   return new Elysia()
     .onBeforeHandle(({ request }) => guardResponse(request) ?? undefined)
     .get("/api/self", () => ({ id: cfg.nodeId, name: cfg.name }))
@@ -423,7 +433,7 @@ export function buildRoutes(cfg: NodeConfig) {
         // through the real ladder; so does this. Refusing because nothing
         // was installed is `rollbackUpdate`'s sentence, not an invention
         // of this route.
-        const r = await rollbackUpdate(cfg.dataDir);
+        const r = await (opts.rollback ?? rollbackUpdate)(cfg.dataDir);
         // The file swap is always safe to do — the running process keeps its
         // in-memory version until it next boots. EXITING is not. The CLI's
         // `--rollback` never restarts for exactly this reason, and the update
