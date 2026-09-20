@@ -9,8 +9,8 @@ import { TerminalKeyBar } from "@/components/terminal-key-bar";
 import { TrustIndicators } from "@/components/trust-indicators";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
+import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
-import { useLiveSubshells } from "@/hooks/useLiveSubshells";
 import type { WorkspacePaneRow } from "@/types/workspace";
 
 /** Props for {@link SubshellPane}. */
@@ -85,10 +85,12 @@ export function SubshellPane({
    */
   const [viewers, setViewers] = useState<ViewersState | null>(null);
   // The pane row carries only a summary join, not the sharing/node fields the
-  // disclosure needs — so read the live list (already mounted app-wide and
-  // cached; no extra request) and pick this pane's subshell out of it.
-  const { subshells } = useLiveSubshells();
-  const trustNotices = useTrustNotices(subshells.find((row) => row.id === pane.subshellId));
+  // disclosure needs — so read this subshell's row out of the app-wide live
+  // list (already cached; no extra request). The SELECTOR matters: the whole
+  // list re-renders its subscribers on the feed's 1.5 s beat, and a pane that
+  // subscribes to all of it repaints because some OTHER subshell printed.
+  const subshellRow = useSubshellRow(pane.subshellId);
+  const trustNotices = useTrustNotices(subshellRow);
   const handleReady = useCallback(
     (handles: SubshellTerminalHandles) => {
       handlesRef.current = handles;

@@ -33,7 +33,12 @@ import { LocalLauncher } from "@/services/nodes/local-launcher.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import { getLive, isNodeOffline, type NodeFacts } from "@/services/nodes/node-registry.js";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
-import { previewCacheDrop, previewCacheGet, previewCachePut } from "@/services/nodes/preview-cache.js";
+import {
+  LOCAL_PREVIEW_TTL_MS,
+  previewCacheDrop,
+  previewCacheGet,
+  previewCachePut,
+} from "@/services/nodes/preview-cache.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
@@ -544,6 +549,13 @@ export class SubshellManagerService {
    * round-trip on every list read, so their preview comes from the sweep's
    * probe-fed {@link previewCacheGet} — cache-only, absence simply means no
    * preview this tick.
+   *
+   * LOCAL rows read through the SAME cache, but as a cross-consumer dedupe
+   * rather than the data's source: every open tab's SSE feed rebuilds this
+   * list on its own 1.5 s tick, and one pane's capture must not become one
+   * spawn per tab. A miss captures from tmux and fills the entry with the
+   * short {@link LOCAL_PREVIEW_TTL_MS}; a hit returns the last capture of
+   * this pane, at most that TTL old.
    */
   async #preview(row: {
     id: string;
@@ -554,8 +566,12 @@ export class SubshellManagerService {
   }): Promise<string[]> {
     if (row.status !== "running" || row.alive !== 1 || !row.tmuxSocket) return [];
     if (row.nodeId !== LOCAL_NODE_ID) return previewCacheGet(row.id) ?? [];
+    const cached = previewCacheGet(row.id);
+    if (cached !== undefined) return cached;
     try {
-      return screenTail(await this.#localLauncher.capture(row.tmuxSocket, row.id));
+      const lines = screenTail(await this.#localLauncher.capture(row.tmuxSocket, row.id));
+      previewCachePut(row.id, lines, LOCAL_PREVIEW_TTL_MS);
+      return lines;
     } catch {
       // A pane that vanished between the liveness check and this call is a
       // normal race, not an error worth failing the whole list over.

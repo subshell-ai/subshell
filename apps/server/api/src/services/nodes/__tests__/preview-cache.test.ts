@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  LOCAL_PREVIEW_TTL_MS,
   PREVIEW_CACHE_TTL_MS,
   previewCacheDrop,
   previewCacheGet,
@@ -43,5 +44,18 @@ describe("preview-cache", () => {
 
   it("TTL is 60 s (the sweep's cadence)", () => {
     expect(PREVIEW_CACHE_TTL_MS).toBe(60_000);
+  });
+
+  it("per-entry TTL: a short-TTL entry expires while a default entry survives", () => {
+    resetPreviewCacheForTests();
+    previewCachePut("local", ["x"], LOCAL_PREVIEW_TTL_MS);
+    previewCachePut("agent", ["y"]); // default = the sweep's cadence
+    const now = Date.now();
+    expect(previewCacheGet("local", now + LOCAL_PREVIEW_TTL_MS - 1)).toEqual(["x"]);
+    expect(previewCacheGet("local", now + LOCAL_PREVIEW_TTL_MS + 1)).toBeUndefined();
+    // The agent entry outlives the local one's window, and expires on its
+    // own — one writer's cadence must not shorten another's.
+    expect(previewCacheGet("agent", now + LOCAL_PREVIEW_TTL_MS + 1)).toEqual(["y"]);
+    expect(previewCacheGet("agent", now + PREVIEW_CACHE_TTL_MS + 1)).toBeUndefined();
   });
 });

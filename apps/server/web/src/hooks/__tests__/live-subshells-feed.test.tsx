@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { LiveSubshellsFeedProvider, useLiveSubshellsFeed } from "@/hooks/use-live-subshells-feed";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
+import type { SubshellView } from "@/types/subshell";
 
 /** Minimal EventSource double: records instances, lets the test fire frames. */
 class FakeES {
@@ -63,6 +64,65 @@ describe("LiveSubshellsFeedProvider", () => {
     });
     expect(screen.getByTestId("state").textContent).toBe("true:2");
     expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)).toEqual([{ id: "a" }, { id: "b" }]);
+  });
+
+  it("quiet frames leave every reference intact; a changed frame shares the untouched rows", async () => {
+    // The cost story of the 1.5 s beat: a frame that changed nothing must
+    // not re-render anything, and a frame that touched one row must hand
+    // observers the SAME objects for the rows it did not. Both ride on
+    // `setQueryData`'s structural sharing and `lastList` being set from the
+    // cache read-back rather than the freshly parsed frame.
+    stubAuthOk();
+    const rendered: Array<SubshellView[] | null> = [];
+    function IdentityConsumer() {
+      const feed = useLiveSubshellsFeed();
+      rendered.push(feed.lastList);
+      return null;
+    }
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <LiveSubshellsFeedProvider enabled>
+          <IdentityConsumer />
+        </LiveSubshellsFeedProvider>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(FakeES.instances.length).toBe(1));
+    expect(rendered).toEqual([null]); // mount render, list not yet delivered
+
+    const frame = (subshells: unknown[]) =>
+      act(() => {
+        FakeES.instances[0].onmessage?.({ data: JSON.stringify({ subshells }) } as MessageEvent);
+      });
+
+    frame([
+      { id: "a", name: "A" },
+      { id: "b", name: "B" },
+    ]);
+    const first = client.getQueryData<SubshellView[]>(SUBSHELLS_QUERY_KEY);
+    expect(first).toBeTruthy();
+    expect(rendered.at(-1)).toBe(first);
+
+    // Identical frame: cache array identity intact, and NO new consumer
+    // render — `rendered` gains nothing between the two length reads below.
+    const rendersBefore = rendered.length;
+    frame([
+      { id: "a", name: "A" },
+      { id: "b", name: "B" },
+    ]);
+    expect(client.getQueryData<SubshellView[]>(SUBSHELLS_QUERY_KEY)).toBe(first);
+    expect(rendered.length).toBe(rendersBefore);
+
+    // Changed frame: new array (b moved), but a's row object is shared, so
+    // `useSubshellRow("a")` subscribers stay put.
+    frame([
+      { id: "a", name: "A" },
+      { id: "b", name: "B!" },
+    ]);
+    const second = client.getQueryData<SubshellView[]>(SUBSHELLS_QUERY_KEY);
+    expect(second).not.toBe(first);
+    expect(second?.[0]).toBe(first?.[0]);
+    expect(second?.[1]).not.toBe(first?.[1]);
   });
 
   it("stays silent (no token POST, no socket) while disabled", async () => {
