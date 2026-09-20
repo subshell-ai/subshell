@@ -43,12 +43,16 @@ trap cleanup EXIT
 fail() { echo "FAIL: $*"; exit 1; }
 ok()   { echo "  ok: $*"; }
 
+# The control key is PINNED and `runDaemon` parses it at boot
+# (`parsePinnedKey` → `JSON.parse`), BEFORE it dials — so this must be a JSON
+# *string*, not a free-text placeholder, or the daemon throws and dies the
+# instant it binds (no command here verifies against it, so `{}` is enough).
 cat > "$SUBSHELL_CONFIG_HOME/config.json" <<JSON
 {
   "serverUrl": "http://127.0.0.1:31996",
   "nodeId": "node-e2e-dashboard",
   "nodeKey": "nk_not-a-real-key",
-  "controlPublicKey": "not-a-real-key",
+  "controlPublicKey": "{}",
   "dataDir": "$W/data",
   "name": "cli-e2e-dashboard"
 }
@@ -117,15 +121,18 @@ ok "GET /api/nodes/:id/logs?fromByte=0"
 
 echo "== 8. the update route refuses the unsupervised daemon before any network call"
 # The step-1 daemon is a bare `subshell run` — no service manager started it, so
-# it is UNSUPERVISED. The update route's supervision gate fires FIRST, before it
-# resolves any release: exiting an unsupervised agent is a stop, not a restart.
-# That refusal is the honest compiled behaviour for THIS daemon. The air-gapped
-# "no release source" sentence (`subshell update --from <url>`) sits behind the
-# gate and is unit-covered (`dashboard.test.ts` fakes `supervised: true` to reach
-# it); asserting it here would assert a branch the scenario can never reach.
+# it is UNSUPERVISED, and its runtime report (published at boot, before the
+# unreachable plane is dialed) says so. The update route's supervision gate
+# fires FIRST, before it resolves any release: exiting an unsupervised agent is
+# a stop, not a restart. Both branches of that gate say "not running under a
+# service manager" and "restart it where it was started"; only the
+# no-runtime-report branch also says "`subshell update`", and a live daemon never
+# takes it — so assert the two substrings BOTH carry. The air-gapped `--from`
+# refusal sits further still (behind the gate) and is unit-covered
+# (`dashboard.test.ts` fakes `supervised: true` to reach it).
 curl -s -X POST -H "Content-Type: application/json" --data '{}' "$BASE/api/self/update" > "$W/upd.json"
-grep -q "service manager" "$W/upd.json" || { cat "$W/upd.json"; fail "the unsupervised update refusal did not name the service manager"; }
-grep -q "subshell update" "$W/upd.json" || fail "the refusal did not point at the CLI remedy"
+grep -q "not running under a service manager" "$W/upd.json" || { cat "$W/upd.json"; fail "the unsupervised update refusal did not name the service manager"; }
+grep -q "restart it where it was started" "$W/upd.json" || { cat "$W/upd.json"; fail "the refusal did not name the remedy"; }
 ok "unsupervised: a named refusal, not a hang and not a download"
 
 echo "== 9. SUBSHELL_DASHBOARD=0 means no dashboard at all"
