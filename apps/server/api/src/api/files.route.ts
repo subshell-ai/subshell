@@ -308,13 +308,22 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
           throw new FilesError("not_found", "Node not found", 404);
         }
       }
-      const paths = (await recentPathsFor(user.id, nodeId)).map(({ path, label }) => ({ path, label }));
+      // The node's launch scope answers every question in this response,
+      // computed once (the paths filter shares it through the wrapper).
+      const dirs = await launchScopeFor(user.id, nodeId);
+      const paths = (await recentPathsFor(user.id, nodeId, dirs)).map(({ path, label }) => ({ path, label }));
       // The pre-fill fallback: a fresh instance has no recents at all, so
       // without this the new-subshell form opens on an empty absolute-path
       // box at exactly the moment the user knows least. For an agent node
       // this is what it reported on `ready`; the plane cannot see its disk,
       // and an offline node has no facts, which is why this is nullable.
-      const home = nodeId === LOCAL_NODE_ID ? homedir() : (getLive(nodeId)?.agent?.homeDir ?? null);
+      // A home BEYOND the node's rules is nullable for the same reason
+      // (operator probe, 2026-09-20): the form would seed a directory this
+      // caller cannot launch into, re-staging the seed-a-403 trap the whole
+      // filter exists to prevent. Managers and unrestricted nodes see `dirs`
+      // empty, where `dirAllowed` passes everything.
+      const rawHome = nodeId === LOCAL_NODE_ID ? homedir() : (getLive(nodeId)?.agent?.homeDir ?? null);
+      const home = rawHome !== null && dirAllowed(rawHome, dirs) ? rawHome : null;
       return { paths, home } as const;
     },
     {

@@ -272,8 +272,10 @@ concept and the remote panel HID the star, because a node path starred into
 an unscoped table became a dead click in every later local panel; scoping
 beat hiding. A machine change re-anchors an open panel to home (`~` — the
 route expands it locally, the remote service maps it to the AGENT's home).
-The favorite PATCH omits `node` for the control plane, so the local wire
-stays byte-identical; a node star is 404'd for invisible nodes (the
+`/recent` answers the node's rules in BOTH halves — recents filtered,
+and `home` nulled when it sits where this caller cannot launch, so the
+seed can never be a directory that 403s at launch. The favorite PATCH
+omits `node` for the control plane, so the local wire stays byte-identical; a node star is 404'd for invisible nodes (the
 no-oracle rule `/recent` and `/explore` apply) and 400'd for relative paths
 — the plane never resolves a node path against this host's filesystem.
 

@@ -177,6 +177,120 @@ describe("files explore ?node (remote folder picker)", () => {
     }
   });
 
+  it("recent + roots + home on a constrained node all answer to its rules", async () => {
+    // The launch rules are the picker's scope on the NODE transport too:
+    // recents filter to them, a home beyond them seeds nothing (the form
+    // would otherwise pre-fill a directory this caller gets a 403 on), and
+    // a browse that lands outside them falls back to showing the rules
+    // themselves — the same landing discipline the local route pins.
+    const memberEmail = `scope-member-${crypto.randomUUID()}@subshell.local`;
+    const members = new NodeSharesRepository(db);
+    const dirs = new NodeAllowedDirsRepository(db);
+    const recents = new RecentPathsRepository(db);
+    const memberUserId = await new UsersRepository(db).createUser({
+      email: memberEmail,
+      name: memberEmail,
+      passwordHash: await hashPassword(password),
+      role: "user",
+    });
+    const memberCookie = await signIn(memberEmail, password);
+    await members.replaceForNode(nodeV3, [{ granteeUserId: memberUserId, permission: "view" }], userId);
+    await dirs.replaceForNode(nodeV3, ["/home/scripted/projects"]);
+    // The scripted agent reports homeDir /home/scripted — OUTSIDE that rule.
+    const scripted = agent();
+    await recents.touch(memberUserId, "/home/scripted/projects/app", "inside", nodeV3);
+    await recents.touch(memberUserId, "/home/scripted/outside", "gone", nodeV3);
+    try {
+      const getAs = (path: string, who: string) =>
+        app.fetch(
+          new Request(`http://localhost:3080${path}`, {
+            headers: new Headers({ cookie: `better-auth.session_token=${who}` }),
+          }),
+        );
+      const recent = (await (await getAs(`/api/files/recent?node=${nodeV3}`, memberCookie)).json()) as {
+        paths: { path: string }[];
+        home: string | null;
+      };
+      expect(recent.paths.map((r) => r.path)).toEqual(["/home/scripted/projects/app"]);
+      expect(recent.home).toBeNull();
+      // The manager's answer is unfiltered: their home, their scope.
+      const own = (await (await getAs(`/api/files/recent?node=${nodeV3}`, cookie)).json()) as {
+        home: string | null;
+      };
+      expect(own.home).toBe("/home/scripted");
+
+      // Browsing "~" (agent home, outside the rules) returns the RULES as
+      // the entries — no empty panel, no missing way back. (The LISTING the
+      // scripted agent answers sits entirely outside the rule; the owner's
+      // browse of the same path shows it unfiltered, one line below.)
+      const memberBrowse = (await (await getAs(`/api/files/explore?node=${nodeV3}&path=~`, memberCookie)).json()) as {
+        entries: { name: string; path: string; kind: string }[];
+        parent: string | null;
+      };
+      const ownerBrowse = (await (await getAs(`/api/files/explore?node=${nodeV3}&path=~`, cookie)).json()) as {
+        entries: { path: string }[];
+      };
+      expect(ownerBrowse.entries.length).toBeGreaterThan(0);
+      expect(memberBrowse.entries).toEqual([
+        { name: "/home/scripted/projects", path: "/home/scripted/projects", kind: "dir" },
+      ]);
+      expect(memberBrowse.parent).toBeNull();
+    } finally {
+      await db.deleteFrom("recentPaths").where("userId", "=", memberUserId).execute();
+      await dirs.clearForNode(nodeV3);
+      await members.replaceForNode(nodeV3, [], userId);
+      await deleteUserByEmailOrId(memberEmail);
+      scripted.detach();
+    }
+  });
+
+  it("a remote browse hides a favorite that predates a tightened rule", async () => {
+    // Rules tighten after stars are saved — the read-side filter is what
+    // keeps such rows from being offered as shortcuts whose only outcome
+    // is a refusal. (The write gate stops NEW ones; this covers the old.)
+    const memberEmail = `scope-fav-${crypto.randomUUID()}@subshell.local`;
+    const members = new NodeSharesRepository(db);
+    const dirs = new NodeAllowedDirsRepository(db);
+    const favorites = new FavoritesRepository(db);
+    const memberUserId = await new UsersRepository(db).createUser({
+      email: memberEmail,
+      name: memberEmail,
+      passwordHash: await hashPassword(password),
+      role: "user",
+    });
+    const memberCookie = await signIn(memberEmail, password);
+    await members.replaceForNode(nodeV3, [{ granteeUserId: memberUserId, permission: "view" }], userId);
+    await favorites.setFavorite(memberUserId, "directory", "/home/nodeuser/projects", true, nodeV3);
+    await dirs.replaceForNode(nodeV3, ["/home/nodeuser/projects/subshell"]); // tighter than the star
+    const scripted = agent();
+    try {
+      const body = (await (
+        await app.fetch(
+          new Request(`http://localhost:3080/api/files/explore?node=${nodeV3}&path=/home/nodeuser/projects/subshell`, {
+            headers: new Headers({ cookie: `better-auth.session_token=${memberCookie}` }),
+          }),
+        )
+      ).json()) as { favorites: { path: string }[] };
+      expect(body.favorites).toEqual([]);
+      // Loosen the rule and the same row renders again — filtered, not gone.
+      await dirs.replaceForNode(nodeV3, ["/home/nodeuser/projects"]);
+      const after = (await (
+        await app.fetch(
+          new Request(`http://localhost:3080/api/files/explore?node=${nodeV3}&path=/home/nodeuser/projects`, {
+            headers: new Headers({ cookie: `better-auth.session_token=${memberCookie}` }),
+          }),
+        )
+      ).json()) as { favorites: { path: string }[] };
+      expect(after.favorites.map((f) => f.path)).toEqual(["/home/nodeuser/projects"]);
+    } finally {
+      await favorites.setFavorite(memberUserId, "directory", "/home/nodeuser/projects", false, nodeV3);
+      await dirs.clearForNode(nodeV3);
+      await members.replaceForNode(nodeV3, [], userId);
+      await deleteUserByEmailOrId(memberEmail);
+      scripted.detach();
+    }
+  });
+
   it("remote browse ships the NODE's own Recent/Favorites; local rows never ride along", async () => {
     const scripted = agent();
     const recents = new RecentPathsRepository(db);
