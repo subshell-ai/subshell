@@ -15,14 +15,32 @@ import type { JSX } from "react";
  */
 export const Select = SelectPrimitive.Root;
 export const SelectGroup = SelectPrimitive.Group;
-export const SelectValue = SelectPrimitive.Value;
+/**
+ * The trigger's current-value text.
+ *
+ * Not a bare re-export, because it has to be able to SHRINK. The trigger is a
+ * flex row, and a flex item defaults to `min-width: auto` — so a value longer
+ * than the control does not wrap or ellipsis, it pushes straight past the
+ * border ("Instance default (100 lines)", reported 2026-09-20). `min-w-0` is
+ * what lets it shrink at all; `truncate` is what makes the overflow read as
+ * deliberate.
+ */
+export function SelectValue({ className, ...props }: SelectPrimitive.Value.Props): JSX.Element {
+  return (
+    <SelectPrimitive.Value
+      data-slot="select-value"
+      className={cn("min-w-0 truncate text-left", className)}
+      {...props}
+    />
+  );
+}
 
 export function SelectTrigger({ className, children, ...props }: SelectPrimitive.Trigger.Props): JSX.Element {
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       className={cn(
-        "flex h-9 w-full items-center justify-between gap-2 whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+        "flex h-9 w-full items-center justify-between gap-2 overflow-hidden whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
         className,
       )}
       {...props}

@@ -1,6 +1,20 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/*
+ * The shared UI package has to be named, or half its styling silently vanishes.
+ *
+ * `@internal/node-admin` reaches this dashboard through a node_modules SYMLINK, and
+ * Tailwind's automatic source detection ignores node_modules — so a utility
+ * used ONLY in that package is never generated. It fails in the worst possible
+ * way: classes the app happens to use too (`data-disabled:opacity-50`) compile
+ * and look fine, while ones unique to a shared component do not. Measured on
+ * 2026-09-20 — `Switch` rendered at the right size with no checked state at
+ * all, because `data-checked:` and `data-unchecked:` appeared in no built
+ * stylesheet.
+ */
+@source "../../../../packages/node-admin/src";
+
 @custom-variant dark (&:is(.dark *));
 
 /*
