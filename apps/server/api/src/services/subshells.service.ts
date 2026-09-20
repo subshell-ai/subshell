@@ -664,8 +664,8 @@ export class SubshellsService extends BaseService {
   async recordAttention(id: string, kind: AttentionKind): Promise<void> {
     const row = await this.repos.subshells.findById(id);
     if (row?.alive !== 1) return;
-    publishLive({ kind: "subshell.changed", id });
     await this.repos.subshells.update(id, { waitingSince: new Date().toISOString() });
+    publishLive({ kind: "subshell.changed", id });
     await getNotifyService().notifySubshell(id, kind);
   }
 
@@ -690,8 +690,8 @@ export class SubshellsService extends BaseService {
     // live pane's next SessionStart report reconverges the row. A CAS on
     // harnessSessionId would close the window for a write that is self-
     // healing within one transition; deliberately not worth it here.
-    publishLive({ kind: "subshell.changed", id });
     await this.repos.subshells.update(id, { harnessSessionId: sessionId });
+    publishLive({ kind: "subshell.changed", id });
   }
 
   /**

@@ -5,14 +5,14 @@ import { logger } from "@/utils/logger.js";
 /**
  * One thing that changed, named by id — never a rendered view.
  *
- * A publisher says "this id changed" and stops there; WHAT that means for a
- * given viewer is resolved per subscriber, through the same sharing-aware
- * path `GET /api/subshells` uses (see `ws/live-ws.ts`). Publishing a row
- * instead would force every mutation site to know the viewer set, which is
- * the shape in which an authorization bug becomes possible — and the 2026-09-03
- * live report is the precedent: the SSE feed was backed by the owner-only
- * manager list while REST answered sharing-aware, and an admin's rows
- * flickered in and out.
+ * A publisher says "this id changed" and stops there; WHO that reaches is
+ * derived in `ws/live-topics.ts`, from the row's owner and its grants, and
+ * diffed exhaustively against `resolveSubshellAccess` by that module's test.
+ * Publishing a rendered row instead would force every mutation site to know
+ * the viewer set, which is the shape in which an authorization bug becomes
+ * possible — and the 2026-09-03 live report is the precedent: the SSE feed
+ * was backed by the owner-only manager list while REST answered
+ * sharing-aware, and an admin's rows flickered in and out.
  */
 export type LiveEvent =
   | { kind: "subshell.changed"; id: string }

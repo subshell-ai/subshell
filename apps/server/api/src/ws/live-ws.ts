@@ -88,12 +88,14 @@ export interface LiveWsDeps {
  * what keeps a bearer credential — a subshell's own key included — off this
  * socket; nothing here re-decides it.
  *
- * This step is a TRANSPORT swap and nothing more: the frame is the same full
- * snapshot on the same cadence, built by the same sharing-aware
- * `SubshellsService.listSubshells` that `GET /api/subshells` answers with. The
- * owner-only `SubshellManagerService.listSubshells` must never back it — those
- * two disagreeing is what made an admin's rows flicker in and out on
- * 2026-09-03. Events replace the cadence in the next step.
+ * **There is no cadence.** One snapshot at connect — built by the same
+ * sharing-aware `SubshellsService.listSubshells` that `GET /api/subshells`
+ * answers with, and carrying no screens, since capturing a pane costs a spawn
+ * and only the cards draw one — and after that a frame only when something
+ * changed, published to the topics this socket subscribed to here. The
+ * owner-only `SubshellManagerService.listSubshells` must never back the
+ * snapshot: those two disagreeing is what made an admin's rows flicker in and
+ * out on 2026-09-03.
  */
 export async function handleLiveOpen(ws: LiveWsSocket, deps: LiveWsDeps): Promise<void> {
   const token = ws.data.query?.token;
@@ -149,10 +151,13 @@ export async function handleLiveOpen(ws: LiveWsSocket, deps: LiveWsDeps): Promis
     if (stopped || (ws.readyState !== undefined && ws.readyState !== WS_OPEN)) return;
     ws.send(JSON.stringify({ type: "snapshot", subshells }));
   } catch (err) {
-    // The client falls back to its REST list and retries on the next connect;
-    // warn because a socket that is open but never delivered its snapshot
-    // otherwise shows as "offline" with nothing anywhere saying why.
-    logger.withError(err).warn("live ws: initial snapshot failed; client will resync on reconnect");
+    // CLOSE, rather than leave it open. The client marks itself connected only
+    // once a snapshot lands, and nothing else will arrive to change that — an
+    // open socket that never delivered would show as permanently offline with
+    // no reconnect scheduled, because no close ever fired. Closing hands the
+    // recovery to the client's own bounded backoff.
+    logger.withError(err).warn("live ws: initial snapshot failed; closing so the client reconnects");
+    ws.close(1011, "snapshot failed");
   }
 }
 
@@ -190,7 +195,15 @@ export function liveWsDeps(): LiveWsDeps {
   };
 }
 
-/** Most screens one message may ask for — a client renders a page, not a fleet. */
+/**
+ * Ceiling on the screens one message may ask for.
+ *
+ * A DEFENSIVE bound, not the product rule: the client caps what it asks for to
+ * what it is actually showing (`hooks/use-card-previews.ts`), so reaching this
+ * means a client that is not ours or one that has drifted. It truncates rather
+ * than refusing — an over-long ask still gets most of its screens — which is
+ * only acceptable because the client's own cap is the smaller number.
+ */
 export const MAX_PREVIEW_REQUEST = 60;
 
 /**
@@ -242,6 +255,10 @@ export async function handleLiveMessage(ws: LiveWsSocket, raw: unknown, deps: Li
   try {
     const previews = await deps.previewsFor(userId, wanted);
     for (const [id, lines] of previews) {
+      // `liveStop` is cleared by `handleLiveClose`, so its absence is this
+      // socket having been closed while the captures ran — `readyState` alone
+      // would not see a close the adapter reported without moving it.
+      if (!ws.data.liveStop) return;
       if (ws.readyState !== undefined && ws.readyState !== WS_OPEN) return;
       ws.send(JSON.stringify({ type: "preview", id, lines }));
     }

@@ -85,6 +85,15 @@ describe("recipientTopics agrees with resolveSubshellAccess, exhaustively", () =
       { granteeUserId: null, permission: "view" },
     ],
     [{ granteeUserId: "stranger", permission: "view" }],
+    // The owner ALSO named explicitly: the one shape where a naive
+    // implementation emits their topic twice.
+    [{ granteeUserId: OWNER, permission: "edit" }],
+    // Two distinct non-owner grantees, so the loop is exercised rather than
+    // just its first iteration.
+    [
+      { granteeUserId: "grantee", permission: "view" },
+      { granteeUserId: "stranger", permission: "edit" },
+    ],
   ];
 
   it("matches EXACTLY ONCE ⟺ access !== none, for every combination", () => {

@@ -119,11 +119,19 @@ describe("/ws/live", () => {
     expect(subscribed).toEqual([ADMINS_TOPIC]);
   });
 
-  it("keeps the socket open when the snapshot read fails", async () => {
+  /**
+   * A socket that never delivered its snapshot must not sit open. The client
+   * marks itself connected only once one lands, and nothing else will arrive
+   * to change that — so an open-but-silent socket reads as permanently offline
+   * with no reconnect scheduled, because no close ever fired.
+   */
+  it("closes when the snapshot read fails, so the client's backoff can retry", async () => {
     const { ws, sent, closed } = fakeSocket({ token: "good" });
     await handleLiveOpen(ws, deps({ listSubshells: () => Promise.reject(new Error("db hiccup")) }));
     expect(sent).toEqual([]);
-    expect(closed).toEqual([]);
+    expect(closed.length).toBe(1);
+    // Below 4000: a retryable drop, not a refusal the client should report.
+    expect(closed[0]?.code).toBeLessThan(4000);
   });
 
   /**
@@ -268,5 +276,28 @@ describe("/ws/live bounded work and resync", () => {
     // Once it settles the socket accepts again — the guard is per request, not a latch.
     await handleLiveMessage(ws, JSON.stringify({ type: "previews", ids: ["c"] }), d);
     expect(runs).toBe(2);
+  });
+
+  it("stops sending screens if the socket closed while they were being captured", async () => {
+    const { ws, closeWs, frames } = fakeSocket({ token: "good" });
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const d = deps({
+      previewsFor: async () => {
+        await gate;
+        return new Map([
+          ["a", ["screen a"]],
+          ["b", ["screen b"]],
+        ]);
+      },
+    });
+    await handleLiveOpen(ws, d);
+    const pending = handleLiveMessage(ws, JSON.stringify({ type: "previews", ids: ["a", "b"] }), d);
+    handleLiveClose(closeWs);
+    release();
+    await pending;
+    expect(frames().filter((f) => f.type === "preview")).toEqual([]);
   });
 });

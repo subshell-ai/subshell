@@ -19,9 +19,23 @@ import { useLiveSubshellsFeed } from "@/hooks/use-live-subshells-feed";
 export function useCardPreviews(ids: string[]): void {
   const { requestPreviews, connected } = useLiveSubshellsFeed();
   // A stable key over the SET: order is irrelevant to what must be captured.
-  const key = [...ids].sort().join(",");
+  // Capped here rather than left to the server's own ceiling, which TRUNCATES
+  // silently — past it the tail of the list would simply never get a screen
+  // and nothing would say why. Asking for fewer is honest: each id is a
+  // `capture-pane` spawn, and a page showing hundreds of cards is not a page
+  // whose every screen a person is reading.
+  const key = [...ids].sort().slice(0, MAX_CARD_PREVIEWS).join(",");
   useEffect(() => {
     if (!connected) return; // nothing to ask yet; the connect will re-ask
     requestPreviews(key === "" ? [] : key.split(","));
   }, [key, connected, requestPreviews]);
 }
+
+/**
+ * Most screens one page asks for at a time.
+ *
+ * Must stay at or below the server's `MAX_PREVIEW_REQUEST`, which truncates
+ * without telling anyone; keeping this the smaller number is what makes that
+ * truncation unreachable in practice.
+ */
+export const MAX_CARD_PREVIEWS = 40;
