@@ -430,7 +430,8 @@ export class SubshellsService extends BaseService {
   }
 
   /**
-   * The pane's own death report, from its tmux `pane-died` hook.
+   * A pane's own death report, from its tmux `pane-died` hook — on this host
+   * or on any enrolled node, since both reach this plane the same way.
    *
    * Thin by design: the route has already established that this is the
    * subshell's own key, and the manager owns the one death transition the
@@ -441,7 +442,7 @@ export class SubshellsService extends BaseService {
    * @param exitCode - tmux's `#{pane_dead_status}`, null when it could not be read
    */
   async reportExit(id: string, exitCode: number | null): Promise<void> {
-    await this.#manager.applyLocalExit(id, exitCode, new Date().toISOString());
+    await this.#manager.applySelfReportedExit(id, exitCode, new Date().toISOString());
   }
 
   /**

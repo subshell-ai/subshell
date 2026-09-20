@@ -263,8 +263,24 @@ export class TmuxRunner {
    */
   async listSubshellsChecked(socket: string): Promise<{ ok: true; names: string[] } | { ok: false; detail: string }> {
     try {
-      const out = await this.runAsync(["-L", socket, "list-sessions", "-F", "#{session_name}"], {});
-      return { ok: true, names: out.stdout.split("\n").filter((line) => line !== "") };
+      // LIVE panes only, and the format is what makes that one call rather
+      // than one per session. Since `newSubshell` sets `remain-on-exit`, a
+      // finished pane's session STAYS in this listing (spec 2026-09-19 §4.3) —
+      // and this answer's whole contract is "a pane the socket answered
+      // without is confirmed dead", which the node's exit watcher acts on
+      // directly. Returning dead sessions here would mean no node-run subshell
+      // was ever reported dead again.
+      const out = await this.runAsync(["-L", socket, "list-sessions", "-F", "#{session_name}\t#{pane_dead}"], {});
+      const names = out.stdout
+        .split("\n")
+        .filter((line) => line !== "")
+        .map((line) => line.split("\t"))
+        // Absent deadness (an older tmux, or a format that did not resolve) is
+        // read as ALIVE: this list drives death reports, and inventing one
+        // from a missing field would retire a running subshell.
+        .filter(([, dead]) => dead !== "1")
+        .map(([name]) => name as string);
+      return { ok: true, names };
     } catch (err) {
       return { ok: false, detail: err instanceof Error ? err.message : String(err) };
     }

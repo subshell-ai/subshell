@@ -74,7 +74,7 @@ async function freshDataDir(tag: string): Promise<string> {
 type ProbeAnswer = { ok: true; names: string[] } | { ok: false; detail: string };
 
 interface Spec {
-  newSubshell?: (socket: string, id: string, cwd: string, cmd: string) => void;
+  newSubshell?: (socket: string, id: string, cwd: string, cmd: string, exitHook?: string) => void;
   pipePane?: (socket: string, id: string, out: string) => void;
   resizeWindow?: (socket: string, id: string, cols: number, rows: number) => void;
   hasSubshell?: (socket: string, id: string) => boolean;
@@ -1163,6 +1163,67 @@ describe("execLaunch on a node with no plugins (inversion §6)", () => {
     expect(paneCmd).toInclude(`'/bin/sh' '--flag'`);
     expect(existsSync(join(dir, "plugins"))).toBe(false); // the launch created nothing
     stopWatcher(ctx, S1);
+  });
+  /**
+   * A pane on a NODE reports its own death the same way a local one does
+   * (spec 2026-09-19 §4.3) — no frame, no protocol bump. It already holds the
+   * plane's address and its own bearer token, the same pair the MCP server and
+   * the attention hooks authenticate with, so the hook posts straight to
+   * `/api/subshells/:id/exit`. The 2 s exit watcher stays as the backstop.
+   */
+  it("registers a pane-died hook carrying the pane's own credentials", async () => {
+    const dataDir = await freshDataDir("exithook");
+    let hook: string | undefined;
+    const { ctx } = makeCtx(
+      dataDir,
+      {
+        newSubshell: (_s, _i, _c, _cmd, exitHook) => {
+          hook = exitHook;
+        },
+        pipePane: () => {},
+        resizeWindow: () => {},
+      },
+      [],
+    );
+    await execLaunch(
+      ctx,
+      launchCmd({
+        subshellEnv: {
+          SUBSHELL_API_KEY: "k",
+          SUBSHELL_BASE_URL: "http://plane:3080",
+          SUBSHELL_ID: S1,
+        },
+      }),
+    );
+    expect(hook).toBeDefined();
+    expect(hook).toContain("report exit");
+    expect(hook).toContain("#{pane_dead_status}");
+    // The credentials ride the COMMAND: a `run-shell` hook inherits the tmux
+    // server's environment, and the pane is launched through `env -i`, so the
+    // server has none of them.
+    expect(hook).toContain("SUBSHELL_ID=");
+    expect(hook).toContain("SUBSHELL_API_KEY=");
+    expect(hook).toContain("SUBSHELL_BASE_URL=");
+  });
+
+  it("registers NO hook when the pane has no full credential set", async () => {
+    const dataDir = await freshDataDir("nohook");
+    let hook: string | undefined = "sentinel";
+    const { ctx } = makeCtx(
+      dataDir,
+      {
+        newSubshell: (_s, _i, _c, _cmd, exitHook) => {
+          hook = exitHook;
+        },
+        pipePane: () => {},
+        resizeWindow: () => {},
+      },
+      [],
+    );
+    // Only the key — a report built from this could never authenticate, so the
+    // launch registers nothing and the exit watcher is the answer.
+    await execLaunch(ctx, launchCmd({ subshellEnv: { SUBSHELL_API_KEY: "k" } }));
+    expect(hook).toBeUndefined();
   });
 });
 

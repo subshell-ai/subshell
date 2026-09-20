@@ -45,6 +45,7 @@ export {
 } from "./binary-lookup.js";
 export { type BoundedResult, readCommandBounded } from "./bounded-exec.js";
 export { builtInIds, type EmbeddedPlugin, readBuiltIn } from "./builtin-source.js";
+export { exitHookFor } from "./exit-hook.js";
 export { enforceMode } from "./fs-mode.js";
 export { type HarnessInventoryEntry, scanHarnesses, scanOne } from "./inventory.js";
 export {

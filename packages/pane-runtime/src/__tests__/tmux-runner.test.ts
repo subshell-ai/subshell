@@ -769,6 +769,29 @@ echo "server exited unexpectedly" >&2; exit 1
     // 0 is a real answer; null means "could not be read".
     expect(await runner.paneExitCode(socket, "z1")).toBe(0);
   });
+  /**
+   * The node's exit watcher acts on this list DIRECTLY — "a pane the socket
+   * answered without is confirmed dead" — so a finished pane lingering here
+   * (which `remain-on-exit` now makes it do) would mean no node-run subshell
+   * was ever reported dead again. This is the regression that change would
+   * otherwise have introduced, in the one place that catches it.
+   */
+  it("omits a finished pane, though its session still exists", async () => {
+    const socket = freshSocket("checkedlive");
+    runner.newSubshell(socket, "live1", "/tmp", "exec sleep 30");
+    runner.newSubshell(socket, "gone1", "/tmp", "sh -c 'exit 3'");
+    for (let i = 0; i < 40 && (await runner.hasSubshell(socket, "gone1")); i++) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    const probe = await runner.listSubshellsChecked(socket);
+    expect(probe.ok).toBe(true);
+    if (!probe.ok) return;
+    expect(probe.names).toContain("live1");
+    expect(probe.names).not.toContain("gone1");
+    // The dead session is still THERE — which is exactly why listing names
+    // alone stopped meaning "alive".
+    expect(runner.listSubshellNames(socket)).toContain("gone1");
+  });
 });
 
 afterAll(async () => {

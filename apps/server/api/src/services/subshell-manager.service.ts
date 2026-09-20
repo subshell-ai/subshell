@@ -1503,10 +1503,11 @@ export class SubshellManagerService {
   }
 
   /**
-   * Applies the LOCAL pane's own death report (spec 2026-09-19 §4.3).
+   * Applies a pane's own death report (spec 2026-09-19 §4.3).
    *
    * The twin of {@link applyRemoteExit}, and deliberately the same shape: a
-   * tmux `pane-died` hook re-enters this binary the instant the harness exits,
+   * tmux `pane-died` hook re-enters the subshell binary ON THE PANE'S OWN
+   * MACHINE the instant the harness exits,
    * so a dashboard learns in about a second rather than waiting out the 60 s
    * reconcile sweep. Both paths converge on {@link #applyDeath}, so a
    * hook-vs-sweep race is harmless — whichever lands first stamps and pushes,
@@ -1520,11 +1521,15 @@ export class SubshellManagerService {
    * @param exitCode - `#{pane_dead_status}` as tmux reported it, null when unreadable
    * @param at - death timestamp, stamped as `endedAt`
    */
-  async applyLocalExit(subshellId: string, exitCode: number | null, at: string): Promise<void> {
+  async applySelfReportedExit(subshellId: string, exitCode: number | null, at: string): Promise<void> {
     const row = await this.#subshells.findById(subshellId);
-    // A row that is not local is not this hook's to report: the pane a local
-    // tmux watched cannot be the pane of a subshell running on a node.
-    if (!row || row.nodeId !== LOCAL_NODE_ID) return;
+    // No node check, unlike applyRemoteExit. There, authority is the socket's
+    // node identity, because the NODE is speaking for a row. Here the SUBSHELL
+    // is speaking for itself with its own bearer token, which the route has
+    // already proved — and a pane on an agent node reports through exactly the
+    // same hook, straight to this plane, because it holds this address and
+    // that token either way.
+    if (!row) return;
     if (row.status !== "running") return; // already retired — the sweep and this converge
     await this.#applyDeath(row, { exitCode, endedAt: at });
   }
