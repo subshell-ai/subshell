@@ -63,20 +63,45 @@ xterm's file-drop and dockview's tab-drag untouched). Status words/precedence
 live once in `lib/subshell-indicator.ts` (home card badges consume it), and
 the dot fills beside it. Subshell lists everywhere are kept current by ONE
 live socket — `hooks/use-live-subshells-feed.tsx`, mounted in `__root.tsx`
-signed-in-only — which writes each `/ws/live` snapshot into
-`SUBSHELLS_QUERY_KEY`; read via `useSubshellsList`/`useLiveSubshells`, never
-by opening a second one. It is a WebSocket rather than the `EventSource` it
-replaced (spec 2026-09-19) because an SSE stream holds one of the browser's
-six per-origin HTTP/1.1 connections for the life of the tab, and the instance
-is plain http, so three dashboard tabs spent half the pool before any fetch.
-**A quiet frame must cost nothing**: the write is structurally shared (an
-unchanged row keeps its object, an unchanged list keeps the array — and `lastList` is set from the cache
-read-back, so the provider itself re-renders only on real change), a
-consumer that needs ONE row uses `hooks/use-subshell-row.ts` (the selector
-keeps a pane out of every other subshell's 1.5 s beat), and the subshell
-page's 5 s liveness poll skips its list invalidation while the feed is
-delivering — the feed owns that key, and each list build captures every
-running pane's screen server-side.
+signed-in-only — which writes `/ws/live`'s frames into `SUBSHELLS_QUERY_KEY`;
+read via `useSubshellsList`/`useLiveSubshells`, never by opening a second one.
+It is a WebSocket rather than the `EventSource` it replaced (spec 2026-09-19)
+because an SSE stream holds one of the browser's six per-origin HTTP/1.1
+connections for the life of the tab, and the instance is plain http, so three
+dashboard tabs spent half the pool before any fetch.
+
+**There is no cadence, and that is the design.** One snapshot at connect, then
+a frame only when something changed: the server publishes domain events to Bun
+pub/sub topics, and the socket subscribes to the ones its viewer may see. What
+the old 1.5 s beat re-sent was almost entirely static — `alive`, `startedAt`,
+the auto-title `name` and local `lastOutputAt` are written by the 60 s
+reconcile sweep, everything else by a user action — and each rebuild captured
+every running pane's screen server-side. Three consequences the client owns:
+
+- **A snapshot must not clobber a newer event.** The socket subscribes BEFORE
+  the list read, so the read may predate an event delivered first; the client
+  keeps any row it has received an event for since this connect and lets the
+  snapshot decide the rest, including which rows exist. No sequence numbers.
+- **A broadcast carries no `access`** — one payload reaches every subscriber,
+  so the per-viewer stamp cannot ride it. The client keeps the access it holds;
+  a row arriving before any snapshot is skipped rather than guessed at.
+- **Previews are PULLED** (`hooks/use-card-previews.ts`). The snapshot carries
+  no screens, because capturing a pane costs a `capture-pane` spawn each and
+  the home cards are the only surface that draws one. They ask for what they
+  show, and re-ask when a change arrives for one of them.
+
+**Quiet frames still cost nothing**: the write is structurally shared (an
+unchanged row keeps its object, an unchanged list keeps the array — and
+`lastList` is set from the cache read-back, so the provider re-renders only on
+real change), and a consumer that needs ONE row uses
+`hooks/use-subshell-row.ts`.
+
+**Activity is derived from a clock, not from a frame.** `deriveActivity`
+answers active/idle from `lastOutputAt` against `Date.now()`, because with no
+cadence nothing arrives to mark elapsed time and a subshell that simply went
+quiet would read as working forever. `hooks/use-clock-tick.ts` re-renders the
+surfaces that show it — ONE tick each for the home list and the rail, never one
+per row. Any NEW surface rendering `subshellIndicator` needs its own tick.
 
 **The admin surface is NINE pages behind one collapsible group** (spec
 2026-09-11 grouped-navigation): General (`/settings`), Users
