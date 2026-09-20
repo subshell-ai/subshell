@@ -1550,7 +1550,20 @@ Recorded so they are decisions rather than surprises:
      change).
    - **Live WebSockets.** `/ws` authenticates once at connect (cookie, or a
      30 s single-use token) and is never re-checked, so an already-attached
-     terminal keeps streaming until it disconnects.
+     terminal keeps streaming until it disconnects. **`/ws/live`, the
+     dashboard's feed (spec 2026-09-19), has the same property**: it redeems
+     the same single-use token at connect and never re-authenticates, so a
+     socket opened before the reset keeps receiving that viewer's subshell
+     list until it drops. Same posture, not a new one.
+
+     What that socket then RECEIVES is § 11.14's business, and the sentence
+     that stood here described a design that was reverted before it shipped:
+     only the SNAPSHOT is resolved through the ordinary sharing-aware gate.
+     Event frames are published to derived topics, and a revoked share is a
+     frame the server sends rather than a row the viewer stops matching. The
+     difference matters exactly here — a socket is never re-authenticated, so
+     what keeps it honest is that revocation is ANNOUNCED, not that anything
+     re-resolves it.
 
    A password reset is therefore a credential rotation, not a session-kill
    switch for every path into the account.
@@ -2338,6 +2351,106 @@ this project did not write.
   designed and unbuilt; it now has one real customer, which is the condition
   that section named for revisiting it.
 - No plugin is sandboxed, and none of this changes §11.9.
+
+## 11.14 The live feed derives who may receive a row
+
+The dashboard's feed is event-driven (spec 2026-09-19): one `/ws/live` socket
+per tab, a snapshot at connect, and after that a frame only when something
+changed, broadcast over Bun pub/sub topics. Three things about it belong here
+rather than only in the spec, because each is load-bearing and none is
+obvious from the code that depends on it.
+
+**There are exactly TWO authorization implementations, and they run in
+opposite directions.** Every other access decision in the tree is viewer →
+row: `resolveSubshellAccess`, `listVisibleTo`. The fan-out cannot work that
+way — it has to answer "who may receive this row" — so
+`ws/live-topics.ts` derives a recipient set instead, from the row's owner and
+its grants, decomposed into `live:u:<id>`, `live:admins` and `live:everyone`
+with no user enumeration anywhere.
+
+That is a second policy path, and the objection to a second policy path is
+real: the 2026-09-03 flicker was two viewer → rows implementations
+disagreeing, and a disagreement here does not flicker, it discloses a private
+subshell. What makes it sound is that the two are DIFFED — an exhaustive test
+asserts that a viewer's subscribed topics intersect a row's published topics
+**exactly once** when `resolveSubshellAccess` grants access, and not at all
+when it does not, over every combination of owner / admin / explicit grant /
+Everyone grant. Two implementations with a diff between them is a stronger
+guarantee than one with nothing checking it; the hazard was never duplication,
+it was UNDIFFED duplication.
+
+**If that test is ever deleted or weakened, this design has lost the thing
+that makes it safe** and the fan-out should go back to resolving per
+subscriber. It is not a unit test among others; it is the control.
+
+**A role change drops that user's sockets.** A socket chooses its topics ONCE,
+at connect, and nothing else closes it — a WebSocket authenticates at connect
+and is never re-checked, exactly as `/ws` does (§11.5's "Live WebSockets").
+So an admin demoted with a dashboard tab open would have gone on receiving
+every subshell on the instance for as long as that tab lived. `PATCH
+/api/users/:id/role` therefore closes that user's live sockets, counted in the
+audit row; the client reconnects on its own and re-derives what it may
+subscribe to. A password reset still does NOT do this — it is a credential
+rotation, not a session-kill switch, and that asymmetry is deliberate.
+
+**The hook's credential values are REFUSED rather than escaped when they
+carry `'`, `"`, `\` or `#`.** A `set-hook` value is re-parsed by tmux's own
+command parser when it fires, so shell quoting does not survive it: measured
+end to end, a quote makes the hook silently never fire, a backslash makes it
+fire with a corrupted credential (a 401 nobody sees), and `#` is EXPANDED —
+`#{...}` reads tmux state and `#(...)` is command substitution tmux runs, so
+this is a format context rather than an inert string. A refused value means no
+hook and the sweep as the answer. It is reachable rather than defensive: a
+preset may legitimately override `SUBSHELL_BASE_URL`, so one of these three
+values is user-authored.
+
+**A pane's bearer token now also sits in that pane's tmux hook table.** The
+`pane-died` hook carries the subshell's own credentials on its command line
+(the tmux server holds none of the pane's environment, so they cannot be
+inherited), which means `show-hooks` on that socket reveals what `ps` already
+did. Same actor, same machine, same accepted class as the launch argv — but it
+is a new PLACE the token rests, and it rests there for the life of the server
+rather than the length of one spawn.
+
+**A revocation is published by reachability, not by topic name.** The topics
+are not a flat set — `live:everyone` subsumes every per-viewer topic — so the
+obvious set-difference names topics whose subscribers still hold the row. It
+did: sharing a private subshell with Everyone told the owner, on their own
+topic, that it was gone. Where the audience can be addressed exactly the
+removal is still asserted and applied at once; where it cannot (an Everyone
+grant ending while named grants survive) the frame ASKS, and the client's own
+per-viewer snapshot decides. The property to preserve, and the one the
+transition test asserts over every before→after pair, is that **a viewer who
+still has access is never told the row is gone** — the inverse of the usual
+leak, and just as much a bug.
+
+**A change of LEVEL is asked about, not asserted.** Reachability is not the
+whole of a share change: downgrading a grantee from `edit` to `view` leaves
+both topic sets identical, and the row is re-broadcast carrying no `access` at
+all — so the client correctly keeps the stamp it holds, which means it keeps
+rendering rename, restart and terminal-input affordances the viewer no longer
+has. Not an escalation (every route re-resolves, and an attached terminal is
+the never-re-checked property of § 11.5), but it is stale authority on screen,
+which is what the role axis already had `dropLiveSocketsFor` for. The share
+axis now emits the same ask, derived by diffing the CANONICAL resolver against
+itself across the change.
+
+**When the publisher cannot resolve a row, it asks rather than asserts.** An
+empty recipient set is not the same fact as "this row reaches nobody", and
+reading a failed database call as the latter published a removal for a live
+subshell to every admin. Asking is safe under every answer.
+
+**A broadcast carries no pane screen and no per-viewer field.** One payload
+reaches every subscriber on a topic, so it cannot carry the per-viewer
+`access` stamp — the client keeps the access it already holds, and a row it
+has never seen is not rendered but re-requested, because guessing access
+wrong would show edit controls to a `view` grantee. Screens are excluded for
+a second, independent reason: a pane's rendered output is the most sensitive
+thing this app produces (§ pane logs), and it must not ride a channel whose
+audience is a topic. They are PULLED instead, by the one surface that draws
+them, through a request filtered by the ordinary visible-set read — so an id
+the viewer cannot see is absent from the answer rather than refused, and ids
+stay unprobeable.
 
 ## 12. Hardening checklist for a wider deployment
 

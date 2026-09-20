@@ -45,6 +45,7 @@ export {
 } from "./binary-lookup.js";
 export { type BoundedResult, readCommandBounded } from "./bounded-exec.js";
 export { builtInIds, type EmbeddedPlugin, readBuiltIn } from "./builtin-source.js";
+export { exitHookFor } from "./exit-hook.js";
 export { enforceMode } from "./fs-mode.js";
 export { type HarnessInventoryEntry, scanHarnesses, scanOne } from "./inventory.js";
 export {
@@ -52,6 +53,7 @@ export {
   buildHarnessCommand,
   curatedEnv,
   ENV_KEY_RE,
+  paneEnvFor,
   validateWorkingDir,
 } from "./launch.js";
 export { loginPathEntries } from "./login-path.js";
@@ -133,7 +135,15 @@ export {
 } from "./run-bounded.js";
 export { shellQuote } from "./shell.js";
 export { extractTgz, type TarEntry, type TgzLimits } from "./tar-vendor.js";
-export { TmuxError, TmuxRunner, TmuxTimeoutError, tmuxSocketFor, tmuxSocketPath } from "./tmux-runner.js";
+export {
+  parseSessionLiveness,
+  SESSION_LIVENESS_FORMAT,
+  TmuxError,
+  TmuxRunner,
+  TmuxTimeoutError,
+  tmuxSocketFor,
+  tmuxSocketPath,
+} from "./tmux-runner.js";
 export type {
   BuildCommandInput,
   DetectSpec,

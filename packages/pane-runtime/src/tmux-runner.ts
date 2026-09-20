@@ -29,6 +29,64 @@ import { shellQuote } from "./shell.js";
  */
 export const TMUX_COMMAND_TIMEOUT_MS = 15_000;
 
+/**
+ * The `-F` format {@link TmuxRunner.listSubshellsChecked} lists sessions with.
+ *
+ * **The separator is a COLON because a TAB does not survive tmux.** This was
+ * `#{session_name}\t#{pane_dead}` until 2026-09-20, which works on tmux 3.7
+ * and is silently mangled on **tmux 3.4** — the version Ubuntu 24.04 and
+ * Debian ship, so most Linux hosts. Measured in that container, one live
+ * session and one finished one:
+ *
+ * ```
+ * -F "#{session_name}<TAB>#{pane_dead}"  →  live1_0   gone1_1
+ * -F "#{session_name}:#{pane_dead}"      →  live1:0   gone1:1
+ * ```
+ *
+ * tmux 3.4 renders the tab in the output as `_`. Every field then parses as
+ * one, which is not a cosmetic difference: the name no longer matches the
+ * subshell id the node's exit watcher looks for, and the deadness field is
+ * absent so a finished pane reads as alive. On such a host the watcher would
+ * have found EVERY running subshell "confirmed absent" and reported it dead
+ * seconds after launch, while genuinely dead panes were never reported at
+ * all. CI caught it; no local tmux could.
+ *
+ * A colon is safe as the separator rather than merely untested: tmux's own
+ * `session_check_name` replaces `:` and `.` in a session name with `_`, so a
+ * name can never contain one.
+ */
+export const SESSION_LIVENESS_FORMAT = "#{session_name}:#{pane_dead}";
+
+/**
+ * Parses {@link SESSION_LIVENESS_FORMAT} output into the LIVE session names.
+ *
+ * Pure and exported because the defect it exists for is a difference between
+ * tmux versions, which no test running against one tmux can see: this is the
+ * half that can be checked everywhere, against output captured from both.
+ *
+ * Absent deadness (an older tmux, or a format that did not resolve) is read as
+ * ALIVE. This list drives death reports, so inventing a death from a missing
+ * field would retire a running subshell — the same fail-safe direction
+ * {@link TmuxRunner.hasSubshell} takes.
+ *
+ * @param stdout - raw `list-sessions -F` output
+ * @returns the names of sessions whose pane is not dead, in tmux's order
+ */
+export function parseSessionLiveness(stdout: string): string[] {
+  const names: string[] = [];
+  for (const line of stdout.split("\n")) {
+    if (line === "") continue;
+    // From the RIGHT: the flag is the last field, and splitting from the left
+    // would mis-parse a name that somehow held a colon rather than dropping
+    // one field of it.
+    const cut = line.lastIndexOf(":");
+    const name = cut === -1 ? line : line.slice(0, cut);
+    const dead = cut === -1 ? "" : line.slice(cut + 1);
+    if (dead !== "1") names.push(name);
+  }
+  return names;
+}
+
 /** Attempts {@link TmuxRunner.newSubshell} adds when it loses the server-shutdown race. */
 const NEW_SESSION_RACE_RETRIES = 3;
 /** Pause between those attempts — long enough for the dying server to release its socket. */
@@ -199,8 +257,25 @@ export class TmuxRunner {
    */
   async hasSubshell(socket: string, subshellName: string): Promise<boolean> {
     try {
-      await this.runAsync(["-L", socket, "has-session", "-t", subshellName], {});
-      return true;
+      // NOT `has-session`. Since `newSubshell` sets `remain-on-exit`, a
+      // finished pane LINGERS — its session still exists, so `has-session`
+      // answers true for a subshell whose process ended, and every caller of
+      // this (the reconcile sweep, the attach gate, the node's maintenance
+      // CLI and dashboard) means "is there a LIVE pane". Measured: a session
+      // whose command exited 7 still answers `has-session` successfully while
+      // `#{pane_dead}` reads 1.
+      //
+      // One call answers both questions: the socket being gone throws, and a
+      // lingering pane reports its own deadness.
+      const out = await this.runAsync(["-L", socket, "display-message", "-t", subshellName, "-p", "#{pane_dead}"], {});
+      // `!== "1"`, not `=== "0"`, and the asymmetry is the caller's rule
+      // rather than tidiness: the sweep's death branch is DESTRUCTIVE (it
+      // revokes the subshell's token, stamps `endedAt` and pushes a death
+      // notification), and its own comment says UNKNOWN IS NOT DEAD. A
+      // tmux that answered with something neither `0` nor `1` is not
+      // evidence of a dead pane; only `1` is. A socket that is gone throws,
+      // which is a different fact and is caught below.
+      return out.stdout.trim() !== "1";
     } catch (err) {
       if (err instanceof TmuxTimeoutError) throw err;
       return false;
@@ -253,8 +328,15 @@ export class TmuxRunner {
    */
   async listSubshellsChecked(socket: string): Promise<{ ok: true; names: string[] } | { ok: false; detail: string }> {
     try {
-      const out = await this.runAsync(["-L", socket, "list-sessions", "-F", "#{session_name}"], {});
-      return { ok: true, names: out.stdout.split("\n").filter((line) => line !== "") };
+      // LIVE panes only, and the format is what makes that one call rather
+      // than one per session. Since `newSubshell` sets `remain-on-exit`, a
+      // finished pane's session STAYS in this listing (spec 2026-09-19 §4.3) —
+      // and this answer's whole contract is "a pane the socket answered
+      // without is confirmed dead", which the node's exit watcher acts on
+      // directly. Returning dead sessions here would mean no node-run subshell
+      // was ever reported dead again.
+      const out = await this.runAsync(["-L", socket, "list-sessions", "-F", SESSION_LIVENESS_FORMAT], {});
+      return { ok: true, names: parseSessionLiveness(out.stdout) };
     } catch (err) {
       return { ok: false, detail: err instanceof Error ? err.message : String(err) };
     }
@@ -356,12 +438,44 @@ export class TmuxRunner {
    * 5/5. Left unhandled it surfaces as a restart that throws while the row
    * rolls back to `terminated`, i.e. a restart button that just fails.
    */
-  newSubshell(socket: string, subshellName: string, cwd: string, cmd: string): void {
+  newSubshell(socket: string, subshellName: string, cwd: string, cmd: string, exitHook?: string): void {
     // Before the spawn, so an over-long TMUX_TMPDIR is reported as itself
     // rather than as tmux's bare "File name too long" — and so the retry loop
     // below does not spend its budget on a failure no retry can fix.
     assertSocketPathFits(socket);
-    const args = ["-L", socket, "new-session", "-d", "-s", subshellName, "-c", cwd, cmd];
+    // `remain-on-exit on` is what makes a finished pane OBSERVABLE (spec
+    // 2026-09-19 §4.3). Without it tmux destroys the window, then the session,
+    // then — since there is one server per subshell — the server itself, all
+    // before anything can look: `#{pane_dead_status}` was therefore never
+    // readable and `exitCode` was structurally always null. Set in the SAME
+    // command as the spawn so no pane can die in the gap between two.
+    const args = [
+      "-L",
+      socket,
+      "new-session",
+      "-d",
+      "-s",
+      subshellName,
+      "-c",
+      cwd,
+      cmd,
+      ";",
+      "set-option",
+      "-t",
+      subshellName,
+      "remain-on-exit",
+      "on",
+    ];
+    // `pane-died` fires the moment the harness exits, which is what turns a
+    // death from something the 60 s sweep eventually notices into something a
+    // dashboard sees in about a second (spec 2026-09-19 §4.3). Registered in
+    // the SAME command as the spawn, so a pane cannot die before its hook
+    // exists. `#{pane_dead_status}` is interpolated by tmux itself, and is
+    // EMPTY when it has none to give — the reporter reads that as "unknown"
+    // rather than as a clean exit.
+    if (exitHook) {
+      args.push(";", "set-hook", "-t", subshellName, "pane-died", `run-shell "${exitHook}"`);
+    }
     for (let attempt = 0; ; attempt++) {
       try {
         this.run(args, {});
@@ -509,7 +623,10 @@ export class TmuxRunner {
    * @returns Resolves/rejects with this command's own result
    */
   #enqueueInput(socket: string, subshellName: string, send: () => Promise<void>): Promise<void> {
-    const key = `${socket} ${subshellName}`;
+    // `\0` as the ESCAPE, never a literal NUL byte: a real one in the source
+    // makes grep and ripgrep treat this whole file as binary and silently
+    // return nothing, which costs whoever greps it next an afternoon.
+    const key = `${socket}\0${subshellName}`;
     // Never rejects (see below), so no rejection handler is needed here.
     const previous = this.#inputChains.get(key) ?? Promise.resolve();
     const result = previous.then(send);

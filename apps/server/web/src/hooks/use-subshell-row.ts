@@ -10,7 +10,7 @@ import type { SubshellView } from "@/types/subshell";
  * second request).
  *
  * This is deliberately NOT `useSubshellsList()` + `.find()`: that subscribes
- * the caller to the WHOLE array, and the SSE feed writes it every 1.5 s, so
+ * the caller to the WHOLE array, and the live feed writes it on every change, so
  * every pane re-rendered on every other subshell's output. The selector runs
  * per cache write and TanStack shares the result structurally, so an
  * unchanged row keeps its object reference across frames — this hook

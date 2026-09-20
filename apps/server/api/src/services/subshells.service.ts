@@ -11,6 +11,7 @@ import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } from "@/lib/node-access.js";
 import { type Access, accessAtLeast, loadSubshellAccess, resolveSubshellAccess } from "@/lib/subshell-access.js";
 import { BaseService, type CommonServiceParams } from "@/services/base.service.js";
+import { publishLive } from "@/services/live-bus.js";
 import { getLive, isNodeOffline } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
@@ -407,7 +408,7 @@ export class SubshellsService extends BaseService {
    * subshell is simply absent, never a 403.
    * @param viewerId - The signed-in user (resolved from cookie or subshell key)
    */
-  async listSubshells(viewerId: string): Promise<SubshellView[]> {
+  async listSubshells(viewerId: string, opts: { previews?: boolean } = {}): Promise<SubshellView[]> {
     const isAdmin = (await this.repos.userMeta.getRole(viewerId)) === "admin";
     const rows = await this.repos.subshells.listVisibleTo(viewerId, isAdmin);
     const sharesBy = await this.repos.subshellShares.listForSubshells(rows.map((r) => r.id));
@@ -420,10 +421,82 @@ export class SubshellsService extends BaseService {
       const access = resolveSubshellAccess(viewerId, isAdmin, row.userId, sharesBy.get(row.id) ?? []);
       accessBy.set(row.id, access === "none" ? "view" : access);
     }
-    const views = await this.#manager.toViews(rows);
+    const views = await this.#manager.toViews(rows, opts);
     return views.map((view) => ({
       ...view,
       access: accessBy.get(view.id) ?? ("view" as const),
+      ...shareExposure(sharesBy.get(view.id) ?? []),
+    }));
+  }
+
+  /**
+   * A pane's own death report, from its tmux `pane-died` hook — on this host
+   * or on any enrolled node, since both reach this plane the same way.
+   *
+   * Thin by design: the route has already established that this is the
+   * subshell's own key, and the manager owns the one death transition the
+   * sweep also runs through — so nothing here decides anything, it only
+   * carries the timestamp.
+   *
+   * @param id - the subshell whose pane exited
+   * @param exitCode - tmux's `#{pane_dead_status}`, null when it could not be read
+   */
+  async reportExit(id: string, exitCode: number | null): Promise<void> {
+    await this.#manager.applySelfReportedExit(id, exitCode, new Date().toISOString());
+  }
+
+  /**
+   * Screens for the subshells a viewer asked to see, filtered to those they
+   * actually may (spec 2026-09-19 §4.4).
+   *
+   * The gate is the ordinary visible-set read, not a second predicate: an id
+   * the viewer cannot see is simply absent from the answer, exactly as it is
+   * absent from their list — never a 403, so ids cannot be probed.
+   *
+   * @param viewerId - the signed-in viewer asking
+   * @param ids - subshell ids whose screens to capture
+   */
+  async previewsFor(viewerId: string, ids: string[]): Promise<Map<string, string[]>> {
+    if (ids.length === 0) return new Map();
+    const isAdmin = (await this.repos.userMeta.getRole(viewerId)) === "admin";
+    const wanted = new Set(ids);
+    const visible = (await this.repos.subshells.listVisibleTo(viewerId, isAdmin)).filter((row) => wanted.has(row.id));
+    return await this.#manager.previewsFor(visible);
+  }
+
+  /**
+   * One row as EVERY viewer sees it — the shared half of a broadcast frame
+   * (spec 2026-09-19 §4.1a).
+   *
+   * Deliberately carries no `access`: the live fan-out publishes one payload
+   * to a topic, so a per-viewer stamp cannot ride it, and a caller that let
+   * `toViews`' owner-shaped default through would be telling a `view` grantee
+   * they own the row. `shareExposure` IS included — those fields describe the
+   * row rather than the reader.
+   *
+   * It goes through the SAME `toViews` + `shareExposure` composition
+   * {@link listSubshells} uses, so a broadcast row and a snapshot row cannot
+   * disagree about anything but access.
+   *
+   * @param rows - subshell rows to render, in order
+   */
+  async viewsForBroadcast(
+    rows: SubshellTable[],
+    shares?: Map<string, ShareEntry[]>,
+  ): Promise<Omit<SubshellView, "access">[]> {
+    // The caller usually has these already — the publisher reads them to
+    // derive the recipient topics, one line before calling this — and reading
+    // them twice per event is the one place this path did more work than the
+    // design says it does.
+    const sharesBy = shares ?? (await this.repos.subshellShares.listForSubshells(rows.map((r) => r.id)));
+    // NO PREVIEWS, for two independent reasons. A broadcast reaches every
+    // subscriber on a topic, so a pane's screen lines — the most sensitive
+    // thing this app renders — must not ride one. And capturing here would
+    // put a `capture-pane` spawn back on every event, which is the cost §4.4
+    // removed: screens are PULLED by the cards that draw them.
+    const views = await this.#manager.toViews(rows, { previews: false });
+    return views.map(({ access: _access, ...view }) => ({
+      ...view,
       ...shareExposure(sharesBy.get(view.id) ?? []),
     }));
   }
@@ -539,6 +612,7 @@ export class SubshellsService extends BaseService {
   async setSubshellNotify(viewerId: string, id: string, notify: boolean, actor: GuardActor): Promise<{ ok: true }> {
     await this.#gate(viewerId, id, "owner", actor);
     await this.repos.subshells.update(id, { notify: notify ? 1 : 0 });
+    publishLive({ kind: "subshell.changed", id });
     return { ok: true };
   }
 
@@ -580,7 +654,10 @@ export class SubshellsService extends BaseService {
     entries: ShareEntry[],
     actor: GuardActor,
   ): Promise<{ shares: SubshellShareView[] }> {
-    await this.#gate(viewerId, id, "owner", actor);
+    const { row } = await this.#gate(viewerId, id, "owner", actor);
+    // Read BEFORE the replace: these are the grants that decide who currently
+    // receives this row, and after the write nothing can recover them.
+    const before = (await this.repos.subshellShares.listForSubshells([id])).get(id) ?? [];
     const named = entries.map((e) => e.granteeUserId).filter((x): x is string => x !== null);
     if (named.length > 0) {
       const names = await this.repos.users.displayNamesByIds(named);
@@ -588,6 +665,11 @@ export class SubshellsService extends BaseService {
       if (unknown) throw new HttpError(400, "Cannot share with an unknown user");
     }
     await this.repos.subshellShares.replaceForSubshell(id, entries, viewerId);
+    // The BEFORE access rides the event: recipients computed after the write
+    // reach everyone EXCEPT whoever just lost the row, so this is the only
+    // thing that can tell a revoked grantee (spec §4.2). Deriving which topics
+    // that means stays in the publisher — the service carries domain facts.
+    publishLive({ kind: "subshell.shares-changed", id, before: { ownerUserId: row.userId, shares: before } });
     return { shares: await this.#shareViews(id) };
   }
 
@@ -606,6 +688,7 @@ export class SubshellsService extends BaseService {
     const row = await this.repos.subshells.findById(id);
     if (row?.alive !== 1) return;
     await this.repos.subshells.update(id, { waitingSince: new Date().toISOString() });
+    publishLive({ kind: "subshell.changed", id });
     await getNotifyService().notifySubshell(id, kind);
   }
 
@@ -631,6 +714,7 @@ export class SubshellsService extends BaseService {
     // harnessSessionId would close the window for a write that is self-
     // healing within one transition; deliberately not worth it here.
     await this.repos.subshells.update(id, { harnessSessionId: sessionId });
+    publishLive({ kind: "subshell.changed", id });
   }
 
   /**
@@ -729,10 +813,19 @@ export class SubshellsService extends BaseService {
    */
   async deleteSubshell(viewerId: string, id: string, actor: GuardActor): Promise<{ ok: true }> {
     const { row } = await this.#gate(viewerId, id, "owner", actor);
+    // READ BEFORE THE DELETE: grants cascade with the row, and they are the
+    // only way to reach the people it was shared with. Announced from HERE
+    // rather than from the manager for the same reason — the manager is
+    // owner-keyed and holds no shares repository, so a deletion announced
+    // there could only ever name the owner and the admins, which is exactly
+    // the bug: a shared subshell stayed on every grantee's dashboard until
+    // they reconnected, and 404'd when clicked.
+    const shares = (await this.repos.subshellShares.listForSubshells([id])).get(id) ?? [];
     const ok = await this.#manager.deleteSubshell(row.userId, id);
     if (!ok) {
       throw new SubshellError("not_found", "Subshell not found");
     }
+    publishLive({ kind: "subshell.deleted", id, ownerId: row.userId, shares });
     return { ok: true };
   }
 }

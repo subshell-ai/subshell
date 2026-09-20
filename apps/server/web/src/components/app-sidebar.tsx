@@ -29,6 +29,7 @@ import { useQuickAdd } from "@/components/quick-add";
 import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
 import { UserMenu } from "@/components/user-menu";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
+import { useClockTick } from "@/hooks/use-clock-tick";
 import { useOrderedSubshells } from "@/hooks/use-ordered-subshells";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useWorkspaces } from "@/hooks/use-workspaces";
@@ -36,6 +37,7 @@ import { signOutAndRedirect, useCurrentUser } from "@/lib/auth";
 import { desktopInvoke, isDesktop, onDesktopAction } from "@/lib/desktop";
 import { RECENT_LIMIT, recentWorkspaceLinks } from "@/lib/sidebar-recents";
 import { filterSubshells } from "@/lib/subshell-filter";
+import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
 
 /** localStorage key for the collapsed state (persists across reloads). */
 const COLLAPSED_KEY = "subshell.sidebarCollapsed";
@@ -234,11 +236,15 @@ export function AppSidebar({
    * That reuse is the point. This rail is the `application/x-subshell-id` drag
    * source, the live-status surface, the host of two context menus, the
    * quick-add trigger and the only consumer of the collapse preference, all
-   * riding one SSE feed. A second implementation would lose every one of those
+   * riding one live socket. A second implementation would lose every one of those
    * silently and then drift.
    */
   variant?: "web" | "desktop";
 }) {
+  // ONE tick for the rail's status dots, never one per row. With the feed
+  // event-driven nothing arrives to mark elapsed time, so a subshell going
+  // quiet needs a clock to be seen going idle (spec 2026-09-19 §4.5).
+  useClockTick(ACTIVITY_TICK_MS);
   const location = useLocation();
   const navigate = useNavigate();
   const quickAdd = useQuickAdd();

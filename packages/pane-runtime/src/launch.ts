@@ -61,13 +61,7 @@ export function assembleHarnessCommand(
   subshellEnv: Record<string, string> = {},
   mcpEnv?: Record<string, string>,
 ): string {
-  // Precedence, lowest to highest: curated host env < SUBSHELL_* credentials
-  // (a preset may deliberately override SUBSHELL_BASE_URL) < the preset's own
-  // env < the registration's wiring env. Wiring env goes LAST on purpose:
-  // a key like OPENCODE_CONFIG is transport plumbing, not a user knob — a
-  // preset setting it would otherwise silently drop the subshell's subshell
-  // tools while the UI still promised automatic registration.
-  const env = { ...curatedEnv(), ...subshellEnv, ...preset.env, ...(mcpEnv ?? {}) };
+  const env = paneEnvFor(subshellEnv, preset, mcpEnv);
   // Defense-in-depth at the last chokepoint before the shell string exists:
   // this catches legacy DB rows and any other env source merged above,
   // regardless of what the entry-point (preset-save) validation allowed.
@@ -85,6 +79,42 @@ export function assembleHarnessCommand(
   // inside the pane. A preset that sets TERM explicitly wins instead.
   if (!("TERM" in env)) envArgs.push('TERM="$TERM"');
   return `env -i ${envArgs.join(" ")} ${argv.map(shellQuote).join(" ")}`;
+}
+
+/**
+ * THE pane's environment, in precedence order: the curated host env <
+ * `SUBSHELL_*` credentials (a preset may deliberately override
+ * `SUBSHELL_BASE_URL`) < the preset's own env < the registration's wiring env.
+ * Wiring env goes LAST on purpose: a key like `OPENCODE_CONFIG` is transport
+ * plumbing, not a user knob — a preset setting it would otherwise silently
+ * drop the subshell's subshell tools while the UI still promised automatic
+ * registration.
+ *
+ * **Exported because the pane is not the only thing built from these layers.**
+ * A pane's `pane-died` hook must report to the same control plane the pane
+ * itself talks to, so it needs the same answer — and computing it from a SLICE
+ * of these layers is how the two come to disagree. They already did: the node
+ * built its hook from `subshellEnv + mcpEnv` and the control plane from
+ * `subshellEnv` alone, so a preset that legitimately overrode
+ * `SUBSHELL_BASE_URL` moved the pane and not its death report.
+ *
+ * {@link curatedEnv} stays in the chain even though it carries no `SUBSHELL_*`
+ * key and so changes nothing for the three the hook reads. That is the point:
+ * a helper that is genuinely the pane's env cannot drift from it, while a
+ * near-copy that omits a layer "because it does not matter today" is exactly
+ * the shape this function exists to remove.
+ *
+ * The literal `TERM="$TERM"` is deliberately NOT here: it is a shell-expansion
+ * trick that means something only inside the pane's own `sh -c`, so it is
+ * appended to the assembled command rather than to this map — which is what
+ * keeps it out of the hook.
+ */
+export function paneEnvFor(
+  subshellEnv: Record<string, string>,
+  preset: PresetDefinition,
+  mcpEnv?: Record<string, string>,
+): Record<string, string> {
+  return { ...curatedEnv(), ...subshellEnv, ...preset.env, ...(mcpEnv ?? {}) };
 }
 
 /** The minimal host env we pass through to harness processes. */

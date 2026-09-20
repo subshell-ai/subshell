@@ -9,6 +9,7 @@ import {
 } from "@/services/nodes/node-ws-handler.js";
 import { logger } from "@/utils/logger.js";
 import { attachUrlFromQuery } from "@/ws/attach-params.js";
+import { handleLiveClose, handleLiveMessage, handleLiveOpen, type LiveWsSocket, liveWsDeps } from "@/ws/live-ws.js";
 import { cleanupSubshellWs, handleSubshellMessage, handleSubshellWs } from "@/ws/subshell-ws.js";
 import type { WsSocket } from "@/ws/viewers.js";
 
@@ -96,5 +97,39 @@ wsPlugin.ws("/ws/node", {
     void handleNodeClose(getNodeWsDeps(), ws as unknown as NodeWsSocket).catch((err: unknown) => {
       logger.withError(err).warn("node ws: close teardown failed");
     });
+  },
+});
+
+/**
+ * The dashboard's live feed at /ws/live (spec 2026-09-19).
+ *
+ * Replaces the `/api/events` SSE stream, which held one of the browser's six
+ * per-origin HTTP/1.1 connections for the life of every tab. Auth is the same
+ * single-use `?token=` the attach path uses, redeemed in `open`; there is no
+ * upgrade hook because nothing here needs the request — unlike `/ws`, which
+ * stashes the User-Agent, and `/ws/node`, which authenticates a bearer key.
+ *
+ * The client sends nothing on this socket yet, so there is no `message`
+ * handler to write; `watch-previews` arrives with the preview work.
+ */
+wsPlugin.ws("/ws/live", {
+  open(ws) {
+    // Fire-and-forget: the handler owns its own refusal (close 4001) and its
+    // own failures, and awaiting here would hold Elysia's open callback for a
+    // role read and a list build.
+    void handleLiveOpen(ws as unknown as LiveWsSocket, liveWsDeps()).catch((err: unknown) => {
+      logger.withError(err).warn("live ws: open failed");
+    });
+  },
+  message(ws, message) {
+    // The one thing a client may ask for is screens (spec 2026-09-19 §4.4).
+    // Elysia JSON-parses frames beginning with `{`, so this arrives as either
+    // a string or an object; the handler accepts both and ignores the rest.
+    void handleLiveMessage(ws as unknown as LiveWsSocket, message, liveWsDeps()).catch((err: unknown) => {
+      logger.withError(err).warn("live ws: message handling failed");
+    });
+  },
+  close(ws) {
+    handleLiveClose(ws as unknown as LiveWsSocket);
   },
 });

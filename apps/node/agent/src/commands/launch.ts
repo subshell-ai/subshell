@@ -1,11 +1,19 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { assembleHarnessCommand, enforceMode, findBinary, type PresetDefinition } from "@internal/pane-runtime";
+import {
+  assembleHarnessCommand,
+  enforceMode,
+  exitHookFor,
+  findBinary,
+  type PresetDefinition,
+  paneEnvFor,
+} from "@internal/pane-runtime";
 import { HARNESS_BINARY_PLACEHOLDER, NODE_RESULT_MAINTENANCE } from "@internal/subshell-protocol";
 import { DIR_REFUSED_MESSAGE, launchDirAllowed, readAllowedDirs } from "../allowed-dirs.js";
 import { log } from "../log.js";
 import { readMaintenance, reportableMaintenance } from "../maintenance.js";
 import { pathAllowed, realpathRoots } from "../path-policy.js";
+import { selfInvocation } from "../self-invoke.js";
 import { isSubshellId } from "../subshell-meta.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 import { reportMaintenance, startExitWatcher } from "./report.js";
@@ -145,7 +153,22 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
   const preset = cmd.preset as unknown as PresetDefinition;
   try {
     const paneCmd = assembleHarnessCommand(argv, preset, cmd.subshellEnv, mcpPaneEnv);
-    ctx.tmux.newSubshell(cmd.socket, cmd.subshellId, cmd.cwd, paneCmd);
+    // The pane reports its OWN death to the control plane, through the same
+    // builder the plane's local launcher uses (spec 2026-09-19 §4.3). It needs
+    // no frame and no protocol bump: the pane already holds the plane's
+    // address and its own bearer token in `subshellEnv` — the same pair the
+    // MCP server and the attention hooks authenticate with — so the report
+    // goes straight to `/api/subshells/:id/exit`.
+    //
+    // The 2 s exit watcher stays as the backstop, for the deaths a hook cannot
+    // report: a SIGKILLed tmux server, a machine that lost power, an agent
+    // that was not running when the pane went.
+    // The SAME layers the pane command is assembled from — including the
+    // preset's, which this used to omit while the plane omitted the MCP
+    // wiring too. Two partial slices of one precedence chain is how a report
+    // ends up aimed at a different plane from the pane that sent it.
+    const exitHook = exitHookFor(selfInvocation("report"), paneEnvFor(cmd.subshellEnv, preset, mcpPaneEnv));
+    ctx.tmux.newSubshell(cmd.socket, cmd.subshellId, cmd.cwd, paneCmd, exitHook);
   } catch (err) {
     await ctx.meta.forget(cmd.subshellId); // nothing spawned — no orphan root for the policy
     throw err; // dispatcher answers {ok:false}; mirrors LocalLauncher's throw path

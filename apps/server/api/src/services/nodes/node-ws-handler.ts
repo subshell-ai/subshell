@@ -14,6 +14,7 @@ import type { NodeStatus } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { pushAllowedDirsBestEffort } from "@/services/nodes/allowed-dirs-sync.js";
 import { detectOnNodeBestEffort } from "@/services/nodes/inventory.js";
+import { announceNodePresence } from "@/services/nodes/node-presence-announce.js";
 import { logger } from "@/utils/logger.js";
 import { dispatchOutput, getNodeLifecycleHooks } from "./node-events.js";
 import {
@@ -299,6 +300,7 @@ async function holdRefusedNode(
   // reach, and `isNodeOffline` (the registry) and the DB projection would
   // disagree permanently.
   await deps.nodes.setStatus(nodeId, "offline" satisfies NodeStatus);
+  announceNodePresence(nodeId);
   logger
     .withMetadata({ nodeId, agentVersion: event.agentVersion, protocolVersion: event.protocolVersion })
     .warn(`node ws: holding ${nodeId} for update — ${message}`);
@@ -473,6 +475,11 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // This is the reconciliation: an owner may have changed the rules while
       // this node was offline, and nothing else would ever tell it.
       pushAllowedDirsBestEffort(nodeId);
+      // And the dashboard re-learns that this machine is reachable: the same
+      // transition as the close path, from the other side. Every running row
+      // on it carries `nodeOffline`, and nothing writes to those rows when a
+      // socket comes back either.
+      announceNodePresence(nodeId);
       // Maintenance is the other half of that reconciliation and the harder
       // one, because it travels BOTH ways: the machine may have been flipped
       // at the keyboard while it was offline, and so may the row. The hook
@@ -603,6 +610,10 @@ export async function handleNodeClose(deps: NodeWsDeps, ws: NodeWsSocket): Promi
     detachConnection(nodeId, mine);
     failConnPendings(conn ?? current, "offline");
     await deps.nodes.setStatus(nodeId, "offline" satisfies NodeStatus);
+    // Every running row on this machine just became unreachable, and no write
+    // touched any of them — so without this the dashboard keeps rendering
+    // them as healthy until the viewer reconnects.
+    announceNodePresence(nodeId);
     logger.debug(`node ws: ${nodeId} disconnected → offline`);
     return;
   }

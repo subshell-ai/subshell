@@ -20,6 +20,7 @@ import type { SubshellTable, SubshellUpdate } from "@/db/types/subshells.db-type
 import { getRequestlessContext } from "@/lib/context.js";
 import type { Access } from "@/lib/subshell-access.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
+import { publishLive } from "@/services/live-bus.js";
 import {
   nodeSelfInvoke,
   planRemoteSubshellMcp,
@@ -440,6 +441,7 @@ export class SubshellManagerService {
       }
       await this.#subshells.markTerminated(id, new Date().toISOString());
       await this.#revokeTokenOrUnlink(id);
+      publishLive({ kind: "subshell.changed", id });
       throw err;
     }
 
@@ -488,6 +490,11 @@ export class SubshellManagerService {
         nodeId: targetNode,
       }),
     });
+    // The launch SUCCEEDED: announce the act once, here, rather than at each
+    // of the writes it made (row, token, post-spawn patch). The publisher
+    // coalesces per id anyway, but announcing the act is what makes this a
+    // domain event instead of a change-data feed.
+    publishLive({ kind: "subshell.changed", id });
     return { id, tmuxSocket: socket, apiKey, promptDelivered };
   }
 
@@ -587,12 +594,41 @@ export class SubshellManagerService {
    * Sequential on purpose: the capture-per-row is what keeps the fan-out one
    * tmux call at a time, exactly as the pre-seam sync loop was.
    */
-  async toViews(rows: SubshellTable[]): Promise<ReturnType<typeof toSubshellView>[]> {
+  async toViews(
+    rows: SubshellTable[],
+    opts: { previews?: boolean } = {},
+  ): Promise<ReturnType<typeof toSubshellView>[]> {
+    // `previews: false` skips the per-row `capture-pane` entirely. The live
+    // socket's snapshot passes it: a dashboard on any page other than the
+    // cards renders no screens, and capturing every running pane for a page
+    // that shows none was the last of the per-connect capture cost
+    // (spec 2026-09-19 §4.4). REST keeps them — the mobile card renders the
+    // last preview line and reads this list over HTTP.
+    const withPreviews = opts.previews ?? true;
     const views: ReturnType<typeof toSubshellView>[] = [];
     for (const row of rows) {
-      views.push(toSubshellView(row, row.status, await this.#preview(row), "owner", isNodeOffline(row.nodeId)));
+      const preview = withPreviews ? await this.#preview(row) : [];
+      views.push(toSubshellView(row, row.status, preview, "owner", isNodeOffline(row.nodeId)));
     }
     return views;
+  }
+
+  /**
+   * Current screens for specific subshells — the on-demand half of previews.
+   *
+   * The caller has already decided the viewer may see these rows; this only
+   * captures. Absent/dead rows answer with no entry rather than an empty one,
+   * so a client can tell "nothing to show" from "not answered".
+   *
+   * @param rows - rows to capture, already access-checked by the caller
+   */
+  async previewsFor(rows: SubshellTable[]): Promise<Map<string, string[]>> {
+    const out = new Map<string, string[]>();
+    for (const row of rows) {
+      const lines = await this.#preview(row);
+      if (lines.length > 0) out.set(row.id, lines);
+    }
+    return out;
   }
 
   /** Lists subshells for a user, reconciling liveness against tmux. */
@@ -619,6 +655,7 @@ export class SubshellManagerService {
     const row = await this.#subshells.findById(id);
     if (!row || row.userId !== userId) return false;
     await this.#subshells.update(id, { name, nameLocked: 1 });
+    publishLive({ kind: "subshell.changed", id });
     return true;
   }
 
@@ -717,6 +754,7 @@ export class SubshellManagerService {
         return null; // finding: don't report success for a revival that spawned nothing
       }
       logger.info(`subshell restarted in place: ${parked.id} (${parked.name})`);
+      publishLive({ kind: "subshell.changed", id: parked.id });
       return { id: parked.id, tmuxSocket: parked.tmuxSocket ?? tmuxSocketFor(parked.id) };
     })().finally(() => restartInFlight.delete(sourceId));
     restartInFlight.set(sourceId, run);
@@ -771,6 +809,7 @@ export class SubshellManagerService {
     // `terminated` there is no transition left to claim.
     const stopped = (await this.#subshells.updateIfAlive(id, { alive: 0 })) > 0;
     await this.#subshells.markTerminated(id, new Date().toISOString());
+    publishLive({ kind: "subshell.changed", id });
     // Teardown must finish even when the token store is down: a failed revoke
     // unlinks apiKeyId (guard 401s the key) so the audit event below still lands.
     await this.#revokeTokenOrUnlink(id);
@@ -1154,6 +1193,7 @@ export class SubshellManagerService {
           // `alive === 1` above is enough to push a second time.
           const claimed = await this.#subshells.updateIfAlive(row.id, { alive: 0, endedAt: now, waitingSince: null });
           if (claimed > 0) {
+            publishLive({ kind: "subshell.changed", id: row.id });
             logger.info(`subshell process absent (no socket): ${row.id}`);
             await this.#notifyDeath(row);
           }
@@ -1224,6 +1264,7 @@ export class SubshellManagerService {
       }
       if (Object.keys(patch).length > 0) {
         await this.#subshells.update(row.id, patch);
+        publishLive({ kind: "subshell.changed", id: row.id });
       }
     }
   }
@@ -1308,6 +1349,8 @@ export class SubshellManagerService {
     row: SubshellTable,
     { exitCode, endedAt }: { exitCode: number | null; endedAt: string },
   ): Promise<void> {
+    // Death is the transition a dashboard is actually waiting on, so it is
+    // announced from the ONE place both sweeps and the exit report share.
     previewCacheDrop(row.id);
     if (restartInFlight.has(row.id)) return;
     const fresh = await this.#subshells.findById(row.id);
@@ -1315,12 +1358,13 @@ export class SubshellManagerService {
     // neither stamping its death nor retiring its token is ours to do once
     // it isn't a running row anymore.
     if (fresh?.status !== "running") return;
+    let claimed = 0;
     if (fresh.alive === 1) {
       // Claimed, not merely written: a maintenance window stopping this same
       // pane is retiring the row from the other direction, and the owner is
       // owed ONE account of the death. `waiting_since` dies with the process
       // — nobody is waiting anymore.
-      const claimed = await this.#subshells.updateIfAlive(fresh.id, {
+      claimed = await this.#subshells.updateIfAlive(fresh.id, {
         alive: 0,
         exitCode,
         endedAt,
@@ -1342,6 +1386,39 @@ export class SubshellManagerService {
       // remaining rows — unlinking apiKeyId is the guard-side fallback.
       await this.#revokeTokenOrUnlink(fresh.id);
     }
+    // REAP THE TMUX SERVER, unless the row is coming back.
+    //
+    // `remain-on-exit` is what makes a finished pane observable, and the price
+    // is that tmux no longer tears itself down: the session, and with it this
+    // subshell's own server, would sit there for as long as the row is kept.
+    // One idle server per dead subshell, accumulating for the life of the
+    // host. Nothing is lost by killing it — the pane log on disk is the
+    // diagnostic record the dead-pane UI reads, not the pane.
+    //
+    // Skipped when `maybeAutoRestart` revived the row: that path reuses this
+    // socket, and killing the server under it is the shutdown race
+    // `newSubshell` retries through.
+    // LOCAL ONLY. `remain-on-exit` is set by the local launcher's own
+    // `new-session`; a pane on an agent node lives under that machine's tmux
+    // and its lifecycle is the node's business, so reaping from here would be
+    // this host killing a server it does not own — and against the fixture,
+    // recording kills for rows whose panes are not even visible locally.
+    if (!restarted && fresh.tmuxSocket && fresh.nodeId === LOCAL_NODE_ID) {
+      try {
+        await this.#localLauncher.killSubshell(fresh.tmuxSocket, fresh.id);
+      } catch (err) {
+        // A server already gone is the outcome we wanted; anything else costs
+        // an idle process, never correctness.
+        logger.withError(err).debug(`could not reap the tmux server for ${fresh.id}`);
+      }
+    }
+    // Announced only when this pass CHANGED something. The sweep calls into
+    // here for any row whose pane is not alive, including rows already dead
+    // and merely waiting out their restart backoff — so an unconditional
+    // publish put one frame per such row on the wire every 60 s, describing
+    // nothing. `claimed` is the write that actually happened; a restart is a
+    // change in its own right.
+    if (claimed || restarted) publishLive({ kind: "subshell.changed", id: row.id });
   }
 
   /**
@@ -1383,6 +1460,7 @@ export class SubshellManagerService {
     // (closes the window the local branch leaves open; costs nothing here).
     if (Object.keys(patch).length > 0) {
       await this.#subshells.updateIfRunning(fresh.id, patch);
+      publishLive({ kind: "subshell.changed", id: fresh.id });
     }
     if (entry.capture != null) {
       previewCachePut(fresh.id, screenTail(entry.capture));
@@ -1428,6 +1506,38 @@ export class SubshellManagerService {
   }
 
   /**
+   * Applies a pane's own death report (spec 2026-09-19 §4.3).
+   *
+   * The twin of {@link applyRemoteExit}, and deliberately the same shape: a
+   * tmux `pane-died` hook re-enters the subshell binary ON THE PANE'S OWN
+   * MACHINE the instant the harness exits,
+   * so a dashboard learns in about a second rather than waiting out the 60 s
+   * reconcile sweep. Both paths converge on {@link #applyDeath}, so a
+   * hook-vs-sweep race is harmless — whichever lands first stamps and pushes,
+   * the other finds the row already retired and no-ops.
+   *
+   * Authority is the caller's own bearer token, resolved by the route: a
+   * subshell may report ITS OWN death and nothing else, exactly as it may
+   * report its own attention and its own harness session.
+   *
+   * @param subshellId - the subshell whose pane exited
+   * @param exitCode - `#{pane_dead_status}` as tmux reported it, null when unreadable
+   * @param at - death timestamp, stamped as `endedAt`
+   */
+  async applySelfReportedExit(subshellId: string, exitCode: number | null, at: string): Promise<void> {
+    const row = await this.#subshells.findById(subshellId);
+    // No node check, unlike applyRemoteExit. There, authority is the socket's
+    // node identity, because the NODE is speaking for a row. Here the SUBSHELL
+    // is speaking for itself with its own bearer token, which the route has
+    // already proved — and a pane on an agent node reports through exactly the
+    // same hook, straight to this plane, because it holds this address and
+    // that token either way.
+    if (!row) return;
+    if (row.status !== "running") return; // already retired — the sweep and this converge
+    await this.#applyDeath(row, { exitCode, endedAt: at });
+  }
+
+  /**
    * The `subshells_report` reconnect census (spec §3.3/§5.6): after (re)connecting,
    * the agent lists every subshell it still supervises, and the rows THIS node
    * owns converge toward that truth — under the same guards as every remote
@@ -1466,6 +1576,7 @@ export class SubshellManagerService {
           const patch: SubshellUpdate = { alive: 1, endedAt: null };
           if (row.startedAt == null) patch.startedAt = now;
           await this.#subshells.updateIfRunning(row.id, patch);
+          publishLive({ kind: "subshell.changed", id: row.id });
         }
         continue;
       }

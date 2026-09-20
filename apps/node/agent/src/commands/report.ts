@@ -330,7 +330,27 @@ async function reportDeath(ctx: CommandContext, socket: string, subshellId: stri
   // landing in that microsecond keeps its watchers entry and re-asserts
   // meta — launch writes meta BEFORE watchSubshell, so the record's
   // ordering self-heals, and this recheck covers the tails sweep.)
-  if (ctx.watchers.get(subshellId) === undefined) dropTailsFor(ctx, subshellId);
+  if (ctx.watchers.get(subshellId) === undefined) {
+    dropTailsFor(ctx, subshellId);
+    // REAP THE SERVER. Panes are launched with `remain-on-exit` (spec
+    // 2026-09-19 §4.3) so a finished pane's session survives — which is what
+    // lets the death be reported with a real exit code, and what would
+    // otherwise leave one idle tmux server per dead subshell on this machine
+    // forever, each holding the whole of its pane's scrollback. Before that
+    // option existed the server simply exited with the pane.
+    //
+    // Here rather than on the plane: the plane reaps its OWN panes and skips
+    // node rows deliberately (that server belongs to this machine), and doing
+    // it here also works while the plane is unreachable — which is precisely
+    // when deaths pile up. Inside the relaunch re-check, because a restart
+    // that armed a fresh registration owns this socket now.
+    try {
+      ctx.tmux.killSubshell(socket, subshellId);
+    } catch {
+      // Already gone is the outcome we wanted; anything else costs an idle
+      // process, never correctness.
+    }
+  }
 }
 
 /**

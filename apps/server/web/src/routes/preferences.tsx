@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { DeviceNameCard } from "@/components/device-name-card";
+import { MouseSamplingCard } from "@/components/mouse-sampling-card";
 import { NotificationsCard } from "@/components/notifications-card";
 import { NotificationsMasterCard } from "@/components/notifications-master-card";
 import { PageHeader } from "@/components/page-header";
@@ -53,6 +54,7 @@ function PreferencesPage() {
           <TerminalFontCard />
           <DeviceNameCard />
           <SwipeNavCard />
+          <MouseSamplingCard />
           <TrustBannersCard />
         </div>
       </Section>

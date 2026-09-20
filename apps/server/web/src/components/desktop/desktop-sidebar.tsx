@@ -11,7 +11,7 @@ import { desktopPlatform } from "@/lib/desktop";
  * It is the SAME component. `AppSidebar` is not a list of links — it is the
  * drag source for `application/x-subshell-id`, the live-status surface, the
  * host of two context menus, the quick-add trigger and the only consumer of
- * the collapse preference, all riding one SSE feed. A second rail would lose
+ * the collapse preference, all riding one live socket. A second rail would lose
  * every one of those silently and then drift, so this changes the chrome and
  * keeps the machine.
  *

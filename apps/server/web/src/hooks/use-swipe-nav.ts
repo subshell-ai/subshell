@@ -72,7 +72,7 @@ export function useSwipeNav(
   live.current = { onPrev, onNext };
   const [reduceMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)"));
 
-  // A gesture that never gets its `last` (e.g. SSE drops the row and
+  // A gesture that never gets its `last` (e.g. the feed drops the row and
   // `enabled` flips false mid-drag, unbinding the listeners) would strand
   // the damped translateX on the element — clear it on unbind too.
   //

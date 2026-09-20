@@ -764,6 +764,53 @@ one exit path that has ever cleared it.
 
 ## Exit watch
 
+**The watcher is the BACKSTOP now, not the primary.** Since spec 2026-09-19
+every pane carries a tmux `pane-died` hook that reports its own death straight
+to the control plane — measured at 0.3 s on a live node, against this tick's
+2 s — so what reaches the watcher is the deaths a hook cannot report: a
+SIGKILLed tmux server, a machine that lost power, a launch with no resolved
+reporter. Measured too: with tmux SIGKILLed the watcher still reports in 3.6 s
+(two ticks), which is the case it exists for.
+
+**The liveness probe's format is COLON-separated, and that is load-bearing
+across tmux versions.** `listSubshellsChecked` asks for
+`#{session_name}:#{pane_dead}`; with a TAB it worked on tmux 3.7 and was
+silently mangled on **3.4** — Ubuntu 24.04's and Debian's tmux, so most Linux
+nodes — which renders the tab in `-F` output as `_`. Every field then parsed
+as one: names came back as `live1_0`, so no subshell id ever matched, and the
+deadness flag was absent, so a finished pane read as alive. On such a host
+this watcher would have reported EVERY running subshell dead seconds after
+launch while never reporting a real death. Caught by CI, which runs 3.4; no
+local tmux could see it. `parseSessionLiveness` is pure and exported so the
+half that CAN be checked everywhere is driven with output captured from both
+versions.
+
+**And "lacking the pane" no longer means the session vanished.** Panes are
+launched with `remain-on-exit`, so a finished pane's SESSION survives — what
+keeps this contract true is that `listSubshellsChecked` filters on
+`#{pane_dead}` and returns LIVE panes only. That filter lives in
+`@internal/pane-runtime`, not here, and removing it would mean no node-run
+subshell was ever reported dead again while every test in this package still
+passed. Its own test is mutation-checked for that reason.
+
+**The hook is built from the pane's EFFECTIVE env**, through
+`paneEnvFor` in `@internal/pane-runtime` — the one place the precedence
+`subshellEnv < preset.env < mcpEnv` is stated, and the same call the pane
+command itself is assembled from. Both ends used to compute it from a
+different SLICE of those layers (this one omitted the preset's, the control
+plane omitted the MCP wiring), so a preset that legitimately overrode
+`SUBSHELL_BASE_URL` moved the pane and not its death report.
+
+**And the node reaps the server it kept alive.** `remain-on-exit` is what
+makes a finished pane observable, and the price is that tmux no longer tears
+itself down — one idle server per dead subshell, each holding the whole of its
+pane's scrollback, accumulating for the life of the machine. `reportDeath`
+kills the session after reading the exit code and sending the frame, inside
+the same relaunch re-check that guards the tails drop. Here rather than on the
+plane: the plane reaps its own panes and deliberately skips node rows (that
+server belongs to this machine), and doing it here also works while the plane
+is unreachable — which is exactly when deaths pile up.
+
 The shared 2 s tick (`src/commands/report.ts`) probes each tmux socket once
 via `listSubshellsChecked`: an authoritative `ok:true` answer lacking the pane
 reports the death IMMEDIATELY with the pane's real exit code when one is

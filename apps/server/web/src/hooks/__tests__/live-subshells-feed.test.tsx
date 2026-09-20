@@ -2,64 +2,98 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { LiveSubshellsFeedProvider, useLiveSubshellsFeed } from "@/hooks/use-live-subshells-feed";
-import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
+import { useLiveSubshells } from "@/hooks/useLiveSubshells";
+import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 
-/** Minimal EventSource double: records instances, lets the test fire frames. */
-class FakeES {
-  static instances: FakeES[] = [];
+/** Minimal WebSocket double: records instances, lets the test fire frames. */
+class FakeWS {
+  static instances: FakeWS[] = [];
+  /** The real constant the provider's readyState guard compares against. */
+  static readonly OPEN = 1;
   onmessage: ((e: MessageEvent) => void) | null = null;
+  onclose: (() => void) | null = null;
   onerror: (() => void) | null = null;
   closed = false;
-  constructor(_url: string) {
-    FakeES.instances.push(this);
+  readonly url: string;
+  /** Frames the provider sent US — resync and preview requests. */
+  readonly outbox: string[] = [];
+  readyState = 1; // OPEN
+  send(data: string): void {
+    this.outbox.push(data);
+  }
+  constructor(url: string) {
+    this.url = url;
+    FakeWS.instances.push(this);
   }
   close(): void {
     this.closed = true;
   }
 }
 
+/** The context's `requestPreviews`, captured so a test can play a card asking for screens. */
+let lastRequestPreviews: (ids: string[]) => void = () => {};
+
 function Consumer() {
   const feed = useLiveSubshellsFeed();
+  lastRequestPreviews = feed.requestPreviews;
   return <p data-testid="state">{`${feed.connected}:${feed.lastList?.length ?? -1}`}</p>;
 }
 
-function setup(enabled = true) {
+/** Renders what the HOME PAGE renders — the read end, not the feed's own copy. */
+function HomeList() {
+  const { subshells } = useLiveSubshells();
+  return <p data-testid="home">{subshells.map((r) => r.id).join(",") || "(none)"}</p>;
+}
+
+function setup(enabled = true, { home = false }: { home?: boolean } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
       <LiveSubshellsFeedProvider enabled={enabled}>
         <Consumer />
+        {/* Only where a test is about what the PAGE renders: this one mounts
+            the REST list query, which the rest of this file has no need of. */}
+        {home ? <HomeList /> : null}
       </LiveSubshellsFeedProvider>
     </QueryClientProvider>,
   );
   return client;
 }
 
-const original = { es: globalThis.EventSource, fetch: globalThis.fetch };
+const original = { ws: globalThis.WebSocket, fetch: globalThis.fetch };
 afterEach(() => {
   cleanup();
-  globalThis.EventSource = original.es;
+  globalThis.WebSocket = original.ws;
   globalThis.fetch = original.fetch;
-  FakeES.instances = [];
+  FakeWS.instances = [];
 });
 
+/** Counts the ws-token mints, so a reconnect can be shown to fetch a NEW one. */
+let tokenMints = 0;
+
 function stubAuthOk() {
-  globalThis.fetch = (async () =>
-    new Response(JSON.stringify({ token: "t1" }), {
-      status: 200,
-    })) as unknown as typeof fetch;
-  globalThis.EventSource = FakeES as unknown as typeof EventSource;
+  tokenMints = 0;
+  // Routed by URL rather than answering every request with a token: the REST
+  // list shares this stub, and handing it `{token}` makes it a non-array that
+  // only fails wherever someone renders it.
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    if (url.includes("/api/subshells")) return new Response("[]", { status: 200 });
+    tokenMints += 1;
+    return new Response(JSON.stringify({ token: `t${tokenMints}` }), { status: 200 });
+  }) as unknown as typeof fetch;
+  globalThis.WebSocket = FakeWS as unknown as typeof WebSocket;
 }
 
 describe("LiveSubshellsFeedProvider", () => {
   it("writes each frame into the query cache and exposes connected/lastList", async () => {
     stubAuthOk();
     const client = setup();
-    await waitFor(() => expect(FakeES.instances.length).toBe(1));
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
     act(() => {
-      FakeES.instances[0].onmessage?.({
-        data: JSON.stringify({ subshells: [{ id: "a" }, { id: "b" }] }),
+      FakeWS.instances[0].onmessage?.({
+        data: JSON.stringify({ type: "snapshot", subshells: [{ id: "a" }, { id: "b" }] }),
       } as MessageEvent);
     });
     expect(screen.getByTestId("state").textContent).toBe("true:2");
@@ -87,12 +121,12 @@ describe("LiveSubshellsFeedProvider", () => {
         </LiveSubshellsFeedProvider>
       </QueryClientProvider>,
     );
-    await waitFor(() => expect(FakeES.instances.length).toBe(1));
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
     expect(rendered).toEqual([null]); // mount render, list not yet delivered
 
     const frame = (subshells: unknown[]) =>
       act(() => {
-        FakeES.instances[0].onmessage?.({ data: JSON.stringify({ subshells }) } as MessageEvent);
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify({ type: "snapshot", subshells }) } as MessageEvent);
       });
 
     frame([
@@ -131,10 +165,466 @@ describe("LiveSubshellsFeedProvider", () => {
       fetchCalls += 1;
       return new Response("{}", { status: 200 });
     }) as unknown as typeof fetch;
-    globalThis.EventSource = FakeES as unknown as typeof EventSource;
+    globalThis.WebSocket = FakeWS as unknown as typeof WebSocket;
     setup(false);
     await new Promise((r) => setTimeout(r, 0));
     expect(fetchCalls).toBe(0);
-    expect(FakeES.instances.length).toBe(0);
+    expect(FakeWS.instances.length).toBe(0);
+  });
+  it("connects to /ws/live carrying the minted token", async () => {
+    stubAuthOk();
+    setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const url = FakeWS.instances[0].url;
+    expect(url).toContain("/ws/live?token=t1");
+    expect(tokenMints).toBe(1);
+    // The scheme follows the page, so an https instance does not open an
+    // insecure socket the browser would refuse as mixed content.
+    expect(url.startsWith("ws://") || url.startsWith("wss://")).toBe(true);
+  });
+
+  it("reconnects with a fresh token after the socket closes", async () => {
+    stubAuthOk();
+    setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    act(() => {
+      FakeWS.instances[0].onclose?.();
+    });
+    expect(screen.getByTestId("state").textContent).toStartWith("false:");
+    // A second socket is armed on the reconnect delay, not immediately.
+    await waitFor(() => expect(FakeWS.instances.length).toBe(2), { timeout: 4000 });
+    // …and it carries a token minted for THIS attempt: the old one was spent
+    // at the first connect and would be refused.
+    expect(tokenMints).toBe(2);
+    expect(FakeWS.instances[1].url).toContain("token=t2");
+  });
+
+  it("ignores a frame that is not a snapshot", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    act(() => {
+      FakeWS.instances[0].onmessage?.({ data: JSON.stringify({ type: "preview", id: "a" }) } as MessageEvent);
+    });
+    // Nothing was written, and the feed does not claim to be delivering.
+    expect(client.getQueryData(SUBSHELLS_QUERY_KEY)).toBeUndefined();
+    expect(screen.getByTestId("state").textContent).toBe("false:-1");
+  });
+
+  it("closes the socket when the provider unmounts", async () => {
+    stubAuthOk();
+    setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    cleanup();
+    expect(FakeWS.instances[0].closed).toBe(true);
+  });
+  it("applies a subshell event onto the row it already holds, keeping this viewer's access", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", name: "A", access: "view" }] });
+    // A broadcast carries no `access` — one payload reaches every subscriber.
+    frame({ type: "subshell", id: "a", row: { id: "a", name: "A renamed" } });
+
+    const rows = client.getQueryData<Array<{ id: string; name: string; access: string }>>(SUBSHELLS_QUERY_KEY);
+    expect(rows).toEqual([{ id: "a", name: "A renamed", access: "view" }]);
+  });
+
+  it("drops a row on subshell-gone, and ignores one it never held", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a" }, { id: "b" }] });
+    frame({ type: "subshell-gone", id: "zzz" }); // never held — no-op, no throw
+    expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)).toHaveLength(2);
+
+    frame({ type: "subshell-gone", id: "a" });
+    expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)).toEqual([{ id: "b" }]);
+  });
+
+  /**
+   * The ordering rule: the snapshot's read may have begun BEFORE an event that
+   * arrived first, so applying it wholesale would replace the newer row with
+   * the older one. Rows this connection has heard an event for win.
+   */
+  it("a later snapshot does not clobber a row an event already updated", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", name: "old", access: "owner" }] });
+    frame({ type: "subshell", id: "a", row: { id: "a", name: "new" } });
+    // A stale snapshot — read before the event, delivered after it.
+    frame({ type: "snapshot", subshells: [{ id: "a", name: "old", access: "owner" }] });
+
+    const rows = client.getQueryData<Array<{ id: string; name: string }>>(SUBSHELLS_QUERY_KEY);
+    expect(rows?.[0]?.name).toBe("new");
+  });
+
+  it("a snapshot still decides which rows EXIST, even beside a live row", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({
+      type: "snapshot",
+      subshells: [
+        { id: "a", access: "owner" },
+        { id: "b", access: "owner" },
+      ],
+    });
+    frame({ type: "subshell", id: "a", row: { id: "a", name: "kept" } });
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] }); // b is gone
+
+    const rows = client.getQueryData<Array<{ id: string; name?: string }>>(SUBSHELLS_QUERY_KEY);
+    expect(rows?.map((r) => r.id)).toEqual(["a"]);
+    expect(rows?.[0]?.name).toBe("kept");
+  });
+  it("asks for a resync when a row it has never seen arrives", async () => {
+    stubAuthOk();
+    setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const ws = FakeWS.instances[0];
+    act(() => {
+      ws.onmessage?.({ data: JSON.stringify({ type: "snapshot", subshells: [] }) } as MessageEvent);
+    });
+    ws.outbox.length = 0;
+    // A broadcast carries no `access`, so an unseen row cannot be rendered —
+    // this is how a NEWLY created subshell reaches an admin or an Everyone
+    // grantee now that the polls are gone.
+    act(() => {
+      ws.onmessage?.({
+        data: JSON.stringify({ type: "subshell", id: "brand-new", row: { id: "brand-new" } }),
+      } as MessageEvent);
+    });
+    expect(ws.outbox.map((f) => JSON.parse(f).type)).toContain("resync");
+  });
+
+  it("writes a change into the OPEN subshell page's own cache, not only the list", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+    const detailKey = [...SUBSHELL_QUERY_KEY, "a"];
+    // The detail page is open: it has fetched its own row into its own cache
+    // entry, which is a DIFFERENT key from the list's.
+    client.setQueryData(detailKey, { id: "a", access: "owner", status: "running", preview: ["held"] });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner", status: "running" }] });
+    // The pane dies. This is the half-second the whole design is measured on,
+    // and for one review cycle it reached every surface except this one.
+    frame({ type: "subshell", id: "a", row: { id: "a", status: "terminated", exitCode: 3 } });
+
+    const held = client.getQueryData<Record<string, unknown>>(detailKey);
+    expect(held?.status).toBe("terminated");
+    expect(held?.exitCode).toBe(3);
+    // The broadcast carries neither, so the merge must not drop them.
+    expect(held?.access).toBe("owner");
+    expect(held?.preview).toEqual(["held"]);
+  });
+
+  it("a stale snapshot does not put an older row into the detail cache either", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+    const detailKey = [...SUBSHELL_QUERY_KEY, "a"];
+    client.setQueryData(detailKey, { id: "a", access: "owner", status: "running" });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner", status: "running" }] });
+    frame({ type: "subshell", id: "a", row: { id: "a", status: "terminated" } });
+    // …and a snapshot whose read began before that event. The list already
+    // prefers the event-sourced row; the detail entry must not disagree with
+    // the list about the same subshell.
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner", status: "running" }] });
+
+    expect(client.getQueryData<{ status: string }>(detailKey)?.status).toBe("terminated");
+  });
+
+  it("lets a snapshot's own access win, since that row IS per-viewer", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+    const detailKey = [...SUBSHELL_QUERY_KEY, "a"];
+    client.setQueryData(detailKey, { id: "a", access: "edit", status: "running" });
+
+    // A broadcast cannot carry access and must leave it alone; a snapshot can,
+    // and a downgrade is exactly what it is there to deliver.
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "view", status: "running" }] });
+    expect(client.getQueryData<{ access: string }>(detailKey)?.access).toBe("view");
+
+    frame({ type: "subshell", id: "a", row: { id: "a", status: "terminated" } });
+    expect(client.getQueryData<{ access: string }>(detailKey)?.access).toBe("view");
+  });
+
+  it("does not invent a detail cache entry for a page nobody opened", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] });
+    frame({ type: "subshell", id: "a", row: { id: "a", status: "terminated" } });
+    // Writing one would fill the cache with rows the detail view never asked
+    // for — and it fetches on mount regardless.
+    expect(client.getQueryData([...SUBSHELL_QUERY_KEY, "a"])).toBeUndefined();
+  });
+
+  it("answers subshell-recheck by asking, and drops nothing on its own", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const ws = FakeWS.instances[0];
+    const frame = (payload: unknown) =>
+      act(() => {
+        ws.onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] });
+    ws.outbox.length = 0;
+    // The server could not address this audience exactly — the same topic
+    // reaches viewers who kept the row and viewers who lost it — so the frame
+    // asks. Removing the row here would make an unshare that does not concern
+    // this viewer look like a deletion that does.
+    frame({ type: "subshell-recheck", id: "a" });
+
+    expect(ws.outbox.map((f) => JSON.parse(f).type)).toContain("resync");
+    expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)?.map((r) => r.id)).toEqual(["a"]);
+
+    // And the answer sticks: a snapshot that still carries the row is NOT
+    // filtered out, unlike one arriving after a `subshell-gone`.
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] });
+    expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)?.map((r) => r.id)).toEqual(["a"]);
+  });
+
+  it("ignores a recheck for a row it is not holding, so an unshare is not a broadcast storm", async () => {
+    stubAuthOk();
+    setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const ws = FakeWS.instances[0];
+    act(() => {
+      ws.onmessage?.({ data: JSON.stringify({ type: "snapshot", subshells: [] }) } as MessageEvent);
+    });
+    ws.outbox.length = 0;
+    act(() => {
+      ws.onmessage?.({ data: JSON.stringify({ type: "subshell-recheck", id: "never-held" }) } as MessageEvent);
+    });
+    // `live:everyone` carries this to every signed-in tab; only the ones
+    // actually showing the row have a reason to ask again.
+    expect(ws.outbox).toEqual([]);
+  });
+
+  it("lets a re-granted share become visible again on the SAME socket", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const ws = FakeWS.instances[0];
+    const frame = (payload: unknown) =>
+      act(() => {
+        ws.onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "view" }] });
+    frame({ type: "subshell-gone", id: "a" }); // the share was revoked
+    expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)?.map((r) => r.id)).toEqual([]);
+
+    // …and granted again a minute later, on the same connection. The removal
+    // is older than this frame, so it stops applying — otherwise the row is
+    // invisible until the tab reloads, and re-asks on every later change.
+    frame({ type: "subshell", id: "a", row: { id: "a", status: "running" } });
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "view" }] });
+
+    expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)?.map((r) => r.id)).toEqual(["a"]);
+  });
+
+  it("does NOT let a recheck resurrect a row it was told is gone", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "view" }] });
+    frame({ type: "subshell-gone", id: "a" });
+    // A recheck is a QUESTION, published to everyone precisely when an
+    // Everyone grant ends — so it reaches people who just lost the row. If it
+    // cleared the removal, a snapshot read before the revoke would put the row
+    // back, which is the race the removal is remembered for.
+    frame({ type: "subshell-recheck", id: "a" });
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "view" }] });
+
+    expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)?.map((r) => r.id)).toEqual([]);
+  });
+
+  it("collapses several asks into one snapshot request", async () => {
+    stubAuthOk();
+    setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const ws = FakeWS.instances[0];
+    const frame = (payload: unknown) =>
+      act(() => {
+        ws.onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] });
+    ws.outbox.length = 0;
+    // A row can earn several asks at once — reachability and level are
+    // separate reasons — and each one is a full visible-set read.
+    frame({ type: "subshell-recheck", id: "a" });
+    frame({ type: "subshell-recheck", id: "a" });
+    expect(ws.outbox.filter((f) => JSON.parse(f).type === "resync")).toHaveLength(1);
+
+    // The snapshot answers every question asked before it, so the next ask is
+    // a fresh one rather than a duplicate.
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] });
+    frame({ type: "subshell-recheck", id: "a" });
+    expect(ws.outbox.filter((f) => JSON.parse(f).type === "resync")).toHaveLength(2);
+  });
+
+  it("puts a preview frame onto the row it names, and ignores one for a row it lost", async () => {
+    // The one frame kind with no coverage at all, and the only path that
+    // carries a pane's rendered screen to the browser.
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] });
+    frame({ type: "preview", id: "a", lines: ["$ hello"] });
+    expect(client.getQueryData<Array<{ id: string; preview?: string[] }>>(SUBSHELLS_QUERY_KEY)?.[0].preview).toEqual([
+      "$ hello",
+    ]);
+
+    // A screen for a row this client does not hold is dropped rather than
+    // creating one: the list decides which rows exist.
+    frame({ type: "preview", id: "ghost", lines: ["$ nope"] });
+    expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)?.map((r) => r.id)).toEqual(["a"]);
+  });
+
+  it("carries a held screen across a snapshot, and re-asks for what it shows", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const ws = FakeWS.instances[0];
+    const frame = (payload: unknown) =>
+      act(() => {
+        ws.onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] });
+    frame({ type: "preview", id: "a", lines: ["$ held"] });
+
+    // The cards say what they are showing…
+    act(() => {
+      lastRequestPreviews(["a"]);
+    });
+    expect(JSON.parse(ws.outbox.at(-1) as string)).toEqual({ type: "previews", ids: ["a"] });
+    ws.outbox.length = 0;
+
+    // …a change to one of them re-asks, because a broadcast carries no screen…
+    frame({ type: "subshell", id: "a", row: { id: "a", status: "running" } });
+    expect(ws.outbox.map((f) => JSON.parse(f))).toContainEqual({ type: "previews", ids: ["a"] });
+    ws.outbox.length = 0;
+
+    // …and a snapshot, which never captures, must not blank what is on screen.
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] });
+    expect(client.getQueryData<Array<{ preview?: string[] }>>(SUBSHELLS_QUERY_KEY)?.[0].preview).toEqual(["$ held"]);
+    expect(ws.outbox.map((f) => JSON.parse(f))).toContainEqual({ type: "previews", ids: ["a"] });
+  });
+
+  it("the home page follows the CACHE, so a REST refetch is never shadowed", async () => {
+    // The defect this closes, end to end. Close does two things at once: it
+    // invalidates the list (a refetch writes the CACHE) and the server sends
+    // `subshell-gone`. The gone handler reads the cache, finds the row already
+    // removed by the refetch, and returns early — so the feed's own `lastList`
+    // copy still holds it. While the home page preferred that copy over the
+    // cache, the card outlived the subshell until the tab was reloaded, and
+    // with no cadence nothing ever corrected it. Caught by the e2e node spec
+    // on 2026-09-20, not by any unit test.
+    stubAuthOk();
+    const client = setup(true, { home: true });
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "doomed", access: "owner" }] });
+    await waitFor(() => expect(screen.getByTestId("home").textContent).toBe("doomed"));
+
+    // The delete's own invalidation lands FIRST — another writer of the same
+    // cache, with nothing to do with the feed.
+    await act(async () => {
+      client.setQueryData(SUBSHELLS_QUERY_KEY, []);
+    });
+    // …and the frame arrives after it, with nothing left to drop.
+    frame({ type: "subshell-gone", id: "doomed" });
+
+    await waitFor(() => expect(screen.getByTestId("home").textContent).toBe("(none)"));
+  });
+
+  it("does not let a stale snapshot resurrect a row it was told is gone", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({
+      type: "snapshot",
+      subshells: [
+        { id: "a", access: "owner" },
+        { id: "b", access: "owner" },
+      ],
+    });
+    frame({ type: "subshell-gone", id: "a" });
+    // A snapshot whose read began BEFORE the removal.
+    frame({
+      type: "snapshot",
+      subshells: [
+        { id: "a", access: "owner" },
+        { id: "b", access: "owner" },
+      ],
+    });
+
+    const rows = client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY);
+    expect(rows?.map((r) => r.id)).toEqual(["b"]);
   });
 });

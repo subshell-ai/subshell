@@ -14,14 +14,14 @@ import type { SubshellView } from "@/types/subshell";
  * Full subshell table with per-row actions (restart / close — the ⋯ menu) and
  * a bulk-actions bar over the selected rows. Each action loops the existing
  * per-subshell endpoints, then invalidates the subshells query so the
- * SSE-driven list and home page reflect the change. Bulk Terminate was
+ * live-fed list and home page reflect the change. Bulk Terminate was
  * removed with the human-facing action (spec 2026-09-03): Close covers it.
  */
 export function SubshellManagerTable({ subshells }: { subshells: SubshellView[] }) {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<string[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
-  // Drop selections that vanished (e.g. deleted via SSE while a bulk action ran).
+  // Drop selections that vanished (e.g. deleted by a live frame mid-action).
   const selectedIds = selected.filter((id) => subshells.some((s) => s.id === id));
 
   const selectAllRef = useRef<HTMLInputElement>(null);

@@ -12,7 +12,7 @@
  *   `previewCachePut` from the sweep, `previewCacheGet` from `#preview` —
  *   cache-only, no network on the list path.
  * - **Local rows**: a capture is a tmux spawn (measured ~3 ms), cheap per
- *   call but repeated per CONSUMER — every open tab's `/api/events` feed
+ *   call but repeated per CONSUMER — every open tab's live-feed socket
  *   rebuilds the whole list on its own 1.5 s tick, and the REST list reads
  *   add more. The cache is what stops N consumers costing N captures per
  *   pane: `#preview` reads through it and writes what it captured, so a

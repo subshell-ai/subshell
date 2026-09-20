@@ -31,7 +31,7 @@ export const ATTENTION_KINDS: readonly AttentionKind[] = ["turn_complete", "need
  * word — an {@link AttentionKind} — and `session` takes none; both CLIs
  * validate against these rather than restating them.
  */
-export const REPORT_VERBS: readonly string[] = ["attention", "session"];
+export const REPORT_VERBS: readonly string[] = ["attention", "session", "exit"];
 
 /** Injectable seams so tests can pin every path (defaults: the real ones). */
 export interface ReportIo {
@@ -103,6 +103,17 @@ async function resolveBody(
     const kind = rest[0];
     if (!kind || !(ATTENTION_KINDS as readonly string[]).includes(kind)) return undefined;
     return { path: "attention", json: { kind } };
+  }
+
+  if (verb === "exit") {
+    // `report exit <status>` — the argument is tmux's own
+    // `#{pane_dead_status}`, interpolated into the `pane-died` hook when it
+    // was registered. tmux leaves it EMPTY when it has no status to give, and
+    // that is reported as null rather than coerced: 0 is a real exit code, so
+    // guessing one would turn "could not be read" into "exited cleanly".
+    const raw = rest[0];
+    const code = raw !== undefined && /^\d{1,3}$/.test(raw) ? Number(raw) : null;
+    return { path: "exit", json: { exitCode: code } as unknown as Record<string, string> };
   }
 
   if (verb === "session") {

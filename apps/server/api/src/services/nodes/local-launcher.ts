@@ -1,7 +1,14 @@
 import { chmodSync, existsSync, type FSWatcher, mkdirSync, unlinkSync, watch } from "node:fs";
 import { homedir } from "node:os";
 import { stripAnsi } from "@internal/backend-errors";
-import { buildHarnessCommand, type HarnessPlugin, TmuxRunner, validateWorkingDir } from "@internal/pane-runtime";
+import {
+  buildHarnessCommand,
+  exitHookFor,
+  type HarnessPlugin,
+  paneEnvFor,
+  TmuxRunner,
+  validateWorkingDir,
+} from "@internal/pane-runtime";
 import { logger } from "@/utils/logger.js";
 import { readLogTailFrom, TAIL_POLL_MS } from "./log-tail.js";
 import type { LaunchPlan, NodeLauncher } from "./node-launcher.js";
@@ -55,7 +62,23 @@ export class LocalLauncher implements NodeLauncher {
       plan.harnessSession,
       plan.reporter,
     );
-    this.#tmux.newSubshell(plan.socket, plan.id, plan.cwd, cmd);
+    // The pane reports its OWN death through the same reporter prefix the
+    // harness hooks use, so no new credential exists — but it does NOT arrive
+    // by inheritance, and an earlier revision of this comment said it did.
+    // The pane is launched through `env -i`, so its `SUBSHELL_*` reach that
+    // process alone; the tmux server was started with none of them, and a
+    // `run-shell` hook inherits the SERVER's environment. Measured
+    // 2026-09-20: `show-environment` on a live subshell's socket lists no
+    // `SUBSHELL_ID`, and a hook without one is a silent no-op. `exitHookFor`
+    // therefore puts them on the command line itself. A launch with no
+    // resolved reporter omits the hook and falls back to the sweep, exactly
+    // as a plugin omits its hooks (spec 2026-09-19 §4.3).
+    // Built from the pane's EFFECTIVE env, not from `plan.subshellEnv` alone:
+    // a preset may deliberately override `SUBSHELL_BASE_URL` (see
+    // `paneEnvFor`), and a death report that went somewhere else than
+    // the pane's own MCP calls would be a silent 401 nobody could explain.
+    const hookEnv = paneEnvFor(plan.subshellEnv, plan.preset, plan.mcp?.env);
+    this.#tmux.newSubshell(plan.socket, plan.id, plan.cwd, cmd, exitHookFor(plan.reporter, hookEnv));
     // Stream all pane output to a per-subshell log file for attach replay.
     const logFile = subshellLogPath(plan.id);
     if (plan.bestEffortLog) {

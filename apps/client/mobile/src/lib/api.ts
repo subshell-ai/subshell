@@ -147,7 +147,7 @@ export class SubshellClient {
     await this.opts.store.clear();
   }
 
-  /** @returns A single-use 30 s token for `/ws` (and `/api/events`) */
+  /** @returns A single-use 30 s token for `/ws` (and `/ws/live`) */
   wsToken(): Promise<WsTokenResponse> {
     return this.request<WsTokenResponse>("/api/auth/ws-token", { method: "POST" });
   }

@@ -112,7 +112,7 @@ export interface SubshellSummary {
 
 /** Response of `POST /api/auth/ws-token` — single-use, 30 s TTL. */
 export interface WsTokenResponse {
-  /** One-shot attach token for `/ws` and `/api/events`. */
+  /** One-shot attach token for `/ws` and `/ws/live`. */
   token: string;
 }
 

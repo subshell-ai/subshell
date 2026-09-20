@@ -12,6 +12,7 @@ import { selectStaticPlugin } from "@/plugins/static.plugin.js";
 import { apiModels } from "@/schema/index.js";
 import { originRegistry } from "@/services/trusted-origins.js";
 import { logger } from "@/utils/logger.js";
+import { startLivePublisher } from "@/ws/live-publisher.js";
 import { wsPlugin } from "@/ws/ws.plugin.js";
 
 /** Built SPA served by Elysia (prod single-port model). Relative to dist/ */
@@ -78,5 +79,11 @@ export async function startServer({ port, host }: { port: number; host: string }
   app.listen({ port, hostname: host }, () => {
     logger.info(`Server: http://${host}:${port}`);
     logger.info(`Server docs: http://${host}:${port}/docs`);
+    // Armed here because the SERVER HANDLE is what broadcasts, and it does not
+    // exist until the listener does. Held for the life of the process: there
+    // is no unsubscribe path because there is no point in the process's life
+    // where the dashboard should stop being told about changes.
+    const server = app.server;
+    if (server) startLivePublisher({ target: server });
   });
 }

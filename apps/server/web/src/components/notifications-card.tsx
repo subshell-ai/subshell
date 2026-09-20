@@ -27,10 +27,15 @@ const STATE_HELP: Partial<Record<PushState, string>> = {
  * The desktop app reaches "unsupported" for a reason that is not a limitation:
  * it needs no push at all.
  *
- * Web push is a service worker plus VAPID, and no embedded webview ships a
- * `PushManager` — so the honest answer there is not "your browser cannot do
- * this" but "this app already does it another way". The shell notifies
- * natively off the SSE feed the app is already reading.
+ * Web push is a service worker plus VAPID, and the answer there is not "your
+ * browser cannot do this" but "this app already does it another way" — the
+ * shell notifies natively off the live feed it is already reading.
+ *
+ * It reaches that state because `isPushSupported` excludes this app BY NAME.
+ * It used to rely on no embedded webview shipping a `PushManager`, which is
+ * false — macOS WKWebView has one — and the flow went on to read the
+ * Tauri-replaced `Notification.permission`, which this window may not, and
+ * rejected on every load.
  */
 const DESKTOP_HELP = "The desktop app notifies you natively, with no push subscription needed.";
 

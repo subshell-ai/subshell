@@ -1195,7 +1195,11 @@ describe("reconcile partition — agent rows (spec §6.3)", () => {
       // the node `probe` (other LOCAL rows in the shared DB may use the fake).
       expect(f.launcher.probedIds).not.toContain(id);
       expect(f.launcher.plans).toHaveLength(0); // no revive attempt
-      expect(f.launcher.kills).toEqual([]); // no rollback kill of the (locally invisible) pane
+      // Not this row: the death path REAPS a dead local pane's tmux server
+      // (spec 2026-09-19 §4.3), and this suite shares one database, so other
+      // local rows legitimately contribute kills. What must never happen is
+      // this AGENT row being killed from here — its pane lives on the node.
+      expect(f.launcher.kills).not.toContain(id);
       expect(f.issues()).toBe(0); // …and no token churn
       expect(f.pushes).toHaveLength(0); // no death push
       expect(f.probes).toEqual([{ nodeId, subshellIds: [id], timeoutMs: 30_000 }]);
@@ -1845,5 +1849,65 @@ describe("presetless launch and revive (spec 2026-09-13 §4)", () => {
     } finally {
       await f.manager.deleteSubshell("u1", created.id);
     }
+  });
+});
+
+describe("toViews previews option (spec 2026-09-19 §4.4)", () => {
+  /**
+   * `previews: false` must SKIP the capture, not just discard its result.
+   *
+   * Two things ride on it. The live snapshot and every broadcast frame pass
+   * it, so a pane's screen — the most sensitive thing this app renders — never
+   * reaches a topic every subscriber is on; and a `capture-pane` spawn per row
+   * is the exact cost the event-driven feed exists to remove, so capturing and
+   * throwing away would leave the bill while looking correct.
+   */
+  it("captures nothing when previews are off, and captures when they are on", async () => {
+    let captures = 0;
+    const launcher = {
+      capture: async () => {
+        captures += 1;
+        return "screen line";
+      },
+      paneTitle: async () => null,
+    };
+    const manager = new SubshellManagerService({
+      subshells: subshellsRepo,
+      presets: presetsRepo,
+      tmux: new TmuxRunner(),
+      tokens: { issue: async () => "subshell_stub", revoke: async () => {} },
+      audit: async () => {},
+      launcher: launcher as never,
+    });
+    const row = {
+      id: crypto.randomUUID(),
+      userId: "u1",
+      presetId: null,
+      harnessId: "claude-code",
+      nodeId: "local",
+      name: "n",
+      workingDir: "/tmp",
+      status: "running",
+      createdAt: new Date().toISOString(),
+      endedAt: null,
+      lastOutputAt: null,
+      alive: 1,
+      exitCode: null,
+      startedAt: null,
+      backoffCount: 0,
+      restartOnExit: 0,
+      nextRestartAt: null,
+      nameLocked: 0,
+      notify: 0,
+      waitingSince: null,
+      tmuxSocket: "sock",
+    } as never;
+
+    const off = await manager.toViews([row], { previews: false });
+    expect(captures).toBe(0);
+    expect(off[0]?.preview).toEqual([]);
+
+    await manager.toViews([row]);
+    expect(captures).toBe(1);
   });
 });

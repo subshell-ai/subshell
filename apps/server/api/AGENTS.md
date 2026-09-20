@@ -75,7 +75,7 @@ src/
 ├── scripts/        # e2e seed, embed-web.ts (SPA -> generated/embedded-web.ts), release.ts
 ├── services/       # Business logic: subshell-manager, nodes/ (NodeLauncher seam), channels/, uploads, tokens, audit, notify, mcp-launch — tmux/ no longer lives here: TmuxRunner moved to `@internal/pane-runtime` (tmux-runner.ts) so the node CLI can reuse it
 ├── utils/          # Logger and small shared helpers
-├── ws/             # Terminal attach WebSocket (short-lived single-use tokens; remote-node subshells relay through remote-subshell-ws.ts with the browser contract byte-identical to the local path)
+├── ws/             # Terminal attach WebSocket (short-lived single-use tokens; remote-node subshells relay through remote-subshell-ws.ts with the browser contract byte-identical to the local path) + the dashboard's live feed (spec 2026-09-19): live-ws.ts (one socket per tab, snapshot at connect, previews answered on request), live-topics.ts (the recipient set, derived row->viewers and diffed against resolveSubshellAccess by an exhaustive test) and live-publisher.ts (bus events -> Bun pub/sub broadcasts, coalesced per id). It replaced the /api/events SSE stream, which held one of the browser's six per-origin HTTP/1.1 connections per tab
 └── test-preload.ts # Loaded by bunfig.toml before every test run
 ```
 
@@ -182,6 +182,41 @@ write nothing and expose one-time registration steps via `GET
 Repositories (`src/db/repositories/`) are the primary Kysely writers; each
 resource's row types are in `src/db/types/`. A few small writes bypass them
 today (`authAttempts` in `auth-rate-limit.route.ts`, `userMeta` in `auth.ts`).
+**A subshell write that a person should see must also announce itself.** The
+live feed is event-driven (spec 2026-09-19), so `publishLive({ kind:
+"subshell.changed", id })` beside a write is what makes the dashboard move —
+`services/live-bus.ts`, consumed by `ws/live-publisher.ts`. It belongs in the
+SERVICE that owns the act, never in the repository, which contains database
+calls only; and it is announced ONCE PER ACT rather than per write, since one
+launch writes the row, mints its token and patches it post-spawn. The
+publisher coalesces per id over a 40 ms window, so announcing liberally at act
+boundaries costs nothing on the wire.
+
+**Local panes are launched with `remain-on-exit`, and the launcher owes them a
+reap.** The option is what makes a finished pane observable — it is why a death
+carries a real exit code — and its price is that tmux no longer tears itself
+down, so `#applyDeath` kills the session for a row it is retiring. That reap is
+gated on `LOCAL_NODE_ID` because the plane must not kill a server on a machine
+it does not own; the node does its own in `reportDeath` (see
+`apps/node/agent/AGENTS.md`), and between them every dead pane's server goes.
+A liveness read must ask `#{pane_dead}` rather than `has-session` for the same
+reason — a finished pane's session is still there.
+
+**A node's reachability is an announcement too.** `nodeOffline` is a field of
+every broadcast row and it flips for every subshell on a machine the moment
+its socket drops — but no write touches those rows, so an event-driven feed
+has nothing to send. The SSE stream this replaced hid that by re-sending the
+whole list on a timer. `services/nodes/node-presence-announce.ts` publishes
+`subshell.changed` for the RUNNING rows on a node when it connects, when it
+disconnects, and when a refused agent is held; without it an agent that simply
+dies leaves its subshells rendering as healthy until the viewer reconnects.
+
+The cost of that layering is drift, and it has bitten once already: the first
+pass announced `createSubshell`'s ROLLBACK path and not its success path, so a
+launch published nothing at all and every test stayed green. **When you add a
+subshell mutation, add its announce, and check it with a real client** — the
+suite cannot see this. The reconnect snapshot is the only backstop.
+
 Services own cross-repo logic — route handlers stay thin. Routes MAY use
 `contextPlugin` (`src/plugins/context.plugin.ts`), which gives handlers `ctx`
 (a per-request `ApiContext`: `db`, `log`, `repos`, `services`). The subshells,

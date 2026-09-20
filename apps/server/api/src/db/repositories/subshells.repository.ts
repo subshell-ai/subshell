@@ -243,6 +243,17 @@ export class SubshellsRepository extends BaseRepository {
     return this.db.selectFrom("subshells").selectAll().where("status", "=", "running").execute();
   }
 
+  /** Ids of the running subshells on one node — who to re-announce when it comes or goes. */
+  async listRunningIdsOnNode(nodeId: string): Promise<string[]> {
+    const rows = await this.db
+      .selectFrom("subshells")
+      .select("id")
+      .where("status", "=", "running")
+      .where("nodeId", "=", nodeId)
+      .execute();
+    return rows.map((r) => r.id);
+  }
+
   /**
    * How many RUNNING subshells of one harness the instance holds (the
    * uninstall impact read — "1 has a running subshell"). Instance-wide like

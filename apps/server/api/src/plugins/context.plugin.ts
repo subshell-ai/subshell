@@ -39,6 +39,11 @@ export const REQUEST_LOG_IGNORE: (string | RegExp)[] = [
   // A regex because the id is in the path.
   /^\/api\/nodes\/[^/]+\/logs$/,
   /^\/ws(\/|$)/,
+  // Minted once per live-feed connect, and the feed RETRIES on a bounded
+  // backoff (spec 2026-09-19 § 5) — so a tab whose session has gone while the
+  // SPA still holds a cached user POSTs a 401 here every few seconds for as
+  // long as it is open. That is the shape this list exists for.
+  "/api/auth/ws-token",
 ];
 
 export const contextPlugin = new Elysia({ name: "context" })

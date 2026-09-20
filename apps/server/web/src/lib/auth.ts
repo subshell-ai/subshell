@@ -36,7 +36,7 @@ export function useCurrentUser() {
  *
  * The redirect is a HARD navigation, not a router one: signing out has to
  * discard every piece of in-memory state the session produced — the query
- * cache, the live SSE feed, every mounted terminal — and a full document load
+ * cache, the live feed, every mounted terminal — and a full document load
  * is the only thing that guarantees all of it at once.
  *
  * An already-expired session still redirects: the server has already forgotten

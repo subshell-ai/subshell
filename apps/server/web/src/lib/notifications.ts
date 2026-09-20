@@ -1,4 +1,5 @@
 import { apiFetch, apiPost } from "@internal/node-admin";
+import { isServerDesktop } from "@/lib/desktop";
 
 /**
  * Browser-push glue (spec 2026-08-30-harness-notifications).
@@ -56,6 +57,22 @@ export async function setMasterSwitch(on: boolean): Promise<boolean> {
 
 /** True when this browser has the full SW + Push + Notification stack. */
 function isPushSupported(): boolean {
+  // Subshell Server is excluded EXPLICITLY, not left to feature detection.
+  //
+  // It was left to feature detection, on the belief that no embedded webview
+  // ships a `PushManager` — measured false on 2026-09-20: macOS WKWebView
+  // exposes one, so every check below passed and the flow went on to read
+  // `Notification.permission`. That global is REPLACED by Tauri's notification
+  // plugin, which the dashboard window is not granted, so the read rejected
+  // and surfaced as an unhandled promise rejection on every load of the
+  // Notifications card.
+  //
+  // Excluding it is right on its own terms rather than as a workaround: that
+  // app watches subshells itself and posts NATIVE notifications through
+  // `desktop_notify`, so web push there would be a second mechanism for the
+  // same job, asking for a permission the window cannot hold. Subshell Client
+  // registers no notification plugin and keeps the ordinary browser path.
+  if (isServerDesktop()) return false;
   return (
     typeof navigator !== "undefined" &&
     "serviceWorker" in navigator &&

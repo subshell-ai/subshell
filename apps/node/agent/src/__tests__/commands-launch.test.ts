@@ -74,7 +74,7 @@ async function freshDataDir(tag: string): Promise<string> {
 type ProbeAnswer = { ok: true; names: string[] } | { ok: false; detail: string };
 
 interface Spec {
-  newSubshell?: (socket: string, id: string, cwd: string, cmd: string) => void;
+  newSubshell?: (socket: string, id: string, cwd: string, cmd: string, exitHook?: string) => void;
   pipePane?: (socket: string, id: string, out: string) => void;
   resizeWindow?: (socket: string, id: string, cols: number, rows: number) => void;
   hasSubshell?: (socket: string, id: string) => boolean;
@@ -697,6 +697,40 @@ describe("exit watcher (report.ts) — one shared tick", () => {
     expect(ctx.watchTick).toBeUndefined(); // the shared loop stops when the last pane leaves
   });
 
+  it("reaps the dead pane's tmux server, so `remain-on-exit` does not leak one per death", async () => {
+    // Panes are launched with `remain-on-exit`, so a finished pane's SESSION
+    // survives — which is what lets the death carry a real exit code, and
+    // what would otherwise leave one idle tmux server per dead subshell on
+    // this machine forever, each holding its pane's whole scrollback. Before
+    // that option existed the server exited with the pane. The plane reaps
+    // its own panes and deliberately skips node rows, so nothing else does.
+    const dataDir = await freshDataDir("watcher-reap");
+    const events: NodeEvent[] = [];
+    let ticks = 0;
+    const { ctx, calls } = makeCtx(
+      dataDir,
+      {
+        listSubshellNames: () => (ticks++ === 0 ? [S1] : []),
+        paneExitCode: () => 0,
+        killSubshell: () => {},
+      },
+      events,
+    );
+    await recordMeta(ctx.meta, S1, "reap-sock");
+    startExitWatcher(ctx, S1, "reap-sock", 20);
+    await waitFor(() => events.length > 0, "exit event");
+    await waitFor(
+      () => calls.some((c) => c.method === "killSubshell" && c.args[0] === "reap-sock" && c.args[1] === S1),
+      "server reaped",
+    );
+    // …and the exit code was read BEFORE the kill, or the death would report
+    // nothing to report.
+    const read = calls.findIndex((c) => c.method === "paneExitCode");
+    const killed = calls.findIndex((c) => c.method === "killSubshell");
+    expect(read).toBeGreaterThanOrEqual(0);
+    expect(killed).toBeGreaterThan(read);
+  });
+
   it("a slow tick is never overlapped by the next one", async () => {
     // The probe is async now and bounded by the tmux deadline (15 s) while
     // the interval is 2 s, so a wedged socket would let seven ticks run at
@@ -1163,6 +1197,77 @@ describe("execLaunch on a node with no plugins (inversion §6)", () => {
     expect(paneCmd).toInclude(`'/bin/sh' '--flag'`);
     expect(existsSync(join(dir, "plugins"))).toBe(false); // the launch created nothing
     stopWatcher(ctx, S1);
+  });
+  /**
+   * A pane on a NODE reports its own death the same way a local one does
+   * (spec 2026-09-19 §4.3) — no frame, no protocol bump. It already holds the
+   * plane's address and its own bearer token, the same pair the MCP server and
+   * the attention hooks authenticate with, so the hook posts straight to
+   * `/api/subshells/:id/exit`. The 2 s exit watcher stays as the backstop.
+   */
+  it("registers a pane-died hook carrying the pane's own credentials", async () => {
+    const dataDir = await freshDataDir("exithook");
+    let hook: string | undefined;
+    const { ctx } = makeCtx(
+      dataDir,
+      {
+        newSubshell: (_s, _i, _c, _cmd, exitHook) => {
+          hook = exitHook;
+        },
+        pipePane: () => {},
+        resizeWindow: () => {},
+      },
+      [],
+    );
+    await execLaunch(
+      ctx,
+      launchCmd({
+        subshellEnv: {
+          SUBSHELL_API_KEY: "k",
+          SUBSHELL_BASE_URL: "http://plane:3080",
+          SUBSHELL_ID: S1,
+        },
+      }),
+    );
+    expect(hook).toBeDefined();
+    // QUOTED words, not a bare `report exit`: the reporter's command is a real
+    // path on this machine and paths have spaces in them (a macOS bundle's
+    // `process.execPath` does), and an unquoted one makes the hook a silent
+    // no-op. This assertion pinned the unquoted spelling until 2026-09-20.
+    expect(hook).toContain("'report' 'exit'");
+    // …and NOT the doubled word. `'report' 'exit'` is a substring of
+    // `'report' 'report' 'exit'`, so the line above passes for the very bug
+    // this hook was fixed for; it needs its opposite beside it.
+    expect(hook).not.toContain("'report' 'report'");
+    // …and the status stays BARE, because those single quotes are literal text
+    // for tmux to interpolate inside.
+    expect(hook?.endsWith(" '#{pane_dead_status}'")).toBe(true);
+    // The credentials ride the COMMAND: a `run-shell` hook inherits the tmux
+    // server's environment, and the pane is launched through `env -i`, so the
+    // server has none of them.
+    expect(hook).toContain("SUBSHELL_ID=");
+    expect(hook).toContain("SUBSHELL_API_KEY=");
+    expect(hook).toContain("SUBSHELL_BASE_URL=");
+  });
+
+  it("registers NO hook when the pane has no full credential set", async () => {
+    const dataDir = await freshDataDir("nohook");
+    let hook: string | undefined = "sentinel";
+    const { ctx } = makeCtx(
+      dataDir,
+      {
+        newSubshell: (_s, _i, _c, _cmd, exitHook) => {
+          hook = exitHook;
+        },
+        pipePane: () => {},
+        resizeWindow: () => {},
+      },
+      [],
+    );
+    // Only the key — a report built from this could never authenticate, so the
+    // launch registers nothing and the exit watcher is the answer.
+    await execLaunch(ctx, launchCmd({ subshellEnv: { SUBSHELL_API_KEY: "k" } }));
+    expect(hook).toBeUndefined();
   });
 });
 

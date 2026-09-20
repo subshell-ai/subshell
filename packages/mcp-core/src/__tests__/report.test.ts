@@ -104,3 +104,68 @@ describe("runReport", () => {
     expect(seen).toHaveLength(0);
   });
 });
+
+describe("report exit — the pane's own death (spec 2026-09-19 §4.3)", () => {
+  const env = {
+    SUBSHELL_API_KEY: "subshell_k",
+    SUBSHELL_BASE_URL: "http://localhost:3080",
+    SUBSHELL_ID: "s1",
+  } as NodeJS.ProcessEnv;
+
+  it("posts the status tmux gave it to the subshell's own exit route", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    await runReport(["exit", "7"], {
+      env,
+      fetch: (async (url: string, init: { body: string }) => {
+        calls.push({ url, body: JSON.parse(init.body) });
+        return new Response("{}", { status: 200 });
+      }) as never,
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("http://localhost:3080/api/subshells/s1/exit");
+    expect(calls[0]?.body).toEqual({ exitCode: 7 });
+  });
+
+  it("keeps a clean exit as 0 rather than losing it", async () => {
+    let body: unknown;
+    await runReport(["exit", "0"], {
+      env,
+      fetch: (async (_u: string, init: { body: string }) => {
+        body = JSON.parse(init.body);
+        return new Response("{}", { status: 200 });
+      }) as never,
+    });
+    expect(body).toEqual({ exitCode: 0 });
+  });
+
+  /**
+   * tmux leaves `#{pane_dead_status}` EMPTY when it has none to give, and the
+   * hook interpolates that as an empty word. Coercing it would turn "could not
+   * be read" into "exited cleanly" — 0 is a real answer.
+   */
+  it("reports null when tmux gave no status, never 0", async () => {
+    for (const argv of [["exit"], ["exit", ""], ["exit", "not-a-number"]]) {
+      let body: unknown;
+      await runReport(argv, {
+        env,
+        fetch: (async (_u: string, init: { body: string }) => {
+          body = JSON.parse(init.body);
+          return new Response("{}", { status: 200 });
+        }) as never,
+      });
+      expect(body).toEqual({ exitCode: null });
+    }
+  });
+
+  it("does nothing at all outside a pane, like every other report verb", async () => {
+    let called = false;
+    await runReport(["exit", "7"], {
+      env: {},
+      fetch: (async () => {
+        called = true;
+        return new Response("{}", { status: 200 });
+      }) as never,
+    });
+    expect(called).toBe(false);
+  });
+});

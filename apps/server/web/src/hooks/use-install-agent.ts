@@ -34,7 +34,7 @@ type InstallFrame<TDone> =
  * **Read with `fetch`, not `EventSource`.** The route streams NDJSON from the
  * ordinary POST, so the HttpOnly cookie goes with it and the admin gate is the
  * one that was already there. An `EventSource` cannot send that cookie, which
- * is why `live.route.ts` mints a ws-token first — a second authenticated way
+ * is why the live socket mints a ws-token first — a second authenticated way
  * in, on a surface whose whole job is running a remote script as the server's
  * user. Not worth it for a progress line.
  */

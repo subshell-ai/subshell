@@ -9,7 +9,7 @@ import { type DesktopAction, onDesktopAction } from "@/lib/desktop";
  *
  * Every action here is ROUTER-level on purpose. A native menu item that
  * navigated by setting `location.href` would do a full document load, which
- * unmounts every live terminal, drops the SSE feed and forces a history replay
+ * unmounts every live terminal, drops the live feed and forces a history replay
  * on each pane — the exact cost the desktop shell exists to avoid. So the menu
  * bar and tray ask the page, and the page navigates.
  *

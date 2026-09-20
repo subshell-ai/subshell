@@ -103,7 +103,7 @@ function SubshellPage() {
   const findTakesRow = stacked && findOpen;
 
   // Swipe prev/next (spec 2026-09-04): walk the sidebar order with the thumb.
-  // Neighbours are recomputed per render — SSE reshuffles the list live, so
+  // Neighbours are recomputed per render — the feed reshuffles the list live, so
   // the gesture must never hold a stale neighbour id.
   // Creation order, not sidebar order: the sidebar re-ranks by activity,
   // which would move the swipe target while the user is swiping.

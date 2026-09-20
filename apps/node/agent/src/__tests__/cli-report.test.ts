@@ -70,3 +70,28 @@ describe("subshell report (CLI wiring)", () => {
     expect(res.err).toBe("");
   });
 });
+
+describe("report exit — the pane's own death hook (spec 2026-09-19 §4.3)", () => {
+  test("accepts any status, because tmux gives a number rather than a word", () => {
+    expect(parseArgs(["report", "exit", "7"])).toEqual({ command: "report", sub: "exit", arg: "7", flags: {} });
+    expect(parseArgs(["report", "exit", "0"])).toEqual({ command: "report", sub: "exit", arg: "0", flags: {} });
+    expect(parseArgs(["report", "exit", "137"])).toEqual({ command: "report", sub: "exit", arg: "137", flags: {} });
+  });
+
+  /**
+   * tmux interpolates `#{pane_dead_status}` as the EMPTY string when it has
+   * none to give, and the hook quotes it so the word still arrives. Accepting
+   * it here is what lets the reporter say "unknown" instead of "exited 0".
+   */
+  test("accepts the empty status tmux produces when it knows none", () => {
+    expect(parseArgs(["report", "exit", ""])).toEqual({ command: "report", sub: "exit", arg: "", flags: {} });
+  });
+
+  test("still requires the word, since a hook that lost it is a bug on our side", () => {
+    expect(() => parseArgs(["report", "exit"])).toThrow(/requires a value/);
+  });
+
+  test("does not loosen the verbs that take a fixed word", () => {
+    expect(() => parseArgs(["report", "attention", "nonsense"])).toThrow(/unknown report attention argument/);
+  });
+});

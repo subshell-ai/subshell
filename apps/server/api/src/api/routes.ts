@@ -8,7 +8,6 @@ import { devicesRoutes } from "@/api/devices.route.js";
 import { downloadsRoutes } from "@/api/downloads.route.js";
 import { filesRoutes } from "@/api/files.route.js";
 import { identityRoutes } from "@/api/identities.route.js";
-import { liveRoutes } from "@/api/live.route.js";
 import { metaRoutes } from "@/api/meta.route.js";
 import { networkRoutes } from "@/api/network/index.js";
 import { nodesRoutes } from "@/api/nodes/index.js";
@@ -66,7 +65,7 @@ const computeRoutes = new Elysia()
   .use(workspaceRoutes)
   .use(nodesRoutes);
 
-const commsRoutes = new Elysia().use(notificationsRoutes).use(devicesRoutes).use(liveRoutes).use(channelRoutes);
+const commsRoutes = new Elysia().use(notificationsRoutes).use(devicesRoutes).use(channelRoutes);
 
 /**
  * Admin-only surfaces. Its own group rather than an eleventh module bolted
