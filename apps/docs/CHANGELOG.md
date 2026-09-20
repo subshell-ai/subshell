@@ -1,5 +1,11 @@
 # @internal/docs
 
+## 0.3.1
+
+### Patch Changes
+
+- [#106](https://github.com/subshell-ai/subshell/pull/106) [`3181b00`](https://github.com/subshell-ai/subshell/commit/3181b001eef9849662ab4aff68000ce9a7602699) Thanks [@theogravity](https://github.com/theogravity)! - Docs follow the Server Settings move: the audit trail is now reached at Settings → Logs → Audit tab and pages 25 events at a time (with its keyset cursor documented), the server's log tail and the debug switch live on the Logs page's System tab rather than Service, and two stale "Settings → Service" pointers (network origins, and the Service row's list of what it owns) now name the pages that actually hold those cards.
+
 ## 0.3.0
 
 ### Minor Changes
