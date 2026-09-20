@@ -3,7 +3,7 @@ import { getRequestlessContext } from "@/lib/context.js";
 import { type LiveEvent, subscribeLive } from "@/services/live-bus.js";
 import type { SubshellsService } from "@/services/subshells.service.js";
 import { logger } from "@/utils/logger.js";
-import { recipientTopics } from "@/ws/live-topics.js";
+import { recipientTopics, revocationTopics } from "@/ws/live-topics.js";
 
 /**
  * How long changes to one subshell are collected before a frame goes out.
@@ -148,12 +148,13 @@ async function publishEvent(target: LivePublisherTarget, event: LiveEvent): Prom
     logger.withError(err).warn("live publisher: could not resolve a changed row");
   }
 
-  // Told LAST, and only to topics the new set does not contain: a viewer in
-  // both (an admin, say) has already received the row, so this can never be
-  // mistaken for its removal.
-  const kept = new Set(currentTopics);
-  const lost = revokedTopics.filter((topic) => !kept.has(topic));
-  if (lost.length > 0) broadcast(target, lost, { type: "subshell-gone", id: event.id });
+  // Told LAST, and by REACHABILITY rather than by name: `everyone` subsumes
+  // the user topics, so a plain set-difference names topics whose subscribers
+  // still hold the row — see `revocationTopics`, which is where that is
+  // reasoned about and exhaustively diffed.
+  const { gone, recheck } = revocationTopics(revokedTopics, currentTopics);
+  if (gone.length > 0) broadcast(target, gone, { type: "subshell-gone", id: event.id });
+  if (recheck.length > 0) broadcast(target, recheck, { type: "subshell-recheck", id: event.id });
 }
 
 /** One serialization, published to each topic. */

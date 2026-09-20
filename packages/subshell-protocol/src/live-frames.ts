@@ -45,6 +45,21 @@ export type LiveServerFrame<SnapshotRow, ChangedRow> =
       id: string;
     }
   | {
+      /**
+       * This viewer's access to that subshell MAY have changed — ask again.
+       *
+       * Asked rather than asserted because the audience cannot be addressed
+       * exactly: `live:everyone` subsumes the per-viewer topics, so a grant
+       * ending there reaches both the people who kept the row by another
+       * route and the people who did not. A client holding the row answers
+       * with `resync`, whose snapshot IS resolved per viewer; a client that
+       * does not hold it ignores the frame.
+       */
+      type: "subshell-recheck";
+      /** The subshell's id. */
+      id: string;
+    }
+  | {
       /** A screen this client asked for. */
       type: "preview";
       /** The subshell whose pane was captured. */

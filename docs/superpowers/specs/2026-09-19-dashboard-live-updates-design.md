@@ -158,6 +158,30 @@ loses access must see the row disappear, and must not be able to tell those
 two cases apart — the same reason per-subshell routes answer 404 rather than
 403 for an invisible id.
 
+**Amended 2026-09-20: a fifth frame, `subshell-recheck`, because revocation
+cannot always be addressed.** Topics are not a flat set — `live:everyone`
+SUBSUMES every `live:u:<id>` — so "topics before minus topics now" names
+topics whose subscribers still hold the row. Sharing your own private
+subshell with Everyone published `subshell-gone` to your own topic
+microseconds after the row itself, and the client's `goneIds` is sticky for
+the life of the connection: sharing a thing made it vanish until the tab
+reconnected. Caught in review, before merge.
+
+The difference is now taken over REACHABILITY (`revocationTopics`), and it
+has two answers. A **user** topic that survives neither on its own nor
+through `everyone` has certainly lost the row — that viewer subscribes to
+exactly those two — so `subshell-gone` still goes out and removes it at once.
+But `everyone` losing its grant while named topics survive reaches the owner,
+who kept the row, and every stranger, who did not, through one topic name:
+nothing addressable tells them apart, so the frame ASKS. A client holding the
+row answers `resync` and its own per-viewer snapshot decides; a client not
+holding it ignores the frame, which is what keeps an unshare from making
+every signed-in tab on the instance ask at once.
+
+The cost is one round trip during which a viewer who truly lost access still
+sees the row. They cannot act on it — every route re-resolves access — and
+the alternative was being wrong in the commonest case of all.
+
 ### 3.3 What is deleted
 
 `api/live.route.ts` and its registration. Not kept alongside: two live paths
@@ -269,8 +293,10 @@ merely flicker; it discloses a private subshell.
 
 **Losing visibility is a targeted act, not a broadcast.** A row being deleted,
 or a share being revoked, is exactly the moment the affected users are known,
-so `subshell-gone` is published to the topics that *were* recipients and is
-not something a viewer infers from silence. Sending it for an id the client
+so the removal is published to the topics that *were* recipients and is
+not something a viewer infers from silence. (What that sentence gets wrong is
+"known": the affected users are known, but on the Everyone boundary they are
+not separately ADDRESSABLE — see the `subshell-recheck` amendment in §3.2.) Sending it for an id the client
 never held is harmless and deliberate: the client drops a `gone` for an id it
 does not have, and the frame carries no information — it says "you cannot see
 this", which is true whether the row was deleted, unshared, or never visible.

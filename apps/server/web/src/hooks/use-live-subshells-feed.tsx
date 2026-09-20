@@ -227,6 +227,19 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
             return;
           }
 
+          // "Your access to this row may have changed." Asked rather than
+          // asserted because the server could not address this audience
+          // exactly — an Everyone grant ending reaches the people who kept
+          // the row alongside those who lost it. So nothing is dropped here:
+          // the snapshot, which IS resolved per viewer, decides. A client not
+          // holding the row ignores it, which keeps an unshare from making
+          // every open tab on the instance ask.
+          if (frame.type === "subshell-recheck" && frame.id) {
+            if (!current.some((r) => r.id === frame.id)) return;
+            if (socket.readyState === WebSocket.OPEN) send(socket, { type: "resync" });
+            return;
+          }
+
           if (frame.type === "subshell-gone" && frame.id) {
             const { id } = frame;
             liveIds.add(id);

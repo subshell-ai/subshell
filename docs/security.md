@@ -2387,6 +2387,18 @@ audit row; the client reconnects on its own and re-derives what it may
 subscribe to. A password reset still does NOT do this — it is a credential
 rotation, not a session-kill switch, and that asymmetry is deliberate.
 
+**A revocation is published by reachability, not by topic name.** The topics
+are not a flat set — `live:everyone` subsumes every per-viewer topic — so the
+obvious set-difference names topics whose subscribers still hold the row. It
+did: sharing a private subshell with Everyone told the owner, on their own
+topic, that it was gone. Where the audience can be addressed exactly the
+removal is still asserted and applied at once; where it cannot (an Everyone
+grant ending while named grants survive) the frame ASKS, and the client's own
+per-viewer snapshot decides. The property to preserve, and the one the
+transition test asserts over every before→after pair, is that **a viewer who
+still has access is never told the row is gone** — the inverse of the usual
+leak, and just as much a bug.
+
 **A broadcast carries no pane screen and no per-viewer field.** One payload
 reaches every subscriber on a topic, so it cannot carry the per-viewer
 `access` stamp — the client keeps the access it already holds, and a row it

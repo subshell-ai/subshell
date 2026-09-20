@@ -299,6 +299,50 @@ describe("LiveSubshellsFeedProvider", () => {
     expect(ws.outbox.map((f) => JSON.parse(f).type)).toContain("resync");
   });
 
+  it("answers subshell-recheck by asking, and drops nothing on its own", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const ws = FakeWS.instances[0];
+    const frame = (payload: unknown) =>
+      act(() => {
+        ws.onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] });
+    ws.outbox.length = 0;
+    // The server could not address this audience exactly — the same topic
+    // reaches viewers who kept the row and viewers who lost it — so the frame
+    // asks. Removing the row here would make an unshare that does not concern
+    // this viewer look like a deletion that does.
+    frame({ type: "subshell-recheck", id: "a" });
+
+    expect(ws.outbox.map((f) => JSON.parse(f).type)).toContain("resync");
+    expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)?.map((r) => r.id)).toEqual(["a"]);
+
+    // And the answer sticks: a snapshot that still carries the row is NOT
+    // filtered out, unlike one arriving after a `subshell-gone`.
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] });
+    expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)?.map((r) => r.id)).toEqual(["a"]);
+  });
+
+  it("ignores a recheck for a row it is not holding, so an unshare is not a broadcast storm", async () => {
+    stubAuthOk();
+    setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const ws = FakeWS.instances[0];
+    act(() => {
+      ws.onmessage?.({ data: JSON.stringify({ type: "snapshot", subshells: [] }) } as MessageEvent);
+    });
+    ws.outbox.length = 0;
+    act(() => {
+      ws.onmessage?.({ data: JSON.stringify({ type: "subshell-recheck", id: "never-held" }) } as MessageEvent);
+    });
+    // `live:everyone` carries this to every signed-in tab; only the ones
+    // actually showing the row have a reason to ask again.
+    expect(ws.outbox).toEqual([]);
+  });
+
   it("does not let a stale snapshot resurrect a row it was told is gone", async () => {
     stubAuthOk();
     const client = setup();

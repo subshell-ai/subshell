@@ -1,6 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { type Access, resolveSubshellAccess } from "@/lib/subshell-access.js";
-import { ADMINS_TOPIC, EVERYONE_TOPIC, recipientTopics, topicsForViewer, userTopic } from "@/ws/live-topics.js";
+import {
+  ADMINS_TOPIC,
+  EVERYONE_TOPIC,
+  recipientTopics,
+  revocationTopics,
+  topicsForViewer,
+  userTopic,
+} from "@/ws/live-topics.js";
 
 type Share = { granteeUserId: string | null; permission: "view" | "edit" };
 
@@ -71,30 +78,34 @@ describe("live topics", () => {
  * makes it sound and should go back to resolving per subscriber (spec
  * 2026-09-19 §4.1a).
  */
+/** The row's owner in both exhaustive passes below. */
+const OWNER = "owner";
+
+/** Every shape of grant a row can carry, shared by both passes. */
+const GRANT_OPTIONS: Share[][] = [
+  [],
+  [{ granteeUserId: "grantee", permission: "view" }],
+  [{ granteeUserId: "grantee", permission: "edit" }],
+  [{ granteeUserId: null, permission: "view" }],
+  [{ granteeUserId: null, permission: "edit" }],
+  [
+    { granteeUserId: "grantee", permission: "edit" },
+    { granteeUserId: null, permission: "view" },
+  ],
+  [{ granteeUserId: "stranger", permission: "view" }],
+  // The owner ALSO named explicitly: the one shape where a naive
+  // implementation emits their topic twice.
+  [{ granteeUserId: OWNER, permission: "edit" }],
+  // Two distinct non-owner grantees, so the loop is exercised rather than
+  // just its first iteration.
+  [
+    { granteeUserId: "grantee", permission: "view" },
+    { granteeUserId: "stranger", permission: "edit" },
+  ],
+];
+
 describe("recipientTopics agrees with resolveSubshellAccess, exhaustively", () => {
-  const OWNER = "owner";
   const VIEWERS = [OWNER, "grantee", "stranger"] as const;
-  const GRANT_OPTIONS: Share[][] = [
-    [],
-    [{ granteeUserId: "grantee", permission: "view" }],
-    [{ granteeUserId: "grantee", permission: "edit" }],
-    [{ granteeUserId: null, permission: "view" }],
-    [{ granteeUserId: null, permission: "edit" }],
-    [
-      { granteeUserId: "grantee", permission: "edit" },
-      { granteeUserId: null, permission: "view" },
-    ],
-    [{ granteeUserId: "stranger", permission: "view" }],
-    // The owner ALSO named explicitly: the one shape where a naive
-    // implementation emits their topic twice.
-    [{ granteeUserId: OWNER, permission: "edit" }],
-    // Two distinct non-owner grantees, so the loop is exercised rather than
-    // just its first iteration.
-    [
-      { granteeUserId: "grantee", permission: "view" },
-      { granteeUserId: "stranger", permission: "edit" },
-    ],
-  ];
 
   it("matches EXACTLY ONCE ⟺ access !== none, for every combination", () => {
     let checked = 0;
@@ -121,5 +132,97 @@ describe("recipientTopics agrees with resolveSubshellAccess, exhaustively", () =
     // Guards against a refactor that silently empties the fixture space and
     // leaves a test that asserts nothing.
     expect(checked).toBe(GRANT_OPTIONS.length * VIEWERS.length * 2);
+  });
+});
+
+/**
+ * **The transition half of the same guarantee**, and it had a live victim.
+ *
+ * Revocation was a set-difference over topic NAMES, which reads `everyone` and
+ * `live:u:me` as unrelated when the first subsumes the second. Sharing your own
+ * private subshell with Everyone therefore published `subshell-gone` to your
+ * own topic microseconds after the row itself — and the client's `goneIds` is
+ * sticky for the life of the connection, so the row stayed gone through every
+ * later snapshot. Sharing a thing made it disappear.
+ *
+ * The property is about REACHABILITY rather than names, so it is asserted over
+ * every before→after pair rather than spot-checked.
+ */
+describe("revocationTopics tells the right people, over every transition", () => {
+  const VIEWERS = [OWNER, "grantee", "stranger"] as const;
+
+  it("never tells a viewer who still has access that the row is gone", () => {
+    let checked = 0;
+    for (const before of GRANT_OPTIONS) {
+      for (const after of GRANT_OPTIONS) {
+        const { gone, recheck } = revocationTopics(
+          recipientTopics({ ownerUserId: OWNER, shares: before }),
+          recipientTopics({ ownerUserId: OWNER, shares: after }),
+        );
+        for (const viewerId of VIEWERS) {
+          for (const isAdmin of [false, true]) {
+            const subscribed = topicsForViewer({ viewerId, isAdmin });
+            const hadAccess = resolveSubshellAccess(viewerId, isAdmin, OWNER, before) !== "none";
+            const hasAccess = resolveSubshellAccess(viewerId, isAdmin, OWNER, after) !== "none";
+            const told = (topics: string[]) => subscribed.some((t) => topics.includes(t));
+            const facts = { viewerId, isAdmin, before, after };
+
+            // 1. The disclosure bug itself: a removal must never reach someone
+            //    the row still belongs to.
+            if (hasAccess) expect({ ...facts, gone: told(gone) }).toEqual({ ...facts, gone: false });
+
+            // 2. And whoever DID lose it must hear something — either the
+            //    authoritative removal or the ask that resolves to one.
+            if (hadAccess && !hasAccess) {
+              expect({ ...facts, told: told(gone) || told(recheck) }).toEqual({ ...facts, told: true });
+            }
+
+            // 3. Nothing is said to someone who never had it: they would be
+            //    learning that an id they cannot see exists.
+            if (!hadAccess) {
+              expect({ ...facts, any: told(gone) || told(recheck) }).toEqual({ ...facts, any: false });
+            }
+            checked += 1;
+          }
+        }
+      }
+    }
+    expect(checked).toBe(GRANT_OPTIONS.length * GRANT_OPTIONS.length * VIEWERS.length * 2);
+  });
+
+  it("asks rather than asserts when the Everyone grant ends and named ones survive", () => {
+    // `everyone` reaches the owner, who keeps the row, and every stranger, who
+    // does not — one topic, two answers, so the frame cannot be an assertion.
+    const { gone, recheck } = revocationTopics(
+      recipientTopics({ ownerUserId: OWNER, shares: [{ granteeUserId: null, permission: "view" }] }),
+      recipientTopics({ ownerUserId: OWNER, shares: [{ granteeUserId: "grantee", permission: "edit" }] }),
+    );
+    expect(recheck).toEqual([EVERYONE_TOPIC]);
+    expect(gone).toEqual([]);
+  });
+
+  it("removes at once when one named grantee loses it — no ask needed", () => {
+    // That viewer subscribes to their own topic and `everyone`, and neither
+    // carries the row now, so nothing else could still be delivering it.
+    const { gone, recheck } = revocationTopics(
+      recipientTopics({
+        ownerUserId: OWNER,
+        shares: [{ granteeUserId: "grantee", permission: "view" }],
+      }),
+      recipientTopics({ ownerUserId: OWNER, shares: [] }),
+    );
+    expect(gone).toEqual([userTopic("grantee")]);
+    expect(recheck).toEqual([]);
+  });
+
+  it("says nothing at all when a change widens access", () => {
+    // The regression in one line: private → Everyone used to publish
+    // `subshell-gone` to the owner's own topic.
+    expect(
+      revocationTopics(
+        recipientTopics({ ownerUserId: OWNER, shares: [] }),
+        recipientTopics({ ownerUserId: OWNER, shares: [{ granteeUserId: null, permission: "view" }] }),
+      ),
+    ).toEqual({ gone: [], recheck: [] });
   });
 });

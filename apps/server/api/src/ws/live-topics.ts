@@ -12,9 +12,12 @@ export const EVERYONE_TOPIC = "live:everyone";
 /** Topic every admin's socket joins; admins hold instance-wide `edit`. */
 export const ADMINS_TOPIC = "live:admins";
 
+/** Prefix of every per-viewer topic; see {@link userTopic}. */
+const USER_TOPIC_PREFIX = "live:u:";
+
 /** The topic carrying rows one specific viewer can see by owning or being granted them. */
 export function userTopic(userId: string): string {
-  return `live:u:${userId}`;
+  return `${USER_TOPIC_PREFIX}${userId}`;
 }
 
 /** Just enough of a share row to route it; mirrors `resolveSubshellAccess`'s own parameter. */
@@ -79,4 +82,50 @@ export function recipientTopics(row: { ownerUserId: string; shares: ShareRow[] }
     if (share.granteeUserId !== null) topics.add(userTopic(share.granteeUserId));
   }
   return [...topics];
+}
+
+/**
+ * What to tell the audience a row USED to have, once its shares changed.
+ *
+ * **Topics are not a flat set, and treating them as one is a disclosure bug
+ * with a live victim.** `EVERYONE_TOPIC` SUBSUMES every user topic — a viewer
+ * on `live:u:me` is also on `live:everyone` — so a plain set-difference of
+ * "topics before" minus "topics now" names topics whose subscribers still
+ * hold the row. Measured before this function existed: sharing your own
+ * private subshell with Everyone published `subshell-gone` to your own topic
+ * right after the row itself, and the client (whose `goneIds` is sticky for
+ * the life of the connection) dropped it until the tab reconnected. Sharing a
+ * thing made it vanish.
+ *
+ * So the difference is taken over REACHABILITY, and the answer has two kinds:
+ *
+ * - **`gone`** — every subscriber of this topic has certainly lost the row, so
+ *   it can be removed at once. True of a user topic when neither it nor
+ *   `everyone` survives: that viewer subscribes to those two alone (an admin
+ *   subscribes to `admins` alone and is never on a user topic), so nothing
+ *   else could still be carrying it to them.
+ * - **`recheck`** — the topic MIGHT have lost it, and only a per-viewer
+ *   resolve can say. This is `everyone` losing its grant while named topics
+ *   survive: the same broadcast reaches the owner, who kept the row, and every
+ *   stranger, who did not. Nothing addressable distinguishes them, so the
+ *   frame asks rather than asserts and the client's snapshot — which IS
+ *   per-viewer — decides.
+ *
+ * @param revoked - {@link recipientTopics} of the row as it was
+ * @param current - {@link recipientTopics} of the row as it now is
+ */
+export function revocationTopics(revoked: string[], current: string[]): { gone: string[]; recheck: string[] } {
+  const kept = new Set(current);
+  const everyoneKept = kept.has(EVERYONE_TOPIC);
+  const gone: string[] = [];
+  const recheck: string[] = [];
+  for (const topic of revoked) {
+    if (kept.has(topic)) continue;
+    // A user topic still reached through the Everyone grant — the viewer kept
+    // the row by a wider route than the one that ended.
+    if (everyoneKept && topic.startsWith(USER_TOPIC_PREFIX)) continue;
+    if (topic === EVERYONE_TOPIC) recheck.push(topic);
+    else gone.push(topic);
+  }
+  return { gone, recheck };
 }
