@@ -220,7 +220,7 @@
     },
     "apps/server/desktop": {
       "name": "@internal/desktop-server",
-      "version": "0.11.2",
+      "version": "0.12.0",
       "dependencies": {
         "@internal/subshell-protocol": "workspace:*",
         "@tauri-apps/api": "2.11.1",
