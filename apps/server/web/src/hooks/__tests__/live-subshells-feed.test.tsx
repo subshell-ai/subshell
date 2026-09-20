@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { LiveSubshellsFeedProvider, useLiveSubshellsFeed } from "@/hooks/use-live-subshells-feed";
+import { useLiveSubshells } from "@/hooks/useLiveSubshells";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 
@@ -39,12 +40,21 @@ function Consumer() {
   return <p data-testid="state">{`${feed.connected}:${feed.lastList?.length ?? -1}`}</p>;
 }
 
-function setup(enabled = true) {
+/** Renders what the HOME PAGE renders — the read end, not the feed's own copy. */
+function HomeList() {
+  const { subshells } = useLiveSubshells();
+  return <p data-testid="home">{subshells.map((r) => r.id).join(",") || "(none)"}</p>;
+}
+
+function setup(enabled = true, { home = false }: { home?: boolean } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
       <LiveSubshellsFeedProvider enabled={enabled}>
         <Consumer />
+        {/* Only where a test is about what the PAGE renders: this one mounts
+            the REST list query, which the rest of this file has no need of. */}
+        {home ? <HomeList /> : null}
       </LiveSubshellsFeedProvider>
     </QueryClientProvider>,
   );
@@ -64,7 +74,12 @@ let tokenMints = 0;
 
 function stubAuthOk() {
   tokenMints = 0;
-  globalThis.fetch = (async () => {
+  // Routed by URL rather than answering every request with a token: the REST
+  // list shares this stub, and handing it `{token}` makes it a non-array that
+  // only fails wherever someone renders it.
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    if (url.includes("/api/subshells")) return new Response("[]", { status: 200 });
     tokenMints += 1;
     return new Response(JSON.stringify({ token: `t${tokenMints}` }), { status: 200 });
   }) as unknown as typeof fetch;
@@ -550,6 +565,37 @@ describe("LiveSubshellsFeedProvider", () => {
     frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] });
     expect(client.getQueryData<Array<{ preview?: string[] }>>(SUBSHELLS_QUERY_KEY)?.[0].preview).toEqual(["$ held"]);
     expect(ws.outbox.map((f) => JSON.parse(f))).toContainEqual({ type: "previews", ids: ["a"] });
+  });
+
+  it("the home page follows the CACHE, so a REST refetch is never shadowed", async () => {
+    // The defect this closes, end to end. Close does two things at once: it
+    // invalidates the list (a refetch writes the CACHE) and the server sends
+    // `subshell-gone`. The gone handler reads the cache, finds the row already
+    // removed by the refetch, and returns early — so the feed's own `lastList`
+    // copy still holds it. While the home page preferred that copy over the
+    // cache, the card outlived the subshell until the tab was reloaded, and
+    // with no cadence nothing ever corrected it. Caught by the e2e node spec
+    // on 2026-09-20, not by any unit test.
+    stubAuthOk();
+    const client = setup(true, { home: true });
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "doomed", access: "owner" }] });
+    await waitFor(() => expect(screen.getByTestId("home").textContent).toBe("doomed"));
+
+    // The delete's own invalidation lands FIRST — another writer of the same
+    // cache, with nothing to do with the feed.
+    await act(async () => {
+      client.setQueryData(SUBSHELLS_QUERY_KEY, []);
+    });
+    // …and the frame arrives after it, with nothing left to drop.
+    frame({ type: "subshell-gone", id: "doomed" });
+
+    await waitFor(() => expect(screen.getByTestId("home").textContent).toBe("(none)"));
   });
 
   it("does not let a stale snapshot resurrect a row it was told is gone", async () => {

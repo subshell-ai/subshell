@@ -102,6 +102,18 @@ entry instead, so an active page refetches to the honest answer (including the
 404 it renders as not-found) and an inactive one costs nothing. Any new reader
 of a subshell should be a selector over the list, or it needs a line here.
 
+**The feed is not the only writer of that cache, and the page must follow the
+CACHE rather than the feed's own copy.** Every mutation's
+`invalidateQueries` refetches the list and writes the same key. `useLiveSubshells`
+used to return `feed.lastList ?? rest.data`, which shadowed exactly that — and
+Close does both at once: the refetch removed the row, then `subshell-gone`
+arrived, found nothing left to drop, returned early, and left `lastList`
+holding a subshell that no longer existed. The card outlived it until the tab
+reloaded. The old 1.5 s cadence hid this by re-sending the whole list; nothing
+corrects it now. `lastList` answers ONE question — has the socket ever
+delivered — which is what keeps a failed REST fallback from being reported as
+an error on a page that has live data.
+
 **Quiet frames still cost nothing**: the write is structurally shared (an
 unchanged row keeps its object, an unchanged list keeps the array — and
 `lastList` is set from the cache read-back, so the provider re-renders only on
