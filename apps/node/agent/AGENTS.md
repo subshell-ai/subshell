@@ -764,6 +764,22 @@ one exit path that has ever cleared it.
 
 ## Exit watch
 
+**The watcher is the BACKSTOP now, not the primary.** Since spec 2026-09-19
+every pane carries a tmux `pane-died` hook that reports its own death straight
+to the control plane — measured at 0.3 s on a live node, against this tick's
+2 s — so what reaches the watcher is the deaths a hook cannot report: a
+SIGKILLed tmux server, a machine that lost power, a launch with no resolved
+reporter. Measured too: with tmux SIGKILLed the watcher still reports in 3.6 s
+(two ticks), which is the case it exists for.
+
+**And "lacking the pane" no longer means the session vanished.** Panes are
+launched with `remain-on-exit`, so a finished pane's SESSION survives — what
+keeps this contract true is that `listSubshellsChecked` filters on
+`#{pane_dead}` and returns LIVE panes only. That filter lives in
+`@internal/pane-runtime`, not here, and removing it would mean no node-run
+subshell was ever reported dead again while every test in this package still
+passed. Its own test is mutation-checked for that reason.
+
 The shared 2 s tick (`src/commands/report.ts`) probes each tmux socket once
 via `listSubshellsChecked`: an authoritative `ok:true` answer lacking the pane
 reports the death IMMEDIATELY with the pane's real exit code when one is
