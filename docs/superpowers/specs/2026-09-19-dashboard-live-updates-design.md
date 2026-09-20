@@ -410,6 +410,33 @@ deployment note, not a step-4 requirement.
   active→idle with no server frame; panes do not re-render on an unrelated
   event.
 
+### 6.1 What was proven on a live system, and how
+
+The unit suites cover the pieces; these are the end-to-end facts, each
+measured against a running server rather than argued.
+
+| claim | measured |
+|---|---|
+| an exit status is readable at all | a pane sent `exit 7` reports `pane_dead=1 status=7` while its session survives — the field was structurally always null before |
+| the local hook reports promptly | dead **0.5 s** after the pane exited, `exitCode=9`, against a 60 s sweep |
+| the tmux server is reaped | server count returns to zero after the death is recorded |
+| a NODE pane reports the same way | a subshell on a real enrolled agent: dead **0.3 s**, `exitCode=5`, with no protocol frame involved |
+| the node's watcher is still a backstop | tmux SIGKILLed so no hook could fire: dead **3.6 s** (two 2 s ticks), and the agent's own log names that socket |
+| the feed is event-driven | one frame per create, **zero** frames during a 3 s idle |
+| a snapshot captures nothing | snapshot rows carrying a screen: **0**, with screens arriving only when asked for |
+| isolation holds | owner receives its row, an admin receives it, an unrelated member receives nothing at all |
+
+**The node case needs no second machine**, which is worth writing down because
+it was briefly treated as a blocker: a node is a PROCESS with its own config
+home, so `SUBSHELL_CONFIG_HOME=<tmp> subshell enroll` against a throwaway
+plane gives a genuine agent on the same host.
+
+Two traps met while measuring, both of which produced confident wrong answers
+first: `ps aux | grep "tmux -L subshell-"` matches the grepping shell's own
+command line, and a timing run whose `send-keys` returned non-zero never
+killed anything — a result that looks like "the hook did not fire". Check the
+kill landed before reading the clock.
+
 ## 7. Order of work
 
 1. `live-bus` + `/ws/live` carrying snapshot only; client switched over; SSE
