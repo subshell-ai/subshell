@@ -47,7 +47,7 @@
  *   Updates page already renders, because "why is there no update" is the
  *   question the page exists to answer.
  */
-import { rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   MIN_NODE_VERSION,
@@ -650,6 +650,14 @@ async function fetchArtifactUncoordinated(target: NodeTarget): Promise<FetchedAr
     throw new Error(`${binaryUrl} answered ${upstream.status}`);
   }
 
+  // The directory is this module's ONE production creator. Nothing else ever
+  // makes it — not boot, not the publish scripts on this host — so an instance
+  // that has never had `release:cli-node` run into its data dir died right here
+  // on `writer()` with ENOENT, and the node's download answered 404 with the
+  // plane's own filesystem named as nothing. Measured on mac-builder
+  // 2026-09-20; every test green the whole time because every test fixture
+  // created the directory itself.
+  await mkdir(NODE_ARTIFACTS_DIR, { recursive: true });
   const tmp = `${artifactPath(target)}.fetch-${process.pid}`;
   const sink = Bun.file(tmp).writer();
   const hasher = new Bun.CryptoHasher("sha256");

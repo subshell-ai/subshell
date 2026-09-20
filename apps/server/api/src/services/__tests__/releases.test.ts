@@ -283,6 +283,21 @@ describe("compatibleNodeRelease", () => {
 });
 
 describe("fetchArtifact", () => {
+  it("creates the artifacts directory when the instance never had one", async () => {
+    // mac-builder 2026-09-20: a plane that never ran `release:cli-node` into
+    // its data dir has no node-artifacts directory, and the lazy fetch died
+    // opening its temp file — ENOENT before a single byte moved, surfaced to
+    // the node as a 404 download failure. Every other test in this file
+    // creates the directory in `beforeEach`, which is exactly why it passed
+    // CI for a week. This test removes what the fixture adds, so the fetcher
+    // has to survive on its own mkdir.
+    rmSync(NODE_ARTIFACTS_DIR, { recursive: true, force: true });
+    const fetched = await fetchArtifact(TARGET);
+    await drain(fetched.stream);
+    expect(existsSync(artifactPath(TARGET))).toBe(true);
+    expect(readFileSync(artifactPath(TARGET), "utf8")).toBe("a convincing binary");
+  });
+
   it("streams the bytes and caches them once verified", async () => {
     const fetched = await fetchArtifact(TARGET);
     expect(fetched.tag).toBe("cli-node-v9.9.9");
