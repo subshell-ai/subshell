@@ -85,6 +85,7 @@ async function renderForm(initial: NewSubshellFormValue) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   function Harness() {
     const [value, setValue] = useState(initial);
+    setter = setValue;
     return <NewSubshellForm value={value} onChange={setValue} />;
   }
   const rootRoute = createRootRoute();
@@ -103,6 +104,9 @@ async function renderForm(initial: NewSubshellFormValue) {
   );
   await settle();
 }
+
+/** The live controlled parent — writing to it is what a picker's press does. */
+let setter: ((v: NewSubshellFormValue | ((v: NewSubshellFormValue) => NewSubshellFormValue)) => void) | null = null;
 
 const dir = () => screen.getByLabelText("Working directory") as HTMLInputElement;
 
@@ -162,6 +166,130 @@ describe("NewSubshellForm working-dir pre-fill", () => {
       fireEvent.change(dir(), { target: { value: "" } }); // deliberate clear
       await settle();
       expect(dir().value).toBe("");
+    } finally {
+      restore();
+    }
+  });
+});
+
+/** A well-formed agent-node row the picker can select. */
+const BOX = {
+  id: "node-9",
+  name: "Box",
+  kind: "agent",
+  os: "linux",
+  arch: "x64",
+  hostname: "box",
+  status: "online",
+  lastSeenAt: null,
+  agentVersion: "0.14.0",
+  protocolVersion: 12,
+  access: "owner",
+  canManage: true,
+  canLaunch: true,
+  allowedDirs: [],
+  capabilities: [],
+  harnesses: [],
+  inventoryStale: false,
+  maintenance: false,
+  maintenanceAt: null,
+  maintenanceSource: null,
+  held: null,
+};
+
+/**
+ * Serves `local` instantly and node-9 on a released promise, with TWO
+ * selectable machines so the Machine pick exists. The hold is the whole
+ * point: the switch happens while `local`'s recents answer is still the
+ * freshest data in the cache, so the fill after the switch can only come
+ * from an answer that KNOWS which machine it describes.
+ */
+function mockTwoNodes() {
+  const original = globalThis.fetch;
+  let releaseNode9: ((v: unknown) => void) | null = null;
+  const node9 = new Promise<unknown>((r) => {
+    releaseNode9 = r;
+  });
+  globalThis.fetch = ((input: unknown) => {
+    const url = String(input);
+    if (url.includes("/api/files/recent")) {
+      if (url.includes("node=node-9")) {
+        return node9.then((body) => new Response(JSON.stringify(body)));
+      }
+      return Promise.resolve(new Response(JSON.stringify({ paths: [{ path: "/srv/app", label: null }], home: null })));
+    }
+    if (url.includes("/api/nodes")) {
+      const local = {
+        id: "local",
+        name: "Server",
+        kind: "local",
+        os: null,
+        arch: null,
+        hostname: null,
+        status: "online",
+        lastSeenAt: null,
+        agentVersion: null,
+        protocolVersion: null,
+        access: "owner",
+        canManage: true,
+        canLaunch: true,
+        capabilities: [],
+        harnesses: [],
+        inventoryStale: false,
+        maintenance: false,
+      };
+      return Promise.resolve(new Response(JSON.stringify({ nodes: [local, BOX] })));
+    }
+    if (url.includes("/api/plugins")) {
+      return Promise.resolve(new Response(JSON.stringify({ plugins: [] })));
+    }
+    return Promise.resolve(new Response(JSON.stringify([]))); // /api/presets, /api/subshells
+  }) as typeof fetch;
+  return {
+    restore: () => (globalThis.fetch = original),
+    release: (body: unknown) => releaseNode9?.(body),
+  };
+}
+
+describe("NewSubshellForm machine switch", () => {
+  afterEach(cleanup);
+
+  it("drops the previous machine's directory on the switch and re-seeds from the new one", async () => {
+    // The directory is a claim about the SELECTED machine's filesystem. A
+    // pick that survives the switch is a path the new machine probably does
+    // not have — today it survives, the picker opens on it, and the person
+    // waits for a remote 404 before they can start over. (Operator report,
+    // 2026-09-20.)
+    const { restore, release } = mockTwoNodes();
+    try {
+      await renderForm(emptyNewSubshellForm());
+      await waitFor(() => expect(dir().value).toBe("/srv/app"));
+      // Exactly what the Machine select's handler emits.
+      await act(async () => {
+        setter?.((v) => ({ ...v, nodeId: "node-9" }));
+      });
+      // Gone at once, and it stays empty while node-9's own query is still
+      // in flight — the recents key re-scoped with the pick, so the machine
+      // just left has no answer to fill this one with.
+      await settle();
+      expect(dir().value).toBe("");
+      release({ paths: [{ path: "/node9/work", label: null }], home: null });
+      await waitFor(() => expect(dir().value).toBe("/node9/work"));
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps a caller-supplied node+directory pair on mount", async () => {
+    // The clone dialog pre-fills a PAIR. The clear rides a machine CHANGE,
+    // not a mount — clearing here would throw away the thing the clone was
+    // asked to reuse.
+    const { restore, release } = mockTwoNodes();
+    try {
+      release({ paths: [], home: null });
+      await renderForm({ ...emptyNewSubshellForm(), nodeId: "node-9", workingDir: "/keep/me" });
+      await settle();
+      expect(dir().value).toBe("/keep/me");
     } finally {
       restore();
     }

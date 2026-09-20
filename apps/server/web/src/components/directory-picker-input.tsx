@@ -104,6 +104,22 @@ export function DirectoryPickerInput({
     return () => clearTimeout(timer);
   }, [value, pickerOpen]);
 
+  // A machine change re-anchors the panel: the folder it showed belongs to
+  // the filesystem the user just switched AWAY from, and "that listing" has
+  // no meaning on the new machine — the panel goes to home and the node-
+  // keyed explore query fetches what is actually there. The launch form also
+  // clears its path on a switch (which the typing-sync would follow at the
+  // debounce), but this effect is what guarantees the refresh for ANY caller,
+  // not only as a side effect of form state. `~` means this machine's home
+  // on both transports (the route expands it locally; the remote service
+  // maps it to the agent's home).
+  const lastNodeRef = useRef(remoteNode);
+  useEffect(() => {
+    if (lastNodeRef.current === remoteNode) return;
+    lastNodeRef.current = remoteNode;
+    setPickerPath("~");
+  }, [remoteNode]);
+
   // The panel is dismissed by anything outside it, or by Escape. Both
   // listeners live with `pickerOpen` so an idle field costs nothing.
   useEffect(() => {
@@ -158,10 +174,19 @@ export function DirectoryPickerInput({
     !remoteNode && ((isServerDesktop() && desktopPlatform() === "macos") || deployment?.platform === "darwin");
   const nodeOutdated = error instanceof ApiError && error.code === BackendErrorCodes.NODE_OUTDATED;
 
-  /** Stars/unstars a path; sections refresh from the same responses. */
+  /**
+   * Stars/unstars a path ON THE MACHINE BEING BROWSED; sections refresh from
+   * the same responses. Favorites carry the node dimension since 0034 —
+   * a star planted while walking node X is X's row and only ever renders in
+   * X's panel. The param is omitted for the control plane, keeping the local
+   * wire byte-identical to the pre-scoping request.
+   */
   const favorite = useMutation({
     mutationFn: ({ path, on }: { path: string; on: boolean }) =>
-      apiFetch("/api/files/favorite", { method: "PATCH", body: JSON.stringify({ path, favorite: on }) }),
+      apiFetch("/api/files/favorite", {
+        method: "PATCH",
+        body: JSON.stringify(remoteNode ? { path, favorite: on, node: remoteNode } : { path, favorite: on }),
+      }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["explore"] });
       void queryClient.invalidateQueries({ queryKey: ["recent-paths"] });
@@ -361,19 +386,17 @@ export function DirectoryPickerInput({
                           <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
                           <span className="truncate">{e.name}</span>
                         </button>
-                        {/* Favorites are a control-plane concept (the table has
-                            no node column — the remote browse ships its
-                            Favorites section empty). Starring a node path
-                            would plant a dead click in every later LOCAL
-                            panel, so the star is simply not offered while
-                            browsing another machine. */}
-                        {!remoteNode && (
-                          <StarButton
-                            path={e.path}
-                            starred={false}
-                            onToggle={(on) => favorite.mutate({ path: e.path, on })}
-                          />
-                        )}
+                        {/* Favorites carry the browsed machine since 0034
+                            (the PATCH rides `node`, the listing ships that
+                            node's rows), so a star HERE means "this path on
+                            THIS machine" and can never be a dead click in
+                            another machine's panel — the defect the star used
+                            to be hidden for. It is offered everywhere. */}
+                        <StarButton
+                          path={e.path}
+                          starred={false}
+                          onToggle={(on) => favorite.mutate({ path: e.path, on })}
+                        />
                       </div>
                     ))}
                 </div>

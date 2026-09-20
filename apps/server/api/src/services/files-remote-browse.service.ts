@@ -4,8 +4,8 @@ import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
-import { getRequestlessContext } from "@/lib/context.js";
-import { loadNodeAccess, nodeCanManageFor } from "@/lib/node-access.js";
+import { loadNodeAccess } from "@/lib/node-access.js";
+import { favoritePathsFor, launchScopeFor, recentPathsFor } from "@/services/files-path-rules.js";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 
 /**
@@ -101,20 +101,23 @@ export interface RemoteExploreResult {
   parent: string | null;
   /** Direct-child directories only — the local shape minus files */
   entries: { name: string; path: string; kind: "dir" }[];
-  /** Always empty remotely — see the module docstring (dead-click rule) */
+  /** The NODE's three most-recent launch paths (plane-side rows, node-scoped) */
   recent: { path: string; label: string | null }[];
-  /** Always empty remotely (favorites are not node-scoped on disk) */
+  /** The NODE's starred directories (plane-side rows, node-scoped since 0034) */
   favorites: { path: string; label: string | null }[];
 }
 
 /**
  * One-level browse of ANOTHER machine: visibility (404, never 403), the
  * `fs_ls` feature gate, one signed round-trip, and error mapping.
- * Confinement notes: `SUBSHELL_FS_ROOT` deliberately does NOT apply here (it
- * belongs to this host and means nothing on the node — the node's boundary is
- * its agent user's filesystem permissions, the same posture as `stat_dir`),
- * and Recent/Favorites ship EMPTY (they are control-plane concepts; the
- * form's per-node pre-fill rides `/recent?node=` instead).
+ * Confinement notes: `SUBSHELL_FS_ROOT` deliberately does NOT apply to the
+ * DIRECTORY WALK here (it belongs to this host and means nothing on the node
+ * — the node's boundary is its agent user's filesystem permissions, the same
+ * posture as `stat_dir`). The Recent/Favorites sections DO ride a remote
+ * browse since 2026-09-20: they are plane-side rows that carry the node
+ * dimension (0034), answered through the one `files-path-rules` filter the
+ * local browse uses, so the panel walking node X shows exactly node X's
+ * shortcuts and nothing of this host's.
  *
  * @param userId - the cookie-authenticated browser user (access-check subject)
  * @param nodeId - the node to browse (never `local`; the route checked)
@@ -171,10 +174,7 @@ export async function exploreNodeDirectory(
   // NOT the security boundary. That is the launch gate, applied here
   // (`assertDirAllowed`) and independently on the node, neither of which cares
   // who is browsing.
-  const isAdmin = (await new UserMetaRepository(db).getRole(userId)) === "admin";
-  const dirs = nodeCanManageFor(row.kind, access, isAdmin)
-    ? []
-    : await getRequestlessContext().repos.nodeAllowedDirs.listForNode(nodeId);
+  const dirs = await launchScopeFor(userId, nodeId);
   // `dirNavigable`, NOT `dirAllowed`: the latter is a descendant test, so
   // browsing `/home` with a rule of `/home/theo/projects` would filter out
   // `/home/theo` — an ancestor — and leave an empty panel with no way down to
@@ -184,20 +184,34 @@ export async function exploreNodeDirectory(
   // the rules — so a constrained caller's first view would be an empty,
   // unnavigable panel. Answer with the roots themselves instead. `parent: null`
   // caps "up" here; the roots are absolute, so nothing depends on `path`.
+  // The node's own shortcut sections, answered from the PLANE's rows —
+  // `recent_paths` has carried a node dimension since 0017 and `favorites`
+  // since 0034 — filtered through the one wrapper set the local browse uses,
+  // so this response's sections mean exactly "node X's recents/favorites"
+  // and can never be a dead click: the panel showing them IS walking node X.
+  // The pair is computed for both returns below, including the roots
+  // fallback, where shortcuts matter most (the caller cannot browse).
+  const favorites = await favoritePathsFor(userId, nodeId, dirs);
+  const starred = new Set(favorites.map((f) => f.path));
+  // A path is listed once — favorites win over recents, same local rule.
+  const recent = (await recentPathsFor(userId, nodeId, dirs))
+    .filter((r) => !starred.has(r.path))
+    .slice(0, 3)
+    .map(({ path, label }) => ({ path, label }));
   if (dirs.length > 0 && entries.length === 0 && !dirNavigable(listing.path, dirs)) {
     return {
       path: listing.path,
       parent: null,
       entries: dirs.map((dir) => ({ name: dir, path: dir, kind: "dir" as const })),
-      recent: [],
-      favorites: [],
+      recent,
+      favorites,
     };
   }
   return {
     path: listing.path,
     parent: listing.parent,
     entries,
-    recent: [],
-    favorites: [],
+    recent,
+    favorites,
   };
 }

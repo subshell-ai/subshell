@@ -27,6 +27,7 @@ function renderField(
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   if (opts.deployment) client.setQueryData(SERVER_DEPLOYMENT_QUERY_KEY, opts.deployment);
   let current = opts.value ?? "/tmp";
+  let node = opts.nodeId;
   const field = (value: string) => (
     <QueryClientProvider client={client}>
       <DirectoryPickerInput
@@ -36,7 +37,7 @@ function renderField(
           opts.onChange?.(p);
           apply(p);
         }}
-        nodeId={opts.nodeId}
+        nodeId={node}
         nodeName={opts.nodeName}
       />
     </QueryClientProvider>
@@ -51,6 +52,11 @@ function renderField(
     /** Focuses the input — what opens the panel now. */
     open: () => {
       fireEvent.focus(result.getByRole("textbox"));
+    },
+    /** Switches the machine prop the way the launch form's Machine pick does. */
+    setNode: (nodeId: string) => {
+      node = nodeId;
+      result.rerender(field(current));
     },
     /** Types a new path into the input and applies it like a real parent would. */
     typePath: (path: string) => {
@@ -224,16 +230,65 @@ describe("DirectoryPickerInput", () => {
     }
   });
 
-  it("drops the favorite star while browsing another machine (favorites are not node-scoped)", async () => {
+  it("stars the machine being browsed: the star is offered on a node's rows and the PATCH names it", async () => {
+    // The old rule HID the star remotely because favorites had no node
+    // column — a node path starred there was a dead click in every later
+    // local panel. 0034 scoped favorites per machine and the defect is gone
+    // with it; what is pinned here is that the wire names the machine.
     const { favoriteCalls, restore } = mockExplore({ "/srv": exploreBody("/srv", ["data"]) });
     try {
-      renderField({ value: "/srv", nodeId: "node-7" });
-      fireEvent.focus(screen.getByRole("textbox"));
+      const h = renderField({ value: "/srv", nodeId: "node-7" });
+      h.open();
       await screen.findByText("data");
-      expect(screen.queryByRole("button", { name: "Favorite /srv/data" })).toBeNull();
-      // The row itself is still pickable — only the star is withheld.
+      fireEvent.click(screen.getByRole("button", { name: "Favorite /srv/data" }));
+      await waitFor(() => expect(favoriteCalls).toHaveLength(1));
+      const body = JSON.parse(String((favoriteCalls[0].init as RequestInit).body));
+      expect(body).toEqual({ path: "/srv/data", favorite: true, node: "node-7" });
+      // The row is still pickable beside the star, as always.
       fireEvent.click(screen.getByText("data"));
-      expect(favoriteCalls).toHaveLength(0);
+    } finally {
+      restore();
+    }
+  });
+
+  it("the local star keeps the pre-scoping wire — no node param at all", async () => {
+    const { favoriteCalls, restore } = mockExplore({ "/srv": exploreBody("/srv", ["data"]) });
+    try {
+      const h = renderField({ value: "/srv" });
+      h.open();
+      await screen.findByText("data");
+      fireEvent.click(screen.getByRole("button", { name: "Favorite /srv/data" }));
+      await waitFor(() => expect(favoriteCalls).toHaveLength(1));
+      expect(JSON.parse(String((favoriteCalls[0].init as RequestInit).body))).toEqual({
+        path: "/srv/data",
+        favorite: true,
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  it("switching machines while the panel is open re-anchors it to the new machine's home", async () => {
+    // The folder on screen belongs to the filesystem the user just switched
+    // AWAY from; "the listing" means nothing on the new machine. The panel
+    // goes home and the node-keyed query fetches what is actually there —
+    // the refresh the form's path-clear also reaches, guaranteed here for
+    // any caller.
+    const { requested, requestedNode, restore } = mockExplore({
+      "/srv": exploreBody("/srv", ["data"]),
+      "~": exploreBody("/home/nodeuser", ["projects"]),
+    });
+    try {
+      const h = renderField({ value: "/srv", nodeId: "node-7" });
+      h.open();
+      await screen.findByText("data");
+      expect(requested).toContain("/srv");
+      h.setNode("node-8");
+      // The panel asks the NEW machine for `~` — home on both transports —
+      // rather than re-walking the old one's folder there.
+      await waitFor(() => expect(requested).toContain("~"));
+      expect(requestedNode.at(-1)).toBe("node-8");
+      await waitFor(() => expect(screen.getAllByText("projects").length).toBeGreaterThan(0));
     } finally {
       restore();
     }
