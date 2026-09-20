@@ -430,6 +430,21 @@ export class SubshellsService extends BaseService {
   }
 
   /**
+   * The pane's own death report, from its tmux `pane-died` hook.
+   *
+   * Thin by design: the route has already established that this is the
+   * subshell's own key, and the manager owns the one death transition the
+   * sweep also runs through — so nothing here decides anything, it only
+   * carries the timestamp.
+   *
+   * @param id - the subshell whose pane exited
+   * @param exitCode - tmux's `#{pane_dead_status}`, null when it could not be read
+   */
+  async reportExit(id: string, exitCode: number | null): Promise<void> {
+    await this.#manager.applyLocalExit(id, exitCode, new Date().toISOString());
+  }
+
+  /**
    * Screens for the subshells a viewer asked to see, filtered to those they
    * actually may (spec 2026-09-19 §4.4).
    *

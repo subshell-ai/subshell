@@ -366,7 +366,7 @@ export class TmuxRunner {
    * 5/5. Left unhandled it surfaces as a restart that throws while the row
    * rolls back to `terminated`, i.e. a restart button that just fails.
    */
-  newSubshell(socket: string, subshellName: string, cwd: string, cmd: string): void {
+  newSubshell(socket: string, subshellName: string, cwd: string, cmd: string, exitHook?: string): void {
     // Before the spawn, so an over-long TMUX_TMPDIR is reported as itself
     // rather than as tmux's bare "File name too long" — and so the retry loop
     // below does not spend its budget on a failure no retry can fix.
@@ -394,6 +394,16 @@ export class TmuxRunner {
       "remain-on-exit",
       "on",
     ];
+    // `pane-died` fires the moment the harness exits, which is what turns a
+    // death from something the 60 s sweep eventually notices into something a
+    // dashboard sees in about a second (spec 2026-09-19 §4.3). Registered in
+    // the SAME command as the spawn, so a pane cannot die before its hook
+    // exists. `#{pane_dead_status}` is interpolated by tmux itself, and is
+    // EMPTY when it has none to give — the reporter reads that as "unknown"
+    // rather than as a clean exit.
+    if (exitHook) {
+      args.push(";", "set-hook", "-t", subshellName, "pane-died", `run-shell "${exitHook}"`);
+    }
     for (let attempt = 0; ; attempt++) {
       try {
         this.run(args, {});

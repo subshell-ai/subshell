@@ -113,6 +113,7 @@ usage:
   subshell mcp            (stdio MCP server for a subshell pane, internal)
   subshell report attention turn_complete|needs_attention
   subshell report session (a pane's state, run by harness hooks — not by hand)
+  subshell report exit <status> (the pane died; run by tmux's own hook)
 `;
 
 /** Malformed invocation → usage text, exit 2. */
@@ -170,8 +171,22 @@ const SUBCOMMANDS: Record<string, string[]> = {
  * ONE extra slot deliberately — a general grammar for a CLI with one such
  * command would be more machinery than the CLI.
  */
-const SUBCOMMAND_ARGS: Record<string, Record<string, readonly string[]>> = {
-  report: { attention: ATTENTION_KINDS },
+/**
+ * Marks a subtoken whose argument is a VALUE, not one of a fixed set.
+ *
+ * The table below is otherwise a list of accepted words, which is right for
+ * every verb that has one — and wrong for an exit status, which is any number
+ * or nothing at all.
+ */
+const FREE_ARG = Symbol("free-argument");
+
+const SUBCOMMAND_ARGS: Record<string, Record<string, readonly string[] | typeof FREE_ARG>> = {
+  // `report exit <status>` takes tmux's own `#{pane_dead_status}`, which is
+  // any exit code or the EMPTY string when tmux has none to give — so it
+  // cannot be a value list. It is still declared, because declaring it is what
+  // makes the argument required, and a generated hook that lost its word must
+  // fail loudly here rather than report a death with no status as a clean one.
+  report: { attention: ATTENTION_KINDS, exit: FREE_ARG },
 };
 /**
  * Command → subtoken → the flags THAT subtoken accepts. `--json` is a VIEW's
@@ -296,7 +311,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     if (sub !== undefined && arg === undefined && !rest[i].startsWith("--")) {
       const args = SUBCOMMAND_ARGS[command]?.[sub];
       if (!args) throw new UsageError(`${command} ${sub} takes no argument (got '${rest[i]}')`);
-      if (!args.includes(rest[i])) {
+      if (args !== FREE_ARG && !args.includes(rest[i])) {
         throw new UsageError(`unknown ${command} ${sub} argument '${rest[i]}': requires ${args.join(" or ")}`);
       }
       arg = rest[i];
@@ -334,7 +349,11 @@ export function parseArgs(argv: string[]): ParsedArgs {
   // this side, not something to guess a default for.
   const argValues = sub === undefined ? undefined : SUBCOMMAND_ARGS[command]?.[sub];
   if (argValues && arg === undefined) {
-    throw new UsageError(`${command} ${sub} requires ${argValues.join(" or ")}`);
+    throw new UsageError(
+      argValues === FREE_ARG
+        ? `${command} ${sub} requires a value`
+        : `${command} ${sub} requires ${argValues.join(" or ")}`,
+    );
   }
   return { command, sub, ...(arg === undefined ? {} : { arg }), flags };
 }
