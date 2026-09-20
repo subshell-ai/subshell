@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { publishLive } from "@/services/live-bus.js";
 import { startLivePublisher } from "@/ws/live-publisher.js";
-import { userTopic } from "@/ws/live-topics.js";
+import { ADMINS_TOPIC, EVERYONE_TOPIC, userTopic } from "@/ws/live-topics.js";
 
 /** Records what was published, per topic. */
 function fakeTarget() {
@@ -45,7 +45,7 @@ describe("live publisher coalescing", () => {
     const { target, typesFor } = fakeTarget();
     const stop = startLivePublisher({ target, coalesceMs: 20 });
     try {
-      for (let i = 0; i < 4; i++) publishLive({ kind: "subshell.deleted", id: "d1", ownerId: "u1" });
+      for (let i = 0; i < 4; i++) publishLive({ kind: "subshell.deleted", id: "d1", ownerId: "u1", shares: [] });
       await settle();
       // Two topics (the owner's and admins'), ONE frame each — not four.
       expect(typesFor("d1")).toEqual(["subshell-gone", "subshell-gone"]);
@@ -59,7 +59,7 @@ describe("live publisher coalescing", () => {
     const stop = startLivePublisher({ target, coalesceMs: 20 });
     try {
       publishLive({ kind: "subshell.changed", id: "d2" });
-      publishLive({ kind: "subshell.deleted", id: "d2", ownerId: "u1" });
+      publishLive({ kind: "subshell.deleted", id: "d2", ownerId: "u1", shares: [] });
       publishLive({ kind: "subshell.changed", id: "d2" }); // must not undo it
       await settle();
       expect(typesFor("d2")).toEqual(["subshell-gone", "subshell-gone"]);
@@ -72,8 +72,8 @@ describe("live publisher coalescing", () => {
     const { target, sent } = fakeTarget();
     const stop = startLivePublisher({ target, coalesceMs: 20 });
     try {
-      publishLive({ kind: "subshell.deleted", id: "a", ownerId: "u1" });
-      publishLive({ kind: "subshell.deleted", id: "b", ownerId: "u1" });
+      publishLive({ kind: "subshell.deleted", id: "a", ownerId: "u1", shares: [] });
+      publishLive({ kind: "subshell.deleted", id: "b", ownerId: "u1", shares: [] });
       await settle();
       expect(new Set(sent.map((s) => s.frame.id))).toEqual(new Set(["a", "b"]));
     } finally {
@@ -84,10 +84,128 @@ describe("live publisher coalescing", () => {
   it("stops publishing once torn down", async () => {
     const { target, sent } = fakeTarget();
     const stop = startLivePublisher({ target, coalesceMs: 20 });
-    publishLive({ kind: "subshell.deleted", id: "late", ownerId: "u1" });
+    publishLive({ kind: "subshell.deleted", id: "late", ownerId: "u1", shares: [] });
     stop();
     await settle();
     expect(sent).toEqual([]);
+  });
+});
+
+describe("a deletion reaches everyone the row reached", () => {
+  /**
+   * The grants cascade with the row, so a deletion that derived its audience
+   * AFTER the write could only ever name the owner and the admins. A shared
+   * subshell then sat on every grantee's dashboard until they reconnected —
+   * and 404'd when clicked — because with the polls gone there is no next
+   * snapshot to learn from. The shares ride the event for the same reason
+   * `shares-changed` carries `before`.
+   */
+  it("tells a named grantee, not just the owner and the admins", async () => {
+    const { target, sent } = fakeTarget();
+    const stop = startLivePublisher({ target, coalesceMs: 20 });
+    try {
+      publishLive({
+        kind: "subshell.deleted",
+        id: "shared",
+        ownerId: "owner",
+        shares: [{ granteeUserId: "grantee", permission: "view" }],
+      });
+      await settle();
+      const topics = sent.filter((x) => x.frame.id === "shared").map((x) => x.topic);
+      expect(new Set(topics)).toEqual(new Set([userTopic("owner"), userTopic("grantee"), ADMINS_TOPIC]));
+    } finally {
+      stop();
+    }
+  });
+
+  it("tells everyone when the row was shared with Everyone, naming no user", async () => {
+    const { target, sent } = fakeTarget();
+    const stop = startLivePublisher({ target, coalesceMs: 20 });
+    try {
+      publishLive({
+        kind: "subshell.deleted",
+        id: "public",
+        ownerId: "owner",
+        shares: [{ granteeUserId: null, permission: "view" }],
+      });
+      await settle();
+      const topics = sent.filter((x) => x.frame.id === "public").map((x) => x.topic);
+      // Saying it to an id a viewer never held is harmless by design (§4.2):
+      // "you cannot see this" is true whether the row was deleted, unshared,
+      // or never visible.
+      expect(new Set(topics)).toEqual(new Set([EVERYONE_TOPIC, ADMINS_TOPIC]));
+    } finally {
+      stop();
+    }
+  });
+});
+
+describe("the coalescing window cannot swallow a revocation", () => {
+  /**
+   * `shares-changed` carries `before`, the only record of who used to see the
+   * row — and ordinary changes land on the same id constantly (a sweep tick,
+   * an attention self-report, a harness-session write). Overwriting it inside
+   * the 40 ms window dropped the revocation entirely and silently, which is a
+   * hole in the mechanism the spec names load-bearing.
+   */
+  it("keeps a queued shares-change when an ordinary change lands on the same id", async () => {
+    const { target, sent } = fakeTarget();
+    const stop = startLivePublisher({ target, coalesceMs: 20 });
+    try {
+      publishLive({
+        kind: "subshell.shares-changed",
+        id: "s10",
+        before: { ownerUserId: "owner", shares: [{ granteeUserId: "ex", permission: "view" }] },
+      });
+      publishLive({ kind: "subshell.changed", id: "s10" });
+      await settle();
+      const gone = sent.filter((x) => x.frame.type === "subshell-gone" && x.frame.id === "s10");
+      expect(gone.map((x) => x.topic)).toContain(userTopic("ex"));
+    } finally {
+      stop();
+    }
+  });
+
+  it("still lets a deletion outrank a queued shares-change", async () => {
+    const { target, typesFor } = fakeTarget();
+    const stop = startLivePublisher({ target, coalesceMs: 20 });
+    try {
+      publishLive({
+        kind: "subshell.shares-changed",
+        id: "s11",
+        before: { ownerUserId: "owner", shares: [] },
+      });
+      publishLive({ kind: "subshell.deleted", id: "s11", ownerId: "owner", shares: [] });
+      await settle();
+      expect(typesFor("s11")).toEqual(["subshell-gone", "subshell-gone"]);
+    } finally {
+      stop();
+    }
+  });
+
+  it("keeps the EARLIEST before when two share changes land in one window", async () => {
+    const { target, sent } = fakeTarget();
+    const stop = startLivePublisher({ target, coalesceMs: 20 });
+    try {
+      // first → who used to see it; second → an intermediate state that was
+      // never the audience anyone needs telling about.
+      publishLive({
+        kind: "subshell.shares-changed",
+        id: "s12",
+        before: { ownerUserId: "owner", shares: [{ granteeUserId: "first", permission: "view" }] },
+      });
+      publishLive({
+        kind: "subshell.shares-changed",
+        id: "s12",
+        before: { ownerUserId: "owner", shares: [{ granteeUserId: "second", permission: "view" }] },
+      });
+      await settle();
+      const topics = sent.filter((x) => x.frame.type === "subshell-gone" && x.frame.id === "s12").map((x) => x.topic);
+      expect(topics).toContain(userTopic("first"));
+      expect(topics).not.toContain(userTopic("second"));
+    } finally {
+      stop();
+    }
   });
 });
 

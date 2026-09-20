@@ -135,7 +135,19 @@ export async function handleLiveOpen(ws: LiveWsSocket, deps: LiveWsDeps): Promis
   // `ws/subshell-ws.ts` carries the same hazard as its `detachedEarly` flag.
   ws.data.liveStop = stop;
 
-  const isAdmin = await deps.isAdmin(userId);
+  // GUARDED like the snapshot below, and for the same reason: a rejection here
+  // used to reject into the plugin's `.catch`, which only logs — leaving a
+  // socket that is open, subscribed to nothing, and permanently silent. The
+  // client marks itself connected only once a snapshot lands and schedules a
+  // reconnect only from `onclose`, so nothing would ever have fired again.
+  let isAdmin: boolean;
+  try {
+    isAdmin = await deps.isAdmin(userId);
+  } catch (err) {
+    logger.withError(err).warn("live ws: could not resolve the viewer's role; closing so the client reconnects");
+    ws.close(1011, "open failed");
+    return;
+  }
   if (stopped) return;
 
   /**

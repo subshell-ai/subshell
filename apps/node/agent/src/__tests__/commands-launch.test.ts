@@ -1196,8 +1196,14 @@ describe("execLaunch on a node with no plugins (inversion §6)", () => {
       }),
     );
     expect(hook).toBeDefined();
-    expect(hook).toContain("report exit");
-    expect(hook).toContain("#{pane_dead_status}");
+    // QUOTED words, not a bare `report exit`: the reporter's command is a real
+    // path on this machine and paths have spaces in them (a macOS bundle's
+    // `process.execPath` does), and an unquoted one makes the hook a silent
+    // no-op. This assertion pinned the unquoted spelling until 2026-09-20.
+    expect(hook).toContain("'report' 'exit'");
+    // …and the status stays BARE, because those single quotes are literal text
+    // for tmux to interpolate inside.
+    expect(hook?.endsWith(" '#{pane_dead_status}'")).toBe(true);
     // The credentials ride the COMMAND: a `run-shell` hook inherits the tmux
     // server's environment, and the pane is launched through `env -i`, so the
     // server has none of them.

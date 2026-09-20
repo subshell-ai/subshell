@@ -2,7 +2,7 @@ import { apiFetch } from "@internal/node-admin";
 import type { LiveClientFrame, LiveServerFrame } from "@internal/subshell-protocol";
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
+import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 
 /**
@@ -155,6 +155,39 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
         setConnected(true);
       };
 
+      /**
+       * Keeps ONE subshell's own cache entry in step with the list.
+       *
+       * `/subshells/$id` reads `["subshell", id]`, a different cache from the
+       * list's `["subshells"]` — so writing only the list left that page
+       * learning nothing after mount once the 5 s poll went. A pane dying
+       * while its own page was open, the very thing this design measures at
+       * half a second, reached every surface except the one showing it.
+       *
+       * Written only when the entry EXISTS: creating one for a page nobody
+       * opened would fill the cache with rows the detail view never asked
+       * for, and the page fetches on mount anyway.
+       */
+      const syncDetail = (id: string, next: Partial<SubshellView>) => {
+        const key = [...SUBSHELL_QUERY_KEY, id];
+        const held = queryClient.getQueryData<SubshellView>(key);
+        if (!held) return;
+        // Same merge the list takes: a broadcast carries neither this
+        // viewer's `access` nor a screen, and the detail row may hold both.
+        queryClient.setQueryData(key, { ...held, ...next, access: held.access, preview: held.preview });
+      };
+
+      /**
+       * The row may no longer be this viewer's to see. Invalidate rather than
+       * guess: an ACTIVE detail query refetches and resolves to the honest
+       * answer (the row, or the 404 the page renders as not-found), and an
+       * inactive one is merely marked stale, so a page nobody is looking at
+       * costs nothing.
+       */
+      const recheckDetail = (id: string) => {
+        void queryClient.invalidateQueries({ queryKey: [...SUBSHELL_QUERY_KEY, id] });
+      };
+
       socket.onmessage = (e) => {
         try {
           // The envelope is the server's own (`@internal/subshell-protocol`),
@@ -186,6 +219,9 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
                   return preview ? { ...r, preview } : r;
                 }),
             );
+            // A reconnect's snapshot is authoritative for the open detail
+            // page too — it is the only frame that carries `access`.
+            for (const row of frame.subshells) syncDetail(row.id, row);
             attempts = 0; // a delivered snapshot is what proves the connection good
             // A reconnect re-pulls what this page is showing, since the fresh
             // snapshot's rows are screenless.
@@ -213,6 +249,7 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
             // ask for a fresh one when this card is on screen.
             const merged = { ...previous, ...row, access: previous.access, preview: previous.preview } as SubshellView;
             commit(current.map((r) => (r.id === id ? merged : r)));
+            syncDetail(id, row);
             if (showing.has(id) && socket.readyState === WebSocket.OPEN) {
               send(socket, { type: "previews", ids: [id] });
             }
@@ -235,6 +272,7 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
           // holding the row ignores it, which keeps an unshare from making
           // every open tab on the instance ask.
           if (frame.type === "subshell-recheck" && frame.id) {
+            recheckDetail(frame.id);
             if (!current.some((r) => r.id === frame.id)) return;
             if (socket.readyState === WebSocket.OPEN) send(socket, { type: "resync" });
             return;
@@ -244,6 +282,7 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
             const { id } = frame;
             liveIds.add(id);
             goneIds.add(id);
+            recheckDetail(id);
             if (!current.some((r) => r.id === id)) return; // never held it; nothing to drop
             commit(current.filter((r) => r.id !== id));
           }

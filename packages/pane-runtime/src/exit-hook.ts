@@ -40,7 +40,24 @@ export function exitHookFor(
   // prefix "ready for a plugin's own verb words to be appended", so only the
   // verb and its argument go here. Appending `report` again produced
   // `report report exit`, a usage error the hook swallowed silently.
-  const words = ["env", ...creds, reporter.command, ...reporter.args, "exit", "'#{pane_dead_status}'"];
+  //
+  // EVERY word is quoted except the last, exactly as `assembleHarnessCommand`
+  // and the plugins' own `reporterHook` do. The reporter's command is a real
+  // path on this machine and paths have spaces in them: `process.execPath`
+  // inside a macOS bundle is `…/Subshell Server.app/Contents/MacOS/…`, which
+  // unquoted splits into two words and makes the hook a silent no-op — no
+  // output, no exit code anyone sees, and the death falls back to the sweep.
+  // Demonstrated in review against a real tmux server.
+  //
+  // The status is the ONE word left bare: those single quotes are literal
+  // text for tmux to interpolate `#{pane_dead_status}` inside, so quoting
+  // them would escape the quotes and pass the format string through verbatim.
+  const words = [
+    "env",
+    ...creds,
+    ...[reporter.command, ...reporter.args, "exit"].map(shellQuote),
+    "'#{pane_dead_status}'",
+  ];
   return words.join(" ");
 }
 

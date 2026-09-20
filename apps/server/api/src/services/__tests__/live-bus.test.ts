@@ -60,8 +60,8 @@ describe("live-bus", () => {
     const seen: LiveEvent[] = [];
     const off = subscribeLive((e) => seen.push(e));
     try {
-      publishLive({ kind: "subshell.deleted", id: "s1", ownerId: "u1" });
-      expect(seen).toEqual([{ kind: "subshell.deleted", id: "s1", ownerId: "u1" }]);
+      publishLive({ kind: "subshell.deleted", id: "s1", ownerId: "u1", shares: [] });
+      expect(seen).toEqual([{ kind: "subshell.deleted", id: "s1", ownerId: "u1", shares: [] }]);
     } finally {
       off();
     }

@@ -45,10 +45,15 @@ export function useSubshellData(id: string): SubshellData {
   const dead = isSubshellDead(subshell);
 
   // NO POLL. The live socket pushes every change to this row (spec
-  // 2026-09-19): the reconcile sweep, a terminate, a restart and a rename all
-  // publish, and the feed writes them into `SUBSHELLS_QUERY_KEY`. The 5 s
-  // interval that used to live here invalidated BOTH this row and the whole
-  // list, and the list rebuild captured every running pane's screen — the
-  // single most expensive thing a quiet subshell page did.
+  // 2026-09-19): the reconcile sweep, the pane's own death hook, a terminate,
+  // a restart and a rename all publish, and the feed writes the row into THIS
+  // cache entry as well as the list's — `syncDetail` in
+  // `use-live-subshells-feed.tsx`. That second write is not a nicety: the two
+  // are different cache keys (`["subshell", id]` against `["subshells"]`), so
+  // for one review cycle this page learned nothing at all after mount, its
+  // own pane dying included. The 5 s interval that used to live here
+  // invalidated BOTH this row and the whole list, and the list rebuild
+  // captured every running pane's screen — the single most expensive thing a
+  // quiet subshell page did.
   return { subshell, isLoading, isError, isNotFound, exited, dead };
 }

@@ -17,7 +17,21 @@ import { logger } from "@/utils/logger.js";
 export type LiveEvent =
   | { kind: "subshell.changed"; id: string }
   /** The row is gone, so its owner rides along — nothing can look it up after. */
-  | { kind: "subshell.deleted"; id: string; ownerId: string }
+  | {
+      kind: "subshell.deleted";
+      id: string;
+      /** Nothing can look this up once the row is gone. */
+      ownerId: string;
+      /**
+       * The grants the row held, read BEFORE the delete cascaded them away.
+       *
+       * Without them a deletion reached the owner and the admins only, so a
+       * shared subshell stayed on every grantee's dashboard until they
+       * reconnected — and 404'd when clicked. There is no next snapshot to
+       * learn from now that the polls are gone.
+       */
+      shares: { granteeUserId: string | null; permission: SubshellSharePermission }[];
+    }
   /**
    * The GRANTS changed, and the recipient set therefore shrank as well as
    * grew. Carries the access the row had BEFORE the write, because that is

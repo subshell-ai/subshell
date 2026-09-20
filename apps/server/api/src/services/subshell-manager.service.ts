@@ -884,11 +884,7 @@ export class SubshellManagerService {
     // survivable — unlinking apiKeyId neutralises the key, and deleting the
     // row outright does the same via the guard's missing-row check.
     await this.#revokeTokenOrUnlink(id);
-    const ownerId = row.userId;
     await this.#subshells.delete(id);
-    // Carries the owner because nothing can look it up once the row is gone,
-    // and without an owner there is no recipient set (spec §4.1a).
-    publishLive({ kind: "subshell.deleted", id, ownerId });
     // Best-effort artifact cleanup ON THE ROW'S NODE (the log is only an
     // attach-replay artifact; the MCP config holds no secrets but nothing
     // should be left behind). The layout lives behind the launcher seam

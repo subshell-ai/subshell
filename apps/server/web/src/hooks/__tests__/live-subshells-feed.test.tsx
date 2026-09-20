@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { LiveSubshellsFeedProvider, useLiveSubshellsFeed } from "@/hooks/use-live-subshells-feed";
-import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
+import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 
 /** Minimal WebSocket double: records instances, lets the test fire frames. */
@@ -297,6 +297,47 @@ describe("LiveSubshellsFeedProvider", () => {
       } as MessageEvent);
     });
     expect(ws.outbox.map((f) => JSON.parse(f).type)).toContain("resync");
+  });
+
+  it("writes a change into the OPEN subshell page's own cache, not only the list", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+    const detailKey = [...SUBSHELL_QUERY_KEY, "a"];
+    // The detail page is open: it has fetched its own row into its own cache
+    // entry, which is a DIFFERENT key from the list's.
+    client.setQueryData(detailKey, { id: "a", access: "owner", status: "running", preview: ["held"] });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner", status: "running" }] });
+    // The pane dies. This is the half-second the whole design is measured on,
+    // and for one review cycle it reached every surface except this one.
+    frame({ type: "subshell", id: "a", row: { id: "a", status: "terminated", exitCode: 3 } });
+
+    const held = client.getQueryData<Record<string, unknown>>(detailKey);
+    expect(held?.status).toBe("terminated");
+    expect(held?.exitCode).toBe(3);
+    // The broadcast carries neither, so the merge must not drop them.
+    expect(held?.access).toBe("owner");
+    expect(held?.preview).toEqual(["held"]);
+  });
+
+  it("does not invent a detail cache entry for a page nobody opened", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] });
+    frame({ type: "subshell", id: "a", row: { id: "a", status: "terminated" } });
+    // Writing one would fill the cache with rows the detail view never asked
+    // for — and it fetches on mount regardless.
+    expect(client.getQueryData([...SUBSHELL_QUERY_KEY, "a"])).toBeUndefined();
   });
 
   it("answers subshell-recheck by asking, and drops nothing on its own", async () => {

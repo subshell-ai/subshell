@@ -806,10 +806,19 @@ export class SubshellsService extends BaseService {
    */
   async deleteSubshell(viewerId: string, id: string, actor: GuardActor): Promise<{ ok: true }> {
     const { row } = await this.#gate(viewerId, id, "owner", actor);
+    // READ BEFORE THE DELETE: grants cascade with the row, and they are the
+    // only way to reach the people it was shared with. Announced from HERE
+    // rather than from the manager for the same reason — the manager is
+    // owner-keyed and holds no shares repository, so a deletion announced
+    // there could only ever name the owner and the admins, which is exactly
+    // the bug: a shared subshell stayed on every grantee's dashboard until
+    // they reconnected, and 404'd when clicked.
+    const shares = (await this.repos.subshellShares.listForSubshells([id])).get(id) ?? [];
     const ok = await this.#manager.deleteSubshell(row.userId, id);
     if (!ok) {
       throw new SubshellError("not_found", "Subshell not found");
     }
+    publishLive({ kind: "subshell.deleted", id, ownerId: row.userId, shares });
     return { ok: true };
   }
 }

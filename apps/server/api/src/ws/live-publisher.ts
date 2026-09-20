@@ -82,12 +82,25 @@ export function startLivePublisher(deps: { target: LivePublisherTarget; coalesce
   };
 
   const unsubscribe = subscribeLive((event: LiveEvent) => {
-    // A DELETION is terminal and outranks any change queued for the same id:
-    // the row is gone, so a `subshell` frame resolved after it would find
-    // nothing and send nothing, leaving the client holding a row that no
-    // longer exists. The reverse never happens — nothing changes a deleted row.
+    // Events for one id do not merely replace each other — two of the three
+    // kinds carry something the others cannot reconstruct, so the window has a
+    // precedence order: deleted > shares-changed > changed.
+    //
+    // A DELETION is terminal: the row is gone, so a `subshell` frame resolved
+    // after it would find nothing and send nothing, leaving the client holding
+    // a row that no longer exists. Nothing changes a deleted row, so this
+    // never needs undoing.
+    //
+    // A SHARES-CHANGE carries `before`, the only record of who used to see the
+    // row — and an ordinary change lands on the same id constantly (a sweep
+    // tick, an attention self-report, a harness-session write). Overwriting it
+    // dropped the revocation entirely, silently, inside 40 ms. It loses
+    // nothing to keep: resolving a shares-change re-reads and re-broadcasts
+    // the row exactly as a change would. When two shares-changes land in one
+    // window the EARLIEST `before` is the true "used to", so the first wins.
     const queued = pending.get(event.id);
     if (queued?.kind === "subshell.deleted") return;
+    if (queued?.kind === "subshell.shares-changed" && event.kind !== "subshell.deleted") return;
     pending.set(event.id, event);
     // Leading-edge timer, not a per-event debounce: a row written to steadily
     // must not have its frame postponed forever.
@@ -113,10 +126,14 @@ async function publishEvent(target: LivePublisherTarget, event: LiveEvent): Prom
   if (event.kind === "node.changed") return; // node frames arrive with the nodes half
 
   if (event.kind === "subshell.deleted") {
-    // Shares are gone with the row, so the owner and the admins are all that
-    // can be derived. A grantee learns from their next snapshot; telling
-    // everyone would be a broadcast of an id they may never have seen.
-    broadcast(target, recipientTopics({ ownerUserId: event.ownerId, shares: [] }), {
+    // The row and its grants are gone, so the recipient set comes from the
+    // EVENT — which carries the shares read before the delete cascaded them.
+    // Deriving it from the owner alone reached the owner and the admins only,
+    // and left a shared subshell sitting on every grantee's dashboard until
+    // they reconnected. Telling someone about an id they never held is
+    // harmless by design (§4.2): the frame says "you cannot see this", which
+    // is true whether the row was deleted, unshared, or never visible.
+    broadcast(target, recipientTopics({ ownerUserId: event.ownerId, shares: event.shares }), {
       type: "subshell-gone",
       id: event.id,
     });
