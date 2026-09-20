@@ -281,15 +281,12 @@ export function AppSidebar({
   // use-ordered-subshells), so a pile of old ended sessions can never crowd a
   // live one out of the rail. The filter mode shares the same run.
   const byStatus = useOrderedSubshells();
-  // Grouped by the MACHINE each runs on, with the cap applied per node — so a
-  // second machine's work can never be crowded out by the first's, and every
-  // group's own pile of ended sessions still loses to its own live ones.
-  // Filter mode caps nothing: a search that hid its own ninth match would be
-  // lying about what the instance holds.
-  // `unanswered`, not `isPending`: a FAILED nodes read must not let the
-  // grouping verdict a "deleted"-shaped label — absence has proven nothing
-  // while the request was in flight and still proves nothing when it errored.
-  const { data: nodeData, isPending: nodesPending, isError: nodesError } = useNodes();
+  // Grouped by the MACHINE each runs on (lib/subshell-node-groups), with the
+  // cap applied per node — so a second machine's work can never be crowded
+  // out by the first's, and every group's own pile of ended sessions still
+  // loses to its own live ones. Filter mode caps nothing: a search that hid
+  // its own ninth match would be lying about what the instance holds.
+  const { data: nodeData } = useNodes();
   // Names only, over the catalog the launch pickers already cache. An
   // unresolvable harness degrades to its id, which is a readable slug
   // ("claude-code") — see the clone dialog, which makes the same trade.
@@ -298,9 +295,20 @@ export function AppSidebar({
     (harnessId: string) => pluginData?.plugins.find((p) => p.id === harnessId)?.name ?? harnessId,
     [pluginData],
   );
+  // NOT memoised, deliberately: a group's rank re-derives activity against
+  // the CLOCK, so a `useMemo` keyed on the data would freeze the group order
+  // between feed frames and undo the liveliest-member ordering the 20 s tick
+  // exists to maintain. The pass is O(rows) with a Map, per tick and per
+  // keystroke — the frame it costs is one the rail re-renders for anyway.
   const nodeGroups = groupSubshellsByNode(q ? filterSubshells(byStatus, subshellQuery) : byStatus, nodeData?.nodes, {
     limit: q ? undefined : RECENT_LIMIT,
-    unanswered: nodesPending || nodesError,
+    // "Unanswered" means NO successful read has ever committed: in flight, or
+    // failed with nothing cached. It cannot be `isPending || isError` — a
+    // background REFRESH that fails on a populated cache reports `isError`
+    // while keeping the data, and re-labelling resolved headers to short ids
+    // on a transient blip would be the header flickering a doubt it has no
+    // reason to hold. Stale-but-cached beats a verdict from a failed retry.
+    unanswered: nodeData === undefined,
   });
   const listedCount = nodeGroups.reduce((sum, group) => sum + group.subshells.length, 0);
   // Which node groups this device has shut. Read once at mount — the rail

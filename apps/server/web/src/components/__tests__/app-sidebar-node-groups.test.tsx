@@ -61,9 +61,15 @@ function subshell(over: Partial<SubshellView> = {}): SubshellView {
  * would overwrite seeded data with whatever the stub said — the fixture has to
  * BE the stub. (The better-auth binding reason is in app-sidebar-group.test.)
  */
-function stubFetch(subshells: SubshellView[]): () => void {
+function stubFetch(subshells: SubshellView[], { failNodes = false }: { failNodes?: boolean } = {}): () => void {
   setFetchRouter(async (input: RequestInfo | URL) => {
     const url = String(typeof input === "string" || input instanceof URL ? input : input.url);
+    if (failNodes && url.includes("/api/nodes")) {
+      return new Response(JSON.stringify({ error: "boom" }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      });
+    }
     const body = url.includes("/api/settings/public")
       ? { viewerIsAdmin: false, instanceName: "Test plane" }
       : url.includes("get-session")
@@ -127,8 +133,12 @@ afterEach(() => {
 });
 
 /** The rail calls useQuickAdd(), which throws outside its provider. */
-const withRail = async (subshells: SubshellView[], body: () => Promise<void> | void) => {
-  const restoreFetch = stubFetch(subshells);
+const withRail = async (
+  subshells: SubshellView[],
+  body: () => Promise<void> | void,
+  opts: { failNodes?: boolean } = {},
+) => {
+  const restoreFetch = stubFetch(subshells, opts);
   const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
     openLaunch: () => {},
     openNewWorkspace: () => {},
@@ -173,6 +183,25 @@ describe("the rail's subshell list, grouped by node", () => {
         expect(groupList("n1").textContent).toContain("two");
         expect(groupHeader("local").textContent).toContain("1");
       },
+    );
+  });
+
+  it("wears the short id, not a verdict, when the nodes read FAILS with nothing cached", async () => {
+    // `unanswered` must mean "no read has EVER succeeded" — an `isError` flag
+    // would also fire on a failed background refresh of a POPULATED cache,
+    // re-labelling resolved headers on a blip. With no cache the failure is
+    // genuinely no answer: the id, not "unknown node" (and never the word
+    // "deleted", which this rail must not assert about `local`).
+    await withRail(
+      [subshell({ id: "a", name: "one", nodeId: "mac-pro-abcdef" })],
+      async () => {
+        await waitFor(() => expect(groupHeaders()).toHaveLength(1));
+        const header = groupHeader("mac-pro-abcdef");
+        expect(header.textContent).toContain("mac-pro");
+        expect(header.textContent).not.toContain("unknown node");
+        expect(header.querySelector("span")?.getAttribute("title")).toBe("mac-pro-abcdef");
+      },
+      { failNodes: true },
     );
   });
 
