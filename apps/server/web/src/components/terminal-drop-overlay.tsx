@@ -1,7 +1,7 @@
+import { Button } from "@internal/node-admin";
 import { X } from "lucide-react";
 import { PermissionNotice } from "@/components/desktop/permission-notice";
 import { StatusPill } from "@/components/status-pill";
-import { Button } from "@/components/ui/button";
 import type { UploadEntry } from "@/hooks/use-terminal-uploads";
 
 /**

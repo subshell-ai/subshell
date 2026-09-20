@@ -1,7 +1,7 @@
 import { Select as SelectPrimitive } from "@base-ui/react/select";
+import { cn } from "@internal/node-admin";
 import { Check, ChevronDown } from "lucide-react";
 import type { JSX } from "react";
-import { cn } from "@/lib/utils";
 
 /**
  * Select on Base UI parts (migrated from Radix `Select`; export names

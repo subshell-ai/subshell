@@ -1,9 +1,17 @@
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  CopyableValue,
+  confirmAction,
+  errMessage,
+} from "@internal/node-admin";
 import { useState } from "react";
 import { NodeKeySetup } from "@/components/nodes/node-key-setup";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { CopyableValue } from "@/components/ui/copyable-value";
 import {
   Dialog,
   DialogContent,
@@ -13,8 +21,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useDeleteSetupKey, useSetupKeys } from "@/hooks/use-nodes";
-import { errMessage } from "@/lib/api";
-import { confirmAction } from "@/lib/confirm";
 
 /**
  * The instructions for ONE key this card already lists.

@@ -1,7 +1,6 @@
+import { Button, cn } from "@internal/node-admin";
 import type { JSX } from "react";
-import { Button } from "@/components/ui/button";
 import { desktopInvoke, desktopPlatform, isServerDesktop } from "@/lib/desktop";
-import { cn } from "@/lib/utils";
 
 /** Which permission a notice is about — and so which pane fixes it. */
 export type PermissionPane = "notifications" | "files" | "photos";

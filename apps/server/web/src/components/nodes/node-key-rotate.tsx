@@ -1,11 +1,9 @@
+import type { RotatedNodeKey } from "@internal/node-admin";
+import { Button, confirmAction, errMessage } from "@internal/node-admin";
 import { KeyRound } from "lucide-react";
 import { type JSX, useEffect, useState } from "react";
 import { CopyCommandRow } from "@/components/copy-command-row";
-import { Button } from "@/components/ui/button";
 import { useRotateNodeKey } from "@/hooks/use-nodes";
-import { errMessage } from "@/lib/api";
-import { confirmAction } from "@/lib/confirm";
-import type { RotatedNodeKey } from "@/types/node";
 
 /**
  * Rotate-key affordance for one node (spec 2026-08-31 §9): a manager-only

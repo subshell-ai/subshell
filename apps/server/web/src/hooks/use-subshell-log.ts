@@ -1,5 +1,5 @@
+import { apiFetch } from "@internal/node-admin";
 import { useQuery } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/api";
 import { SUBSHELL_LOG_QUERY_KEY } from "@/lib/query-keys";
 
 /** The tail of a subshell's pane log, as served by `GET /api/subshells/:id/log`. */

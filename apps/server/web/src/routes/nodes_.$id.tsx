@@ -1,26 +1,31 @@
 import {
+  Badge,
+  Button,
+  confirmAction,
+  errMessage,
+  NodeMaintenanceCard,
+  relativeElapsed,
+  useNode,
+} from "@internal/node-admin";
+import {
   MIN_NODE_VERSION,
   NODE_NAME_MAX,
   NODE_NAME_MAX_UNITS,
   NODE_PROTOCOL_VERSION,
   nodeVersionSupported,
 } from "@internal/subshell-protocol";
+import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { EditableText } from "@/components/editable-text";
 import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
 import { NodeKeyRotate } from "@/components/nodes/node-key-rotate";
-import { NodeMaintenanceCard } from "@/components/nodes/node-maintenance-card";
 import { NodePageShell } from "@/components/nodes/node-page-shell";
 import { osLabel } from "@/components/nodes/node-row";
 import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
-import { relativeElapsed } from "@/components/subshell-status";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { useDeleteNode, useNode, useRenameNode } from "@/hooks/use-nodes";
-import { errMessage } from "@/lib/api";
-import { confirmAction } from "@/lib/confirm";
+import { useDeleteNode, useRenameNode } from "@/hooks/use-nodes";
+import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 
 export const Route = createFileRoute("/nodes_/$id")({
   component: NodeDetailPage,
@@ -45,6 +50,7 @@ export const Route = createFileRoute("/nodes_/$id")({
 function NodeDetailPage() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const node = useNode(id);
   const renameNode = useRenameNode(id);
   const deleteNode = useDeleteNode();
@@ -215,7 +221,13 @@ function NodeDetailPage() {
               section — its own config surface is Server Settings — and a
               switch that moves between sections depending on the kind of
               machine is one people stop finding. */}
-          <NodeMaintenanceCard node={n} />
+          {/* The flip's fallout on THIS surface: every subshell of the viewer's
+              that ran here went `terminated` the instant the PUT answered, and
+              nothing else on the page refetches the sidebar list. */}
+          <NodeMaintenanceCard
+            node={n}
+            onMaintenanceChanged={() => void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY })}
+          />
 
           {/* Key rotation lives with the enrolled nodes: `local`'s key is the
               control plane's own credential — mint/rotate it server-side

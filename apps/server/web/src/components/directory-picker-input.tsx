@@ -1,11 +1,10 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
+import { ApiError, apiFetch, Input } from "@internal/node-admin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUp, ChevronRight, FolderOpen, Star } from "lucide-react";
 import type { JSX } from "react";
 import { useEffect, useRef, useState } from "react";
 import { PermissionNotice } from "@/components/desktop/permission-notice";
-import { Input } from "@/components/ui/input";
-import { ApiError, apiFetch } from "@/lib/api";
 import { desktopPlatform, isServerDesktop } from "@/lib/desktop";
 import { SERVER_DEPLOYMENT_QUERY_KEY } from "@/lib/query-keys";
 import { currentMode } from "@/lib/supervision";

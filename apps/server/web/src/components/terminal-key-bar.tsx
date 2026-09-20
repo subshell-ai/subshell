@@ -1,6 +1,6 @@
+import { cn } from "@internal/node-admin";
 import { ArrowDownToLine, ArrowUpToLine, ImagePlus } from "lucide-react";
 import type { ReactNode } from "react";
-import { cn } from "@/lib/utils";
 
 /** One key-bar button — every button sends raw bytes, like a physical key. */
 export interface KeyBarButton {

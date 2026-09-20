@@ -1,6 +1,6 @@
+import { ApiError, apiFetch, Button, errMessage, Input, Label } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type JSX, useState } from "react";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -9,10 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useInvalidateWorkspaces } from "@/hooks/use-workspaces";
-import { ApiError, apiFetch, errMessage } from "@/lib/api";
 import { NAME_MAX_DEFAULT } from "@/lib/name-limits";
 import { WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import type { WorkspaceRow } from "@/types/workspace";

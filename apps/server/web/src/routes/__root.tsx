@@ -1,3 +1,4 @@
+import { apiFetch } from "@internal/node-admin";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { createRootRoute, Navigate, Outlet, useLocation } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
@@ -19,7 +20,6 @@ import { LiveSubshellsFeedProvider } from "@/hooks/use-live-subshells-feed";
 import { useServerOffline } from "@/hooks/use-server-offline";
 import { useSetupProgress } from "@/hooks/use-setup-progress";
 import { useVisualViewportInsets } from "@/hooks/use-visual-viewport-insets";
-import { apiFetch } from "@/lib/api";
 import { useCurrentUser } from "@/lib/auth";
 import { desktopPlatform, isServerDesktop } from "@/lib/desktop";
 import { queryClient } from "@/lib/query-client";

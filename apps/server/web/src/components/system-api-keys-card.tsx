@@ -1,8 +1,19 @@
+import {
+  ApiError,
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  confirmAction,
+  Input,
+  Label,
+  Switch,
+} from "@internal/node-admin";
 import { Check, Copy } from "lucide-react";
 import { useState } from "react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -11,9 +22,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import {
   type CreatedSystemKey,
   useCreateSystemKey,
@@ -21,8 +29,6 @@ import {
   useSetSystemKeyEnabled,
   useSystemKeys,
 } from "@/hooks/use-system-keys";
-import { ApiError } from "@/lib/api";
-import { confirmAction } from "@/lib/confirm";
 
 /** Turns an apiFetch failure into short user-facing copy. */
 function keyErrorMessage(err: unknown): string {

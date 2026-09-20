@@ -1,11 +1,9 @@
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, errMessage } from "@internal/node-admin";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { PluginIcon } from "@/components/plugin-icon";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useInstallInstancePlugin, useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { NETWORK_QUERY_KEY } from "@/hooks/use-network";
-import { errMessage } from "@/lib/api";
 
 /**
  * The networks this build carries that the instance store does not hold yet.

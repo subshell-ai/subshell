@@ -1,4 +1,4 @@
-import type { Node } from "@/types/node";
+import type { Node } from "@internal/node-admin";
 
 /**
  * The ONE spelling of "this node is down" on the web side: the

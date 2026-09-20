@@ -1,8 +1,5 @@
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label } from "@internal/node-admin";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth-client";
 import { MIN_PASSWORD_LENGTH, passwordTooShort } from "@/lib/password";
 

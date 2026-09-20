@@ -1,6 +1,6 @@
+import { Button } from "@internal/node-admin";
 import { type ReactNode, useEffect } from "react";
 import { StepDots } from "@/components/setup/step-dots";
-import { Button } from "@/components/ui/button";
 
 export interface SetupAssistantProps {
   /**

@@ -1,5 +1,5 @@
+import { apiFetch } from "@internal/node-admin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/api";
 import { SERVER_DEPLOYMENT_QUERY_KEY, SERVER_LOGS_QUERY_KEY } from "@/lib/query-keys";
 import type { ServerDeployment, ServerLogs } from "@/types/server-deployment";
 

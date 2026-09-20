@@ -1,5 +1,5 @@
+import { Button, errMessage } from "@internal/node-admin";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -14,7 +14,6 @@ import {
   usePluginImpact,
   useUninstallInstancePlugin,
 } from "@/hooks/use-instance-plugins";
-import { errMessage } from "@/lib/api";
 
 /**
  * The uninstall prompt (spec 2026-09-10 §6.1). Its own component over the

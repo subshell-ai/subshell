@@ -1,12 +1,18 @@
+import {
+  apiFetch,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Input,
+  Label,
+} from "@internal/node-admin";
 import { normalizeLabel } from "@internal/subshell-protocol";
 import { useQueryClient } from "@tanstack/react-query";
 import { type JSX, useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { PUBLIC_SETTINGS_QUERY_KEY, usePublicSettings } from "@/hooks/use-public-settings";
-import { apiFetch } from "@/lib/api";
 import { INSTANCE_NAME_MAX } from "@/lib/name-limits";
 
 /**

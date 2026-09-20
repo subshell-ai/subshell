@@ -1,6 +1,6 @@
+import { ApiError, NetworkError, parseErrorBody } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HARNESS_QUERY_KEY } from "@/hooks/use-harnesses";
-import { ApiError, NetworkError, parseErrorBody } from "@/lib/api";
 import type { HarnessInfo } from "@/types/harness";
 
 /** The `done` frame of `POST /api/setup/agents/:id/install`. */

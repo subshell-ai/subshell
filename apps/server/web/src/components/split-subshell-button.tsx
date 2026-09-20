@@ -1,10 +1,9 @@
+import { apiFetch, apiPost, Button } from "@internal/node-admin";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { SquareSplitHorizontal } from "lucide-react";
 import { type JSX, useState } from "react";
 import { AddSubshellDialog } from "@/components/subshell-picker/add-subshell-dialog";
-import { Button } from "@/components/ui/button";
-import { apiFetch, apiPost } from "@/lib/api";
 import { SUBSHELL_WORKSPACES_QUERY_KEY } from "@/lib/query-keys";
 import { splitCreateFailureMessage, splitWorkspaceRefusal } from "@/lib/split-workspace-refusal";
 import { defaultWorkspaceName } from "@/lib/workspace-name";

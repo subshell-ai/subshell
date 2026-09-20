@@ -1,3 +1,4 @@
+import { Button } from "@internal/node-admin";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { LayoutGrid, List, Plus, TerminalSquare } from "lucide-react";
 import { useState } from "react";
@@ -8,7 +9,6 @@ import { useQuickAdd } from "@/components/quick-add";
 import { SubshellCard } from "@/components/subshell-card";
 import { SubshellManagerTable } from "@/components/subshell-manager-table";
 import { SubshellSearch } from "@/components/subshell-search";
-import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { useLiveSubshells } from "@/hooks/useLiveSubshells";
 import { filterSubshells, groupSubshells } from "@/lib/subshell-filter";

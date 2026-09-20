@@ -1,7 +1,6 @@
-import { Badge } from "@/components/ui/badge";
+import { Badge, cn } from "@internal/node-admin";
 import { UserRowActions } from "@/components/users/user-row-actions";
 import { useCurrentUser } from "@/lib/auth";
-import { cn } from "@/lib/utils";
 import { asUserRole, USER_ROLE_LABELS } from "@/types/user-role";
 
 /** One account on the instance, as `GET /api/users` returns it. */

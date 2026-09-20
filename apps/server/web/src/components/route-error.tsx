@@ -1,5 +1,5 @@
+import { Button } from "@internal/node-admin";
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
 
 /**
  * The app-wide route error screen (the root route's `errorComponent`).

@@ -1,5 +1,5 @@
+import { cn } from "@internal/node-admin";
 import { ArrowUpCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 /**
  * The sidebar footer's version line: what this is, and one amber dot when

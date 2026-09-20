@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import type { Node } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -22,7 +23,6 @@ import {
 import { toSubshellCreateBody } from "@/hooks/use-create-subshell";
 import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
-import type { Node } from "@/types/node";
 
 /**
  * The Agent-first launch form (spec 2026-09-13 §5): searchable Agent picker

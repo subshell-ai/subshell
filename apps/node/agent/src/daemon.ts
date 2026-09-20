@@ -20,6 +20,7 @@ import { buildSubshellsReport, maybeReportMaintenance, seedMaintenanceMemo } fro
 import { stopAllTails } from "./commands/tail.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
 import type { NodeConfig } from "./config.js";
+import { registerRestart, setDaemonState } from "./dashboard/state.js";
 import { loadAndApplyDebugLogging } from "./debug-logging.js";
 import { mapOs } from "./enroll.js";
 import { reportHomeDir } from "./host-env.js";
@@ -432,6 +433,15 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       }, RESTART_EXIT_DELAY_MS);
     },
   };
+  // Publish the daemon's live facts to the local dashboard and hand it the
+  // ONE restart path this process has (spec 2026-09-19). Before the first
+  // dial: a dashboard served by this process must be able to answer the
+  // plane-socket questions while the plane is simply down, and `restart`
+  // through anything but `ctx.requestRestart` would exit with result frames
+  // still unsent. Cleared in the finally below so a test seam that unwinds
+  // the loop cannot leave a dead closure registered.
+  setDaemonState({ serverUrl: config.serverUrl, nodeId: config.nodeId, runtime });
+  registerRestart(() => ctx.requestRestart());
   // Startup sweep for upload temps orphaned by a crash mid-stream (spec §3.4).
   // Never throws by contract — a broken sweep must not cost the node its connection.
   await cleanupStaleUploads(ctx);
@@ -682,6 +692,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         if (acceptedTimer !== undefined) clearTimeout(acceptedTimer);
         if (socket === ws) socket = undefined;
         if (currentWs === ws) currentWs = undefined;
+        setDaemonState({ connected: false });
         // Tails push into the socket that just died — stop every pump before
         // the reconnect loop dials again (the control plane re-`tail_start`s
         // on the new connection with its own cursors; spec §3.4).
@@ -691,6 +702,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       ws.addEventListener("open", async () => {
         attempt = 0; // a successful open resets the backoff ladder
         log(`connected ${wsUrl} as node ${config.nodeId}`);
+        setDaemonState({ connected: true });
         // `ready` is built SYNCHRONOUSLY: nothing it reports needs a read
         // (identity is config + OS facts, `selfInvoke` is `selfInvokePrefix`,
         // and the env VALUES the resume paths need answer on the plane's
@@ -735,7 +747,9 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
           // re-arms freshness, like the census.
           .then(() => pushInventory("inventory push failed"));
         heartbeat = setInterval(() => {
-          send(ws, { type: "heartbeat", ts: new Date(nowMs()).toISOString() });
+          const tickAt = new Date(nowMs()).toISOString();
+          send(ws, { type: "heartbeat", ts: tickAt });
+          setDaemonState({ connected: true, lastHeartbeatAt: tickAt });
           writeLiveness(); // every heartbeat tick doubles as the local-liveness refresh
           // The BELT for a maintenance flip (spec 2026-09-14 §4.3). The other
           // report path rides the deaths a flip causes, which reports nothing
@@ -846,6 +860,8 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       await sleepCancellable(delay);
     }
   } finally {
+    registerRestart(null);
+    setDaemonState({ connected: false });
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
     try {

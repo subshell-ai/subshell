@@ -1,3 +1,4 @@
+import { Button } from "@internal/node-admin";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
@@ -5,7 +6,6 @@ import { DevProxyNotice } from "@/components/service/dev-proxy-notice";
 import { ServerLogCard } from "@/components/service/server-log-card";
 import { ServiceCard } from "@/components/service/service-card";
 import { SupervisionCard } from "@/components/service/supervision-card";
-import { Button } from "@/components/ui/button";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useServerDeployment, useSetServerAutostart } from "@/hooks/use-server-deployment";

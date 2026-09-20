@@ -1,3 +1,4 @@
+import { cn } from "@internal/node-admin";
 import { SUBSHELL_REPO_SLUG } from "@internal/subshell-protocol";
 import { ChevronUp, Info, LogOut, MessageSquare, SlidersHorizontal, UserRound } from "lucide-react";
 import type { JSX } from "react";
@@ -8,7 +9,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
 
 /**
  * The signed-in user menu (spec 2026-09-02 settings-split §3) — replaces the

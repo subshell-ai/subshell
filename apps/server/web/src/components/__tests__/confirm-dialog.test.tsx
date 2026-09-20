@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { Button, confirmAction } from "@internal/node-admin";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { Button } from "@/components/ui/button";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
-import { confirmAction } from "@/lib/confirm";
 
 /** Renders a provider with a trigger that asks and records the answer. */
 function renderAsking(results: (boolean | null)[]) {

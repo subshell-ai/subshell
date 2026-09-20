@@ -1,7 +1,7 @@
+import { Button } from "@internal/node-admin";
 import { semverLt } from "@internal/subshell-protocol";
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
 import { DASH, MobilePair, VersionCell } from "@/components/updates/row-cells";
 import { UpdateDialog } from "@/components/updates/update-dialog";
 import type { StartServerUpdate } from "@/hooks/use-updates";

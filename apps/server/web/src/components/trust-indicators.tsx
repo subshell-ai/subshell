@@ -1,8 +1,8 @@
+import { cn } from "@internal/node-admin";
 import { ServerCog, Users } from "lucide-react";
 import type { JSX } from "react";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { TrustNotice, TrustNoticeKind } from "@/lib/trust-notices";
-import { cn } from "@/lib/utils";
 
 /**
  * The PERMANENT half of the trust disclosure: one small amber icon per active

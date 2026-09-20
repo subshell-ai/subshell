@@ -1,11 +1,7 @@
+import { Button, errMessage, Input, Label, Switch } from "@internal/node-admin";
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { NetworkSettingsError, type NetworkSettingsIssue, useUpdateNetworkSettings } from "@/hooks/use-network";
-import { errMessage } from "@/lib/api";
 import type { NetworkRow, SettingsFieldWire } from "@/types/network";
 
 /**

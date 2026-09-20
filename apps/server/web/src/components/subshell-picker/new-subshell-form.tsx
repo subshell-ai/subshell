@@ -1,12 +1,12 @@
+import type { Node } from "@internal/node-admin";
+import { Button, Label } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import type { JSX } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
 import { NoLaunchTargets } from "@/components/subshell-picker/no-launch-targets";
-import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/combobox";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { WorkingDirField } from "@/components/working-dir-field";
 import { type InstancePluginRow, useInstancePlugins } from "@/hooks/use-instance-plugins";
@@ -17,7 +17,6 @@ import { useSubshellsList } from "@/hooks/use-subshells";
 import { isOfflineAgent } from "@/lib/node-label";
 import { buildAgentOptions, buildNodeOptions, defaultAgentId } from "@/lib/subshell-compat";
 import { sortByCreation } from "@/lib/subshell-order";
-import type { Node } from "@/types/node";
 
 /** The fields needed to launch a new subshell (spec 2026-09-13 §5). */
 export interface NewSubshellFormValue {

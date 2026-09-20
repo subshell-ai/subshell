@@ -1,5 +1,5 @@
+import { apiFetch } from "@internal/node-admin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/api";
 import { SETUP_PROGRESS_QUERY_KEY } from "@/lib/query-keys";
 import type { SetupProgress, SetupStep } from "@/types/setup";
 

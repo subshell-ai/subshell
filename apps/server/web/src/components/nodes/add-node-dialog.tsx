@@ -1,12 +1,11 @@
+import type { CreatedSetupKey } from "@internal/node-admin";
+import { Button, errMessage } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { NodeKeySetup } from "@/components/nodes/node-key-setup";
-import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useCreateSetupKey, useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
-import { errMessage } from "@/lib/api";
-import type { CreatedSetupKey } from "@/types/node";
 
 /**
  * "Add node": ONE screen — the address, the mint press, and how to hand the key to

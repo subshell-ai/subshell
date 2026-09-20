@@ -1,10 +1,8 @@
+import { Button, CopyableValue, FactCard } from "@internal/node-admin";
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
-import { FactCard } from "@/components/admin-status/fact-list";
 import { RestartDialog, resumeElsewhere } from "@/components/service/restart-dialog";
 import { ElsewhereLink, RestartStrip } from "@/components/service/restart-strip";
-import { Button } from "@/components/ui/button";
-import { CopyableValue } from "@/components/ui/copyable-value";
 import type { ServerRestart } from "@/hooks/use-server-restart";
 import type { ServerDeployment } from "@/types/server-deployment";
 

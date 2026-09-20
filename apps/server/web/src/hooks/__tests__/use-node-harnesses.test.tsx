@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import type { NodeDetail } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { HARNESS_QUERY_KEY, useNodeHarnesses } from "@/hooks/use-harnesses";
-import type { NodeDetail } from "@/types/node";
 
 /**
  * Per-node harness READS: the harness rows ride the node detail query, with no

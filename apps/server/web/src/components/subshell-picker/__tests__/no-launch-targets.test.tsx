@@ -1,4 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
+import type { Node } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -9,7 +10,6 @@ import {
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { NoLaunchTargets } from "@/components/subshell-picker/no-launch-targets";
-import type { Node } from "@/types/node";
 
 /**
  * Three promises this empty state makes.

@@ -1,5 +1,4 @@
-import { Fact, FactCard } from "@/components/admin-status/fact-list";
-import { Badge } from "@/components/ui/badge";
+import { Badge, Fact, FactCard } from "@internal/node-admin";
 import type { AdminStatus } from "@/hooks/use-admin-status";
 
 /**

@@ -1,17 +1,25 @@
+import {
+  ApiError,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CopyableValue,
+  confirmAction,
+  errMessage,
+  Fact,
+  Input,
+  Label,
+} from "@internal/node-admin";
 import { LoaderCircle, ShieldAlert } from "lucide-react";
 import { useState } from "react";
-import { Fact } from "@/components/admin-status/fact-list";
 import { NetworkAddresses } from "@/components/networking/network-addresses";
 import { NetworkHintBlock, NetworkHints, NetworkNotice, splitLeadHints } from "@/components/networking/network-hints";
 import { hasGroupedSteps, PrivilegedSteps } from "@/components/networking/network-privileged-steps";
 import { NetworkProcessLine } from "@/components/networking/network-process-line";
 import { NetworkSettingsForm, secretIsSet } from "@/components/networking/network-settings-form";
 import { PluginIcon } from "@/components/plugin-icon";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CopyableValue } from "@/components/ui/copyable-value";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Segmented } from "@/components/ui/segmented";
 import { useSetPluginEnabled } from "@/hooks/use-instance-plugins";
 import {
@@ -21,8 +29,6 @@ import {
   usePublishNetwork,
   useUnpublishNetwork,
 } from "@/hooks/use-network";
-import { ApiError, errMessage } from "@/lib/api";
-import { confirmAction } from "@/lib/confirm";
 import { connectBlocker } from "@/lib/network-connect";
 import { disableDescription, disabledLine, leftLine, publishedLine, unpublishedLine } from "@/lib/network-result-copy";
 import { safeHref } from "@/lib/safe-href";

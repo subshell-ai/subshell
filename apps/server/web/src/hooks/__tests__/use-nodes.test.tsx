@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import type { Node } from "@internal/node-admin";
+import { ApiError, useNode } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -6,15 +8,12 @@ import {
   useCreateSetupKey,
   useDeleteNode,
   useDeleteSetupKey,
-  useNode,
   useNodes,
   useRecheckNode,
   useRenameNode,
   useRotateNodeKey,
   useSetupKeys,
 } from "@/hooks/use-nodes";
-import { ApiError } from "@/lib/api";
-import type { Node } from "@/types/node";
 
 /** One NodeView fixture — field names exactly as `node-view.ts` renders them. */
 const NODE: Node = {

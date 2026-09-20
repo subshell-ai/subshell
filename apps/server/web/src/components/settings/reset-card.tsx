@@ -1,6 +1,5 @@
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@internal/node-admin";
 import type { JSX } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { desktopInvoke } from "@/lib/desktop";
 
 /**

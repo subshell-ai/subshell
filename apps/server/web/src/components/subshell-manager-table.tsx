@@ -1,11 +1,10 @@
+import { apiFetch, Button, relativeElapsed } from "@internal/node-admin";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { RotateCcw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
-import { RowStatusBadges, relativeElapsed } from "@/components/subshell-status";
-import { Button } from "@/components/ui/button";
-import { apiFetch } from "@/lib/api";
+import { RowStatusBadges } from "@/components/subshell-status";
 import { AUTO_RESTART_HELP, describeAutoRestart } from "@/lib/auto-restart";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import { confirmCloseSubshells } from "@/lib/subshell-confirmations";

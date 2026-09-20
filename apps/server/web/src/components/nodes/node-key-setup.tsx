@@ -1,7 +1,7 @@
+import { Label } from "@internal/node-admin";
 import { NODE_TARGETS, SUBSHELL_REPO_SLUG } from "@internal/subshell-protocol";
 import { type ReactNode, useId, useState } from "react";
 import { CopyCommandRow } from "@/components/copy-command-row";
-import { Label } from "@/components/ui/label";
 import { Segmented } from "@/components/ui/segmented";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePublicSettings } from "@/hooks/use-public-settings";

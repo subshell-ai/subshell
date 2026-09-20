@@ -1,12 +1,19 @@
+import {
+  apiFetch,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  errMessage,
+} from "@internal/node-admin";
 import { useMutation } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useState } from "react";
 import { PresetFields } from "@/components/presets/preset-fields";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useInvalidatePresets, usePresets } from "@/hooks/use-presets";
-import { apiFetch, errMessage } from "@/lib/api";
 import { type PresetFormValue, presetFormFromRow, toPresetUpdatePayload } from "@/lib/preset-form";
 import type { PresetRow } from "@/types/preset";
 

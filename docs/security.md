@@ -772,6 +772,73 @@ Nothing else changes: for a viewer who was never boosted the two readings are
 the same value, and the machine-actor path (`allowAdminAndShares: false`)
 resolves them identically, so a bearer token neither gains nor loses anything.
 
+### The node's loopback dashboard (spec 2026-09-19)
+
+`subshell run` binds an HTTP surface on **127.0.0.1:3090** that answers the
+control plane's own `/api/nodes/:id/*` contract about THIS machine — the
+Status / Node Settings / Updates pages a node owner used to need either a
+plane session or a terminal for. It has **no login**, and that is the design,
+not an oversight: the access control is the listen address plus the OS user.
+Whoever can reach this port is whoever can run `subshell` as this user, and
+every act the dashboard performs (service stop, maintenance, repoint, binary
+update) is an act that same user can type at the keyboard. The dashboard
+grants nothing new; it *removes the terminal* from the path.
+
+The browser, however, is new, and three refusals cover it (`dashboard/guards.ts`):
+
+- **`Host` must name loopback.** DNS rebinding: a hostile domain with a short
+  TTL resolves to 127.0.0.1 inside the victim's browser, whose same-origin
+  math then lets that page read a no-credential API. The header is the
+  interface cannot see, so the header is what answers — the same hole the
+  plane's `TRUSTED_ORIGINS` closes from its end (§8), closed here by
+  having no non-loopback names to trust.
+- **`Origin`, when present, must be loopback too.** A cross-site page CAN
+  open no-cors reads against 127.0.0.1; the same-origin check is what stops
+  any page in the browser from pressing service stop on a hunch.
+- **Mutations require `content-type: application/json`.** A form-encoded or
+  text/plain POST is a “simple request” a cross-origin form sends with
+  no preflight at all — and no `Origin` to check; requiring JSON forces the
+  preflight the Origin rule can then defend.
+
+What is deliberately NOT here: tokens, cookies, sessions, CORS. Nothing sets
+a cookie, so there is nothing to steal; the API answers any loopback-HOST
+request. **The accepted gap is the multi-user host, and it is a widening, not a
+parity.** A second local user can reach `127.0.0.1` as readily as the owner
+and, because the port has no credential, flip maintenance (killing the owner's
+panes), stop the service, or **repoint the agent** — and that last one is a real
+disclosure, not a restatement: the daemon dials whatever address is typed
+carrying `Authorization: Bearer <nodeKey>`, a credential valid on the plane. It
+is NOT true that such a user could already do this: they cannot read the owner's
+0600 `config.json` (that mode is precisely why the key is kept from them), and
+their own `subshell` drives their own node, not the victim's. The no-auth
+loopback port hands them a keyboard-less path to acts the file's permissions
+were meant to withhold. We accept it on the product's **single-user assumption**
+— a machine with a second untrusted user is outside the posture §12 is written
+for — and say so plainly rather than dressing it as "no new privilege," so the
+next reader does not cite this as precedent that the 0600 boundary was already
+defeated. On such a host, `SUBSHELL_DASHBOARD=0` turns the surface off entirely;
+it is the right default there, and only the operator can decide to set it.
+
+The rest is the standing accounting, unchanged by this surface:
+
+- **Update acts trust the publisher key, not the page.** The local route
+  runs the same `execUpdate` the plane-commanded one does: signed release
+  manifest, compiled-in pubkey, digest from the signed `assets` map
+  (§11.12). The dashboard IS the machine's keyboard; the trust rule never
+  softened because a browser pressed it.
+- **Allowed-dirs is read-only here.** The list is the plane's push, enforced
+  at launch against the plane's copy first; a local edit would silently
+  diverge and reappear on the next `ready`.
+- **There is no audit row.** The plane audits every mutation with a named
+  actor; this surface has no actor beyond the machine's own user, and its
+  record is the agent log file (§10), which already holds launches and
+  refusals and never holds argv or pane content.
+- **`maintenance on` here kills.** The node's own CLI semantics — flag
+  first, then stop every subshell, re-probe each kill — are carried
+  verbatim, not the plane's no-kill version. The card asks first; the page
+  says plainly that it stops subshell panes, the same disclosure the
+  plane's flip makes.
+
 ### Plugin installs from the registry (spec 2026-09-09; instance-level since 2026-09-10)
 
 Phase 3 taught the plugin system a network source, and the 2026-09-10
@@ -2315,3 +2382,15 @@ holds and the following are prerequisites, not improvements:
       configured here, and that no bypass or service-token policy is attached —
       §0's trusted network is no longer what stands between the internet and
       this instance.
+- [ ] **Give the node's loopback dashboard its own credential before it stops
+      being loopback-only or lands on a multi-user host** (§6, "The node's
+      loopback dashboard"). It has no login by design: the `127.0.0.1` bind plus
+      the OS user IS the access control, and the guards (`Host`/`Origin`/JSON)
+      only close the browser-rebinding path. That leaves two things to fix for a
+      wider deployment — a routable bind would expose the whole surface with no
+      credential at all, and even on loopback a second local user can press its
+      mutations. The sharpest is the repoint: the daemon dials whatever address
+      the page names carrying `Authorization: Bearer <nodeKey>`, a credential
+      valid on the plane, so this surface must authenticate AND supply an actor
+      for the agent-log record before either change ships. Until then
+      `SUBSHELL_DASHBOARD=0` is the remedy and the correct default there.

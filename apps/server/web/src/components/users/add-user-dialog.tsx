@@ -1,3 +1,4 @@
+import { apiPost, Button, errMessage, Label } from "@internal/node-admin";
 import { useEffect, useState } from "react";
 import {
   EMPTY_NEW_ACCOUNT,
@@ -6,7 +7,6 @@ import {
   newAccountComplete,
   normalizeNewAccount,
 } from "@/components/account/new-account-fields";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -15,9 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { apiPost, errMessage } from "@/lib/api";
 import { USER_ROLE_OPTIONS, type UserRole } from "@/types/user-role";
 
 /**

@@ -35,7 +35,10 @@ import type { Cmd, CommandContext, CommandResult } from "./context.js";
  * or it is closed 4406 (the daemon swaps `.previous` back and exits 1, so the
  * manager brings the PREVIOUS version up on a machine nobody had to visit).
  */
-export async function execUpdate(ctx: CommandContext, cmd: Cmd<"update">): Promise<CommandResult> {
+/** What `execUpdate` reads; see {@link ServiceExecContext} for why it is narrowed. */
+export type UpdateExecContext = Pick<CommandContext, "runtime" | "config" | "binaryDeps" | "requestRestart">;
+
+export async function execUpdate(ctx: UpdateExecContext, cmd: Cmd<"update">): Promise<CommandResult> {
   const runtime = ctx.runtime;
 
   if (!runtime?.supervised) {

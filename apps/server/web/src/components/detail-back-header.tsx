@@ -1,8 +1,8 @@
+import { Button } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
 import { MobileNav } from "@/components/mobile-top-bar";
-import { Button } from "@/components/ui/button";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
 
 /**

@@ -1,6 +1,6 @@
+import { Button, errMessage } from "@internal/node-admin";
 import { type JSX, useState } from "react";
 import { PresetFields } from "@/components/presets/preset-fields";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/dialog";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useCreatePreset } from "@/hooks/use-presets";
-import { errMessage } from "@/lib/api";
 import { emptyPresetForm, type PresetFormValue, toPresetPayload } from "@/lib/preset-form";
 import type { PresetRow } from "@/types/preset";
 

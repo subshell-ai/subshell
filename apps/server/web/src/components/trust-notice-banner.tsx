@@ -1,9 +1,8 @@
+import { Button, cn } from "@internal/node-admin";
 import { type JSX, useEffect, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
-import { Button } from "@/components/ui/button";
 import { markNoticeSeen, noticeSeen, trustBannersEnabled } from "@/lib/trust-notice-prefs";
 import type { TrustNotice } from "@/lib/trust-notices";
-import { cn } from "@/lib/utils";
 
 /**
  * The INTERRUPTING half of the trust disclosure: an amber strip that says, in

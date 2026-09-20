@@ -1,6 +1,5 @@
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, Label } from "@internal/node-admin";
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { setTerminalFontSize, TERM_FONT_DEFAULT, terminalFontSize } from "@/lib/terminal-font-size";
 

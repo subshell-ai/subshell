@@ -1,7 +1,7 @@
+import { Button, Switch } from "@internal/node-admin";
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import type { SupervisionMode } from "@/components/service/supervision-card";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -10,7 +10,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/switch";
 import type { PaneSafety, ServerDeployment } from "@/types/server-deployment";
 
 /**

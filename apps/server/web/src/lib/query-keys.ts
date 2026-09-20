@@ -35,11 +35,9 @@ export const WORKSPACE_QUERY_KEY = ["workspace"] as const;
  */
 export const SUBSHELL_WORKSPACES_QUERY_KEY = ["subshell-workspaces"] as const;
 
-/** The caller's node list (`GET /api/nodes`); read via `useNodes`. */
-export const NODES_QUERY_KEY = ["nodes"] as const;
-
-/** Prefix of one node's detail query: `[...NODE_QUERY_KEY, id]`. */
-export const NODE_QUERY_KEY = ["node"] as const;
+/* NODES_QUERY_KEY and NODE_QUERY_KEY moved to `@internal/node-admin` with the
+   node-admin hooks — the cards and BOTH backends' mutations speak them, and a
+   key defined in two places is a cache two mutations can miss. */
 
 /** Prefix of a node's sharing grants: `[...NODE_SHARES_QUERY_KEY, id]`. */
 export const NODE_SHARES_QUERY_KEY = ["node-shares"] as const;

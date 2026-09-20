@@ -1,3 +1,4 @@
+import { apiFetch, Button, errMessage } from "@internal/node-admin";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
@@ -19,7 +20,6 @@ import {
   NewSubshellForm,
   type NewSubshellFormValue,
 } from "@/components/subshell-picker/new-subshell-form";
-import { Button } from "@/components/ui/button";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useHarnesses } from "@/hooks/use-harnesses";
@@ -27,7 +27,6 @@ import { useInstallAgent } from "@/hooks/use-install-agent";
 import { useInstallTmux } from "@/hooks/use-install-tmux";
 import { useNetwork } from "@/hooks/use-network";
 import { useSetSetupProgress, useSetupProgress } from "@/hooks/use-setup-progress";
-import { apiFetch, errMessage } from "@/lib/api";
 import { useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";

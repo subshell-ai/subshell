@@ -1,3 +1,4 @@
+import { apiFetch, Badge, Button, cn } from "@internal/node-admin";
 import type { ViewersState } from "@internal/subshell-protocol";
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
@@ -18,8 +19,6 @@ import { TerminalKeyBar } from "@/components/terminal-key-bar";
 import { TranscriptSearch } from "@/components/transcript-search";
 import { TrustIndicators } from "@/components/trust-indicators";
 import { TrustNoticeBanner } from "@/components/trust-notice-banner";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
 import { useSwipeOrderedSubshells } from "@/hooks/use-ordered-subshells";
@@ -29,11 +28,9 @@ import { useSubshellLog } from "@/hooks/use-subshell-log";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
 import { useSwipeNav } from "@/hooks/use-swipe-nav";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
-import { apiFetch } from "@/lib/api";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import { findNeighbors } from "@/lib/subshell-neighbors";
 import { swipeNavEnabled } from "@/lib/swipe-nav-pref";
-import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/subshells_/$id")({
   component: SubshellPage,

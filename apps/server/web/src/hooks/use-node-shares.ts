@@ -1,7 +1,7 @@
+import type { NodeShare } from "@internal/node-admin";
+import { apiFetch, NODE_QUERY_KEY, NODES_QUERY_KEY } from "@internal/node-admin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/api";
-import { NODE_QUERY_KEY, NODE_SHARES_QUERY_KEY, NODES_QUERY_KEY } from "@/lib/query-keys";
-import type { NodeShare } from "@/types/node";
+import { NODE_SHARES_QUERY_KEY } from "@/lib/query-keys";
 
 /**
  * Sharing reads/writes for one node (spec 2026-08-31 §9/§10) — the mirror of

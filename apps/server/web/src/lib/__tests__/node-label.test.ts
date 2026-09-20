@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import type { Node } from "@internal/node-admin";
 import { nodeOptionLabel } from "@/lib/node-label";
-import type { Node } from "@/types/node";
 
 type Row = Pick<Node, "kind" | "status" | "name" | "os" | "arch" | "maintenance">;
 

@@ -1,4 +1,4 @@
-import { ApiError } from "@/lib/api";
+import { ApiError } from "@internal/node-admin";
 
 /** The four truths the workspace detail page renders one of. */
 export type WorkspaceLoad = "loading" | "answeredError" | "notFound" | "ready";

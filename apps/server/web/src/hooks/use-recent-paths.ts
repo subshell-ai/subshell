@@ -1,5 +1,5 @@
+import { apiFetch } from "@internal/node-admin";
 import { useQuery } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/api";
 
 /** One recently used working directory, as recorded by subshell creation. */
 export interface RecentPath {

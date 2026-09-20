@@ -1,6 +1,6 @@
+import { apiFetch, errMessage } from "@internal/node-admin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PUBLIC_SETTINGS_QUERY_KEY } from "@/hooks/use-public-settings";
-import { apiFetch, errMessage } from "@/lib/api";
 import { SERVER_DEPLOYMENT_QUERY_KEY } from "@/lib/query-keys";
 import type { ServerConfigPatch, ServerConfigUpdate, ServerDeployment } from "@/types/server-deployment";
 

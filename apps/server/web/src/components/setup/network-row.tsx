@@ -1,8 +1,7 @@
+import { Button, cn } from "@internal/node-admin";
 import { useId, useState } from "react";
 import { NetworkPluginCard } from "@/components/networking/network-plugin-card";
 import { PluginIcon } from "@/components/plugin-icon";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import type { NetworkRow as NetworkRowData } from "@/types/network";
 
 /**

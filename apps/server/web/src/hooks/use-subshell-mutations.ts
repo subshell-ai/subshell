@@ -1,5 +1,5 @@
+import { apiFetch } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/api";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import { confirmCloseSubshell } from "@/lib/subshell-confirmations";
 import type { SubshellView } from "@/types/subshell";

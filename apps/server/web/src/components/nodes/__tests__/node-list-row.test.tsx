@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import type { Node } from "@internal/node-admin";
+import { type ConfirmOptions, setConfirmHandler } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { NodeListRow } from "@/components/nodes/node-list-row";
-import { type ConfirmOptions, setConfirmHandler } from "@/lib/confirm";
-import type { Node } from "@/types/node";
 
 /**
  * The Nodes-list row's maintenance action, which exists to answer one thing

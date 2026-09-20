@@ -20,7 +20,7 @@
  * are async: `if (await confirmCloseSubshell(name)) …`.
  */
 
-import { confirmAction } from "@/lib/confirm";
+import { confirmAction } from "@internal/node-admin";
 
 /**
  * Confirmation prompt before closing a subshell — DELETE with its full

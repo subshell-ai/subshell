@@ -1,4 +1,5 @@
 import { stripAnsi } from "@internal/backend-errors";
+import { Button } from "@internal/node-admin";
 import type { ViewersState } from "@internal/subshell-protocol";
 import { Link } from "@tanstack/react-router";
 import { FitAddon } from "@xterm/addon-fit";
@@ -9,7 +10,6 @@ import { RotateCcw, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { LogTail } from "@/components/log-tail";
 import { TerminalDropOverlay } from "@/components/terminal-drop-overlay";
-import { Button } from "@/components/ui/button";
 import { useTerminalUploads } from "@/hooks/use-terminal-uploads";
 import { shouldResetForeignScroll } from "@/lib/app-scroll-pin";
 import { deadPanelActions } from "@/lib/dead-panel-actions";

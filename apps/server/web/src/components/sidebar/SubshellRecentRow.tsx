@@ -1,8 +1,8 @@
+import { cn } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import { SubshellDot } from "@/components/sidebar/SubshellDot";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { encodeSubshellDrag } from "@/lib/subshell-dnd";
-import { cn } from "@/lib/utils";
 import type { SubshellView } from "@/types/subshell";
 
 /**

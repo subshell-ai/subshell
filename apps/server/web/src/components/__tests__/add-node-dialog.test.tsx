@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { NODES_QUERY_KEY } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -11,7 +12,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { useEffect, useState } from "react";
 import { AddNodeDialog } from "@/components/nodes/add-node-dialog";
 import { installCommandFor, setupCommandFor } from "@/components/nodes/node-key-setup";
-import { NODES_QUERY_KEY } from "@/lib/query-keys";
 
 interface Call {
   method: string;

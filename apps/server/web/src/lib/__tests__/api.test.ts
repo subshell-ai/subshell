@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { ApiError, apiFetch, isNetworkError, NetworkError } from "@/lib/api";
+import { ApiError, apiFetch, isNetworkError, NetworkError } from "@internal/node-admin";
 
 const originalFetch = globalThis.fetch;
 afterEach(() => {

@@ -1,3 +1,5 @@
+import type { Node } from "@internal/node-admin";
+import { Button, confirmAction, errMessage } from "@internal/node-admin";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Plus, Server } from "lucide-react";
 import { useState } from "react";
@@ -7,13 +9,9 @@ import { AddNodeDialog } from "@/components/nodes/add-node-dialog";
 import { NodeListRow } from "@/components/nodes/node-list-row";
 import { SetupKeysSection } from "@/components/nodes/setup-keys-section";
 import { PageHeader } from "@/components/page-header";
-import { Button } from "@/components/ui/button";
 import { useDeleteNode, useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
-import { errMessage } from "@/lib/api";
-import { confirmAction } from "@/lib/confirm";
 import { canAddNode } from "@/lib/node-enrollment";
-import type { Node } from "@/types/node";
 
 export const Route = createFileRoute("/nodes")({
   component: NodesPage,

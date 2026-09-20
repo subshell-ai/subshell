@@ -1,6 +1,6 @@
+import { Button } from "@internal/node-admin";
 import { PermissionNotice } from "@/components/desktop/permission-notice";
 import { ErrorBanner } from "@/components/error-banner";
-import { Button } from "@/components/ui/button";
 import { useDesktopNotifications } from "@/hooks/use-desktop-notifications";
 
 /**

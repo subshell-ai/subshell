@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import { ApiError, NetworkError } from "@internal/node-admin";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
-import { ApiError, NetworkError } from "@/lib/api";
 import { createServerStatusStore, queryIndicatesOffline } from "@/lib/server-status";
 
 async function settle(qc: QueryClient) {

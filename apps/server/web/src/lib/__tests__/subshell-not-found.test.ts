@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { ApiError } from "@/lib/api";
+import { ApiError } from "@internal/node-admin";
 import { isNotFoundSubshellError } from "@/lib/subshell-not-found";
 
 describe("isNotFoundSubshellError", () => {

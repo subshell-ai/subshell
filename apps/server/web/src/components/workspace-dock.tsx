@@ -7,11 +7,11 @@ import {
   type IDockviewPanelProps,
 } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
+import { apiFetch, Button, errMessage } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { type JSX, type DragEvent as ReactDragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { SubshellPicker } from "@/components/subshell-picker";
-import { Button } from "@/components/ui/button";
 import { type WorkspaceDockContextValue, WorkspaceDockProvider } from "@/components/workspace-dock/context";
 import { DockedPane, type DockedPaneParams } from "@/components/workspace-dock/docked-pane";
 import { GroupHeaderActions } from "@/components/workspace-dock/group-header-actions";
@@ -19,7 +19,6 @@ import { SubshellTab } from "@/components/workspace-dock/subshell-tab";
 import { WorkspaceHeader } from "@/components/workspace-header";
 import { useDebouncedSave } from "@/hooks/use-debounced-save";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
-import { apiFetch, errMessage } from "@/lib/api";
 import { confirmCloseSubshell } from "@/lib/subshell-confirmations";
 import { readSubshellDrag, SUBSHELL_DND_TYPE } from "@/lib/subshell-dnd";
 import {

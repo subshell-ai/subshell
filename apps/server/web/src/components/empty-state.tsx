@@ -1,6 +1,5 @@
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@internal/node-admin";
 import { type LucideIcon, Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export interface EmptyStateProps {
   /** Icon beside the title, drawn at the shared `h-5 w-5` */

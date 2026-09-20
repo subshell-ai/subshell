@@ -1,6 +1,6 @@
+import { cn } from "@internal/node-admin";
 import { cva, type VariantProps } from "class-variance-authority";
 import type { ReactNode } from "react";
-import { cn } from "@/lib/utils";
 
 /**
  * The two shapes a sticky workspace error takes: `bar` sits inline inside a

@@ -1,9 +1,8 @@
+import { Button, Input } from "@internal/node-admin";
 import type { SearchAddon } from "@xterm/addon-search";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { TERMINAL_THEME } from "@/components/subshell-terminal";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 
 /**
  * Find overlay entry point rendered near the terminal header: a button that

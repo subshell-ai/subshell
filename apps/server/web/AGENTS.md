@@ -40,6 +40,20 @@ src/
 Route files stay thin: URL state + handlers + composition; data logic goes in
 `hooks/`, reusable UI in `components/`, shared types/constants in `lib/`.
 
+**The node-admin surface does NOT live here — it is `@internal/node-admin`
+(Apache-2.0).** The six node cards (runtime, service, log, maintenance, control
+plane, allowed-dirs), the seven UI primitives they render, `lib/api` +
+`lib/confirm`, `lib/node-maintenance` + `lib/node-confirmations`, the
+`persistence()` half of what was `lib/supervision.ts`, `relativeElapsed`, the
+detail hooks, and `types/node.ts` moved to `packages/node-admin` on 2026-09-19
+so the node's own loopback dashboard can render the same machine in the same
+words; this app imports them from the package. The move was also a deliberate
+AGPL→Apache relicense (root AGENTS.md: "Decide it, don't discover it"). What
+stays plane-only: the harness card, sharing, key rotation, setup keys,
+`DirectoryPickerInput`, and `lib/supervision.ts`'s SUPERVISION half — and the
+cards' plane-side fallout reaches the package through props
+(`onMaintenanceChanged`, `renderEditor`/`onDirsSaved`), never the other way.
+
 **The sidebar (`components/app-sidebar.tsx` + `components/sidebar/`) is more
 than nav.** Recent subshell rows carry a status dot and are the drag source of
 "drag a session into a workspace" (targets: `workspace-dock.tsx`'s tiles

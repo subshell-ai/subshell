@@ -1,5 +1,5 @@
+import { apiPost } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiPost } from "@/lib/api";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 
 /** The fields the shared new-subshell form collects. */

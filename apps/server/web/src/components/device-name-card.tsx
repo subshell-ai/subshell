@@ -1,9 +1,6 @@
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label } from "@internal/node-admin";
 import { DEVICE_LABEL_MAX, normalizeDeviceLabel } from "@internal/subshell-protocol";
 import { type JSX, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { deviceName, deviceNameFromUserAgent, setDeviceName } from "@/lib/device-name";
 
 /**

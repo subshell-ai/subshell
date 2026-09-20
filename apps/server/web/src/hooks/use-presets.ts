@@ -1,5 +1,5 @@
+import { apiFetch, apiPost } from "@internal/node-admin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, apiPost } from "@/lib/api";
 import type { PresetPayload } from "@/lib/preset-form";
 import type { PresetRow } from "@/types/preset";
 

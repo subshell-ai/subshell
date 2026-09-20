@@ -1,5 +1,5 @@
+import { Button } from "@internal/node-admin";
 import { REINSTALL_COMMAND } from "@/components/service/service-card";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,

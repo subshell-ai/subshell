@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { NotificationsCard } from "@/components/notifications-card";
+import { resetDesktopShellForTests } from "@/lib/desktop";
 import type { PushState } from "@/lib/notifications";
 
 /**
@@ -26,14 +27,26 @@ function stubUserAgent(ua: string): () => void {
   const nav = globalThis.navigator as unknown as Record<string, unknown>;
   const prev = Object.getOwnPropertyDescriptor(nav, "userAgent");
   Object.defineProperty(nav, "userAgent", { value: ua, configurable: true, writable: true });
+  // `desktopShell()` memoizes its parse at FIRST call (lib/desktop.ts), so a UA
+  // stub is inert unless the memo is cleared too. Without this the card keeps
+  // rendering whatever another test file's UA resolved it to — the reason these
+  // rows passed in isolation but flipped under full-suite ordering.
+  resetDesktopShellForTests();
   return () => {
     if (prev) Object.defineProperty(nav, "userAgent", prev);
     else delete nav.userAgent;
+    resetDesktopShellForTests();
   };
 }
 
+beforeEach(() => {
+  // A leaked memo from another file must not decide which branch renders here.
+  resetDesktopShellForTests();
+});
+
 afterEach(() => {
   cleanup();
+  resetDesktopShellForTests();
 });
 
 describe("NotificationsCard", () => {

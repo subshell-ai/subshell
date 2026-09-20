@@ -1,14 +1,20 @@
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  errMessage,
+} from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import { LoaderCircle, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { PluginIcon } from "@/components/plugin-icon";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useHarnesses, useNodeHarnesses } from "@/hooks/use-harnesses";
 import { useInstallAgent } from "@/hooks/use-install-agent";
 import { useRecheckNode } from "@/hooks/use-nodes";
-import { errMessage } from "@/lib/api";
 import { checkedAtLabel } from "@/lib/checked-at";
 import type { HarnessInfo } from "@/types/harness";
 

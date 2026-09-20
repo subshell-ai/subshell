@@ -1,5 +1,5 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
-import { ApiError, errMessage } from "@/lib/api";
+import { ApiError, errMessage } from "@internal/node-admin";
 
 /**
  * Display text for a failed `POST /api/subshells` — the one copy both launch

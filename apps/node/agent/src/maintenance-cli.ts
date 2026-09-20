@@ -110,7 +110,15 @@ export async function runMaintenance(
   // onto this machine before the flip reaches it.
   const state = writeMaintenance(dataDir, { on: true, changedAt: new Date(deps.now()).toISOString() });
   const stopped: string[] = [];
+  // The machine list `failed` carries, and what it is for: the wording the
+  // node dashboard's Maintenance card shows for a partial flip is built from
+  // the COUNT, not from these strings (`maintenanceRefusalNotice` in
+  // `@internal/node-admin`), so a JSON consumer handed the indented
+  // `"  id: reason"` lines would have to parse display text for the one
+  // number that matters. The ids therefore travel separately from the
+  // decorated `err` string the human paths print.
   const failed: string[] = [];
+  const failedIds: string[] = [];
   for (const m of alive) {
     try {
       // The META RECORD STAYS. With no daemon running it is the only thing
@@ -125,6 +133,7 @@ export async function runMaintenance(
       // running. Asking the socket again is the only evidence there is.
       if (await deps.tmux.hasSubshell(m.socket, m.subshellId)) {
         failed.push(`  ${m.subshellId}: still running after kill`);
+        failedIds.push(m.subshellId);
         continue;
       }
       stopped.push(m.subshellId);
@@ -133,6 +142,7 @@ export async function runMaintenance(
       // which is not evidence of death either — must not abandon the rest,
       // and must not be counted as stopped.
       failed.push(`  ${m.subshellId}: ${err instanceof Error ? err.message : String(err)}`);
+      failedIds.push(m.subshellId);
     }
   }
   // Exit 0 either way: the flag is written and this machine IS in maintenance
@@ -140,7 +150,13 @@ export async function runMaintenance(
   // report, not a failure of the command. The list is the honest half —
   // `stopped` holds only what the socket confirmed gone.
   const err = failed.length > 0 ? `subshell: could not stop ${failed.length}:\n${failed.join("\n")}\n` : "";
-  if (opts.json) return { code: 0, out: `${JSON.stringify({ ...state, stopped }, null, 2)}\n`, err };
+  // `failed` rides the JSON only when it is non-empty — absence IS the clean
+  // case, the same shape the plane's MaintenanceResult answers with, so one
+  // card renders both backends.
+  if (opts.json) {
+    const body = { ...state, stopped, ...(failedIds.length > 0 ? { failed: failedIds } : {}) };
+    return { code: 0, out: `${JSON.stringify(body, null, 2)}\n`, err };
+  }
   return {
     code: 0,
     out: `maintenance on — stopped ${stopped.length} ${stopped.length === 1 ? "subshell" : "subshells"}\n${LEARNS_LINE}`,

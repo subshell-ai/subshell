@@ -1,7 +1,6 @@
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** The shared frame for both not-found states: the same centered card the
  * workspace/preset detail routes use (routes/workspaces_.$id.tsx). */

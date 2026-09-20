@@ -458,6 +458,46 @@ describe("configure — repoint an enrolled node", () => {
   });
 });
 
+describe("dashboard verb (spec 2026-09-19)", () => {
+  test("the flag parses, with a value; the command slot accepts the verb", () => {
+    const parsed = parseArgs(["dashboard", "--dashboard-port", "31998"]);
+    expect(parsed.command).toBe("dashboard");
+    expect(parsed.flags.dashboardPort).toBe("31998");
+    expect(() => parseArgs(["dashboard", "--dashboard-port"])).toThrow(/requires a value/);
+  });
+
+  test("run accepts the same port flag", () => {
+    expect(parseArgs(["run", "--dashboard-port", "0"]).flags.dashboardPort).toBe("0");
+  });
+
+  test("a non-numeric port is a usage error before anything binds", async () => {
+    const res = await run(["dashboard", "--dashboard-port", "http://nope"]);
+    expect(res.code).toBe(2);
+    expect(res.out).toBe("");
+    expect(res.err).toInclude("not a port");
+  });
+
+  test("the unenrolled machine gets the enroll-pointing refusal, not a server", async () => {
+    // newHome() means no config.json; the verb answers code 1 with the
+    // pointer — the same operational refusal every config-reading verb
+    // (`configure`, `status`, `run`, `maintenance`, `update`) gives for a
+    // machine with nothing enrolled. (`setup` is the exception: it CREATES the
+    // enrollment, so an unenrolled machine is its happy path, not a refusal.)
+    // `parseArgs` and the port flag are the usage (exit 2) half; a missing
+    // config is the operational-refusal (exit 1) half.
+    newHome();
+    const res = await run(["dashboard"]);
+    expect(res.code).toBe(1);
+    expect(res.err.length).toBeGreaterThan(0);
+    expect(res.err).toInclude("subshell enroll");
+  });
+
+  test("usage lists the verb beside run", async () => {
+    const res = await run(["frobnicate"]);
+    expect(res.err).toInclude("subshell dashboard");
+  });
+});
+
 describe("plugin is gone from the CLI (inversion §6)", () => {
   test("`plugin` is an unknown command now, in every position", () => {
     expect(() => parseArgs(["plugin"])).toThrow(/unknown command 'plugin'/);
@@ -628,7 +668,10 @@ describe("maintenance verb", () => {
     const res = await run(["maintenance", "on", "--yes", "--json"], deps);
 
     expect(res.code).toBe(0);
-    expect(JSON.parse(res.out)).toEqual({ on: true, changedAt: NOW, stopped: [A] });
+    // `failed` carries the RAW id for exactly this case: the node dashboard's
+    // partial-flip wording is built from the list, and a consumer handed the
+    // decorated stderr line would have to parse display text to count panes.
+    expect(JSON.parse(res.out)).toEqual({ on: true, changedAt: NOW, stopped: [A], failed: [B] });
     expect(res.err).toInclude(B);
   });
 

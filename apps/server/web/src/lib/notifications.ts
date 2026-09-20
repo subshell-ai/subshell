@@ -1,4 +1,4 @@
-import { apiFetch, apiPost } from "@/lib/api";
+import { apiFetch, apiPost } from "@internal/node-admin";
 
 /**
  * Browser-push glue (spec 2026-08-30-harness-notifications).

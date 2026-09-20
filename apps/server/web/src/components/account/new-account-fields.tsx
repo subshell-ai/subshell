@@ -1,8 +1,6 @@
+import { cn, Input, Label } from "@internal/node-admin";
 import { useState } from "react";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { MIN_PASSWORD_LENGTH, PASSWORD_REQUIREMENT, passwordTooShort } from "@/lib/password";
-import { cn } from "@/lib/utils";
 
 /** Everything asked of someone creating an account, in one state a caller holds. */
 export interface NewAccountValue {

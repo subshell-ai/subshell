@@ -1,4 +1,4 @@
-import { relativeElapsed } from "@/components/subshell-status";
+import { relativeElapsed } from "@internal/node-admin";
 import type { SupervisorStateWire } from "@/types/network";
 
 /**

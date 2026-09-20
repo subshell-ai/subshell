@@ -1,6 +1,6 @@
+import { Button } from "@internal/node-admin";
 import { Check, LoaderCircle, SquareTerminal } from "lucide-react";
 import { CopyCommandRow } from "@/components/copy-command-row";
-import { Button } from "@/components/ui/button";
 import { tmuxInstallHint } from "@/lib/tmux-install";
 
 /**
