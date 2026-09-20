@@ -5,7 +5,7 @@ import type { SubshellView } from "@/types/subshell";
 /**
  * Live subshell list for the home page — the thin READ end of the root feed.
  *
- * The EventSource transport moved to `LiveSubshellsFeedProvider` in
+ * The socket transport lives in `LiveSubshellsFeedProvider` in
  * `__root.tsx` (spec 2026-09-03 sidebar-quickadd §6); this hook now just
  * merges the provider's most recent frame with the REST query (initial load,
  * older backends without the live socket, and the invalidation-driven refresh).

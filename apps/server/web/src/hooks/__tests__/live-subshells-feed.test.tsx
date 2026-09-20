@@ -47,11 +47,15 @@ afterEach(() => {
   FakeWS.instances = [];
 });
 
+/** Counts the ws-token mints, so a reconnect can be shown to fetch a NEW one. */
+let tokenMints = 0;
+
 function stubAuthOk() {
-  globalThis.fetch = (async () =>
-    new Response(JSON.stringify({ token: "t1" }), {
-      status: 200,
-    })) as unknown as typeof fetch;
+  tokenMints = 0;
+  globalThis.fetch = (async () => {
+    tokenMints += 1;
+    return new Response(JSON.stringify({ token: `t${tokenMints}` }), { status: 200 });
+  }) as unknown as typeof fetch;
   globalThis.WebSocket = FakeWS as unknown as typeof WebSocket;
 }
 
@@ -134,7 +138,7 @@ describe("LiveSubshellsFeedProvider", () => {
       fetchCalls += 1;
       return new Response("{}", { status: 200 });
     }) as unknown as typeof fetch;
-    globalThis.EventSource = FakeWS as unknown as typeof EventSource;
+    globalThis.WebSocket = FakeWS as unknown as typeof WebSocket;
     setup(false);
     await new Promise((r) => setTimeout(r, 0));
     expect(fetchCalls).toBe(0);
@@ -146,6 +150,7 @@ describe("LiveSubshellsFeedProvider", () => {
     await waitFor(() => expect(FakeWS.instances.length).toBe(1));
     const url = FakeWS.instances[0].url;
     expect(url).toContain("/ws/live?token=t1");
+    expect(tokenMints).toBe(1);
     // The scheme follows the page, so an https instance does not open an
     // insecure socket the browser would refuse as mixed content.
     expect(url.startsWith("ws://") || url.startsWith("wss://")).toBe(true);
@@ -161,6 +166,10 @@ describe("LiveSubshellsFeedProvider", () => {
     expect(screen.getByTestId("state").textContent).toStartWith("false:");
     // A second socket is armed on the reconnect delay, not immediately.
     await waitFor(() => expect(FakeWS.instances.length).toBe(2), { timeout: 4000 });
+    // …and it carries a token minted for THIS attempt: the old one was spent
+    // at the first connect and would be refused.
+    expect(tokenMints).toBe(2);
+    expect(FakeWS.instances[1].url).toContain("token=t2");
   });
 
   it("ignores a frame that is not a snapshot", async () => {

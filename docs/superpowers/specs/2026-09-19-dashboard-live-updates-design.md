@@ -117,6 +117,11 @@ type LiveFrame =
   | { type: "preview"; id: string; lines: string[] };
 ```
 
+**Step 1 ships `subshells` only.** The `nodes` half arrives with the events
+that make it worth carrying — a transport swap that also widened the payload
+would have made the parity claim below untestable. It is a staging decision,
+not a trimmed requirement.
+
 Client → server:
 
 ```ts
@@ -131,6 +136,12 @@ There is no event replay, no sequence number and no gap to reason about: a
 dropped socket costs one snapshot. This is affordable only because snapshots
 no longer carry previews — which is what makes §4.4 a precondition for this
 section rather than an independent choice.
+
+The frame union above is declared on the server today and mirrored loosely on
+the client, which is honest while `snapshot` is the only kind. **Step 2 should
+lift `LiveFrame` into a shared type** the way the attach path shares
+`ServerFrame` through `@internal/subshell-protocol` — four kinds mirrored by
+hand is how the two ends come to disagree about an optional field.
 
 `subshell-gone` covers deletion **and** revocation of a share. A viewer who
 loses access must see the row disappear, and must not be able to tell those
@@ -291,6 +302,21 @@ arithmetic is a worse contract.
 | `report-exit` never arrives | the 60 s sweep still finds it — the backstop is why the sweep stays |
 | `report-exit` for an unknown/foreign id | rejected; the verb authenticates as the subshell's own token, the same rule as the other harness self-report surfaces |
 | node below the new protocol | no hook is installed there; that node's deaths are sweep-discovered, as today |
+
+### 5.1 The idle timeout is a step-4 problem, and it is load-bearing there
+
+Bun closes a WebSocket after **120 s** with no messages or pings
+(`bun-types/serve.d.ts:452`). Measured: server-initiated sends reset it, so
+step 1 is safe — the 1.5 s snapshot cadence keeps every socket alive without
+anything being added.
+
+**Step 4 removes that cadence**, and `/ws/live` receives nothing from the
+client, so on a quiet instance every socket would close at 120 s and every
+client would resync on a two-minute sawtooth forever — which reads as a
+flapping connection rather than as a timeout. Whichever step removes the last
+unconditional send must add the keepalive in the same change: either an
+application-level ping or an explicit `idleTimeout`. Decide it there, not by
+discovering it.
 
 ## 6. Testing
 

@@ -1550,7 +1550,14 @@ Recorded so they are decisions rather than surprises:
      change).
    - **Live WebSockets.** `/ws` authenticates once at connect (cookie, or a
      30 s single-use token) and is never re-checked, so an already-attached
-     terminal keeps streaming until it disconnects.
+     terminal keeps streaming until it disconnects. **`/ws/live`, the
+     dashboard's feed (spec 2026-09-19), has the same property**: it redeems
+     the same single-use token at connect and never re-authenticates, so a
+     socket opened before the reset keeps receiving that viewer's subshell
+     list until it drops. Same posture, not a new one — and the list it
+     carries is resolved per frame through the ordinary sharing-aware gate,
+     so a share revoked after connect stops appearing without the socket
+     needing to be re-authenticated.
 
    A password reset is therefore a credential rotation, not a session-kill
    switch for every path into the account.
