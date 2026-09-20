@@ -1,9 +1,8 @@
 import { apiFetch } from "@internal/node-admin";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
 import { isSubshellDead, isSubshellExited } from "@/components/subshell-terminal";
 import { useLiveSubshellsFeed } from "@/hooks/use-live-subshells-feed";
-import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
+import { SUBSHELL_QUERY_KEY } from "@/lib/query-keys";
 import { isNotFoundSubshellError } from "@/lib/subshell-not-found";
 import type { SubshellView } from "@/types/subshell";
 
@@ -32,7 +31,7 @@ export interface SubshellData {
  * @returns The subshell and the derived exited/dead flags
  */
 export function useSubshellData(id: string): SubshellData {
-  const queryClient = useQueryClient();
+  const _queryClient = useQueryClient();
   // The root feed's delivery state decides whether this page still owns the
   // list's refresh (see the effect below). Pre-auth or on a bare route the
   // provider answers `false` — the conservative side, which just means the
@@ -53,27 +52,11 @@ export function useSubshellData(id: string): SubshellData {
   const exited = isSubshellExited(subshell);
   const dead = isSubshellDead(subshell);
 
-  // ALIVE & TERMINATED subshells: poll every few seconds so the exited state /
-  // restart-pending indicator catch a process death without waiting for the
-  // next SSE heartbeat (the WS can also appear connected, so it cannot be
-  // relied on here). Exited or terminated subshells no longer change; their
-  // data is read from the single fetch above.
-  //
-  // The LIST is refreshed only while the feed is down. The feed writes the
-  // same cache key every 1.5 s while delivering; invalidating it here was a
-  // second reader doing the feed's job at a third the rate — and the job is
-  // not cheap: every list build captures every running pane's screen (now
-  // deduped server-side, but still a tmux spawn per pane per window). The
-  // per-subshell invalidation above stays unconditional: the feed never
-  // writes `SUBSHELL_QUERY_KEY`, and that read is what surfaces the death.
-  useEffect(() => {
-    if (dead) return;
-    const timer = setInterval(() => {
-      void queryClient.invalidateQueries({ queryKey: [...SUBSHELL_QUERY_KEY, id] });
-      if (!feedConnected) void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
-    }, 5000);
-    return () => clearInterval(timer);
-  }, [dead, id, queryClient, feedConnected]);
-
+  // NO POLL. The live socket pushes every change to this row (spec
+  // 2026-09-19): the reconcile sweep, a terminate, a restart and a rename all
+  // publish, and the feed writes them into `SUBSHELLS_QUERY_KEY`. The 5 s
+  // interval that used to live here invalidated BOTH this row and the whole
+  // list, and the list rebuild captured every running pane's screen — the
+  // single most expensive thing a quiet subshell page did.
   return { subshell, isLoading, isError, isNotFound, exited, dead };
 }

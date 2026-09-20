@@ -191,4 +191,84 @@ describe("LiveSubshellsFeedProvider", () => {
     cleanup();
     expect(FakeWS.instances[0].closed).toBe(true);
   });
+  it("applies a subshell event onto the row it already holds, keeping this viewer's access", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", name: "A", access: "view" }] });
+    // A broadcast carries no `access` — one payload reaches every subscriber.
+    frame({ type: "subshell", id: "a", row: { id: "a", name: "A renamed" } });
+
+    const rows = client.getQueryData<Array<{ id: string; name: string; access: string }>>(SUBSHELLS_QUERY_KEY);
+    expect(rows).toEqual([{ id: "a", name: "A renamed", access: "view" }]);
+  });
+
+  it("drops a row on subshell-gone, and ignores one it never held", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a" }, { id: "b" }] });
+    frame({ type: "subshell-gone", id: "zzz" }); // never held — no-op, no throw
+    expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)).toHaveLength(2);
+
+    frame({ type: "subshell-gone", id: "a" });
+    expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)).toEqual([{ id: "b" }]);
+  });
+
+  /**
+   * The ordering rule: the snapshot's read may have begun BEFORE an event that
+   * arrived first, so applying it wholesale would replace the newer row with
+   * the older one. Rows this connection has heard an event for win.
+   */
+  it("a later snapshot does not clobber a row an event already updated", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", name: "old", access: "owner" }] });
+    frame({ type: "subshell", id: "a", row: { id: "a", name: "new" } });
+    // A stale snapshot — read before the event, delivered after it.
+    frame({ type: "snapshot", subshells: [{ id: "a", name: "old", access: "owner" }] });
+
+    const rows = client.getQueryData<Array<{ id: string; name: string }>>(SUBSHELLS_QUERY_KEY);
+    expect(rows?.[0]?.name).toBe("new");
+  });
+
+  it("a snapshot still decides which rows EXIST, even beside a live row", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({
+      type: "snapshot",
+      subshells: [
+        { id: "a", access: "owner" },
+        { id: "b", access: "owner" },
+      ],
+    });
+    frame({ type: "subshell", id: "a", row: { id: "a", name: "kept" } });
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] }); // b is gone
+
+    const rows = client.getQueryData<Array<{ id: string; name?: string }>>(SUBSHELLS_QUERY_KEY);
+    expect(rows?.map((r) => r.id)).toEqual(["a"]);
+    expect(rows?.[0]?.name).toBe("kept");
+  });
 });

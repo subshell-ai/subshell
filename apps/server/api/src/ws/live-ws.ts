@@ -1,6 +1,7 @@
 import { getRequestlessContext } from "@/lib/context.js";
 import type { SubshellsService } from "@/services/subshells.service.js";
 import { logger } from "@/utils/logger.js";
+import { topicsForViewer } from "@/ws/live-topics.js";
 import { consumeWsToken } from "@/ws/ws-token.js";
 
 /**
@@ -13,9 +14,6 @@ import { consumeWsToken } from "@/ws/ws-token.js";
  * `GET /api/subshells` keep resolving the same thing.
  */
 type VisibleSubshells = Awaited<ReturnType<SubshellsService["listSubshells"]>>;
-
-/** How often the snapshot is re-sent. */
-export const LIVE_SNAPSHOT_INTERVAL_MS = 1500;
 
 /** `ElysiaWS.readyState` (a getter over `raw.readyState`) when the peer is still there. */
 const WS_OPEN = 1;
@@ -35,6 +33,12 @@ export interface LiveWsSocket {
    */
   data: { query?: Record<string, string>; liveStop?: () => void };
   send(data: string): unknown;
+  /**
+   * Joins a pub/sub topic (Bun's own, forwarded by Elysia). Optional so a
+   * test double may omit it; a socket that cannot subscribe simply receives
+   * its snapshot and no events.
+   */
+  subscribe?(topic: string): unknown;
   /** 1 = OPEN. Absent on hand-rolled doubles, which is read as "still open". */
   readonly readyState?: number;
   close(code?: number, reason?: string): void;
@@ -46,8 +50,8 @@ export interface LiveWsDeps {
   consumeToken(token: string): string | null;
   /** The viewer's visible subshells — the SHARING-AWARE list, never the owner-only one. */
   listSubshells(userId: string): Promise<VisibleSubshells>;
-  /** Snapshot cadence; a parameter only so tests need not sleep for seconds. */
-  intervalMs: number;
+  /** Whether this viewer holds the admin role — decides the `admins` topic. */
+  isAdmin(userId: string): Promise<boolean>;
 }
 
 /**
@@ -75,7 +79,7 @@ export interface LiveWsDeps {
  * two disagreeing is what made an admin's rows flicker in and out on
  * 2026-09-03. Events replace the cadence in the next step.
  */
-export function handleLiveOpen(ws: LiveWsSocket, deps: LiveWsDeps): void {
+export async function handleLiveOpen(ws: LiveWsSocket, deps: LiveWsDeps): Promise<void> {
   const token = ws.data.query?.token;
   const userId = token ? deps.consumeToken(token) : null;
   if (!userId) {
@@ -83,51 +87,48 @@ export function handleLiveOpen(ws: LiveWsSocket, deps: LiveWsDeps): void {
     return;
   }
 
-  let timer: ReturnType<typeof setInterval> | null = null;
-  let warnedFailure = false;
+  let stopped = false;
   const stop = (): void => {
-    if (timer) clearInterval(timer);
-    timer = null;
+    stopped = true;
     ws.data.liveStop = undefined;
   };
 
-  const tick = async (): Promise<void> => {
-    // The peer going away is the ONE signal that reliably reaches a running
-    // tick, and it has to be read rather than caught: on bun 1.4.2 `send()`
-    // into a dead socket RETURNS 0, it does not throw. Nor is that return
-    // usable as the signal — bun documents 0 as "message dropped", which
-    // covers a closed socket AND one shed under backpressure, so acting on it
-    // would tear down the feed of a client merely slow on a large snapshot.
-    // `readyState` has no such ambiguity.
-    if (ws.readyState !== undefined && ws.readyState !== WS_OPEN) {
-      stop();
-      return;
-    }
-    let frame: string;
-    try {
-      frame = JSON.stringify({ type: "snapshot", subshells: await deps.listSubshells(userId) });
-    } catch (err) {
-      // A list read failing is not a reason to drop a client — the next tick
-      // very likely succeeds, and the alternative is a dashboard that
-      // disconnects on one slow query. But a feed that fails FOREVER shows
-      // the client "offline" while the socket stays open, so say so once:
-      // debug is off by default, and once-per-socket rather than once-per-tick
-      // keeps a broken instance from spending the log's 200 KB cap on it.
-      if (!warnedFailure) {
-        warnedFailure = true;
-        logger.withError(err).warn("live ws: snapshot failed; socket stays open and will retry");
-      }
-      return;
-    }
-    warnedFailure = false;
-    ws.send(frame);
-  };
-
-  // On `ws.data`, never on `ws` — see {@link LiveWsSocket.data}. Synchronous
-  // with the arming below, so no close can land between the two.
+  // ARMED BEFORE THE FIRST AWAIT, and that ordering is load-bearing: this
+  // handler suspends twice before it sends anything, and a `close` landing in
+  // either window would otherwise find no stopper installed and be forgotten.
+  // `ws/subshell-ws.ts` carries the same hazard as its `detachedEarly` flag.
   ws.data.liveStop = stop;
-  void tick();
-  timer = setInterval(() => void tick(), deps.intervalMs);
+
+  const isAdmin = await deps.isAdmin(userId);
+  if (stopped) return;
+
+  /**
+   * Subscribe BEFORE the list read, so no event fired during it is missed.
+   *
+   * The opposite hazard — a snapshot read before an event but delivered after
+   * it, clobbering the newer row — is answered on the CLIENT, which keeps any
+   * row an event arrived for since this connect. An event is by construction
+   * newer than a snapshot whose read began before it, so no sequence number
+   * and no server-side buffer are needed (spec 2026-09-19 §4.1a).
+   */
+  for (const topic of topicsForViewer({ viewerId: userId, isAdmin })) {
+    ws.subscribe?.(topic);
+  }
+
+  // ONE snapshot, at connect. The 1.5 s cadence is gone: every field it
+  // re-sent is written by the 60 s reconcile sweep or by a user action, and
+  // both now publish. What the snapshot is FOR is resync — a fresh connect
+  // and every reconnect — which is why it stayed when the timer went.
+  try {
+    const subshells = await deps.listSubshells(userId);
+    if (stopped || (ws.readyState !== undefined && ws.readyState !== WS_OPEN)) return;
+    ws.send(JSON.stringify({ type: "snapshot", subshells }));
+  } catch (err) {
+    // The client falls back to its REST list and retries on the next connect;
+    // warn because a socket that is open but never delivered its snapshot
+    // otherwise shows as "offline" with nothing anywhere saying why.
+    logger.withError(err).warn("live ws: initial snapshot failed; client will resync on reconnect");
+  }
 }
 
 /**
@@ -155,6 +156,6 @@ export function liveWsDeps(): LiveWsDeps {
   return {
     consumeToken: consumeWsToken,
     listSubshells: (userId) => getRequestlessContext().services.subshells.listSubshells(userId),
-    intervalMs: LIVE_SNAPSHOT_INTERVAL_MS,
+    isAdmin: async (userId) => (await getRequestlessContext().repos.userMeta.getRole(userId)) === "admin",
   };
 }

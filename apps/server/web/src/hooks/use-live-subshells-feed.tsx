@@ -90,19 +90,64 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
       const socket = new WebSocket(`${proto}://${window.location.host}/ws/live?token=${encodeURIComponent(token)}`);
       ws = socket;
 
+      // Ids this connection has already heard an EVENT for. The snapshot's read
+      // may have begun before such an event, so applying it wholesale would
+      // clobber the newer row with an older one — this is the whole of the
+      // ordering story, and the reason no sequence number is needed
+      // (spec 2026-09-19 §4.1a).
+      const liveIds = new Set<string>();
+
+      const commit = (next: SubshellView[]) => {
+        queryClient.setQueryData(SUBSHELLS_QUERY_KEY, next);
+        // Read back, never the value just written: `setQueryData` shares the
+        // write structurally, so unchanged rows keep their object identity and
+        // an unchanged list keeps the array's. Handing consumers THAT is what
+        // keeps an event nobody is rendering from re-rendering anything.
+        setLastList(queryClient.getQueryData<SubshellView[]>(SUBSHELLS_QUERY_KEY) ?? next);
+        setConnected(true);
+      };
+
       socket.onmessage = (e) => {
         try {
-          const frame = JSON.parse(e.data as string) as { type?: string; subshells?: SubshellView[] };
-          if (frame.type !== "snapshot" || !frame.subshells) return;
-          queryClient.setQueryData(SUBSHELLS_QUERY_KEY, frame.subshells);
-          // Read back, never the parsed frame: `setQueryData` shares the
-          // write, so the cache holds the previous array when the snapshot
-          // changed nothing and the previous row objects for the rows it did
-          // not touch. Handing consumers THAT is what keeps a quiet beat from
-          // re-rendering anything.
-          setLastList(queryClient.getQueryData<SubshellView[]>(SUBSHELLS_QUERY_KEY) ?? frame.subshells);
-          setConnected(true);
-          attempts = 0; // a delivered snapshot is what proves the connection good
+          const frame = JSON.parse(e.data as string) as {
+            type?: string;
+            subshells?: SubshellView[];
+            id?: string;
+            row?: Omit<SubshellView, "access">;
+          };
+          const current = queryClient.getQueryData<SubshellView[]>(SUBSHELLS_QUERY_KEY) ?? [];
+
+          if (frame.type === "snapshot" && frame.subshells) {
+            // Rows this connection already has fresher, event-sourced copies of
+            // win over the snapshot; everything else the snapshot decides,
+            // including which rows exist at all.
+            const kept = new Map(current.filter((r) => liveIds.has(r.id)).map((r) => [r.id, r]));
+            commit(frame.subshells.map((r) => kept.get(r.id) ?? r));
+            attempts = 0; // a delivered snapshot is what proves the connection good
+            return;
+          }
+
+          if (frame.type === "subshell" && frame.id && frame.row) {
+            const { id, row } = frame;
+            liveIds.add(id);
+            const previous = current.find((r) => r.id === id);
+            // `access` is deliberately absent from a broadcast — one payload
+            // reaches every subscriber, so it cannot carry a per-viewer stamp.
+            // Keep the access this viewer already holds; a row arriving before
+            // any snapshot has none yet and is skipped rather than guessed at,
+            // because guessing it wrong shows edit controls to a `view` grantee.
+            if (!previous) return;
+            const merged = { ...previous, ...row, access: previous.access } as SubshellView;
+            commit(current.map((r) => (r.id === id ? merged : r)));
+            return;
+          }
+
+          if (frame.type === "subshell-gone" && frame.id) {
+            const { id } = frame;
+            liveIds.add(id);
+            if (!current.some((r) => r.id === id)) return; // never held it; nothing to drop
+            commit(current.filter((r) => r.id !== id));
+          }
         } catch {
           // ignore malformed frame
         }

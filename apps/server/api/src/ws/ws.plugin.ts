@@ -114,7 +114,12 @@ wsPlugin.ws("/ws/node", {
  */
 wsPlugin.ws("/ws/live", {
   open(ws) {
-    handleLiveOpen(ws as unknown as LiveWsSocket, liveWsDeps());
+    // Fire-and-forget: the handler owns its own refusal (close 4001) and its
+    // own failures, and awaiting here would hold Elysia's open callback for a
+    // role read and a list build.
+    void handleLiveOpen(ws as unknown as LiveWsSocket, liveWsDeps()).catch((err: unknown) => {
+      logger.withError(err).warn("live ws: open failed");
+    });
   },
   close(ws) {
     handleLiveClose(ws as unknown as LiveWsSocket);

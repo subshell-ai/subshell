@@ -429,6 +429,31 @@ export class SubshellsService extends BaseService {
   }
 
   /**
+   * One row as EVERY viewer sees it — the shared half of a broadcast frame
+   * (spec 2026-09-19 §4.1a).
+   *
+   * Deliberately carries no `access`: the live fan-out publishes one payload
+   * to a topic, so a per-viewer stamp cannot ride it, and a caller that let
+   * `toViews`' owner-shaped default through would be telling a `view` grantee
+   * they own the row. `shareExposure` IS included — those fields describe the
+   * row rather than the reader.
+   *
+   * It goes through the SAME `toViews` + `shareExposure` composition
+   * {@link listSubshells} uses, so a broadcast row and a snapshot row cannot
+   * disagree about anything but access.
+   *
+   * @param rows - subshell rows to render, in order
+   */
+  async viewsForBroadcast(rows: SubshellTable[]): Promise<Omit<SubshellView, "access">[]> {
+    const sharesBy = await this.repos.subshellShares.listForSubshells(rows.map((r) => r.id));
+    const views = await this.#manager.toViews(rows);
+    return views.map(({ access: _access, ...view }) => ({
+      ...view,
+      ...shareExposure(sharesBy.get(view.id) ?? []),
+    }));
+  }
+
+  /**
    * Waiting/running counts over the visible set (own + shared; all for an
    * admin) — the same subshells {@link listSubshells} returns, reduced to the
    * badge numbers for the native tab and push payloads. The blessed

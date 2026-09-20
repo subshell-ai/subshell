@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { LiveSubshellsFeedProvider } from "@/hooks/use-live-subshells-feed";
 import { useSubshellData } from "@/hooks/use-subshell-data";
-import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
+import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 
 /**
@@ -135,58 +135,44 @@ async function mount(opts: { feed: "off" | "delivering" }) {
   return { client, invalidated, tick: () => act(() => timers.ticks().at(-1)?.()) };
 }
 
-describe("useSubshellData — 5 s liveness poll", () => {
-  it("refreshes BOTH the row and the list while the feed is not delivering", async () => {
-    // The pre-feed / feed-less posture keeps the behavior the poll was
-    // written for: while no frame has ever landed, the page itself keeps the
-    // sidebar list honest.
-    const { invalidated, tick } = await mount({ feed: "off" });
+describe("useSubshellData — no poll; the live socket is the freshness source", () => {
+  /**
+   * The 5 s interval is GONE (spec 2026-09-19). It invalidated both this row
+   * and the whole list, and a list rebuild captures every running pane's
+   * screen server-side — the single most expensive thing a quiet subshell
+   * page did. Every change to this row now arrives as an event: the reconcile
+   * sweep, a terminate, a restart and a rename all publish.
+   */
+  it("arms no interval while the feed is delivering", async () => {
+    const { tick, invalidated } = await mount({ feed: "delivering" });
+    // Nothing was captured to drive, and driving nothing invalidates anything.
     tick();
-    expect(invalidated).toEqual([[...SUBSHELL_QUERY_KEY, "s1"], [...SUBSHELLS_QUERY_KEY]]);
+    expect(invalidated).toEqual([]);
   });
 
-  it("refreshes ONLY the row once the feed is connected — the list is the feed's job", async () => {
-    // The duplicate this removes: an invalidation-driven `GET /api/subshells`
-    // every 5 s beside a feed writing the same key every 1.5 s, each list
-    // build capturing every running pane server-side.
-    const { invalidated, tick } = await mount({ feed: "delivering" });
+  it("arms no interval even when the feed never delivers", async () => {
+    // The pre-feed posture used to be the poll's justification. It is not one
+    // any more: a socket that never delivers is a connection problem, and the
+    // client reconnects — re-fetching the world every 5 s in the meantime is
+    // what made a broken feed expensive instead of merely stale.
+    const { tick, invalidated } = await mount({ feed: "off" });
     tick();
-    tick();
-    expect(invalidated).toEqual([
-      [...SUBSHELL_QUERY_KEY, "s1"],
-      [...SUBSHELL_QUERY_KEY, "s1"],
-    ]);
+    expect(invalidated).toEqual([]);
   });
 
-  it("falls back to refreshing the list again when the feed goes quiet", async () => {
-    // Connected → disconnected is the fallback's whole reason to exist: the
-    // token expired, the backend restarted, the stream died. The provider
-    // flips `connected` false; the next tick must own the list again.
-    const { invalidated, tick } = await mount({ feed: "delivering" });
+  it("reflects a change the feed pushes into the list cache, with no fetch of its own", async () => {
+    const { client, invalidated } = await mount({ feed: "delivering" });
     act(() => {
-      FakeWS.instances[0].onclose?.();
+      FakeWS.instances[0].onmessage?.({
+        data: JSON.stringify({
+          type: "snapshot",
+          subshells: [{ ...row(), status: "terminated", alive: false }],
+        }),
+      } as MessageEvent);
     });
-    // `connected` is now false (onerror closes the stream), and `act` has
-    // flushed the effect re-arm on the hook's `feedConnected` dep — the
-    // LATEST captured tick carries the fallback behavior.
-    invalidated.length = 0;
-    tick();
-    expect(invalidated).toEqual([[...SUBSHELL_QUERY_KEY, "s1"], [...SUBSHELLS_QUERY_KEY]]);
-  });
-
-  it("arms no poll once the subshell is dead", async () => {
-    // Before the row resolves the hook cannot know it is dead, so an effect
-    // pass may arm a timer and the cleanup tears it down. `ticks()` reports
-    // only LIVE timers, so the assertion is exact: dead ⇒ nothing armed.
-    stubFetch(row({ status: "running", alive: false })); // isSubshellExited
-    const timers = captureFiveSecondTicks();
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const view = renderHook(() => useSubshellData("s1"), {
-      wrapper: ({ children }: { children: React.ReactNode }) => (
-        <QueryClientProvider client={client}>{children}</QueryClientProvider>
-      ),
-    });
-    await waitFor(() => expect(view.result.current.dead).toBe(true));
-    expect(timers.ticks()).toHaveLength(0);
+    const rows = client.getQueryData<Array<{ id: string; status: string }>>(SUBSHELLS_QUERY_KEY);
+    expect(rows?.[0]?.status).toBe("terminated");
+    // The point of removing the poll: this page asked the server for nothing.
+    expect(invalidated).toEqual([]);
   });
 });
