@@ -64,9 +64,45 @@ describe("exitHookFor", () => {
     expect(hook).not.toContain("'report' 'report'");
   });
 
-  test("quotes credential values, so a token with a quote in it cannot break the line", () => {
-    const hook = exitHookFor({ command: "/bin/subshell", args: ["report"] }, { ...ENV, SUBSHELL_ID: "a b'c" });
-    expect(hook).toContain(`SUBSHELL_ID='a b'\\''c'`);
+  test("quotes an ordinary credential value containing a space", () => {
+    const hook = exitHookFor({ command: "/bin/subshell", args: ["report"] }, { ...ENV, SUBSHELL_ID: "a b" });
+    expect(hook).toContain("SUBSHELL_ID='a b'");
+  });
+
+  test.each([
+    ["a quote", "ab'cd"],
+    ["a backslash", "a\\b"],
+    ["a double quote", 'a"b'],
+    ["a tmux format", "#{session_name}"],
+  ])("registers NO hook when a credential carries %s", (_what, value) => {
+    // MEASURED end to end, one real pane death per value: a quote makes the
+    // hook silently never fire, a backslash makes it fire with a corrupted
+    // credential (a 401 the reporter swallows — worse than silence, because it
+    // looks like it worked), and `#` is EXPANDED by tmux, which makes this a
+    // format context rather than an inert string. `"` closes the `run-shell
+    // "…"` these are spliced into.
+    //
+    // So the value is refused rather than carried: the sweep is a correct
+    // backstop and a corrupted credential is not. Reachable rather than
+    // hypothetical — a preset may legitimately override `SUBSHELL_BASE_URL`.
+    const reporter = { command: "/bin/subshell", args: ["report"] };
+    expect(exitHookFor(reporter, { ...ENV, SUBSHELL_BASE_URL: value })).toBeUndefined();
+    expect(exitHookFor(reporter, { ...ENV, SUBSHELL_API_KEY: value })).toBeUndefined();
+    expect(exitHookFor(reporter, { ...ENV, SUBSHELL_ID: value })).toBeUndefined();
+  });
+
+  test("still builds for the values these credentials actually take", () => {
+    // A uuid, a `subshell_` key and an http(s) URL — none of which can carry
+    // any of the four, so the refusal above costs nothing in practice.
+    const hook = exitHookFor(
+      { command: "/bin/subshell", args: ["report"] },
+      {
+        SUBSHELL_ID: "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        SUBSHELL_API_KEY: "subshell_Ab3-_xYz09",
+        SUBSHELL_BASE_URL: "https://plane.example.com:3080/",
+      },
+    );
+    expect(hook).toBeDefined();
   });
 
   test("carries the credentials itself, because the tmux server has none", () => {

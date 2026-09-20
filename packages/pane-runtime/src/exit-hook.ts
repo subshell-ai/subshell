@@ -29,12 +29,14 @@ export function exitHookFor(
   // (the local user already reads it from the pane's argv via `ps`, which
   // `docs/security.md` records), but this keeps it to the one place it is
   // used.
-  const creds = REPORTER_ENV_KEYS.filter((k) => subshellEnv[k] !== undefined).map(
+  const creds = REPORTER_ENV_KEYS.filter((k) => usableCredential(subshellEnv[k])).map(
     (k) => `${k}=${shellQuote(subshellEnv[k] as string)}`,
   );
   // Without a full set the report cannot authenticate, so register nothing and
   // let the sweep be the answer — exactly as a plugin omits hooks it cannot
-  // build a command for.
+  // build a command for. A value this builder cannot carry safely (below) is
+  // treated as a missing one, deliberately: the sweep is a correct backstop
+  // and a corrupted credential is not.
   if (creds.length !== REPORTER_ENV_KEYS.length) return undefined;
   // `reporter.args` ALREADY ends with the `report` subcommand — the spec is a
   // prefix "ready for a plugin's own verb words to be appended", so only the
@@ -59,6 +61,40 @@ export function exitHookFor(
     "'#{pane_dead_status}'",
   ];
   return words.join(" ");
+}
+
+/**
+ * Characters a credential cannot carry through a `set-hook` value.
+ *
+ * **This is two quoting layers, and only one of them is ours.** The string is
+ * shell-quoted here, then stored as a tmux hook and RE-PARSED by tmux's own
+ * command parser when the pane dies — so `shellQuote`'s `'\''` escape passes
+ * through tmux's quote and backslash rules before any shell sees it. Measured
+ * end to end on 2026-09-20, one real pane death per value:
+ *
+ * - a `'` in the value: `set-hook` returns 0 and the hook **silently never
+ *   fires**;
+ * - a `\`: the hook fires with a **corrupted** value, so the report POSTs and
+ *   401s — worse than not firing, because it looks like it worked;
+ * - a `#`: tmux EXPANDS it. `#{...}` reads tmux state and `#(...)` is command
+ *   substitution tmux runs, so this position is a format context rather than
+ *   an inert string.
+ *
+ * A `"` closes the `run-shell "…"` context these are spliced into.
+ *
+ * Not theoretical: a preset may legitimately override `SUBSHELL_BASE_URL`
+ * (`paneEnvOverrides`), so one of these three values is user-authored.
+ *
+ * The obvious probe says "safe" and is at the wrong layer: `tmux run-shell
+ * "…'ab'\''cd'…"` typed at a shell works, because the SHELL split the argv
+ * and tmux never re-parsed it. Only set-hook-then-fire exercises the parser
+ * this code actually goes through.
+ */
+const UNSAFE_IN_HOOK = /['"\\#]/;
+
+/** Whether a credential value survives the two quoting layers between here and the pane's death. */
+function usableCredential(value: string | undefined): value is string {
+  return value !== undefined && !UNSAFE_IN_HOOK.test(value);
 }
 
 /** Exactly what `readMcpEnv` needs to authenticate a report, and nothing more. */

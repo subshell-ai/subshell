@@ -6,13 +6,14 @@ import {
   exitHookFor,
   findBinary,
   type PresetDefinition,
+  paneEnvOverrides,
 } from "@internal/pane-runtime";
 import { HARNESS_BINARY_PLACEHOLDER, NODE_RESULT_MAINTENANCE } from "@internal/subshell-protocol";
 import { DIR_REFUSED_MESSAGE, launchDirAllowed, readAllowedDirs } from "../allowed-dirs.js";
 import { log } from "../log.js";
 import { readMaintenance, reportableMaintenance } from "../maintenance.js";
 import { pathAllowed, realpathRoots } from "../path-policy.js";
-import { selfInvokePrefix } from "../self-invoke.js";
+import { selfInvocation } from "../self-invoke.js";
 import { isSubshellId } from "../subshell-meta.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 import { reportMaintenance, startExitWatcher } from "./report.js";
@@ -162,13 +163,11 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
     // The 2 s exit watcher stays as the backstop, for the deaths a hook cannot
     // report: a SIGKILLed tmux server, a machine that lost power, an agent
     // that was not running when the pane went.
-    const exitHook = exitHookFor(
-      { ...selfInvokePrefix(), args: [...selfInvokePrefix().args, "report"] },
-      {
-        ...cmd.subshellEnv,
-        ...mcpPaneEnv,
-      },
-    );
+    // The SAME layers the pane command is assembled from — including the
+    // preset's, which this used to omit while the plane omitted the MCP
+    // wiring too. Two partial slices of one precedence chain is how a report
+    // ends up aimed at a different plane from the pane that sent it.
+    const exitHook = exitHookFor(selfInvocation("report"), paneEnvOverrides(cmd.subshellEnv, preset, mcpPaneEnv));
     ctx.tmux.newSubshell(cmd.socket, cmd.subshellId, cmd.cwd, paneCmd, exitHook);
   } catch (err) {
     await ctx.meta.forget(cmd.subshellId); // nothing spawned — no orphan root for the policy

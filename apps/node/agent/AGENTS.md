@@ -780,6 +780,14 @@ keeps this contract true is that `listSubshellsChecked` filters on
 subshell was ever reported dead again while every test in this package still
 passed. Its own test is mutation-checked for that reason.
 
+**The hook is built from the pane's EFFECTIVE env**, through
+`paneEnvOverrides` in `@internal/pane-runtime` — the one place the precedence
+`subshellEnv < preset.env < mcpEnv` is stated, and the same call the pane
+command itself is assembled from. Both ends used to compute it from a
+different SLICE of those layers (this one omitted the preset's, the control
+plane omitted the MCP wiring), so a preset that legitimately overrode
+`SUBSHELL_BASE_URL` moved the pane and not its death report.
+
 **And the node reaps the server it kept alive.** `remain-on-exit` is what
 makes a finished pane observable, and the price is that tmux no longer tears
 itself down — one idle server per dead subshell, each holding the whole of its

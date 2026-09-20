@@ -2393,6 +2393,17 @@ audit row; the client reconnects on its own and re-derives what it may
 subscribe to. A password reset still does NOT do this — it is a credential
 rotation, not a session-kill switch, and that asymmetry is deliberate.
 
+**The hook's credential values are REFUSED rather than escaped when they
+carry `'`, `"`, `\` or `#`.** A `set-hook` value is re-parsed by tmux's own
+command parser when it fires, so shell quoting does not survive it: measured
+end to end, a quote makes the hook silently never fire, a backslash makes it
+fire with a corrupted credential (a 401 nobody sees), and `#` is EXPANDED —
+`#{...}` reads tmux state and `#(...)` is command substitution tmux runs, so
+this is a format context rather than an inert string. A refused value means no
+hook and the sweep as the answer. It is reachable rather than defensive: a
+preset may legitimately override `SUBSHELL_BASE_URL`, so one of these three
+values is user-authored.
+
 **A pane's bearer token now also sits in that pane's tmux hook table.** The
 `pane-died` hook carries the subshell's own credentials on its command line
 (the tmux server holds none of the pane's environment, so they cannot be
