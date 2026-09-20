@@ -25,12 +25,14 @@
  *   Requiring JSON forces a preflight, and the preflight is what the Origin
  *   rule above can defend.
  *
- * What is deliberately NOT here: tokens, cookies, sessions. The threat model
- * is the repo's standing one (`docs/security.md`): whoever can reach this
- * port is whoever can run `subshell` as this OS user. The accepted gap is a
- * MULTI-USER machine — another local user can reach 127.0.0.1 too. That is
- * accounted in `docs/security.md`, next to the same exposure every CLI
- * command already has via the world-executable tmux server.
+ * What is deliberately NOT here: tokens, cookies, sessions. For the machine's
+ * own user the port is equivalent to the CLI, and the loopback bind plus these
+ * checks are what keep it to that user's browser. The accepted gap is a
+ * MULTI-USER machine — another local user can reach 127.0.0.1 too, and a
+ * no-credential port hands them acts the owner's 0600 config was written to
+ * withhold from them (repointing the agent, which discloses the node key, most
+ * of all). That is an accepted WIDENING, not parity, and `docs/security.md` §6
+ * accounts for it exactly that way, on the product's single-user assumption.
  */
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);

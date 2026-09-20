@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type NodeConfig, saveConfig } from "../../config.js";
 import { newHome } from "../../test-preload.js";
+import { NODE_VERSION } from "../../version.js";
 import { refuseRequest } from "../guards.js";
 import { buildRoutes } from "../routes.js";
 import { getDaemonState, registerRestart, setDaemonState } from "../state.js";
@@ -39,7 +40,12 @@ async function call(
   method: string,
   path: string,
   body?: unknown,
-  opts: { rollback?: (dataDir: string) => Promise<{ binary: string; to: string }> } = {},
+  opts: {
+    rollback?: (dataDir: string) => Promise<{ binary: string; to: string }>;
+    resolveRelease?: (
+      to?: string,
+    ) => Promise<{ version: string; url: string; sha256: string; manifest: { bytes: Buffer; sig: string } }>;
+  } = {},
 ): Promise<Response> {
   const app = buildRoutes(cfg, opts);
   const hdrs: Record<string, string> = {
@@ -198,6 +204,37 @@ test("POST update on an air-gapped host refuses by name before any download or r
   const r = await call(cfg, "POST", "/api/self/update", {});
   expect(r.status).toBe(409);
   expect((await r.json()).error).toContain("--from");
+});
+
+test("POST update refuses 'already at' and a downgrade-without-force before the installer runs", async () => {
+  // The version checks the CLI `update` verb applies but `execUpdate`/`applyUpdate`
+  // do NOT. Without them "Update to latest" would re-swap the SAME version or
+  // silently DOWNGRADE (a transient mid-publish window), and the card's Force
+  // checkbox would gate a refusal that never fires. `resolveRelease` is injected
+  // so a chosen version reaches these checks deterministically, with no network.
+  const cfg = await enrolled();
+  setDaemonState({ runtime: fakeRuntime(true, "keeps") });
+  const resolveRelease = async (to?: string) => ({
+    version: to ?? NODE_VERSION,
+    url: "https://example.invalid/x",
+    sha256: "deadbeef",
+    manifest: { bytes: Buffer.from("manifest"), sig: "sig" },
+  });
+  const opts = { resolveRelease };
+  try {
+    const same = await call(cfg, "POST", "/api/self/update", {}, opts);
+    expect(same.status).toBe(409);
+    expect((await same.json()).message).toContain("already at");
+
+    const older = await call(cfg, "POST", "/api/self/update", { to: "0.0.1" }, opts);
+    expect(older.status).toBe(409);
+    expect((await older.json()).message).toContain("older than");
+    // (Force=true is not exercised: it clears BOTH version checks and falls
+    // through to `execUpdate`, which would run the real installer against the
+    // fake URL. The two refusal paths above return before the installer.)
+  } finally {
+    setDaemonState({ runtime: null });
+  }
 });
 
 test("POST update refuses an unsupervised node before the release source is asked", async () => {

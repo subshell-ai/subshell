@@ -29,6 +29,10 @@ NODEPID=""
 export HOME="$W/home"
 export SUBSHELL_CONFIG_HOME="$W/config"
 export SUBSHELL_CLIENT_SKIP_TMUX_CHECK=1
+# Force the air-gapped configuration regardless of the host's env, so no step in
+# this scenario can depend on a developer's SUBSHELL_RELEASE_URL or reach the
+# network. (The `node-update.sh` / `server-update.sh` scenarios do the same.)
+export SUBSHELL_RELEASE_URL=""
 mkdir -p "$SUBSHELL_CONFIG_HOME" "$W/data" "$HOME"
 cleanup() {
   [ -n "$NODEPID" ] && kill "$NODEPID" 2>/dev/null
@@ -111,10 +115,18 @@ LOGS=$(curl -s "$BASE/api/nodes/self/logs?fromByte=0")
 echo "$LOGS" | grep -q '"nextByte"' || { echo "$LOGS"; fail "logs had no cursor"; }
 ok "GET /api/nodes/:id/logs?fromByte=0"
 
-echo "== 8. the update route refuses an air-gapped node by name"
+echo "== 8. the update route refuses the unsupervised daemon before any network call"
+# The step-1 daemon is a bare `subshell run` — no service manager started it, so
+# it is UNSUPERVISED. The update route's supervision gate fires FIRST, before it
+# resolves any release: exiting an unsupervised agent is a stop, not a restart.
+# That refusal is the honest compiled behaviour for THIS daemon. The air-gapped
+# "no release source" sentence (`subshell update --from <url>`) sits behind the
+# gate and is unit-covered (`dashboard.test.ts` fakes `supervised: true` to reach
+# it); asserting it here would assert a branch the scenario can never reach.
 curl -s -X POST -H "Content-Type: application/json" --data '{}' "$BASE/api/self/update" > "$W/upd.json"
-grep -q -- "--from" "$W/upd.json" || { cat "$W/upd.json"; fail "the air-gapped refusal did not name --from"; }
-ok "no plane, no network: the refusal is the sentence, not a hang"
+grep -q "service manager" "$W/upd.json" || { cat "$W/upd.json"; fail "the unsupervised update refusal did not name the service manager"; }
+grep -q "subshell update" "$W/upd.json" || fail "the refusal did not point at the CLI remedy"
+ok "unsupervised: a named refusal, not a hang and not a download"
 
 echo "== 9. SUBSHELL_DASHBOARD=0 means no dashboard at all"
 # Its OWN port: the step-1 daemon still holds 31998, and the point of this

@@ -5,6 +5,7 @@ import {
   NODE_RESULT_NOT_SUPERVISED,
   NODE_SERVICE_VERBS,
   type NodeServiceVerb,
+  semverLt,
 } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { readAllowedDirs } from "../allowed-dirs.js";
@@ -67,9 +68,13 @@ function isSelf(cfg: NodeConfig, id: string): boolean {
   return id === "self" || id === cfg.nodeId;
 }
 
-/** The same 404 shape the plane's routes answer with. */
+/**
+ * The same 404 shape the plane's routes answer with. The body carries `message`
+ * (the key `lib/api.ts` reads) as well as `error`, so a card that ever renders
+ * this shows the sentence, not raw JSON — matching every `refuse()` above.
+ */
 function notFound(): Response {
-  return new Response(JSON.stringify({ error: "not found" }), {
+  return new Response(JSON.stringify({ error: "not found", message: "not found" }), {
     status: 404,
     headers: { "Content-Type": "application/json" },
   });
@@ -90,9 +95,22 @@ function refuse(status: number, message: string): Response {
   });
 }
 
-/** The `CommandContext` subset `execService` reads, built from what the daemon published. */
-function serviceCtx(): ServiceExecContext {
-  return { runtime: getDaemonState().runtime, requestRestart: () => void requestDaemonRestart() };
+/**
+ * The `CommandContext` subset `execService` reads. Prefers the daemon's frozen
+ * report; falls back to a fresh `liveRuntime()` when there is no daemon in this
+ * process — the standalone `subshell dashboard` verb. That fallback is the
+ * whole point: the page's purpose is managing a machine whose AGENT is stopped,
+ * and `execService` fail-closes `stop`/`uninstall` on `paneSafety !== "keeps"`.
+ * With a null runtime it would refuse every destructive verb as "would close
+ * every subshell" even while the card one inch above shows a healthy
+ * keeps-panes definition — the view reads `liveRuntime()`, so the mutations
+ * must read the same thing.
+ */
+async function serviceCtx(): Promise<ServiceExecContext> {
+  return {
+    runtime: getDaemonState().runtime ?? (await liveRuntime()),
+    requestRestart: () => void requestDaemonRestart(),
+  };
 }
 
 /** The `CommandContext` subset `execUpdate` reads, for the same reason. */
@@ -203,17 +221,27 @@ export function guardResponse(request: Request): Response | null {
  *  file, none of which a unit test should touch). */
 type RollbackFn = (dataDir: string) => Promise<{ binary: string; to: string }>;
 
+/** The release resolver the update route runs — the shape of `resolveNodeRelease`,
+ *  so a test can hand in a chosen version and observe the already-at / downgrade
+ *  refusals without a real release source (the seam type names only what the
+ *  route reads; the real resolver's extra fields are assignment-compatible). */
+type ResolveReleaseFn = (
+  to?: string,
+) => Promise<{ version: string; url: string; sha256: string; manifest: { bytes: Buffer; sig: string } }>;
+
 /**
  * The dashboard's `/api` surface, behind {@link guardResponse} on THIS
  * instance (Elysia lifecycle hooks are definition-ordered); every route below
  * is therefore already host/origin/content-type checked, and nothing in this
  * file re-checks — the guard is the one gate.
  *
- * `rollback` is an injectable seam (default: the real `rollbackUpdate`) purely
- * so the restart-after-rollback supervision gate is unit-testable; production
- * callers pass nothing and get the real binary resolution.
+ * `rollback` and `resolveRelease` are injectable seams (defaults: the real
+ * `rollbackUpdate` / `resolveNodeRelease`) purely so the restart gate and the
+ * already-at / downgrade refusals are unit-testable without a real binary
+ * resolution, a real release source, or the network. Production callers pass
+ * nothing and get the real behaviour.
  */
-export function buildRoutes(cfg: NodeConfig, opts: { rollback?: RollbackFn } = {}) {
+export function buildRoutes(cfg: NodeConfig, opts: { rollback?: RollbackFn; resolveRelease?: ResolveReleaseFn } = {}) {
   return new Elysia()
     .onBeforeHandle(({ request }) => guardResponse(request) ?? undefined)
     .get("/api/self", () => ({ id: cfg.nodeId, name: cfg.name }))
@@ -305,7 +333,7 @@ export function buildRoutes(cfg: NodeConfig, opts: { rollback?: RollbackFn } = {
         // `install` answers `data` with the manager's success text; the plane
         // forwards it as the ok-body's `detail` and the card prints it —
         // carried here verbatim so both backends read the same card.
-        const result = await execService(serviceCtx(), {
+        const result = await execService(await serviceCtx(), {
           type: "service",
           verb: body.verb as NodeServiceVerb,
           force: body.force,
@@ -395,16 +423,32 @@ export function buildRoutes(cfg: NodeConfig, opts: { rollback?: RollbackFn } = {
         // path the same code path as the plane's.
         let offer;
         try {
-          offer = await resolveNodeRelease(body.to);
+          offer = await (opts.resolveRelease ?? resolveNodeRelease)(body.to);
         } catch (err) {
           // "no release source", "no asset for this host", "not reachable":
           // the resolution failed before any trust or bytes moved, and the
           // sentence is the actionable part.
           return refuse(409, err instanceof Error ? err.message : String(err));
         }
-        // `already at <v>` and the downgrade-needs-force refusal belong to
-        // `applyUpdate`, which `execUpdate` runs — this route adds no
-        // version arithmetic of its own, so there is one rule per question.
+        // "already at <v>" and "downgrade needs force" live HERE, in the
+        // caller — they are the CLI `update` verb's checks, NOT `applyUpdate`'s
+        // or `execUpdate`'s (the executors enforce supervision + pane-safety and
+        // verify the signature, but never compare versions). Without this
+        // mirror the page would silently DOWNGRADE whenever the newest published
+        // release is older than the running agent — the transient mid-publish
+        // window `cli.ts` narrates at length — and re-swap ~70 MB for the SAME
+        // version, while the card's "Force (allow a downgrade)" checkbox would
+        // gate a refusal that never fires. The two checks and their order are
+        // the CLI's, restated here so the two callers cannot drift.
+        if (offer.version === NODE_VERSION) {
+          return refuse(409, `This node is already at subshell ${NODE_VERSION}; there is nothing to install.`);
+        }
+        if (semverLt(offer.version, NODE_VERSION) && body.force !== true) {
+          return refuse(
+            409,
+            `subshell ${offer.version} is older than the running ${NODE_VERSION}; set Force to install it anyway.`,
+          );
+        }
         const result = await execUpdate(updateCtx(cfg), {
           type: "update",
           version: offer.version,
