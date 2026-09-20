@@ -187,14 +187,24 @@ measured on 1.4.29, two sockets on one topic, `app.server.publish` reaching
 both while `ws.publish` excludes the sender. A `user:<id>` topic is mechanically
 available. It is still the wrong tool here, for two reasons:
 
-- **It moves authorization to the publisher.** To know which topics an event
-  goes to you must compute "who can see X" — owner, grantees, the Everyone
-  grant, admins — at the publish site. That is a second implementation of the
-  gate, which is exactly what §4.2 forbids and the shape that caused the
-  2026-09-03 flicker. The per-subscriber loop keeps one call site: load X for
-  this viewer through the ordinary gate. What it saves is only the N tabs of
-  one user (1–3 in practice), never the per-user resolve, which is the
-  expensive half.
+- **It needs an access query that runs the wrong way, and does not exist.**
+  Every access helper here is **viewer → row**:
+  `resolveSubshellAccess(viewerId, isAdmin, ownerUserId, shares)` and
+  `listVisibleTo(viewerId, isAdmin)`. Deciding which `user:<id>` topics an
+  event publishes to needs the inverse — **row → viewers** — composed from
+  owner + explicit grantees + the Everyone grant (i.e. every signed-in user)
+  + every admin. Nothing computes that today;
+  `subshellShares.listForSubshells` is one ingredient, not the predicate.
+  So this is not §4.2's case of re-spelling an existing rule in a second
+  place — it is writing the rule in a direction nothing else answers, with no
+  reference implementation to diff it against. That is a harder thing to keep
+  correct than the duplication §4.2 was written about, and §4.2 does not
+  cover it, because it only contemplates the viewer → row direction.
+  (The 2026-09-03 flicker was two disagreeing **viewer → rows**
+  implementations — the same class of mistake, a different shape.)
+  The per-subscriber loop keeps one call site: load X for this viewer through
+  the ordinary gate. What a topic would save is only the N tabs of one user
+  (1–3 in practice), never the per-user resolve, which is the expensive half.
 - **It takes delivery ordering out of our hands.** `handleLiveOpen` awaits the
   list before its first send. A per-socket subscriber can subscribe BEFORE
   that await and buffer until the snapshot flushes; with a topic, delivery
