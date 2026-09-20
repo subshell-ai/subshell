@@ -145,6 +145,23 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
         }
       };
 
+      /**
+       * One resync in flight at a time.
+       *
+       * An Everyone-shared row is in EVERY tab's list, so the one transition
+       * that produces a `subshell-recheck` produces it for everybody at once —
+       * and a row can earn several asks in a window (a reachability change and
+       * a level change are separate reasons). Each ask is a full visible-set
+       * read, so they are collapsed: the snapshot that lands answers every
+       * question asked before it, because it is read after all of them.
+       */
+      let resyncPending = false;
+      const askForSnapshot = () => {
+        if (resyncPending || socket.readyState !== WebSocket.OPEN) return;
+        resyncPending = true;
+        send(socket, { type: "resync" });
+      };
+
       const commit = (next: SubshellView[]) => {
         queryClient.setQueryData(SUBSHELLS_QUERY_KEY, next);
         // Read back, never the value just written: `setQueryData` shares the
@@ -219,6 +236,7 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
                   return preview ? { ...r, preview } : r;
                 }),
             );
+            resyncPending = false;
             // A reconnect's snapshot is authoritative for the open detail
             // page too — it is the only frame that carries `access`.
             for (const row of frame.subshells) syncDetail(row.id, row);
@@ -232,6 +250,13 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
           if (frame.type === "subshell" && frame.id && frame.row) {
             const { id, row } = frame;
             liveIds.add(id);
+            // A later statement about this row is by construction NEWER than
+            // the removal that put it in `goneIds` — so the removal stops
+            // applying. Without this a revoke followed by a re-grant on one
+            // live socket left the row permanently invisible: the re-grant
+            // broadcast arrives, the client holds nothing, it resyncs, and
+            // the snapshot carrying the row is filtered right back out.
+            goneIds.delete(id);
             const previous = current.find((r) => r.id === id);
             // `access` is deliberately absent from a broadcast — one payload
             // reaches every subscriber, so it cannot carry a per-viewer stamp.
@@ -242,7 +267,7 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
             // who have no other way to learn it exists now that the polls are
             // gone.
             if (!previous) {
-              if (socket.readyState === WebSocket.OPEN) send(socket, { type: "resync" });
+              askForSnapshot();
               return;
             }
             // The screen is not in a broadcast either — keep the one held and
@@ -265,16 +290,25 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
           }
 
           // "Your access to this row may have changed." Asked rather than
-          // asserted because the server could not address this audience
-          // exactly — an Everyone grant ending reaches the people who kept
-          // the row alongside those who lost it. So nothing is dropped here:
-          // the snapshot, which IS resolved per viewer, decides. A client not
-          // holding the row ignores it, which keeps an unshare from making
-          // every open tab on the instance ask.
+          // asserted for two reasons the server cannot resolve on its own: an
+          // Everyone grant ending reaches the people who kept the row
+          // alongside those who lost it, and a level change (`edit` → `view`)
+          // moves nothing a broadcast can carry. So nothing is dropped here —
+          // the snapshot, which IS resolved per viewer, decides.
+          //
+          // Ignoring it when this client holds no such row bounds the cost of
+          // a NAMED change, which is most of them. It buys nothing on the
+          // Everyone transition, where by definition every tab holds the row:
+          // that one costs one visible-set read per open tab, which is why
+          // `askForSnapshot` collapses the asks rather than sending each.
           if (frame.type === "subshell-recheck" && frame.id) {
+            // Same reasoning as the `subshell` branch: this frame is newer
+            // than whatever removed the row, and its whole point is that only
+            // a fresh per-viewer resolve can answer.
+            goneIds.delete(frame.id);
             recheckDetail(frame.id);
             if (!current.some((r) => r.id === frame.id)) return;
-            if (socket.readyState === WebSocket.OPEN) send(socket, { type: "resync" });
+            askForSnapshot();
             return;
           }
 

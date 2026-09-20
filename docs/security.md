@@ -2399,6 +2399,22 @@ transition test asserts over every before→after pair, is that **a viewer who
 still has access is never told the row is gone** — the inverse of the usual
 leak, and just as much a bug.
 
+**A change of LEVEL is asked about, not asserted.** Reachability is not the
+whole of a share change: downgrading a grantee from `edit` to `view` leaves
+both topic sets identical, and the row is re-broadcast carrying no `access` at
+all — so the client correctly keeps the stamp it holds, which means it keeps
+rendering rename, restart and terminal-input affordances the viewer no longer
+has. Not an escalation (every route re-resolves, and an attached terminal is
+the never-re-checked property of § 11.5), but it is stale authority on screen,
+which is what the role axis already had `dropLiveSocketsFor` for. The share
+axis now emits the same ask, derived by diffing the CANONICAL resolver against
+itself across the change.
+
+**When the publisher cannot resolve a row, it asks rather than asserts.** An
+empty recipient set is not the same fact as "this row reaches nobody", and
+reading a failed database call as the latter published a removal for a live
+subshell to every admin. Asking is safe under every answer.
+
 **A broadcast carries no pane screen and no per-viewer field.** One payload
 reaches every subscriber on a topic, so it cannot carry the per-viewer
 `access` stamp — the client keeps the access it already holds, and a row it

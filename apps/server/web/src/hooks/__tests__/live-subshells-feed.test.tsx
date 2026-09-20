@@ -384,6 +384,74 @@ describe("LiveSubshellsFeedProvider", () => {
     expect(ws.outbox).toEqual([]);
   });
 
+  it("lets a re-granted share become visible again on the SAME socket", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const ws = FakeWS.instances[0];
+    const frame = (payload: unknown) =>
+      act(() => {
+        ws.onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "view" }] });
+    frame({ type: "subshell-gone", id: "a" }); // the share was revoked
+    expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)?.map((r) => r.id)).toEqual([]);
+
+    // …and granted again a minute later, on the same connection. The removal
+    // is older than this frame, so it stops applying — otherwise the row is
+    // invisible until the tab reloads, and re-asks on every later change.
+    frame({ type: "subshell", id: "a", row: { id: "a", status: "running" } });
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "view" }] });
+
+    expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)?.map((r) => r.id)).toEqual(["a"]);
+  });
+
+  it("treats a recheck as superseding an earlier removal too", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "view" }] });
+    frame({ type: "subshell-gone", id: "a" });
+    // The rule is about ORDER, not about which frame kind: anything the server
+    // says about this row after the removal is newer than it, so the removal
+    // stops filtering later snapshots.
+    frame({ type: "subshell-recheck", id: "a" });
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "view" }] });
+
+    expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)?.map((r) => r.id)).toEqual(["a"]);
+  });
+
+  it("collapses several asks into one snapshot request", async () => {
+    stubAuthOk();
+    setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const ws = FakeWS.instances[0];
+    const frame = (payload: unknown) =>
+      act(() => {
+        ws.onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] });
+    ws.outbox.length = 0;
+    // A row can earn several asks at once — reachability and level are
+    // separate reasons — and each one is a full visible-set read.
+    frame({ type: "subshell-recheck", id: "a" });
+    frame({ type: "subshell-recheck", id: "a" });
+    expect(ws.outbox.filter((f) => JSON.parse(f).type === "resync")).toHaveLength(1);
+
+    // The snapshot answers every question asked before it, so the next ask is
+    // a fresh one rather than a duplicate.
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] });
+    frame({ type: "subshell-recheck", id: "a" });
+    expect(ws.outbox.filter((f) => JSON.parse(f).type === "resync")).toHaveLength(2);
+  });
+
   it("does not let a stale snapshot resurrect a row it was told is gone", async () => {
     stubAuthOk();
     const client = setup();

@@ -62,12 +62,16 @@ export class LocalLauncher implements NodeLauncher {
       plan.reporter,
     );
     // The pane reports its OWN death through the same reporter prefix the
-    // harness hooks use — one tmux server per subshell means that server was
-    // started with this subshell's environment, and `run-shell` inherits it
-    // (measured 2026-09-20), so the report authenticates with the pane's own
-    // credentials and needs no second mechanism. A launch with no resolved
-    // reporter simply omits the hook and falls back to the sweep, exactly as
-    // a plugin omits its hooks (spec 2026-09-19 §4.3).
+    // harness hooks use, so no new credential exists — but it does NOT arrive
+    // by inheritance, and an earlier revision of this comment said it did.
+    // The pane is launched through `env -i`, so its `SUBSHELL_*` reach that
+    // process alone; the tmux server was started with none of them, and a
+    // `run-shell` hook inherits the SERVER's environment. Measured
+    // 2026-09-20: `show-environment` on a live subshell's socket lists no
+    // `SUBSHELL_ID`, and a hook without one is a silent no-op. `exitHookFor`
+    // therefore puts them on the command line itself. A launch with no
+    // resolved reporter omits the hook and falls back to the sweep, exactly
+    // as a plugin omits its hooks (spec 2026-09-19 §4.3).
     this.#tmux.newSubshell(plan.socket, plan.id, plan.cwd, cmd, exitHookFor(plan.reporter, plan.subshellEnv));
     // Stream all pane output to a per-subshell log file for attach replay.
     const logFile = subshellLogPath(plan.id);

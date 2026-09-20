@@ -697,6 +697,40 @@ describe("exit watcher (report.ts) — one shared tick", () => {
     expect(ctx.watchTick).toBeUndefined(); // the shared loop stops when the last pane leaves
   });
 
+  it("reaps the dead pane's tmux server, so `remain-on-exit` does not leak one per death", async () => {
+    // Panes are launched with `remain-on-exit`, so a finished pane's SESSION
+    // survives — which is what lets the death carry a real exit code, and
+    // what would otherwise leave one idle tmux server per dead subshell on
+    // this machine forever, each holding its pane's whole scrollback. Before
+    // that option existed the server exited with the pane. The plane reaps
+    // its own panes and deliberately skips node rows, so nothing else does.
+    const dataDir = await freshDataDir("watcher-reap");
+    const events: NodeEvent[] = [];
+    let ticks = 0;
+    const { ctx, calls } = makeCtx(
+      dataDir,
+      {
+        listSubshellNames: () => (ticks++ === 0 ? [S1] : []),
+        paneExitCode: () => 0,
+        killSubshell: () => {},
+      },
+      events,
+    );
+    await recordMeta(ctx.meta, S1, "reap-sock");
+    startExitWatcher(ctx, S1, "reap-sock", 20);
+    await waitFor(() => events.length > 0, "exit event");
+    await waitFor(
+      () => calls.some((c) => c.method === "killSubshell" && c.args[0] === "reap-sock" && c.args[1] === S1),
+      "server reaped",
+    );
+    // …and the exit code was read BEFORE the kill, or the death would report
+    // nothing to report.
+    const read = calls.findIndex((c) => c.method === "paneExitCode");
+    const killed = calls.findIndex((c) => c.method === "killSubshell");
+    expect(read).toBeGreaterThanOrEqual(0);
+    expect(killed).toBeGreaterThan(read);
+  });
+
   it("a slow tick is never overlapped by the next one", async () => {
     // The probe is async now and bounded by the tmux deadline (15 s) while
     // the interval is 2 s, so a wedged socket would let seven ticks run at

@@ -780,6 +780,16 @@ keeps this contract true is that `listSubshellsChecked` filters on
 subshell was ever reported dead again while every test in this package still
 passed. Its own test is mutation-checked for that reason.
 
+**And the node reaps the server it kept alive.** `remain-on-exit` is what
+makes a finished pane observable, and the price is that tmux no longer tears
+itself down — one idle server per dead subshell, each holding the whole of its
+pane's scrollback, accumulating for the life of the machine. `reportDeath`
+kills the session after reading the exit code and sending the frame, inside
+the same relaunch re-check that guards the tails drop. Here rather than on the
+plane: the plane reaps its own panes and deliberately skips node rows (that
+server belongs to this machine), and doing it here also works while the plane
+is unreachable — which is exactly when deaths pile up.
+
 The shared 2 s tick (`src/commands/report.ts`) probes each tmux socket once
 via `listSubshellsChecked`: an authoritative `ok:true` answer lacking the pane
 reports the death IMMEDIATELY with the pane's real exit code when one is

@@ -192,6 +192,15 @@ launch writes the row, mints its token and patches it post-spawn. The
 publisher coalesces per id over a 40 ms window, so announcing liberally at act
 boundaries costs nothing on the wire.
 
+**A node's reachability is an announcement too.** `nodeOffline` is a field of
+every broadcast row and it flips for every subshell on a machine the moment
+its socket drops — but no write touches those rows, so an event-driven feed
+has nothing to send. The SSE stream this replaced hid that by re-sending the
+whole list on a timer. `services/nodes/node-presence-announce.ts` publishes
+`subshell.changed` for the RUNNING rows on a node when it connects, when it
+disconnects, and when a refused agent is held; without it an agent that simply
+dies leaves its subshells rendering as healthy until the viewer reconnects.
+
 The cost of that layering is drift, and it has bitten once already: the first
 pass announced `createSubshell`'s ROLLBACK path and not its success path, so a
 launch published nothing at all and every test stayed green. **When you add a

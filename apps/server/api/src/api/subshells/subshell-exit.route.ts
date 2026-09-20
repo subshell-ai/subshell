@@ -26,10 +26,14 @@ const OkResponseSchema = t.Object({ ok: t.Boolean({ description: "Always true" }
  *
  * Subshell-key-only and self-scoped, exactly like /attention and
  * /harness-session: a pane speaks for its own row and never another's, and a
- * browser has no reason to be here. The hook needs no new credential — one
- * tmux server per subshell means the server was started with that subshell's
- * own environment, and `run-shell` inherits it (measured 2026-09-20), so the
- * reporter authenticates exactly as the harness hooks already do.
+ * browser has no reason to be here. The hook needs no new credential — it
+ * authenticates with the pane's own, exactly as the harness hooks do — but
+ * note WHERE those come from, because the obvious answer is wrong and was
+ * written here once: a `run-shell` hook inherits the tmux SERVER's
+ * environment, and the pane is launched through `env -i`, so the server holds
+ * none of the pane's `SUBSHELL_*` (measured 2026-09-20). `exitHookFor` puts
+ * them on the hook's own command line. Deleting that prefix would look
+ * correct on any machine whose shell exports them.
  */
 export const subshellExitRoute = new Elysia()
   .use(contextPlugin)

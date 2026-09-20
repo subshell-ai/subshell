@@ -1,4 +1,7 @@
-import { describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { setupAuthTables } from "@/api/__tests__/helpers/auth-tables.js";
+import { db } from "@/db/index.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { publishLive } from "@/services/live-bus.js";
 import { startLivePublisher } from "@/ws/live-publisher.js";
 import { ADMINS_TOPIC, EVERYONE_TOPIC, userTopic } from "@/ws/live-topics.js";
@@ -19,6 +22,43 @@ function fakeTarget() {
 }
 
 const settle = (ms = 90) => new Promise((r) => setTimeout(r, ms));
+
+/** Rows created by the revocation cases, which need a row that actually EXISTS. */
+const created: string[] = [];
+
+/**
+ * A real subshell row owned by `ownerId`.
+ *
+ * The revocation cases cannot use a made-up id any more: a `shares-changed`
+ * whose row has vanished now publishes NOTHING, because the deletion event
+ * owns that case and carries its own audience. Testing the revocation against
+ * an absent row would be testing the skip.
+ */
+async function realRow(ownerId: string): Promise<string> {
+  const id = crypto.randomUUID();
+  created.push(id);
+  await new SubshellsRepository(db).create({
+    id,
+    userId: ownerId,
+    presetId: "p",
+    harnessId: "claude-code",
+    name: "publisher-test",
+    workingDir: "/tmp",
+    tmuxSocket: null,
+  });
+  return id;
+}
+
+// The suite shares one database, so these tables usually exist by the time
+// this file runs — usually is not a contract, and without this the revocation
+// cases pass in a full run and fail on their own.
+beforeAll(async () => {
+  await setupAuthTables();
+});
+
+afterAll(async () => {
+  for (const id of created) await db.deleteFrom("subshells").where("id", "=", id).execute();
+});
 
 describe("live publisher coalescing", () => {
   /**
@@ -152,14 +192,15 @@ describe("the coalescing window cannot swallow a revocation", () => {
     const { target, sent } = fakeTarget();
     const stop = startLivePublisher({ target, coalesceMs: 20 });
     try {
+      const id = await realRow("owner");
       publishLive({
         kind: "subshell.shares-changed",
-        id: "s10",
+        id,
         before: { ownerUserId: "owner", shares: [{ granteeUserId: "ex", permission: "view" }] },
       });
-      publishLive({ kind: "subshell.changed", id: "s10" });
+      publishLive({ kind: "subshell.changed", id });
       await settle();
-      const gone = sent.filter((x) => x.frame.type === "subshell-gone" && x.frame.id === "s10");
+      const gone = sent.filter((x) => x.frame.type === "subshell-gone" && x.frame.id === id);
       expect(gone.map((x) => x.topic)).toContain(userTopic("ex"));
     } finally {
       stop();
@@ -189,18 +230,19 @@ describe("the coalescing window cannot swallow a revocation", () => {
     try {
       // first → who used to see it; second → an intermediate state that was
       // never the audience anyone needs telling about.
+      const id = await realRow("owner");
       publishLive({
         kind: "subshell.shares-changed",
-        id: "s12",
+        id,
         before: { ownerUserId: "owner", shares: [{ granteeUserId: "first", permission: "view" }] },
       });
       publishLive({
         kind: "subshell.shares-changed",
-        id: "s12",
+        id,
         before: { ownerUserId: "owner", shares: [{ granteeUserId: "second", permission: "view" }] },
       });
       await settle();
-      const topics = sent.filter((x) => x.frame.type === "subshell-gone" && x.frame.id === "s12").map((x) => x.topic);
+      const topics = sent.filter((x) => x.frame.type === "subshell-gone" && x.frame.id === id).map((x) => x.topic);
       expect(topics).toContain(userTopic("first"));
       expect(topics).not.toContain(userTopic("second"));
     } finally {
@@ -229,15 +271,16 @@ describe("a share revocation reaches the person who lost it", () => {
       // The row does not exist in this test DB, so the `subshell` half resolves
       // to nothing — but the revocation half is derived from the event itself
       // and must still land.
+      const id = await realRow("owner");
       publishLive({
         kind: "subshell.shares-changed",
-        id: "s9",
+        id,
         before: { ownerUserId: "owner", shares: [{ granteeUserId: "ex", permission: "view" }] },
       });
       await new Promise((r) => setTimeout(r, 60));
       const gone = sent.filter((x) => x.frame.type === "subshell-gone");
       expect(gone.map((x) => x.topic)).toContain(userTopic("ex"));
-      expect(gone.every((x) => x.frame.id === "s9")).toBe(true);
+      expect(gone.every((x) => x.frame.id === id)).toBe(true);
     } finally {
       stop();
     }

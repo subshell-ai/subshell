@@ -1,4 +1,5 @@
 import type { SubshellSharePermission } from "@/db/types/subshell-shares.db-types.js";
+import { resolveSubshellAccess } from "@/lib/subshell-access.js";
 
 /**
  * Topic every signed-in socket joins.
@@ -128,4 +129,53 @@ export function revocationTopics(revoked: string[], current: string[]): { gone: 
     else gone.push(topic);
   }
   return { gone, recheck };
+}
+
+/**
+ * A principal who is neither the owner nor any named grantee — i.e. someone
+ * whose access can only come from the Everyone grant. The NUL keeps it from
+ * ever colliding with a real user id.
+ */
+const STRANGER = "\u0000stranger";
+
+/**
+ * Topics whose subscribers KEPT the row but at a different permission level.
+ *
+ * Reachability is not the whole of a share change. Downgrading a named
+ * grantee from `edit` to `view` leaves both topic sets identical, so
+ * {@link revocationTopics} has nothing to say — and the row is re-broadcast
+ * carrying no `access` at all, because a broadcast reaches every subscriber
+ * of a topic. The client therefore keeps the stamp it holds, which is the
+ * correct rule and here means it keeps rendering rename, restart and
+ * terminal-input affordances it no longer has. Not an escalation — every
+ * route re-resolves — but it is the stale-UI failure this design set out to
+ * remove, and the role axis was already handled while this one was not.
+ *
+ * Unlike the topic derivation above, this deliberately calls the CANONICAL
+ * `resolveSubshellAccess`: it is a diff of one resolver against itself across
+ * time, not a second implementation of it, so there is nothing here for the
+ * equivalence test to keep honest.
+ *
+ * Only a change BETWEEN two levels of real access counts. Gaining access
+ * arrives as the row itself; losing it entirely is {@link revocationTopics}.
+ *
+ * @returns topics that should be asked to re-resolve, never told anything
+ */
+export function levelChangedTopics(row: { ownerUserId: string; before: ShareRow[]; after: ShareRow[] }): string[] {
+  const topics = new Set<string>();
+  const named = new Set<string>();
+  for (const share of [...row.before, ...row.after]) {
+    if (share.granteeUserId !== null && share.granteeUserId !== row.ownerUserId) named.add(share.granteeUserId);
+  }
+  // The Everyone grant's own level, read through the eyes of someone who has
+  // no other route to the row.
+  for (const principal of [STRANGER, ...named]) {
+    const before = resolveSubshellAccess(principal, false, row.ownerUserId, row.before);
+    const after = resolveSubshellAccess(principal, false, row.ownerUserId, row.after);
+    if (before === "none" || after === "none" || before === after) continue;
+    topics.add(principal === STRANGER ? EVERYONE_TOPIC : userTopic(principal));
+  }
+  // The owner is always `owner` and an admin always holds instance-wide
+  // `edit`, so neither can be changed by a grant edit.
+  return [...topics];
 }

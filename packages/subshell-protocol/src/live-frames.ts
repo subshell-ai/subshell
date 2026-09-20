@@ -48,12 +48,17 @@ export type LiveServerFrame<SnapshotRow, ChangedRow> =
       /**
        * This viewer's access to that subshell MAY have changed — ask again.
        *
-       * Asked rather than asserted because the audience cannot be addressed
-       * exactly: `live:everyone` subsumes the per-viewer topics, so a grant
-       * ending there reaches both the people who kept the row by another
-       * route and the people who did not. A client holding the row answers
-       * with `resync`, whose snapshot IS resolved per viewer; a client that
-       * does not hold it ignores the frame.
+       * Asked rather than asserted for two reasons, both of them things a
+       * broadcast structurally cannot express. The audience may not be
+       * addressable: `live:everyone` subsumes the per-viewer topics, so a
+       * grant ending there reaches both the people who kept the row by
+       * another route and the people who did not. And a change of LEVEL
+       * (`edit` → `view`) moves no field a broadcast carries at all, since a
+       * broadcast has no per-viewer `access` to move.
+       *
+       * A client holding the row answers with `resync`, whose snapshot IS
+       * resolved per viewer; a client that does not hold it ignores the
+       * frame.
        */
       type: "subshell-recheck";
       /** The subshell's id. */

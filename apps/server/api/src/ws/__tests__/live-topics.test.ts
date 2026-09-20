@@ -3,6 +3,7 @@ import { type Access, resolveSubshellAccess } from "@/lib/subshell-access.js";
 import {
   ADMINS_TOPIC,
   EVERYONE_TOPIC,
+  levelChangedTopics,
   recipientTopics,
   revocationTopics,
   topicsForViewer,
@@ -224,5 +225,75 @@ describe("revocationTopics tells the right people, over every transition", () =>
         recipientTopics({ ownerUserId: OWNER, shares: [{ granteeUserId: null, permission: "view" }] }),
       ),
     ).toEqual({ gone: [], recheck: [] });
+  });
+});
+
+/**
+ * **Reachability is not the whole of a share change.**
+ *
+ * Downgrading a named grantee from `edit` to `view` leaves both topic sets
+ * identical, so `revocationTopics` says nothing — and the row is re-broadcast
+ * carrying no `access`, because a broadcast reaches every subscriber of a
+ * topic. The client correctly keeps the stamp it holds, which here means it
+ * keeps rendering rename, restart and terminal-input affordances the viewer no
+ * longer has. The ROLE axis had `dropLiveSocketsFor`; this axis had nothing.
+ */
+describe("levelChangedTopics", () => {
+  const view = (id: string | null): Share => ({ granteeUserId: id, permission: "view" });
+  const edit = (id: string | null): Share => ({ granteeUserId: id, permission: "edit" });
+
+  it("asks a downgraded grantee to re-resolve, though their topic never moved", () => {
+    const before = [edit("grantee")];
+    const after = [view("grantee")];
+    // The premise: reachability is unchanged, so nothing else would say a word.
+    expect(recipientTopics({ ownerUserId: OWNER, shares: before })).toEqual(
+      recipientTopics({ ownerUserId: OWNER, shares: after }),
+    );
+    expect(levelChangedTopics({ ownerUserId: OWNER, before, after })).toEqual([userTopic("grantee")]);
+  });
+
+  it("asks on an upgrade too — stale UI is wrong in both directions", () => {
+    expect(levelChangedTopics({ ownerUserId: OWNER, before: [view("g")], after: [edit("g")] })).toEqual([
+      userTopic("g"),
+    ]);
+  });
+
+  it("names `everyone` when the Everyone grant's own level changed", () => {
+    expect(levelChangedTopics({ ownerUserId: OWNER, before: [view(null)], after: [edit(null)] })).toEqual([
+      EVERYONE_TOPIC,
+    ]);
+  });
+
+  it("says nothing when a grant is merely added or removed", () => {
+    // Gaining access arrives as the row itself; losing it entirely is
+    // `revocationTopics`. Saying it twice would cost a redundant resync.
+    expect(levelChangedTopics({ ownerUserId: OWNER, before: [], after: [edit("g")] })).toEqual([]);
+    expect(levelChangedTopics({ ownerUserId: OWNER, before: [edit("g")], after: [] })).toEqual([]);
+  });
+
+  it("says nothing about the owner or the admins, whose levels a grant cannot move", () => {
+    const changed = levelChangedTopics({
+      ownerUserId: OWNER,
+      before: [edit(OWNER), view("g")],
+      after: [view(OWNER), view("g")],
+    });
+    expect(changed).toEqual([]);
+  });
+
+  it("sees a named change that the Everyone grant is hiding from the topic sets", () => {
+    // With an Everyone grant present, `recipientTopics` names no user topic at
+    // all — but the grantee's EFFECTIVE access still moved, which is what a
+    // topic-shaped diff cannot see.
+    const changed = levelChangedTopics({
+      ownerUserId: OWNER,
+      before: [view(null), edit("g")],
+      after: [view(null), view("g")],
+    });
+    expect(changed).toEqual([userTopic("g")]);
+  });
+
+  it("says nothing when the shares did not change at all", () => {
+    const shares = [view(null), edit("g")];
+    expect(levelChangedTopics({ ownerUserId: OWNER, before: shares, after: shares })).toEqual([]);
   });
 });

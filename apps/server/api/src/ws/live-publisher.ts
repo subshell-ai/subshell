@@ -3,7 +3,7 @@ import { getRequestlessContext } from "@/lib/context.js";
 import { type LiveEvent, subscribeLive } from "@/services/live-bus.js";
 import type { SubshellsService } from "@/services/subshells.service.js";
 import { logger } from "@/utils/logger.js";
-import { recipientTopics, revocationTopics } from "@/ws/live-topics.js";
+import { levelChangedTopics, recipientTopics, revocationTopics } from "@/ws/live-topics.js";
 
 /**
  * How long changes to one subshell are collected before a frame goes out.
@@ -145,33 +145,64 @@ async function publishEvent(target: LivePublisherTarget, event: LiveEvent): Prom
   // send would leave someone looking at a subshell they no longer may.
   const revokedTopics = event.kind === "subshell.shares-changed" ? recipientTopics(event.before) : [];
 
+  /**
+   * What the reads below managed to establish.
+   *
+   * **An empty `currentTopics` is not the same fact as "this row reaches
+   * nobody", and conflating them publishes a removal for a row that exists.**
+   * A failed read left it `[]`, which made every revoked topic look lost —
+   * `live:admins` included, since it is in both sets on every branch — so a
+   * transient database hiccup during a share edit told every admin and the
+   * owner that a live subshell was gone, stickily. That is the same mistake
+   * as the topic-name difference this module already learned once.
+   */
+  let resolved: "row" | "missing" | "failed" = "failed";
   let currentTopics: string[] = [];
+  let levelChanged: string[] = [];
   try {
     const { repos, services } = getRequestlessContext();
     const row = await repos.subshells.findById(event.id);
-    if (row) {
+    if (!row) {
+      // Raced a delete; that event carries the owner and its shares and does
+      // the honest thing. Nothing to say here.
+      resolved = "missing";
+    } else {
       const shares = (await repos.subshellShares.listForSubshells([event.id])).get(event.id) ?? [];
       currentTopics = recipientTopics({ ownerUserId: row.userId, shares });
+      if (event.kind === "subshell.shares-changed") {
+        levelChanged = levelChangedTopics({ ownerUserId: row.userId, before: event.before.shares, after: shares });
+      }
       // `viewsForBroadcast` is the shared half by construction — it drops the
       // per-viewer `access` (one payload, every subscriber) and captures no
       // pane, so a screen never rides a topic.
       const [view] = await services.subshells.viewsForBroadcast([row]);
+      resolved = "row";
       if (view) broadcast(target, currentTopics, { type: "subshell", id: event.id, row: view });
     }
-    // A missing row raced a delete; that event carries the owner and does the
-    // honest thing. Nothing to broadcast as a change.
   } catch (err) {
-    // Reported, not swallowed — but the revocation below still goes out.
+    // Reported, not swallowed — and the revocation below still goes out, but
+    // as a question rather than an assertion.
     logger.withError(err).warn("live publisher: could not resolve a changed row");
   }
+
+  if (resolved === "missing") return;
 
   // Told LAST, and by REACHABILITY rather than by name: `everyone` subsumes
   // the user topics, so a plain set-difference names topics whose subscribers
   // still hold the row — see `revocationTopics`, which is where that is
   // reasoned about and exhaustively diffed.
-  const { gone, recheck } = revocationTopics(revokedTopics, currentTopics);
+  //
+  // When the reads FAILED, every revoked topic is asked rather than told:
+  // asking is safe under any answer, and a viewer who really did lose the row
+  // learns it from the snapshot they fetch in reply.
+  const { gone, recheck } =
+    resolved === "row" ? revocationTopics(revokedTopics, currentTopics) : { gone: [], recheck: revokedTopics };
   if (gone.length > 0) broadcast(target, gone, { type: "subshell-gone", id: event.id });
-  if (recheck.length > 0) broadcast(target, recheck, { type: "subshell-recheck", id: event.id });
+  // A level change is asked about too: the row went out carrying no `access`
+  // (it cannot), so only a per-viewer resolve can move a grantee from `edit`
+  // to `view`.
+  const asked = [...new Set([...recheck, ...levelChanged])];
+  if (asked.length > 0) broadcast(target, asked, { type: "subshell-recheck", id: event.id });
 }
 
 /** One serialization, published to each topic. */
