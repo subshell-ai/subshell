@@ -93,7 +93,7 @@ const RecentResponseSchema = t.Object({
   home: t.Nullable(
     t.String({
       description:
-        "Home directory on the node this list is scoped to, for pre-filling a working directory when there are no recents; null when the node has not reported one",
+        "Home directory on the node this list is scoped to, for pre-filling a working directory when there are no recents; null when the node has not reported one, or when it lies outside the rules this caller launches under",
     }),
   ),
 });
@@ -321,7 +321,12 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       // (operator probe, 2026-09-20): the form would seed a directory this
       // caller cannot launch into, re-staging the seed-a-403 trap the whole
       // filter exists to prevent. Managers and unrestricted nodes see `dirs`
-      // empty, where `dirAllowed` passes everything.
+      // empty, where `dirAllowed` passes everything. Note the two halves are
+      // deliberately DIFFERENT tests: `paths` rides the full `isAllowedRoot`
+      // (dirs + FS_ROOT + realpath) because a recent row names a path this
+      // picker could be pointed at, while `home` needs only the node's own
+      // rules — the launch gate that would refuse it consults nothing else
+      // on a node, and FS_ROOT does not reach another machine's disk.
       const rawHome = nodeId === LOCAL_NODE_ID ? homedir() : (getLive(nodeId)?.agent?.homeDir ?? null);
       const home = rawHome !== null && dirAllowed(rawHome, dirs) ? rawHome : null;
       return { paths, home } as const;
@@ -364,9 +369,13 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
         // see), and `SUBSHELL_FS_ROOT` does not reach there either. What the
         // plane CAN enforce is its own two answers: which nodes this caller
         // may see at all (404, never 403 — the no-oracle rule `/recent` and
-        // `/explore` apply), and the node's directory allowlist, so a
-        // favorite cannot be created that `favoritePathsFor` would filter
-        // straight back out — which reads as the star silently failing.
+        // `/explore` apply), and the node's directory allowlist — which
+        // stops the class of star that is dead FOR THIS CALLER by their own
+        // node's rules. The read filter in `favoritePathsFor` is stricter by
+        // design (it also rides `SUBSHELL_FS_ROOT` and plane-host realpath
+        // checks the write gate cannot apply to a path on another machine),
+        // so a star can still save 200 and not render under a confinement
+        // that was never meant to reach the node's disk.
         const { access } = await loadNodeAccess(
           {
             nodes: new NodesRepository(db),
