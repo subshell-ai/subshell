@@ -10,6 +10,7 @@ import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
+import { registerLiveSocket, resetLiveRegistryForTests } from "@/ws/live-registry.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 /**
@@ -138,6 +139,33 @@ describe("admin user management", () => {
   }
 
   describe("role assignment", () => {
+    it("drops that user's live sockets, so their next connect re-derives its topics", async () => {
+      // A live socket chooses its topics ONCE, at connect, and a WebSocket is
+      // never re-authenticated — so a demoted admin with a dashboard tab open
+      // would go on receiving every subshell on the instance for as long as
+      // that tab lived. The registry is tested in isolation; what nothing
+      // asserted is that this ROUTE calls it, which is the seam that drifts
+      // while both halves stay green.
+      resetLiveRegistryForTests();
+      const closes: number[] = [];
+      registerLiveSocket(admin2Id, {
+        data: {},
+        send: () => 1,
+        close: (code?: number) => {
+          closes.push(code ?? 0);
+        },
+      });
+
+      const res = await req("PATCH", `/${admin2Id}/role`, adminCookie, { role: "user" });
+      expect(res.status).toBe(200);
+      // Closed, and BELOW 4000 — the client reads the 4xxx range as a refusal
+      // to report and anything under it as a connection to retry, so this
+      // reconnects silently instead of surfacing as an error.
+      expect(closes).toHaveLength(1);
+      expect(closes[0]).toBeLessThan(4000);
+      resetLiveRegistryForTests();
+    });
+
     it("promotes a member to admin", async () => {
       const res = await req("PATCH", `/${memberId}/role`, adminCookie, { role: "admin" });
       expect(res.status).toBe(200);

@@ -82,6 +82,25 @@ describe("TmuxRunner", () => {
     expect(await runner.hasSubshell(socket, "s1")).toBe(false);
   });
 
+  it("reads a FINISHED pane as not alive, though `remain-on-exit` keeps its session", async () => {
+    // The reason this asks `#{pane_dead}` rather than `has-session`: with
+    // `remain-on-exit` the session outlives the process, so the old question
+    // answered "alive" for a subshell whose command had ended. Every caller
+    // here — the reconcile sweep, the attach gate, the node's maintenance CLI
+    // — means "is there a LIVE pane".
+    const socket = freshSocket("deadpane");
+    runner.newSubshell(socket, "d1", "/tmp", "sh -c 'exit 3'");
+    for (let i = 0; i < 40 && (await runner.hasSubshell(socket, "d1")); i++) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(await runner.hasSubshell(socket, "d1")).toBe(false);
+    // …and only because tmux said `1`. The sweep's death branch is
+    // destructive, so anything else it might answer is read as ALIVE — see
+    // the method: unknown is not dead.
+    expect(runner.listSubshellNames(socket)).toContain("d1");
+    runner.killSubshell(socket, "d1");
+  });
+
   it("lists subshell names on a socket in one spawn (batched liveness)", async () => {
     const socket = freshSocket("list");
     runner.newSubshell(socket, "ls-a", "/tmp", "exec sleep 30");

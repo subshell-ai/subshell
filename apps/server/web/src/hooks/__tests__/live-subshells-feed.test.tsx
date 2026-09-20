@@ -325,6 +325,47 @@ describe("LiveSubshellsFeedProvider", () => {
     expect(held?.preview).toEqual(["held"]);
   });
 
+  it("a stale snapshot does not put an older row into the detail cache either", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+    const detailKey = [...SUBSHELL_QUERY_KEY, "a"];
+    client.setQueryData(detailKey, { id: "a", access: "owner", status: "running" });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner", status: "running" }] });
+    frame({ type: "subshell", id: "a", row: { id: "a", status: "terminated" } });
+    // …and a snapshot whose read began before that event. The list already
+    // prefers the event-sourced row; the detail entry must not disagree with
+    // the list about the same subshell.
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner", status: "running" }] });
+
+    expect(client.getQueryData<{ status: string }>(detailKey)?.status).toBe("terminated");
+  });
+
+  it("lets a snapshot's own access win, since that row IS per-viewer", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+    const detailKey = [...SUBSHELL_QUERY_KEY, "a"];
+    client.setQueryData(detailKey, { id: "a", access: "edit", status: "running" });
+
+    // A broadcast cannot carry access and must leave it alone; a snapshot can,
+    // and a downgrade is exactly what it is there to deliver.
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "view", status: "running" }] });
+    expect(client.getQueryData<{ access: string }>(detailKey)?.access).toBe("view");
+
+    frame({ type: "subshell", id: "a", row: { id: "a", status: "terminated" } });
+    expect(client.getQueryData<{ access: string }>(detailKey)?.access).toBe("view");
+  });
+
   it("does not invent a detail cache entry for a page nobody opened", async () => {
     stubAuthOk();
     const client = setup();
@@ -407,7 +448,7 @@ describe("LiveSubshellsFeedProvider", () => {
     expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)?.map((r) => r.id)).toEqual(["a"]);
   });
 
-  it("treats a recheck as superseding an earlier removal too", async () => {
+  it("does NOT let a recheck resurrect a row it was told is gone", async () => {
     stubAuthOk();
     const client = setup();
     await waitFor(() => expect(FakeWS.instances.length).toBe(1));
@@ -418,13 +459,14 @@ describe("LiveSubshellsFeedProvider", () => {
 
     frame({ type: "snapshot", subshells: [{ id: "a", access: "view" }] });
     frame({ type: "subshell-gone", id: "a" });
-    // The rule is about ORDER, not about which frame kind: anything the server
-    // says about this row after the removal is newer than it, so the removal
-    // stops filtering later snapshots.
+    // A recheck is a QUESTION, published to everyone precisely when an
+    // Everyone grant ends — so it reaches people who just lost the row. If it
+    // cleared the removal, a snapshot read before the revoke would put the row
+    // back, which is the race the removal is remembered for.
     frame({ type: "subshell-recheck", id: "a" });
     frame({ type: "snapshot", subshells: [{ id: "a", access: "view" }] });
 
-    expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)?.map((r) => r.id)).toEqual(["a"]);
+    expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)?.map((r) => r.id)).toEqual([]);
   });
 
   it("collapses several asks into one snapshot request", async () => {

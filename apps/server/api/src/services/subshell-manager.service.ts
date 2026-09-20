@@ -1358,12 +1358,13 @@ export class SubshellManagerService {
     // neither stamping its death nor retiring its token is ours to do once
     // it isn't a running row anymore.
     if (fresh?.status !== "running") return;
+    let claimed = 0;
     if (fresh.alive === 1) {
       // Claimed, not merely written: a maintenance window stopping this same
       // pane is retiring the row from the other direction, and the owner is
       // owed ONE account of the death. `waiting_since` dies with the process
       // — nobody is waiting anymore.
-      const claimed = await this.#subshells.updateIfAlive(fresh.id, {
+      claimed = await this.#subshells.updateIfAlive(fresh.id, {
         alive: 0,
         exitCode,
         endedAt,
@@ -1411,7 +1412,13 @@ export class SubshellManagerService {
         logger.withError(err).debug(`could not reap the tmux server for ${fresh.id}`);
       }
     }
-    publishLive({ kind: "subshell.changed", id: row.id });
+    // Announced only when this pass CHANGED something. The sweep calls into
+    // here for any row whose pane is not alive, including rows already dead
+    // and merely waiting out their restart backoff — so an unconditional
+    // publish put one frame per such row on the wire every 60 s, describing
+    // nothing. `claimed` is the write that actually happened; a restart is a
+    // change in its own right.
+    if (claimed || restarted) publishLive({ kind: "subshell.changed", id: row.id });
   }
 
   /**

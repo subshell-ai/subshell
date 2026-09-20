@@ -480,8 +480,15 @@ export class SubshellsService extends BaseService {
    *
    * @param rows - subshell rows to render, in order
    */
-  async viewsForBroadcast(rows: SubshellTable[]): Promise<Omit<SubshellView, "access">[]> {
-    const sharesBy = await this.repos.subshellShares.listForSubshells(rows.map((r) => r.id));
+  async viewsForBroadcast(
+    rows: SubshellTable[],
+    shares?: Map<string, ShareEntry[]>,
+  ): Promise<Omit<SubshellView, "access">[]> {
+    // The caller usually has these already — the publisher reads them to
+    // derive the recipient topics, one line before calling this — and reading
+    // them twice per event is the one place this path did more work than the
+    // design says it does.
+    const sharesBy = shares ?? (await this.repos.subshellShares.listForSubshells(rows.map((r) => r.id)));
     // NO PREVIEWS, for two independent reasons. A broadcast reaches every
     // subscriber on a topic, so a pane's screen lines — the most sensitive
     // thing this app renders — must not ride one. And capturing here would

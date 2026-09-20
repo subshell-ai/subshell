@@ -58,7 +58,6 @@ export const subshellExitRoute = new Elysia()
         400: "ApiErrorResponse",
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
-        404: "ApiErrorResponse",
       },
       detail: {
         operationId: "reportSubshellExit",

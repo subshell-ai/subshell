@@ -1554,10 +1554,16 @@ Recorded so they are decisions rather than surprises:
      dashboard's feed (spec 2026-09-19), has the same property**: it redeems
      the same single-use token at connect and never re-authenticates, so a
      socket opened before the reset keeps receiving that viewer's subshell
-     list until it drops. Same posture, not a new one — and the list it
-     carries is resolved per frame through the ordinary sharing-aware gate,
-     so a share revoked after connect stops appearing without the socket
-     needing to be re-authenticated.
+     list until it drops. Same posture, not a new one.
+
+     What that socket then RECEIVES is § 11.14's business, and the sentence
+     that stood here described a design that was reverted before it shipped:
+     only the SNAPSHOT is resolved through the ordinary sharing-aware gate.
+     Event frames are published to derived topics, and a revoked share is a
+     frame the server sends rather than a row the viewer stops matching. The
+     difference matters exactly here — a socket is never re-authenticated, so
+     what keeps it honest is that revocation is ANNOUNCED, not that anything
+     re-resolves it.
 
    A password reset is therefore a credential rotation, not a session-kill
    switch for every path into the account.
@@ -2386,6 +2392,14 @@ every subshell on the instance for as long as that tab lived. `PATCH
 audit row; the client reconnects on its own and re-derives what it may
 subscribe to. A password reset still does NOT do this — it is a credential
 rotation, not a session-kill switch, and that asymmetry is deliberate.
+
+**A pane's bearer token now also sits in that pane's tmux hook table.** The
+`pane-died` hook carries the subshell's own credentials on its command line
+(the tmux server holds none of the pane's environment, so they cannot be
+inherited), which means `show-hooks` on that socket reveals what `ps` already
+did. Same actor, same machine, same accepted class as the launch argv — but it
+is a new PLACE the token rests, and it rests there for the life of the server
+rather than the length of one spawn.
 
 **A revocation is published by reachability, not by topic name.** The topics
 are not a flat set — `live:everyone` subsumes every per-viewer topic — so the

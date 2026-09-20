@@ -210,7 +210,14 @@ export class TmuxRunner {
       // One call answers both questions: the socket being gone throws, and a
       // lingering pane reports its own deadness.
       const out = await this.runAsync(["-L", socket, "display-message", "-t", subshellName, "-p", "#{pane_dead}"], {});
-      return out.stdout.trim() === "0";
+      // `!== "1"`, not `=== "0"`, and the asymmetry is the caller's rule
+      // rather than tidiness: the sweep's death branch is DESTRUCTIVE (it
+      // revokes the subshell's token, stamps `endedAt` and pushes a death
+      // notification), and its own comment says UNKNOWN IS NOT DEAD. A
+      // tmux that answered with something neither `0` nor `1` is not
+      // evidence of a dead pane; only `1` is. A socket that is gone throws,
+      // which is a different fact and is caught below.
+      return out.stdout.trim() !== "1";
     } catch (err) {
       if (err instanceof TmuxTimeoutError) throw err;
       return false;
@@ -567,7 +574,10 @@ export class TmuxRunner {
    * @returns Resolves/rejects with this command's own result
    */
   #enqueueInput(socket: string, subshellName: string, send: () => Promise<void>): Promise<void> {
-    const key = `${socket} ${subshellName}`;
+    // `\0` as the ESCAPE, never a literal NUL byte: a real one in the source
+    // makes grep and ripgrep treat this whole file as binary and silently
+    // return nothing, which costs whoever greps it next an afternoon.
+    const key = `${socket}\0${subshellName}`;
     // Never rejects (see below), so no rejection handler is needed here.
     const previous = this.#inputChains.get(key) ?? Promise.resolve();
     const result = previous.then(send);

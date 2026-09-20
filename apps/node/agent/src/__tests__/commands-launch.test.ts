@@ -1235,6 +1235,10 @@ describe("execLaunch on a node with no plugins (inversion §6)", () => {
     // `process.execPath` does), and an unquoted one makes the hook a silent
     // no-op. This assertion pinned the unquoted spelling until 2026-09-20.
     expect(hook).toContain("'report' 'exit'");
+    // …and NOT the doubled word. `'report' 'exit'` is a substring of
+    // `'report' 'report' 'exit'`, so the line above passes for the very bug
+    // this hook was fixed for; it needs its opposite beside it.
+    expect(hook).not.toContain("'report' 'report'");
     // …and the status stays BARE, because those single quotes are literal text
     // for tmux to interpolate inside.
     expect(hook?.endsWith(" '#{pane_dead_status}'")).toBe(true);

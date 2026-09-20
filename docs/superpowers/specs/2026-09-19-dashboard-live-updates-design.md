@@ -130,6 +130,18 @@ type LiveClientFrame =
   | { type: "refresh-preview"; id: string };    // manual refresh
 ```
 
+**Amended 2026-09-20: what shipped is `previews` and `resync`, with NO
+server-side watch list.** The pair above implies the server remembers which
+ids each socket is showing; it does not, and that is better — the fan-out
+holds no per-socket state beyond the topics, so a client that wants a fresher
+screen asks again rather than being subscribed to one. `resync` is the second
+half of the same idea: the client asks for the snapshot when a frame names a
+row it cannot render, instead of the server tracking what each client knows.
+
+The server collapses nothing, and the CLIENT holds one resync in flight at a
+time — an Everyone-shared row is in every tab's list, so the transition that
+asks about it asks everybody at once.
+
 **The snapshot is the resync primitive.** On connect, and on every reconnect,
 the server sends one snapshot and the client replaces the cache wholesale.
 There is no event replay, no sequence number and no gap to reason about: a
@@ -387,6 +399,16 @@ not one per row.
 The server keeps `computeActivity` for the REST payload: API consumers are not
 all browsers, and a field that only means something after client-side
 arithmetic is a worse contract.
+
+**The window and the announcement cadence are the same 60 seconds, and that
+is a choice rather than an accident.** `lastOutputAt` is written by the 60 s
+reconcile sweep — the pane-output path (`ws/viewers.ts`) deliberately does not
+publish, because announcing every chunk of pane output would put the feed back
+on a per-byte beat. So a busy subshell sits exactly on the active/idle
+boundary: it is re-announced as often as the window it is judged against.
+Practically it flickers at worst; the alternative is either a shorter window
+(which would read a quiet moment as idle) or an announcement per output chunk
+(which is the cost this design removes).
 
 ### 4.6 Polls that fold in
 

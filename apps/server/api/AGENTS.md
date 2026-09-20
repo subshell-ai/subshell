@@ -192,6 +192,16 @@ launch writes the row, mints its token and patches it post-spawn. The
 publisher coalesces per id over a 40 ms window, so announcing liberally at act
 boundaries costs nothing on the wire.
 
+**Local panes are launched with `remain-on-exit`, and the launcher owes them a
+reap.** The option is what makes a finished pane observable — it is why a death
+carries a real exit code — and its price is that tmux no longer tears itself
+down, so `#applyDeath` kills the session for a row it is retiring. That reap is
+gated on `LOCAL_NODE_ID` because the plane must not kill a server on a machine
+it does not own; the node does its own in `reportDeath` (see
+`apps/node/agent/AGENTS.md`), and between them every dead pane's server goes.
+A liveness read must ask `#{pane_dead}` rather than `has-session` for the same
+reason — a finished pane's session is still there.
+
 **A node's reachability is an announcement too.** `nodeOffline` is a field of
 every broadcast row and it flips for every subshell on a machine the moment
 its socket drops — but no write touches those rows, so an event-driven feed

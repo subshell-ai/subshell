@@ -59,6 +59,9 @@ describe("exitHookFor", () => {
     // `report report exit`, a usage error the hook swallowed silently.
     const hook = exitHookFor({ command: "/bin/subshell", args: ["report"] }, ENV);
     expect(hook?.match(/'report'/g)?.length).toBe(1);
+    // Asserting the tail alone would not catch it: `'report' 'exit'` is a
+    // substring of `'report' 'report' 'exit'`.
+    expect(hook).not.toContain("'report' 'report'");
   });
 
   test("quotes credential values, so a token with a quote in it cannot break the line", () => {

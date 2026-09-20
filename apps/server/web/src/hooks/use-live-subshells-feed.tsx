@@ -189,9 +189,17 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
         const key = [...SUBSHELL_QUERY_KEY, id];
         const held = queryClient.getQueryData<SubshellView>(key);
         if (!held) return;
-        // Same merge the list takes: a broadcast carries neither this
-        // viewer's `access` nor a screen, and the detail row may hold both.
-        queryClient.setQueryData(key, { ...held, ...next, access: held.access, preview: held.preview });
+        // Same merge the list takes — with one asymmetry worth being precise
+        // about. A BROADCAST carries neither this viewer's `access` nor a
+        // screen, so the held ones must survive it. A SNAPSHOT row is
+        // resolved per viewer and does carry `access`, and there it is
+        // authoritative. `??` says exactly that, and nothing else does.
+        queryClient.setQueryData(key, {
+          ...held,
+          ...next,
+          access: next.access ?? held.access,
+          preview: next.preview ?? held.preview,
+        });
       };
 
       /**
@@ -224,22 +232,23 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
             // (it never captures), so applying it plainly would blank every
             // card until the next pull.
             const screens = new Map(current.filter((r) => r.preview?.length).map((r) => [r.id, r.preview]));
-            commit(
-              frame.subshells
-                // A row this connection was told is gone stays gone, whatever
-                // a snapshot read before that says.
-                .filter((r) => !goneIds.has(r.id))
-                .map((r) => {
-                  const live = kept.get(r.id);
-                  if (live) return live;
-                  const preview = screens.get(r.id);
-                  return preview ? { ...r, preview } : r;
-                }),
-            );
+            const settled = frame.subshells
+              // A row this connection was told is gone stays gone, whatever
+              // a snapshot read before that says.
+              .filter((r) => !goneIds.has(r.id))
+              .map((r) => {
+                const live = kept.get(r.id);
+                if (live) return live;
+                const preview = screens.get(r.id);
+                return preview ? { ...r, preview } : r;
+              });
+            commit(settled);
             resyncPending = false;
-            // A reconnect's snapshot is authoritative for the open detail
-            // page too — it is the only frame that carries `access`.
-            for (const row of frame.subshells) syncDetail(row.id, row);
+            // The detail page gets what the LIST got, never the raw frame:
+            // a stale snapshot's row loses to the event-sourced copy here
+            // exactly as it does there, or the two caches disagree about the
+            // same subshell until something else moves it.
+            for (const row of settled) syncDetail(row.id, row);
             attempts = 0; // a delivered snapshot is what proves the connection good
             // A reconnect re-pulls what this page is showing, since the fresh
             // snapshot's rows are screenless.
@@ -302,10 +311,18 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
           // that one costs one visible-set read per open tab, which is why
           // `askForSnapshot` collapses the asks rather than sending each.
           if (frame.type === "subshell-recheck" && frame.id) {
-            // Same reasoning as the `subshell` branch: this frame is newer
-            // than whatever removed the row, and its whole point is that only
-            // a fresh per-viewer resolve can answer.
-            goneIds.delete(frame.id);
+            // DELIBERATELY does not clear `goneIds`, unlike the `subshell`
+            // branch. This frame is a QUESTION, and it is published to
+            // `live:everyone` exactly when an Everyone grant ends — so it
+            // reaches people who just lost the row as well as those who kept
+            // it. Clearing here would re-open the race the set exists for: a
+            // named grant revoked (sticky `gone`), then the Everyone grant
+            // ended, then a snapshot whose read began before the revoke
+            // lands and resurrects the row.
+            //
+            // Nothing is lost by the asymmetry: a re-GRANT never produces a
+            // recheck, it produces a `subshell` broadcast, and that branch
+            // clears.
             recheckDetail(frame.id);
             if (!current.some((r) => r.id === frame.id)) return;
             askForSnapshot();

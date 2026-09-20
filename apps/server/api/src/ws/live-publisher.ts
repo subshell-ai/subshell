@@ -175,7 +175,9 @@ async function publishEvent(target: LivePublisherTarget, event: LiveEvent): Prom
       // `viewsForBroadcast` is the shared half by construction — it drops the
       // per-viewer `access` (one payload, every subscriber) and captures no
       // pane, so a screen never rides a topic.
-      const [view] = await services.subshells.viewsForBroadcast([row]);
+      // The shares just read, handed on: the exposure fields this renders are
+      // derived from the same rows the topics were.
+      const [view] = await services.subshells.viewsForBroadcast([row], new Map([[event.id, shares]]));
       resolved = "row";
       if (view) broadcast(target, currentTopics, { type: "subshell", id: event.id, row: view });
     }
