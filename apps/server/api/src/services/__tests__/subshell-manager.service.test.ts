@@ -29,7 +29,12 @@ import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
 import { LocalLauncher } from "@/services/nodes/local-launcher.js";
 import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
-import { previewCacheDrop, previewCacheGet, previewCachePut } from "@/services/nodes/preview-cache.js";
+import {
+  LOCAL_PREVIEW_TTL_MS,
+  previewCacheDrop,
+  previewCacheGet,
+  previewCachePut,
+} from "@/services/nodes/preview-cache.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { EMPTY_PRESET, parsePreset } from "@/services/preset-definition.js";
 import { defaultSubshellName, SubshellManagerService } from "@/services/subshell-manager.service.js";
@@ -1393,6 +1398,97 @@ describe("reconcile partition — agent rows (spec §6.3)", () => {
       off();
       previewCacheDrop(id);
       await subshellsRepo.delete(id);
+    }
+  });
+});
+
+describe("#preview — local rows read through the cache (cross-consumer dedupe)", () => {
+  /**
+   * A tmux stub that answers every `capture-pane` with the same two rows and
+   * counts its invocations by growing a file. Counting through a file rather
+   * than a closure is what makes the assertion honest: every capture is a
+   * fresh child process, and the one that captured N times is the one whose
+   * counter says N, not the one whose JS scope thinks so.
+   */
+  function captureStub(): { stub: string; captures: () => number; cleanup: () => void } {
+    const dir = mkdtempSync(join(tmpdir(), "subshell-preview-stub-"));
+    const counter = join(dir, "count");
+    writeFileSync(counter, "");
+    const stub = join(dir, "tmux-stub");
+    writeFileSync(stub, `#!/bin/sh\nprintf x >> "${counter}"\necho "screen line 1"\necho "screen line 2"\n`, {
+      mode: 0o755,
+    });
+    return {
+      stub,
+      captures: () => readFileSync(counter, "utf8").length,
+      cleanup: () => rmSync(dir, { recursive: true, force: true }),
+    };
+  }
+
+  it("two list reads inside the TTL cost ONE tmux capture; a drop costs another", async () => {
+    const f = captureStub();
+    const id = crypto.randomUUID();
+    try {
+      await subshellsRepo.create({
+        id,
+        userId: "u-preview",
+        presetId: "p",
+        harnessId: "claude-code",
+        name: "Preview me",
+        workingDir: "/tmp",
+        tmuxSocket: tmuxSocketFor(id),
+        nodeId: LOCAL_NODE_ID,
+        alive: 1,
+      });
+      const manager = new SubshellManagerService({
+        subshells: subshellsRepo,
+        presets: presetsRepo,
+        tmux: new TmuxRunner(),
+        launcher: new LocalLauncher({ tmux: new TmuxRunner(f.stub, { timeoutMs: 2_000 }) }),
+        tokens: { issue: async () => "subshell_stub", revoke: async () => {} },
+        audit: async () => {},
+        notify: async () => {},
+      });
+      // This suite shares the DB with every other describe here — scope the
+      // reads to this test's user so a sibling's running row cannot capture
+      // on the same stub and move the counter under the assertions.
+      const rowsForUser = () => subshellsRepo.listByUser("u-preview");
+
+      const first = await manager.toViews(await rowsForUser());
+      expect(first.find((v) => v.id === id)?.preview).toEqual(["screen line 1", "screen line 2"]);
+      expect(f.captures()).toBe(1);
+
+      // The second reader — another tab's feed tick, the REST list, the
+      // per-subshell poll — is served the cached screen, not a second spawn.
+      const second = await manager.toViews(await rowsForUser());
+      expect(second.find((v) => v.id === id)?.preview).toEqual(["screen line 1", "screen line 2"]);
+      expect(f.captures()).toBe(1);
+
+      // What the sweep already proves for agent rows still holds here: the
+      // cache is the serving layer, the capture is the fill. Drop it and the
+      // next read pays tmux again (the TTL's expiry-on-read is unit-tested in
+      // preview-cache.test.ts; a sleep-free test cannot wait the clock out).
+      previewCacheDrop(id);
+      await manager.toViews(await rowsForUser());
+      expect(f.captures()).toBe(2);
+    } finally {
+      previewCacheDrop(id);
+      f.cleanup();
+      await subshellsRepo.delete(id);
+    }
+  });
+
+  it("a local preview write carries the SHORT ttl, not the sweep's", () => {
+    // The manager writes through `previewCachePut` itself; this pins the
+    // contract it relies on: a locally filled entry expires on the feed's
+    // clock, so a long-lived capture cannot silently age the home page.
+    const id = "preview-ttl-contract";
+    try {
+      previewCachePut(id, ["fresh"], LOCAL_PREVIEW_TTL_MS);
+      const now = Date.now();
+      expect(previewCacheGet(id, now + LOCAL_PREVIEW_TTL_MS + 1)).toBeUndefined();
+    } finally {
+      previewCacheDrop(id);
     }
   });
 });

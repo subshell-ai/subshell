@@ -65,7 +65,15 @@ the dot fills beside it. Subshell lists everywhere are kept current by ONE
 SSE feed — `hooks/use-live-subshells-feed.tsx`, mounted in `__root.tsx`
 signed-in-only — which writes each `/api/events` frame into
 `SUBSHELLS_QUERY_KEY`; read via `useSubshellsList`/`useLiveSubshells`, never
-by opening another EventSource.
+by opening another EventSource. **A quiet frame must cost nothing**: the
+write is structurally shared (an unchanged row keeps its object, an
+unchanged list keeps the array — and `lastList` is set from the cache
+read-back, so the provider itself re-renders only on real change), a
+consumer that needs ONE row uses `hooks/use-subshell-row.ts` (the selector
+keeps a pane out of every other subshell's 1.5 s beat), and the subshell
+page's 5 s liveness poll skips its list invalidation while the feed is
+delivering — the feed owns that key, and each list build captures every
+running pane's screen server-side.
 
 **The admin surface is NINE pages behind one collapsible group** (spec
 2026-09-11 grouped-navigation): General (`/settings`), Users
