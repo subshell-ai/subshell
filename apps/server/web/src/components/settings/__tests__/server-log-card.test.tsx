@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { deploymentView } from "@/components/__tests__/helpers/deployment-view";
-import { ServerLogCard } from "@/components/service/server-log-card";
+import { ServerLogCard } from "@/components/settings/server-log-card";
 import type { ServerDeployment } from "@/types/server-deployment";
 
 const restore: (() => void)[] = [];

@@ -25,6 +25,11 @@ test.use({ storageState: ADMIN_STATE });
  * this stack, which is the assertion; and a spec that restarted the backend
  * would take the shared instance down under every later file
  * (`workers: 1`, one database, alphabetical order).
+ *
+ * The server log tail LEFT this page on 2026-09-20 — it is the System tab of
+ * `/settings/logs` now — and the debug-switch spec below followed the card,
+ * because the live-applied switch and the capped file behind it are the same
+ * facts regardless of which page renders the tail.
  */
 test.describe("server service page", () => {
   test("reaches the page from the sidebar and reports how this server is deployed", async ({ page }) => {
@@ -44,11 +49,13 @@ test.describe("server service page", () => {
     await expect(restart).toBeDisabled();
     await expect(page.getByText(/not running under a service manager/i)).toBeVisible();
 
-    // The Server log CARD is on this page — its title, not the Locations row
-    // that used to answer this selector. The Locations card moved to
-    // /settings/status on 2026-09-14 and is asserted there instead; with both
-    // strings identical, dropping this would have left the move unproven on
-    // either page.
+    // The rail walk continues one entry further: the Server log card is NOT
+    // on Service anymore (it moved to /settings/logs on 2026-09-20), and
+    // Logs must draw it — the plain path is the System tab's address, so
+    // arriving without `?tab=` is part of the claim.
+    await page.getByRole("link", { name: "Logs", exact: true }).click();
+    await expect(page).toHaveURL(/\/settings\/logs$/);
+    await expect(page.getByRole("heading", { name: "Logs" })).toBeVisible();
     await expect(page.getByText("Server log", { exact: true })).toBeVisible();
   });
 
@@ -76,16 +83,19 @@ test.describe("server service page", () => {
     expect(paths.paths.dataDir).toBeTruthy();
     await expect(page.getByText(paths.paths.dataDir as string).first()).toBeVisible();
 
-    // And it is GONE from Service — the move, rather than a copy. The
-    // Server log title is asserted FIRST because it is the anchor that makes
-    // the next line mean anything: `toHaveCount(0)` is satisfied by a page
-    // that has not rendered yet, so without waiting for something this page
-    // really does draw, a regression putting the card back here would race
-    // past the check rather than fail it. (The Addresses card moved the same
-    // way in the other direction on 2026-09-17 — it is asserted on
-    // /settings/networking, in spec 18.)
+    // And it is GONE from Service — the move, rather than a copy. The page's
+    // own subtitle is asserted FIRST because it is the anchor that makes the
+    // next lines mean anything: `toHaveCount(0)` is satisfied by a page that
+    // has not rendered yet, so without waiting for something this page really
+    // does draw, a regression putting a card back here would race past the
+    // check rather than fail it. (The Server log card moved the same way to
+    // /settings/logs on 2026-09-20 and is asserted there by the first test;
+    // the Addresses card moved the other direction on 2026-09-17 — asserted
+    // on /settings/networking, in spec 18. The subtitle is also the sentence
+    // this PR shrank, so its old longer form asserting nothing new here.)
     await page.goto("/settings/service");
-    await expect(page.getByText("Server log", { exact: true })).toBeVisible();
+    await expect(page.getByText("Who supervises this server.")).toBeVisible();
+    await expect(page.getByText("Server log", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Locations", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Addresses", { exact: true })).toHaveCount(0);
   });
@@ -159,7 +169,10 @@ test.describe("server service page", () => {
   });
 
   test("keeps HTTP request lines out of the log until debug is turned on, live", async ({ page }) => {
-    await page.goto("/settings/service");
+    // The card this spec drives moved to /settings/logs (System tab) on
+    // 2026-09-20; everything below it — the live-applied switch, the capped
+    // file, the ignore-listed poll route — is unchanged by where it renders.
+    await page.goto("/settings/logs");
     await expect(page.getByText("Server log", { exact: true }).first()).toBeVisible();
 
     // By ROLE, not by label: Base UI's Switch is a span, so it is named by

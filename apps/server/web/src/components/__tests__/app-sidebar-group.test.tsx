@@ -76,7 +76,7 @@ function renderRail(initialPath: string) {
     "/settings/service",
     "/settings/updates",
     "/settings/status",
-    "/settings/audit",
+    "/settings/logs",
   ]) {
     children.push(createRoute({ getParentRoute: () => rootRoute, path, component: () => null }));
   }
@@ -125,14 +125,14 @@ describe("the Server Settings group's open/close wiring", () => {
       fireEvent.click(header());
       await waitFor(() => expect(expanded()).toBe("true"));
       expect(childList().className).not.toContain("hidden");
-      expect(screen.getByRole("link", { name: "Audit log" })).toBeTruthy();
+      expect(screen.getByRole("link", { name: "Logs" })).toBeTruthy();
     });
   });
 
   it("is open on a page INSIDE the group, and a press SHUTS it", async () => {
     // The reported bug: the old rule forced this open, so the press did
     // nothing on exactly the pages a person presses it from.
-    await withRail("/settings/audit", async () => {
+    await withRail("/settings/logs", async () => {
       expect(expanded()).toBe("true");
       fireEvent.click(header());
       await waitFor(() => expect(expanded()).toBe("false"));
@@ -144,7 +144,7 @@ describe("the Server Settings group's open/close wiring", () => {
   it("still names the current page while shut over it", async () => {
     // What the forced-open rule was protecting, and why shutting it is safe:
     // the header keeps the lit class, so the rail can still say where you are.
-    await withRail("/settings/audit", async () => {
+    await withRail("/settings/logs", async () => {
       fireEvent.click(header());
       await waitFor(() => expect(expanded()).toBe("false"));
       expect(header().className).toContain("text-accent-foreground");
@@ -152,7 +152,7 @@ describe("the Server Settings group's open/close wiring", () => {
   });
 
   it("expires the press on navigation, so leaving the group shuts it", async () => {
-    await withRail("/settings/audit", async () => {
+    await withRail("/settings/logs", async () => {
       // Press to OPEN-override while already open — a no-op visually, and the
       // press that a stale record would carry to the next route.
       fireEvent.click(header());

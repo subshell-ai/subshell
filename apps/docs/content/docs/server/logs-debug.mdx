@@ -25,11 +25,11 @@ The server writes its own lines — not pane content — to one file:
 
 JSON lines, mode 0600 in a 0700 directory, **capped at 200 KB and replaced when full**: at the cap the file is truncated and started over, so what you find there is the recent past. Note the asymmetry with pane transcripts: those are swept by *age*; this file is bounded by *size* and is never swept, persisting as one file for the life of the instance (a reset deletes it with the data directory). The same on every platform on purpose — a headless box under an unknown supervisor, or a container, has neither `journalctl` nor launchd's file, and the server should not need either to have a journal.
 
-An admin can read it from the browser: the **Service page** (Settings → Service) shows the tail, parsed, with the file's current size beside its cap, and `GET /api/admin/server/logs` serves the same to a cookie-admin session. Who may read it is unchanged — it is still admin-only, still 0600 on disk; what widened is the *places* they can read it from.
+An admin can read it from the browser: the **Logs page** (Settings → Logs, System tab) shows the tail, parsed, with the file's current size beside its cap, and `GET /api/admin/server/logs` serves the same to a cookie-admin session. Who may read it is unchanged — it is still admin-only, still 0600 on disk; what widened is the *places* they can read it from.
 
 ## Debug logging: more detail, live, no restart
 
-Debug logging is an instance setting on the same Service page, **off by default**, applied the moment you flip it — no restart. It changes what reaches the log file:
+Debug logging is an instance setting on the same Logs page, **off by default**, applied the moment you flip it — no restart. It changes what reaches the log file:
 
 - Debug-level lines appear there.
 - **HTTP request lines** appear there — method, path, remote address and status; no bodies, no headers.
@@ -50,7 +50,7 @@ The server's log never contains terminal output or keystrokes. What does hold sc
 
 ## See also
 
-- [Service & Autostart](/server/service) — the page that hosts the log tail and the debug switch
+- [Service & Autostart](/server/service) — restart, autostart and the supervision of the process these lines come from
 - [subshell-server CLI](/reference/server-cli) — the full `status` usage block
 - [Environment Variables](/reference/environment-variables) — `SUBSHELL_DEBUG_LOGGING`, `SUBSHELL_LOG_RETENTION_DAYS`
 - [Audit Log](/server/audit-log) — the durable record, distinct from this bounded file

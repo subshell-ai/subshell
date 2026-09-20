@@ -31,4 +31,36 @@ export class AuditRepository extends BaseRepository {
       .selectAll()
       .execute();
   }
+
+  /**
+   * One KEYSET page of the trail — the `limit` rows strictly older than the
+   * cursor, newest first. Same order as {@link listLatest}, which is what
+   * makes `(createdAt, id)` a valid cursor: the trail is append-only and the
+   * ordering is total (id breaks timestamp ties), so a page cannot grow
+   * duplicates or skip rows the way OFFSET paging would while events land.
+   *
+   * @param limit - Max rows for the page
+   * @param before - The oldest row of the NEWER page (`createdAt` + `id`), or
+   *                 nothing for the first page (then this is `listLatest`)
+   */
+  async listPage(limit: number, before?: { createdAt: string; id: string }): Promise<AuditEventsTable[]> {
+    let query = this.db
+      .selectFrom("auditEvents")
+      .orderBy("createdAt", "desc")
+      .orderBy("id", "desc")
+      .limit(limit)
+      .selectAll();
+    if (before) {
+      // Row-comparison "older than", spelled for a total order: strictly
+      // earlier timestamp, or the same timestamp with a lexicographically
+      // smaller id — exactly what the ORDER BY puts on the next page.
+      query = query.where((eb) =>
+        eb.or([
+          eb("createdAt", "<", before.createdAt),
+          eb.and([eb("createdAt", "=", before.createdAt), eb("id", "<", before.id)]),
+        ]),
+      );
+    }
+    return query.execute();
+  }
 }

@@ -22,7 +22,7 @@ function ApiKeysPage() {
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
       {/* Not the card's own description repeated — see the note on
-          `/settings/audit` for why one sentence twice is both a visual bug
+          `/settings/logs` for why one sentence twice is both a visual bug
           and an ambiguous test locator. */}
       <PageHeader title="API keys" subtitle="Machine credentials for tooling that talks to this instance (admins)" />
       {viewerIsAdmin === undefined ? null : viewerIsAdmin ? (

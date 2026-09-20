@@ -34,7 +34,7 @@ Paste its output into your report. It is the first diagnostic for a reason: it p
 
 ## Logs worth attaching — and one that needs care
 
-- **The server's own log**: `<data dir>/logs/server.log` — JSON lines, capped at 200 KB and replaced when full, so it holds the recent past, not history. A tail is usually enough; [Logs & Debugging](/server/logs-debug) covers it, including reading the tail from the Service page.
+- **The server's own log**: `<data dir>/logs/server.log` — JSON lines, capped at 200 KB and replaced when full, so it holds the recent past, not history. A tail is usually enough; [Logs & Debugging](/server/logs-debug) covers it, including reading the tail from the Logs page.
 - **A node's log**: `~/.config/subshell/logs/agent.log` — same bounded shape. It holds launches, refusals and connection errors. It never holds pane content.
 - **Pane transcripts need thought.** A subshell's log on disk holds the pane's screen — which includes what you **typed**, pasted tokens included. It is the most sensitive thing Subshell writes. Attach one only when the bug is *about* that pane's content, deliberately, and scrub credentials from any excerpt before pasting it anywhere.
 - With **debug logging** briefly on, request paths land in the server log — and a path can carry a secret (an install URL contains its setup key). Turn it off when done and skim what you are attaching.
