@@ -28,16 +28,21 @@ import type { SubshellView } from "@/types/subshell";
  * `Status` uses the SHARED indicator word, the same one the dot beside it
  * shows and the same one the home card's badge shows.
  *
+ * Every row lives inside a group whose header already had to answer "which
+ * machine?" — the grouping ladder's honest fallback included — so
+ * `nodeLabel` is simply that same label, one source of truth for both the
+ * header and the tooltip, never a second guess at it.
+ *
  * @param subshell - the row's subshell
- * @param nodeLabel - the node's NAME, resolved by the caller (never its id);
- *                    undefined omits the line rather than guessing
+ * @param nodeLabel - the group header's label (the node's NAME when the
+ *                    registry resolved it; its fallback otherwise)
  * @param agentLabel - the harness's display name, or its id as a readable
  *                     fallback ("claude-code")
  */
-export function subshellRowTooltip(subshell: SubshellView, nodeLabel: string | undefined, agentLabel: string): string {
+export function subshellRowTooltip(subshell: SubshellView, nodeLabel: string, agentLabel: string): string {
   const lines = [
     `Name: ${subshell.name}`,
-    nodeLabel ? `Node: ${nodeLabel}` : undefined,
+    `Node: ${nodeLabel}`,
     `Agent: ${agentLabel}`,
     `Status: ${INDICATOR_LABEL[subshellIndicator(subshell)]}`,
     subshell.workingDir ? `Directory: ${subshell.workingDir}` : undefined,

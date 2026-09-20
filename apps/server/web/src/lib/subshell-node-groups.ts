@@ -45,9 +45,12 @@ const FALLBACK_NODE_ID = "local";
  *
  * - the registry resolved the id → the node's NAME, which is what a person
  *   reads and what a rename moves;
- * - the registry has NOT ANSWERED (in flight, or the read failed) → the SHORT
- *   id with the full one as `title`. Absence proves nothing yet, and a failed
- *   list proves less than nothing — the card can live because it returns null
+ * - the registry has NEVER SUCCEEDED (in flight, or failed with NOTHING
+ *   CACHED) → the SHORT id with the full one as `title`. A failed REFRESH of
+ *   a populated cache is NOT this arm — stale-but-cached keeps the name,
+ *   which is why the caller's flag is `nodeData === undefined` and not
+ *   `isError`. Absence proves nothing yet, and a failed list proves less
+ *   than nothing — the card can live because it returns null
  *   for `local` outright, but this header labels EVERY node including the
  *   control-plane host, and a "deleted node" verdict above `local` after a
  *   flaky `/api/nodes` would be a lie about the one machine that cannot be
@@ -59,7 +62,7 @@ const FALLBACK_NODE_ID = "local";
  *
  * @param nodeId - the bucket's node id
  * @param nodes - the caller's visible nodes, or undefined while the query is unanswered
- * @param unanswered - true while that read has not SUCCEEDED (in flight or failed)
+ * @param unanswered - true while NO read has ever succeeded (see the ladder above)
  */
 function labelFor(
   nodeId: string,

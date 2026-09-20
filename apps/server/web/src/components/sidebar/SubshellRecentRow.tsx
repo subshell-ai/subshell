@@ -30,8 +30,9 @@ export function SubshellRecentRow({
 }: {
   subshell: SubshellView;
   active: boolean;
-  /** The node's NAME (never its id); undefined drops the line from the tooltip */
-  nodeLabel?: string;
+  /** The group header's label — the node's NAME when resolved, its honest
+   * fallback otherwise; one source of truth for header and tooltip alike */
+  nodeLabel: string;
   /** The harness's display name, falling back to its id — a readable slug */
   agentLabel: string;
 }) {

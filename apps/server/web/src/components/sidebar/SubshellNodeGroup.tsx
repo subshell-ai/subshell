@@ -13,7 +13,11 @@ import type { ReactNode } from "react";
  * - **The count is always rendered.** The list is capped per node, so a
  *   machine can hold more than it shows, and a collapsed group shows nothing
  *   at all — in both cases the number is the only thing saying how much work
- *   is over there.
+ *   is over there. It counts the group's PRE-CAP total; while the rail is
+ *   filtering, the group is built from the matches, so the same cell counts
+ *   matches instead. Both are the useful number for their mode, and neither
+ *   is wrong — said here because the slot silently changing what it counts
+ *   is exactly how a future "the count is wrong" issue would start.
  * - **Children are hidden, not unmounted**, the same rule the nav group
  *   follows: `aria-controls` has to resolve to a real element, and `hidden`
  *   takes the links out of the tab order so a shut group is not a keyboard

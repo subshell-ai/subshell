@@ -51,10 +51,10 @@ describe("subshellRowTooltip", () => {
     expect(subshellRowTooltip(probe({ alive: false }), "Server", "Codex")).toContain("Status: exited");
   });
 
-  it("omits the node line rather than guessing when the label is unresolved", () => {
-    const text = subshellRowTooltip(probe(), undefined, "Claude Code");
-    expect(text).not.toContain("Node:");
-    expect(text).toContain("Name: auth-refactor");
+  it("labels an unresolved node with the SAME fallback the header wears", () => {
+    // The caller passes the group's label straight through, so the tooltip
+    // never guesses a second answer to "which machine?".
+    expect(subshellRowTooltip(probe(), "unknown node", "Claude Code")).toContain("Node: unknown node");
   });
 
   it("omits the directory line when the row has none to reveal", () => {
