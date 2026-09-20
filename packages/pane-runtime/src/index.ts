@@ -53,7 +53,7 @@ export {
   buildHarnessCommand,
   curatedEnv,
   ENV_KEY_RE,
-  paneEnvOverrides,
+  paneEnvFor,
   validateWorkingDir,
 } from "./launch.js";
 export { loginPathEntries } from "./login-path.js";

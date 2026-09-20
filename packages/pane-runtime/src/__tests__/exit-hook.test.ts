@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { exitHookFor } from "../exit-hook.js";
+import { assembleHarnessCommand, paneEnvFor } from "../launch.js";
 
 /** A complete pane credential set — anything less registers no hook at all. */
 const ENV = {
@@ -111,5 +112,49 @@ describe("exitHookFor", () => {
     const hook = exitHookFor({ command: "/bin/subshell", args: ["report"] }, ENV);
     expect(hook?.startsWith("env ")).toBe(true);
     for (const key of Object.keys(ENV)) expect(hook).toContain(`${key}=`);
+  });
+});
+
+/**
+ * The hook and the pane must resolve the same control plane.
+ *
+ * `paneEnvFor` is the ONE statement of `curatedEnv < subshellEnv < preset.env
+ * < mcpEnv`, and `assembleHarnessCommand` builds the pane from it — so a hook
+ * built from its result cannot aim somewhere the pane does not. Both ends used
+ * to compute a different SLICE of that chain, which is how a sanctioned preset
+ * override moved one and not the other.
+ */
+describe("the hook's env comes from the same chain the pane's does", () => {
+  const preset = { env: {} } as unknown as Parameters<typeof paneEnvFor>[1];
+
+  test("a preset overriding SUBSHELL_BASE_URL moves the hook with the pane", () => {
+    const withOverride = { ...preset, env: { SUBSHELL_BASE_URL: "http://other:3080" } } as typeof preset;
+    const env = paneEnvFor(ENV, withOverride);
+    const hook = exitHookFor({ command: "/bin/subshell", args: ["report"] }, env);
+    expect(hook).toContain("SUBSHELL_BASE_URL='http://other:3080'");
+    // …and the pane itself resolves the same value, from the same call.
+    expect(assembleHarnessCommand(["/bin/agent"], withOverride, ENV)).toContain(
+      "SUBSHELL_BASE_URL='http://other:3080'",
+    );
+  });
+
+  test("the MCP wiring layer still outranks the preset, as it does for the pane", () => {
+    const env = paneEnvFor(ENV, { ...preset, env: { SUBSHELL_BASE_URL: "http://preset:1" } } as typeof preset, {
+      SUBSHELL_BASE_URL: "http://wiring:2",
+    });
+    expect(exitHookFor({ command: "/bin/subshell", args: ["report"] }, env)).toContain("'http://wiring:2'");
+  });
+
+  test("the curated host layer carries no SUBSHELL_* key, so it cannot answer for one", () => {
+    // Why keeping it in the chain is free: it changes nothing the hook reads,
+    // and a helper that omitted it would be a near-copy free to drift.
+    expect(Object.keys(paneEnvFor({}, preset)).some((k) => k.startsWith("SUBSHELL_"))).toBe(false);
+  });
+
+  test("the pane's literal TERM trick never reaches the hook", () => {
+    // `TERM="$TERM"` is appended to the assembled COMMAND, not to the env map:
+    // it expands inside the pane's own `sh -c` and would be nonsense here.
+    expect(exitHookFor({ command: "/bin/subshell", args: ["report"] }, paneEnvFor(ENV, preset))).not.toContain("$TERM");
+    expect(assembleHarnessCommand(["/bin/agent"], preset, ENV)).toContain('TERM="$TERM"');
   });
 });

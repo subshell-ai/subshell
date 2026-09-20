@@ -83,7 +83,7 @@ export function exitHookFor(
  * A `"` closes the `run-shell "…"` context these are spliced into.
  *
  * Not theoretical: a preset may legitimately override `SUBSHELL_BASE_URL`
- * (`paneEnvOverrides`), so one of these three values is user-authored.
+ * (`paneEnvFor`), so one of these three values is user-authored.
  *
  * The obvious probe says "safe" and is at the wrong layer: `tmux run-shell
  * "…'ab'\''cd'…"` typed at a shell works, because the SHELL split the argv

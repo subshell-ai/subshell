@@ -5,7 +5,7 @@ import {
   buildHarnessCommand,
   exitHookFor,
   type HarnessPlugin,
-  paneEnvOverrides,
+  paneEnvFor,
   TmuxRunner,
   validateWorkingDir,
 } from "@internal/pane-runtime";
@@ -75,9 +75,9 @@ export class LocalLauncher implements NodeLauncher {
     // as a plugin omits its hooks (spec 2026-09-19 §4.3).
     // Built from the pane's EFFECTIVE env, not from `plan.subshellEnv` alone:
     // a preset may deliberately override `SUBSHELL_BASE_URL` (see
-    // `paneEnvOverrides`), and a death report that went somewhere else than
+    // `paneEnvFor`), and a death report that went somewhere else than
     // the pane's own MCP calls would be a silent 401 nobody could explain.
-    const hookEnv = paneEnvOverrides(plan.subshellEnv, plan.preset, plan.mcp?.env);
+    const hookEnv = paneEnvFor(plan.subshellEnv, plan.preset, plan.mcp?.env);
     this.#tmux.newSubshell(plan.socket, plan.id, plan.cwd, cmd, exitHookFor(plan.reporter, hookEnv));
     // Stream all pane output to a per-subshell log file for attach replay.
     const logFile = subshellLogPath(plan.id);

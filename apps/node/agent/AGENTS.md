@@ -781,7 +781,7 @@ subshell was ever reported dead again while every test in this package still
 passed. Its own test is mutation-checked for that reason.
 
 **The hook is built from the pane's EFFECTIVE env**, through
-`paneEnvOverrides` in `@internal/pane-runtime` — the one place the precedence
+`paneEnvFor` in `@internal/pane-runtime` — the one place the precedence
 `subshellEnv < preset.env < mcpEnv` is stated, and the same call the pane
 command itself is assembled from. Both ends used to compute it from a
 different SLICE of those layers (this one omitted the preset's, the control
