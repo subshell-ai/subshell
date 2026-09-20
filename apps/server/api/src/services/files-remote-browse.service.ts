@@ -4,9 +4,8 @@ import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
-import { getRequestlessContext } from "@/lib/context.js";
-import { loadNodeAccess, nodeCanManageFor } from "@/lib/node-access.js";
-import { favoritePathsFor, recentPathsFor } from "@/services/files-path-rules.js";
+import { loadNodeAccess } from "@/lib/node-access.js";
+import { favoritePathsFor, launchScopeFor, recentPathsFor } from "@/services/files-path-rules.js";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 
 /**
@@ -175,10 +174,7 @@ export async function exploreNodeDirectory(
   // NOT the security boundary. That is the launch gate, applied here
   // (`assertDirAllowed`) and independently on the node, neither of which cares
   // who is browsing.
-  const isAdmin = (await new UserMetaRepository(db).getRole(userId)) === "admin";
-  const dirs = nodeCanManageFor(row.kind, access, isAdmin)
-    ? []
-    : await getRequestlessContext().repos.nodeAllowedDirs.listForNode(nodeId);
+  const dirs = await launchScopeFor(userId, nodeId);
   // `dirNavigable`, NOT `dirAllowed`: the latter is a descendant test, so
   // browsing `/home` with a rule of `/home/theo/projects` would filter out
   // `/home/theo` — an ancestor — and leave an empty panel with no way down to
@@ -195,10 +191,10 @@ export async function exploreNodeDirectory(
   // and can never be a dead click: the panel showing them IS walking node X.
   // The pair is computed for both returns below, including the roots
   // fallback, where shortcuts matter most (the caller cannot browse).
-  const favorites = await favoritePathsFor(userId, nodeId);
+  const favorites = await favoritePathsFor(userId, nodeId, dirs);
   const starred = new Set(favorites.map((f) => f.path));
   // A path is listed once — favorites win over recents, same local rule.
-  const recent = (await recentPathsFor(userId, nodeId))
+  const recent = (await recentPathsFor(userId, nodeId, dirs))
     .filter((r) => !starred.has(r.path))
     .slice(0, 3)
     .map(({ path, label }) => ({ path, label }));

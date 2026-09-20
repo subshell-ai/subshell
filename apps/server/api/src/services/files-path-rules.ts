@@ -168,13 +168,16 @@ export async function launchScopeFor(userId: string, nodeId: string): Promise<st
  * the operator's "show me nothing outside this tree" switch, and a remote
  * path is still just a path string this picker can never cd into anyway.
  */
-export async function recentPathsFor(userId: string, nodeId = LOCAL_NODE_ID) {
+export async function recentPathsFor(userId: string, nodeId = LOCAL_NODE_ID, allowedDirs?: readonly string[]) {
   const repo = new RecentPathsRepository(db);
   const all = await repo.listByUser(userId, 20, nodeId);
   // Node-scoped: a recent path is filtered by THAT node's rules, so a row
   // saved before a rule tightened stops being offered as a shortcut.
-  const allowedDirs = await launchScopeFor(userId, nodeId);
-  return all.filter((r) => isAllowedRoot(r.path, allowedDirs));
+  // `allowedDirs` lets a caller that already computed the scope (the remote
+  // browse, which filters its entry listing by it too) share one
+  // `launchScopeFor` instead of stacking three.
+  const dirs = allowedDirs ?? (await launchScopeFor(userId, nodeId));
+  return all.filter((r) => isAllowedRoot(r.path, dirs));
 }
 
 /**
@@ -185,12 +188,13 @@ export async function recentPathsFor(userId: string, nodeId = LOCAL_NODE_ID) {
  * is a claim about one machine's filesystem, so a Box row answers to Box's
  * rules and never appears in the local panel.
  */
-export async function favoritePathsFor(userId: string, nodeId = LOCAL_NODE_ID) {
+export async function favoritePathsFor(userId: string, nodeId = LOCAL_NODE_ID, allowedDirs?: readonly string[]) {
   const repo = new FavoritesRepository(db);
   const all = await repo.listByUser(userId, "directory", nodeId);
   // A favorite saved before a rule tightened must not leak past it either —
   // and since 0034 the rules consulted are THAT node's, the same
-  // per-node-scope rule `recentPathsFor` applies.
-  const allowedDirs = await launchScopeFor(userId, nodeId);
-  return all.filter((f) => isAllowedRoot(f.ref, allowedDirs)).map(({ ref, label }) => ({ path: ref, label }));
+  // per-node-scope rule `recentPathsFor` applies. `allowedDirs` is its
+  // shared-scope parameter, same deal.
+  const dirs = allowedDirs ?? (await launchScopeFor(userId, nodeId));
+  return all.filter((f) => isAllowedRoot(f.ref, dirs)).map(({ ref, label }) => ({ path: ref, label }));
 }

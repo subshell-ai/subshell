@@ -249,11 +249,10 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
 
       const parent = resolved === "/" ? null : join(resolved, "..");
       // Both sections in one response so the picker needs one request per
-      // folder. A path is listed once — favorites win over recents.
-      // These sections are the LOCAL browse's own: a remote explore ships
-      // them empty (see exploreNode), so nothing here can be a dead click
-      // into a filesystem this response is not walking. Per-node recents
-      // live on /recent?node=<id> instead.
+      // folder. A path is listed once — favorites win over recents. Both
+      // sections are scoped to the browsed machine on EITHER transport
+      // (a remote explore ships that node's rows — see exploreNode).
+
       const favorites = await favoritePathsFor(user.id);
       const starred = new Set(favorites.map((f) => f.path));
       const recent = (await recentPathsFor(user.id))
@@ -379,6 +378,14 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
         if (dirs.length > 0 && !dirAllowed(stored, dirs)) {
           throw new FilesError("forbidden", "Path outside this node's allowed directories", 403);
         }
+        // Known conservative corner, inherited from the shared list filter:
+        // `favoritePathsFor` ALSO answers isAllowedRoot, whose `SUBSHELL_FS_ROOT`
+        // and realpath checks are this host's — so under a set FS_ROOT a node
+        // star outside that root saves fine here but is filtered from the
+        // listing (review Minor, 2026-09-20). The write gate deliberately does
+        // not mirror that: FS_ROOT is documented to never confine a node, and
+        // refusing the star would make the walk's stance and the star's
+        // disagree loudly instead of the list erring closed quietly.
         await repo.setFavorite(user.id, "directory", stored, body.favorite, nodeId);
         return { ok: true } as const;
       }
