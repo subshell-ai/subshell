@@ -10,8 +10,11 @@ import { SubshellCard } from "@/components/subshell-card";
 import { SubshellManagerTable } from "@/components/subshell-manager-table";
 import { SubshellSearch } from "@/components/subshell-search";
 import { Segmented } from "@/components/ui/segmented";
+import { useCardPreviews } from "@/hooks/use-card-previews";
+import { useClockTick } from "@/hooks/use-clock-tick";
 import { useLiveSubshells } from "@/hooks/useLiveSubshells";
 import { filterSubshells, groupSubshells } from "@/lib/subshell-filter";
+import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
 import { priorityRunning } from "@/lib/subshell-order";
 import type { SubshellView } from "@/types/subshell";
 
@@ -56,6 +59,13 @@ function SubshellsPage() {
   // regression: e2e spec 01).
 
   const filtered = filterSubshells(subshells, query);
+  // The cards are the only surface that renders a screen, so they are what
+  // asks for one (spec 2026-09-19 §4.4).
+  useCardPreviews(filtered.map((s) => s.id));
+  // ONE tick for the whole list, never one per card: with the feed
+  // event-driven, nothing arrives to mark the passage of time, so a subshell
+  // that simply goes quiet needs a clock to be seen going idle.
+  useClockTick(ACTIVITY_TICK_MS);
   const groups = groupSubshells(filtered);
   // Bell-on subshells waiting for the operator lead the Running section;
   // everything else keeps the order the feed gave it.

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { ADMINS_TOPIC, EVERYONE_TOPIC, userTopic } from "@/ws/live-topics.js";
-import { handleLiveClose, handleLiveOpen, type LiveWsDeps, type LiveWsSocket } from "@/ws/live-ws.js";
+import {
+  handleLiveClose,
+  handleLiveMessage,
+  handleLiveOpen,
+  type LiveWsDeps,
+  type LiveWsSocket,
+  MAX_PREVIEW_REQUEST,
+} from "@/ws/live-ws.js";
 
 /**
  * A socket stand-in shaped like the real thing: TWO wrapper objects sharing
@@ -57,6 +64,7 @@ function deps(over: Partial<LiveWsDeps> = {}): LiveWsDeps {
     consumeToken: (t) => (t === "good" ? "u1" : null),
     listSubshells: async () => [{ id: "s1" }] as never,
     isAdmin: async () => false,
+    previewsFor: async () => new Map(),
     ...over,
   };
 }
@@ -157,5 +165,68 @@ describe("/ws/live", () => {
     await handleLiveOpen(ws, deps());
     handleLiveClose(closeWs);
     expect(() => handleLiveClose(closeWs)).not.toThrow();
+  });
+});
+
+describe("/ws/live previews are pulled, never pushed", () => {
+  it("answers a previews request with one frame per screen it could capture", async () => {
+    const { ws, frames } = fakeSocket({ token: "good" });
+    const d = deps({
+      previewsFor: async (_u, ids) => new Map(ids.filter((i) => i !== "hidden").map((i) => [i, [`screen ${i}`]])),
+    });
+    await handleLiveOpen(ws, d);
+    await handleLiveMessage(ws, JSON.stringify({ type: "previews", ids: ["a", "hidden", "b"] }), d);
+    expect(frames().filter((f) => f.type === "preview")).toEqual([
+      { type: "preview", id: "a", lines: ["screen a"] },
+      { type: "preview", id: "b", lines: ["screen b"] },
+    ]);
+  });
+
+  it("captures nothing at connect — the snapshot is preview-free", async () => {
+    let askedForPreviews = false;
+    const { ws } = fakeSocket({ token: "good" });
+    await handleLiveOpen(
+      ws,
+      deps({
+        previewsFor: async () => {
+          askedForPreviews = true;
+          return new Map();
+        },
+      }),
+    );
+    expect(askedForPreviews).toBe(false);
+  });
+
+  it("ignores a frame that is not a previews request, and malformed JSON", async () => {
+    const { ws, frames } = fakeSocket({ token: "good" });
+    const d = deps({ previewsFor: async () => new Map([["a", ["x"]]]) });
+    await handleLiveOpen(ws, d);
+    const before = frames().length;
+    await handleLiveMessage(ws, "not json at all", d);
+    await handleLiveMessage(ws, JSON.stringify({ type: "something-else", ids: ["a"] }), d);
+    await handleLiveMessage(ws, JSON.stringify({ type: "previews", ids: "not an array" }), d);
+    expect(frames().length).toBe(before);
+  });
+
+  it("caps how many screens one request may ask for", async () => {
+    let asked: string[] = [];
+    const { ws } = fakeSocket({ token: "good" });
+    const d = deps({
+      previewsFor: async (_u, ids) => {
+        asked = ids;
+        return new Map();
+      },
+    });
+    await handleLiveOpen(ws, d);
+    const many = Array.from({ length: 500 }, (_, i) => `id-${i}`);
+    await handleLiveMessage(ws, JSON.stringify({ type: "previews", ids: many }), d);
+    expect(asked.length).toBe(MAX_PREVIEW_REQUEST);
+  });
+
+  it("answers nothing for a socket that never opened", async () => {
+    const { ws, frames } = fakeSocket({});
+    const d = deps({ previewsFor: async () => new Map([["a", ["x"]]]) });
+    await handleLiveMessage(ws, JSON.stringify({ type: "previews", ids: ["a"] }), d);
+    expect(frames()).toEqual([]);
   });
 });

@@ -31,7 +31,7 @@ export interface LiveWsSocket {
    * same way and keys its viewer registry by a generated id for it; the rule
    * is written down in `apps/server/api/AGENTS.md`.
    */
-  data: { query?: Record<string, string>; liveStop?: () => void };
+  data: { query?: Record<string, string>; liveStop?: () => void; liveViewerId?: string };
   send(data: string): unknown;
   /**
    * Joins a pub/sub topic (Bun's own, forwarded by Elysia). Optional so a
@@ -48,8 +48,17 @@ export interface LiveWsSocket {
 export interface LiveWsDeps {
   /** Redeems the single-use attach token; null when absent, stale or already spent. */
   consumeToken(token: string): string | null;
-  /** The viewer's visible subshells — the SHARING-AWARE list, never the owner-only one. */
+  /**
+   * The viewer's visible subshells — the SHARING-AWARE list, never the
+   * owner-only one. Called WITHOUT previews: see {@link previewsFor}.
+   */
   listSubshells(userId: string): Promise<VisibleSubshells>;
+  /**
+   * Screens for the ids a client asked about, filtered to what it may see.
+   * On demand because most pages render no screens at all, and capturing a
+   * pane costs a `capture-pane` spawn each.
+   */
+  previewsFor(userId: string, ids: string[]): Promise<Map<string, string[]>>;
   /** Whether this viewer holds the admin role — decides the `admins` topic. */
   isAdmin(userId: string): Promise<boolean>;
 }
@@ -92,6 +101,10 @@ export async function handleLiveOpen(ws: LiveWsSocket, deps: LiveWsDeps): Promis
     stopped = true;
     ws.data.liveStop = undefined;
   };
+
+  // Who this socket belongs to, for the messages it may send later. Stashed
+  // rather than re-derived: the token is single-use and already spent.
+  ws.data.liveViewerId = userId;
 
   // ARMED BEFORE THE FIRST AWAIT, and that ordering is load-bearing: this
   // handler suspends twice before it sends anything, and a `close` landing in
@@ -155,7 +168,53 @@ export function handleLiveClose(ws: LiveWsSocket): void {
 export function liveWsDeps(): LiveWsDeps {
   return {
     consumeToken: consumeWsToken,
-    listSubshells: (userId) => getRequestlessContext().services.subshells.listSubshells(userId),
+    listSubshells: (userId) =>
+      // No previews in the snapshot — the cards ask for those, and every other
+      // page would otherwise pay a `capture-pane` per running pane to render
+      // none of them.
+      getRequestlessContext().services.subshells.listSubshells(userId, { previews: false }),
+    previewsFor: (userId, ids) => getRequestlessContext().services.subshells.previewsFor(userId, ids),
     isAdmin: async (userId) => (await getRequestlessContext().repos.userMeta.getRole(userId)) === "admin",
   };
+}
+
+/** Most screens one message may ask for — a client renders a page, not a fleet. */
+export const MAX_PREVIEW_REQUEST = 60;
+
+/**
+ * Handles a client frame. The only thing a client may ask for is screens.
+ *
+ * Previews are PULLED rather than pushed (spec 2026-09-19 §4.4): the cards are
+ * the one surface that renders them, so a page showing none costs nothing, and
+ * a card that wants a fresher screen after a change asks again. That keeps the
+ * fan-out free of per-socket state — the server holds no watch list, it just
+ * answers.
+ *
+ * The ids are filtered to what this viewer may see by the ordinary visible-set
+ * read; an id they cannot see is simply absent from the answer, never refused,
+ * so this cannot be used to probe for existence.
+ */
+export async function handleLiveMessage(ws: LiveWsSocket, raw: unknown, deps: LiveWsDeps): Promise<void> {
+  const userId = ws.data.liveViewerId;
+  if (!userId) return;
+  const frame = typeof raw === "string" ? safeParse(raw) : raw;
+  if (!frame || typeof frame !== "object") return;
+  const { type, ids } = frame as { type?: unknown; ids?: unknown };
+  if (type !== "previews" || !Array.isArray(ids)) return;
+  const wanted = ids.filter((id): id is string => typeof id === "string").slice(0, MAX_PREVIEW_REQUEST);
+  if (wanted.length === 0) return;
+  const previews = await deps.previewsFor(userId, wanted);
+  for (const [id, lines] of previews) {
+    if (ws.readyState !== undefined && ws.readyState !== WS_OPEN) return;
+    ws.send(JSON.stringify({ type: "preview", id, lines }));
+  }
+}
+
+/** JSON that may not be JSON — a client frame is untrusted input. */
+function safeParse(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }

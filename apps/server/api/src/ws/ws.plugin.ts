@@ -9,7 +9,7 @@ import {
 } from "@/services/nodes/node-ws-handler.js";
 import { logger } from "@/utils/logger.js";
 import { attachUrlFromQuery } from "@/ws/attach-params.js";
-import { handleLiveClose, handleLiveOpen, type LiveWsSocket, liveWsDeps } from "@/ws/live-ws.js";
+import { handleLiveClose, handleLiveMessage, handleLiveOpen, type LiveWsSocket, liveWsDeps } from "@/ws/live-ws.js";
 import { cleanupSubshellWs, handleSubshellMessage, handleSubshellWs } from "@/ws/subshell-ws.js";
 import type { WsSocket } from "@/ws/viewers.js";
 
@@ -119,6 +119,14 @@ wsPlugin.ws("/ws/live", {
     // role read and a list build.
     void handleLiveOpen(ws as unknown as LiveWsSocket, liveWsDeps()).catch((err: unknown) => {
       logger.withError(err).warn("live ws: open failed");
+    });
+  },
+  message(ws, message) {
+    // The one thing a client may ask for is screens (spec 2026-09-19 §4.4).
+    // Elysia JSON-parses frames beginning with `{`, so this arrives as either
+    // a string or an object; the handler accepts both and ignores the rest.
+    void handleLiveMessage(ws as unknown as LiveWsSocket, message, liveWsDeps()).catch((err: unknown) => {
+      logger.withError(err).warn("live ws: message handling failed");
     });
   },
   close(ws) {

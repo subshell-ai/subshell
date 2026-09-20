@@ -1,6 +1,6 @@
 import { apiFetch } from "@internal/node-admin";
 import { useQueryClient } from "@tanstack/react-query";
-import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 
@@ -9,13 +9,27 @@ interface LiveSubshellsFeedValue {
   connected: boolean;
   /** The most recent snapshot's list, or null until one has arrived. */
   lastList: SubshellView[] | null;
+  /**
+   * Asks the server for these subshells' screens.
+   *
+   * Previews are PULLED (spec 2026-09-19 §4.4): the snapshot carries none,
+   * because the cards are the only surface that renders them and capturing a
+   * pane costs a `capture-pane` spawn each. The cards call this for what they
+   * are showing, and again when a change arrives for one of them. A page
+   * showing no cards costs nothing.
+   */
+  requestPreviews: (ids: string[]) => void;
 }
 
 /** Fixed delay before the first reconnect attempt; later ones back off to {@link RECONNECT_MAX_MS}. */
 const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 3_000;
 
-const FeedContext = createContext<LiveSubshellsFeedValue>({ connected: false, lastList: null });
+const FeedContext = createContext<LiveSubshellsFeedValue>({
+  connected: false,
+  lastList: null,
+  requestPreviews: () => {},
+});
 
 /**
  * The ONE live subshell feed for the whole signed-in session (spec
@@ -54,6 +68,10 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
   const queryClient = useQueryClient();
   const [connected, setConnected] = useState(false);
   const [lastList, setLastList] = useState<SubshellView[] | null>(null);
+  // Set by the live effect to the CURRENT socket's sender; a stable callback
+  // wraps it so consumers never re-render when the socket is replaced.
+  const requestRef = useRef<(ids: string[]) => void>(() => {});
+  const requestPreviews = useCallback((ids: string[]) => requestRef.current(ids), []);
 
   useEffect(() => {
     if (!enabled) return;
@@ -97,6 +115,17 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
       // (spec 2026-09-19 §4.1a).
       const liveIds = new Set<string>();
 
+      // Rows whose screens this page is showing. Kept so a change to one can
+      // re-pull its screen — the server holds no watch list of its own.
+      const showing = new Set<string>();
+      requestRef.current = (ids: string[]) => {
+        showing.clear();
+        for (const id of ids) showing.add(id);
+        if (ids.length > 0 && socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: "previews", ids }));
+        }
+      };
+
       const commit = (next: SubshellView[]) => {
         queryClient.setQueryData(SUBSHELLS_QUERY_KEY, next);
         // Read back, never the value just written: `setQueryData` shares the
@@ -114,6 +143,7 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
             subshells?: SubshellView[];
             id?: string;
             row?: Omit<SubshellView, "access">;
+            lines?: string[];
           };
           const current = queryClient.getQueryData<SubshellView[]>(SUBSHELLS_QUERY_KEY) ?? [];
 
@@ -122,8 +152,22 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
             // win over the snapshot; everything else the snapshot decides,
             // including which rows exist at all.
             const kept = new Map(current.filter((r) => liveIds.has(r.id)).map((r) => [r.id, r]));
-            commit(frame.subshells.map((r) => kept.get(r.id) ?? r));
+            // Screens already held are carried across: the snapshot has none
+            // (it never captures), so applying it plainly would blank every
+            // card until the next pull.
+            const screens = new Map(current.filter((r) => r.preview?.length).map((r) => [r.id, r.preview]));
+            commit(
+              frame.subshells.map((r) => {
+                const live = kept.get(r.id);
+                if (live) return live;
+                const preview = screens.get(r.id);
+                return preview ? { ...r, preview } : r;
+              }),
+            );
             attempts = 0; // a delivered snapshot is what proves the connection good
+            // A reconnect re-pulls what this page is showing, since the fresh
+            // snapshot's rows are screenless.
+            if (showing.size > 0) socket.send(JSON.stringify({ type: "previews", ids: [...showing] }));
             return;
           }
 
@@ -137,8 +181,21 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
             // any snapshot has none yet and is skipped rather than guessed at,
             // because guessing it wrong shows edit controls to a `view` grantee.
             if (!previous) return;
-            const merged = { ...previous, ...row, access: previous.access } as SubshellView;
+            // The screen is not in a broadcast either — keep the one held and
+            // ask for a fresh one when this card is on screen.
+            const merged = { ...previous, ...row, access: previous.access, preview: previous.preview } as SubshellView;
             commit(current.map((r) => (r.id === id ? merged : r)));
+            if (showing.has(id) && socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: "previews", ids: [id] }));
+            }
+            return;
+          }
+
+          if (frame.type === "preview" && frame.id && Array.isArray(frame.lines)) {
+            const { id, lines } = frame;
+            const previous = current.find((r) => r.id === id);
+            if (!previous) return;
+            commit(current.map((r) => (r.id === id ? { ...r, preview: lines } : r)));
             return;
           }
 
@@ -179,7 +236,10 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
   // provider re-rendering for ANY reason hands every `useContext` consumer a
   // fresh object and re-renders the tree through the back door the shared
   // cache write just closed.
-  const value = useMemo<LiveSubshellsFeedValue>(() => ({ connected, lastList }), [connected, lastList]);
+  const value = useMemo<LiveSubshellsFeedValue>(
+    () => ({ connected, lastList, requestPreviews }),
+    [connected, lastList, requestPreviews],
+  );
 
   return <FeedContext.Provider value={value}>{children}</FeedContext.Provider>;
 }

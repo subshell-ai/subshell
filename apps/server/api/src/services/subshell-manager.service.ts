@@ -594,12 +594,41 @@ export class SubshellManagerService {
    * Sequential on purpose: the capture-per-row is what keeps the fan-out one
    * tmux call at a time, exactly as the pre-seam sync loop was.
    */
-  async toViews(rows: SubshellTable[]): Promise<ReturnType<typeof toSubshellView>[]> {
+  async toViews(
+    rows: SubshellTable[],
+    opts: { previews?: boolean } = {},
+  ): Promise<ReturnType<typeof toSubshellView>[]> {
+    // `previews: false` skips the per-row `capture-pane` entirely. The live
+    // socket's snapshot passes it: a dashboard on any page other than the
+    // cards renders no screens, and capturing every running pane for a page
+    // that shows none was the last of the per-connect capture cost
+    // (spec 2026-09-19 §4.4). REST keeps them — the mobile card renders the
+    // last preview line and reads this list over HTTP.
+    const withPreviews = opts.previews ?? true;
     const views: ReturnType<typeof toSubshellView>[] = [];
     for (const row of rows) {
-      views.push(toSubshellView(row, row.status, await this.#preview(row), "owner", isNodeOffline(row.nodeId)));
+      const preview = withPreviews ? await this.#preview(row) : [];
+      views.push(toSubshellView(row, row.status, preview, "owner", isNodeOffline(row.nodeId)));
     }
     return views;
+  }
+
+  /**
+   * Current screens for specific subshells — the on-demand half of previews.
+   *
+   * The caller has already decided the viewer may see these rows; this only
+   * captures. Absent/dead rows answer with no entry rather than an empty one,
+   * so a client can tell "nothing to show" from "not answered".
+   *
+   * @param rows - rows to capture, already access-checked by the caller
+   */
+  async previewsFor(rows: SubshellTable[]): Promise<Map<string, string[]>> {
+    const out = new Map<string, string[]>();
+    for (const row of rows) {
+      const lines = await this.#preview(row);
+      if (lines.length > 0) out.set(row.id, lines);
+    }
+    return out;
   }
 
   /** Lists subshells for a user, reconciling liveness against tmux. */

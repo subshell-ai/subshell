@@ -408,7 +408,7 @@ export class SubshellsService extends BaseService {
    * subshell is simply absent, never a 403.
    * @param viewerId - The signed-in user (resolved from cookie or subshell key)
    */
-  async listSubshells(viewerId: string): Promise<SubshellView[]> {
+  async listSubshells(viewerId: string, opts: { previews?: boolean } = {}): Promise<SubshellView[]> {
     const isAdmin = (await this.repos.userMeta.getRole(viewerId)) === "admin";
     const rows = await this.repos.subshells.listVisibleTo(viewerId, isAdmin);
     const sharesBy = await this.repos.subshellShares.listForSubshells(rows.map((r) => r.id));
@@ -421,12 +421,31 @@ export class SubshellsService extends BaseService {
       const access = resolveSubshellAccess(viewerId, isAdmin, row.userId, sharesBy.get(row.id) ?? []);
       accessBy.set(row.id, access === "none" ? "view" : access);
     }
-    const views = await this.#manager.toViews(rows);
+    const views = await this.#manager.toViews(rows, opts);
     return views.map((view) => ({
       ...view,
       access: accessBy.get(view.id) ?? ("view" as const),
       ...shareExposure(sharesBy.get(view.id) ?? []),
     }));
+  }
+
+  /**
+   * Screens for the subshells a viewer asked to see, filtered to those they
+   * actually may (spec 2026-09-19 §4.4).
+   *
+   * The gate is the ordinary visible-set read, not a second predicate: an id
+   * the viewer cannot see is simply absent from the answer, exactly as it is
+   * absent from their list — never a 403, so ids cannot be probed.
+   *
+   * @param viewerId - the signed-in viewer asking
+   * @param ids - subshell ids whose screens to capture
+   */
+  async previewsFor(viewerId: string, ids: string[]): Promise<Map<string, string[]>> {
+    if (ids.length === 0) return new Map();
+    const isAdmin = (await this.repos.userMeta.getRole(viewerId)) === "admin";
+    const wanted = new Set(ids);
+    const visible = (await this.repos.subshells.listVisibleTo(viewerId, isAdmin)).filter((row) => wanted.has(row.id));
+    return await this.#manager.previewsFor(visible);
   }
 
   /**
