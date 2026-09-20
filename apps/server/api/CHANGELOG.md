@@ -1,5 +1,48 @@
 # @internal/server
 
+## 0.14.0
+
+### Minor Changes
+
+- [#101](https://github.com/subshell-ai/subshell/pull/101) [`b00c5c9`](https://github.com/subshell-ai/subshell/commit/b00c5c9288bd1c47151160ffb9bf783b488b1166) Thanks [@theogravity](https://github.com/theogravity)! - The sidebar's subshell list is grouped by the machine each subshell runs on.
+  
+  Every group carries a header with the node's own NAME, a count and a chevron;
+  collapsing one is remembered per device, keyed by node id so a rename cannot
+  reopen a group you shut. Groups sort by their liveliest member, so a machine
+  with something waiting for you stays on top, and the eight-row cap applies per
+  node rather than across the whole list — one machine's pile of ended sessions
+  can no longer crowd out another machine's live work. While the filter box has
+  text every group renders open, whatever the device remembers: a match hidden
+  inside a shut group reads as a filter that does not work.
+  
+  Hovering a row names the three things the row itself cannot say — the node, the
+  agent, and the state — and reveals in full the two it has no width for: the name
+  and the working directory, both truncated at rail width, which the pre-grouping
+  tooltip existed to show.
+  
+  The subshell page's status badge is gone; the state is a dot beside the name.
+  It renders the SHARED indicator (working / idle / waiting for you / exited /
+  node unreachable / ended), so the page, the rail and the home card can no
+  longer say three different things about one subshell — the header used to
+  carry its own copy of the offline-outranks-exited rule and spelled the raw
+  lifecycle status instead.
+
+### Patch Changes
+
+- [#97](https://github.com/subshell-ai/subshell/pull/97) [`1877b4b`](https://github.com/subshell-ai/subshell/commit/1877b4bb1eaf81f820478b22f1382e51a6c9b91f) Thanks [@theogravity](https://github.com/theogravity)! - A node's Service, Configuration and Logs tabs now actually open their pages.
+  They were wired as child routes of the Overview, which renders no outlet, so
+  clicking one changed the URL and the highlight while the Overview content
+  stayed on screen. The Maintenance switch also stopped labelling itself by
+  state: its label now reads "Maintenance mode" in both positions (ON = in
+  maintenance, like `subshell maintenance on`), and "Accepting new subshells" /
+  "In maintenance since …" is its own state line below.
+
+- [#97](https://github.com/subshell-ai/subshell/pull/97) [`1877b4b`](https://github.com/subshell-ai/subshell/commit/1877b4bb1eaf81f820478b22f1382e51a6c9b91f) Thanks [@theogravity](https://github.com/theogravity)! - The node-admin surface (the six node cards, their hooks and types, and the UI
+  primitives they render) moved out of the served SPA into a shared Apache-2.0
+  package, `@internal/node-admin`, so the node's own loopback dashboard can render
+  the same machine in the same words. The Nodes pages look and behave exactly as
+  before — this is the extraction's half in the server's binary, no visible change.
+
 ## 0.13.0
 
 ### Minor Changes
