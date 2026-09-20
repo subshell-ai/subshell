@@ -1,5 +1,13 @@
 # @internal/desktop-client
 
+## 0.9.2
+
+### Patch Changes
+
+- [#102](https://github.com/subshell-ai/subshell/pull/102) [`8331f41`](https://github.com/subshell-ai/subshell/commit/8331f411c373a3cef4d9c04c3aabbbabfed660aa) Thanks [@theogravity](https://github.com/theogravity)! - Re-cut bundles the 0.14.0 node agent (the dashboard-grouping release advanced
+  `@internal/node` beside the server). The app itself is unchanged — this keeps
+  the shipped sidecar current and the desktop pair version-synchronized.
+
 ## 0.9.1
 
 ### Patch Changes

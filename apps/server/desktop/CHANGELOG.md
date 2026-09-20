@@ -1,5 +1,15 @@
 # @internal/desktop-server
 
+## 0.11.2
+
+### Patch Changes
+
+- [#102](https://github.com/subshell-ai/subshell/pull/102) [`8331f41`](https://github.com/subshell-ai/subshell/commit/8331f411c373a3cef4d9c04c3aabbbabfed660aa) Thanks [@theogravity](https://github.com/theogravity)! - Re-cut bundles the 0.14.0 server binary, so Subshell Server desktop users get
+  this release's dashboard work — the sidebar grouped by machine, the row
+  tooltips, and the header's status dot. The app itself is unchanged; what moved
+  is the server it ships, which is the only server these installs ever get
+  (spec 2026-09-18: the app ships the server it installs).
+
 ## 0.11.1
 
 ### Patch Changes
