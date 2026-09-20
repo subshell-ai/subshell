@@ -46,15 +46,29 @@ export function startLivePublisher(deps: { target: LivePublisherTarget; coalesce
   const pending = new Map<string, LiveEvent>();
   let timer: ReturnType<typeof setTimeout> | null = null;
 
+  /**
+   * Windows are drained ONE AT A TIME, and each window's events in order.
+   *
+   * Resolving an event is several awaited reads, so firing a window's events
+   * in parallel — and the next window's before this one settled — lets a
+   * broadcast for a row land after a LATER broadcast for the same row, leaving
+   * every client on the stale version until something else happens to it. The
+   * chain costs nothing at this volume and removes the reordering entirely.
+   */
+  let draining: Promise<void> = Promise.resolve();
   const flush = (): void => {
     timer = null;
     const batch = [...pending.values()];
     pending.clear();
-    for (const event of batch) {
-      void publishEvent(deps.target, event).catch((err: unknown) => {
-        logger.withError(err).warn("live publisher: failed to broadcast an event");
-      });
-    }
+    draining = draining.then(async () => {
+      for (const event of batch) {
+        try {
+          await publishEvent(deps.target, event);
+        } catch (err) {
+          logger.withError(err).warn("live publisher: failed to broadcast an event");
+        }
+      }
+    });
   };
 
   const unsubscribe = subscribeLive((event: LiveEvent) => {

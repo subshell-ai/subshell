@@ -8,11 +8,19 @@ import type { SubshellView } from "@/types/subshell";
 /** Minimal WebSocket double: records instances, lets the test fire frames. */
 class FakeWS {
   static instances: FakeWS[] = [];
+  /** The real constant the provider's readyState guard compares against. */
+  static readonly OPEN = 1;
   onmessage: ((e: MessageEvent) => void) | null = null;
   onclose: (() => void) | null = null;
   onerror: (() => void) | null = null;
   closed = false;
   readonly url: string;
+  /** Frames the provider sent US — resync and preview requests. */
+  readonly outbox: string[] = [];
+  readyState = 1; // OPEN
+  send(data: string): void {
+    this.outbox.push(data);
+  }
   constructor(url: string) {
     this.url = url;
     FakeWS.instances.push(this);
@@ -270,5 +278,54 @@ describe("LiveSubshellsFeedProvider", () => {
     const rows = client.getQueryData<Array<{ id: string; name?: string }>>(SUBSHELLS_QUERY_KEY);
     expect(rows?.map((r) => r.id)).toEqual(["a"]);
     expect(rows?.[0]?.name).toBe("kept");
+  });
+  it("asks for a resync when a row it has never seen arrives", async () => {
+    stubAuthOk();
+    setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const ws = FakeWS.instances[0];
+    act(() => {
+      ws.onmessage?.({ data: JSON.stringify({ type: "snapshot", subshells: [] }) } as MessageEvent);
+    });
+    ws.outbox.length = 0;
+    // A broadcast carries no `access`, so an unseen row cannot be rendered —
+    // this is how a NEWLY created subshell reaches an admin or an Everyone
+    // grantee now that the polls are gone.
+    act(() => {
+      ws.onmessage?.({
+        data: JSON.stringify({ type: "subshell", id: "brand-new", row: { id: "brand-new" } }),
+      } as MessageEvent);
+    });
+    expect(ws.outbox.map((f) => JSON.parse(f).type)).toContain("resync");
+  });
+
+  it("does not let a stale snapshot resurrect a row it was told is gone", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({
+      type: "snapshot",
+      subshells: [
+        { id: "a", access: "owner" },
+        { id: "b", access: "owner" },
+      ],
+    });
+    frame({ type: "subshell-gone", id: "a" });
+    // A snapshot whose read began BEFORE the removal.
+    frame({
+      type: "snapshot",
+      subshells: [
+        { id: "a", access: "owner" },
+        { id: "b", access: "owner" },
+      ],
+    });
+
+    const rows = client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY);
+    expect(rows?.map((r) => r.id)).toEqual(["b"]);
   });
 });

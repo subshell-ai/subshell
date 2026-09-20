@@ -230,3 +230,43 @@ describe("/ws/live previews are pulled, never pushed", () => {
     expect(frames()).toEqual([]);
   });
 });
+
+describe("/ws/live bounded work and resync", () => {
+  it("answers a resync with a fresh snapshot", async () => {
+    const { ws, frames } = fakeSocket({ token: "good" });
+    const d = deps();
+    await handleLiveOpen(ws, d);
+    await handleLiveMessage(ws, JSON.stringify({ type: "resync" }), d);
+    expect(frames().filter((f) => f.type === "snapshot").length).toBe(2);
+  });
+
+  /**
+   * Each id is a `capture-pane` spawn. A client re-asking while the last answer
+   * is still being produced — a filter being typed, a burst of changes — would
+   * otherwise multiply that by however many requests are in flight.
+   */
+  it("serves one capture run at a time, dropping an overlapping ask", async () => {
+    let runs = 0;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const { ws } = fakeSocket({ token: "good" });
+    const d = deps({
+      previewsFor: async () => {
+        runs += 1;
+        await gate;
+        return new Map();
+      },
+    });
+    await handleLiveOpen(ws, d);
+    const first = handleLiveMessage(ws, JSON.stringify({ type: "previews", ids: ["a"] }), d);
+    await handleLiveMessage(ws, JSON.stringify({ type: "previews", ids: ["b"] }), d);
+    expect(runs).toBe(1);
+    release();
+    await first;
+    // Once it settles the socket accepts again — the guard is per request, not a latch.
+    await handleLiveMessage(ws, JSON.stringify({ type: "previews", ids: ["c"] }), d);
+    expect(runs).toBe(2);
+  });
+});

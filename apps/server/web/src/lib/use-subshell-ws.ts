@@ -4,7 +4,8 @@ import type { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import { BUILD_ID } from "@/lib/build-id";
 import { deviceName } from "@/lib/device-name";
-import { createMotionThrottle, MOTION_SAMPLE_MS, type MotionThrottle } from "@/lib/mouse-motion-throttle";
+import { createMotionThrottle, type MotionThrottle } from "@/lib/mouse-motion-throttle";
+import { motionSampleIntervalMs } from "@/lib/mouse-sampling-pref";
 import { sendInput, sendResize, sendVisibility } from "@/lib/subshell-frames.js";
 import { dropBrokenMouseReports } from "@/lib/terminal-input";
 
@@ -271,7 +272,10 @@ export function useSubshellWs(
     // keystrokes behind them (reported live, 2026-09-20). Nothing but motion
     // is ever delayed, and the pending motion is flushed before whatever
     // follows it, so input order is untouched.
-    const motion = createMotionThrottle((data) => sendInput(wsRef.current, data), MOTION_SAMPLE_MS);
+    // Read per ATTACH rather than captured once: the preference is per device
+    // and a change takes effect on the next terminal a person opens, without
+    // a reload.
+    const motion = createMotionThrottle((data) => sendInput(wsRef.current, data), motionSampleIntervalMs());
     motionRef.current = motion;
     inputDisposableRef.current = term.onData((data) => {
       if (readOnly) return;

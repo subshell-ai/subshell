@@ -32,7 +32,13 @@ export interface LiveWsSocket {
    * same way and keys its viewer registry by a generated id for it; the rule
    * is written down in `apps/server/api/AGENTS.md`.
    */
-  data: { query?: Record<string, string>; liveStop?: () => void; liveViewerId?: string };
+  data: {
+    query?: Record<string, string>;
+    liveStop?: () => void;
+    liveViewerId?: string;
+    /** True while a previews request is being served — see {@link handleLiveMessage}. */
+    liveCapturing?: boolean;
+  };
   send(data: string): unknown;
   /**
    * Joins a pub/sub topic (Bun's own, forwarded by Elysia). Optional so a
@@ -206,13 +212,41 @@ export async function handleLiveMessage(ws: LiveWsSocket, raw: unknown, deps: Li
   const frame = typeof raw === "string" ? safeParse(raw) : raw;
   if (!frame || typeof frame !== "object") return;
   const { type, ids } = frame as { type?: unknown; ids?: unknown };
+
+  // A client that received a row it has never seen cannot render it: a
+  // broadcast carries no `access`, and inventing one would show edit controls
+  // to a `view` grantee. So it asks for the list again instead — cheap, since
+  // a snapshot captures no screens.
+  if (type === "resync") {
+    try {
+      const subshells = await deps.listSubshells(userId);
+      if (ws.readyState === undefined || ws.readyState === WS_OPEN) {
+        ws.send(JSON.stringify({ type: "snapshot", subshells }));
+      }
+    } catch (err) {
+      logger.withError(err).warn("live ws: resync snapshot failed");
+    }
+    return;
+  }
+
   if (type !== "previews" || !Array.isArray(ids)) return;
   const wanted = ids.filter((id): id is string => typeof id === "string").slice(0, MAX_PREVIEW_REQUEST);
   if (wanted.length === 0) return;
-  const previews = await deps.previewsFor(userId, wanted);
-  for (const [id, lines] of previews) {
-    if (ws.readyState !== undefined && ws.readyState !== WS_OPEN) return;
-    ws.send(JSON.stringify({ type: "preview", id, lines }));
+  // ONE capture run per socket at a time. Each id is a `capture-pane` spawn,
+  // and a client that asks again before the last answer landed — a filter
+  // being typed, a burst of changes — would otherwise multiply that by however
+  // many requests are in flight. Dropping the overlapping ask is safe because
+  // the client re-asks whenever what it shows changes.
+  if (ws.data.liveCapturing) return;
+  ws.data.liveCapturing = true;
+  try {
+    const previews = await deps.previewsFor(userId, wanted);
+    for (const [id, lines] of previews) {
+      if (ws.readyState !== undefined && ws.readyState !== WS_OPEN) return;
+      ws.send(JSON.stringify({ type: "preview", id, lines }));
+    }
+  } finally {
+    ws.data.liveCapturing = false;
   }
 }
 

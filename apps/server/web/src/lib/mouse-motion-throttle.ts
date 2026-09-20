@@ -91,13 +91,3 @@ export function createMotionThrottle(send: (data: string) => void, intervalMs: n
     },
   };
 }
-
-/**
- * Sampling period for pointer motion.
- *
- * 40 ms is 25 updates a second — above what a person perceives as lag when
- * drag-selecting, and an order of magnitude below what an unthrottled pointer
- * asks for. It is deliberately the same number as the live feed's coalescing
- * window; both exist because one act should cost one message.
- */
-export const MOTION_SAMPLE_MS = 40;

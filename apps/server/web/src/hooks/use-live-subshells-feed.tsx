@@ -114,6 +114,11 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
       // ordering story, and the reason no sequence number is needed
       // (spec 2026-09-19 §4.1a).
       const liveIds = new Set<string>();
+      // Ids this connection has been told it cannot see. A snapshot whose read
+      // began BEFORE the removal would otherwise put the row back — `liveIds`
+      // protects a changed row from a stale snapshot, and this does the same
+      // for a removed one.
+      const goneIds = new Set<string>();
 
       // Rows whose screens this page is showing. Kept so a change to one can
       // re-pull its screen — the server holds no watch list of its own.
@@ -157,12 +162,16 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
             // card until the next pull.
             const screens = new Map(current.filter((r) => r.preview?.length).map((r) => [r.id, r.preview]));
             commit(
-              frame.subshells.map((r) => {
-                const live = kept.get(r.id);
-                if (live) return live;
-                const preview = screens.get(r.id);
-                return preview ? { ...r, preview } : r;
-              }),
+              frame.subshells
+                // A row this connection was told is gone stays gone, whatever
+                // a snapshot read before that says.
+                .filter((r) => !goneIds.has(r.id))
+                .map((r) => {
+                  const live = kept.get(r.id);
+                  if (live) return live;
+                  const preview = screens.get(r.id);
+                  return preview ? { ...r, preview } : r;
+                }),
             );
             attempts = 0; // a delivered snapshot is what proves the connection good
             // A reconnect re-pulls what this page is showing, since the fresh
@@ -177,10 +186,16 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
             const previous = current.find((r) => r.id === id);
             // `access` is deliberately absent from a broadcast — one payload
             // reaches every subscriber, so it cannot carry a per-viewer stamp.
-            // Keep the access this viewer already holds; a row arriving before
-            // any snapshot has none yet and is skipped rather than guessed at,
-            // because guessing it wrong shows edit controls to a `view` grantee.
-            if (!previous) return;
+            // Keep the access this viewer already holds; a row we have never
+            // seen has none, and guessing it wrong would show edit controls to
+            // a `view` grantee — so ask for the list instead. That is how a
+            // NEWLY created subshell reaches an admin or an Everyone grantee,
+            // who have no other way to learn it exists now that the polls are
+            // gone.
+            if (!previous) {
+              if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "resync" }));
+              return;
+            }
             // The screen is not in a broadcast either — keep the one held and
             // ask for a fresh one when this card is on screen.
             const merged = { ...previous, ...row, access: previous.access, preview: previous.preview } as SubshellView;
@@ -202,6 +217,7 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
           if (frame.type === "subshell-gone" && frame.id) {
             const { id } = frame;
             liveIds.add(id);
+            goneIds.add(id);
             if (!current.some((r) => r.id === id)) return; // never held it; nothing to drop
             commit(current.filter((r) => r.id !== id));
           }
