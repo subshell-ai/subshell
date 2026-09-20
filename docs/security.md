@@ -2382,3 +2382,15 @@ holds and the following are prerequisites, not improvements:
       configured here, and that no bypass or service-token policy is attached —
       §0's trusted network is no longer what stands between the internet and
       this instance.
+- [ ] **Give the node's loopback dashboard its own credential before it stops
+      being loopback-only or lands on a multi-user host** (§6, "The node's
+      loopback dashboard"). It has no login by design: the `127.0.0.1` bind plus
+      the OS user IS the access control, and the guards (`Host`/`Origin`/JSON)
+      only close the browser-rebinding path. That leaves two things to fix for a
+      wider deployment — a routable bind would expose the whole surface with no
+      credential at all, and even on loopback a second local user can press its
+      mutations. The sharpest is the repoint: the daemon dials whatever address
+      the page names carrying `Authorization: Bearer <nodeKey>`, a credential
+      valid on the plane, so this surface must authenticate AND supply an actor
+      for the agent-log record before either change ships. Until then
+      `SUBSHELL_DASHBOARD=0` is the remedy and the correct default there.
