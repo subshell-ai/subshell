@@ -27,15 +27,22 @@ interface ShareRow {
 /**
  * The topics a socket subscribes to at connect.
  *
+ * **The sets are disjoint by construction, so every frame reaches a viewer
+ * EXACTLY once.** An admin subscribes to `admins` ALONE — they hold
+ * instance-wide `edit`, so that topic already carries every row, and adding
+ * their own would deliver a row they own twice (measured: an admin owner
+ * received each frame two times before this). Everyone else takes their own
+ * topic plus the shared-with-all one, which {@link recipientTopics} keeps from
+ * overlapping by never publishing to both.
+ *
  * Fixed for the life of the socket: a role change does not retro-subscribe an
  * existing connection, exactly as a role change does not re-authenticate one
  * (`docs/security.md` — the same never-re-checked property `/ws` has). The
  * next connect picks it up.
  */
 export function topicsForViewer(viewer: { viewerId: string; isAdmin: boolean }): string[] {
-  const topics = [userTopic(viewer.viewerId), EVERYONE_TOPIC];
-  if (viewer.isAdmin) topics.push(ADMINS_TOPIC);
-  return topics;
+  if (viewer.isAdmin) return [ADMINS_TOPIC];
+  return [userTopic(viewer.viewerId), EVERYONE_TOPIC];
 }
 
 /**
@@ -58,12 +65,18 @@ export function topicsForViewer(viewer: { viewerId: string; isAdmin: boolean }):
  *          viewers whose access is not `"none"`
  */
 export function recipientTopics(row: { ownerUserId: string; shares: ShareRow[] }): string[] {
+  // An Everyone share is visible to every signed-in user, which INCLUDES the
+  // owner and every explicit grantee — so `everyone` alone carries all of
+  // them, and naming their own topics as well would deliver the frame twice.
+  // Admins are still named because they subscribe to `admins` alone.
+  if (row.shares.some((share) => share.granteeUserId === null)) {
+    return [EVERYONE_TOPIC, ADMINS_TOPIC];
+  }
   // A Set because an owner who also appears as an explicit grantee would
-  // otherwise be published to twice — harmless on the wire, but it would make
-  // the equivalence test's output ambiguous about which rule matched.
+  // otherwise be published to twice.
   const topics = new Set<string>([userTopic(row.ownerUserId), ADMINS_TOPIC]);
   for (const share of row.shares) {
-    topics.add(share.granteeUserId === null ? EVERYONE_TOPIC : userTopic(share.granteeUserId));
+    if (share.granteeUserId !== null) topics.add(userTopic(share.granteeUserId));
   }
   return [...topics];
 }

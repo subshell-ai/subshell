@@ -33,6 +33,7 @@ import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
+import { publishLive } from "@/services/live-bus.js";
 import { startServer } from "@/server.js";
 import { loadAndApplyDebugLogging } from "@/services/logging-preference.js";
 import { startInventoryRefresh } from "@/services/nodes/inventory-refresh.js";
@@ -355,9 +356,11 @@ async function bootServer(): Promise<void> {
     },
     setWaiting: async (id) => {
       await subshells.update(id, { waitingSince: new Date().toISOString() });
+      publishLive({ kind: "subshell.changed", id });
     },
     clearWaiting: async (id) => {
       await subshells.update(id, { waitingSince: null });
+      publishLive({ kind: "subshell.changed", id });
     },
   });
   setInterval(() => {

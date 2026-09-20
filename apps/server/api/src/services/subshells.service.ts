@@ -11,6 +11,7 @@ import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } from "@/lib/node-access.js";
 import { type Access, accessAtLeast, loadSubshellAccess, resolveSubshellAccess } from "@/lib/subshell-access.js";
 import { BaseService, type CommonServiceParams } from "@/services/base.service.js";
+import { publishLive } from "@/services/live-bus.js";
 import { getLive, isNodeOffline } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
@@ -564,6 +565,7 @@ export class SubshellsService extends BaseService {
   async setSubshellNotify(viewerId: string, id: string, notify: boolean, actor: GuardActor): Promise<{ ok: true }> {
     await this.#gate(viewerId, id, "owner", actor);
     await this.repos.subshells.update(id, { notify: notify ? 1 : 0 });
+    publishLive({ kind: "subshell.changed", id });
     return { ok: true };
   }
 
@@ -630,6 +632,7 @@ export class SubshellsService extends BaseService {
   async recordAttention(id: string, kind: AttentionKind): Promise<void> {
     const row = await this.repos.subshells.findById(id);
     if (row?.alive !== 1) return;
+    publishLive({ kind: "subshell.changed", id });
     await this.repos.subshells.update(id, { waitingSince: new Date().toISOString() });
     await getNotifyService().notifySubshell(id, kind);
   }
@@ -655,6 +658,7 @@ export class SubshellsService extends BaseService {
     // live pane's next SessionStart report reconverges the row. A CAS on
     // harnessSessionId would close the window for a write that is self-
     // healing within one transition; deliberately not worth it here.
+    publishLive({ kind: "subshell.changed", id });
     await this.repos.subshells.update(id, { harnessSessionId: sessionId });
   }
 

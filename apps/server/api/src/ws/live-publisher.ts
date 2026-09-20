@@ -3,6 +3,21 @@ import { type LiveEvent, subscribeLive } from "@/services/live-bus.js";
 import { logger } from "@/utils/logger.js";
 import { recipientTopics } from "@/ws/live-topics.js";
 
+/**
+ * How long changes to one subshell are collected before a frame goes out.
+ *
+ * A single domain act touches a row several times — a launch writes the row,
+ * mints its token and patches it post-spawn — and announcing each would send
+ * a browser four frames describing one thing. Measured before this window
+ * existed: creating one subshell produced exactly that.
+ *
+ * 40 ms is below the threshold where a person reads the UI as lagging, and it
+ * is nothing beside the 1.5 s cadence this design removed. It also makes the
+ * announce points forgiving: a service may announce liberally at act
+ * boundaries without the wire showing it.
+ */
+export const LIVE_COALESCE_MS = 40;
+
 /** What this module needs of Bun's server handle — just the broadcast. */
 export interface LivePublisherTarget {
   publish(topic: string, data: string): unknown;
@@ -25,14 +40,42 @@ export interface LivePublisherTarget {
  * @param deps.target - the server handle to broadcast through
  * @returns an unsubscribe function; the boot path holds it for the process life
  */
-export function startLivePublisher(deps: { target: LivePublisherTarget }): () => void {
-  return subscribeLive((event: LiveEvent) => {
-    void publishEvent(deps.target, event).catch((err: unknown) => {
-      // Never throws into the bus, which would reach the mutation that
-      // published — a failed broadcast must not become a failed terminate.
-      logger.withError(err).warn("live publisher: failed to broadcast an event");
-    });
+export function startLivePublisher(deps: { target: LivePublisherTarget; coalesceMs?: number }): () => void {
+  const window = deps.coalesceMs ?? LIVE_COALESCE_MS;
+  /** id → the event to send for it once the window closes. */
+  const pending = new Map<string, LiveEvent>();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const flush = (): void => {
+    timer = null;
+    const batch = [...pending.values()];
+    pending.clear();
+    for (const event of batch) {
+      void publishEvent(deps.target, event).catch((err: unknown) => {
+        logger.withError(err).warn("live publisher: failed to broadcast an event");
+      });
+    }
+  };
+
+  const unsubscribe = subscribeLive((event: LiveEvent) => {
+    // A DELETION is terminal and outranks any change queued for the same id:
+    // the row is gone, so a `subshell` frame resolved after it would find
+    // nothing and send nothing, leaving the client holding a row that no
+    // longer exists. The reverse never happens — nothing changes a deleted row.
+    const queued = pending.get(event.id);
+    if (queued?.kind === "subshell.deleted") return;
+    pending.set(event.id, event);
+    // Leading-edge timer, not a per-event debounce: a row written to steadily
+    // must not have its frame postponed forever.
+    if (!timer) timer = setTimeout(flush, window);
   });
+
+  return () => {
+    unsubscribe();
+    if (timer) clearTimeout(timer);
+    timer = null;
+    pending.clear();
+  };
 }
 
 /**

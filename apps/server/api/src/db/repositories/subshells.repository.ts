@@ -1,7 +1,6 @@
 import { BaseRepository } from "@/db/repositories/base.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { NewSubshell, SubshellTable, SubshellUpdate } from "@/db/types/subshells.db-types.js";
-import { publishLive } from "@/services/live-bus.js";
 
 /** The four fields {@link summarizeSubshells} reads off a subshell row. */
 type SummarizableSubshell = Pick<SubshellTable, "status" | "alive" | "waitingSince" | "nodeId">;
@@ -68,8 +67,7 @@ export class SubshellsRepository extends BaseRepository {
         createdAt: new Date().toISOString(),
       })
       .returningAll()
-      .executeTakeFirstOrThrow()
-      .then(announce);
+      .executeTakeFirstOrThrow();
   }
 
   async findById(id: string): Promise<SubshellTable | undefined> {
@@ -159,9 +157,7 @@ export class SubshellsRepository extends BaseRepository {
 
   async update(id: string, update: SubshellUpdate): Promise<SubshellTable | undefined> {
     await this.db.updateTable("subshells").set(update).where("id", "=", id).execute();
-    const row = await this.findById(id);
-    if (row) announce(row);
-    return row;
+    return this.findById(id);
   }
 
   /**
@@ -265,60 +261,26 @@ export class SubshellsRepository extends BaseRepository {
 
   /** Marks all running subshells for a user as terminated (e.g. tmux gone). */
   async markAllTerminated(userId: string, now: string): Promise<void> {
-    // Ids are read FIRST: after the update these rows no longer match the
-    // predicate, so there would be nothing left to name in the events.
-    const affected = await this.db
-      .selectFrom("subshells")
-      .select("id")
-      .where("userId", "=", userId)
-      .where("status", "=", "running")
-      .execute();
     await this.db
       .updateTable("subshells")
       .set({ status: "terminated", endedAt: now })
       .where("userId", "=", userId)
       .where("status", "=", "running")
       .execute();
-    for (const { id } of affected) publishLive({ kind: "subshell.changed", id });
   }
 
   /** Marks a single subshell terminated regardless of current state. */
   async markTerminated(id: string, now: string): Promise<void> {
     await this.db.updateTable("subshells").set({ status: "terminated", endedAt: now }).where("id", "=", id).execute();
-    publishLive({ kind: "subshell.changed", id });
   }
 
   /** Keeps a subshell record alive in the DB (tmux still has it). */
   async markRunning(id: string): Promise<void> {
     await this.db.updateTable("subshells").set({ status: "running", endedAt: null }).where("id", "=", id).execute();
-    publishLive({ kind: "subshell.changed", id });
   }
 
   /** Permanently removes a subshell row. */
   async delete(id: string): Promise<void> {
-    // The owner is read BEFORE the delete: the live event carries it because
-    // nothing can look it up afterwards, and without an owner there is no
-    // recipient set to publish the removal to (spec 2026-09-19 §4.1a).
-    const row = await this.findById(id);
     await this.db.deleteFrom("subshells").where("id", "=", id).execute();
-    if (row) publishLive({ kind: "subshell.deleted", id, ownerId: row.userId });
   }
-}
-
-/**
- * Announces a row's change on the live bus and returns it unchanged.
- *
- * **Every subshell write in the app goes through this repository** — the
- * services, the reconcile sweep and the idle watcher all call it directly —
- * so this is the one layer where no mutation site can be forgotten. Emitting
- * from the services instead would have missed the sweep, which is the writer
- * of `alive`, `startedAt` and `lastOutputAt`.
- *
- * Safe against a rollback because there are none: no subshell write runs
- * inside a transaction. If one is ever added, the publish must move to after
- * the commit.
- */
-function announce(row: SubshellTable): SubshellTable {
-  publishLive({ kind: "subshell.changed", id: row.id });
-  return row;
 }

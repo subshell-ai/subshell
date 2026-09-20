@@ -20,6 +20,7 @@ import type { SubshellTable, SubshellUpdate } from "@/db/types/subshells.db-type
 import { getRequestlessContext } from "@/lib/context.js";
 import type { Access } from "@/lib/subshell-access.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
+import { publishLive } from "@/services/live-bus.js";
 import {
   nodeSelfInvoke,
   planRemoteSubshellMcp,
@@ -440,6 +441,7 @@ export class SubshellManagerService {
       }
       await this.#subshells.markTerminated(id, new Date().toISOString());
       await this.#revokeTokenOrUnlink(id);
+      publishLive({ kind: "subshell.changed", id });
       throw err;
     }
 
@@ -488,6 +490,11 @@ export class SubshellManagerService {
         nodeId: targetNode,
       }),
     });
+    // The launch SUCCEEDED: announce the act once, here, rather than at each
+    // of the writes it made (row, token, post-spawn patch). The publisher
+    // coalesces per id anyway, but announcing the act is what makes this a
+    // domain event instead of a change-data feed.
+    publishLive({ kind: "subshell.changed", id });
     return { id, tmuxSocket: socket, apiKey, promptDelivered };
   }
 
@@ -619,6 +626,7 @@ export class SubshellManagerService {
     const row = await this.#subshells.findById(id);
     if (!row || row.userId !== userId) return false;
     await this.#subshells.update(id, { name, nameLocked: 1 });
+    publishLive({ kind: "subshell.changed", id });
     return true;
   }
 
@@ -717,6 +725,7 @@ export class SubshellManagerService {
         return null; // finding: don't report success for a revival that spawned nothing
       }
       logger.info(`subshell restarted in place: ${parked.id} (${parked.name})`);
+      publishLive({ kind: "subshell.changed", id: parked.id });
       return { id: parked.id, tmuxSocket: parked.tmuxSocket ?? tmuxSocketFor(parked.id) };
     })().finally(() => restartInFlight.delete(sourceId));
     restartInFlight.set(sourceId, run);
@@ -771,6 +780,7 @@ export class SubshellManagerService {
     // `terminated` there is no transition left to claim.
     const stopped = (await this.#subshells.updateIfAlive(id, { alive: 0 })) > 0;
     await this.#subshells.markTerminated(id, new Date().toISOString());
+    publishLive({ kind: "subshell.changed", id });
     // Teardown must finish even when the token store is down: a failed revoke
     // unlinks apiKeyId (guard 401s the key) so the audit event below still lands.
     await this.#revokeTokenOrUnlink(id);
@@ -845,7 +855,11 @@ export class SubshellManagerService {
     // survivable — unlinking apiKeyId neutralises the key, and deleting the
     // row outright does the same via the guard's missing-row check.
     await this.#revokeTokenOrUnlink(id);
+    const ownerId = row.userId;
     await this.#subshells.delete(id);
+    // Carries the owner because nothing can look it up once the row is gone,
+    // and without an owner there is no recipient set (spec §4.1a).
+    publishLive({ kind: "subshell.deleted", id, ownerId });
     // Best-effort artifact cleanup ON THE ROW'S NODE (the log is only an
     // attach-replay artifact; the MCP config holds no secrets but nothing
     // should be left behind). The layout lives behind the launcher seam
@@ -1224,6 +1238,7 @@ export class SubshellManagerService {
       }
       if (Object.keys(patch).length > 0) {
         await this.#subshells.update(row.id, patch);
+        publishLive({ kind: "subshell.changed", id: row.id });
       }
     }
   }
@@ -1308,6 +1323,8 @@ export class SubshellManagerService {
     row: SubshellTable,
     { exitCode, endedAt }: { exitCode: number | null; endedAt: string },
   ): Promise<void> {
+    // Death is the transition a dashboard is actually waiting on, so it is
+    // announced from the ONE place both sweeps and the exit report share.
     previewCacheDrop(row.id);
     if (restartInFlight.has(row.id)) return;
     const fresh = await this.#subshells.findById(row.id);
@@ -1342,6 +1359,7 @@ export class SubshellManagerService {
       // remaining rows — unlinking apiKeyId is the guard-side fallback.
       await this.#revokeTokenOrUnlink(fresh.id);
     }
+    publishLive({ kind: "subshell.changed", id: row.id });
   }
 
   /**
@@ -1383,6 +1401,7 @@ export class SubshellManagerService {
     // (closes the window the local branch leaves open; costs nothing here).
     if (Object.keys(patch).length > 0) {
       await this.#subshells.updateIfRunning(fresh.id, patch);
+      publishLive({ kind: "subshell.changed", id: fresh.id });
     }
     if (entry.capture != null) {
       previewCachePut(fresh.id, screenTail(entry.capture));

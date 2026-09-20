@@ -102,10 +102,13 @@ describe("/ws/live", () => {
     expect(subscribedAtRead).toEqual([userTopic("u1"), EVERYONE_TOPIC]);
   });
 
-  it("puts an admin on the admins topic too", async () => {
+  it("subscribes an admin to the admins topic ALONE — one frame, not two", async () => {
+    // That topic already carries every row, so adding this viewer's own would
+    // deliver a subshell they OWN twice. Measured against a real server: an
+    // admin owner received each frame two times until the sets were disjoint.
     const { ws, subscribed } = fakeSocket({ token: "good" });
     await handleLiveOpen(ws, deps({ isAdmin: async () => true }));
-    expect(subscribed).toEqual([userTopic("u1"), EVERYONE_TOPIC, ADMINS_TOPIC]);
+    expect(subscribed).toEqual([ADMINS_TOPIC]);
   });
 
   it("keeps the socket open when the snapshot read fails", async () => {

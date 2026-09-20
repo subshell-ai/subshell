@@ -10,8 +10,11 @@ describe("live topics", () => {
     expect(topicsForViewer({ viewerId: "u1", isAdmin: false })).toEqual([userTopic("u1"), EVERYONE_TOPIC]);
   });
 
-  it("puts an admin on the admins topic as well", () => {
-    expect(topicsForViewer({ viewerId: "u1", isAdmin: true })).toEqual([userTopic("u1"), EVERYONE_TOPIC, ADMINS_TOPIC]);
+  it("puts an admin on the admins topic ALONE, so an admin owner is not served twice", () => {
+    // `admins` already carries every row (instance-wide edit), so adding this
+    // viewer's own topic would deliver a row they own two times — measured
+    // against a real server before the sets were made disjoint.
+    expect(topicsForViewer({ viewerId: "u1", isAdmin: true })).toEqual([ADMINS_TOPIC]);
   });
 
   it("routes a private row to its owner and the admins, and nobody else", () => {
@@ -31,15 +34,18 @@ describe("live topics", () => {
     expect(topics).not.toContain(EVERYONE_TOPIC);
   });
 
-  it("uses the everyone topic for an Everyone share rather than expanding it", () => {
+  it("publishes an Everyone-shared row to `everyone` only, naming no user at all", () => {
     const topics = recipientTopics({
       ownerUserId: "owner",
-      shares: [{ granteeUserId: null, permission: "view" }],
+      shares: [
+        { granteeUserId: null, permission: "view" },
+        { granteeUserId: "a", permission: "edit" },
+      ],
     });
-    expect(topics).toContain(EVERYONE_TOPIC);
-    // The whole point: no user ids beyond the owner's appear — an Everyone
-    // grant must never expand into one topic per account.
-    expect(topics.filter((t) => t.startsWith("live:u:"))).toEqual([userTopic("owner")]);
+    // Everyone INCLUDES the owner and every grantee, so naming their topics
+    // too would deliver the frame twice. And an Everyone grant must never
+    // expand into one topic per account — that is the whole point of a topic.
+    expect(topics).toEqual([EVERYONE_TOPIC, ADMINS_TOPIC]);
   });
 
   it("emits no duplicate topics when a grantee is also the owner", () => {
@@ -81,20 +87,23 @@ describe("recipientTopics agrees with resolveSubshellAccess, exhaustively", () =
     [{ granteeUserId: "stranger", permission: "view" }],
   ];
 
-  it("reachable-by-topic ⟺ access !== none, for every combination", () => {
+  it("matches EXACTLY ONCE ⟺ access !== none, for every combination", () => {
     let checked = 0;
     for (const shares of GRANT_OPTIONS) {
       const published = new Set(recipientTopics({ ownerUserId: OWNER, shares }));
       for (const viewerId of VIEWERS) {
         for (const isAdmin of [false, true]) {
           const subscribed = topicsForViewer({ viewerId, isAdmin });
-          const reachable = subscribed.some((t) => published.has(t));
+          // COUNT, not "some": a viewer matching two published topics would be
+          // correctly authorized and served the same frame twice. Asserting
+          // the count is what makes exactly-once a property rather than a hope.
+          const matches = subscribed.filter((t) => published.has(t)).length;
           const access: Access = resolveSubshellAccess(viewerId, isAdmin, OWNER, shares);
-          expect({ viewerId, isAdmin, shares, reachable }).toEqual({
+          expect({ viewerId, isAdmin, shares, matches }).toEqual({
             viewerId,
             isAdmin,
             shares,
-            reachable: access !== "none",
+            matches: access === "none" ? 0 : 1,
           });
           checked += 1;
         }
