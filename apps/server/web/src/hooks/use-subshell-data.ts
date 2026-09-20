@@ -1,7 +1,6 @@
 import { apiFetch } from "@internal/node-admin";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { isSubshellDead, isSubshellExited } from "@/components/subshell-terminal";
-import { useLiveSubshellsFeed } from "@/hooks/use-live-subshells-feed";
 import { SUBSHELL_QUERY_KEY } from "@/lib/query-keys";
 import { isNotFoundSubshellError } from "@/lib/subshell-not-found";
 import type { SubshellView } from "@/types/subshell";
@@ -31,13 +30,6 @@ export interface SubshellData {
  * @returns The subshell and the derived exited/dead flags
  */
 export function useSubshellData(id: string): SubshellData {
-  const _queryClient = useQueryClient();
-  // The root feed's delivery state decides whether this page still owns the
-  // list's refresh (see the effect below). Pre-auth or on a bare route the
-  // provider answers `false` — the conservative side, which just means the
-  // poll behaves exactly as it did before.
-  const { connected: feedConnected } = useLiveSubshellsFeed();
-
   const {
     data: subshell,
     isLoading,
