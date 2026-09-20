@@ -1197,6 +1197,7 @@ export class SubshellManagerService {
           // `alive === 1` above is enough to push a second time.
           const claimed = await this.#subshells.updateIfAlive(row.id, { alive: 0, endedAt: now, waitingSince: null });
           if (claimed > 0) {
+            publishLive({ kind: "subshell.changed", id: row.id });
             logger.info(`subshell process absent (no socket): ${row.id}`);
             await this.#notifyDeath(row);
           }
@@ -1514,6 +1515,7 @@ export class SubshellManagerService {
           const patch: SubshellUpdate = { alive: 1, endedAt: null };
           if (row.startedAt == null) patch.startedAt = now;
           await this.#subshells.updateIfRunning(row.id, patch);
+          publishLive({ kind: "subshell.changed", id: row.id });
         }
         continue;
       }

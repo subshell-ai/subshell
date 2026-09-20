@@ -86,32 +86,50 @@ export function startLivePublisher(deps: { target: LivePublisherTarget; coalesce
  * gone. That is why `subshell.deleted` carries its `ownerId` on the bus.
  */
 async function publishEvent(target: LivePublisherTarget, event: LiveEvent): Promise<void> {
-  const { repos, services } = getRequestlessContext();
+  if (event.kind === "node.changed") return; // node frames arrive with the nodes half
 
   if (event.kind === "subshell.deleted") {
     // Shares are gone with the row, so the owner and the admins are all that
     // can be derived. A grantee learns from their next snapshot; telling
     // everyone would be a broadcast of an id they may never have seen.
-    const topics = recipientTopics({ ownerUserId: event.ownerId, shares: [] });
-    broadcast(target, topics, { type: "subshell-gone", id: event.id });
+    broadcast(target, recipientTopics({ ownerUserId: event.ownerId, shares: [] }), {
+      type: "subshell-gone",
+      id: event.id,
+    });
     return;
   }
 
-  if (event.kind === "node.changed") return; // node frames arrive with the nodes half
+  // Whoever the row USED to reach. Derived from the event, so it survives
+  // anything going wrong with the reads below — a revocation that failed to
+  // send would leave someone looking at a subshell they no longer may.
+  const revokedTopics = event.kind === "subshell.shares-changed" ? recipientTopics(event.before) : [];
 
-  const row = await repos.subshells.findById(event.id);
-  if (!row) {
-    // Raced with a delete. The deletion event carries the owner and will do
-    // the honest thing; guessing a recipient set from nothing would not.
-    return;
+  let currentTopics: string[] = [];
+  try {
+    const { repos, services } = getRequestlessContext();
+    const row = await repos.subshells.findById(event.id);
+    if (row) {
+      const shares = (await repos.subshellShares.listForSubshells([event.id])).get(event.id) ?? [];
+      currentTopics = recipientTopics({ ownerUserId: row.userId, shares });
+      // `viewsForBroadcast` is the shared half by construction — it drops the
+      // per-viewer `access` (one payload, every subscriber) and captures no
+      // pane, so a screen never rides a topic.
+      const [view] = await services.subshells.viewsForBroadcast([row]);
+      if (view) broadcast(target, currentTopics, { type: "subshell", id: event.id, row: view });
+    }
+    // A missing row raced a delete; that event carries the owner and does the
+    // honest thing. Nothing to broadcast as a change.
+  } catch (err) {
+    // Reported, not swallowed — but the revocation below still goes out.
+    logger.withError(err).warn("live publisher: could not resolve a changed row");
   }
-  const shares = (await repos.subshellShares.listForSubshells([event.id])).get(event.id) ?? [];
-  const topics = recipientTopics({ ownerUserId: row.userId, shares });
-  // `viewsForBroadcast` is the shared half by construction — it drops the
-  // per-viewer `access` rather than leaving a default to be believed.
-  const [view] = await services.subshells.viewsForBroadcast([row]);
-  if (!view) return;
-  broadcast(target, topics, { type: "subshell", id: event.id, row: view });
+
+  // Told LAST, and only to topics the new set does not contain: a viewer in
+  // both (an admin, say) has already received the row, so this can never be
+  // mistaken for its removal.
+  const kept = new Set(currentTopics);
+  const lost = revokedTopics.filter((topic) => !kept.has(topic));
+  if (lost.length > 0) broadcast(target, lost, { type: "subshell-gone", id: event.id });
 }
 
 /** One serialization, published to each topic. */

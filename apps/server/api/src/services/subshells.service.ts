@@ -466,7 +466,12 @@ export class SubshellsService extends BaseService {
    */
   async viewsForBroadcast(rows: SubshellTable[]): Promise<Omit<SubshellView, "access">[]> {
     const sharesBy = await this.repos.subshellShares.listForSubshells(rows.map((r) => r.id));
-    const views = await this.#manager.toViews(rows);
+    // NO PREVIEWS, for two independent reasons. A broadcast reaches every
+    // subscriber on a topic, so a pane's screen lines — the most sensitive
+    // thing this app renders — must not ride one. And capturing here would
+    // put a `capture-pane` spawn back on every event, which is the cost §4.4
+    // removed: screens are PULLED by the cards that draw them.
+    const views = await this.#manager.toViews(rows, { previews: false });
     return views.map(({ access: _access, ...view }) => ({
       ...view,
       ...shareExposure(sharesBy.get(view.id) ?? []),
@@ -626,7 +631,10 @@ export class SubshellsService extends BaseService {
     entries: ShareEntry[],
     actor: GuardActor,
   ): Promise<{ shares: SubshellShareView[] }> {
-    await this.#gate(viewerId, id, "owner", actor);
+    const { row } = await this.#gate(viewerId, id, "owner", actor);
+    // Read BEFORE the replace: these are the grants that decide who currently
+    // receives this row, and after the write nothing can recover them.
+    const before = (await this.repos.subshellShares.listForSubshells([id])).get(id) ?? [];
     const named = entries.map((e) => e.granteeUserId).filter((x): x is string => x !== null);
     if (named.length > 0) {
       const names = await this.repos.users.displayNamesByIds(named);
@@ -634,6 +642,11 @@ export class SubshellsService extends BaseService {
       if (unknown) throw new HttpError(400, "Cannot share with an unknown user");
     }
     await this.repos.subshellShares.replaceForSubshell(id, entries, viewerId);
+    // The BEFORE access rides the event: recipients computed after the write
+    // reach everyone EXCEPT whoever just lost the row, so this is the only
+    // thing that can tell a revoked grantee (spec §4.2). Deriving which topics
+    // that means stays in the publisher — the service carries domain facts.
+    publishLive({ kind: "subshell.shares-changed", id, before: { ownerUserId: row.userId, shares: before } });
     return { shares: await this.#shareViews(id) };
   }
 

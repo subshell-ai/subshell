@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { publishLive } from "@/services/live-bus.js";
 import { startLivePublisher } from "@/ws/live-publisher.js";
+import { userTopic } from "@/ws/live-topics.js";
 
 /** Records what was published, per topic. */
 function fakeTarget() {
@@ -87,5 +88,40 @@ describe("live publisher coalescing", () => {
     stop();
     await settle();
     expect(sent).toEqual([]);
+  });
+});
+
+describe("a share revocation reaches the person who lost it", () => {
+  /**
+   * The asymmetry that makes this necessary: recipients computed AFTER the
+   * write are exactly the people who still have the row, so publishing only
+   * those tells everyone except the one person whose access just ended. Their
+   * dashboard would keep the row until they reloaded.
+   */
+  it("sends subshell-gone to topics the row used to reach and no longer does", async () => {
+    const sent: { topic: string; frame: Record<string, unknown> }[] = [];
+    const target = {
+      publish(topic: string, data: string) {
+        sent.push({ topic, frame: JSON.parse(data) });
+        return 1;
+      },
+    };
+    const stop = startLivePublisher({ target, coalesceMs: 10 });
+    try {
+      // The row does not exist in this test DB, so the `subshell` half resolves
+      // to nothing — but the revocation half is derived from the event itself
+      // and must still land.
+      publishLive({
+        kind: "subshell.shares-changed",
+        id: "s9",
+        before: { ownerUserId: "owner", shares: [{ granteeUserId: "ex", permission: "view" }] },
+      });
+      await new Promise((r) => setTimeout(r, 60));
+      const gone = sent.filter((x) => x.frame.type === "subshell-gone");
+      expect(gone.map((x) => x.topic)).toContain(userTopic("ex"));
+      expect(gone.every((x) => x.frame.id === "s9")).toBe(true);
+    } finally {
+      stop();
+    }
   });
 });

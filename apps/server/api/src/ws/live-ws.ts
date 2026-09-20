@@ -1,6 +1,7 @@
 import { getRequestlessContext } from "@/lib/context.js";
 import type { SubshellsService } from "@/services/subshells.service.js";
 import { logger } from "@/utils/logger.js";
+import { registerLiveSocket, unregisterLiveSocket } from "@/ws/live-registry.js";
 import { topicsForViewer } from "@/ws/live-topics.js";
 import { consumeWsToken } from "@/ws/ws-token.js";
 
@@ -99,12 +100,17 @@ export async function handleLiveOpen(ws: LiveWsSocket, deps: LiveWsDeps): Promis
   let stopped = false;
   const stop = (): void => {
     stopped = true;
+    unregisterLiveSocket(ws.data.liveViewerId, ws);
     ws.data.liveStop = undefined;
   };
 
   // Who this socket belongs to, for the messages it may send later. Stashed
   // rather than re-derived: the token is single-use and already spent.
   ws.data.liveViewerId = userId;
+  // Findable by a role change, which must close this socket: the topics below
+  // are chosen ONCE, so a demotion would otherwise leave an ex-admin on the
+  // instance-wide topic for as long as the tab stays open.
+  registerLiveSocket(userId, ws);
 
   // ARMED BEFORE THE FIRST AWAIT, and that ordering is load-bearing: this
   // handler suspends twice before it sends anything, and a `close` landing in

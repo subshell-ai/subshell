@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import type { SubshellSharePermission } from "@/db/types/subshell-shares.db-types.js";
 import { logger } from "@/utils/logger.js";
 
 /**
@@ -17,6 +18,17 @@ export type LiveEvent =
   | { kind: "subshell.changed"; id: string }
   /** The row is gone, so its owner rides along — nothing can look it up after. */
   | { kind: "subshell.deleted"; id: string; ownerId: string }
+  /**
+   * The GRANTS changed, and the recipient set therefore shrank as well as
+   * grew. Carries the access the row had BEFORE the write, because that is
+   * the only way anyone can still be told they lost it: recipients computed
+   * after the write reach everyone except the person it concerns (spec §4.2).
+   */
+  | {
+      kind: "subshell.shares-changed";
+      id: string;
+      before: { ownerUserId: string; shares: { granteeUserId: string | null; permission: SubshellSharePermission }[] };
+    }
   | { kind: "node.changed"; id: string };
 
 /**

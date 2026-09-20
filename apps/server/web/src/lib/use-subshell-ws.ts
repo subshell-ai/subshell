@@ -4,6 +4,7 @@ import type { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import { BUILD_ID } from "@/lib/build-id";
 import { deviceName } from "@/lib/device-name";
+import { createMotionThrottle, MOTION_SAMPLE_MS, type MotionThrottle } from "@/lib/mouse-motion-throttle";
 import { sendInput, sendResize, sendVisibility } from "@/lib/subshell-frames.js";
 import { dropBrokenMouseReports } from "@/lib/terminal-input";
 
@@ -99,6 +100,7 @@ export function useSubshellWs(
 ) {
   const wsRef = useRef<WebSocket | null>(null);
   const inputDisposableRef = useRef<{ dispose(): void } | null>(null);
+  const motionRef = useRef<MotionThrottle | null>(null);
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
   const capacityRef = useRef(capacity);
@@ -262,6 +264,15 @@ export function useSubshellWs(
 
     // Forward terminal input to the subshell (single subscription for the hook
     // lifetime — the retry loop must not re-subscribe per connection).
+    // Pointer MOTION is sampled rather than forwarded frame for frame. Each
+    // chunk here becomes one WS frame and then one `tmux send-keys` — a
+    // process spawn, serialized per pane — so a moving pointer over a
+    // mouse-reporting TUI can ask for dozens a second and queue real
+    // keystrokes behind them (reported live, 2026-09-20). Nothing but motion
+    // is ever delayed, and the pending motion is flushed before whatever
+    // follows it, so input order is untouched.
+    const motion = createMotionThrottle((data) => sendInput(wsRef.current, data), MOTION_SAMPLE_MS);
+    motionRef.current = motion;
     inputDisposableRef.current = term.onData((data) => {
       if (readOnly) return;
       // Not everything xterm emits is usable: a flick's MOMENTUM frames become
@@ -271,7 +282,7 @@ export function useSubshellWs(
       // upload injection — which cannot produce these — untouched.
       const clean = dropBrokenMouseReports(data);
       if (!clean) return;
-      sendInput(wsRef.current, clean);
+      motion.push(clean);
     });
 
     // Keep the tmux window in sync with the client across resizes (window
@@ -315,6 +326,10 @@ export function useSubshellWs(
       if (retryTimer) clearTimeout(retryTimer);
       inputDisposableRef.current?.dispose();
       inputDisposableRef.current = null;
+      // Flushes whatever motion was pending, so a detach cannot strand the
+      // pane at a position the pointer had already left.
+      motionRef.current?.dispose();
+      motionRef.current = null;
       resizeDisposable.dispose();
       if (socket) socket.close(1000, "client detached");
       wsRef.current = null;
