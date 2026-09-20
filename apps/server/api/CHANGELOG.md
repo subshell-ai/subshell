@@ -1,5 +1,25 @@
 # @internal/server
 
+## 0.15.0
+
+### Minor Changes
+
+- [#107](https://github.com/subshell-ai/subshell/pull/107) [`1795077`](https://github.com/subshell-ai/subshell/commit/17950775fe5d55e40066749186e6a21a2c77cff2) Thanks [@theogravity](https://github.com/theogravity)! - The folder picker now follows the machine you picked. Changing Machine in the launch form clears the working directory (a path is a claim about one machine's filesystem) and re-seeds it from the NEW node's own most-recent path or home — no more waiting on a remote "path doesn't exist" before the picker is usable; an open panel re-anchors to the new machine's home the moment the pick moves. Recent and Favorites become per-machine too: favorites gain the node dimension `recent_paths` has carried since the nodes plane landed, browsing a node now ships THAT node's Recent/Favorites sections (they were hidden everywhere but the control plane), and the star is offered on a node's rows — starring Box's `/home/dev/api` no longer plants a dead click in the local panel. `PATCH /api/files/favorite` grows an optional `node` (omitted = `local`, byte-identical to before); the local wire is unchanged everywhere. The pre-fill answers the node's launch rules in both halves: `/recent` now nulls its `home` fallback for a caller whose node rules would refuse it, so a constrained node never seeds the form a directory that 403s at launch.
+
+- [#106](https://github.com/subshell-ai/subshell/pull/106) [`3181b00`](https://github.com/subshell-ai/subshell/commit/3181b001eef9849662ab4aff68000ce9a7602699) Thanks [@theogravity](https://github.com/theogravity)! - Server Settings → Logs: one tabbed page for the admin's two read-only logs. The audit trail — previously its own `/settings/audit` page — is the Audit tab, and the server's own log tail moved from Service to the System tab beside it; the nav entry renamed from "Audit log" to "Logs". The audit trail now pages (25 events a page, keyset cursors over the trail's total order) instead of showing only the newest 50, so a long trail is walkable to its beginning.
+
+### Patch Changes
+
+- [#104](https://github.com/subshell-ai/subshell/pull/104) [`99508f4`](https://github.com/subshell-ai/subshell/commit/99508f45cfa93e71f079b1353201cc7c2cc94784) Thanks [@theogravity](https://github.com/theogravity)! - A server that has never had node artifacts published into its data dir can now
+  actually lazy-fetch one. `fetchArtifact` opened its temp file inside
+  `<dataDir>/node-artifacts/` and nothing in production code ever CREATED that
+  directory — every test fixture made it first, so the fetcher passed CI while
+  any ordinary install answered its nodes' first update-download with a 404 whose
+  real cause, a `ENOENT` on the plane's own filesystem, appeared only in the
+  server log. The fetcher now mkdirs recursively before writing; a regression
+  test removes the fixture's directory first, and reproduces the exact ENOENT
+  without the fix.
+
 ## 0.14.0
 
 ### Minor Changes
