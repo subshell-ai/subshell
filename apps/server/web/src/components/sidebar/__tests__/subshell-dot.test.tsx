@@ -52,11 +52,23 @@ describe("SubshellDot — the header's variant (2026-09-20)", () => {
     expect(dot?.getAttribute("aria-hidden")).toBeNull();
   });
 
-  it("carries the RAW lifecycle status beside the rendered indicator", () => {
+  it("carries the RAW status/alive PAIR beside the rendered indicator", () => {
     // Two different questions: the indicator is what a person should see, the
-    // status is what the server recorded. The e2e suite asserts liveness on
-    // this attribute, which does not swing with the activity clock.
+    // raw pair is what the server recorded. The e2e suite asserts liveness on
+    // the PAIR — `applyDeath` stamps `alive: false` while leaving
+    // `status: "running"`, so the status alone passes on a dead-on-arrival
+    // pane. Neither field swings with the activity clock, which the visible
+    // word does.
     render(<SubshellDot subshell={probe({ activity: "idle" })} accessible />);
-    expect(document.querySelector('[role="img"]')?.getAttribute("data-status")).toBe("running");
+    const dot = document.querySelector('[role="img"]');
+    expect(dot?.getAttribute("data-status")).toBe("running");
+    expect(dot?.getAttribute("data-alive")).toBe("true");
+  });
+
+  it("flips only data-alive on a dead-on-arrival row — the pair the e2e asserts on", () => {
+    render(<SubshellDot subshell={probe({ alive: false })} accessible />);
+    const dot = document.querySelector('[role="img"]');
+    expect(dot?.getAttribute("data-status")).toBe("running");
+    expect(dot?.getAttribute("data-alive")).toBe("false");
   });
 });

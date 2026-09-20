@@ -61,10 +61,15 @@ function subshell(over: Partial<SubshellView> = {}): SubshellView {
  * would overwrite seeded data with whatever the stub said — the fixture has to
  * BE the stub. (The better-auth binding reason is in app-sidebar-group.test.)
  */
-function stubFetch(subshells: SubshellView[], { failNodes = false }: { failNodes?: boolean } = {}): () => void {
+/**
+ * `failNodes` is read AT REQUEST TIME so a test can flip it mid-life — that
+ * is how the failed-REFRESH case (cache populated, refetch errors) is
+ * distinguishable from the cold-failure case (nothing cached).
+ */
+function stubFetch(subshells: SubshellView[], state: { failNodes: boolean } = { failNodes: false }): () => void {
   setFetchRouter(async (input: RequestInfo | URL) => {
     const url = String(typeof input === "string" || input instanceof URL ? input : input.url);
-    if (failNodes && url.includes("/api/nodes")) {
+    if (state.failNodes && url.includes("/api/nodes")) {
       return new Response(JSON.stringify({ error: "boom" }), {
         status: 500,
         headers: { "content-type": "application/json" },
@@ -91,7 +96,9 @@ function stubFetch(subshells: SubshellView[], { failNodes = false }: { failNodes
   return () => setFetchRouter(null);
 }
 
-function renderRail() {
+/** Renders the rail and hands back the QueryClient, so a test can force the
+ * nodes refetch a live user would get from focus/reconnect/invalidation. */
+function renderRail(): { client: QueryClient } {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute({ component: () => <AppSidebar /> });
   const children = ["/", "/workspaces", "/nodes", "/presets", "/settings", "/subshells/$id"].map((path) =>
@@ -102,11 +109,12 @@ function renderRail() {
     history: createMemoryHistory({ initialEntries: ["/"] }),
     defaultPreload: false,
   });
-  return render(
+  render(
     <QueryClientProvider client={client}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+  return { client };
 }
 
 /** The node-group headers, in rendered order — found by what they control. */
@@ -135,18 +143,24 @@ afterEach(() => {
 /** The rail calls useQuickAdd(), which throws outside its provider. */
 const withRail = async (
   subshells: SubshellView[],
-  body: () => Promise<void> | void,
+  body: (ctx: { client: QueryClient; failNodes: (on: boolean) => void }) => Promise<void> | void,
   opts: { failNodes?: boolean } = {},
 ) => {
-  const restoreFetch = stubFetch(subshells, opts);
+  const state = { failNodes: opts.failNodes ?? false };
+  const restoreFetch = stubFetch(subshells, state);
   const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
     openLaunch: () => {},
     openNewWorkspace: () => {},
   });
   try {
-    renderRail();
+    const { client } = renderRail();
     await waitFor(() => expect(groupHeaders().length).toBeGreaterThan(0));
-    await body();
+    await body({
+      client,
+      failNodes: (on: boolean) => {
+        state.failNodes = on;
+      },
+    });
   } finally {
     spy.mockRestore();
     restoreFetch();
@@ -202,6 +216,31 @@ describe("the rail's subshell list, grouped by node", () => {
         expect(header.querySelector("span")?.getAttribute("title")).toBe("mac-pro-abcdef");
       },
       { failNodes: true },
+    );
+  });
+
+  it("keeps every label through a FAILED BACKGROUND REFRESH of a populated cache", async () => {
+    // THE case the two spellings of `unanswered` disagree on, so this is the
+    // test the 35c7bf09 message promised and its cold-failure sibling is not:
+    // TanStack reports `isError` on a failed refetch WHILE KEEPING `data`,
+    // so `isPending || isError` would relabel the resolved header (and the
+    // unresolved one, from "unknown node" to a short id) on a transient
+    // blip. `nodeData === undefined` cannot: data is still there.
+    await withRail(
+      [subshell({ id: "a", name: "one", nodeId: "n1" }), subshell({ id: "b", name: "two", nodeId: "gone" })],
+      async ({ client, failNodes }) => {
+        await waitFor(() => expect(groupHeaders()).toHaveLength(2));
+        expect(groupHeader("n1").textContent).toContain("mac-mini");
+        expect(groupHeader("gone").textContent).toContain("unknown node");
+
+        failNodes(true);
+        await client.invalidateQueries({ queryKey: ["nodes"] });
+        // Let the failed refetch LAND (the query enters error state with data
+        // intact) rather than racing it, then assert NOTHING moved.
+        await new Promise((r) => setTimeout(r, 50));
+        expect(groupHeader("n1").textContent).toContain("mac-mini");
+        expect(groupHeader("gone").textContent).toContain("unknown node");
+      },
     );
   });
 

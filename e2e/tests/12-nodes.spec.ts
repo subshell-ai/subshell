@@ -409,9 +409,9 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     await tokenRes;
     const ws = await socket;
     expect(ws.url()).toContain("/ws?subshell=");
-    // "running" on the detail page's status dot: the control plane's launch
-    // RPC answered ok AND the reconcile saw the pane alive — ON THE NODE's
-    // tmux server.
+    // The detail page's status dot reports running AND alive: the control
+    // plane's launch RPC answered ok AND the reconcile saw the pane alive —
+    // ON THE NODE's tmux server.
     await expectSubshellRunning(page, SPAWN_TIMEOUT);
     await expect(page.getByText("reconnecting…")).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
     // The launch form asks for no name; the row is addressed by one below.

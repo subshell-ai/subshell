@@ -25,13 +25,16 @@ const DOT_CLASS: Record<SubshellIndicator, string> = {
  * badge. Both read the SHARED indicator precedence, so a subshell can never
  * say one thing in the rail and another above its own terminal.
  *
- * `data-status` carries the RAW lifecycle status beside the rendered
- * indicator. The two are different questions — the indicator is what a person
- * should see (working, waiting, unreachable), the status is what the server
- * recorded — and the header used to spell the raw one out in words. Keeping
- * it as an attribute is what lets a test assert "the pane is genuinely
- * running" without depending on activity timing, which swings between
- * "working" and "idle" on a clock.
+ * `data-status` and `data-alive` carry the raw fields beside the rendered
+ * indicator. The two questions are genuinely different — the indicator is
+ * what a person should see (working, waiting, unreachable), the raw pair is
+ * what the server recorded — and the e2e suite asserts LIVENESS on the pair,
+ * because neither raw field alone means it: `applyDeath` stamps
+ * `alive: false` while leaving `status: "running"` (only operator-side acts
+ * write "terminated"), so a dead-on-arrival pane reads
+ * `status=running, alive=false` — the very row the specs exist to catch.
+ * The pair also does not swing with the activity clock, which the visible
+ * word does.
  */
 export function SubshellDot({
   subshell,
@@ -58,6 +61,7 @@ export function SubshellDot({
       {...(accessible ? { role: "img", "aria-label": label } : { "aria-hidden": true })}
       title={label}
       data-status={subshell.status}
+      data-alive={String(subshell.alive)}
       className={cn("mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full", DOT_CLASS[indicator], className)}
     />
   );
