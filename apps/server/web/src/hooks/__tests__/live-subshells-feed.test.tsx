@@ -5,14 +5,17 @@ import { LiveSubshellsFeedProvider, useLiveSubshellsFeed } from "@/hooks/use-liv
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 
-/** Minimal EventSource double: records instances, lets the test fire frames. */
-class FakeES {
-  static instances: FakeES[] = [];
+/** Minimal WebSocket double: records instances, lets the test fire frames. */
+class FakeWS {
+  static instances: FakeWS[] = [];
   onmessage: ((e: MessageEvent) => void) | null = null;
+  onclose: (() => void) | null = null;
   onerror: (() => void) | null = null;
   closed = false;
-  constructor(_url: string) {
-    FakeES.instances.push(this);
+  readonly url: string;
+  constructor(url: string) {
+    this.url = url;
+    FakeWS.instances.push(this);
   }
   close(): void {
     this.closed = true;
@@ -36,12 +39,12 @@ function setup(enabled = true) {
   return client;
 }
 
-const original = { es: globalThis.EventSource, fetch: globalThis.fetch };
+const original = { ws: globalThis.WebSocket, fetch: globalThis.fetch };
 afterEach(() => {
   cleanup();
-  globalThis.EventSource = original.es;
+  globalThis.WebSocket = original.ws;
   globalThis.fetch = original.fetch;
-  FakeES.instances = [];
+  FakeWS.instances = [];
 });
 
 function stubAuthOk() {
@@ -49,17 +52,17 @@ function stubAuthOk() {
     new Response(JSON.stringify({ token: "t1" }), {
       status: 200,
     })) as unknown as typeof fetch;
-  globalThis.EventSource = FakeES as unknown as typeof EventSource;
+  globalThis.WebSocket = FakeWS as unknown as typeof WebSocket;
 }
 
 describe("LiveSubshellsFeedProvider", () => {
   it("writes each frame into the query cache and exposes connected/lastList", async () => {
     stubAuthOk();
     const client = setup();
-    await waitFor(() => expect(FakeES.instances.length).toBe(1));
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
     act(() => {
-      FakeES.instances[0].onmessage?.({
-        data: JSON.stringify({ subshells: [{ id: "a" }, { id: "b" }] }),
+      FakeWS.instances[0].onmessage?.({
+        data: JSON.stringify({ type: "snapshot", subshells: [{ id: "a" }, { id: "b" }] }),
       } as MessageEvent);
     });
     expect(screen.getByTestId("state").textContent).toBe("true:2");
@@ -87,12 +90,12 @@ describe("LiveSubshellsFeedProvider", () => {
         </LiveSubshellsFeedProvider>
       </QueryClientProvider>,
     );
-    await waitFor(() => expect(FakeES.instances.length).toBe(1));
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
     expect(rendered).toEqual([null]); // mount render, list not yet delivered
 
     const frame = (subshells: unknown[]) =>
       act(() => {
-        FakeES.instances[0].onmessage?.({ data: JSON.stringify({ subshells }) } as MessageEvent);
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify({ type: "snapshot", subshells }) } as MessageEvent);
       });
 
     frame([
@@ -131,10 +134,52 @@ describe("LiveSubshellsFeedProvider", () => {
       fetchCalls += 1;
       return new Response("{}", { status: 200 });
     }) as unknown as typeof fetch;
-    globalThis.EventSource = FakeES as unknown as typeof EventSource;
+    globalThis.EventSource = FakeWS as unknown as typeof EventSource;
     setup(false);
     await new Promise((r) => setTimeout(r, 0));
     expect(fetchCalls).toBe(0);
-    expect(FakeES.instances.length).toBe(0);
+    expect(FakeWS.instances.length).toBe(0);
+  });
+  it("connects to /ws/live carrying the minted token", async () => {
+    stubAuthOk();
+    setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const url = FakeWS.instances[0].url;
+    expect(url).toContain("/ws/live?token=t1");
+    // The scheme follows the page, so an https instance does not open an
+    // insecure socket the browser would refuse as mixed content.
+    expect(url.startsWith("ws://") || url.startsWith("wss://")).toBe(true);
+  });
+
+  it("reconnects with a fresh token after the socket closes", async () => {
+    stubAuthOk();
+    setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    act(() => {
+      FakeWS.instances[0].onclose?.();
+    });
+    expect(screen.getByTestId("state").textContent).toStartWith("false:");
+    // A second socket is armed on the reconnect delay, not immediately.
+    await waitFor(() => expect(FakeWS.instances.length).toBe(2), { timeout: 4000 });
+  });
+
+  it("ignores a frame that is not a snapshot", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    act(() => {
+      FakeWS.instances[0].onmessage?.({ data: JSON.stringify({ type: "preview", id: "a" }) } as MessageEvent);
+    });
+    // Nothing was written, and the feed does not claim to be delivering.
+    expect(client.getQueryData(SUBSHELLS_QUERY_KEY)).toBeUndefined();
+    expect(screen.getByTestId("state").textContent).toBe("false:-1");
+  });
+
+  it("closes the socket when the provider unmounts", async () => {
+    stubAuthOk();
+    setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    cleanup();
+    expect(FakeWS.instances[0].closed).toBe(true);
   });
 });

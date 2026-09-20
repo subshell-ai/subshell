@@ -62,12 +62,15 @@ wrapper and the `/workspaces` cards; the payload contract is
 xterm's file-drop and dockview's tab-drag untouched). Status words/precedence
 live once in `lib/subshell-indicator.ts` (home card badges consume it), and
 the dot fills beside it. Subshell lists everywhere are kept current by ONE
-SSE feed — `hooks/use-live-subshells-feed.tsx`, mounted in `__root.tsx`
-signed-in-only — which writes each `/api/events` frame into
+live socket — `hooks/use-live-subshells-feed.tsx`, mounted in `__root.tsx`
+signed-in-only — which writes each `/ws/live` snapshot into
 `SUBSHELLS_QUERY_KEY`; read via `useSubshellsList`/`useLiveSubshells`, never
-by opening another EventSource. **A quiet frame must cost nothing**: the
-write is structurally shared (an unchanged row keeps its object, an
-unchanged list keeps the array — and `lastList` is set from the cache
+by opening a second one. It is a WebSocket rather than the `EventSource` it
+replaced (spec 2026-09-19) because an SSE stream holds one of the browser's
+six per-origin HTTP/1.1 connections for the life of the tab, and the instance
+is plain http, so three dashboard tabs spent half the pool before any fetch.
+**A quiet frame must cost nothing**: the write is structurally shared (an
+unchanged row keeps its object, an unchanged list keeps the array — and `lastList` is set from the cache
 read-back, so the provider itself re-renders only on real change), a
 consumer that needs ONE row uses `hooks/use-subshell-row.ts` (the selector
 keeps a pane out of every other subshell's 1.5 s beat), and the subshell

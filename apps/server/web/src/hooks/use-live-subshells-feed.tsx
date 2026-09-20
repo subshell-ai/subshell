@@ -5,27 +5,39 @@ import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 
 interface LiveSubshellsFeedValue {
-  /** True while the `/api/events` stream is open and delivering. */
+  /** True while the `/ws/live` socket is open and delivering. */
   connected: boolean;
-  /** The most recent frame's list, or null until the stream has delivered one. */
+  /** The most recent snapshot's list, or null until one has arrived. */
   lastList: SubshellView[] | null;
 }
+
+/** Fixed delay before the first reconnect attempt; later ones back off to {@link RECONNECT_MAX_MS}. */
+const RECONNECT_MIN_MS = 1_000;
+const RECONNECT_MAX_MS = 3_000;
 
 const FeedContext = createContext<LiveSubshellsFeedValue>({ connected: false, lastList: null });
 
 /**
  * The ONE live subshell feed for the whole signed-in session (spec
- * 2026-09-03 sidebar-quickadd §6). Mounted by `__root.tsx`; each SSE frame is
+ * 2026-09-03 sidebar-quickadd §6). Mounted by `__root.tsx`; each snapshot is
  * written straight into the shared `SUBSHELLS_QUERY_KEY` cache, so the
  * sidebar's status dots, the home cards, and every picker read one live
  * source instead of a snapshot taken at navigation.
  *
- * Auth uses the same short-lived single-use ws token as the WS attach path
- * (EventSource cannot send the HttpOnly cookie), so the stream is (re)opened
- * with a fresh token whenever the previous one dies — bounded backoff,
- * mechanics lifted verbatim from the old `useLiveSubshells`.
+ * **It is a WebSocket, and that is the point** (spec 2026-09-19). This was an
+ * `EventSource` on `/api/events`, which held one of the browser's SIX
+ * HTTP/1.1 connections per origin for the life of the tab — the instance is
+ * served over plain http, so there is no HTTP/2 to lift that cap. Three
+ * dashboard tabs spent half the pool before any fetch, and six deadlocked it:
+ * every request queued behind streams that never end. A WebSocket does not
+ * sit in that pool.
  *
- * `enabled` gates the stream so it never fires its token POST pre-auth (the
+ * Auth is the same short-lived single-use ws token the attach path uses (the
+ * HttpOnly cookie is not sent on a WS upgrade through the Vite dev proxy), and
+ * the token is spent at CONNECT — nothing expires a live socket afterwards, so
+ * a reconnect is a dropped connection rather than a clock.
+ *
+ * `enabled` gates the socket so it never fires its token POST pre-auth (the
  * provider stays mounted for tree stability; the effect simply does not run).
  *
  * **Quiet frames must cost nothing.** Every observer of `SUBSHELLS_QUERY_KEY`
@@ -45,57 +57,76 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
 
   useEffect(() => {
     if (!enabled) return;
-    let es: EventSource | null = null;
+    let ws: WebSocket | null = null;
     let cancelled = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+
+    /** Arms the next attempt, replacing any pending one so two paths cannot stack. */
+    function scheduleReconnect() {
+      if (cancelled || reconnectTimer) return;
+      const delay = attempts > 1 ? RECONNECT_MAX_MS : RECONNECT_MIN_MS;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        void connect();
+      }, delay);
+    }
 
     async function connect() {
+      attempts += 1;
+      let token: string;
       try {
-        const { token } = await apiFetch<{ token: string }>("/api/auth/ws-token", { method: "POST" });
-        if (cancelled) return;
-        // One connection per token (tokens are single-use + 30s TTL).
-        es = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
-        es.onmessage = (e) => {
-          try {
-            const data = JSON.parse(e.data as string) as { subshells: SubshellView[] };
-            queryClient.setQueryData(SUBSHELLS_QUERY_KEY, data.subshells);
-            // Read back, never the parsed frame: `setQueryData` shares the
-            // write, so the cache holds the previous array when the frame
-            // changed nothing and the previous row objects for the rows it
-            // did not touch. Handing consumers THAT is what keeps a quiet
-            // 1.5 s beat from re-rendering anything.
-            setLastList(queryClient.getQueryData<SubshellView[]>(SUBSHELLS_QUERY_KEY) ?? data.subshells);
-            setConnected(true);
-          } catch {
-            // ignore malformed frame
-          }
-        };
-        // EventSource auto-reconnects on network errors, but the consumed/expired
-        // token would 401 forever — tear the stream down and retry with a fresh
-        // token (bounded backoff).
-        es.onerror = () => {
-          setConnected(false);
-          es?.close();
-          es = null;
-          if (!cancelled) {
-            const delay = reconnectTimer ? 3000 : 1000;
-            reconnectTimer = setTimeout(() => {
-              reconnectTimer = null;
-              void connect();
-            }, delay);
-          }
-        };
+        ({ token } = await apiFetch<{ token: string }>("/api/auth/ws-token", { method: "POST" }));
       } catch {
-        // token fetch failed; consumers fall back to the REST list cache
+        // Token fetch failed (signed out, backend down). No socket exists, so
+        // no close handler will fire — arm the retry here or the feed is over.
         setConnected(false);
+        scheduleReconnect();
+        return;
       }
+      if (cancelled) return;
+
+      const proto = window.location.protocol === "https:" ? "wss" : "ws";
+      const socket = new WebSocket(`${proto}://${window.location.host}/ws/live?token=${encodeURIComponent(token)}`);
+      ws = socket;
+
+      socket.onmessage = (e) => {
+        try {
+          const frame = JSON.parse(e.data as string) as { type?: string; subshells?: SubshellView[] };
+          if (frame.type !== "snapshot" || !frame.subshells) return;
+          queryClient.setQueryData(SUBSHELLS_QUERY_KEY, frame.subshells);
+          // Read back, never the parsed frame: `setQueryData` shares the
+          // write, so the cache holds the previous array when the snapshot
+          // changed nothing and the previous row objects for the rows it did
+          // not touch. Handing consumers THAT is what keeps a quiet beat from
+          // re-rendering anything.
+          setLastList(queryClient.getQueryData<SubshellView[]>(SUBSHELLS_QUERY_KEY) ?? frame.subshells);
+          setConnected(true);
+          attempts = 0; // a delivered snapshot is what proves the connection good
+        } catch {
+          // ignore malformed frame
+        }
+      };
+      socket.onclose = () => {
+        // Ignore a superseded socket's close: reporting it would clobber the
+        // state a newer connection has already set.
+        if (ws !== socket) return;
+        ws = null;
+        setConnected(false);
+        scheduleReconnect();
+      };
+      // `onerror` is always followed by `onclose`, which owns the retry — this
+      // only stops the error surfacing as an unhandled event.
+      socket.onerror = () => {};
     }
     void connect();
 
     return () => {
       cancelled = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      es?.close();
+      const socket = ws;
+      ws = null;
+      socket?.close(1000, "provider unmounted");
     };
   }, [enabled, queryClient]);
 

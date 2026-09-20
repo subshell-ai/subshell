@@ -75,7 +75,7 @@ src/
 ├── scripts/        # e2e seed, embed-web.ts (SPA -> generated/embedded-web.ts), release.ts
 ├── services/       # Business logic: subshell-manager, nodes/ (NodeLauncher seam), channels/, uploads, tokens, audit, notify, mcp-launch — tmux/ no longer lives here: TmuxRunner moved to `@internal/pane-runtime` (tmux-runner.ts) so the node CLI can reuse it
 ├── utils/          # Logger and small shared helpers
-├── ws/             # Terminal attach WebSocket (short-lived single-use tokens; remote-node subshells relay through remote-subshell-ws.ts with the browser contract byte-identical to the local path)
+├── ws/             # Terminal attach WebSocket (short-lived single-use tokens; remote-node subshells relay through remote-subshell-ws.ts with the browser contract byte-identical to the local path) + live-ws.ts, the dashboard's one-per-tab feed socket (spec 2026-09-19, replacing the /api/events SSE stream, which held one of the browser's six per-origin HTTP/1.1 connections per tab)
 └── test-preload.ts # Loaded by bunfig.toml before every test run
 ```
 

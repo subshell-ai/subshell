@@ -7,16 +7,21 @@ import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 
 /**
- * Minimal EventSource double (same contract as `live-subshells-feed.test`):
- * records instances so the test can deliver a frame and flip `connected`.
+ * Minimal WebSocket double (same contract as `live-subshells-feed.test`):
+ * records instances so the test can deliver a snapshot and flip `connected`.
+ *
+ * Stubbing it is not optional here — the provider opens a REAL socket
+ * otherwise, and a refused connection surfaces as an unhandled `ErrorEvent`
+ * that fails the test rather than the assertion.
  */
-class FakeES {
-  static instances: FakeES[] = [];
+class FakeWS {
+  static instances: FakeWS[] = [];
   onmessage: ((e: MessageEvent) => void) | null = null;
+  onclose: (() => void) | null = null;
   onerror: (() => void) | null = null;
   close(): void {}
   constructor(_url: string) {
-    FakeES.instances.push(this);
+    FakeWS.instances.push(this);
   }
 }
 
@@ -31,17 +36,17 @@ function row(over: Partial<SubshellView> = {}): SubshellView {
 }
 
 const originalFetch = globalThis.fetch;
-const originalES = globalThis.EventSource;
+const originalWS = globalThis.WebSocket;
 const realSetInterval = globalThis.setInterval;
 const realClearInterval = globalThis.clearInterval;
 
 afterEach(() => {
   cleanup();
   globalThis.fetch = originalFetch;
-  globalThis.EventSource = originalES;
+  globalThis.WebSocket = originalWS;
   globalThis.setInterval = realSetInterval;
   globalThis.clearInterval = realClearInterval;
-  FakeES.instances = [];
+  FakeWS.instances = [];
 });
 
 /**
@@ -104,7 +109,7 @@ function spyInvalidations(client: QueryClient): unknown[][] {
 
 async function mount(opts: { feed: "off" | "delivering" }) {
   stubFetch(row());
-  globalThis.EventSource = FakeES as unknown as typeof EventSource;
+  globalThis.WebSocket = FakeWS as unknown as typeof WebSocket;
   const timers = captureFiveSecondTicks();
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const invalidated = spyInvalidations(client);
@@ -119,9 +124,11 @@ async function mount(opts: { feed: "off" | "delivering" }) {
   const view = renderHook(() => useSubshellData("s1"), { wrapper });
   await waitFor(() => expect(view.result.current.subshell).toBeTruthy());
   if (opts.feed === "delivering") {
-    await waitFor(() => expect(FakeES.instances.length).toBe(1));
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
     act(() => {
-      FakeES.instances[0].onmessage?.({ data: JSON.stringify({ subshells: [row()] }) } as MessageEvent);
+      FakeWS.instances[0].onmessage?.({
+        data: JSON.stringify({ type: "snapshot", subshells: [row()] }),
+      } as MessageEvent);
     });
   }
   invalidated.length = 0; // keep only what the driven ticks cause
@@ -157,7 +164,7 @@ describe("useSubshellData — 5 s liveness poll", () => {
     // flips `connected` false; the next tick must own the list again.
     const { invalidated, tick } = await mount({ feed: "delivering" });
     act(() => {
-      FakeES.instances[0].onerror?.();
+      FakeWS.instances[0].onclose?.();
     });
     // `connected` is now false (onerror closes the stream), and `act` has
     // flushed the effect re-arm on the hook's `feedConnected` dep — the
