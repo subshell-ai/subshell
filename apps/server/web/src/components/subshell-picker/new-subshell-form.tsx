@@ -222,6 +222,19 @@ export function NewSubshellForm({
   // the list without yanking typed/committed input.
   const { data: recent } = useRecentPaths(value.nodeId);
   const prefillDoneRef = useRef(false);
+  // The node the CURRENT `workingDir` was chosen against. A directory is a
+  // claim about one machine's filesystem, so when the pick moves — the
+  // Machine select, or the effect's own re-home over a vanished row — the
+  // held path is another machine's answer: cleared, and the per-machine
+  // seed re-armed (operator report 2026-09-20: the stale path survived the
+  // switch, the picker opened on it, and the person waited out a remote 404
+  // before Start over was possible). Same-kind precedent: an Agent change
+  // resets Preset at the control, because the value belongs to the other
+  // pick. Re-filling needs no staleness gate: the recents query is keyed
+  // per node, so between the switch and the new node's answer there is
+  // simply no data to fill from — the machine just left cannot answer for
+  // the machine arrived at.
+  const dirNodeRef = useRef(value.nodeId);
 
   const { data: nodeData, isPending: nodesPending } = useNodes();
   // A well-formed registry response is `{ nodes: [...] }`; anything else
@@ -258,6 +271,14 @@ export function NewSubshellForm({
     // still the previous node's, so the directory default waits for the pass
     // that holds the final node (its query re-keys, lands, and fires here).
     const reHomed = next.nodeId !== value.nodeId;
+    // The machine changed between renders (user pick, or the re-home just
+    // above): drop the carried-over path and re-arm the seed, so the new
+    // machine's own most-recent-else-home fills when its query answers.
+    if (next.nodeId !== dirNodeRef.current) {
+      dirNodeRef.current = next.nodeId;
+      if (next.workingDir !== "") next = { ...next, workingDir: "" };
+      prefillDoneRef.current = false;
+    }
     // `!nodesPending` is the other half of "the pick is SETTLED". Arming is
     // one-way, and the recents query can answer while the node list is still
     // in flight (review round 2): arming then fills the mount default's scope
