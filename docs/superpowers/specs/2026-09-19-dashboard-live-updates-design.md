@@ -179,6 +179,32 @@ Publishers: the subshell mutation paths (create, terminate, restart, rename,
 share, maintenance), the reconcile sweep for what it still discovers, the node
 WS handler for online/offline, and the death reporter in §4.3.
 
+### 4.1a Why the fan-out is a per-socket loop and not a Bun pub/sub topic
+
+Elysia forwards Bun's whole pub/sub surface (`publish`, `subscribe`,
+`isSubscribed`, `cork` — `dist/ws/index.d.ts:54,61-64`), and it works:
+measured on 1.4.29, two sockets on one topic, `app.server.publish` reaching
+both while `ws.publish` excludes the sender. A `user:<id>` topic is mechanically
+available. It is still the wrong tool here, for two reasons:
+
+- **It moves authorization to the publisher.** To know which topics an event
+  goes to you must compute "who can see X" — owner, grantees, the Everyone
+  grant, admins — at the publish site. That is a second implementation of the
+  gate, which is exactly what §4.2 forbids and the shape that caused the
+  2026-09-03 flicker. The per-subscriber loop keeps one call site: load X for
+  this viewer through the ordinary gate. What it saves is only the N tabs of
+  one user (1–3 in practice), never the per-user resolve, which is the
+  expensive half.
+- **It takes delivery ordering out of our hands.** `handleLiveOpen` awaits the
+  list before its first send. A per-socket subscriber can subscribe BEFORE
+  that await and buffer until the snapshot flushes; with a topic, delivery
+  never passes through our code, so an event fired during the await is simply
+  lost — and §3.2 has no replay and no sequence number to detect the gap with.
+
+`subscriberCount` is still worth using to skip users with no socket. If
+per-viewer resolution ever measures as the bottleneck, the thing to cache is
+the resolve, not the write.
+
 ### 4.2 Visibility is resolved per subscriber, and never re-implemented
 
 **This is the rule the review should check hardest.** On each event, a
@@ -303,20 +329,25 @@ arithmetic is a worse contract.
 | `report-exit` for an unknown/foreign id | rejected; the verb authenticates as the subshell's own token, the same rule as the other harness self-report surfaces |
 | node below the new protocol | no hook is installed there; that node's deaths are sweep-discovered, as today |
 
-### 5.1 The idle timeout is a step-4 problem, and it is load-bearing there
+### 5.1 The idle timeout is NOT a keepalive problem — measured
 
-Bun closes a WebSocket after **120 s** with no messages or pings
-(`bun-types/serve.d.ts:452`). Measured: server-initiated sends reset it, so
-step 1 is safe — the 1.5 s snapshot cadence keeps every socket alive without
-anything being added.
+Bun's `idleTimeout` (default 120 s) reads like a no-traffic timeout
+(`bun-types/serve.d.ts:452` says "no messages or pings"), which would mean
+that once §4 removes the snapshot cadence, an event-quiet socket dies every
+two minutes and every client resyncs on a sawtooth forever.
 
-**Step 4 removes that cadence**, and `/ws/live` receives nothing from the
-client, so on a quiet instance every socket would close at 120 s and every
-client would resync on a two-minute sawtooth forever — which reads as a
-flapping connection rather than as a timeout. Whichever step removes the last
-unconditional send must add the keepalive in the same change: either an
-application-level ping or an explicit `idleTimeout`. Decide it there, not by
-discovering it.
+**It does not work that way.** Measured on bun 1.4.2 with raw `Bun.serve`,
+`idleTimeout: 3` and a client sending nothing: after 7 s the socket was still
+open, `readyState` 1. uWebSockets pings at the halfway mark and closes only
+when the peer fails to ANSWER — and answering a ping is protocol-level and
+automatic in every browser. So it is a no-RESPONSE timeout, and a silent but
+live socket is not idle by its definition.
+
+No keepalive is therefore required when the cadence goes. What remains is
+worth one check rather than a design: a reverse proxy in front of the server
+has its own idle policy and is not bound by any of the above, so an operator
+deploying behind one should confirm a quiet socket survives. That is a
+deployment note, not a step-4 requirement.
 
 ## 6. Testing
 
