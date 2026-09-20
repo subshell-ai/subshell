@@ -3,7 +3,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
 import { DevProxyNotice } from "@/components/service/dev-proxy-notice";
-import { ServerLogCard } from "@/components/service/server-log-card";
 import { ServiceCard } from "@/components/service/service-card";
 import { SupervisionCard } from "@/components/service/supervision-card";
 import { useAdminStatus } from "@/hooks/use-admin-status";
@@ -15,11 +14,13 @@ import { useSetSupervision } from "@/hooks/use-set-supervision";
 export const Route = createFileRoute("/settings_/service")({ component: ServicePage });
 
 /**
- * Server Settings → Service: who supervises this server and what it logged
- * (spec 2026-09-12 § 4.1; the Locations card moved to `/settings/status` in
- * spec 2026-09-14, where the read-only facts live, and the Addresses card to
- * `/settings/networking` on 2026-09-17, where the question it answers — how
- * this server is reached — is the page's whole subject).
+ * Server Settings → Service: who supervises this server (spec 2026-09-12
+ * § 4.1; the Locations card moved to `/settings/status` in spec 2026-09-14,
+ * where the read-only facts live; the Addresses card to `/settings/networking`
+ * on 2026-09-17, where the question it answers — how this server is reached —
+ * is the page's whole subject; and the server's own log tail to the System tab
+ * of `/settings/logs` on 2026-09-20, beside the audit trail it is read
+ * next to — "what did it do" and "what happened to it" are one errand).
  *
  * Called Service rather than Server because the control-plane host's own node
  * row is named "Server" by default, and because every card here is about the
@@ -55,7 +56,7 @@ function ServicePage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
-      <PageHeader title="Service" subtitle="Who supervises this server, and what it logged." />
+      <PageHeader title="Service" subtitle="Who supervises this server." />
       {viewerIsAdmin === undefined ? null : isAdmin ? (
         <>
           {error && (
@@ -86,7 +87,6 @@ function ServicePage() {
               <DevProxyNotice />
               <ServiceCard view={view} restart={restart} bootedAt={status?.runtime.bootedAt} />
               <SupervisionCard view={view} autostart={autostart} supervision={supervision} />
-              <ServerLogCard view={view} enabled={isAdmin} />
             </>
           )}
         </>

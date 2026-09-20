@@ -119,7 +119,7 @@ const NAV_ENTRIES: NavEntry[] = [
       // the process as it runs now, Updates is what it could be running next.
       { to: "/settings/updates", label: "Updates", icon: ArrowUpCircle, short: "Upd" },
       { to: "/settings/status", label: "Status", icon: Activity, short: "Stat" },
-      { to: "/settings/audit", label: "Audit log", icon: ScrollText, short: "Audit" },
+      { to: "/settings/logs", label: "Logs", icon: ScrollText, short: "Logs" },
     ],
   },
 ];

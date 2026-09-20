@@ -155,13 +155,13 @@ per row. Any NEW surface rendering `subshellIndicator` needs its own tick.
 **The admin surface is NINE pages behind one collapsible group** (spec
 2026-09-11 grouped-navigation): General (`/settings`), Users
 (`/settings/users`), API keys, Plugins, Service, Networking, Updates, Status
-and Audit log, listed in the rail under **Server Settings** and gated as a WHOLE — a member's rail lists
+and Logs, listed in the rail under **Server Settings** and gated as a WHOLE — a member's rail lists
 none of them, and none of them renders for a member who types the URL. The
 roster page moved INTO the namespace on 2026-09-14 and lost its read-only
 member view with it: the roster exists so the sharing picker can name people,
 and that reads `GET /api/users`, which is still instance-wide. Two of them
 are read-only: `/settings` is where an admin CHANGES the instance, while
-Status and `/settings/audit` are where they see what it currently IS and what
+Status and `/settings/logs` are where they see what it currently IS and what
 has happened to it.
 
 **`/settings/updates` is ONE Components table, not three cards** (2026-09-17).
@@ -230,10 +230,29 @@ TanStack Query keeps `refetchInterval` per observer, so the two pages really
 do poll one shared key at different rates. The two reads fail
 independently, so each has its own banner and Retry, and neither failure
 hides the other's cards; the Runtime card states the database SIZE only,
-since Locations states the path once, copyably. `/settings/audit` is the same shape
-(`components/settings/audit-trail-card.tsx`), with the route owning the gate
-so the card's query can be unconditional; its `staleTime: 0` is load-bearing,
-since mounting the page is now the only thing that refreshes the trail.
+since Locations states the path once, copyably.
+
+**The admin's two read-only logs are one tabbed page** (2026-09-20,
+`/settings/logs`): the trail that owned `/settings/audit` is the Audit tab,
+and the server's own log tail moved off Service for the System tab —
+"what did it do" and "what happened to it" are one errand, and Service's
+subtitle shrank to "Who supervises this server." to match. The tab is URL
+state (`?tab=audit`; ABSENCE is System, so the plain path is the default's
+address), the route owns the gate so both cards' queries are unconditional,
+and the switch gates with the page — a member sees no tabs at all. The
+System tab mounts `useServerDeployment` itself (the log card's debug switch
+reads the view's `logging.source`, and the switch writes the fresh view back
+into this same cache) at the Status page's 60 s and **only while its tab is
+active**: every probe of that route is the same `Bun.spawnSync` stall, and
+someone reading the audit trail has no business paying for it.
+`AuditTrailCard` is KEYSET-paginated (page 25): the cursor is the page
+above's last row as a `(createdAt, id)` PAIR (`beforeCreatedAt`+`beforeId`,
+the route 400s a half-cursor) because two events can share a millisecond and
+a one-column cursor would skip or repeat the tie; the client stacks the
+cursors it has stepped through, so Newer pops back without re-deriving
+anything, and a short page — not a count, which would cost a second query
+per read — is what disables Older. `staleTime: 0` rides along from the page
+era: mounting the trail is the only thing that refreshes it.
 
 **The launch form asks nothing it cannot answer.** `new-subshell-form.tsx`
 filters its node options on the server's own `canLaunch` (never a re-derived

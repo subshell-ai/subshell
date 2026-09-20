@@ -49,11 +49,11 @@ test("members are turned away from the roster page", async ({ browser }) => {
   const adminPage = await adminCtx.newPage();
   await adminPage.goto("/settings/users");
   await expect(adminPage.getByRole("button", { name: "Add user" })).toBeVisible();
-  // The audit trail left the roster page for one of its own under the Server
-  // Settings group (spec 2026-09-11 grouped-navigation §4.4), so the control
-  // that proves this selector can match has to follow it there.
-  await adminPage.goto("/settings/audit");
-  await expect(adminPage.getByText("Latest subshell lifecycle")).toBeVisible();
+  // The audit trail left the roster page (spec 2026-09-11 grouped-navigation
+  // §4.4) and lives on the Audit tab of /settings/logs since 2026-09-20, so
+  // the control that proves this selector can match has to follow it there.
+  await adminPage.goto("/settings/logs?tab=audit");
+  await expect(adminPage.getByText("Subshell lifecycle and admin events")).toBeVisible();
   await adminCtx.close();
 
   const ctx = await browser.newContext();
@@ -77,15 +77,16 @@ test("members are turned away from the roster page", async ({ browser }) => {
   // headings — CardTitle renders a <div>, so heading-role queries would be
   // vacuously true. The admin positive control above pins non-vacuity.
   await expect(page.getByRole("button", { name: "Add user" })).toHaveCount(0);
-  // The audit trail is a page of its own now, and it gates the way every
-  // admin page does: guidance, never the table. Asserting the guidance is
-  // PRESENT as well as the table absent is what keeps this from passing on a
-  // page that simply failed to render — and the page's own subtitle is
-  // deliberately not the card's sentence, so this locator can only mean the
-  // card.
-  await page.goto("/settings/audit");
+  // The audit trail gates the way every admin page does: guidance, never the
+  // table — and the TABS gate with it, since a member must not get even the
+  // System/Audit switch. Asserting the guidance is PRESENT as well as the
+  // table absent is what keeps this from passing on a page that simply failed
+  // to render — and the page's own subtitle is deliberately not the card's
+  // sentence, so this locator can only mean the card.
+  await page.goto("/settings/logs?tab=audit");
   await expect(page.getByText("Instance settings are for admins")).toBeVisible();
-  await expect(page.getByText("Latest subshell lifecycle")).toHaveCount(0);
+  await expect(page.getByText("Subshell lifecycle and admin events")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "System log" })).toHaveCount(0);
 
   // And unreachable: the API keeps enforcing, not just the UI hiding.
   const post = await ctx.request.post("/api/users", {

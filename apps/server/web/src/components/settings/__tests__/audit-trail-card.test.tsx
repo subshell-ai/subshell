@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AuditTrailCard } from "@/components/settings/audit-trail-card";
 
 /**
@@ -21,16 +21,31 @@ const EVENT = {
 };
 
 /** Answers `/api/audit` with one canned outcome; nothing else is requested. */
-function mockFetch(answer: () => Promise<Response>) {
+function mockFetch(answer: (url: URL) => Promise<Response>) {
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown) => {
     const url = new URL(String(input), "http://localhost");
-    if (url.pathname === "/api/audit") return answer();
+    if (url.pathname === "/api/audit") return answer(url);
     throw new Error(`unexpected fetch: ${url.pathname}`);
   }) as typeof fetch;
   return () => {
     globalThis.fetch = original;
   };
+}
+
+/** One recorded event, stamped and numbered so page order is checkable. */
+function eventAt(n: number) {
+  return {
+    ...EVENT,
+    id: `ev-${n}`,
+    // Descending in n: the trail reads newest first, so ev-0 is the top row.
+    createdAt: new Date(Date.parse("2026-09-11T10:00:00.000Z") - n * 1000).toISOString(),
+  };
+}
+
+/** A full page (25) of events, newest first. */
+function fullPage() {
+  return Array.from({ length: 25 }, (_, i) => eventAt(i));
 }
 
 function renderCard() {
@@ -82,5 +97,60 @@ describe("AuditTrailCard", () => {
     expect(screen.getByText("user:01234567")).toBeDefined();
     expect(screen.getByText(JSON.stringify(EVENT.metadata))).toBeDefined();
     expect(screen.queryByText("No events recorded yet.")).toBeNull();
+  });
+});
+
+describe("AuditTrailCard paging", () => {
+  let restore: () => void = () => {};
+  afterEach(() => {
+    restore();
+    cleanup();
+  });
+
+  /** Serves `pageFor(search)` per request and records every search string. */
+  function mockPages(pageFor: (search: URLSearchParams) => unknown[]) {
+    const seen: URLSearchParams[] = [];
+    restore = mockFetch((url) => {
+      seen.push(url.searchParams);
+      return Promise.resolve(new Response(JSON.stringify(pageFor(url.searchParams))));
+    });
+    return seen;
+  }
+
+  it("asks for a PAGE (25), not the whole trail, and pages of one are not offered", async () => {
+    const seen = mockPages(() => fullPage());
+    renderCard();
+    await waitFor(() => expect(screen.getByText("Page 1")).toBeDefined());
+    expect(seen[0].get("limit")).toBe("25");
+    expect(seen[0].get("beforeCreatedAt")).toBeNull();
+    // A full page means more may exist: Older is live, Newer cannot be.
+    expect((screen.getByRole("button", { name: "Older" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Newer" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("a single short page is the whole trail — no pager at all", async () => {
+    mockPages(() => [EVENT]);
+    renderCard();
+    await waitFor(() => expect(screen.getByText("user.create")).toBeDefined());
+    expect(screen.queryByRole("button", { name: "Older" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Newer" })).toBeNull();
+  });
+
+  it("pages Older with the last row's (createdAt, id) pair, and Newer walks back", async () => {
+    const last = eventAt(24);
+    const seen = mockPages((params) => (params.has("beforeId") ? [eventAt(25)] : fullPage()));
+    renderCard();
+    await waitFor(() => expect(screen.getByText("Page 1")).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Older" }));
+    await waitFor(() => expect(screen.getByText("Page 2")).toBeDefined());
+    // The cursor is the page-above's LAST row, both halves — a timestamp
+    // alone would skip or repeat events sharing its millisecond.
+    expect(seen[1].get("beforeCreatedAt")).toBe(last.createdAt);
+    expect(seen[1].get("beforeId")).toBe(last.id);
+    expect((screen.getByRole("button", { name: "Newer" }) as HTMLButtonElement).disabled).toBe(false);
+    // A short page is the server saying there is nothing older.
+    expect((screen.getByRole("button", { name: "Older" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Newer" }));
+    await waitFor(() => expect(screen.getByText("Page 1")).toBeDefined());
   });
 });

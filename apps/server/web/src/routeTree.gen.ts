@@ -22,7 +22,7 @@ import { Route as WorkspacesRouteImport } from './routes/workspaces'
 import { Route as NodesIdRouteImport } from './routes/nodes_.$id'
 import { Route as PresetsIdRouteImport } from './routes/presets_.$id'
 import { Route as SettingsApiKeysRouteImport } from './routes/settings_.api-keys'
-import { Route as SettingsAuditRouteImport } from './routes/settings_.audit'
+import { Route as SettingsLogsRouteImport } from './routes/settings_.logs'
 import { Route as SettingsNetworkingRouteImport } from './routes/settings_.networking'
 import { Route as SettingsPluginsRouteImport } from './routes/settings_.plugins'
 import { Route as SettingsServiceRouteImport } from './routes/settings_.service'
@@ -100,9 +100,9 @@ const SettingsApiKeysRoute = SettingsApiKeysRouteImport.update({
   path: '/settings/api-keys',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SettingsAuditRoute = SettingsAuditRouteImport.update({
-  id: '/settings_/audit',
-  path: '/settings/audit',
+const SettingsLogsRoute = SettingsLogsRouteImport.update({
+  id: '/settings_/logs',
+  path: '/settings/logs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsNetworkingRoute = SettingsNetworkingRouteImport.update({
@@ -175,7 +175,7 @@ export interface FileRoutesByFullPath {
   '/nodes/$id': typeof NodesIdRoute
   '/presets/$id': typeof PresetsIdRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
-  '/settings/audit': typeof SettingsAuditRoute
+  '/settings/logs': typeof SettingsLogsRoute
   '/settings/networking': typeof SettingsNetworkingRoute
   '/settings/plugins': typeof SettingsPluginsRoute
   '/settings/service': typeof SettingsServiceRoute
@@ -202,7 +202,7 @@ export interface FileRoutesByTo {
   '/nodes/$id': typeof NodesIdRoute
   '/presets/$id': typeof PresetsIdRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
-  '/settings/audit': typeof SettingsAuditRoute
+  '/settings/logs': typeof SettingsLogsRoute
   '/settings/networking': typeof SettingsNetworkingRoute
   '/settings/plugins': typeof SettingsPluginsRoute
   '/settings/service': typeof SettingsServiceRoute
@@ -230,7 +230,7 @@ export interface FileRoutesById {
   '/nodes_/$id': typeof NodesIdRoute
   '/presets_/$id': typeof PresetsIdRoute
   '/settings_/api-keys': typeof SettingsApiKeysRoute
-  '/settings_/audit': typeof SettingsAuditRoute
+  '/settings_/logs': typeof SettingsLogsRoute
   '/settings_/networking': typeof SettingsNetworkingRoute
   '/settings_/plugins': typeof SettingsPluginsRoute
   '/settings_/service': typeof SettingsServiceRoute
@@ -259,7 +259,7 @@ export interface FileRouteTypes {
     | '/nodes/$id'
     | '/presets/$id'
     | '/settings/api-keys'
-    | '/settings/audit'
+    | '/settings/logs'
     | '/settings/networking'
     | '/settings/plugins'
     | '/settings/service'
@@ -286,7 +286,7 @@ export interface FileRouteTypes {
     | '/nodes/$id'
     | '/presets/$id'
     | '/settings/api-keys'
-    | '/settings/audit'
+    | '/settings/logs'
     | '/settings/networking'
     | '/settings/plugins'
     | '/settings/service'
@@ -313,7 +313,7 @@ export interface FileRouteTypes {
     | '/nodes_/$id'
     | '/presets_/$id'
     | '/settings_/api-keys'
-    | '/settings_/audit'
+    | '/settings_/logs'
     | '/settings_/networking'
     | '/settings_/plugins'
     | '/settings_/service'
@@ -341,7 +341,7 @@ export interface RootRouteChildren {
   NodesIdRoute: typeof NodesIdRoute
   PresetsIdRoute: typeof PresetsIdRoute
   SettingsApiKeysRoute: typeof SettingsApiKeysRoute
-  SettingsAuditRoute: typeof SettingsAuditRoute
+  SettingsLogsRoute: typeof SettingsLogsRoute
   SettingsNetworkingRoute: typeof SettingsNetworkingRoute
   SettingsPluginsRoute: typeof SettingsPluginsRoute
   SettingsServiceRoute: typeof SettingsServiceRoute
@@ -448,11 +448,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsApiKeysRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/settings_/audit': {
-      id: '/settings_/audit'
-      path: '/settings/audit'
-      fullPath: '/settings/audit'
-      preLoaderRoute: typeof SettingsAuditRouteImport
+    '/settings_/logs': {
+      id: '/settings_/logs'
+      path: '/settings/logs'
+      fullPath: '/settings/logs'
+      preLoaderRoute: typeof SettingsLogsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings_/networking': {
@@ -549,7 +549,7 @@ const rootRouteChildren: RootRouteChildren = {
   NodesIdRoute: NodesIdRoute,
   PresetsIdRoute: PresetsIdRoute,
   SettingsApiKeysRoute: SettingsApiKeysRoute,
-  SettingsAuditRoute: SettingsAuditRoute,
+  SettingsLogsRoute: SettingsLogsRoute,
   SettingsNetworkingRoute: SettingsNetworkingRoute,
   SettingsPluginsRoute: SettingsPluginsRoute,
   SettingsServiceRoute: SettingsServiceRoute,

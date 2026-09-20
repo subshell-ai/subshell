@@ -18,7 +18,7 @@ const GROUP_PAGES = [
   "/settings/networking",
   "/settings/updates",
   "/settings/status",
-  "/settings/audit",
+  "/settings/logs",
 ];
 
 /**

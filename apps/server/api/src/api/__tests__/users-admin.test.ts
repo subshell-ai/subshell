@@ -253,4 +253,73 @@ describe("users-admin + audit routes", () => {
     // Cleanup the event row.
     await db.deleteFrom("auditEvents").where("id", "=", eventId).execute();
   });
+
+  it("pages the trail by keyset cursor — no skips and no repeats while events land", async () => {
+    // Keyset rather than OFFSET because the trail is append-only-DESCENDING:
+    // a row written between two offset reads shifts every later page, so a
+    // boundary can both skip an event and repeat one. A `(createdAt, id)`
+    // cursor cannot — `(createdAt, id)` is a TOTAL order (id breaks timestamp
+    // ties), and the fixtures include a deliberate tie to prove it.
+    const auditRepo = new AuditRepository(db);
+    const base = Date.parse("2026-09-20T12:00:00.000Z");
+    const mk = (n: number, id: string, ms = 0) => ({
+      id,
+      actorUserId: adminId,
+      action: "subshell.create",
+      targetType: "subshell",
+      targetId: `sess-page-${id}`,
+      metadataJson: null,
+      createdAt: new Date(base + n * 60_000 + ms).toISOString(),
+    });
+    for (const r of [mk(0, "p-0"), mk(1, "p-1"), mk(2, "p-2"), mk(3, "p-3a"), mk(3, "p-3b")]) await auditRepo.create(r);
+
+    // Ground truth is the FULL ledger, not just the fixtures: earlier tests in
+    // this file write real audit events with now-stamps, so page 1 belongs to
+    // whatever is newest, and the assertions below are against that whole
+    // order — which is exactly the property that matters for paging ANY trail.
+    const all = await auditRepo.listLatest(500);
+    const ids = all.map((e) => e.id);
+    // The tie: id descending inside one timestamp, adjacent.
+    expect(ids.indexOf("p-3a")).toBe(ids.indexOf("p-3b") + 1);
+
+    const token = await signIn(adminEmail, adminPassword);
+    const page = async (q: string) => {
+      const res = await auditRoutes.fetch(authedRequest(`/api/audit?${q}`, token));
+      expect(res.status).toBe(200);
+      return (await res.json()) as Array<{ id: string; createdAt: string }>;
+    };
+
+    // Walk the whole ledger in pages of 2: every page must match the slice,
+    // and the walk must end exactly where the ledger ends — no gaps, no
+    // repeats, by construction.
+    const collected: string[] = [];
+    let cursor: { createdAt: string; id: string } | undefined;
+    for (let guard = 0; ; guard++) {
+      expect(guard).toBeLessThan(200);
+      const q = cursor
+        ? `limit=2&beforeCreatedAt=${encodeURIComponent(cursor.createdAt)}&beforeId=${cursor.id}`
+        : "limit=2";
+      const rows = await page(q);
+      expect(rows.map((r) => r.id)).toEqual(ids.slice(collected.length, collected.length + 2));
+      collected.push(...rows.map((r) => r.id));
+      if (rows.length < 2) break;
+      cursor = { createdAt: rows[rows.length - 1].createdAt, id: rows[rows.length - 1].id };
+    }
+    expect(collected).toEqual(ids);
+
+    // THE point of keyset: a newer event landing mid-walk shifts NOTHING
+    // behind the cursor. Freeze a boundary two pages in, insert a new head,
+    // and re-read that page — byte-identical. OFFSET would have skipped one.
+    const p2 = await page(`limit=2&beforeCreatedAt=${encodeURIComponent(all[1].createdAt)}&beforeId=${all[1].id}`);
+    await auditRepo.create(mk(99, "p-late")); // newer than everything
+    const p2again = await page(`limit=2&beforeCreatedAt=${encodeURIComponent(all[1].createdAt)}&beforeId=${all[1].id}`);
+    expect(p2again.map((r) => r.id)).toEqual(p2.map((r) => r.id));
+
+    // Half a cursor is not a cursor — 400, not a silent page 1.
+    const broken = await auditRoutes.fetch(authedRequest(`/api/audit?beforeId=${all[0].id}`, token));
+    expect(broken.status).toBe(400);
+
+    await db.deleteFrom("auditEvents").where("targetId", "like", "sess-page-%").execute();
+    await db.deleteFrom("auditEvents").where("id", "=", "p-late").execute();
+  });
 });
