@@ -6,7 +6,14 @@ import { expect, test } from "@playwright/test";
 import { BASE_URL } from "../ports";
 import { shortTmuxBase } from "../stack";
 import { NODE_MAIN, type RunningNode, startNode } from "../stub/client";
-import { ADMIN_STATE, dismissDirectoryPanel, openAgentPicker, pickAgent, renameSubshell } from "./helpers";
+import {
+  ADMIN_STATE,
+  dismissDirectoryPanel,
+  expectSubshellRunning,
+  openAgentPicker,
+  pickAgent,
+  renameSubshell,
+} from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -402,9 +409,10 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     await tokenRes;
     const ws = await socket;
     expect(ws.url()).toContain("/ws?subshell=");
-    // "running" on the detail badge: the control plane's launch RPC answered
-    // ok AND the reconcile saw the pane alive — ON THE NODE's tmux server.
-    await expect(page.getByText("running", { exact: true }).first()).toBeVisible({ timeout: SPAWN_TIMEOUT });
+    // The detail page's status dot reports running AND alive: the control
+    // plane's launch RPC answered ok AND the reconcile saw the pane alive —
+    // ON THE NODE's tmux server.
+    await expectSubshellRunning(page, SPAWN_TIMEOUT);
     await expect(page.getByText("reconnecting…")).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
     // The launch form asks for no name; the row is addressed by one below.
     await renameSubshell(page, subshellName);

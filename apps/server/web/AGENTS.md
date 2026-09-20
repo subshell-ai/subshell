@@ -70,6 +70,31 @@ because an SSE stream holds one of the browser's six per-origin HTTP/1.1
 connections for the life of the tab, and the instance is plain http, so three
 dashboard tabs spent half the pool before any fetch.
 
+**The recent list is GROUPED by the machine each subshell runs on** (spec
+2026-09-20, `lib/subshell-node-groups.ts`). Three rules ride the grouping and
+each can be gotten wrong quietly. **The cap is PER NODE** — `RECENT_LIMIT` rows
+per group, so the rail can be 8×N rows deep (the `nav`'s `overflow-y-auto`
+scrolls that; the liveliest-member sort keeps the group needing attention at
+the top, and the group's rank is the MINIMUM across its rows because activity
+re-derives against the clock while the input's sort ran once). **A collapsed
+group is a per-DEVICE preference** (`lib/sidebar-node-group-pref.ts`,
+localStorage, keyed by node ID so an admin's rename moves every label and
+reopens nothing). **While the filter box has text every group forces open AND
+its header goes inert** — a live chevron there would write the collapse behind
+a screen that moves nothing and shut the group the moment the filter cleared.
+Header labels read `node.name`, never the id, and the unresolved ladder is
+"never succeeded (in flight, or failed with nothing cached) → short id, with
+the full one as the hover title; answered-without-the-id → `unknown node`",
+NOT "deleted node" — a revoked share is indistinguishable from deletion, and
+this header labels `local` too, where the card's pill can dodge by returning
+null. The flag is `nodeData === undefined`, not `isError`: TanStack reports
+`isError` on a failed BACKGROUND refresh while keeping the cache, and
+relabeling resolved names on a blip is the bug that shape caused once. A
+row's native-`title` tooltip (native because the row is a Link + drag source +
+context-menu trigger and a third wrapper is where one of those dies) carries
+Name/Node/Agent/Status/Directory — the three asked-for facts framed by the two
+strings the rail truncates, which the PRE-grouping title existed to reveal.
+
 **There is no cadence, and that is the design.** One snapshot at connect, then
 a frame only when something changed: the server publishes domain events to Bun
 pub/sub topics, and the socket subscribes to the ones its viewer may see. What

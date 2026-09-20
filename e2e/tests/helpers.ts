@@ -58,6 +58,39 @@ export async function newSubshellName(page: Page, before: string[], timeout = 30
 }
 
 /**
+ * Waits until the open subshell page reports the pane genuinely ALIVE.
+ *
+ * Specs used to assert the literal text "running" — the word in the header's
+ * status badge, which rendered "exited" the moment `status: "running"` and
+ * `alive: false` disagreed. The badge is gone (2026-09-20): the state is a
+ * dot beside the subshell's name, whose VISIBLE word swings between "working"
+ * and "idle" on a 60 s activity clock and so cannot be asserted on. The dot
+ * carries the raw pair the old badge consulted — `data-status` AND
+ * `data-alive` — and the pair, not the status alone, is what means "alive":
+ * the server's `applyDeath` stamps `alive: false` while LEAVING
+ * `status: "running"` (only operator-side acts write "terminated"), so a
+ * dead-on-arrival pane reads `running + alive=false` — exactly the row this
+ * assertion exists to catch.
+ *
+ * The third leg keeps the pre-branch strength: node-offline outranked the
+ * raw status in the old badge's text, so the helper refuses it too. The
+ * header dot is `accessible`, so its `aria-label` carries the indicator
+ * word even where the badge's text used to sit.
+ *
+ * What it proves is unchanged: the launch RPC answered ok AND the reconcile
+ * saw the pane alive in tmux.
+ *
+ * @param page - the page, already on /subshells/<id>
+ * @param timeout - the caller's spawn budget
+ */
+export async function expectSubshellRunning(page: Page, timeout: number): Promise<void> {
+  const dot = page.locator('[role="img"][data-status]').first();
+  await expect(dot).toHaveAttribute("data-status", "running", { timeout });
+  await expect(dot).toHaveAttribute("data-alive", "true", { timeout });
+  await expect(dot).not.toHaveAttribute("aria-label", "node unreachable");
+}
+
+/**
  * Renames the subshell whose detail page is open, to a name the caller chose.
  *
  * Specs use it for the reason they used to type a name into the launch form,

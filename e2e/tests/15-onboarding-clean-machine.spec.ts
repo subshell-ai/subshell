@@ -5,6 +5,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { PORTS } from "../ports";
 import { shortTmuxBase } from "../stack";
+import { expectSubshellRunning } from "./helpers";
 
 /**
  * The claim this branch earns: a machine with NO agent CLI installed walks
@@ -225,7 +226,7 @@ test("a machine with no agent CLI reaches a live terminal through the wizard", a
 
   // Arm the liveness listeners BEFORE the click (spec 06's pattern): the
   // terminal's reality is the ws-token mint + /ws upgrade + no reconnecting
-  // pill + the running badge — never pane text.
+  // pill + the running status dot — never pane text.
   const tokenRes = page.waitForResponse((r) => r.url().includes("/api/auth/ws-token") && r.status() === 200, {
     timeout: SPAWN_TIMEOUT,
   });
@@ -240,7 +241,7 @@ test("a machine with no agent CLI reaches a live terminal through the wizard", a
   const ws = await socket;
   expect(ws.url()).toContain(`/ws?subshell=`);
   await expect(page.getByText("reconnecting…")).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
-  await expect(page.getByText("running", { exact: true }).first()).toBeVisible({ timeout: SPAWN_TIMEOUT });
+  await expectSubshellRunning(page, SPAWN_TIMEOUT);
   await expect(page.locator(".xterm-screen")).toBeVisible();
 
   // And the shell does NOT bounce back to /setup on reload — the launch

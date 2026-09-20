@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { SubshellDot } from "@/components/sidebar/SubshellDot";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { encodeSubshellDrag } from "@/lib/subshell-dnd";
+import { subshellRowTooltip } from "@/lib/subshell-row-tooltip";
 import type { SubshellView } from "@/types/subshell";
 
 /**
@@ -15,15 +16,33 @@ import type { SubshellView } from "@/types/subshell";
  * Takes the FULL entity (not the recents projection): the dot needs the
  * status fields, the menu needs the access level, and the sidebar's filter
  * mode has full entities anyway.
+ *
+ * The two labels are resolved by the CALLER and passed down rather than
+ * queried here: both come from lists the rail already holds (the node
+ * registry it groups by, the plugin catalog), and a row that fetched its own
+ * would mount two queries per row.
  */
-export function SubshellRecentRow({ subshell, active }: { subshell: SubshellView; active: boolean }) {
+export function SubshellRecentRow({
+  subshell,
+  active,
+  nodeLabel,
+  agentLabel,
+}: {
+  subshell: SubshellView;
+  active: boolean;
+  /** The group header's label — the node's NAME when resolved, its honest
+   * fallback otherwise; one source of truth for header and tooltip alike */
+  nodeLabel: string;
+  /** The harness's display name, falling back to its id — a readable slug */
+  agentLabel: string;
+}) {
   const row = (
     <Link
       to="/subshells/$id"
       params={{ id: subshell.id }}
       draggable
       onDragStart={(e) => encodeSubshellDrag(e.dataTransfer, subshell.id)}
-      title={subshell.workingDir ? `${subshell.name}: ${subshell.workingDir}` : undefined}
+      title={subshellRowTooltip(subshell, nodeLabel, agentLabel)}
       className={cn(
         "flex items-start gap-2 rounded-md py-1 pr-3 pl-3 text-detail transition-colors",
         active

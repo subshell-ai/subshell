@@ -107,6 +107,19 @@ const STATUS_RANK: Record<SubshellIndicator, number> = {
 };
 
 /**
+ * One subshell's position in the status band order (see {@link STATUS_RANK}) —
+ * lower is more urgent.
+ *
+ * Exported so the sidebar's node grouping can rank a GROUP by its liveliest
+ * member without re-deriving the table: a machine with something waiting for
+ * you has to sort above a machine with nothing but ended sessions, and that
+ * has to mean the same thing there as it does in {@link sortByStatus}.
+ */
+export function subshellStatusRank(s: IndicatorProbe): number {
+  return STATUS_RANK[subshellIndicator(s)];
+}
+
+/**
  * The list ordered by status band (see {@link STATUS_RANK}), preserving the
  * input order inside each band — callers keep their own recency sort as the
  * tie-break (`Array.prototype.sort` is stable). Returns a copy.
