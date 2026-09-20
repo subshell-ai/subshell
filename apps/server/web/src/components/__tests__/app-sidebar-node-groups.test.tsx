@@ -176,10 +176,23 @@ describe("the rail's subshell list, grouped by node", () => {
     );
   });
 
+  it("puts the full node id on the header's hover text when the registry cannot name it", async () => {
+    // The stub answers WITH local/n1, so force the unresolved case: a
+    // subshell on an id nothing holds renders the label ladder's last rung,
+    // and the id must be recoverable on hover.
+    await withRail([subshell({ id: "a", nodeId: "gone-node-xyz" })], async () => {
+      await waitFor(() => expect(groupHeaders()).toHaveLength(1));
+      expect(groupHeader("gone-node-xyz").textContent).toContain("unknown node");
+      expect(groupHeader("gone-node-xyz").querySelector("span")?.getAttribute("title")).toBe("gone-node-xyz");
+    });
+  });
+
   it("gives every row a tooltip naming the node, the agent and the state", async () => {
     await withRail([subshell({ id: "a", name: "one", nodeId: "n1" })], async () => {
       const link = await waitFor(() => screen.getByRole("link", { name: /one/ }));
-      expect(link.getAttribute("title")).toBe("Node: mac-mini\nAgent: Claude Code\nStatus: idle");
+      expect(link.getAttribute("title")).toBe(
+        "Name: one\nNode: mac-mini\nAgent: Claude Code\nStatus: idle\nDirectory: /Users/theo",
+      );
     });
   });
 
@@ -232,6 +245,27 @@ describe("collapsing a node group", () => {
 });
 
 describe("filtering across groups", () => {
+  it("leaves the header INERT while filtering — a press moves nothing and writes nothing", async () => {
+    // The override alone was not enough: an enabled chevron under a forced
+    // open would still write the collapse to storage, so clearing the filter
+    // would reveal a group the user never saw themselves shut.
+    localStorage.setItem(PREF_KEY, JSON.stringify(["local"]));
+    await withRail([subshell({ id: "a", name: "needle" })], async () => {
+      fireEvent.change(screen.getByLabelText("Filter subshells"), { target: { value: "needle" } });
+      await waitFor(() => expect(groupHeader("local").getAttribute("aria-expanded")).toBe("true"));
+      expect(groupHeader("local").hasAttribute("disabled")).toBe(true);
+      fireEvent.click(groupHeader("local"));
+      expect(groupHeader("local").getAttribute("aria-expanded")).toBe("true");
+      expect(groupList("local").className).not.toContain("hidden");
+      expect(JSON.parse(localStorage.getItem(PREF_KEY) ?? "[]")).toEqual(["local"]);
+      // Clearing the filter hands control back, still honouring the ORIGINAL
+      // (untouched) preference: shut.
+      fireEvent.change(screen.getByLabelText("Filter subshells"), { target: { value: "" } });
+      await waitFor(() => expect(groupHeader("local").hasAttribute("disabled")).toBe(false));
+      expect(groupHeader("local").getAttribute("aria-expanded")).toBe("false");
+    });
+  });
+
   it("forces every group open — a match hidden inside a shut group reads as a broken filter", async () => {
     localStorage.setItem(PREF_KEY, JSON.stringify(["local"]));
     await withRail([subshell({ id: "a", name: "needle" })], async () => {

@@ -16,8 +16,15 @@ import type { SubshellView } from "@/types/subshell";
 export interface SubshellNodeGroup {
   /** Node the subshells run on ("local" = the control-plane host) */
   nodeId: string;
-  /** What the header renders — the node's own name, never its id (see above) */
+  /** What the header renders — the node's own name when known (see `title`) */
   label: string;
+  /**
+   * The header's hover text: the NAME when the registry resolved it, the
+   * full node id otherwise — the same reveal `nodePill` gives a card
+   * (`title={subshell.nodeId}`), and the only way to tell which machine an
+   * "unknown node" or a short-id header actually names.
+   */
+  title: string;
   /** The rows, in the order they arrived (i.e. the caller's status sort), capped by `limit` */
   subshells: SubshellView[];
   /** How many this node has in total, before the cap — `subshells.length` when nothing was dropped */
@@ -33,22 +40,36 @@ export interface SubshellNodeGroup {
 const FALLBACK_NODE_ID = "local";
 
 /**
- * The label for one bucket, on the ladder the home card's node pill
- * established: a name when the registry holds the id; the SHORT id while the
- * registry has not answered yet (absence proves nothing in flight, and a cold
- * load must not flash "deleted node" above every remote row); the plain words
- * once it has. A failed list is indistinguishable from a vanished node from
- * here and reads the same way.
+ * The label (and hover title) for one bucket, on the ladder the home card's
+ * node pill established, with one widening the pill does not need:
+ *
+ * - the registry resolved the id → the node's NAME, which is what a person
+ *   reads and what a rename moves;
+ * - the registry has NOT ANSWERED (in flight, or the read failed) → the SHORT
+ *   id with the full one as `title`. Absence proves nothing yet, and a failed
+ *   list proves less than nothing — the card can live because it returns null
+ *   for `local` outright, but this header labels EVERY node including the
+ *   control-plane host, and a "deleted node" verdict above `local` after a
+ *   flaky `/api/nodes` would be a lie about the one machine that cannot be
+ *   deleted;
+ * - the registry ANSWERED without the id → "unknown node". Not "deleted
+ *   node": deletion is one cause, but the list is share-filtered, so a revoked
+ *   grant (an admin narrowing `local`, a node share pulled under a live
+ *   subshell) lands here too, and "unknown" claims only what is known.
  *
  * @param nodeId - the bucket's node id
  * @param nodes - the caller's visible nodes, or undefined while the query is unanswered
- * @param pending - true while that query is still in flight
+ * @param unanswered - true while that read has not SUCCEEDED (in flight or failed)
  */
-function labelFor(nodeId: string, nodes: readonly Node[] | undefined, pending: boolean): string {
+function labelFor(
+  nodeId: string,
+  nodes: readonly Node[] | undefined,
+  unanswered: boolean,
+): { label: string; title: string } {
   const known = nodes?.find((n) => n.id === nodeId);
-  if (known) return known.name;
-  if (pending) return nodeId.slice(0, 8);
-  return "deleted node";
+  if (known) return { label: known.name, title: known.name };
+  if (unanswered) return { label: nodeId.slice(0, 8), title: nodeId };
+  return { label: "unknown node", title: nodeId };
 }
 
 /**
@@ -63,8 +84,12 @@ function labelFor(nodeId: string, nodes: readonly Node[] | undefined, pending: b
  * - **Groups sort by their liveliest member**, not by name or by node order.
  *   The whole point of the status band is that something waiting for you is
  *   the first thing you see, and grouping by machine would have buried it
- *   under whichever node happened to come first. Ties keep the order the
- *   buckets were discovered in, which is itself the status order.
+ *   under whichever node happened to come first. The rank is the MINIMUM over
+ *   the group's rows, not the first row's: the caller's sort happened once,
+ *   against the data, while activity is re-derived against the CLOCK on every
+ *   render — so the first row can have gone idle underneath a group whose
+ *   second row is still printing. Ties keep the order the buckets were
+ *   discovered in, which is itself the status order.
  * - **The cap is PER GROUP.** A quiet machine's pile of ended sessions can
  *   crowd out that machine's own live work, exactly as it could before
  *   grouping, and can no longer crowd out another machine's.
@@ -72,12 +97,12 @@ function labelFor(nodeId: string, nodes: readonly Node[] | undefined, pending: b
  * @param subshells - the rail's status-ordered list
  * @param nodes - the caller's visible nodes, for resolving each bucket's label
  * @param options.limit - max rows per group; omitted = no cap (filter mode)
- * @param options.pending - true while the nodes query is unanswered (see {@link labelFor})
+ * @param options.unanswered - true while the nodes read has not succeeded (see {@link labelFor})
  */
 export function groupSubshellsByNode(
   subshells: readonly SubshellView[],
   nodes: readonly Node[] | undefined,
-  { limit, pending = false }: { limit?: number; pending?: boolean } = {},
+  { limit, unanswered = false }: { limit?: number; unanswered?: boolean } = {},
 ): SubshellNodeGroup[] {
   // Insertion-ordered, so the discovery order IS the input's status order and
   // the sort below only has to break ties.
@@ -90,13 +115,20 @@ export function groupSubshellsByNode(
   }
   const groups = [...buckets].map(([nodeId, rows]) => ({
     nodeId,
-    label: labelFor(nodeId, nodes, pending),
-    // The rows arrived in status order, so the first one IS the liveliest.
-    rank: subshellStatusRank(rows[0] as SubshellView),
+    ...labelFor(nodeId, nodes, unanswered),
+    // The liveliest member decides, whatever position the input's sort left
+    // the rows in — see the docblock. `rows` is non-empty by construction.
+    rank: Math.min(...rows.map(subshellStatusRank)),
     subshells: limit === undefined ? rows : rows.slice(0, limit),
     total: rows.length,
   }));
   // Stable, so equal ranks keep their discovery order.
   groups.sort((a, b) => a.rank - b.rank);
-  return groups.map(({ nodeId, label, subshells: rows, total }) => ({ nodeId, label, subshells: rows, total }));
+  return groups.map(({ nodeId, label, title, subshells: rows, total }) => ({
+    nodeId,
+    label,
+    title,
+    subshells: rows,
+    total,
+  }));
 }

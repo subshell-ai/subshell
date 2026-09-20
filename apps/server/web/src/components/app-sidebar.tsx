@@ -286,7 +286,10 @@ export function AppSidebar({
   // group's own pile of ended sessions still loses to its own live ones.
   // Filter mode caps nothing: a search that hid its own ninth match would be
   // lying about what the instance holds.
-  const { data: nodeData, isPending: nodesPending } = useNodes();
+  // `unanswered`, not `isPending`: a FAILED nodes read must not let the
+  // grouping verdict a "deleted"-shaped label — absence has proven nothing
+  // while the request was in flight and still proves nothing when it errored.
+  const { data: nodeData, isPending: nodesPending, isError: nodesError } = useNodes();
   // Names only, over the catalog the launch pickers already cache. An
   // unresolvable harness degrades to its id, which is a readable slug
   // ("claude-code") — see the clone dialog, which makes the same trade.
@@ -297,7 +300,7 @@ export function AppSidebar({
   );
   const nodeGroups = groupSubshellsByNode(q ? filterSubshells(byStatus, subshellQuery) : byStatus, nodeData?.nodes, {
     limit: q ? undefined : RECENT_LIMIT,
-    pending: nodesPending,
+    unanswered: nodesPending || nodesError,
   });
   const listedCount = nodeGroups.reduce((sum, group) => sum + group.subshells.length, 0);
   // Which node groups this device has shut. Read once at mount — the rail
@@ -606,11 +609,17 @@ export function AppSidebar({
                     key={group.nodeId}
                     nodeId={group.nodeId}
                     label={group.label}
+                    title={group.title}
                     count={group.total}
                     // While filtering, every group is open whatever this
                     // device remembers: a match hidden inside a shut group
-                    // reads as a filter that does not work.
+                    // reads as a filter that does not work. The header is
+                    // INERT for the duration rather than merely overridden —
+                    // a live chevron here would write the collapse to
+                    // storage behind a screen that moves nothing, and the
+                    // group would shut itself the moment the filter cleared.
                     open={q !== "" || !collapsedGroups.includes(group.nodeId)}
+                    disabled={q !== ""}
                     onToggle={() => toggleNodeGroupOpen(group.nodeId)}
                   >
                     {group.subshells.map((sub) => (

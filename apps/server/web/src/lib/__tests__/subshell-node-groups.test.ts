@@ -79,16 +79,33 @@ describe("groupSubshellsByNode — labels", () => {
     expect(groups[0]?.label).toBe("Workshop Mac");
   });
 
-  it("wears the short id while the nodes query is still in flight", () => {
-    // Absence proves nothing yet: a cold load must not flash "deleted node"
-    // above every row before the registry answers.
-    const groups = groupSubshellsByNode([subshell({ nodeId: "abcdef0123456789" })], undefined, { pending: true });
+  it("wears the short id, with the full one as hover text, while the registry has not answered", () => {
+    // Absence proves nothing yet: a cold load must not flash a verdict about
+    // a machine above every row before the registry answers.
+    const groups = groupSubshellsByNode([subshell({ nodeId: "abcdef0123456789" })], undefined, { unanswered: true });
     expect(groups[0]?.label).toBe("abcdef01");
+    expect(groups[0]?.title).toBe("abcdef0123456789");
   });
 
-  it("says so plainly once the registry has answered without the id", () => {
-    const groups = groupSubshellsByNode([subshell({ nodeId: "gone" })], [node()], { pending: false });
-    expect(groups[0]?.label).toBe("deleted node");
+  it("reads a FAILED registry as unanswered, never as a verdict — `local` cannot be deleted", () => {
+    // The card can dodge this by returning null for `local` outright; this
+    // header labels every node including the control-plane host, so a flaky
+    // /api/nodes must wear the short id, not "unknown node".
+    const groups = groupSubshellsByNode([subshell({ nodeId: "local" })], undefined, { unanswered: true });
+    expect(groups[0]?.label).toBe("local");
+  });
+
+  it("says 'unknown node', with the id on hover, once the registry ANSWERED without the id", () => {
+    // Not "deleted node": the list is share-filtered, so a revoked grant
+    // lands here too, and "unknown" claims only what is known.
+    const groups = groupSubshellsByNode([subshell({ nodeId: "gone" })], [node()], { unanswered: false });
+    expect(groups[0]?.label).toBe("unknown node");
+    expect(groups[0]?.title).toBe("gone");
+  });
+
+  it("makes the hover title the NAME once the registry resolves it", () => {
+    const groups = groupSubshellsByNode([subshell({ nodeId: "n1" })], [node()], { unanswered: false });
+    expect(groups[0]?.title).toBe("buildbox");
   });
 });
 
@@ -101,6 +118,23 @@ describe("groupSubshellsByNode — ordering", () => {
       [
         subshell({ id: "waiting", nodeId: "n1", waitingSince: "2026-09-20T00:00:00.000Z" }),
         subshell({ id: "dead", nodeId: "local", status: "terminated", activity: "terminated", alive: false }),
+      ],
+      [node({ id: "local", name: "Server" }), node()],
+    );
+    expect(groups.map((g) => g.nodeId)).toEqual(["n1", "local"]);
+  });
+
+  it("ranks a group by its LIVELIEST member, not its first row", () => {
+    // The input's sort ran once, against the data; activity is re-derived
+    // against the CLOCK on every render. So the FIRST row of a bucket can
+    // have gone idle underneath a group whose second row is still printing,
+    // and the header must not demote the machine on the strength of a row
+    // that merely got there first.
+    const groups = groupSubshellsByNode(
+      [
+        subshell({ id: "b1", nodeId: "n1", activity: "idle" }),
+        subshell({ id: "a1", nodeId: "local", activity: "active" }),
+        subshell({ id: "b2", nodeId: "n1", activity: "active" }),
       ],
       [node({ id: "local", name: "Server" }), node()],
     );

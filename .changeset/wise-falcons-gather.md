@@ -13,8 +13,10 @@ can no longer crowd out another machine's live work. While the filter box has
 text every group renders open, whatever the device remembers: a match hidden
 inside a shut group reads as a filter that does not work.
 
-Hovering a row names the three things the row itself has no width to say — the
-node, the agent, and the state.
+Hovering a row names the three things the row itself cannot say — the node, the
+agent, and the state — and reveals in full the two it has no width for: the name
+and the working directory, both truncated at rail width, which the pre-grouping
+tooltip existed to show.
 
 The subshell page's status badge is gone; the state is a dot beside the name.
 It renders the SHARED indicator (working / idle / waiting for you / exited /
