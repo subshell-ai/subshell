@@ -29,6 +29,64 @@ import { shellQuote } from "./shell.js";
  */
 export const TMUX_COMMAND_TIMEOUT_MS = 15_000;
 
+/**
+ * The `-F` format {@link TmuxRunner.listSubshellsChecked} lists sessions with.
+ *
+ * **The separator is a COLON because a TAB does not survive tmux.** This was
+ * `#{session_name}\t#{pane_dead}` until 2026-09-20, which works on tmux 3.7
+ * and is silently mangled on **tmux 3.4** — the version Ubuntu 24.04 and
+ * Debian ship, so most Linux hosts. Measured in that container, one live
+ * session and one finished one:
+ *
+ * ```
+ * -F "#{session_name}<TAB>#{pane_dead}"  →  live1_0   gone1_1
+ * -F "#{session_name}:#{pane_dead}"      →  live1:0   gone1:1
+ * ```
+ *
+ * tmux 3.4 renders the tab in the output as `_`. Every field then parses as
+ * one, which is not a cosmetic difference: the name no longer matches the
+ * subshell id the node's exit watcher looks for, and the deadness field is
+ * absent so a finished pane reads as alive. On such a host the watcher would
+ * have found EVERY running subshell "confirmed absent" and reported it dead
+ * seconds after launch, while genuinely dead panes were never reported at
+ * all. CI caught it; no local tmux could.
+ *
+ * A colon is safe as the separator rather than merely untested: tmux's own
+ * `session_check_name` replaces `:` and `.` in a session name with `_`, so a
+ * name can never contain one.
+ */
+export const SESSION_LIVENESS_FORMAT = "#{session_name}:#{pane_dead}";
+
+/**
+ * Parses {@link SESSION_LIVENESS_FORMAT} output into the LIVE session names.
+ *
+ * Pure and exported because the defect it exists for is a difference between
+ * tmux versions, which no test running against one tmux can see: this is the
+ * half that can be checked everywhere, against output captured from both.
+ *
+ * Absent deadness (an older tmux, or a format that did not resolve) is read as
+ * ALIVE. This list drives death reports, so inventing a death from a missing
+ * field would retire a running subshell — the same fail-safe direction
+ * {@link TmuxRunner.hasSubshell} takes.
+ *
+ * @param stdout - raw `list-sessions -F` output
+ * @returns the names of sessions whose pane is not dead, in tmux's order
+ */
+export function parseSessionLiveness(stdout: string): string[] {
+  const names: string[] = [];
+  for (const line of stdout.split("\n")) {
+    if (line === "") continue;
+    // From the RIGHT: the flag is the last field, and splitting from the left
+    // would mis-parse a name that somehow held a colon rather than dropping
+    // one field of it.
+    const cut = line.lastIndexOf(":");
+    const name = cut === -1 ? line : line.slice(0, cut);
+    const dead = cut === -1 ? "" : line.slice(cut + 1);
+    if (dead !== "1") names.push(name);
+  }
+  return names;
+}
+
 /** Attempts {@link TmuxRunner.newSubshell} adds when it loses the server-shutdown race. */
 const NEW_SESSION_RACE_RETRIES = 3;
 /** Pause between those attempts — long enough for the dying server to release its socket. */
@@ -277,17 +335,8 @@ export class TmuxRunner {
       // without is confirmed dead", which the node's exit watcher acts on
       // directly. Returning dead sessions here would mean no node-run subshell
       // was ever reported dead again.
-      const out = await this.runAsync(["-L", socket, "list-sessions", "-F", "#{session_name}\t#{pane_dead}"], {});
-      const names = out.stdout
-        .split("\n")
-        .filter((line) => line !== "")
-        .map((line) => line.split("\t"))
-        // Absent deadness (an older tmux, or a format that did not resolve) is
-        // read as ALIVE: this list drives death reports, and inventing one
-        // from a missing field would retire a running subshell.
-        .filter(([, dead]) => dead !== "1")
-        .map(([name]) => name as string);
-      return { ok: true, names };
+      const out = await this.runAsync(["-L", socket, "list-sessions", "-F", SESSION_LIVENESS_FORMAT], {});
+      return { ok: true, names: parseSessionLiveness(out.stdout) };
     } catch (err) {
       return { ok: false, detail: err instanceof Error ? err.message : String(err) };
     }

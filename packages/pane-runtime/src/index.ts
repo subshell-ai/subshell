@@ -135,7 +135,15 @@ export {
 } from "./run-bounded.js";
 export { shellQuote } from "./shell.js";
 export { extractTgz, type TarEntry, type TgzLimits } from "./tar-vendor.js";
-export { TmuxError, TmuxRunner, TmuxTimeoutError, tmuxSocketFor, tmuxSocketPath } from "./tmux-runner.js";
+export {
+  parseSessionLiveness,
+  SESSION_LIVENESS_FORMAT,
+  TmuxError,
+  TmuxRunner,
+  TmuxTimeoutError,
+  tmuxSocketFor,
+  tmuxSocketPath,
+} from "./tmux-runner.js";
 export type {
   BuildCommandInput,
   DetectSpec,

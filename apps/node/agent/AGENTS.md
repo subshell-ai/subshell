@@ -772,6 +772,19 @@ SIGKILLed tmux server, a machine that lost power, a launch with no resolved
 reporter. Measured too: with tmux SIGKILLed the watcher still reports in 3.6 s
 (two ticks), which is the case it exists for.
 
+**The liveness probe's format is COLON-separated, and that is load-bearing
+across tmux versions.** `listSubshellsChecked` asks for
+`#{session_name}:#{pane_dead}`; with a TAB it worked on tmux 3.7 and was
+silently mangled on **3.4** — Ubuntu 24.04's and Debian's tmux, so most Linux
+nodes — which renders the tab in `-F` output as `_`. Every field then parsed
+as one: names came back as `live1_0`, so no subshell id ever matched, and the
+deadness flag was absent, so a finished pane read as alive. On such a host
+this watcher would have reported EVERY running subshell dead seconds after
+launch while never reporting a real death. Caught by CI, which runs 3.4; no
+local tmux could see it. `parseSessionLiveness` is pure and exported so the
+half that CAN be checked everywhere is driven with output captured from both
+versions.
+
 **And "lacking the pane" no longer means the session vanished.** Panes are
 launched with `remain-on-exit`, so a finished pane's SESSION survives — what
 keeps this contract true is that `listSubshellsChecked` filters on
