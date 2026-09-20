@@ -179,64 +179,96 @@ Publishers: the subshell mutation paths (create, terminate, restart, rename,
 share, maintenance), the reconcile sweep for what it still discovers, the node
 WS handler for online/offline, and the death reporter in §4.3.
 
-### 4.1a Why the fan-out is a per-socket loop and not a Bun pub/sub topic
+### 4.1a The fan-out is Bun pub/sub topics, and the recipient set is derived
 
-Elysia forwards Bun's whole pub/sub surface (`publish`, `subscribe`,
-`isSubscribed`, `cork` — `dist/ws/index.d.ts:54,61-64`), and it works:
-measured on 1.4.29, two sockets on one topic, `app.server.publish` reaching
-both while `ws.publish` excludes the sender. A `user:<id>` topic is mechanically
-available. It is still the wrong tool here, for two reasons:
+**This reverses an earlier revision of this section, which argued for a
+per-socket loop.** That argument rested on two false claims and one real
+obstacle that turned out to be separable; all three are recorded here because
+the reasoning is the part worth keeping.
 
-- **It needs an access query that runs the wrong way, and does not exist.**
-  Every access helper here is **viewer → row**:
-  `resolveSubshellAccess(viewerId, isAdmin, ownerUserId, shares)` and
-  `listVisibleTo(viewerId, isAdmin)`. Deciding which `user:<id>` topics an
-  event publishes to needs the inverse — **row → viewers** — composed from
-  owner + explicit grantees + the Everyone grant (i.e. every signed-in user)
-  + every admin. Nothing computes that today;
-  `subshellShares.listForSubshells` is one ingredient, not the predicate.
-  So this is not §4.2's case of re-spelling an existing rule in a second
-  place — it is writing the rule in a direction nothing else answers, with no
-  reference implementation to diff it against. That is a harder thing to keep
-  correct than the duplication §4.2 was written about, and §4.2 does not
-  cover it, because it only contemplates the viewer → row direction.
-  (The 2026-09-03 flicker was two disagreeing **viewer → rows**
-  implementations — the same class of mistake, a different shape.)
-  The per-subscriber loop keeps one call site: load X for this viewer through
-  the ordinary gate. What a topic would save is only the N tabs of one user
-  (1–3 in practice), never the per-user resolve, which is the expensive half.
-- **It takes delivery ordering out of our hands.** `handleLiveOpen` awaits the
-  list before its first send. A per-socket subscriber can subscribe BEFORE
-  that await and buffer until the snapshot flushes; with a topic, delivery
-  never passes through our code, so an event fired during the await is simply
-  lost — and §3.2 has no replay and no sequence number to detect the gap with.
+`resolveSubshellAccess` is total and small: owner → `owner`; admin → `edit`;
+otherwise the best share whose `granteeUserId` is `null` (Everyone) or the
+viewer. **That decomposes into topics with no enumeration.**
 
-`subscriberCount` is still worth using to skip users with no socket. If
-per-viewer resolution ever measures as the bottleneck, the thing to cache is
-the resolve, not the write.
+| topic | subscribed at connect by | published to when |
+|---|---|---|
+| `u:<userId>` | every socket, for its own viewer | the viewer owns the row, or holds an explicit grant on it |
+| `admins` | sockets whose viewer holds the admin role | always (admins hold instance-wide `edit`) |
+| `everyone` | every signed-in socket | the row carries an Everyone share |
 
-### 4.2 Visibility is resolved per subscriber, and never re-implemented
+So a publish needs the row's owner and its share rows — **one read per event,
+whatever the number of connected viewers.** The per-socket loop was one
+authorization resolve *per socket per event*; this is O(1). The claim that a
+topic "still needs one resolve per user" was wrong: it is true only if the
+viewer → row resolve is kept and merely the write is changed, which is not
+what this does. The claim that Everyone and admins would force a user-table
+scan was wrong for the same reason — they are topics, not expansions.
 
-**This is the rule the review should check hardest.** On each event, a
-subscriber resolves the row through the *same* path
-`GET /api/subshells` uses — `SubshellsService.listSubshells` /
-`loadSubshellAccess` — never a second predicate written for the socket.
+**The real obstacle is that the payload is viewer-dependent**, and it is why
+the frame splits in two. `listSubshells` stamps each row with that viewer's
+`access`, and one broadcast cannot carry a per-viewer field. But access
+changes for a different reason than content does:
 
-The 2026-09-03 live report is the precedent: the SSE feed was backed by the
-owner-only `SubshellManagerService.listSubshells` while REST answered
-sharing-aware, and an admin's rows flickered in and out. A second policy path
-here does not merely flicker; it discloses a private subshell.
+- **Content** (`subshell` frames) is viewer-independent — the row minus
+  `access` — and broadcasts on the topics above.
+- **Access** changes only on a share or role mutation, which is exactly the
+  moment the affected users are known, so those are targeted and rare.
+- The client composes row + the access it already holds from the snapshot.
 
-Concretely: an event carrying id `X` causes the socket to load `X` for that
-viewer with the ordinary gate. Visible → `subshell` frame. Not visible →
-`subshell-gone`, unconditionally.
+**Ordering against the connect snapshot is solved on the client, not with a
+buffer.** The socket subscribes BEFORE the list read, so no event is missed;
+the hazard is the reverse — a snapshot read at T1 and sent at T2 would clobber
+an event delivered at T1.5. So the client keeps any row it has received an
+event for since this connect, and lets the snapshot fill the rest. An event is
+by construction newer than a snapshot whose read began before it arrived. No
+sequence numbers, no server-side per-socket buffer, and §3.2's "snapshot is
+the resync primitive" survives intact.
 
-Sending `subshell-gone` for an id the client never held is deliberate: the
-alternative is per-connection bookkeeping of which ids each socket has been
-told about, which is state to keep correct across reconnects for no benefit.
-The client drops a `gone` for an id it does not have. That also keeps the
-frame free of information — it says "you cannot see this", which is true
-whether the row was deleted, unshared, or never visible.
+**The security mechanism is an equivalence test, not a second reading of the
+rule.** Deriving recipients is a second authorization implementation running
+the opposite way to every other one in the tree (`resolveSubshellAccess`,
+`listVisibleTo` are both viewer → row), and nothing else computes row →
+viewers. The objection to that is real but it is not "never write one" — it is
+that an unchecked second implementation can drift. So it is checked:
+
+```
+for every (viewer, row) over the generated fixture space:
+  recipientTopics(row) ∩ topicsOf(viewer) ≠ ∅   ⟺   resolveSubshellAccess(viewer, …) !== "none"
+```
+
+exhaustive over owner / admin / explicit grant / Everyone grant × present and
+absent. **Two implementations with a diff between them is a stronger
+guarantee than one implementation with nothing checking it** — the hazard was
+never duplication, it was undiffed duplication. If that test is ever deleted
+or weakened, this design loses the thing that makes it safe, and the fan-out
+should go back to the loop.
+
+### 4.2 There are exactly two authorization implementations, and they are diffed
+
+**This is the rule the review should check hardest.** The snapshot resolves
+through the *same* path `GET /api/subshells` uses —
+`SubshellsService.listSubshells` / `loadSubshellAccess`. The fan-out uses the
+derived recipient set of §4.1a. Those are the only two, they run in opposite
+directions, and the equivalence test is what keeps them one policy.
+
+The 2026-09-03 live report is the precedent for why: the SSE feed was backed
+by the owner-only `SubshellManagerService.listSubshells` while REST answered
+sharing-aware, and an admin's rows flickered in and out. Two *undiffed*
+viewer → row implementations. A policy path that disagrees here does not
+merely flicker; it discloses a private subshell.
+
+**Losing visibility is a targeted act, not a broadcast.** A row being deleted,
+or a share being revoked, is exactly the moment the affected users are known,
+so `subshell-gone` is published to the topics that *were* recipients and is
+not something a viewer infers from silence. Sending it for an id the client
+never held is harmless and deliberate: the client drops a `gone` for an id it
+does not have, and the frame carries no information — it says "you cannot see
+this", which is true whether the row was deleted, unshared, or never visible.
+
+**A revoked share must publish to the OLD recipient set.** Computing
+recipients after the mutation would send the removal to everyone except the
+person who needs it. Share mutations therefore capture recipients before the
+write and publish to the union of before and after.
 
 **Who may open the socket at all** is inherited rather than newly decided:
 `POST /api/auth/ws-token` is cookie-only (`actor !== "cookie"` → 403), so a
