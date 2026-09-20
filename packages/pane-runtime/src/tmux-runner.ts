@@ -199,8 +199,18 @@ export class TmuxRunner {
    */
   async hasSubshell(socket: string, subshellName: string): Promise<boolean> {
     try {
-      await this.runAsync(["-L", socket, "has-session", "-t", subshellName], {});
-      return true;
+      // NOT `has-session`. Since `newSubshell` sets `remain-on-exit`, a
+      // finished pane LINGERS — its session still exists, so `has-session`
+      // answers true for a subshell whose process ended, and every caller of
+      // this (the reconcile sweep, the attach gate, the node's maintenance
+      // CLI and dashboard) means "is there a LIVE pane". Measured: a session
+      // whose command exited 7 still answers `has-session` successfully while
+      // `#{pane_dead}` reads 1.
+      //
+      // One call answers both questions: the socket being gone throws, and a
+      // lingering pane reports its own deadness.
+      const out = await this.runAsync(["-L", socket, "display-message", "-t", subshellName, "-p", "#{pane_dead}"], {});
+      return out.stdout.trim() === "0";
     } catch (err) {
       if (err instanceof TmuxTimeoutError) throw err;
       return false;
@@ -361,7 +371,29 @@ export class TmuxRunner {
     // rather than as tmux's bare "File name too long" — and so the retry loop
     // below does not spend its budget on a failure no retry can fix.
     assertSocketPathFits(socket);
-    const args = ["-L", socket, "new-session", "-d", "-s", subshellName, "-c", cwd, cmd];
+    // `remain-on-exit on` is what makes a finished pane OBSERVABLE (spec
+    // 2026-09-19 §4.3). Without it tmux destroys the window, then the session,
+    // then — since there is one server per subshell — the server itself, all
+    // before anything can look: `#{pane_dead_status}` was therefore never
+    // readable and `exitCode` was structurally always null. Set in the SAME
+    // command as the spawn so no pane can die in the gap between two.
+    const args = [
+      "-L",
+      socket,
+      "new-session",
+      "-d",
+      "-s",
+      subshellName,
+      "-c",
+      cwd,
+      cmd,
+      ";",
+      "set-option",
+      "-t",
+      subshellName,
+      "remain-on-exit",
+      "on",
+    ];
     for (let attempt = 0; ; attempt++) {
       try {
         this.run(args, {});

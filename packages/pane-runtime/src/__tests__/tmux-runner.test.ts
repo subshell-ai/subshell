@@ -731,6 +731,44 @@ echo "server exited unexpectedly" >&2; exit 1
       }
     });
   });
+  /**
+   * `remain-on-exit` makes a finished pane OBSERVABLE (spec 2026-09-19 §4.3),
+   * and that changes what `has-session` means — so `hasSubshell` must not use
+   * it. Before this, tmux destroyed the window, the session and (one server
+   * per subshell) the server itself before anything could look: `pane_dead`
+   * was unreadable and `exitCode` was structurally always null.
+   */
+  it("reports a finished pane as NOT alive, though its session still exists", async () => {
+    const socket = freshSocket("dead");
+    runner.newSubshell(socket, "d1", "/tmp", "sh -c 'exit 7'");
+    // Wait for the command to finish rather than sleeping a fixed time.
+    for (let i = 0; i < 40 && (await runner.hasSubshell(socket, "d1")); i++) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(await runner.hasSubshell(socket, "d1")).toBe(false);
+    // The session is STILL THERE — which is exactly why `has-session` would
+    // have answered true and called a dead subshell alive.
+    expect(runner.listSubshellNames(socket)).toContain("d1");
+  });
+
+  it("reads the exit status of a finished pane, which was previously unreachable", async () => {
+    const socket = freshSocket("exitcode");
+    runner.newSubshell(socket, "e1", "/tmp", "sh -c 'exit 7'");
+    for (let i = 0; i < 40 && (await runner.hasSubshell(socket, "e1")); i++) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(await runner.paneExitCode(socket, "e1")).toBe(7);
+  });
+
+  it("keeps a clean exit distinguishable from an unknown one", async () => {
+    const socket = freshSocket("exitzero");
+    runner.newSubshell(socket, "z1", "/tmp", "sh -c 'exit 0'");
+    for (let i = 0; i < 40 && (await runner.hasSubshell(socket, "z1")); i++) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    // 0 is a real answer; null means "could not be read".
+    expect(await runner.paneExitCode(socket, "z1")).toBe(0);
+  });
 });
 
 afterAll(async () => {

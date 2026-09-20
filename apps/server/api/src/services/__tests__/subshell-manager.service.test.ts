@@ -1195,7 +1195,11 @@ describe("reconcile partition — agent rows (spec §6.3)", () => {
       // the node `probe` (other LOCAL rows in the shared DB may use the fake).
       expect(f.launcher.probedIds).not.toContain(id);
       expect(f.launcher.plans).toHaveLength(0); // no revive attempt
-      expect(f.launcher.kills).toEqual([]); // no rollback kill of the (locally invisible) pane
+      // Not this row: the death path REAPS a dead local pane's tmux server
+      // (spec 2026-09-19 §4.3), and this suite shares one database, so other
+      // local rows legitimately contribute kills. What must never happen is
+      // this AGENT row being killed from here — its pane lives on the node.
+      expect(f.launcher.kills).not.toContain(id);
       expect(f.issues()).toBe(0); // …and no token churn
       expect(f.pushes).toHaveLength(0); // no death push
       expect(f.probes).toEqual([{ nodeId, subshellIds: [id], timeoutMs: 30_000 }]);

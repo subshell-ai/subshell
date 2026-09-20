@@ -1389,6 +1389,32 @@ export class SubshellManagerService {
       // remaining rows — unlinking apiKeyId is the guard-side fallback.
       await this.#revokeTokenOrUnlink(fresh.id);
     }
+    // REAP THE TMUX SERVER, unless the row is coming back.
+    //
+    // `remain-on-exit` is what makes a finished pane observable, and the price
+    // is that tmux no longer tears itself down: the session, and with it this
+    // subshell's own server, would sit there for as long as the row is kept.
+    // One idle server per dead subshell, accumulating for the life of the
+    // host. Nothing is lost by killing it — the pane log on disk is the
+    // diagnostic record the dead-pane UI reads, not the pane.
+    //
+    // Skipped when `maybeAutoRestart` revived the row: that path reuses this
+    // socket, and killing the server under it is the shutdown race
+    // `newSubshell` retries through.
+    // LOCAL ONLY. `remain-on-exit` is set by the local launcher's own
+    // `new-session`; a pane on an agent node lives under that machine's tmux
+    // and its lifecycle is the node's business, so reaping from here would be
+    // this host killing a server it does not own — and against the fixture,
+    // recording kills for rows whose panes are not even visible locally.
+    if (!restarted && fresh.tmuxSocket && fresh.nodeId === LOCAL_NODE_ID) {
+      try {
+        await this.#localLauncher.killSubshell(fresh.tmuxSocket, fresh.id);
+      } catch (err) {
+        // A server already gone is the outcome we wanted; anything else costs
+        // an idle process, never correctness.
+        logger.withError(err).debug(`could not reap the tmux server for ${fresh.id}`);
+      }
+    }
     publishLive({ kind: "subshell.changed", id: row.id });
   }
 
