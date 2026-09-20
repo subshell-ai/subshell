@@ -1,3 +1,4 @@
+import { type LiveServerFrame, parseLiveClientFrame } from "@internal/subshell-protocol";
 import { getRequestlessContext } from "@/lib/context.js";
 import type { SubshellsService } from "@/services/subshells.service.js";
 import { logger } from "@/utils/logger.js";
@@ -15,6 +16,14 @@ import { consumeWsToken } from "@/ws/ws-token.js";
  * `GET /api/subshells` keep resolving the same thing.
  */
 type VisibleSubshells = Awaited<ReturnType<SubshellsService["listSubshells"]>>;
+
+/**
+ * The wire, spelled once: a snapshot row is per-viewer and carries `access`,
+ * a broadcast row cannot (one payload, every subscriber). The envelope lives
+ * in `@internal/subshell-protocol` so the browser reads the same statement —
+ * `ws/live-publisher.ts` is the other half, sending the `subshell` frames.
+ */
+type LiveFrame = LiveServerFrame<VisibleSubshells[number], never>;
 
 /** `ElysiaWS.readyState` (a getter over `raw.readyState`) when the peer is still there. */
 const WS_OPEN = 1;
@@ -149,7 +158,7 @@ export async function handleLiveOpen(ws: LiveWsSocket, deps: LiveWsDeps): Promis
   try {
     const subshells = await deps.listSubshells(userId);
     if (stopped || (ws.readyState !== undefined && ws.readyState !== WS_OPEN)) return;
-    ws.send(JSON.stringify({ type: "snapshot", subshells }));
+    sendFrame(ws, { type: "snapshot", subshells });
   } catch (err) {
     // CLOSE, rather than leave it open. The client marks itself connected only
     // once a snapshot lands, and nothing else will arrive to change that — an
@@ -222,19 +231,20 @@ export const MAX_PREVIEW_REQUEST = 60;
 export async function handleLiveMessage(ws: LiveWsSocket, raw: unknown, deps: LiveWsDeps): Promise<void> {
   const userId = ws.data.liveViewerId;
   if (!userId) return;
-  const frame = typeof raw === "string" ? safeParse(raw) : raw;
-  if (!frame || typeof frame !== "object") return;
-  const { type, ids } = frame as { type?: unknown; ids?: unknown };
+  // Validated by the shared parser, so the shape this accepts is the shape
+  // the browser is typed against rather than a second reading of it.
+  const frame = parseLiveClientFrame(raw);
+  if (!frame) return;
 
   // A client that received a row it has never seen cannot render it: a
   // broadcast carries no `access`, and inventing one would show edit controls
   // to a `view` grantee. So it asks for the list again instead — cheap, since
   // a snapshot captures no screens.
-  if (type === "resync") {
+  if (frame.type === "resync") {
     try {
       const subshells = await deps.listSubshells(userId);
       if (ws.readyState === undefined || ws.readyState === WS_OPEN) {
-        ws.send(JSON.stringify({ type: "snapshot", subshells }));
+        sendFrame(ws, { type: "snapshot", subshells });
       }
     } catch (err) {
       logger.withError(err).warn("live ws: resync snapshot failed");
@@ -242,8 +252,7 @@ export async function handleLiveMessage(ws: LiveWsSocket, raw: unknown, deps: Li
     return;
   }
 
-  if (type !== "previews" || !Array.isArray(ids)) return;
-  const wanted = ids.filter((id): id is string => typeof id === "string").slice(0, MAX_PREVIEW_REQUEST);
+  const wanted = frame.ids.slice(0, MAX_PREVIEW_REQUEST);
   if (wanted.length === 0) return;
   // ONE capture run per socket at a time. Each id is a `capture-pane` spawn,
   // and a client that asks again before the last answer landed — a filter
@@ -260,18 +269,14 @@ export async function handleLiveMessage(ws: LiveWsSocket, raw: unknown, deps: Li
       // would not see a close the adapter reported without moving it.
       if (!ws.data.liveStop) return;
       if (ws.readyState !== undefined && ws.readyState !== WS_OPEN) return;
-      ws.send(JSON.stringify({ type: "preview", id, lines }));
+      sendFrame(ws, { type: "preview", id, lines });
     }
   } finally {
     ws.data.liveCapturing = false;
   }
 }
 
-/** JSON that may not be JSON — a client frame is untrusted input. */
-function safeParse(raw: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+/** One send, typed against the shared envelope so a frame the browser cannot parse is a type error. */
+function sendFrame(ws: LiveWsSocket, frame: LiveFrame): void {
+  ws.send(JSON.stringify(frame));
 }

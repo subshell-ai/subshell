@@ -2346,6 +2346,59 @@ this project did not write.
   that section named for revisiting it.
 - No plugin is sandboxed, and none of this changes §11.9.
 
+## 11.14 The live feed derives who may receive a row
+
+The dashboard's feed is event-driven (spec 2026-09-19): one `/ws/live` socket
+per tab, a snapshot at connect, and after that a frame only when something
+changed, broadcast over Bun pub/sub topics. Three things about it belong here
+rather than only in the spec, because each is load-bearing and none is
+obvious from the code that depends on it.
+
+**There are exactly TWO authorization implementations, and they run in
+opposite directions.** Every other access decision in the tree is viewer →
+row: `resolveSubshellAccess`, `listVisibleTo`. The fan-out cannot work that
+way — it has to answer "who may receive this row" — so
+`ws/live-topics.ts` derives a recipient set instead, from the row's owner and
+its grants, decomposed into `live:u:<id>`, `live:admins` and `live:everyone`
+with no user enumeration anywhere.
+
+That is a second policy path, and the objection to a second policy path is
+real: the 2026-09-03 flicker was two viewer → rows implementations
+disagreeing, and a disagreement here does not flicker, it discloses a private
+subshell. What makes it sound is that the two are DIFFED — an exhaustive test
+asserts that a viewer's subscribed topics intersect a row's published topics
+**exactly once** when `resolveSubshellAccess` grants access, and not at all
+when it does not, over every combination of owner / admin / explicit grant /
+Everyone grant. Two implementations with a diff between them is a stronger
+guarantee than one with nothing checking it; the hazard was never duplication,
+it was UNDIFFED duplication.
+
+**If that test is ever deleted or weakened, this design has lost the thing
+that makes it safe** and the fan-out should go back to resolving per
+subscriber. It is not a unit test among others; it is the control.
+
+**A role change drops that user's sockets.** A socket chooses its topics ONCE,
+at connect, and nothing else closes it — a WebSocket authenticates at connect
+and is never re-checked, exactly as `/ws` does (§11.5's "Live WebSockets").
+So an admin demoted with a dashboard tab open would have gone on receiving
+every subshell on the instance for as long as that tab lived. `PATCH
+/api/users/:id/role` therefore closes that user's live sockets, counted in the
+audit row; the client reconnects on its own and re-derives what it may
+subscribe to. A password reset still does NOT do this — it is a credential
+rotation, not a session-kill switch, and that asymmetry is deliberate.
+
+**A broadcast carries no pane screen and no per-viewer field.** One payload
+reaches every subscriber on a topic, so it cannot carry the per-viewer
+`access` stamp — the client keeps the access it already holds, and a row it
+has never seen is not rendered but re-requested, because guessing access
+wrong would show edit controls to a `view` grantee. Screens are excluded for
+a second, independent reason: a pane's rendered output is the most sensitive
+thing this app produces (§ pane logs), and it must not ride a channel whose
+audience is a topic. They are PULLED instead, by the one surface that draws
+them, through a request filtered by the ordinary visible-set read — so an id
+the viewer cannot see is absent from the answer rather than refused, and ids
+stay unprobeable.
+
 ## 12. Hardening checklist for a wider deployment
 
 If this is ever exposed beyond a trusted network, the posture in §0 no longer

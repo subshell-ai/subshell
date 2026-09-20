@@ -137,11 +137,21 @@ dropped socket costs one snapshot. This is affordable only because snapshots
 no longer carry previews — which is what makes §4.4 a precondition for this
 section rather than an independent choice.
 
-The frame union above is declared on the server today and mirrored loosely on
-the client, which is honest while `snapshot` is the only kind. **Step 2 should
-lift `LiveFrame` into a shared type** the way the attach path shares
-`ServerFrame` through `@internal/subshell-protocol` — four kinds mirrored by
-hand is how the two ends come to disagree about an optional field.
+The frame union above was declared on the server and mirrored loosely on the
+client, which was honest while `snapshot` was the only kind. **Done
+2026-09-20**: `live-frames.ts` in `@internal/subshell-protocol` carries both
+unions and `parseLiveClientFrame`, the way the attach path shares
+`ServerFrame` — five kinds mirrored by hand is how the two ends come to
+disagree about an optional field.
+
+What shipped differs from the sketch above in one way worth reading, because
+it makes the design's own asymmetry mechanical: `LiveServerFrame` takes **two**
+row parameters, not one. A snapshot row is per-viewer and carries `access`; a
+broadcast row cannot, since one payload reaches every subscriber of a topic
+and there is nobody to stamp it for. Each end supplies its own pair — the
+server derives both from the service methods that build them, the browser
+spells the second `Omit<SubshellView, "access">` — so the rule that a client
+must re-request rather than render an unseen row is a type, not a convention.
 
 `subshell-gone` covers deletion **and** revocation of a share. A viewer who
 loses access must see the row disappear, and must not be able to tell those

@@ -1,8 +1,22 @@
 import { apiFetch } from "@internal/node-admin";
+import type { LiveClientFrame, LiveServerFrame } from "@internal/subshell-protocol";
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
+
+/**
+ * What this feed receives. `Omit<…, "access">` is the wire's own statement
+ * rather than a preference: a broadcast reaches every subscriber of a topic,
+ * so there is nobody to stamp a per-viewer access for — which is why a row
+ * this client has never seen is re-requested instead of rendered.
+ */
+type LiveFrame = LiveServerFrame<SubshellView, Omit<SubshellView, "access">>;
+
+/** One send, typed against the shared envelope so a frame the server ignores is a type error. */
+function send(socket: WebSocket, frame: LiveClientFrame): void {
+  socket.send(JSON.stringify(frame));
+}
 
 interface LiveSubshellsFeedValue {
   /** True while the `/ws/live` socket is open and delivering. */
@@ -127,7 +141,7 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
         showing.clear();
         for (const id of ids) showing.add(id);
         if (ids.length > 0 && socket.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({ type: "previews", ids }));
+          send(socket, { type: "previews", ids });
         }
       };
 
@@ -143,13 +157,12 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
 
       socket.onmessage = (e) => {
         try {
-          const frame = JSON.parse(e.data as string) as {
-            type?: string;
-            subshells?: SubshellView[];
-            id?: string;
-            row?: Omit<SubshellView, "access">;
-            lines?: string[];
-          };
+          // The envelope is the server's own (`@internal/subshell-protocol`),
+          // so the asymmetry below is a type rather than a convention: a
+          // snapshot row carries this viewer's `access`, a broadcast row
+          // cannot. A cast, since JSON.parse answers `any` — the frames are
+          // still checked field by field before anything is applied.
+          const frame = JSON.parse(e.data as string) as Partial<LiveFrame>;
           const current = queryClient.getQueryData<SubshellView[]>(SUBSHELLS_QUERY_KEY) ?? [];
 
           if (frame.type === "snapshot" && frame.subshells) {
@@ -176,7 +189,7 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
             attempts = 0; // a delivered snapshot is what proves the connection good
             // A reconnect re-pulls what this page is showing, since the fresh
             // snapshot's rows are screenless.
-            if (showing.size > 0) socket.send(JSON.stringify({ type: "previews", ids: [...showing] }));
+            if (showing.size > 0) send(socket, { type: "previews", ids: [...showing] });
             return;
           }
 
@@ -193,7 +206,7 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
             // who have no other way to learn it exists now that the polls are
             // gone.
             if (!previous) {
-              if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "resync" }));
+              if (socket.readyState === WebSocket.OPEN) send(socket, { type: "resync" });
               return;
             }
             // The screen is not in a broadcast either — keep the one held and
@@ -201,7 +214,7 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
             const merged = { ...previous, ...row, access: previous.access, preview: previous.preview } as SubshellView;
             commit(current.map((r) => (r.id === id ? merged : r)));
             if (showing.has(id) && socket.readyState === WebSocket.OPEN) {
-              socket.send(JSON.stringify({ type: "previews", ids: [id] }));
+              send(socket, { type: "previews", ids: [id] });
             }
             return;
           }

@@ -1,5 +1,7 @@
+import type { LiveServerFrame } from "@internal/subshell-protocol";
 import { getRequestlessContext } from "@/lib/context.js";
 import { type LiveEvent, subscribeLive } from "@/services/live-bus.js";
+import type { SubshellsService } from "@/services/subshells.service.js";
 import { logger } from "@/utils/logger.js";
 import { recipientTopics } from "@/ws/live-topics.js";
 
@@ -17,6 +19,14 @@ import { recipientTopics } from "@/ws/live-topics.js";
  * boundaries without the wire showing it.
  */
 export const LIVE_COALESCE_MS = 40;
+
+/**
+ * A frame this module may publish — the shared envelope with its SNAPSHOT
+ * half closed off, since a snapshot is per-viewer and can only be sent down
+ * one socket. The row type is derived from the service method that builds it,
+ * so dropping a field there is a type error here.
+ */
+type LiveBroadcastFrame = LiveServerFrame<never, Awaited<ReturnType<SubshellsService["viewsForBroadcast"]>>[number]>;
 
 /** What this module needs of Bun's server handle — just the broadcast. */
 export interface LivePublisherTarget {
@@ -147,7 +157,7 @@ async function publishEvent(target: LivePublisherTarget, event: LiveEvent): Prom
 }
 
 /** One serialization, published to each topic. */
-function broadcast(target: LivePublisherTarget, topics: string[], frame: unknown): void {
+function broadcast(target: LivePublisherTarget, topics: string[], frame: LiveBroadcastFrame): void {
   const payload = JSON.stringify(frame);
   for (const topic of topics) target.publish(topic, payload);
 }

@@ -40,6 +40,12 @@ export {
   PRODUCT_NAME,
   PRODUCT_URL,
 } from "./legal.js";
+export {
+  type LingerProbeResult,
+  lingerFromProbe,
+  lingerProbeArgv,
+  lingerVerdict,
+} from "./linger.js";
 // NOTE: release-artifacts.ts, release-signature.ts and service-test-safety.ts
 // (node: builtins) are intentionally NOT re-exported here — this barrel is
 // imported by apps/client/mobile through Metro, which cannot resolve
@@ -49,11 +55,10 @@ export {
 // rather than locally; that is how service-test-safety got here in the first
 // place (2026-09-15).
 export {
-  type LingerProbeResult,
-  lingerFromProbe,
-  lingerProbeArgv,
-  lingerVerdict,
-} from "./linger.js";
+  type LiveClientFrame,
+  type LiveServerFrame,
+  parseLiveClientFrame,
+} from "./live-frames.js";
 export {
   type DetectSpecWire,
   HARNESS_BINARY_PLACEHOLDER,
