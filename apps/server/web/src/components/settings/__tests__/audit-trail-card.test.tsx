@@ -136,6 +136,22 @@ describe("AuditTrailCard paging", () => {
     expect(screen.queryByRole("button", { name: "Newer" })).toBeNull();
   });
 
+  it("an exactly-page-sized trail: page 2 is empty but NOT unreachable", async () => {
+    // 25 events, no more. Page 1 comes back full, so Older must stay offered
+    // (a full page cannot prove the trail ends there); the walk then lands on
+    // a zero-row page — which is NOT the empty trail, and must keep Newer
+    // rather than dead-ending with a false "No events recorded yet.".
+    mockPages((params) => (params.has("beforeId") ? [] : fullPage()));
+    renderCard();
+    await waitFor(() => expect(screen.getByText("Page 1")).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Older" }));
+    await waitFor(() => expect(screen.getByText("Page 2")).toBeDefined());
+    expect(screen.queryByText("No events recorded yet.")).toBeNull();
+    expect((screen.getByRole("button", { name: "Older" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Newer" }));
+    await waitFor(() => expect(screen.getByText("Page 1")).toBeDefined());
+  });
+
   it("pages Older with the last row's (createdAt, id) pair, and Newer walks back", async () => {
     const last = eventAt(24);
     const seen = mockPages((params) => (params.has("beforeId") ? [eventAt(25)] : fullPage()));

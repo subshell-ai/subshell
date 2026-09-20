@@ -93,7 +93,10 @@ export function AuditTrailCard() {
 
   // A short page is the server saying there is nothing older — the trail has
   // no total count, and inventing one would mean a second query per read.
-  const hasOlder = (auditEvents?.length ?? 0) === PAGE_SIZE;
+  // `rows` is the answered shape: every branch below renders from it, so
+  // "no data yet" cannot crash a `.map` in the table branch.
+  const rows = auditEvents ?? [];
+  const hasOlder = rows.length === PAGE_SIZE;
 
   return (
     <Card>
@@ -103,14 +106,18 @@ export function AuditTrailCard() {
       </CardHeader>
       <CardContent>
         {/* Error ≠ empty ≠ loading — the /users roster got this treatment
-            first; the trail follows its vocabulary. */}
+            first; the trail follows its vocabulary. The emptiness tested is
+            page ONE's: a zero-row page past the first is reachable whenever
+            the trail is exactly a page-size multiple (a full page cannot say
+            whether more follow), and it is not an empty trail — the pager
+            must stay up or that page is a dead end with no way back. */}
         {auditIsError ? (
           <p className="text-muted-foreground text-sm">
             Couldn&apos;t load the audit trail. Check your connection or sign in again.
           </p>
         ) : auditIsLoading ? (
           <p className="text-muted-foreground text-sm">Loading…</p>
-        ) : !auditEvents?.length ? (
+        ) : rows.length === 0 && pageIndex === 0 ? (
           <p className="text-muted-foreground text-sm">No events recorded yet.</p>
         ) : (
           <>
@@ -125,7 +132,7 @@ export function AuditTrailCard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {auditEvents.map((e) => (
+                  {rows.map((e) => (
                     <tr key={e.id} className="border-b last:border-0">
                       <td className="py-2 pr-4 text-muted-foreground">{new Date(e.createdAt).toLocaleString()}</td>
                       <td className="py-2 pr-4 font-mono text-detail">{e.action}</td>
@@ -156,7 +163,7 @@ export function AuditTrailCard() {
                   size="sm"
                   disabled={!hasOlder}
                   onClick={() => {
-                    const last = auditEvents[auditEvents.length - 1];
+                    const last = rows[rows.length - 1];
                     setPages((p) => [...p, { createdAt: last.createdAt, id: last.id }]);
                   }}
                 >

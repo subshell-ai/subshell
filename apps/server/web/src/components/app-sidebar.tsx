@@ -109,11 +109,13 @@ const NAV_ENTRIES: NavEntry[] = [
       { to: "/settings/plugins", label: "Plugins", icon: Puzzle, short: "Plug" },
       // "Service", not "Server": the control-plane host's own node row is
       // named Server by default, and every card on this page is about the
-      // running process — where it listens, who supervises it, what it logged.
+      // running process — who supervises it and since when. (Where it
+      // listens moved to Networking on 2026-09-17; what it logged moved to
+      // Logs on 2026-09-20.)
       { to: "/settings/service", label: "Service", icon: Power, short: "Svc" },
-      // After Service, because it answers the question Service leaves open:
-      // that page says where this server listens, this one says how anything
-      // that is not on this machine gets to it.
+      // After Service, because it holds both halves of address: where this
+      // server listens (the Addresses card, here from Service since
+      // 2026-09-17) and how anything not on this machine gets to it.
       { to: "/settings/networking", label: "Networking", icon: Network, short: "Net" },
       // Beside Service, because the two are about the same machine: Service is
       // the process as it runs now, Updates is what it could be running next.

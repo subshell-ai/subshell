@@ -22,7 +22,7 @@ You manage the control plane from three surfaces, and each owns a different kind
 
 | surface | owns |
 |---|---|
-| The dashboard — Settings pages in the web UI the server serves | Everything about a **running** instance: users and roles, registration, plugins, nodes, agent CLIs, API keys, audit log, and Settings → Service — the address fields, restart, autostart, logs, and updates. |
+| The dashboard — Settings pages in the web UI the server serves | Everything about a **running** instance: users and roles, registration, plugins, nodes, agent CLIs, API keys, and Settings → Service, Networking, Logs and Updates — the process, the addresses, both log tails, and versions. |
 | The `subshell-server` CLI — on the control-plane host | Everything that must work when the server is **not** running: `init`, `configure`, `service`, `status`, `update`, `backup`. |
 | `config.env` — the file both of the above write through | Keys no tool owns, and the escape hatch when a validator refuses something you genuinely mean. |
 

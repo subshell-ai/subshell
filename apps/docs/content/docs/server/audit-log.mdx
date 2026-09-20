@@ -7,8 +7,8 @@ The audit trail is the answer to "who did this to my instance, and when". Every 
 
 ## Reading it
 
-- **Settings → Audit** — a read-only admin page showing the latest fifty events: when, action, target, context. Refreshing is reopening.
-- `GET /api/audit?limit=50` — the same rows as JSON, for an admin cookie session (up to 500).
+- **Settings → Logs → Audit tab** — a read-only trail of every recorded event, newest first, paged 25 at a time and walkable to its beginning: when, action, target, context. Refreshing is reopening.
+- `GET /api/audit?limit=25` — the same rows as JSON, for an admin cookie session (up to 500); older pages pass the last row of the page above as `beforeCreatedAt` and `beforeId`.
 
 ## What lands in it
 
