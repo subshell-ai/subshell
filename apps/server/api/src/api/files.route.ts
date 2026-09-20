@@ -1,19 +1,18 @@
-import { lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve, sep } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { dirAllowed, dirNavigable } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
 import { IS_TEST } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { FavoritesRepository } from "@/db/repositories/favorites.repository.js";
-import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.repository.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { loadNodeAccess, nodeCanManageFor } from "@/lib/node-access.js";
+import { loadNodeAccess } from "@/lib/node-access.js";
+import { favoritePathsFor, isAllowedRoot, launchScopeFor, recentPathsFor } from "@/services/files-path-rules.js";
 import { exploreNodeDirectory } from "@/services/files-remote-browse.service.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import { expandTilde } from "@/utils/path.js";
@@ -73,6 +72,12 @@ const ExploreResponseSchema = t.Object({
 const FavoriteBodySchema = t.Object({
   path: t.String({ minLength: 1, description: "Directory to star/unstar" }),
   favorite: t.Boolean({ description: "true = star, false = unstar" }),
+  node: t.Optional(
+    t.String({
+      description:
+        "Machine the path lives on; omitted or 'local' = the control-plane host. A node id the caller cannot see answers 404, never 403 — the same no-oracle rule /explore and /recent apply",
+    }),
+  ),
 });
 
 const OkResponseSchema = t.Object({ ok: t.Boolean({ description: "Always true" }) });
@@ -122,12 +127,14 @@ const RecentResponseSchema = t.Object({
  * - **Feature gate**: browsing a node needs `fs_ls`, i.e. the agent's
  *   the exact node protocol (any mismatch is refused at `ready`). An agent
  *   that answers `unsupported` anyway surfaces as 409 `NODE_OUTDATED`.
- * - `PATCH /favorite` stars/unstars a path (the picker's Favorites section —
- *   the successor to the removed bookmarks feature); local `/explore` ships
- *   both sections so the panel needs one request per folder. Remote
- *   `/explore` ships them EMPTY — recents/favorites are control-plane
- *   concepts and node paths there would be dead clicks (per-node recents
- *   ride `/recent?node=` for the form's pre-fill).
+ * - `PATCH /favorite` stars/unstars a path ON THE MACHINE BEING BROWSED
+ *   (`node`, default `local`) — the picker's Favorites section, the successor
+ *   to the removed bookmarks feature. Both saved-shortcut sections ride
+ *   `/explore` on EITHER transport, scoped to the browsed machine: a Recent
+ *   or favorite of node X appears only while the panel walks node X, which
+ *   is what retired the older design that shipped them EMPTY remotely (a
+ *   machine-scoped star is no longer a dead click in another machine's
+ *   panel, so the star is offered there too — 2026-09-20).
  */
 export const filesRoutes = new Elysia({ prefix: "/api/files" })
   .use(authGuard)
@@ -247,9 +254,9 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       // them empty (see exploreNode), so nothing here can be a dead click
       // into a filesystem this response is not walking. Per-node recents
       // live on /recent?node=<id> instead.
-      const favorites = await favoritePaths(user.id);
+      const favorites = await favoritePathsFor(user.id);
       const starred = new Set(favorites.map((f) => f.path));
-      const recent = (await recentPaths(user.id))
+      const recent = (await recentPathsFor(user.id))
         .filter((r) => !starred.has(r.path))
         .slice(0, 3)
         .map(({ path: p, label }) => ({ path: p, label }));
@@ -302,7 +309,7 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
           throw new FilesError("not_found", "Node not found", 404);
         }
       }
-      const paths = (await recentPaths(user.id, nodeId)).map(({ path, label }) => ({ path, label }));
+      const paths = (await recentPathsFor(user.id, nodeId)).map(({ path, label }) => ({ path, label }));
       // The pre-fill fallback: a fresh instance has no recents at all, so
       // without this the new-subshell form opens on an empty absolute-path
       // box at exactly the moment the user knows least. For an agent node
@@ -340,15 +347,50 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       if (!path) {
         throw new FilesError("invalid", "Path is required", 400);
       }
+      const nodeId = body.node?.trim() || LOCAL_NODE_ID;
+      const repo = new FavoritesRepository(db);
+      if (nodeId !== LOCAL_NODE_ID) {
+        // A STAR ON ANOTHER MACHINE names a path on ITS filesystem — the
+        // plane must not `resolve`/`expandTilde` it against this host's
+        // layout (that would happily "normalize" a path this host cannot
+        // see), and `SUBSHELL_FS_ROOT` does not reach there either. What the
+        // plane CAN enforce is its own two answers: which nodes this caller
+        // may see at all (404, never 403 — the no-oracle rule `/recent` and
+        // `/explore` apply), and the node's directory allowlist, so a
+        // favorite cannot be created that `favoritePathsFor` would filter
+        // straight back out — which reads as the star silently failing.
+        const { access } = await loadNodeAccess(
+          {
+            nodes: new NodesRepository(db),
+            shares: new NodeSharesRepository(db),
+            userMeta: new UserMetaRepository(db),
+          },
+          user.id,
+          nodeId,
+        );
+        if (access === "none") {
+          throw new FilesError("not_found", "Node not found", 404);
+        }
+        if (!isAbsolute(path)) {
+          throw new FilesError("invalid", "A node path must be absolute", 400);
+        }
+        const stored = resolve(path); // lexical normalization only — no fs is consulted
+        const dirs = await launchScopeFor(user.id, nodeId);
+        if (dirs.length > 0 && !dirAllowed(stored, dirs)) {
+          throw new FilesError("forbidden", "Path outside this node's allowed directories", 403);
+        }
+        await repo.setFavorite(user.id, "directory", stored, body.favorite, nodeId);
+        return { ok: true } as const;
+      }
       const resolved = resolve(expandTilde(path, homedir()));
-      // Starring is a local-path affordance, so `local`'s rules gate it too —
+      // Starring is a path affordance, so `local`'s rules gate it too —
       // otherwise a favorite could be created that the picker then filters
       // straight back out, which reads as the star silently failing.
       const allowedDirs = await launchScopeFor(user.id, LOCAL_NODE_ID);
       if (!isAllowedRoot(resolved, allowedDirs)) {
         throw new FilesError("forbidden", "Path outside allowed roots", 403);
       }
-      await new FavoritesRepository(db).setFavorite(user.id, "directory", resolved, body.favorite);
+      await repo.setFavorite(user.id, "directory", resolved, body.favorite);
       return { ok: true } as const;
     },
     {
@@ -378,175 +420,4 @@ class FilesError extends Error {
     this.status = status;
     this.name = "FilesError";
   }
-}
-
-/**
- * The optional confinement root, or `null` when `SUBSHELL_FS_ROOT` is unset —
- * which means NO confinement (any absolute path is allowed). This is
- * documented behavior, not a missing allowlist: the folder picker exists to
- * reach arbitrary directories on the host (see the route docstring).
- *
- * Realpath-resolved when possible: a root reached through a symlink confines
- * by its REAL location, which is what {@link isAllowedRoot} compares every
- * candidate's realpath against. When the root itself cannot be resolved (it
- * does not exist) the lexical form is kept — nothing under it can exist
- * either, so the candidate-side realpath check refuses everything anyway.
- */
-function confinementRoot(): { lexical: string; real: string } | null {
-  const root = process.env.SUBSHELL_FS_ROOT?.trim();
-  if (!root) return null;
-  const lexical = resolve(root);
-  try {
-    return { lexical, real: realpathSync(lexical) };
-  } catch {
-    return { lexical, real: lexical };
-  }
-}
-
-/**
- * True when `path` is `root` or lives beneath it.
- * @param path - Absolute candidate path
- * @param root - Absolute root to test against
- * @returns Whether the candidate is the root or inside it
- */
-function isWithin(path: string, root: string): boolean {
-  // `root + sep` would be "//" for a root of "/", matching nothing and
-  // refusing the entire filesystem the operator just opened up. Comparison is
-  // deliberately case-SENSITIVE: it matches how the kernel resolves the
-  // realpath this is checked against, and a case-insensitive test would let
-  // `/Root/x` pass a `/root` confinement on a case-insensitive volume.
-  const prefix = root.endsWith(sep) ? root : root + sep;
-  return path === root || path.startsWith(prefix);
-}
-
-/**
- * Confinement check. With `SUBSHELL_FS_ROOT` set, BOTH path forms must be inside
- * the root: the lexical one (cheap reject for `..` escapes and strangers) and
- * the symlink-resolved one — entries are stat'ed through symlinks, so
- * comparing unresolved paths alone let a planted symlinked dir enumerate its
- * target anywhere on the host (final review M-2).
- *
- * A candidate whose realpath fails is split honestly: a path that exists in
- * some form (including a BROKEN symlink — the link is present, the target is
- * not) cannot be proven confined and is refused; a path with no presence at
- * all cannot list anything, so it passes through to the normal 404. Unset
- * confinement keeps the exact old behavior: anything absolute is allowed.
- */
-/**
- * @param opts.navigation - use the WIDER `dirNavigable` test (inside a rule,
- *   or an ancestor of one) instead of the strict `dirAllowed`. Pass it only
- *   for BROWSING a directory: an ancestor has to stay listable or there is no
- *   way down to the rule. Everything that names a directory to LAUNCH or
- *   shortcut into — `/favorite`, the recents and favorites filters — stays
- *   strict, because offering a shortcut to a directory no subshell can be
- *   created in is a dead click.
- */
-function isAllowedRoot(
-  path: string,
-  allowedDirs: readonly string[] = [],
-  opts: { navigation?: boolean } = {},
-): boolean {
-  if (!isAbsolute(path)) return false;
-  // The LOCAL node's directory allowlist (spec 2026-09-05), layered on top of
-  // SUBSHELL_FS_ROOT: both must pass. They answer different questions — the
-  // env root is the operator's instance-wide "show nothing outside this tree",
-  // the allowlist is the node owner's "subshells may only run under these" —
-  // and a path has to satisfy whichever are in force.
-  const inScope = opts.navigation ? dirNavigable : dirAllowed;
-  const resolved = resolve(path);
-  // Cheap lexical reject first.
-  if (!inScope(resolved, allowedDirs)) return false;
-
-  // Then the SAME test against the symlink-resolved form, and — this is the
-  // part that was wrong — BEFORE the `SUBSHELL_FS_ROOT` early return, not
-  // after it. With no confinement root configured (the default) the function
-  // used to return here, leaving the allowlist lexical-only: a symlink under
-  // an allowed root would list whatever it pointed at to a constrained user.
-  // A disclosure rather than an execution hole (launching is gated
-  // separately, and the node realpaths both sides), but a real one.
-  let real: string | null = null;
-  try {
-    real = realpathSync(resolved);
-  } catch {
-    real = null; // absent or a broken symlink — handled per-branch below
-  }
-  if (real !== null && allowedDirs.length > 0 && !inScope(real, allowedDirs)) return false;
-
-  const root = confinementRoot();
-  if (!root) return true; // no SUBSHELL_FS_ROOT → host FS is browsable by design
-  // The cheap reject compares LIKE WITH LIKE. Testing an unresolved candidate
-  // against the realpath-resolved root refused the root itself whenever the
-  // root is reached through a symlink — on macOS `/tmp` IS a symlink to
-  // `/private/tmp`, so `SUBSHELL_FS_ROOT=/tmp/x` 403'd every path including
-  // `/tmp/x`, locking the operator out of the directory they configured.
-  // Either spelling may pass here; the realpath comparison below is the
-  // security boundary and is unchanged.
-  if (!isWithin(resolved, root.lexical) && !isWithin(resolved, root.real)) return false;
-  if (real !== null) return isWithin(real, root.real);
-  try {
-    lstatSync(resolved); // a present-but-unresolvable path (broken symlink)
-    return false; // cannot prove where it leads → refuse
-  } catch {
-    return true; // nothing exists at this path → nothing to leak, 404 next
-  }
-}
-
-/**
- * The allowlist to FILTER a picker listing by, for one caller and node.
- *
- * Empty (no filtering) whenever the caller can MANAGE the node, because that
- * is the person who defines the rules: they browse in order to choose what to
- * permit, and scoping their view to the rules already in force would make the
- * second rule unaddable — the first one would have hidden everywhere else.
- * Anyone else sees only what they could actually launch in, since offering a
- * directory whose only outcome is a refusal is pure friction.
- *
- * This is a UX filter, NOT the security boundary. The boundary is the launch
- * gate, applied on the control plane (`assertDirAllowed`) and independently on
- * the node — neither of which cares who is browsing.
- */
-async function launchScopeFor(userId: string, nodeId: string): Promise<string[]> {
-  const dirs = await new NodeAllowedDirsRepository(db).listForNode(nodeId);
-  if (dirs.length === 0) return dirs;
-  const { row, access } = await loadNodeAccess(
-    {
-      nodes: new NodesRepository(db),
-      shares: new NodeSharesRepository(db),
-      userMeta: new UserMetaRepository(db),
-    },
-    userId,
-    nodeId,
-  );
-  if (!row) return dirs;
-  const isAdmin = (await new UserMetaRepository(db).getRole(userId)) === "admin";
-  return nodeCanManageFor(row.kind, access, isAdmin) ? [] : dirs;
-}
-
-/**
- * Recently used paths for ONE node (default: the control-plane host),
- * filtered to whatever the current confinement allows. The confinement filter
- * rides remote-node scopes too — conservative by design: `SUBSHELL_FS_ROOT` is
- * the operator's "show me nothing outside this tree" switch, and a remote
- * path is still just a path string this picker can never cd into anyway.
- */
-async function recentPaths(userId: string, nodeId = LOCAL_NODE_ID) {
-  const repo = new RecentPathsRepository(db);
-  const all = await repo.listByUser(userId, 20, nodeId);
-  // Node-scoped: a recent path is filtered by THAT node's rules, so a row
-  // saved before a rule tightened stops being offered as a shortcut.
-  const allowedDirs = await launchScopeFor(userId, nodeId);
-  return all.filter((r) => isAllowedRoot(r.path, allowedDirs));
-}
-
-/**
- * Starred directories, confinement-filtered the same way — a favorite saved
- * before `SUBSHELL_FS_ROOT` was set must not leak out of the root either.
- */
-async function favoritePaths(userId: string) {
-  const repo = new FavoritesRepository(db);
-  const all = await repo.listByUser(userId, "directory");
-  // Favorites are control-plane (local) paths, so they answer to `local`'s
-  // rules — a star saved before a rule tightened must not leak past it either.
-  const allowedDirs = await launchScopeFor(userId, LOCAL_NODE_ID);
-  return all.filter((f) => isAllowedRoot(f.ref, allowedDirs)).map(({ ref, label }) => ({ path: ref, label }));
 }

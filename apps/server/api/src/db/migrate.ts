@@ -33,6 +33,7 @@ import * as userDisabledMigration from "@/db/migrations/0030-user-disabled.js";
 import * as nodeMaintenanceMigration from "@/db/migrations/0031-node-maintenance.js";
 import * as setupStepMigration from "@/db/migrations/0032-setup-step.js";
 import * as setupKeyPlaintextMigration from "@/db/migrations/0033-setup-key-plaintext.js";
+import * as favoritesNodeScopeMigration from "@/db/migrations/0034-favorites-node-scope.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -92,6 +93,7 @@ export async function runMigrations(): Promise<void> {
           // the Setup keys page, and a node names itself at the machine
           // (node-setup revamp, 2026-09-17). Drops every outstanding key.
           "0033-setup-key-plaintext": setupKeyPlaintextMigration,
+          "0034-favorites-node-scope": favoritesNodeScopeMigration,
         };
       },
     },

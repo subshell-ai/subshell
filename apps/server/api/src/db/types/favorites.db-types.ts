@@ -9,13 +9,19 @@ export type FavoriteKind = "directory";
  *
  * Polymorphic by design: `kind` names the entity type and `ref` addresses
  * one — an absolute path for "directory", an entity id for future kinds.
- * Unique per (user, kind, ref).
+ * Unique per (user, node, kind, ref).
  */
 export interface FavoriteTable {
   /** Unique id (uuid) */
   id: string;
   /** Owning user id */
   userId: string;
+  /**
+   * The machine `ref` addresses (migration 0034). A path is a claim about ONE
+   * filesystem, so `/home/dev/api` starred on Box is Box's row; `local` is
+   * the control-plane host and the default, exactly as in `recent_paths`.
+   */
+  nodeId: string;
   /** Entity type ("directory" today) */
   kind: FavoriteKind;
   /** What is favorited: absolute path for "directory", entity id later */

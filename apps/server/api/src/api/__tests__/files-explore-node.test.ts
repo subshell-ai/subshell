@@ -6,7 +6,11 @@ import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { filesRoutes } from "@/api/files.route.js";
 import { db } from "@/db/index.js";
+import { FavoritesRepository } from "@/db/repositories/favorites.repository.js";
+import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.repository.js";
+import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
@@ -155,8 +159,10 @@ describe("files explore ?node (remote folder picker)", () => {
       expect(body.path).toBe(LISTING.path);
       expect(body.parent).toBe(LISTING.parent);
       expect(body.entries).toEqual(LISTING.entries);
-      // Control-plane sections stay EMPTY on a remote browse — node paths
-      // there would be dead clicks (and favorites are not node-scoped).
+      // The shortcut sections are answered PER NODE (0034) — this fixture's
+      // node has no rows yet, and rows saved for `local` or another user
+      // never ride in here. The positive node-scoped sections are the next
+      // test's job; these two assertions pin the negatives.
       expect(body.recent).toEqual([]);
       expect(body.favorites).toEqual([]);
       // The `truncated` flag is wire-side future-proofing, not part of the
@@ -168,6 +174,128 @@ describe("files explore ?node (remote folder picker)", () => {
       expect(cmds[0]?.path).toBe("/home/nodeuser/projects");
     } finally {
       scripted.detach();
+    }
+  });
+
+  it("remote browse ships the NODE's own Recent/Favorites; local rows never ride along", async () => {
+    const scripted = agent();
+    const recents = new RecentPathsRepository(db);
+    const favorites = new FavoritesRepository(db);
+    const nodeStar = "/home/nodeuser/starred";
+    const nodeRecent = "/home/nodeuser/projects";
+    const dupPath = "/home/nodeuser/dup";
+    const localStar = "/local/starred-own";
+    try {
+      await recents.touch(userId, nodeRecent, "api", nodeV3);
+      await recents.touch(userId, dupPath, "dup", nodeV3);
+      await recents.touch(userId, localStar, null, "local");
+      await favorites.setFavorite(userId, "directory", dupPath, true, nodeV3);
+      await favorites.setFavorite(userId, "directory", nodeStar, true, nodeV3);
+      await favorites.setFavorite(userId, "directory", localStar, true);
+
+      const body = (await (await explore({ node: nodeV3, path: "/home/nodeuser/projects" })).json()) as {
+        recent: { path: string; label: string | null }[];
+        favorites: { path: string; label: string | null }[];
+      };
+      // Node X's rows appear walking node X — the dead-click rule the old
+      // design hid behind was really a MISSING-node-column bug (0034).
+      expect(new Set(body.favorites.map((f) => f.path))).toEqual(new Set([nodeStar, dupPath]));
+      // …and a path is listed once: favorites win over recents, the local rule.
+      expect(body.recent).toEqual([{ path: nodeRecent, label: "api" }]);
+      expect(JSON.stringify(body)).not.toContain(localStar);
+
+      // The other direction: `local`'s browse shows its own star and none of
+      // the node's rows — the same path string means different machines.
+      const lbody = (await (await explore({ path: tempDir() })).json()) as typeof body;
+      expect(lbody.favorites.map((f) => f.path)).toContain(localStar);
+      expect(JSON.stringify(lbody)).not.toContain(nodeRecent);
+      expect(JSON.stringify(lbody)).not.toContain(nodeStar);
+    } finally {
+      await favorites.setFavorite(userId, "directory", nodeStar, false, nodeV3);
+      await favorites.setFavorite(userId, "directory", dupPath, false, nodeV3);
+      await favorites.setFavorite(userId, "directory", localStar, false);
+      await db.deleteFrom("recentPaths").where("userId", "=", userId).execute();
+      scripted.detach();
+    }
+  });
+
+  it("PATCH /favorite on a node obeys that node's allowlist for non-managers", async () => {
+    // A `view` grantee may browse and launch on the node but does not manage
+    // it, so a favorite they plant must live inside the node's rules — the
+    // same read/write symmetry `launchScopeFor` gives the listings: a row
+    // the picker would filter straight back out reads as a star that
+    // silently failed. The OWNER (manager) is exempt: they define the rules.
+    const memberEmail = `fav-member-${crypto.randomUUID()}@subshell.local`;
+    const members = new NodeSharesRepository(db);
+    const dirs = new NodeAllowedDirsRepository(db);
+    const memberUserId = await new UsersRepository(db).createUser({
+      email: memberEmail,
+      name: memberEmail,
+      passwordHash: await hashPassword(password),
+      role: "user",
+    });
+    const memberCookie = await signIn(memberEmail, password);
+    await members.replaceForNode(nodeV3, [{ granteeUserId: memberUserId, permission: "view" }], userId);
+    await dirs.replaceForNode(nodeV3, ["/home/nodeuser/projects"]);
+    function patchAs(body: Record<string, unknown>, who: string) {
+      return app.fetch(
+        new Request("http://localhost:3080/api/files/favorite", {
+          method: "PATCH",
+          headers: new Headers({ cookie: `better-auth.session_token=${who}`, "content-type": "application/json" }),
+          body: JSON.stringify(body),
+        }),
+      );
+    }
+    try {
+      expect(
+        (await patchAs({ path: "/home/nodeuser/secrets", favorite: true, node: nodeV3 }, memberCookie)).status,
+      ).toBe(403);
+      expect(
+        (await patchAs({ path: "/home/nodeuser/projects/app", favorite: true, node: nodeV3 }, memberCookie)).status,
+      ).toBe(200);
+      expect((await patchAs({ path: "/outside-the-rules-too", favorite: true, node: nodeV3 }, cookie)).status).toBe(
+        200,
+      );
+    } finally {
+      await db.deleteFrom("favorites").where("nodeId", "=", nodeV3).execute();
+      await dirs.clearForNode(nodeV3);
+      await members.replaceForNode(nodeV3, [], userId);
+      await deleteUserByEmailOrId(memberEmail);
+    }
+  });
+
+  it("PATCH /favorite stars per node: an invisible node 404s, a relative path 400s, unstars hit one machine", async () => {
+    const favorites = new FavoritesRepository(db);
+    const nodePath = "/home/nodeuser/star-me";
+    function patch(body: Record<string, unknown>) {
+      return app.fetch(
+        new Request("http://localhost:3080/api/files/favorite", {
+          method: "PATCH",
+          headers: new Headers({
+            cookie: `better-auth.session_token=${cookie}`,
+            "content-type": "application/json",
+          }),
+          body: JSON.stringify(body),
+        }),
+      );
+    }
+    try {
+      // Star the SAME path on both machines — two rows, two meanings.
+      expect((await patch({ path: nodePath, favorite: true, node: nodeV3 })).status).toBe(200);
+      expect((await patch({ path: nodePath, favorite: true })).status).toBe(200);
+      expect((await favorites.listByUser(userId, "directory", nodeV3)).map((f) => f.ref)).toContain(nodePath);
+      expect((await favorites.listByUser(userId, "directory")).map((f) => f.ref)).toContain(nodePath);
+      // Unstarring one machine leaves the other's row standing.
+      expect((await patch({ path: nodePath, favorite: false, node: nodeV3 })).status).toBe(200);
+      expect((await favorites.listByUser(userId, "directory", nodeV3)).map((f) => f.ref)).not.toContain(nodePath);
+      expect((await favorites.listByUser(userId, "directory")).map((f) => f.ref)).toContain(nodePath);
+
+      // A node the caller cannot see is 404 (the no-oracle rule /recent and
+      // /explore apply) — and a node path is never resolved against THIS host.
+      expect((await patch({ path: "/home/x", favorite: true, node: nodeInvisible })).status).toBe(404);
+      expect((await patch({ path: "relative/x", favorite: true, node: nodeV3 })).status).toBe(400);
+    } finally {
+      await favorites.setFavorite(userId, "directory", nodePath, false);
     }
   });
 

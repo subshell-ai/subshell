@@ -254,6 +254,29 @@ anything, and a short page — not a count, which would cost a second query
 per read — is what disables Older. `staleTime: 0` rides along from the page
 era: mounting the trail is the only thing that refreshes it.
 
+**A directory is a claim about ONE machine** (2026-09-20, operator report):
+changing the launch form's Machine clears `workingDir` and re-arms the
+per-machine seed (that node's most-recent path, else its home), because the
+carried-over path was another filesystem's answer — the picker used to open
+on it and make the person wait out a remote 404 before "Start over". This is
+the Agent-resets-Preset rule one axis over; a caller-supplied node+path pair
+(the clone dialog) survives, since the clear rides a CHANGE, not a mount.
+`node-9`-keyed recents queries mean a switch needs no staleness gate: until
+the new node answers there is no data to fill from.
+
+**The folder picker is machine-scoped end to end** (migration 0034):
+`explore`'s Recent/Favorites sections, the star mutation and the stored rows
+all carry the browsed machine — walking node X shows X's shortcuts and
+starring there stars X's path. Favorites used to be a control-plane-only
+concept and the remote panel HID the star, because a node path starred into
+an unscoped table became a dead click in every later local panel; scoping
+beat hiding. A machine change re-anchors an open panel to home (`~` — the
+route expands it locally, the remote service maps it to the AGENT's home).
+The favorite PATCH omits `node` for the control plane, so the local wire
+stays byte-identical; a node star is 404'd for invisible nodes (the
+no-oracle rule `/recent` and `/explore` apply) and 400'd for relative paths
+— the plane never resolves a node path against this host's filesystem.
+
 **The launch form asks nothing it cannot answer.** `new-subshell-form.tsx`
 filters its node options on the server's own `canLaunch` (never a re-derived
 rule), hides the Machine field when the sole target is the control-plane host —

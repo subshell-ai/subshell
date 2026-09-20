@@ -1,0 +1,5 @@
+---
+"@internal/server": minor
+---
+
+The folder picker now follows the machine you picked. Changing Machine in the launch form clears the working directory (a path is a claim about one machine's filesystem) and re-seeds it from the NEW node's own most-recent path or home — no more waiting on a remote "path doesn't exist" before the picker is usable; an open panel re-anchors to the new machine's home the moment the pick moves. Recent and Favorites become per-machine too: favorites gain the node dimension `recent_paths` has carried since the nodes plane landed, browsing a node now ships THAT node's Recent/Favorites sections (they were hidden everywhere but the control plane), and the star is offered on a node's rows — starring Box's `/home/dev/api` no longer plants a dead click in the local panel. `PATCH /api/files/favorite` grows an optional `node` (omitted = `local`, byte-identical to before); the local wire is unchanged everywhere.
