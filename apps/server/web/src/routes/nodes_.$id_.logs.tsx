@@ -1,6 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { NodeLogCard } from "@/components/nodes/node-log-card";
 import { NodePageShell } from "@/components/nodes/node-page-shell";
+import { managesNodeSections } from "@/components/nodes/node-section-nav";
 
 export const Route = createFileRoute("/nodes_/$id_/logs")({ component: NodeLogsPage });
 
@@ -16,7 +17,11 @@ function NodeLogsPage() {
   return (
     <NodePageShell id={id}>
       {(node) =>
-        node.status === "online" ? (
+        !managesNodeSections(node) ? (
+          // The nav hid this tab for a reason — a deep link lands on the
+          // Overview rather than a log card whose route refuses.
+          <Navigate to="/nodes/$id" params={{ id: node.id }} replace />
+        ) : node.status === "online" ? (
           <NodeLogCard node={node} />
         ) : (
           <p className="text-muted-foreground text-sm">

@@ -1,6 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { NodeAllowedDirs } from "@/components/nodes/node-allowed-dirs";
 import { NodePageShell } from "@/components/nodes/node-page-shell";
+import { managesNodeSections } from "@/components/nodes/node-section-nav";
 import { NodeServerUrlCard } from "@/components/nodes/node-server-url-card";
 
 export const Route = createFileRoute("/nodes_/$id_/config")({ component: NodeConfigPage });
@@ -17,12 +18,18 @@ function NodeConfigPage() {
   const { id } = Route.useParams();
   return (
     <NodePageShell id={id}>
-      {(node) => (
-        <>
-          <NodeServerUrlCard node={node} />
-          <NodeAllowedDirs node={node} />
-        </>
-      )}
+      {(node) =>
+        managesNodeSections(node) ? (
+          <>
+            <NodeServerUrlCard node={node} />
+            <NodeAllowedDirs node={node} />
+          </>
+        ) : (
+          // Same rule as the nav: `local` and a `view` grantee get the
+          // Overview, not two cards whose routes 400/403 them.
+          <Navigate to="/nodes/$id" params={{ id: node.id }} replace />
+        )
+      }
     </NodePageShell>
   );
 }
