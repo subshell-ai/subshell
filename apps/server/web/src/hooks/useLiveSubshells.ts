@@ -15,7 +15,7 @@ export function useLiveSubshells(): {
   subshells: SubshellView[];
   connected: boolean;
   isLoading: boolean;
-  /** True when the REST list failed AND the SSE stream has delivered nothing */
+  /** True when the REST list failed AND the live socket has delivered nothing */
   isError: boolean;
   /** Re-runs the REST list fetch (the retry affordance for `isError`) */
   refetch: () => Promise<unknown>;

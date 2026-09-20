@@ -58,6 +58,13 @@ export function MouseSamplingCard() {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commit}
+            // Enter commits too, or the box and the sentence under it disagree
+            // for as long as the field keeps focus — which is exactly how long
+            // someone who typed a number and pressed Enter will be looking at
+            // them.
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commit();
+            }}
             className="w-24"
           />
         </div>

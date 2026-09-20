@@ -35,7 +35,13 @@ interface LiveSubshellsFeedValue {
   requestPreviews: (ids: string[]) => void;
 }
 
-/** Fixed delay before the first reconnect attempt; later ones back off to {@link RECONNECT_MAX_MS}. */
+/**
+ * Reconnect delays: the first attempt waits {@link RECONNECT_MIN_MS}, every
+ * later one {@link RECONNECT_MAX_MS}. Two steps rather than a ramp — a
+ * dashboard is worth retrying quickly, and the cap is low enough that a
+ * backend which is simply down costs one token POST every three seconds per
+ * tab rather than an ever-growing wait nobody would notice ending.
+ */
 const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 3_000;
 
@@ -70,7 +76,7 @@ const FeedContext = createContext<LiveSubshellsFeedValue>({
  *
  * **Quiet frames must cost nothing.** Every observer of `SUBSHELLS_QUERY_KEY`
  * — sidebar, pickers, every open pane's trust row — would otherwise rebuild
- * on this stream's 1.5 s beat whether or not anything changed. It does not:
+ * on every frame whether or not anything changed. It does not:
  * `setQueryData` structurally shares the write (unchanged rows keep their
  * references; a wholly unchanged list keeps the ARRAY's), and `lastList` is
  * set from the cache read-back rather than the freshly parsed frame, so an
@@ -250,8 +256,12 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
             // same subshell until something else moves it.
             for (const row of settled) syncDetail(row.id, row);
             attempts = 0; // a delivered snapshot is what proves the connection good
-            // A reconnect re-pulls what this page is showing, since the fresh
-            // snapshot's rows are screenless.
+            // Re-pulls what this page is showing, since every snapshot's rows
+            // are screenless. On a RECONNECT `showing` is always empty — it is
+            // created per connection — and `use-card-previews.ts` re-asks a
+            // render later off `connected`; what this line actually serves is
+            // the resync snapshot, which arrives on a socket that has been
+            // told what it is showing.
             if (showing.size > 0) send(socket, { type: "previews", ids: [...showing] });
             return;
           }

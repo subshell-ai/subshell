@@ -30,8 +30,12 @@ class FakeWS {
   }
 }
 
+/** The context's `requestPreviews`, captured so a test can play a card asking for screens. */
+let lastRequestPreviews: (ids: string[]) => void = () => {};
+
 function Consumer() {
   const feed = useLiveSubshellsFeed();
+  lastRequestPreviews = feed.requestPreviews;
   return <p data-testid="state">{`${feed.connected}:${feed.lastList?.length ?? -1}`}</p>;
 }
 
@@ -492,6 +496,60 @@ describe("LiveSubshellsFeedProvider", () => {
     frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] });
     frame({ type: "subshell-recheck", id: "a" });
     expect(ws.outbox.filter((f) => JSON.parse(f).type === "resync")).toHaveLength(2);
+  });
+
+  it("puts a preview frame onto the row it names, and ignores one for a row it lost", async () => {
+    // The one frame kind with no coverage at all, and the only path that
+    // carries a pane's rendered screen to the browser.
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const frame = (payload: unknown) =>
+      act(() => {
+        FakeWS.instances[0].onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] });
+    frame({ type: "preview", id: "a", lines: ["$ hello"] });
+    expect(client.getQueryData<Array<{ id: string; preview?: string[] }>>(SUBSHELLS_QUERY_KEY)?.[0].preview).toEqual([
+      "$ hello",
+    ]);
+
+    // A screen for a row this client does not hold is dropped rather than
+    // creating one: the list decides which rows exist.
+    frame({ type: "preview", id: "ghost", lines: ["$ nope"] });
+    expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)?.map((r) => r.id)).toEqual(["a"]);
+  });
+
+  it("carries a held screen across a snapshot, and re-asks for what it shows", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    const ws = FakeWS.instances[0];
+    const frame = (payload: unknown) =>
+      act(() => {
+        ws.onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      });
+
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] });
+    frame({ type: "preview", id: "a", lines: ["$ held"] });
+
+    // The cards say what they are showing…
+    act(() => {
+      lastRequestPreviews(["a"]);
+    });
+    expect(JSON.parse(ws.outbox.at(-1) as string)).toEqual({ type: "previews", ids: ["a"] });
+    ws.outbox.length = 0;
+
+    // …a change to one of them re-asks, because a broadcast carries no screen…
+    frame({ type: "subshell", id: "a", row: { id: "a", status: "running" } });
+    expect(ws.outbox.map((f) => JSON.parse(f))).toContainEqual({ type: "previews", ids: ["a"] });
+    ws.outbox.length = 0;
+
+    // …and a snapshot, which never captures, must not blank what is on screen.
+    frame({ type: "snapshot", subshells: [{ id: "a", access: "owner" }] });
+    expect(client.getQueryData<Array<{ preview?: string[] }>>(SUBSHELLS_QUERY_KEY)?.[0].preview).toEqual(["$ held"]);
+    expect(ws.outbox.map((f) => JSON.parse(f))).toContainEqual({ type: "previews", ids: ["a"] });
   });
 
   it("does not let a stale snapshot resurrect a row it was told is gone", async () => {

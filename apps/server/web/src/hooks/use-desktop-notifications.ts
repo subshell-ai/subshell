@@ -49,12 +49,14 @@ export interface DesktopNotificationsState {
  * Native notifications for the desktop shell, driven off the feed the app
  * already has.
  *
- * The web path is VAPID push through a service worker, and `lib/notifications.ts`
- * gates on `PushManager` — which neither WKWebView nor WebKitGTK has, so the
- * desktop app would report "unsupported" and a tray-resident window would have
- * no way to say an agent is waiting. That undercuts the point of a tray.
+ * The web path is VAPID push through a service worker. Whether a webview has
+ * `PushManager` is measured in `lib/notifications.ts` rather than assumed — an
+ * earlier version of this comment asserted that neither WKWebView nor
+ * WebKitGTK has it, and that turned out to be false. What holds regardless is
+ * the reason this path exists: a tray-resident window must be able to say an
+ * agent is waiting without depending on a push subscription at all.
  *
- * This needs no server work and no VAPID keys: the SSE feed already writes
+ * This needs no server work and no VAPID keys: the live feed already writes
  * every subshell's state into the query cache, so the only thing missing was
  * noticing a TRANSITION.
  *

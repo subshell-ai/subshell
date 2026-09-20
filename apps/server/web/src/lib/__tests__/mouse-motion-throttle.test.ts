@@ -31,24 +31,41 @@ describe("createMotionThrottle", () => {
     return { sent, send: (d: string) => sent.push(d) };
   };
 
-  it("collapses a burst of motion into ONE send, carrying the latest position", async () => {
+  it("sends the FIRST movement at once, then collapses the burst behind it", async () => {
     const { sent, send } = collect();
     const t = createMotionThrottle(send, 20);
     for (let col = 1; col <= 25; col++) t.push(report(35, col));
-    expect(sent).toEqual([]); // nothing yet — sampled, not forwarded
+    // Leading edge: picking a drag up must not wait out a window. At the 2/s
+    // default that wait is half a second, and it reads as the terminal
+    // lagging the hand.
+    expect(sent).toEqual([report(35, 1)]);
     await new Promise((r) => setTimeout(r, 40));
-    expect(sent).toEqual([report(35, 25)]); // the position actually reached
+    // …and the boundary carries the position actually reached, not the one it
+    // happened to be at when the window opened.
+    expect(sent).toEqual([report(35, 1), report(35, 25)]);
+    t.dispose();
+  });
+
+  it("goes idle when the pointer stops, so the next movement leads again", async () => {
+    const { sent, send } = collect();
+    const t = createMotionThrottle(send, 15);
+    t.push(report(35, 1));
+    expect(sent).toEqual([report(35, 1)]);
+    await new Promise((r) => setTimeout(r, 40)); // the window closes empty
+    t.push(report(35, 2));
+    expect(sent).toEqual([report(35, 1), report(35, 2)]); // immediate again
     t.dispose();
   });
 
   it("forwards a keystroke IMMEDIATELY, and never after the motion it followed", () => {
     const { sent, send } = collect();
     const t = createMotionThrottle(send, 1000);
-    t.push(report(35, 7));
+    t.push(report(35, 7)); // leading edge — out at once
+    t.push(report(35, 8)); // held behind the window
     t.push("a");
     // The pending motion goes first, then the keystroke — order preserved, and
     // the keystroke waited for nothing.
-    expect(sent).toEqual([report(35, 7), "a"]);
+    expect(sent).toEqual([report(35, 7), report(35, 8), "a"]);
     t.dispose();
   });
 
@@ -65,10 +82,11 @@ describe("createMotionThrottle", () => {
   it("sends the last motion on dispose rather than dropping it", () => {
     const { sent, send } = collect();
     const t = createMotionThrottle(send, 1000);
-    t.push(report(35, 3));
-    expect(sent).toEqual([]);
-    t.dispose();
+    t.push(report(35, 3)); // leading edge
+    t.push(report(35, 4)); // pending behind the window
     expect(sent).toEqual([report(35, 3)]);
+    t.dispose();
+    expect(sent).toEqual([report(35, 3), report(35, 4)]);
   });
 
   it("samples steadily rather than postponing forever while the pointer keeps moving", async () => {

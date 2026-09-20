@@ -12,7 +12,7 @@ import { desktopInvoke } from "@/lib/desktop";
  * Deliberately derived from state the app already holds —
  * {@link useServerOffline} reads the query cache for a stuck `NetworkError` —
  * rather than polling anything of its own. A desktop app that added a second
- * health poll beside the SSE feed would be paying twice for a fact it already
+ * health poll beside the live feed would be paying twice for a fact it already
  * has, and the two would disagree during a restart.
  *
  * Where it leads depends on both halves of the situation (spec 2026-09-12

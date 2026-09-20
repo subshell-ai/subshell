@@ -87,7 +87,7 @@ export function SubshellPane({
   // The pane row carries only a summary join, not the sharing/node fields the
   // disclosure needs — so read this subshell's row out of the app-wide live
   // list (already cached; no extra request). The SELECTOR matters: the whole
-  // list re-renders its subscribers on the feed's 1.5 s beat, and a pane that
+  // list re-renders its subscribers whenever the feed writes, and a pane that
   // subscribes to all of it repaints because some OTHER subshell printed.
   const subshellRow = useSubshellRow(pane.subshellId);
   const trustNotices = useTrustNotices(subshellRow);

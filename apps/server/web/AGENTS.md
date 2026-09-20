@@ -90,6 +90,18 @@ every running pane's screen server-side. Three consequences the client owns:
   the home cards are the only surface that draws one. They ask for what they
   show, and re-ask when a change arrives for one of them.
 
+**Which caches the feed writes, exactly**, because a reader that this page
+missed is invisible until somebody notices a screen that never changes:
+`SUBSHELLS_QUERY_KEY` always, and `["subshell", id]` — the per-id entry
+`use-subshell-data.ts` reads — WHEN that entry already exists, never creating
+one. Those are different keys, and for one review cycle only the first was
+written: `/subshells/$id` then learned nothing after mount, its own pane dying
+included, while workspace panes were fine because `use-subshell-row.ts` is a
+selector over the list. A removal or an access change INVALIDATES the per-id
+entry instead, so an active page refetches to the honest answer (including the
+404 it renders as not-found) and an inactive one costs nothing. Any new reader
+of a subshell should be a selector over the list, or it needs a line here.
+
 **Quiet frames still cost nothing**: the write is structurally shared (an
 unchanged row keeps its object, an unchanged list keeps the array — and
 `lastList` is set from the cache read-back, so the provider re-renders only on

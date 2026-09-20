@@ -236,7 +236,7 @@ export function AppSidebar({
    * That reuse is the point. This rail is the `application/x-subshell-id` drag
    * source, the live-status surface, the host of two context menus, the
    * quick-add trigger and the only consumer of the collapse preference, all
-   * riding one SSE feed. A second implementation would lose every one of those
+   * riding one live socket. A second implementation would lose every one of those
    * silently and then drift.
    */
   variant?: "web" | "desktop";

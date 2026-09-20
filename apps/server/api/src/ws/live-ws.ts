@@ -269,8 +269,13 @@ export async function handleLiveMessage(ws: LiveWsSocket, raw: unknown, deps: Li
   // ONE capture run per socket at a time. Each id is a `capture-pane` spawn,
   // and a client that asks again before the last answer landed — a filter
   // being typed, a burst of changes — would otherwise multiply that by however
-  // many requests are in flight. Dropping the overlapping ask is safe because
-  // the client re-asks whenever what it shows changes.
+  // many requests are in flight.
+  //
+  // A dropped ask is not retried, and the client does not re-ask on its own:
+  // the trigger that loses to this guard is the per-id ask a change fires, not
+  // a change in the set being shown. So the cost of the guard is a screen one
+  // beat staler than it could be, which is inside what §4.4 already accepts
+  // about pulled previews.
   if (ws.data.liveCapturing) return;
   ws.data.liveCapturing = true;
   try {

@@ -45,9 +45,13 @@ export interface MotionThrottle {
  * hand drifting across the terminal can ask for dozens of spawns a second and
  * queue real keystrokes behind them. Reported from a live session, 2026-09-20.
  *
- * The sampling is TRAILING: the most recent motion is always the one sent, so
- * the pane ends up at the position the pointer actually reached rather than
- * wherever it happened to be when a window closed. Anything that is not a lone
+ * The sampling is LEADING AND TRAILING. The first movement after a quiet
+ * moment goes out at once — at the 2/s default a trailing-only throttle put
+ * half a second between picking a drag up and the pane knowing about it, which
+ * is felt as the terminal lagging the hand — and the most recent motion is
+ * always the one sent at each boundary, so the pane ends up at the position
+ * the pointer actually reached rather than wherever it happened to be when a
+ * window closed. Anything that is not a lone
  * motion report — a keystroke, a press, a release, a wheel notch, a paste, a
  * chunk carrying several things — flushes the pending motion FIRST and then
  * goes out immediately, so order is never disturbed and nothing but movement
@@ -68,13 +72,35 @@ export function createMotionThrottle(send: (data: string) => void, intervalMs: n
     send(data);
   };
 
+  /**
+   * A window closed. If the pointer moved during it, send where it got to and
+   * open another — that is what keeps a steady drag sampled at the interval
+   * rather than postponed until it stops. If it did not, the throttle goes
+   * idle, so the NEXT movement is a leading edge again.
+   */
+  const tick = (): void => {
+    if (pending === null) {
+      timer = null;
+      return;
+    }
+    const data = pending;
+    pending = null;
+    send(data);
+    timer = setTimeout(tick, intervalMs);
+  };
+
   return {
     push(data: string) {
       if (isMotionReport(data)) {
-        pending = data;
-        // Leading-edge timer: a pointer moving steadily is sampled every
-        // interval rather than having its report postponed indefinitely.
-        if (!timer) timer = setTimeout(flush, intervalMs);
+        if (timer) {
+          // Inside a window: remember it, and the boundary will send it.
+          pending = data;
+          return;
+        }
+        // LEADING EDGE: nothing is in flight, so this one goes now. What the
+        // window then buys is the rate limit on everything that follows.
+        send(data);
+        timer = setTimeout(tick, intervalMs);
         return;
       }
       if (timer) {

@@ -107,7 +107,7 @@ function SubshellsPage() {
       {isLoading && <p className="text-muted-foreground text-sm">Loading subshells…</p>}
 
       {/* A failed list fetch is not an empty account: say what broke and
-          offer the retry, rather than the "No subshells yet" card — the SSE
+          offer the retry, rather than the "No subshells yet" card — the live
           stream may never have delivered either, so this is the only truth
           the page has. Network failures now also self-heal via the query
           retry loop (and the global offline banner); the button remains for

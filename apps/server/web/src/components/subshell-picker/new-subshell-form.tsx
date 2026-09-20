@@ -209,7 +209,7 @@ export function NewSubshellForm({
   const presets = presetRows ?? [];
 
   // The default agent reads the user's most recent subshell — data the ONE
-  // SSE-fed list already holds, so no new request (spec §5).
+  // live-fed list already holds, so no new request (spec §5).
   const { data: subshells, isPending: subshellsPending } = useSubshellsList();
   const recentHarnessId = useMemo(() => {
     const list = Array.isArray(subshells) ? sortByCreation(subshells) : [];
