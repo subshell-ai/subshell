@@ -48,6 +48,7 @@ import { type ManualRoute, manualTmuxRoutes, tmuxInstallPlan } from "./lib/insta
 import type { About, ActionResult, AppUpdateCheck, LogTail, Probe } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
 import { type PermissionRequest, permissionRows } from "./lib/permissions-model";
+import { pollShouldRender } from "./lib/poll-gate";
 import { recoveryFacts, recoverySubtitle } from "./lib/recovery-model";
 import {
   HTTPS_RESTART_NOTE,
@@ -1340,7 +1341,7 @@ function renderRecovery(p: Probe): void {
   }
   // The secondary doors, one per row. `#content` is a plain block, so these
   // appended bare used to flow onto ONE line with no gaps between them — the
-  // mash that read as three labels run together. The stack gives each its own
+  // mash that read as four labels run together. The stack gives each its own
   // row and the poll's churn gate (see `tick`) is what makes them pressable.
   // Reachable HERE as well as from the dashboard, and that is the point: a
   // machine whose service definition is broken has no dashboard to open the
@@ -2765,10 +2766,19 @@ async function refresh(): Promise<void> {
 }
 /**
  * What the poll's render can change, serialized. `probe` and `lastTail` are
- * the only state the poll itself produces — every other input to `render()`
- * (busy, running, problem, failure, the forms, the update act's state) is
- * mutated by a handler that renders on its own — and the screen itself moves
- * only through `go`/`applyScreen`, which render too.
+ * the only state the poll itself produces, and the screen itself moves only
+ * through `go`/`applyScreen`, which render too.
+ *
+ * The claim that bounds this gate is narrower than it looks, and its limits
+ * are why {@link pollShouldRender} takes `catchUp`: a writer that mutates
+ * render-visible state WITHOUT rendering unconditionally is invisible here.
+ * Two live examples, by design: the address form's input handlers mutate
+ * `form`/`explicit` and patch the DOM in place (typing must not rebuild the
+ * field under the cursor), and `checkPort` resolves while the port field is
+ * focused and renders only when no text field has focus. Both are safe
+ * because `tick` skips its render under the same conditions and the catch-up
+ * render pays the skipped tick back — see {@link pollShouldRender} for the
+ * shape of writer that would NOT be caught.
  *
  * Comparing before and after the poll's refresh is what makes the redraw
  * conditional: a recovery screen the machine has nothing new to say about
@@ -2782,11 +2792,20 @@ async function refresh(): Promise<void> {
 function pollSignature(): string {
   return JSON.stringify([probe, lastTail, screen, busy, running, problem, failure, detailsOpen]);
 }
+/** Whether any tick since the last render skipped its redraw. */
+let pollSkipped = false;
 async function tick(): Promise<void> {
-  if ((busy || document.hidden) && !running) return;
+  if ((busy || document.hidden) && !running) {
+    pollSkipped = true;
+    return;
+  }
   // Never redraw under a hand typing in the address form, or in the reset
   // screen's confirmation box.
-  if (isTextEntry(document.activeElement)) return;
+  if (isTextEntry(document.activeElement)) {
+    pollSkipped = true;
+    return;
+  }
+  const catchUp = pollSkipped;
   const before = pollSignature();
   try {
     await refresh();
@@ -2804,9 +2823,11 @@ async function tick(): Promise<void> {
       /* the pane keeps its last content */
     }
   }
-  // Nothing the reader could see has changed: leave the DOM alone.
-  if (pollSignature() === before) return;
+  // Nothing the reader could see has changed, and no skip is owed a catch-up:
+  // leave the DOM alone.
+  if (!pollShouldRender(before, pollSignature(), catchUp)) return;
   render();
+  pollSkipped = false;
 }
 
 /**
