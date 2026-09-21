@@ -62,6 +62,7 @@ import {
 import type { About, ActionResult, AppUpdateCheck, LogTail, Probe } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
 import { recoverySubtitle } from "./lib/recovery-model";
+import { armed, emptySteps, knownStep, refusal, type StepKey, type StepState } from "./lib/reset";
 import { nextPollDelay, type Route, resolveJourney, route } from "./lib/server-state";
 import { SETTINGS_LABEL, SETTINGS_SUBTITLE } from "./lib/settings-screen";
 import { type ActState, NO_SELECTION, UPDATE_TITLE, type UpdateActSelection } from "./lib/update-act";
@@ -81,6 +82,8 @@ import {
 import { useAssistantRunners } from "./runners";
 import { AddressesScreen } from "./screens/addresses-screen";
 import { HandoffScreen } from "./screens/handoff-screen";
+import { PermissionsScreen } from "./screens/permissions-screen";
+import { type ResetLog, ResetScreen } from "./screens/reset-screen";
 import { SetupScreen } from "./screens/setup-screen";
 import { StatusScreen } from "./screens/status-screen";
 import { SupervisionScreen } from "./screens/supervision-screen";
@@ -293,7 +296,7 @@ export function Host(): React.JSX.Element {
    * own press is a Continue that opens the dashboard rather than a Back that
    * drops them where the probe implies.
    */
-  const [_permissionsAfterHandoff, setPermissionsAfterHandoff] = useState(false);
+  const [permissionsAfterHandoff, setPermissionsAfterHandoff] = useState(false);
   /** The two supervision boxes on the setup screen; reset with the form. */
   const [supervision, setSupervision] = useState<SupervisionChoice>(DEFAULT_SUPERVISION);
   /**
@@ -376,11 +379,31 @@ export function Host(): React.JSX.Element {
   /** Who made this app, its version and its terms — read ONCE on boot. */
   const [about, setAbout] = useState<About | null>(null);
   /**
-   * The reset chain's most recent step event, as the listener delivers it.
-   * The reset screen's meter consumes it (Task 7); the host is its writer
-   * because the event arrives whether or not the screen is up.
+   * The reset view's own state (spec 2026-09-21; plan Task 7) — page state in
+   * the old `reset-view.ts`, for the same reason every other mid-chain fact
+   * is: the poll re-renders on its own clock, so a state the DOM held would
+   * be erased mid-chain.
+   *
+   * - `resetOpen` is the view's open flag, and the ROUTE gates on it: the
+   *   old render checked `resetView.isOpen()` before everything else, and
+   *   "gate the reset route on the view's open state, not on
+   *   `screen === "reset"` alone" is that gate kept. The pairing is
+   *   load-bearing — `openReset` sets the screen AND opens the view, because
+   *   the screen is what explains a refusal and shows whether or not a plan
+   *   staged.
+   * - `resetSteps` is the meter, merged live from `desktop-reset-step`.
+   * - `resetArmingProblem` is why the last arming attempt did not stage a
+   *   plan; the screen must never present an armed-looking box over an empty
+   *   stash.
+   * - `resetRunLabel` is the run button's label at rest; a half-run promotes
+   *   it to "Retry reset" and it must stay promoted.
+   * - `resetLog` is the half-run's verbatim record.
    */
-  const [_resetStep, setResetStep] = useState<{ step: string; state: string } | null>(null);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetSteps, setResetSteps] = useState<Record<StepKey, StepState>>(emptySteps);
+  const [resetArmingProblem, setResetArmingProblem] = useState<string | null>(null);
+  const [resetRunLabel, setResetRunLabel] = useState("Reset everything");
+  const [resetLog, setResetLog] = useState<ResetLog | null>(null);
   /** True once the boot sequence has run to the point the old page started its poll. */
   const [booted, setBooted] = useState(false);
 
@@ -431,7 +454,9 @@ export function Host(): React.JSX.Element {
    * read as the configuration), and its result.
    */
   const close = useCallback((): void => {
-    setResetStep(null); // the old `resetView.hide()`
+    // The old `resetView.hide()`: the screen steps aside; the meter and the
+    // typed name are the next open's business (`openReset` clears them).
+    setResetOpen(false);
     setSupervisionForm(null);
     setSettingsForm(null);
     setSettingsBlind(false);
@@ -453,6 +478,114 @@ export function Host(): React.JSX.Element {
   }, []);
 
   /**
+   * Arm a plan. Three outcomes, and the screen has to tell them apart:
+   * staged (null), the CLI would not report its paths (the refusal the screen
+   * already has words for), and the command itself was refused — which in
+   * practice means a `tauri dev` session whose Rust half predates this
+   * command, and which must never look like a screen that is ready to run.
+   */
+  const armReset = useCallback(async (): Promise<string | null> => {
+    try {
+      if (await ipc.armReset()) return null;
+      return (
+        refusal(probeRef.current?.status) ??
+        "This server did not report its data locations, so there is nothing to stage."
+      );
+    } catch (err) {
+      // Say what is out of step, not what kind of build this is. The chain
+      // itself behaves the same in a dev build as in a release one; the one
+      // branch is the FINAL restart (a dev build re-probes in place rather
+      // than restart out of `tauri dev`'s tree), which is after anything this
+      // screen can fail at. The first person to read the older wording took
+      // it as a prohibition, which would have sent them looking for a setting
+      // that does not exist.
+      return `The reset could not be staged: ${errText(err)}. This app's window is newer than the app itself, which is what happens when a dev session reloads the page but not its Rust half; quit and relaunch it.`;
+    }
+  }, []);
+
+  /**
+   * Arm a plan and raise the Reset screen — the old `openReset`, both halves
+   * PAIRED, and deliberately NO epoch bump: the old `openReset` did not replay
+   * the screen entrance, and the review note asked for that to be kept.
+   */
+  const openReset = useCallback((): void => {
+    setScreen("reset");
+    // SHOW FIRST, then arm. The screen is open from the moment it was asked
+    // for, and the plan is content that arrives after. The old view `await`ed
+    // arming before flipping its flag, and the boot render resolved inside
+    // that window, saw a ready machine, and handed off — the dashboard opened
+    // and the assistant closed. Nothing is lost by showing early: a refused
+    // arming explains itself the moment it answers, and the run button
+    // RE-ARMS on every press.
+    setResetOpen(true);
+    // A refusal belongs to the arming that produced it. Showing first is what
+    // makes the screen appear at once, so a leftover from the last open would
+    // be the first thing drawn — the old "no", with the button disabled, over
+    // a machine that may well now be resettable.
+    setResetArmingProblem(null);
+    setResetSteps(emptySteps());
+    void armReset().then((why) => setResetArmingProblem(why));
+  }, [armReset]);
+
+  /**
+   * The reset chain, from the run press. Ported line for line from the old
+   * `reset-view.ts` click handler: a fresh meter per press, RE-ARMING on
+   * every press (the plan is one-shot by design — a finished chain spends
+   * it), the half-run log with the Retry promotion, and the fresh-welcome
+   * handoff after the machine answers.
+   */
+  const runReset = useCallback(
+    async (typed: string): Promise<void> => {
+      if (!armed(typed, probeRef.current?.hostname ?? "")) return;
+      setBusyState(true);
+      // A fresh meter per press — including Retry, whose rows still show the
+      // last half-run's failure. The chain re-runs from the top; the rows do
+      // too. `plan` is the page's own first step: the arming round trip
+      // spawns its own probes, and before the meter existed the press's first
+      // one-to-three silent seconds were the same complaint.
+      setResetSteps({ ...emptySteps(), plan: "running" });
+      setResetLog({ text: "", bad: false });
+      try {
+        // Re-arm on EVERY press, not just when the screen opens. Arming is
+        // idempotent: one probe, one stash, no mutation of the machine. A
+        // false answer means the CLI would not report its paths, so there is
+        // nothing this screen can promise to delete.
+        const why = await armReset();
+        if (why !== null) {
+          setResetSteps((prev) => ({ ...prev, plan: "failed" }));
+          setResetLog({ text: why, bad: true });
+          setResetRunLabel("Retry reset");
+          setBusyState(false);
+          return;
+        }
+        setResetSteps((prev) => ({ ...prev, plan: "done" }));
+        const result = await ipc.reset(typed);
+        // The machine answered — even a partial wipe answers as a first run
+        // through the refreshed probe — so the page's fired-already latch and
+        // any pre-reset failure describe a machine that no longer exists.
+        rearmFirstRun();
+        const parts: string[] = [];
+        if (result?.stdout?.trim()) parts.push(result.stdout.trim());
+        if (result?.stderr?.trim()) parts.push(result.stderr.trim());
+        setResetLog({ text: parts.join("\n\n"), bad: result?.ok === false });
+        if (result?.ok === false) setResetRunLabel("Retry reset");
+      } catch (err) {
+        // Err is the pre-flight channel (hostname mismatch, no plan, refused
+        // guard): one sentence, no partial log exists to show.
+        setResetLog({ text: errText(err), bad: true });
+        setResetRunLabel("Retry reset");
+      }
+      setBusyState(false);
+      try {
+        await refresh();
+      } catch {
+        /* the machine is being deleted under us */
+      }
+    },
+    [armReset, rearmFirstRun, refresh],
+  );
+
+  /**
    * Apply a screen named from OUTSIDE this page, from either source.
    *
    * One function because there are two ways in and they must not drift: a
@@ -461,54 +594,54 @@ export function Host(): React.JSX.Element {
    * — the push it replaced was emitted from Rust's `on_page_load`, which
    * fires before this page's JavaScript exists.
    */
-  const applyScreen = useCallback((payload: string): void => {
-    if (payload === "reset") {
-      // The old `openReset` set `screen` first, then armed the plan — the
-      // screen is what explains a refusal, so it shows whether or not a plan
-      // staged. Arming is the reset screen's own act (Task 7); the routing
-      // is already exact.
-      setScreen("reset");
+  const applyScreen = useCallback(
+    (payload: string): void => {
+      if (payload === "reset") {
+        // The old `openReset`, called as-is: the screen-set and the view's
+        // open() are one act, and no entrance replay rode it.
+        openReset();
+        return;
+      }
+      setResetOpen(false); // the old `resetView.hide()`
+      // A pending selection belongs to one visit of the supervision screen, and
+      // this is its other exit: the sidebar pill, an Update request or a Reset
+      // request all land here while that screen may be showing.
+      setSupervisionForm(null);
+      // Server Addresses has the same two exits and the same rule: its fields
+      // are seeded from the machine, so a draft surviving into the next visit
+      // would be showing a configuration the machine may no longer have.
+      setSettingsForm(null);
+      setSettingsBlind(false);
+      setSettingsForceChecked(null);
+      setSettingsResult(null);
+      // `seeded` is deliberately NOT here: it is the SETUP form's seeded-once
+      // flag, cleared only by that form's reset, and the old `applyScreen`
+      // never touched it.
+      // Same rule for the update act: its result and its fired-once latch
+      // belong to ONE visit. Without this a window that finished an update and
+      // came back would render "up to date" from a page fact rather than from
+      // the machine — and, worse, a phase 2 that FAILED would come back to a
+      // screen with the latch still set: no auto-fire, and no Try Again either,
+      // because the button hangs off the result this would otherwise have kept.
+      setUpdateResult(null);
+      setResumeFired(false);
+      // The ticks belong to one visit too: a selection made against the machine
+      // as it was is not an answer about the machine as it is now.
+      setUpdateSelection(NO_SELECTION);
+      // A REQUESTED permissions screen is not the handoff's, whatever this
+      // window was doing a moment ago: it was asked for from somewhere the
+      // person can go back to, so it takes Back rather than the Continue that
+      // opens a dashboard.
+      setPermissionsAfterHandoff(false);
+      setScreen(screenForRequest(payload));
+      // A reset returns this page to a machine with nothing set up, so the
+      // handoff guard has to be released or a later ready probe renders nothing.
+      setHandedOff(false);
+      // The old `applyScreen` replayed the entrance on its way out.
       setScreenEpoch((e) => e + 1);
-      return;
-    }
-    setResetStep(null); // the old `resetView.hide()`
-    // A pending selection belongs to one visit of the supervision screen, and
-    // this is its other exit: the sidebar pill, an Update request or a Reset
-    // request all land here while that screen may be showing.
-    setSupervisionForm(null);
-    // Server Addresses has the same two exits and the same rule: its fields
-    // are seeded from the machine, so a draft surviving into the next visit
-    // would be showing a configuration the machine may no longer have.
-    setSettingsForm(null);
-    setSettingsBlind(false);
-    setSettingsForceChecked(null);
-    setSettingsResult(null);
-    // `seeded` is deliberately NOT here: it is the SETUP form's seeded-once
-    // flag, cleared only by that form's reset, and the old `applyScreen`
-    // never touched it.
-    // Same rule for the update act: its result and its fired-once latch
-    // belong to ONE visit. Without this a window that finished an update and
-    // came back would render "up to date" from a page fact rather than from
-    // the machine — and, worse, a phase 2 that FAILED would come back to a
-    // screen with the latch still set: no auto-fire, and no Try Again either,
-    // because the button hangs off the result this would otherwise have kept.
-    setUpdateResult(null);
-    setResumeFired(false);
-    // The ticks belong to one visit too: a selection made against the machine
-    // as it was is not an answer about the machine as it is now.
-    setUpdateSelection(NO_SELECTION);
-    // A REQUESTED permissions screen is not the handoff's, whatever this
-    // window was doing a moment ago: it was asked for from somewhere the
-    // person can go back to, so it takes Back rather than the Continue that
-    // opens a dashboard.
-    setPermissionsAfterHandoff(false);
-    setScreen(screenForRequest(payload));
-    // A reset returns this page to a machine with nothing set up, so the
-    // handoff guard has to be released or a later ready probe renders nothing.
-    setHandedOff(false);
-    // The old `applyScreen` replayed the entrance on its way out.
-    setScreenEpoch((e) => e + 1);
-  }, []);
+    },
+    [openReset],
+  );
 
   /**
    * The Customize disclosure's toggle, with its two halves: OPENING seeds the
@@ -723,9 +856,13 @@ export function Host(): React.JSX.Element {
   useEffect(() => {
     // The reset chain's progress: one frame per phase transition (spec
     // 2026-09-13 — the meter exists because slow-read-as-hung was reported).
-    const unlisten = listen<{ step: string; state: string }>("desktop-reset-step", (event) =>
-      setResetStep({ step: event.payload.step, state: event.payload.state }),
-    );
+    // Unknown words drop: a page newer than its binary (or the reverse, under
+    // `tauri dev` HMR) must not invent rows.
+    const unlisten = listen<{ step: string; state: string }>("desktop-reset-step", (event) => {
+      const { step, state } = event.payload;
+      if (!knownStep(step, state)) return;
+      setResetSteps((prev) => ({ ...prev, [step]: state as StepState }));
+    });
     return () => {
       void unlisten.then((off) => off()).catch(() => {});
     };
@@ -977,6 +1114,12 @@ export function Host(): React.JSX.Element {
       }
       case "supervision":
         return { title: "How Your Server Runs", subtitle: "Change who starts it, and when.", problem };
+      case "permissions":
+        return {
+          title: "What macOS Will Ask",
+          subtitle: "Three things, each once. Here is what they are for.",
+          problem,
+        };
       case "addresses":
         return { title: SETTINGS_LABEL, subtitle: SETTINGS_SUBTITLE, problem };
       case "status": {
@@ -1001,7 +1144,29 @@ export function Host(): React.JSX.Element {
   // The route is dispatched one screen per kind. `boot` keeps its own Frame;
   // the Tasks 5–7 routes stay a marked placeholder until their screens land.
   let content: React.JSX.Element;
-  if (probe === null || r.kind === "boot") {
+  if (resetOpen) {
+    // The reset screen REPLACES the frame — the old `show()` hid `#screen`
+    // and `#bar`, and its premise is that it is the only thing happening.
+    // Checked before the boot gate, exactly where the old render's
+    // `resetView.isOpen()` check sat: the screen shows with or without a
+    // probe, because it is what explains a refusal.
+    content = (
+      <ResetScreen
+        probe={probe}
+        busy={busy || running}
+        steps={resetSteps}
+        armingProblem={resetArmingProblem}
+        runLabel={resetRunLabel}
+        log={resetLog}
+        onRunReset={(typed) => void runReset(typed)}
+        onCancel={() => {
+          // The old `reset-cancel`: hide, then the page's own close — which
+          // drops the screen for whatever the probe implies.
+          close();
+        }}
+      />
+    );
+  } else if (probe === null || r.kind === "boot") {
     content = <Frame strings={shell("boot")} art={<Wordmark />} />;
   } else {
     const p = probe;
@@ -1121,14 +1286,7 @@ export function Host(): React.JSX.Element {
             onAction={runRecovery}
             onInstallTmux={() => startTmuxInstall()}
             onGo={go}
-            onOpenReset={() => {
-              // The old `openReset` set the screen and armed the plan; the
-              // plan's arming is Task 7's screen. The request routes now —
-              // the screen is what explains a refusal, so it shows whether
-              // or not a plan staged (see the plan's Task 7 note).
-              setScreen("reset");
-              setScreenEpoch((e) => e + 1);
-            }}
+            onOpenReset={openReset}
             onReveal={(target) => {
               void ipc.openPath(target).catch(fail);
             }}
@@ -1208,8 +1366,31 @@ export function Host(): React.JSX.Element {
           />
         );
         break;
-      // Tasks 7: permissions, reset. The route is already computed; the
-      // screens land with their tasks.
+      case "permissions":
+        content = (
+          <PermissionsScreen
+            strings={shell("permissions")}
+            entranceKey={entranceKey}
+            probe={p}
+            busy={busy}
+            running={running}
+            afterHandoff={permissionsAfterHandoff}
+            act={_act}
+            fail={fail}
+            onContinue={() => {
+              // The ready screen's Continue sent them here; the press's job
+              // is the dashboard — `close()` puts them where the probe
+              // implies, and the handoff's effect opens it.
+              setPermissionsAfterHandoff(false);
+              close();
+            }}
+            onClose={close}
+          />
+        );
+        break;
+      // The reset ROUTE kind with a closed view: the old routing blanked on a
+      // mismatch, and that blanking was the defence in depth behind `open()`
+      // showing before it arms. The view, not the screen, is the gate.
       default:
         content = (
           /* Task 5–7: the screens land here — this region is empty until then. */
