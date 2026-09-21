@@ -47,11 +47,32 @@ export function Frame(props: {
   barLeft?: ReactNode;
   /** Bottom bar, right: the one primary. */
   barRight?: ReactNode;
+  /**
+   * Replay the screen-change entrance when it CHANGES (spec 2026-09-21; the
+   * old page's `replayEnter`, which ran on every screen change, manual or
+   * automatic). The scroll region — art, title, subtitle and content, the old
+   * `<main>`'s extent, the bar deliberately excluded — is keyed on the value,
+   * so a change remounts it and the `.screen-enter` animation the app's
+   * stylesheet carries plays on insertion. `undefined` (the default) never
+   * remounts anything: a host that does not track screen changes gets none of
+   * this.
+   */
+  entranceKey?: number;
 }): ReactElement {
-  const { strings, art, children, barLeft, barRight } = props;
+  const { strings, art, children, barLeft, barRight, entranceKey } = props;
   return (
     <div className="flex h-screen flex-col">
-      <div className="flex-1 overflow-y-auto px-8 py-8">
+      {/* The class rides the key: both arrive together on the first replay,
+          so the animation plays on insertion exactly as the old forced-reflow
+          restart made it, and never on the boot frame's first paint. */}
+      <div
+        key={entranceKey}
+        className={
+          entranceKey !== undefined
+            ? "screen-enter flex-1 overflow-y-auto px-8 py-8"
+            : "flex-1 overflow-y-auto px-8 py-8"
+        }
+      >
         <div className="mx-auto flex min-h-full w-full max-w-[560px] flex-col justify-center">
           {art && (
             <div aria-hidden className="flex justify-center">

@@ -1199,6 +1199,13 @@
     .assistant-screen.enter {
       animation: screen-in 220ms ease-out;
     }
+    /* The React host's entrance: `Frame`'s scroll region is KEYED on the
+       host's screen epoch, so a screen change remounts it and this class
+       plays on insertion — the same restart the forced-reflow above gave the
+       old page's persistent `<main>`. */
+    .screen-enter {
+      animation: screen-in 220ms ease-out;
+    }
     .checklist li[data-state="active"] .glyph,
     .tmux-checking .glyph {
       animation: spin 0.9s linear infinite;

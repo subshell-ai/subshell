@@ -1,6 +1,6 @@
 /**
  * The assistant's HOST — the React replacement for `wizard.ts`'s page-level
- * machinery (spec 2026-09-21; plan Task 2).
+ * machinery (spec 2026-09-21; plan Task 2, screens from Tasks 3–4).
  *
  * The old page was one module of mutable vars plus an imperative `render()`.
  * This file is its value-for-value port: every module var is a `useState`
@@ -10,54 +10,77 @@
  * listeners; the poll's interval started after the first render, before the
  * `about` read).
  *
- * What it does NOT do yet: render screens. Tasks 3–7 port `wizard.ts`'s
- * render functions into components under `screens/`, and Task 8 deletes the
- * old page and wires `main.tsx`. Until then the content region is an empty,
- * marked placeholder and the route is computed but not dispatched.
+ * The route is gated on the boot sequence: the old page rendered NOTHING
+ * between the probe and the pendingScreen pull, so nothing could slip between
+ * them and take the ready handoff; a React `setProbe` flushes a render, so
+ * until `booted` the host stays on `boot`.
+ *
+ * The screens render themselves through `Frame` (one component per route
+ * kind); the host computes each screen's shell strings, the entrance epoch,
+ * and the props bag below. The action layer lives in `runners.ts`. What is
+ * still placeholder: `update`, `supervision`, `addresses`, `permissions` and
+ * `reset` (Tasks 5–7).
  *
  * The IPC boundary is untouched: the same commands, the same events, the
  * same order. `lib/` is untouched: `route()` and `nextPollDelay()` (the pure
  * seams this host renders from) live in `lib/server-state.ts`.
  *
- * **Six module vars the old page held are NOT here, on purpose** — they are
- * screen-local in the React model, because a component that persists across
- * re-renders no longer needs page-level state to survive the poll's DOM
- * teardown. Each is recorded with its home so Tasks 3–7 cannot drop it:
+ * **Module vars that are screen-local in the React model** — a component that
+ * persists across re-renders no longer needs page-level state to survive the
+ * poll's DOM teardown. Each is recorded with its home so Tasks 5–7 cannot
+ * drop it:
  *
- * - `tmuxOutputOpen`, `tmuxOutputScroll` (wizard.ts:165/177, written at
- *   561/655/666/672) — the tmux screen's failure-output disclosure →
- *   **TmuxScreen**;
  * - `manualRoute` (wizard.ts:193, 815–825) — which manager's manual
- *   instructions the tmux screen shows → **TmuxScreen**;
+ *   instructions the tmux screen shows → **TmuxScreen** (its own state);
  * - `requestingNotifications` / `requestingPhotos` (wizard.ts:253–254,
  *   written at 1915/1939) — the permission sheets' in-flight flags →
  *   **PermissionsScreen**;
- * - `installClock` + `startInstallClock`/`stopInstallClock` (wizard.ts:505)
- *   — the 1 s repaint that keeps the tmux install's clock moving while
- *   `busy` holds the poll off → the setup chain's **TmuxScreen** act (Task 3).
+ * - `tmuxOutputOpen`/`tmuxOutputScroll` (wizard.ts:165/177) stay HOST state,
+ *   correcting the Task 2 note: the failure block that owns the disclosure is
+ *   rendered by **both** TmuxScreen and StatusScreen, so it is one fact about
+ *   the install, not about either screen.
+ * - `installClock` (wizard.ts:505) — the 1 s repaint while `busy` holds the
+ *   poll off → **TmuxScreen**'s `useInstallClock`.
  *
  * `_checkPort` here is inline in Host for now; Task 6 lifts it into the
  * `usePortCheck` hook the plan names, when the first consumer (the address
  * form) exists.
  */
 
-import { Frame } from "@internal/assistant";
+import { type AssistantStrings, Frame } from "@internal/assistant";
 import { listen } from "@tauri-apps/api/event";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { type AddressForm, type ExplicitMap, effectiveForm, type FormValues } from "./lib/config-form";
+import {
+  type AddressForm,
+  type ExplicitMap,
+  effectiveForm,
+  type FormName,
+  type FormValues,
+  seedAddressForm,
+} from "./lib/config-form";
 import type { About, ActionResult, AppUpdateCheck, LogTail, Probe } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
-import { nextPollDelay, resolveJourney, route } from "./lib/server-state";
+import { recoverySubtitle } from "./lib/recovery-model";
+import { nextPollDelay, type Route, resolveJourney, route } from "./lib/server-state";
 import { type ActState, NO_SELECTION, type UpdateActSelection } from "./lib/update-act";
 import {
   DEFAULT_SUPERVISION,
   handoffView,
   isRequestedScreen,
+  permissionsAfterSetup,
+  type RecoveryActionKind,
+  recoveryTitle,
   type ScreenId,
+  SETUP_TITLE,
   type SupervisionChoice,
   screenForRequest,
   screensFor,
 } from "./lib/wizard-state";
+import { useAssistantRunners } from "./runners";
+import { HandoffScreen } from "./screens/handoff-screen";
+import { SetupScreen } from "./screens/setup-screen";
+import { TmuxScreen } from "./screens/tmux-screen";
+import { WelcomeScreen, Wordmark } from "./screens/welcome-screen";
 
 /**
  * A rejected command's words, for the problem line.
@@ -69,11 +92,15 @@ import {
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 /**
+ * Where this app is running, in prose. ONE string on both platforms
+ * (operator's call, 2026-09-12) — the old `here()`.
+ */
+const here = (): string => "this machine";
+
+/**
  * What a screen may ask the host for — the old `AssistantHost` shape, plus
- * `go`. It reaches a screen through {@link HostActionsContext}; the action
- * runners each screen owns (the setup chain, the tmux install, the update
- * act) join this interface in the tasks that port them, so the object grows
- * with its consumers instead of being invented all at once.
+ * `go` and the action runners. It reaches a screen through
+ * {@link HostActionsContext}.
  *
  * There is no `render()` member. The old page needed one because the DOM was
  * imperative; a React screen re-renders when the state it writes changes,
@@ -100,6 +127,16 @@ export interface HostActions {
   rearmFirstRun(): void;
   /** Navigate to a screen the user asked for (the old `go`). */
   go(to: ScreenId): void;
+  /** The setup chain (`startSetup`). */
+  startSetup(): Promise<void>;
+  /** Install tmux (`startTmuxInstall`). */
+  startTmuxInstall(): void;
+  /** Pick an existing server binary (`pickBinary`). */
+  pickBinary(): Promise<void>;
+  /** The recovery screen's one action (`runRecovery`). */
+  runRecovery(kind: RecoveryActionKind): void;
+  /** Pull a fresh log tail for Show Details (`refreshTail`). */
+  refreshTail(): Promise<void>;
 }
 
 const HostActionsContext = createContext<HostActions | null>(null);
@@ -133,11 +170,18 @@ export function Host(): React.JSX.Element {
   // ---------------------------------------------------------------------------
   // State. Every var the old module held, as its own hook, ported
   // value-for-value — including the ones whose WRITERS are still imperative
-  // code that Tasks 3–7 port.
+  // code that Tasks 5–7 port.
   // ---------------------------------------------------------------------------
 
   /** The latest probe, or null before the first one lands. */
   const [probe, setProbe] = useState<Probe | null>(null);
+  /**
+   * The probe's live value across awaits — the old module var's read, for the
+   * settle loops (`startSetup`, `act`), which must see the probe the POLL has
+   * refreshed, not the one the press's render closure captured.
+   */
+  const probeRef = useRef<Probe | null>(null);
+  probeRef.current = probe;
   /**
    * The screen showing, or `null` for "whatever the probe implies".
    *
@@ -145,26 +189,47 @@ export function Host(): React.JSX.Element {
    * first probe resolves; it is not a fourth state to render.
    */
   const [screen, setScreen] = useState<ScreenId | null>(null);
+  /**
+   * The screen-change counter, for the entrance animation. The old page's
+   * `replayEnter` ran on every screen change, manual or automatic — `go`,
+   * `applyScreen`, and the handoff latch. The value is what Frame keys its
+   * scroll region on, so a change remounts it and the `.screen-enter`
+   * animation plays on insertion.
+   */
+  const [screenEpoch, setScreenEpoch] = useState(0);
   /** A one-off act (tmux install, pick a binary) is in flight. */
   const [busy, setBusyState] = useState(false);
   /** The setup chain is running. The poll must not stop for that. */
-  const [running, _setRunning] = useState(false);
+  const [running, setRunning] = useState(false);
   /** The chain's last answer when it stopped short; cleared by Try Again. */
   const [failure, setFailure] = useState<ActionResult | null>(null);
   /** True once this page has asked for the dashboard. Never twice. */
   const [opened, setOpened] = useState(false);
   /** The dashboard refused to open, so stop retrying and let the human press something. */
-  const [_openFailed, setOpenFailed] = useState(false);
+  const [openFailed, setOpenFailed] = useState(false);
   const [problem, setProblem] = useState("");
-  const [_customizeOpen, _setCustomizeOpen] = useState(false);
+  const [customizeOpen, setCustomizeOpen] = useState(false);
   /** The last action's own words, for the recovery screen's Show Details. */
-  const [_lastResult, _setLastResult] = useState<ActionResult | null>(null);
+  const [_lastResult, setLastResult] = useState<ActionResult | null>(null);
   /**
    * The tmux install's own progress: the manager's last output line, and when
    * the install began (`0` = none running, the old sentinel).
    */
-  const [_installLine, setInstallLine] = useState("");
-  const [installStartedAt, _setInstallStartedAt] = useState(0);
+  const [installLine, setInstallLine] = useState("");
+  const [installStartedAt, setInstallStartedAt] = useState(0);
+  /**
+   * Whether the failed install's output disclosure is expanded, and how far
+   * down it the reader has scrolled.
+   *
+   * HOST state rather than TmuxScreen's, correcting the Task 2 note: the
+   * failure block that owns the disclosure is rendered by the tmux screen AND
+   * by the recovery screen, so the openness is one fact about the install.
+   * The offset matters because a poll re-render used to reset it to zero and
+   * the pane is capped — anything past the first screenful of a `brew` log
+   * was unreadable.
+   */
+  const [tmuxOutputOpen, setTmuxOutputOpen] = useState(false);
+  const [tmuxOutputScroll, setTmuxOutputScroll] = useState(0);
   /**
    * The tmux install's own last answer, or `null` when none has run in this
    * window.
@@ -175,7 +240,7 @@ export function Host(): React.JSX.Element {
    * would be this screen inventing a failure out of another screen's words.
    * Cleared by the next press and by a tmux that appears.
    */
-  const [_tmuxResult, _setTmuxResult] = useState<ActionResult | null>(null);
+  const [tmuxResult, setTmuxResult] = useState<ActionResult | null>(null);
   /** The last log tail, refreshed on the poll only while the disclosure is open. */
   const [_lastTail, setLastTail] = useState<LogTail | null>(null);
   /**
@@ -186,30 +251,30 @@ export function Host(): React.JSX.Element {
    * here for the same reason — the poll must not be able to collapse it under
    * the reader.
    */
-  const [detailsOpen, _setDetailsOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   /** True while the ready handoff is on screen, so its entrance replays once. */
   const [handedOff, setHandedOff] = useState(false);
   /**
    * The setup chain has fired itself once in THIS window load. One fire per
    * load; a completed RESET clears it through `rearmFirstRun`.
    */
-  const [_autoFired, setAutoFired] = useState(false);
+  const [autoFired, setAutoFired] = useState(false);
   /**
    * The setup chain ran to completion in THIS window, so the ready screen
    * owes the person its result rather than vanishing into the dashboard.
    * Page state on purpose: `probe.onboarded` cannot answer it, since the
    * probe sets that flag on the very first `ready` it sees.
    */
-  const [ranSetupHere, _setRanSetupHere] = useState(false);
+  const [ranSetupHere, setRanSetupHere] = useState(false);
   /**
    * That chain was a FIRST RUN — the machine was not onboarded when it
    * started. Captured at the press rather than read at the handoff, because
    * by then the probe has already flagged `onboarded`. See
    * `permissionsAfterSetup`, its one consumer.
    */
-  const [_ranFirstRunHere, _setRanFirstRunHere] = useState(false);
+  const [ranFirstRunHere, setRanFirstRunHere] = useState(false);
   /** They pressed Continue on that screen. */
-  const [continued, _setContinued] = useState(false);
+  const [continued, setContinued] = useState(false);
   /**
    * The ready screen's Continue sent them to the permissions screen, so its
    * own press is a Continue that opens the dashboard rather than a Back that
@@ -217,7 +282,7 @@ export function Host(): React.JSX.Element {
    */
   const [_permissionsAfterHandoff, setPermissionsAfterHandoff] = useState(false);
   /** The two supervision boxes on the setup screen; reset with the form. */
-  const [_supervision, _setSupervision] = useState<SupervisionChoice>(DEFAULT_SUPERVISION);
+  const [supervision, setSupervision] = useState<SupervisionChoice>(DEFAULT_SUPERVISION);
   /**
    * The supervision screen's own pending choice, held across renders because
    * a radio read from the probe alone would undo the person's selection
@@ -235,7 +300,7 @@ export function Host(): React.JSX.Element {
   const [_settingsForm, setSettingsForm] = useState<AddressForm | null>(null);
   /**
    * Whether the person chose to configure Server Addresses without a reading
-   * of the machine (review, 2026-09-18). Cleared with {@link settingsForm},
+   * of the machine (review, 2026-09-18). Cleared with the settings form,
    * because it is a decision about THIS visit.
    */
   const [_settingsBlind, setSettingsBlind] = useState(false);
@@ -256,7 +321,7 @@ export function Host(): React.JSX.Element {
    * every visit; that screen's clearing is its own settings-form reset,
    * which `applyScreen` and `close` perform.
    */
-  const [_seeded, _setSeeded] = useState(false);
+  const [seeded, setSeeded] = useState(false);
   /**
    * The update screen's release answer, which is a NETWORK read and therefore
    * not on the 1500 ms poll. The check runs on the screen's first render and
@@ -293,8 +358,8 @@ export function Host(): React.JSX.Element {
    * start empty and the machine's stored settings answer the checklist until
    * the form renders.
    */
-  const [_form, _setForm] = useState<FormValues>(() => effectiveForm(undefined));
-  const [_explicit, _setExplicit] = useState<ExplicitMap>({});
+  const [form, setForm] = useState<FormValues>(() => effectiveForm(undefined));
+  const [explicit, setExplicit] = useState<ExplicitMap>({});
   /** Who made this app, its version and its terms — read ONCE on boot. */
   const [_about, setAbout] = useState<About | null>(null);
   /**
@@ -338,7 +403,7 @@ export function Host(): React.JSX.Element {
    * The superseded-answer drop above is the part that was ABOUT the answers,
    * and it is preserved exactly.
    */
-  const _checkPort = useCallback(
+  const checkPort = useCallback(
     (port: string): void => {
       if (portCheck?.port === port || portAsked.current === port) return;
       const numeric = Number(port);
@@ -390,6 +455,8 @@ export function Host(): React.JSX.Element {
 
   const go = useCallback((to: ScreenId): void => {
     setScreen(to);
+    // The old `go` replayed the entrance on every screen change.
+    setScreenEpoch((e) => e + 1);
   }, []);
 
   const setBusy = useCallback((on: boolean): void => {
@@ -441,6 +508,7 @@ export function Host(): React.JSX.Element {
       // staged. Arming is the reset screen's own act (Task 7); the routing
       // is already exact.
       setScreen("reset");
+      setScreenEpoch((e) => e + 1);
       return;
     }
     setResetStep(null); // the old `resetView.hide()`
@@ -478,6 +546,110 @@ export function Host(): React.JSX.Element {
     // A reset returns this page to a machine with nothing set up, so the
     // handoff guard has to be released or a later ready probe renders nothing.
     setHandedOff(false);
+    // The old `applyScreen` replayed the entrance on its way out.
+    setScreenEpoch((e) => e + 1);
+  }, []);
+
+  /**
+   * The Customize disclosure's toggle, with its two halves: OPENING seeds the
+   * form from the machine once per visit (`setupAddressForm`'s `if (!seeded)`
+   * — merging, so what was typed survives), and COLLAPSING is `resetForm` —
+   * the four fields cleared, the explicit map emptied, the seed flag dropped
+   * so the next open re-seeds.
+   */
+  const customizeToggle = useCallback((): void => {
+    const next = !customizeOpen;
+    setCustomizeOpen(next);
+    if (next) {
+      if (!seeded) {
+        const s = seedAddressForm(probe?.status?.settings);
+        setForm((prev) => ({
+          port: prev.port || s.values.port,
+          host: prev.host || s.values.host,
+          baseUrl: prev.baseUrl || s.values.baseUrl,
+          trustedOrigins: prev.trustedOrigins || s.values.trustedOrigins,
+        }));
+        setExplicit((prev) => {
+          const merged = { ...prev };
+          for (const [name, on] of Object.entries(s.explicit) as [FormName, boolean][]) {
+            if (on) merged[name] = true;
+          }
+          return merged;
+        });
+        setSeeded(true);
+      }
+      return;
+    }
+    setForm({ port: "", host: "", baseUrl: "", trustedOrigins: "" });
+    setExplicit({});
+    setSeeded(false);
+  }, [customizeOpen, seeded, probe]);
+
+  /** The setup screen's controlled form edit. */
+  const formEdit = useCallback((_name: FormName, values: FormValues, nextExplicit: ExplicitMap): void => {
+    setForm(values);
+    setExplicit(nextExplicit);
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // The action layer (`runners.ts`).
+  // ---------------------------------------------------------------------------
+
+  const {
+    act: _act,
+    startSetup,
+    startTmuxInstall,
+    pickBinary,
+    runRecovery,
+    refreshTail,
+  } = useAssistantRunners({
+    probeRef,
+    probe: () => probe,
+    busy: () => busy,
+    running: () => running,
+    supervision: () => supervision,
+    form: () => form,
+    explicit: () => explicit,
+    refresh,
+    setProblem,
+    setBusy,
+    setRunning,
+    setFailure,
+    setLastResult,
+    setInstallStartedAt,
+    setTmuxResult,
+    setInstallLine,
+    setTmuxOutputScroll,
+    setContinued,
+    setRanFirstRunHere,
+    setRanSetupHere,
+    setLastTail,
+  });
+
+  /** The ready handoff's Continue: finish the handoff, then the permissions fork. */
+  const handoffContinue = useCallback((): void => {
+    if (probe === null) return;
+    setContinued(true);
+    // The one stop AFTER the chain (operator's call, 2026-09-18): on a Mac's
+    // first run this press hands off to the permissions screen rather than to
+    // the dashboard, and that screen's own Continue does what this one used
+    // to. `continued` is set either way — the handoff is finished with, and
+    // leaving it false would bring this screen back under the permissions one
+    // when the poll next rendered.
+    if (permissionsAfterSetup({ platform: probe.platform, ranSetupHere, ranFirstRunHere })) {
+      setPermissionsAfterHandoff(true);
+      go("permissions");
+      return;
+    }
+    // No further write: `continued` alone flips `handoffView` to the
+    // non-waiting arm, whose effect opens the dashboard.
+  }, [probe, ranSetupHere, ranFirstRunHere, go]);
+
+  /** The openFailed arm's press: stop retrying, let the human try again. */
+  const retryOpen = useCallback((): void => {
+    setOpened(false);
+    setOpenFailed(false);
+    setProblem("");
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -598,6 +770,25 @@ export function Host(): React.JSX.Element {
   }, []);
 
   // ---------------------------------------------------------------------------
+  // Enter presses the bar's primary, as the old page's document keydown did.
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      // Enter inside a textarea is a newline, and on a focused button it is
+      // that button's own activation — doubling it here would press the
+      // primary on top of the ghost the person aimed at.
+      if (e.key !== "Enter" || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLButtonElement) {
+        return;
+      }
+      const primary = document.querySelector<HTMLButtonElement>('[data-slot="bar-right"] button.primary');
+      if (primary && !primary.disabled) primary.click();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  // ---------------------------------------------------------------------------
   // The handoff latch and the ready handoff's one automatic open.
   // ---------------------------------------------------------------------------
 
@@ -619,7 +810,7 @@ export function Host(): React.JSX.Element {
    * host stays on `boot` and every effect below that keys off `r.kind`
    * (the latch, the auto-open) cannot fire early.
    */
-  const r = booted ? route(probe, screen, { running, failure }) : { kind: "boot" };
+  const r: Route = booted ? route(probe, screen, { running, failure }) : { kind: "boot" };
 
   /**
    * The correction ratchet: the old `render()` OVERWROTE `screen` with its
@@ -651,6 +842,8 @@ export function Host(): React.JSX.Element {
       if (!handedOff) {
         setHandedOff(true);
         setScreen(null);
+        // The old latch branch replayed the entrance with the rest.
+        setScreenEpoch((e) => e + 1);
       }
       return;
     }
@@ -682,25 +875,6 @@ export function Host(): React.JSX.Element {
       setProblem(errText(err));
     });
   }, [r.kind, probe, ranSetupHere, continued, opened]);
-
-  // ---------------------------------------------------------------------------
-  // Enter presses the bar's primary, as the old page's document keydown did.
-  // ---------------------------------------------------------------------------
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      // Enter inside a textarea is a newline, and on a focused button it is
-      // that button's own activation — doubling it here would press the
-      // primary on top of the ghost the person aimed at.
-      if (e.key !== "Enter" || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLButtonElement) {
-        return;
-      }
-      const primary = document.querySelector<HTMLButtonElement>('[data-slot="bar-right"] button.primary');
-      if (primary && !primary.disabled) primary.click();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
 
   // ---------------------------------------------------------------------------
   // The poll, on the `nextPollDelay` seam.
@@ -756,37 +930,191 @@ export function Host(): React.JSX.Element {
       close,
       rearmFirstRun,
       go,
+      startSetup,
+      startTmuxInstall,
+      pickBinary,
+      runRecovery,
+      refreshTail,
     }),
-    [probe, busy, running, setBusy, refresh, fail, close, rearmFirstRun, go],
+    [
+      probe,
+      busy,
+      running,
+      setBusy,
+      refresh,
+      fail,
+      close,
+      rearmFirstRun,
+      go,
+      startSetup,
+      startTmuxInstall,
+      pickBinary,
+      runRecovery,
+      refreshTail,
+    ],
   );
 
-  // The content region is the screens' (Tasks 3–7); until they land it is an
-  // empty, marked region. The route is already computed and the poll, the
-  // latches and the listeners are already live — only the rendering waits.
+  /**
+   * The shell strings the old `setFrame` computed per render function. Every
+   * string here is transcribed; the screens pass this into `Frame` and own
+   * only their content and bar.
+   */
+  const shell = (kind: Route["kind"]): AssistantStrings => {
+    switch (kind) {
+      case "boot":
+        return { title: "Welcome to Subshell", subtitle: "Checking this machine…", problem };
+      case "welcome":
+        return {
+          title: "Welcome to Subshell",
+          subtitle: `Subshell runs agent sessions in terminal panes you can watch from any device. Let's set up the server on ${here()}.`,
+          problem,
+        };
+      case "tmux":
+        return {
+          title: "Install tmux",
+          subtitle: "Every subshell runs in a tmux pane, so the server needs it before it can start.",
+          problem,
+        };
+      case "setup":
+        if (running) return { title: "Setting Up Subshell…", subtitle: "This takes a moment.", problem };
+        if (failure) return { title: "Setup Couldn't Finish", subtitle: "Nothing else was changed.", problem };
+        return { title: SETUP_TITLE, subtitle: `Choose how the server runs on ${here()}.`, problem };
+      case "handoff": {
+        if (openFailed) {
+          return { title: "Subshell Is Running", subtitle: "The dashboard did not open by itself.", problem };
+        }
+        if (probe === null) return { title: "", subtitle: "", problem };
+        const view = handoffView({ onboarded: probe.onboarded, ranSetupHere, continued });
+        return { title: view.title, subtitle: view.subtitle, problem };
+      }
+      case "status": {
+        if (probe === null) return { title: "", subtitle: "", problem };
+        // The recovery screen rendered the progress and failure views through
+        // the same functions the setup screen did, titles and all.
+        if (running) return { title: "Setting Up Subshell…", subtitle: "This takes a moment.", problem };
+        if (failure) return { title: "Setup Couldn't Finish", subtitle: "Nothing else was changed.", problem };
+        return { title: recoveryTitle(probe.next), subtitle: recoverySubtitle(probe.next), problem };
+      }
+      // Tasks 5–7 land these screens' strings with them.
+      default:
+        return { title: "", subtitle: "", problem };
+    }
+  };
+
+  /** Whether the completed checklist waits for a Continue (see `handoffView`). */
+  const handoffWaiting = probe !== null && handoffView({ onboarded: probe.onboarded, ranSetupHere, continued }).wait;
+
+  const entranceKey = screenEpoch > 0 ? screenEpoch : undefined;
+
+  // The route is dispatched one screen per kind. `boot` keeps its own Frame;
+  // the Tasks 5–7 routes stay a marked placeholder until their screens land.
+  let content: React.JSX.Element;
+  if (probe === null || r.kind === "boot") {
+    content = <Frame strings={shell("boot")} art={<Wordmark />} />;
+  } else {
+    const p = probe;
+    switch (r.kind) {
+      case "welcome":
+        content = (
+          <WelcomeScreen
+            strings={shell("welcome")}
+            entranceKey={entranceKey}
+            disabled={busy || running}
+            onContinue={() => {
+              // The step is computed at PRESS time from the current probe, so
+              // a tmux that appeared mid-read is honoured.
+              const list = screensFor(p, p.onboarded);
+              go(list[1] ?? "setup");
+            }}
+          />
+        );
+        break;
+      case "tmux":
+        content = (
+          <TmuxScreen
+            strings={shell("tmux")}
+            entranceKey={entranceKey}
+            probe={p}
+            busy={busy}
+            running={running}
+            tmuxResult={tmuxResult}
+            installLine={installLine}
+            installStartedAt={installStartedAt}
+            outputOpen={tmuxOutputOpen}
+            onOutputOpenChange={setTmuxOutputOpen}
+            outputScroll={tmuxOutputScroll}
+            onOutputScroll={setTmuxOutputScroll}
+            problem={problem}
+            onInstall={() => startTmuxInstall()}
+            onFail={fail}
+          />
+        );
+        break;
+      case "setup":
+        content = (
+          <SetupScreen
+            strings={shell("setup")}
+            entranceKey={entranceKey}
+            probe={p}
+            busy={busy}
+            running={running}
+            failure={failure}
+            autoFired={autoFired}
+            onAutoFire={() => {
+              setAutoFired(true);
+              void startSetup();
+            }}
+            portCheck={portCheck}
+            onCheckPort={checkPort}
+            form={form}
+            explicit={explicit}
+            supervision={supervision}
+            onSupervision={setSupervision}
+            customizeOpen={customizeOpen}
+            onCustomizeToggle={customizeToggle}
+            seeded={seeded}
+            onFormEdit={formEdit}
+            onStartSetup={() => void startSetup()}
+            onPickBinary={() => void pickBinary()}
+            settings={p.status?.settings}
+            detailsOpen={detailsOpen}
+            onDetailsOpenChange={setDetailsOpen}
+          />
+        );
+        break;
+      case "handoff":
+        content = (
+          <HandoffScreen
+            strings={shell("handoff")}
+            entranceKey={entranceKey}
+            probe={p}
+            busy={busy || running}
+            form={form}
+            supervision={supervision}
+            openFailed={openFailed}
+            onRetryOpen={retryOpen}
+            waiting={handoffWaiting}
+            onContinue={handoffContinue}
+          />
+        );
+        break;
+      // Tasks 5–7: update, supervision, addresses, permissions, reset, and
+      // Task 4's status screen. The route is already computed; the screens
+      // land with their tasks.
+      default:
+        content = (
+          /* Task 4–7: the screens land here — this region is empty until then. */
+          <div data-task="4-7" />
+        );
+    }
+  }
+
   // `data-route` is the transition's one window into the routing: the tests
   // that pin the boot gate and the correction read it, and it is deleted with
-  // this placeholder in Task 8.
+  // the placeholder in Task 8.
   return (
     <HostActionsContext.Provider value={actions}>
-      <Frame
-        strings={
-          r.kind === "boot"
-            ? // The boot frame's strings, transcribed from the old render's
-              // `probe === null` arm.
-              { title: "Welcome to Subshell", subtitle: "Checking this machine…", problem }
-            : { title: "", subtitle: "", problem }
-        }
-        art={
-          r.kind === "boot" ? (
-            // The wordmark, transcribed from the old page's ART.icon: the CSP
-            // allows no remote images, so the fixed set is local.
-            <img src="./wordmark-96.png" srcSet="./wordmark-96.png 1x, ./wordmark-192.png 2x" alt="" />
-          ) : undefined
-        }
-      >
-        {/* Task 3+: the screens land here — this region is empty until then. */}
-        <div data-task="3+" data-route={r.kind} />
-      </Frame>
+      <div data-route={r.kind}>{content}</div>
     </HostActionsContext.Provider>
   );
 }
