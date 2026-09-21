@@ -12,6 +12,7 @@ import { attachUrlFromQuery } from "@/ws/attach-params.js";
 import { handleLiveClose, handleLiveMessage, handleLiveOpen, type LiveWsSocket, liveWsDeps } from "@/ws/live-ws.js";
 import { cleanupSubshellWs, handleSubshellMessage, handleSubshellWs } from "@/ws/subshell-ws.js";
 import type { WsSocket } from "@/ws/viewers.js";
+import { decodeIncoming } from "@/ws/wire.js";
 
 /**
  * WebSocket attach endpoint at /ws.
@@ -49,11 +50,14 @@ export const wsPlugin = new Elysia({ name: "ws" }).ws("/ws", {
     void handleSubshellWs(ws as unknown as WsSocket, url).catch(() => ws.close(4000, "attach failed"));
   },
   message(ws, message) {
-    // Elysia's WS middleware JSON-parses frames that start with `{`, so a
-    // frame arrives as either the raw string or a parsed object.
-    // parseClientFrame (inside handleSubshellMessage) accepts both.
-    if (typeof message === "string" || (message && typeof message === "object")) {
-      handleSubshellMessage(ws as unknown as WsSocket, message);
+    // Binary frames are CBOR (spec 2026-09-21 Wave B), decoded in one place;
+    // strings and Elysia's pre-parsed objects pass through untouched, which
+    // is what keeps the JSON mode's dispatch exactly as it was.
+    // parseClientFrame (inside handleSubshellMessage) accepts both a raw
+    // string and a parsed object.
+    const frame = decodeIncoming(message);
+    if (typeof frame === "string" || (frame && typeof frame === "object")) {
+      handleSubshellMessage(ws as unknown as WsSocket, frame);
     }
   },
   close(ws) {

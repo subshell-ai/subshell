@@ -24,7 +24,11 @@
  * carried or the compiler objects.
  */
 
+// The wire encoder is a SUBPATH export, not the barrel (see `wire.ts` there):
+// the barrel must stay free of it so the mobile client's Metro resolution is
+// untouched, and every server import goes through the same door.
 import { normalizeDeviceLabel } from "@internal/subshell-protocol";
+import { parseWireMode, WIRE_MODE_PARAM, type WireMode } from "@internal/subshell-protocol/wire";
 
 /** A terminal grid a client says it can display. */
 export interface ClientGrid {
@@ -48,6 +52,13 @@ export interface AttachParams {
   hidden: boolean;
   /** The client's self-reported bundle id, for the attach log line. */
   build: string;
+  /**
+   * The encoding this client negotiated on the connect URL (`&enc=cbor`), or
+   * JSON when it said nothing (an older client, a hand-built socket). Decides
+   * EVERY frame this socket receives and how its frames are read: one
+   * connection, one mode; it never changes mid-attach.
+   */
+  wireMode: WireMode;
 }
 
 /** Longest client build id the attach line will print (an asset hash is ~8). */
@@ -68,6 +79,7 @@ export function parseAttachParams(url: URL): AttachParams {
     deviceLabel: parseDeviceLabel(url),
     hidden: parseHidden(url),
     build: parseClientBuild(url),
+    wireMode: parseWireMode(url.searchParams.get(WIRE_MODE_PARAM)),
   };
 }
 

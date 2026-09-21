@@ -18,6 +18,7 @@ import {
   persistOutputFor,
   readPaneGeometry,
   registerViewer,
+  sendFrame,
   sharedGridFor,
   type WsData,
   type WsSocket,
@@ -114,7 +115,7 @@ export async function attachRemoteSubshellWs(
    */
   params: AttachParams,
 ): Promise<void> {
-  const { size, deviceLabel, hidden } = params;
+  const { size, deviceLabel, hidden, wireMode } = params;
   if (!getLive(row.nodeId)) {
     ws.close(4004, "node offline");
     return;
@@ -153,6 +154,10 @@ export async function attachRemoteSubshellWs(
     viewerId: crypto.randomUUID(),
     deviceLabel,
     since: new Date().toISOString(),
+    // The encoding the client negotiated on its connect URL (`&enc=cbor`),
+    // same rule as the local twin: one connection, one mode; absent means
+    // JSON, byte-identical to before the negotiation existed.
+    wireMode,
     cleanup,
   };
   Object.assign(ws.data, data);
@@ -205,7 +210,9 @@ export async function attachRemoteSubshellWs(
           ws.close(1011, "client too slow");
           return;
         }
-        ws.send(JSON.stringify({ type: "output", data: text }));
+        // Encoded in THIS socket's negotiated mode: the same helper the local
+        // twin's sink uses, so a mode can never be decided twice.
+        sendFrame(ws, { type: "output", data: text });
       },
     );
     disposer = () => stream.close();
@@ -279,7 +286,7 @@ export async function attachRemoteSubshellWs(
     }
 
     const painted = captureToReplayText(replay);
-    ws.send(JSON.stringify({ type: "replay", data: painted }));
+    sendFrame(ws, { type: "replay", data: painted });
     recordAttachPaint({ subshellId: row.id, preResize, replay: painted, repainted, nudged });
     if (detached) return;
 

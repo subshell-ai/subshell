@@ -22,6 +22,10 @@
     "./service-test-safety": {
       "types": "./dist/service-test-safety.d.ts",
       "import": "./dist/service-test-safety.js"
+    },
+    "./wire": {
+      "types": "./dist/wire.d.ts",
+      "import": "./dist/wire.js"
     }
   },
   "types": "dist/index.d.ts",
@@ -36,6 +40,7 @@
     "verify-types": "tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {
+    "cbor2": "2.3.0",
     "jose": "6.2.9"
   },
   "devDependencies": {

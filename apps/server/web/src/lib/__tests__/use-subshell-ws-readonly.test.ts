@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { decodeFrame } from "@internal/subshell-protocol/wire";
 import { renderHook, waitFor } from "@testing-library/react";
 import type { Terminal } from "@xterm/xterm";
 import { useSubshellWs } from "@/lib/use-subshell-ws";
@@ -40,8 +41,11 @@ class FakeWebSocket {
   constructor(_url: string) {
     instances.push(this);
   }
-  send(data: string): void {
-    sent.push(data);
+  // The hook negotiates CBOR (spec 2026-09-21 Wave B), so sends may arrive as
+  // bytes. Recorded as the JSON spelling of the decoded frame, which keeps
+  // every assertion below reading the SAME shape in either mode.
+  send(data: string | Uint8Array): void {
+    sent.push(typeof data === "string" ? data : JSON.stringify(decodeFrame(data)));
   }
   close(): void {
     this.readyState = 3;

@@ -18,6 +18,7 @@
     "@internal/server": "workspace:*",
     "@internal/server-web": "workspace:*",
     "@internal/mcp-core": "workspace:*",
+    "@internal/subshell-protocol": "workspace:*",
     "@internal/tsconfig": "workspace:*",
     "@playwright/test": "1.62.1",
     "@types/node": "26.2.0",
