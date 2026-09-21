@@ -1364,7 +1364,7 @@ pub fn validate_node_name(raw: &str) -> Result<String, String> {
     let len = name.chars().count();
     if len > MAX_NODE_NAME_LEN {
         return Err(format!(
-            "that name is {len} characters; the control plane accepts at most {MAX_NODE_NAME_LEN}"
+            "That name is {len} characters; the control plane accepts at most {MAX_NODE_NAME_LEN}"
         ));
     }
     Ok(name.to_string())

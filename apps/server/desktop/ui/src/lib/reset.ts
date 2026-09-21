@@ -35,7 +35,7 @@ export function refusal(status: StatusLike | null | undefined): string | null {
   if (complete) return null;
   return (
     "This server does not report its data locations, so Reset refuses to guess at a filesystem. " +
-    "Update the server to add the report, or remove the paths `subshell-server status` shows by hand."
+    "A server update restores the report; until then, remove the paths `subshell-server status` shows by hand."
   );
 }
 
