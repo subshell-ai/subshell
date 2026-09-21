@@ -20,13 +20,14 @@ import type { SubshellView } from "@/types/subshell";
  * The two labels are resolved by the CALLER and passed down rather than
  * queried here: both come from lists the rail already holds (the node
  * registry it groups by, the plugin catalog), and a row that fetched its own
- * would mount two queries per row.
+ * would mount two queries per row. `presetLabel` follows the same rule.
  */
 export function SubshellRecentRow({
   subshell,
   active,
   nodeLabel,
   agentLabel,
+  presetLabel,
 }: {
   subshell: SubshellView;
   active: boolean;
@@ -35,6 +36,10 @@ export function SubshellRecentRow({
   nodeLabel: string;
   /** The harness's display name, falling back to its id — a readable slug */
   agentLabel: string;
+  /** The chosen preset's name (or its id when unresolvable); undefined when
+   * the launch has no preset — the tooltip omits the line rather than
+   * saying "none" */
+  presetLabel?: string;
 }) {
   const row = (
     <Link
@@ -42,7 +47,7 @@ export function SubshellRecentRow({
       params={{ id: subshell.id }}
       draggable
       onDragStart={(e) => encodeSubshellDrag(e.dataTransfer, subshell.id)}
-      title={subshellRowTooltip(subshell, nodeLabel, agentLabel)}
+      title={subshellRowTooltip(subshell, nodeLabel, agentLabel, presetLabel)}
       className={cn(
         "flex items-start gap-2 rounded-md py-1 pr-3 pl-3 text-detail transition-colors",
         active

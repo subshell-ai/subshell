@@ -60,4 +60,29 @@ describe("subshellRowTooltip", () => {
   it("omits the directory line when the row has none to reveal", () => {
     expect(subshellRowTooltip(probe({ workingDir: "" }), "Server", "Claude Code")).not.toContain("Directory:");
   });
+
+  it("puts the preset between Agent and Status when the row has one", () => {
+    // The operator asked: the preset explains HOW the agent runs, so it reads
+    // beside the agent, above the state — inside the asked-for block.
+    const text = subshellRowTooltip(probe({ presetId: "p1" }), "mac-mini", "Claude Code", "review mode");
+    expect(text).toBe(
+      "Name: auth-refactor\nNode: mac-mini\nAgent: Claude Code\nPreset: review mode\nStatus: working\nDirectory: /Users/theo/projects/auth",
+    );
+  });
+
+  it("says nothing about presets when the launch had none", () => {
+    // "Preset: none" on every presetless row is the tooltip explaining an
+    // absence nobody wondered about; the line omits itself.
+    expect(subshellRowTooltip(probe({ presetId: null }), "mac-mini", "Claude Code", undefined)).not.toContain(
+      "Preset:",
+    );
+  });
+
+  it("shows the raw id when a preset is chosen but cannot be named", () => {
+    // Still loading, or since deleted: the row demonstrably HAS a preset,
+    // and the id — not silence — is the honest stand-in.
+    expect(subshellRowTooltip(probe({ presetId: "p-42" }), "mac-mini", "Claude Code", "p-42")).toContain(
+      "Preset: p-42",
+    );
+  });
 });
