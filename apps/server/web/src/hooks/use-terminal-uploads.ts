@@ -5,7 +5,8 @@ import { type FileRejection, useDropzone } from "react-dropzone";
 import { fetchDesktopPermissions } from "@/hooks/use-desktop-permissions.js";
 import { isServerDesktop } from "@/lib/desktop.js";
 import { prepareForUpload } from "@/lib/image-downscale.js";
-import { injectText } from "@/lib/subshell-frames.js";
+import type { InputQueue } from "@/lib/input-queue";
+import { injectText, pasteWrap } from "@/lib/subshell-frames.js";
 import {
   insertionFailedMessage,
   insertionTextFor,
@@ -129,17 +130,22 @@ async function readClipboardImages(): Promise<File[]> {
  * @param args.subshellId - Subshell receiving the files
  * @param args.wsRef - Live subshell socket (used to inject the paths)
  * @param args.termRef - The attached terminal (read for bracketed-paste mode)
+ * @param args.inputQueueRef - The attach's input queue; an engaged queue
+ *   carries the injected paths like any other input, so a lost frame is
+ *   re-sent on the next reconnect instead of silently gone
  * @param args.enabled - Gate for the clipboard-paste interception (follows `showUploads`)
  */
 export function useTerminalUploads({
   subshellId,
   wsRef,
   termRef,
+  inputQueueRef,
   enabled = true,
 }: {
   subshellId: string;
   wsRef: { current: WebSocket | null };
   termRef: { current: Terminal | null };
+  inputQueueRef: { current: InputQueue | null };
   enabled?: boolean;
 }) {
   const [entries, setEntries] = useState<UploadEntry[]>([]);
@@ -226,7 +232,14 @@ export function useTerminalUploads({
           const bracketed = term?.modes.bracketedPasteMode ?? false;
           // One injection for the whole batch so multi-file drops land atomically.
           if (wsRef.current?.readyState === WebSocket.OPEN) {
-            injectText(wsRef.current, insertionTextFor(paths, bracketed), bracketed);
+            const text = insertionTextFor(paths, bracketed);
+            // An engaged queue carries the paths like any other input, so a
+            // lost frame is re-sent on the next reconnect; an unengaged one
+            // injects bare, exactly as before. The queue path wraps the text
+            // itself (pasteWrap), because enqueue sends bytes verbatim.
+            const inputQueue = inputQueueRef.current;
+            if (inputQueue) inputQueue.enqueue(pasteWrap(text, bracketed));
+            else injectText(wsRef.current, text, bracketed);
             term?.focus();
           } else {
             // The socket closed (e.g. mid-reconnect) between upload and
@@ -241,7 +254,7 @@ export function useTerminalUploads({
         removeEntries(batch.map((b) => b.id));
       }
     },
-    [subshellId, termRef, wsRef, patchEntry, removeEntries],
+    [subshellId, termRef, wsRef, patchEntry, removeEntries, inputQueueRef.current],
   );
 
   const { getRootProps, isDragActive, rootRef } = useDropzone({

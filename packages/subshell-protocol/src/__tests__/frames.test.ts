@@ -28,6 +28,19 @@ describe("parseClientFrame", () => {
     expect(parseClientFrame(JSON.stringify({ type: "input", data }))).toEqual({ type: "input", data });
   });
 
+  it("carries an optional input id through, and rejects an unusable one", () => {
+    expect(parseClientFrame(JSON.stringify({ type: "input", data: "x", id: 7 }))).toEqual({
+      type: "input",
+      data: "x",
+      id: 7,
+    });
+    // Zero, fractional and non-numeric ids would alias a real keystroke in the
+    // server's dedupe window; refuse the frame rather than guess.
+    for (const id of [0, -1, 1.5, "7", null]) {
+      expect(parseClientFrame(JSON.stringify({ type: "input", data: "x", id }))).toBeNull();
+    }
+  });
+
   it("parses a resize frame", () => {
     expect(parseClientFrame(JSON.stringify({ type: "resize", cols: 120, rows: 40 }))).toEqual({
       type: "resize",

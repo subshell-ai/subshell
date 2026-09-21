@@ -96,6 +96,7 @@ describe("useTerminalUploads.openImagePicker", () => {
         subshellId: "s1",
         wsRef: { current: null },
         termRef: { current: null },
+        inputQueueRef: { current: null },
       }),
     );
     result.current.openImagePicker();
@@ -125,7 +126,12 @@ describe("useTerminalUploads.openImagePicker", () => {
     const clickSpy = spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
 
     const { result } = renderHook(() =>
-      useTerminalUploads({ subshellId: "s1", wsRef: { current: null }, termRef: { current: null } }),
+      useTerminalUploads({
+        subshellId: "s1",
+        wsRef: { current: null },
+        termRef: { current: null },
+        inputQueueRef: { current: null },
+      }),
     );
     result.current.openImagePicker();
     expect(created[0].isConnected).toBe(true);
@@ -150,7 +156,12 @@ describe("useTerminalUploads.openImagePicker", () => {
       fakeTauri(photos);
       const clickSpy = spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
       const { result } = renderHook(() =>
-        useTerminalUploads({ subshellId: "s1", wsRef: { current: null }, termRef: { current: null } }),
+        useTerminalUploads({
+          subshellId: "s1",
+          wsRef: { current: null },
+          termRef: { current: null },
+          inputQueueRef: { current: null },
+        }),
       );
       act(() => result.current.openImagePicker());
       // The gesture is what opens the picker, and it must not wait on an IPC
@@ -190,7 +201,12 @@ describe("useTerminalUploads.openImagePicker", () => {
       setUA("Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15");
       const clickSpy = spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
       const { result } = renderHook(() =>
-        useTerminalUploads({ subshellId: "s1", wsRef: { current: null }, termRef: { current: null } }),
+        useTerminalUploads({
+          subshellId: "s1",
+          wsRef: { current: null },
+          termRef: { current: null },
+          inputQueueRef: { current: null },
+        }),
       );
       act(() => result.current.openImagePicker());
       await new Promise((r) => setTimeout(r, 20));
@@ -219,7 +235,12 @@ describe("useTerminalUploads.openImagePicker", () => {
     const clickSpy = spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
 
     const { result } = renderHook(() =>
-      useTerminalUploads({ subshellId: "s1", wsRef: { current: null }, termRef: { current: null } }),
+      useTerminalUploads({
+        subshellId: "s1",
+        wsRef: { current: null },
+        termRef: { current: null },
+        inputQueueRef: { current: null },
+      }),
     );
     result.current.openImagePicker();
 
@@ -248,7 +269,12 @@ describe("useTerminalUploads.openImagePicker", () => {
 
 /** Minimal host element wiring the hook exactly like SubshellTerminal does. */
 function Probe() {
-  const uploads = useTerminalUploads({ subshellId: "s1", wsRef: { current: null }, termRef: { current: null } });
+  const uploads = useTerminalUploads({
+    subshellId: "s1",
+    wsRef: { current: null },
+    termRef: { current: null },
+    inputQueueRef: { current: null },
+  });
   return (
     <div
       {...uploads.getRootProps({ className: "root" })}

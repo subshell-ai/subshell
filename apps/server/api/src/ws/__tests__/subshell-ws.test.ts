@@ -8,7 +8,7 @@ import { registerViewer, resetGeometryQueueForTests, resetLiveViewersForTests, t
 // pinned there by __tests__/sync-stripper.test.ts.
 
 /** Records every launcher call the message handler makes. `canInput` defaults true (an edit/owner attach). */
-function fakeSocket(opts: { canInput?: boolean; subshellId?: string } = {}) {
+function fakeSocket(opts: { canInput?: boolean; subshellId?: string; sid?: string; failInput?: boolean } = {}) {
   const inputs: string[] = [];
   const resizes: Array<{ cols: number; rows: number }> = [];
   const sent: Array<Record<string, unknown>> = [];
@@ -18,6 +18,7 @@ function fakeSocket(opts: { canInput?: boolean; subshellId?: string } = {}) {
   // `paneSize`, so resize assertions have to let a microtask run (see `tick`).
   const launcher = {
     sendInput: async (_socket: string, _session: string, input: string) => {
+      if (opts.failInput) throw new Error("pane gone");
       inputs.push(input);
     },
     resize: async (_socket: string, _session: string, cols: number, rows: number) => {
@@ -39,6 +40,9 @@ function fakeSocket(opts: { canInput?: boolean; subshellId?: string } = {}) {
       viewerId: crypto.randomUUID(),
       deviceLabel: "Test device",
       since: new Date().toISOString(),
+      // The attach session rides the upgrade query (`&sid=`), which the
+      // adapter spread onto ws.data: the same channel the handler reads.
+      ...(opts.sid ? { query: { sid: opts.sid } } : {}),
     },
     send: (raw: string) => {
       sent.push(JSON.parse(raw) as Record<string, unknown>);
@@ -176,6 +180,109 @@ describe("handleSubshellMessage", () => {
     handleSubshellMessage(ws, "plain text is no longer input");
     expect(inputs).toEqual([]);
     expect(resizes).toEqual([]);
+  });
+
+  it("acks an input id after the pane write lands, to the sending socket only", async () => {
+    const { ws, inputs, sent } = fakeSocket({ subshellId: "ack-write", sid: "sess-a" });
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "x", id: 1 }));
+    // The ack is emitted in the write's success path, one microtask later.
+    await tick();
+    expect(inputs).toEqual(["x"]);
+    expect(sent.filter((f) => f.type === "ack")).toEqual([{ type: "ack", id: 1 }]);
+  });
+
+  it("dedupes a re-sent id without a second pane write, and still acks it", async () => {
+    const { ws, inputs, sent } = fakeSocket({ subshellId: "ack-dedupe", sid: "sess-a" });
+    for (let i = 0; i < 3; i++) {
+      handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "x", id: 1 }));
+      await tick();
+    }
+    // The retry after the first landed is absorbed by the completed-write
+    // window: one write, three acks (the client must be able to retire the id).
+    expect(inputs).toEqual(["x"]);
+    expect(sent.filter((f) => f.type === "ack").length).toBe(3);
+  });
+
+  it("keys the window by session, so a second viewer's ids never collide", async () => {
+    const a = fakeSocket({ subshellId: "ack-sessions", sid: "sess-a" });
+    const b = fakeSocket({ subshellId: "ack-sessions", sid: "sess-b" });
+    handleSubshellMessage(a.ws, JSON.stringify({ type: "input", data: "a", id: 1 }));
+    await tick();
+    handleSubshellMessage(b.ws, JSON.stringify({ type: "input", data: "b", id: 1 }));
+    await tick();
+    // Same id, different sessions: both writes land.
+    expect(a.inputs).toEqual(["a"]);
+    expect(b.inputs).toEqual(["b"]);
+  });
+
+  it("a failed write enters no window and acks nothing, so the retry can write it", async () => {
+    const { ws, inputs, sent } = fakeSocket({ subshellId: "ack-fail", sid: "sess-a", failInput: true });
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "x", id: 1 }));
+    await tick();
+    expect(inputs).toEqual([]);
+    expect(sent.filter((f) => f.type === "ack")).toEqual([]);
+    // Recovery: the pane works again and the client re-sends the same id,
+    // which must now write, because the failed write entered no window.
+    (ws.data as unknown as { launcher: { sendInput: (s: string, id: string, d: string) => Promise<void> } }).launcher =
+      {
+        sendInput: async (_socket: string, _session: string, input: string) => {
+          inputs.push(input);
+        },
+        resize: async () => undefined,
+        paneSize: async () => null,
+      } as unknown as NodeLauncher;
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "x", id: 1 }));
+    await tick();
+    expect(inputs).toEqual(["x"]);
+    expect(sent.filter((f) => f.type === "ack")).toEqual([{ type: "ack", id: 1 }]);
+  });
+
+  it("an id without a session dedupes per socket (viewerId fallback)", async () => {
+    const { ws, inputs, sent } = fakeSocket({ subshellId: "ack-nosid" });
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "x", id: 1 }));
+    await tick();
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "x", id: 1 }));
+    await tick();
+    expect(inputs).toEqual(["x"]);
+    expect(sent.filter((f) => f.type === "ack").length).toBe(2);
+  });
+
+  it("no-id frames behave exactly as before: written, never acked", async () => {
+    const { ws, inputs, sent } = fakeSocket({ subshellId: "ack-legacy" });
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "x" }));
+    await tick();
+    expect(inputs).toEqual(["x"]);
+    expect(sent).toEqual([]);
+  });
+
+  it("resetLiveViewersForTests clears the input windows", async () => {
+    const first = fakeSocket({ subshellId: "ack-reset", sid: "sess-a" });
+    handleSubshellMessage(first.ws, JSON.stringify({ type: "input", data: "x", id: 1 }));
+    await tick();
+    expect(first.inputs).toEqual(["x"]);
+    resetLiveViewersForTests();
+    // A fresh case on the same subshell id and session: the id is writable
+    // again; a surviving window would have swallowed it as a duplicate.
+    const second = fakeSocket({ subshellId: "ack-reset", sid: "sess-a" });
+    handleSubshellMessage(second.ws, JSON.stringify({ type: "input", data: "y", id: 1 }));
+    await tick();
+    expect(second.inputs).toEqual(["y"]);
+  });
+});
+
+/**
+ * `sid=` on the attach URL is the input-retry session key (spec 2026-09-21
+ * Wave A). It is a key the server owns, never trusted display data, so it is
+ * reduced to a safe alphabet: the same posture as `build=`.
+ */
+describe("input session sanitization", () => {
+  it("keeps a normal session id and reduces a hostile one", async () => {
+    const { sanitizeInputSession } = await import("@/ws/input-window.js");
+    expect(sanitizeInputSession("abc-123_X")).toBe("abc-123_X");
+    expect(sanitizeInputSession(`a"b\nc`)).toBe("abc");
+    expect(sanitizeInputSession("x".repeat(80))).toBe("x".repeat(64));
+    expect(sanitizeInputSession("")).toBeUndefined();
+    expect(sanitizeInputSession(undefined)).toBeUndefined();
   });
 });
 

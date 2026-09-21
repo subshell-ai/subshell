@@ -17,6 +17,7 @@ import { DEFAULT_SIZING, resolveSharedGrid, type SizingPolicy, type ViewerPresen
 import { getRequestlessContext } from "@/lib/context.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import { logger } from "@/utils/logger.js";
+import { resetInputWindowsForTests } from "@/ws/input-window.js";
 import { createGeometryQueue, type PaneGeometry } from "@/ws/pane-geometry.js";
 import { createPaneStreamRegistry } from "@/ws/pane-stream.js";
 
@@ -157,6 +158,10 @@ export function resetLiveViewersForTests(): void {
   lastOutputWrites.clear();
   paneStreams.resetForTests();
   geometryQueue.releaseAll();
+  // The input windows join this reset: tests reuse subshell ids, and a
+  // surviving window would silently drop the next case's id-1 keystroke as an
+  // already-written duplicate.
+  resetInputWindowsForTests();
 }
 
 /**
@@ -228,6 +233,14 @@ export function broadcastViewers(subshellId: string): void {
           you: socket.data.viewerId,
           viewers: presence,
           sizing: { mode: policy.mode, pinnedViewerId: policy.pinnedViewerId ?? null },
+          // The input-ack capability (spec 2026-09-21 Wave A), always true on a
+          // current server. It rides this frame rather than a hello of its own
+          // because both attach paths broadcast it right after the replay, so
+          // it reaches the client on the local AND the remote path, and it is
+          // the frame most likely to arrive: the replay frame is skipped when
+          // the capture fails. An older client ignores the unknown field; an
+          // older server omits it and the client keeps fire-and-forget.
+          inputAcks: true,
         }),
       );
     } catch {

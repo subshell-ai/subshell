@@ -13,6 +13,7 @@ import { TerminalDropOverlay } from "@/components/terminal-drop-overlay";
 import { useTerminalUploads } from "@/hooks/use-terminal-uploads";
 import { shouldResetForeignScroll } from "@/lib/app-scroll-pin";
 import { deadPanelActions } from "@/lib/dead-panel-actions";
+import { type InputQueue, queueBadgeView } from "@/lib/input-queue";
 import { sendInput, sendResize, sendSizing } from "@/lib/subshell-frames.js";
 import { TERM_FONT_EVENT, terminalFontSize } from "@/lib/terminal-font-size";
 import {
@@ -58,6 +59,81 @@ const TERMINAL_OPTIONS = {
   allowProposedApi: true,
   scrollback: 5000,
 } as const;
+
+/**
+ * The in-flight input overlay (spec 2026-09-21 Wave A): pending count with a
+ * pulsing chevron run, amber once the oldest unacked id has waited past
+ * QUEUE_STALL_MS (input-queue.ts). An empty queue renders nothing: input
+ * that is merely fast has no UI.
+ *
+ * Exported for the badge's component test; the app's only consumer renders it
+ * inside the terminal container below.
+ *
+ * The queue is created by the hook's effect, which runs AFTER this child's
+ * own effects (React is child-first), so it is picked up by a short poll
+ * rather than read once at mount.
+ */
+export function InputQueueBadge({ inputQueueRef }: { inputQueueRef: { current: InputQueue | null } }) {
+  const [queue, setQueue] = useState<InputQueue | null>(null);
+  useEffect(() => {
+    const found = inputQueueRef.current;
+    if (found) {
+      if (found !== queue) setQueue(found);
+      return;
+    }
+    const poll = setInterval(() => {
+      const picked = inputQueueRef.current;
+      if (picked) {
+        clearInterval(poll);
+        setQueue(picked);
+      }
+    }, 50);
+    return () => clearInterval(poll);
+  }, [queue, inputQueueRef]);
+  const [view, setView] = useState({ depth: 0, stalled: false });
+  useEffect(() => {
+    if (!queue) return;
+    let raf = 0;
+    const sync = () => {
+      setView(queueBadgeView(queue.stats));
+    };
+    const schedule = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        sync();
+      });
+    };
+    const unsubscribe = queue.onStats(schedule);
+    // The amber threshold is a fact about TIME, not an event: a single
+    // unacked keystroke crosses it in silence, so a visible queue keeps
+    // ticking.
+    const tick = setInterval(() => {
+      if (queue.stats.depth > 0) sync();
+    }, 500);
+    sync();
+    return () => {
+      unsubscribe();
+      clearInterval(tick);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [queue]);
+  if (!queue || view.depth === 0) return null;
+  return (
+    <div
+      className={`pointer-events-none absolute top-1 right-4 z-10 rounded-md bg-terminal-strip/85 px-1.5 py-1 text-detail backdrop-blur-sm ${
+        view.stalled ? "text-warning" : "text-muted-foreground"
+      }`}
+    >
+      {view.depth} ⌨
+      <span aria-hidden="true" className="ml-0.5">
+        <span className="input-queue-chevron">&gt;</span>
+        <span className="input-queue-chevron">&gt;</span>
+        <span className="input-queue-chevron">&gt;</span>
+      </span>
+    </div>
+  );
+}
 
 /** Live WebSocket state of the attached subshell. */
 export interface SubshellTerminalStatus {
@@ -679,7 +755,7 @@ export function SubshellTerminal({
   // and re-attaches to the fresh terminal when `active` returns.
   // Declared after the mount effect above so its effect runs second; the
   // effect's onReady closure reads it lazily, by which point it exists.
-  const wsRef = useSubshellWs(
+  const { wsRef, inputQueueRef } = useSubshellWs(
     termRef,
     active ? subshellId : "",
     {
@@ -729,11 +805,18 @@ export function SubshellTerminal({
     onViewersRef.current?.(null);
   }, [active, emitStatus]);
 
-  sendToSubshellRef.current = (data) => sendInput(wsRef.current, data);
+  // Typed bytes from the caller's handles (key bar, custom keys) ride the same
+  // queue the hook's own onData path uses: engaged, they are tracked and
+  // retried; not engaged, bare, exactly as before.
+  sendToSubshellRef.current = (data) => {
+    const inputQueue = inputQueueRef.current;
+    if (inputQueue) inputQueue.enqueue(data);
+    else sendInput(wsRef.current, data);
+  };
   sendResizeRef.current = (cols, rows) => sendResize(wsRef.current, cols, rows);
   setSizingRef.current = (mode, viewerId) => sendSizing(wsRef.current, mode, viewerId);
 
-  const uploads = useTerminalUploads({ subshellId, wsRef, termRef, enabled: showUploads });
+  const uploads = useTerminalUploads({ subshellId, wsRef, termRef, inputQueueRef, enabled: showUploads });
   openImagePickerRef.current = uploads.openImagePicker;
 
   if (!active) {
@@ -788,6 +871,12 @@ export function SubshellTerminal({
               onDismissPhotosNotice={uploads.dismissPhotosNotice}
             />
           )}
+          {/* The in-flight input overlay, same idiom as the devices strip
+              (floated, dense, pointer-events-none). On a workspace pane the
+              devices wrapper renders after this component and at the same
+              corner, so when both are up the devices strip wins the paint and
+              the badge reappears the moment it goes away. */}
+          <InputQueueBadge inputQueueRef={inputQueueRef} />
         </div>
       )}
       {/* The pane log's tail is the only record of why a harness that died
