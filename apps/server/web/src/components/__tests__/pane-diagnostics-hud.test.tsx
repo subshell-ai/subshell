@@ -135,6 +135,20 @@ describe("PaneDiagnosticsHud rows", () => {
     expect(screen.getByText("exited (code 1)")).toBeTruthy();
   });
 
+  it("pane: a terminated row reads the shared word, not exited-and-ended for one state", () => {
+    renderHud({
+      subshell: makeSubshell({
+        status: "terminated",
+        alive: false,
+        exitCode: 2,
+        activity: "terminated",
+        lastOutputAt: null,
+      }),
+    });
+    expect(screen.getByText("ended (code 2)")).toBeTruthy();
+    expect(screen.queryByText(/exited/)).toBeNull();
+  });
+
   it("output: none yet, just now, and the elapsed age on the shared clock", () => {
     renderHud({ subshell: makeSubshell({ lastOutputAt: null }) });
     expect(screen.getByText("none yet")).toBeTruthy();
@@ -180,18 +194,33 @@ describe("PaneDiagnosticsHud rows", () => {
     expect(container.querySelector(".text-warning")).toBeTruthy();
   });
 
-  it("input: a queue that never engaged says so instead of implying acks are coming", () => {
+  it("input: a queue that never engaged says starting pre-answer, no acks once answered", () => {
+    // The approximation the HUD documents: unengaged on the FIRST attach is
+    // the innocent pre-engage window (the server has not answered yet), so it
+    // reads "starting"; surviving a reconnect and still unengaged means the
+    // server answered without inputAcks, and THAT is what "no acks" claims.
     const bare = createInputQueue(() => true, now);
-    renderHud({ inputQueueRef: refOf(bare) });
+    renderHud({ inputQueueRef: refOf(bare), reconnectsRef: refOf(0) });
+    expect(screen.getByText("starting")).toBeTruthy();
+    cleanup();
+
+    const answered = createInputQueue(() => true, now);
+    renderHud({ inputQueueRef: refOf(answered), reconnectsRef: refOf(2) });
     expect(screen.getByText("idle · no acks")).toBeTruthy();
   });
 
-  it("viewers: the count and the settled grid from the shared devices rules", () => {
+  it("viewers: settled grid, settling before the first frame, socket down only on a refusal", () => {
     renderHud();
     expect(screen.getByText("2 devices · 50×16")).toBeTruthy();
     cleanup();
 
+    // No frame yet while the socket is up (the first viewers frame follows
+    // the replay): settling, never "socket down".
     renderHud({ viewers: null });
+    expect(screen.getByText("settling")).toBeTruthy();
+    cleanup();
+
+    renderHud({ viewers: null, socket: { connected: false, closed: true } });
     expect(screen.getByText("socket down")).toBeTruthy();
   });
 });

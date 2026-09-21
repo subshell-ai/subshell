@@ -35,6 +35,7 @@ import { paneDiagnosticsIds, setPaneDiagnosticsIds, togglePaneDiagnostics } from
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
 import { findNeighbors } from "@/lib/subshell-neighbors";
+import { FALLBACK_NODE_ID, nodeLabelFor } from "@/lib/subshell-node-groups";
 import { swipeNavEnabled } from "@/lib/swipe-nav-pref";
 
 export const Route = createFileRoute("/subshells_/$id")({
@@ -92,16 +93,20 @@ function SubshellPage() {
     setPaneDiagnosticsIds(next);
     setDiagOn(next.includes(id));
   }
-  // The HUD names the machine the pane runs on. The nodes read is already
-  // mounted across the app (the trust notices use it), so this adds no
-  // request; the id short form is the card's pill's own fallback for a node
-  // this caller cannot resolve.
+  // The HUD names the machine the pane runs on, on the SAME ladder the
+  // sidebar's node groups use (`nodeLabelFor`): the resolved name, the short
+  // id only while the nodes read has never succeeded, "unknown node" once it
+  // answered without the id. The nodes read is already mounted across the
+  // app (the trust notices use it), so this adds no request. Unanswered is
+  // `nodesData === undefined` and not `isError`, for the ladder's own reason:
+  // a failed background refresh keeps the cache, and relabeling resolved
+  // names on a blip is the bug that shape caused once.
   const { data: nodesData } = useNodes();
   const nodeLabel = useMemo(() => {
-    const node = subshell?.nodeId ? nodesData?.nodes.find((candidate) => candidate.id === subshell.nodeId) : undefined;
-    if (node) return node.name || node.id;
-    return subshell?.nodeId ? subshell.nodeId.slice(0, 8) : null;
-  }, [subshell?.nodeId, nodesData]);
+    if (!subshell) return null;
+    const nodeId = subshell.nodeId || FALLBACK_NODE_ID;
+    return nodeLabelFor(nodeId, nodesData?.nodes, nodesData === undefined).label;
+  }, [subshell, nodesData]);
 
   /** Renames this subshell in place (the header title edits itself). */
   async function saveName(name: string): Promise<void> {

@@ -50,8 +50,11 @@ export function outputAgeWord(subshell: SubshellView | undefined): string {
 }
 
 /** The viewers word: who is attached and the grid they settled on, in the devices strip's own terms. */
-export function viewersWord(viewers: ViewersState | null): string {
-  if (!viewers) return "socket down";
+export function viewersWord(viewers: ViewersState | null, socket: { connected: boolean; closed: boolean }): string {
+  // No frame yet is NOT "socket down": the first `viewers` frame follows the
+  // replay, and a reconnecting socket has none either. "Socket down" is the
+  // one state where no frame CAN come: the server refused the attach.
+  if (!viewers) return socket.closed ? "socket down" : "settling";
   const { grid, settled } = describeDevices(viewers);
   const count = `${viewers.viewers.length} device${viewers.viewers.length === 1 ? "" : "s"}`;
   return grid && settled ? `${count} · ${grid.cols}×${grid.rows}` : `${count} · measuring…`;
@@ -60,16 +63,25 @@ export function viewersWord(viewers: ViewersState | null): string {
 /**
  * The input row's two lines: the numbers on the main line, the echo and
  * stall figures on a muted detail line. `engaged` is null when there is no
- * queue at all (no attach yet); false is the older-server answer where input
- * rides bare and no ack will ever come, which is a diagnostic in itself.
+ * queue at all (no attach yet); false is split by {@link reconnects},
+ * because the queue's own stats cannot say WHY it is unengaged: within the
+ * first attach the innocent reason is the pre-engage window (the server has
+ * not answered yet, bytes possibly buffered), which reads "starting";
+ * "no acks" is reserved for a queue that survived a reconnect and still
+ * never engaged, i.e. one the server answered without `inputAcks`. The key
+ * is an approximation (a no-acks answer on a never-reconnected attach also
+ * reads "starting") and is accepted because the queue carries no
+ * answered-without-acks fact of its own.
  */
 export function inputWords(args: {
   hasQueue: boolean;
   stats: InputQueueStats;
   rtt: RttSamples;
   engaged: boolean | null;
+  reconnects: number;
 }): { main: string; detail: string | null } {
   if (!args.hasQueue) return { main: "unknown", detail: null };
+  if (args.engaged === false && args.reconnects === 0) return { main: "starting", detail: null };
   const mainParts: string[] = [];
   if (args.stats.depth === 0) mainParts.push("idle");
   else {
@@ -135,15 +147,30 @@ export function PaneDiagnosticsHud({
       : socketWord(socket);
   // The pane word is the row's own fact; the indicator word is the SHARED
   // one (the same computation the dot and the cards read), so the HUD can
-  // never disagree with the rest of the app about the state. Shown only
-  // when it adds something the pane word does not already say.
+  // never disagree with the rest of the app about the state. A dead pane
+  // shows the shared word alone ("ended", the terminated row's own word)
+  // with the exit code beside it, because "exited" and "ended" naming one
+  // state is one state with two vocabularies; a live pane keeps both, where
+  // "alive" is a fact the state word does not carry.
   const pane = paneWord(subshell);
   const indicator = subshell ? INDICATOR_LABEL[subshellIndicator(subshell)] : null;
-  const paneBase = subshell ? (subshell.alive ? "alive" : "exited") : "unknown";
-  const paneValue = indicator && indicator !== paneBase ? `${pane} · ${indicator}` : pane;
+  const codeSuffix = subshell && subshell.exitCode !== null ? ` (code ${subshell.exitCode})` : "";
+  const paneValue = (() => {
+    if (!subshell) return pane;
+    if (!subshell.alive) {
+      return indicator === "exited" || indicator === "ended" ? `${indicator}${codeSuffix}` : `${pane} · ${indicator}`;
+    }
+    return `${pane} · ${indicator}`;
+  })();
   const nodeValue =
     subshell?.nodeOffline === true ? `${nodeLabel ?? "unknown node"} · unreachable` : (nodeLabel ?? "unknown node");
-  const input = inputWords({ hasQueue: queue !== null, stats, rtt, engaged: queue ? queue.engaged : null });
+  const input = inputWords({
+    hasQueue: queue !== null,
+    stats,
+    rtt,
+    engaged: queue ? queue.engaged : null,
+    reconnects,
+  });
   const stalled = queueBadgeView(stats).stalled;
 
   return (
@@ -155,7 +182,7 @@ export function PaneDiagnosticsHud({
         <Row label="Output" value={outputAgeWord(subshell)} />
         <Row label="Input" value={input.main} warning={stalled} />
         {input.detail && <span className="col-span-2 text-muted-foreground">{input.detail}</span>}
-        <Row label="Viewers" value={viewersWord(viewers)} />
+        <Row label="Viewers" value={viewersWord(viewers, socket)} />
       </div>
     </div>
   );

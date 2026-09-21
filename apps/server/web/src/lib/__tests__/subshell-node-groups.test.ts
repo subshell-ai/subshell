@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { Node } from "@internal/node-admin";
-import { groupSubshellsByNode } from "@/lib/subshell-node-groups";
+import { groupSubshellsByNode, nodeLabelFor } from "@/lib/subshell-node-groups";
 import type { SubshellView } from "@/types/subshell";
 
 /** A minimal subshell view — only the fields grouping and ranking read. */
@@ -174,5 +174,15 @@ describe("groupSubshellsByNode — the cap", () => {
     const rows = Array.from({ length: 12 }, (_, i) => subshell({ id: `s${i}` }));
     const groups = groupSubshellsByNode(rows, [node({ id: "local", name: "Server" })]);
     expect(groups[0]?.subshells).toHaveLength(12);
+  });
+});
+
+describe("nodeLabelFor: the exported ladder (the diagnostics HUD names a node with it too)", () => {
+  it("answers exactly what the grouping passes through, arm for arm", () => {
+    expect(nodeLabelFor("n1", [node()], false).label).toBe("buildbox");
+    // Never succeeded (in flight, or failed with nothing cached): short id.
+    expect(nodeLabelFor("abcdef0123456789", undefined, true).label).toBe("abcdef01");
+    // Answered without the id: unknown, never a "deleted" verdict.
+    expect(nodeLabelFor("gone", [node()], false).label).toBe("unknown node");
   });
 });
