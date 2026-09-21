@@ -14,9 +14,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui
  * node: a "directory not allowed" refusal is unexplainable without the rules
  * that caused it.
  *
- * The copy carries two things the mechanism cannot: that an empty list means
- * unrestricted rather than locked down, and that the rules gate NEW subshells
- * and restarts, not the panes already running.
+ * The copy carries the two things the mechanism cannot: an empty list means
+ * unrestricted rather than locked down, and the rules gate NEW subshells and
+ * restarts, not the panes already running. Two sentences per state, per
+ * `docs/design-system.md` (copy length).
  */
 /**
  * The picker is injected, not imported: the folder browser is a
@@ -62,12 +63,9 @@ export function NodeAllowedDirs({
         <CardTitle>Allowed directories</CardTitle>
         <CardDescription>
           {dirs.length === 0
-            ? "Any directory. Subshells on this node can be created anywhere its user can read. Add a directory to restrict that."
-            : "Subshells on this node can only be created in these directories, or anywhere beneath them."}{" "}
-          Applies to new subshells and to restarts; panes already running are unaffected.{" "}
-          {readOnly
-            ? "These rules are managed by the control plane — it enforces its own copy at launch and re-pushes this machine's copy; edit them in its Nodes UI."
-            : "The node enforces this itself, so the rule holds even if it loses contact with this server."}
+            ? "Subshells on this machine can start anywhere its user can reach. Add a directory to limit them to it and what is inside."
+            : "New subshells and restarts start only inside these directories or what is under them. Panes already running are unaffected."}
+          {readOnly ? " These rules are managed by the control plane." : ""}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

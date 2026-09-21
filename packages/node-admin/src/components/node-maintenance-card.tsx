@@ -23,10 +23,17 @@ import { Switch } from "../ui/switch";
  * maintenance answers WHETHER ANYONE may, and the server ANDs the two into
  * `canLaunch`.
  *
- * It lives on the Overview rather than under Configuration because not every
- * viewer who manages a node sees a Configuration tab, and one switch that
- * appears in different places depending on the kind of machine is a switch
- * people stop finding.
+ * It lives on the Overview, for everyone who manages the node, on every kind
+ * of machine: one switch that appears in different places depending on the
+ * kind of machine is a switch people stop finding. (It briefly lived under a
+ * Configuration tab; that tab was deleted outright and its lone card
+ * promoted to the Overview beside this one.)
+ *
+ * The description's CLI sentence is AGENT-ONLY on purpose: `subshell
+ * maintenance on|off` is the agent's own command, and the control-plane host
+ * runs no agent. On `local` the sentence would point at a command that is
+ * not there, even though the FLAG itself means the same thing on every
+ * machine (spec 2026-09-14: `local` included).
  *
  * Hidden — not disabled — for a viewer who cannot manage the node, the way its
  * predecessor was: the route refuses them, and `canManage` is the server's own
@@ -94,8 +101,13 @@ export function NodeMaintenanceCard({
         <CardTitle>Maintenance</CardTitle>
         <CardDescription>
           Turning this on blocks new subshells on this machine for everyone, and stops whatever is running. They will
-          not come back on their own when maintenance ends. Same flag from the machine's own command line:{" "}
-          <code>subshell maintenance on|off</code>.
+          not come back on their own when maintenance ends.
+          {node.kind === "agent" && (
+            <>
+              {" "}
+              Same flag from the machine's own command line: <code>subshell maintenance on|off</code>.
+            </>
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

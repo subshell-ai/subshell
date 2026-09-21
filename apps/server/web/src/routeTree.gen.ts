@@ -31,7 +31,6 @@ import { Route as SettingsUpdatesRouteImport } from './routes/settings_.updates'
 import { Route as SettingsUsersRouteImport } from './routes/settings_.users'
 import { Route as SubshellsIdRouteImport } from './routes/subshells_.$id'
 import { Route as WorkspacesIdRouteImport } from './routes/workspaces_.$id'
-import { Route as NodesIdConfigRouteImport } from './routes/nodes_.$id_.config'
 import { Route as NodesIdLogsRouteImport } from './routes/nodes_.$id_.logs'
 import { Route as NodesIdServiceRouteImport } from './routes/nodes_.$id_.service'
 
@@ -145,11 +144,6 @@ const WorkspacesIdRoute = WorkspacesIdRouteImport.update({
   path: '/workspaces/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
-const NodesIdConfigRoute = NodesIdConfigRouteImport.update({
-  id: '/nodes_/$id_/config',
-  path: '/nodes/$id/config',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const NodesIdLogsRoute = NodesIdLogsRouteImport.update({
   id: '/nodes_/$id_/logs',
   path: '/nodes/$id/logs',
@@ -184,7 +178,6 @@ export interface FileRoutesByFullPath {
   '/settings/users': typeof SettingsUsersRoute
   '/subshells/$id': typeof SubshellsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
-  '/nodes/$id/config': typeof NodesIdConfigRoute
   '/nodes/$id/logs': typeof NodesIdLogsRoute
   '/nodes/$id/service': typeof NodesIdServiceRoute
 }
@@ -211,7 +204,6 @@ export interface FileRoutesByTo {
   '/settings/users': typeof SettingsUsersRoute
   '/subshells/$id': typeof SubshellsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
-  '/nodes/$id/config': typeof NodesIdConfigRoute
   '/nodes/$id/logs': typeof NodesIdLogsRoute
   '/nodes/$id/service': typeof NodesIdServiceRoute
 }
@@ -239,7 +231,6 @@ export interface FileRoutesById {
   '/settings_/users': typeof SettingsUsersRoute
   '/subshells_/$id': typeof SubshellsIdRoute
   '/workspaces_/$id': typeof WorkspacesIdRoute
-  '/nodes_/$id_/config': typeof NodesIdConfigRoute
   '/nodes_/$id_/logs': typeof NodesIdLogsRoute
   '/nodes_/$id_/service': typeof NodesIdServiceRoute
 }
@@ -268,7 +259,6 @@ export interface FileRouteTypes {
     | '/settings/users'
     | '/subshells/$id'
     | '/workspaces/$id'
-    | '/nodes/$id/config'
     | '/nodes/$id/logs'
     | '/nodes/$id/service'
   fileRoutesByTo: FileRoutesByTo
@@ -295,7 +285,6 @@ export interface FileRouteTypes {
     | '/settings/users'
     | '/subshells/$id'
     | '/workspaces/$id'
-    | '/nodes/$id/config'
     | '/nodes/$id/logs'
     | '/nodes/$id/service'
   id:
@@ -322,7 +311,6 @@ export interface FileRouteTypes {
     | '/settings_/users'
     | '/subshells_/$id'
     | '/workspaces_/$id'
-    | '/nodes_/$id_/config'
     | '/nodes_/$id_/logs'
     | '/nodes_/$id_/service'
   fileRoutesById: FileRoutesById
@@ -350,7 +338,6 @@ export interface RootRouteChildren {
   SettingsUsersRoute: typeof SettingsUsersRoute
   SubshellsIdRoute: typeof SubshellsIdRoute
   WorkspacesIdRoute: typeof WorkspacesIdRoute
-  NodesIdConfigRoute: typeof NodesIdConfigRoute
   NodesIdLogsRoute: typeof NodesIdLogsRoute
   NodesIdServiceRoute: typeof NodesIdServiceRoute
 }
@@ -511,13 +498,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspacesIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/nodes_/$id_/config': {
-      id: '/nodes_/$id_/config'
-      path: '/nodes/$id/config'
-      fullPath: '/nodes/$id/config'
-      preLoaderRoute: typeof NodesIdConfigRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/nodes_/$id_/logs': {
       id: '/nodes_/$id_/logs'
       path: '/nodes/$id/logs'
@@ -558,7 +538,6 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsUsersRoute: SettingsUsersRoute,
   SubshellsIdRoute: SubshellsIdRoute,
   WorkspacesIdRoute: WorkspacesIdRoute,
-  NodesIdConfigRoute: NodesIdConfigRoute,
   NodesIdLogsRoute: NodesIdLogsRoute,
   NodesIdServiceRoute: NodesIdServiceRoute,
 }

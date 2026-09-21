@@ -3,7 +3,9 @@ import {
   Button,
   confirmAction,
   errMessage,
+  NodeAllowedDirs,
   NodeMaintenanceCard,
+  NodeServerUrlCard,
   relativeElapsed,
   useNode,
 } from "@internal/node-admin";
@@ -18,11 +20,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { DirectoryPickerInput } from "@/components/directory-picker-input";
 import { EditableText } from "@/components/editable-text";
 import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
 import { NodeKeyRotate } from "@/components/nodes/node-key-rotate";
 import { NodePageShell } from "@/components/nodes/node-page-shell";
 import { osLabel } from "@/components/nodes/node-row";
+import { managesNodeSections } from "@/components/nodes/node-section-nav";
 import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
 import { useDeleteNode, useRenameNode } from "@/hooks/use-nodes";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
@@ -235,6 +239,41 @@ function NodeDetailPage() {
           {n.kind === "agent" && <NodeKeyRotate nodeId={n.id} nodeName={n.name} canManage={n.canManage} />}
 
           <NodeHarnessCard nodeId={n.id} />
+
+          {/* The node's RULES live on its page, not in a tab of one card:
+              the allowlist gates launches on this machine including the
+              viewer's own, and its empty-means-unrestricted shape is
+              unreadable from a refusal alone (the card READ-shows to
+              anyone who can see the node; the editor appears only for
+              `canManage`, which is also the PUT's gate). `local` included
+              — the plane enforces its own allowlist on its own launches,
+              so the host's page must be able to say what it holds. */}
+          <NodeAllowedDirs
+            node={n}
+            renderEditor={(args) => (
+              <DirectoryPickerInput
+                value={args.value}
+                onChange={args.onChange}
+                nodeId={n.id}
+                nodeName={n.name}
+                placeholder={args.placeholder}
+              />
+            )}
+            // The folder picker's listings are scoped by these rules, so a
+            // change makes every cached explore response stale.
+            onDirsSaved={() => {
+              void queryClient.invalidateQueries({ queryKey: ["explore"] });
+              void queryClient.invalidateQueries({ queryKey: ["recent-paths"] });
+            }}
+          />
+
+          {/* Where this machine dials, and the one field that moves it.
+              Repointing is a daemon concept — no card on `local`, the host
+              IS the server — and the URL is a configuration fact for the
+              people who configure: `owner`|`edit`, the old tab's audience,
+              not a `view` grantee's. The card's own write controls further
+              to `owner`. */}
+          {n.kind === "agent" && managesNodeSections(n) && <NodeServerUrlCard node={n} />}
 
           <NodeSharingDialog nodeId={n.id} open={shareOpen} onOpenChange={setShareOpen} canManage={n.canManage} />
         </>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import type { NodeDetail } from "@internal/node-admin";
-import { managesNodeConfig, managesNodeSections } from "@/components/nodes/node-section-nav";
+import { managesNodeSections } from "@/components/nodes/node-section-nav";
 
 /**
  * The node section pages are FLAT SIBLINGS of the Overview, not children of
@@ -24,8 +24,10 @@ import { managesNodeConfig, managesNodeSections } from "@/components/nodes/node-
  */
 const generatedTree = readFileSync(new URL("../../routeTree.gen.ts", import.meta.url), "utf8");
 
+// `config` is GONE, deliberately: the Configuration tab held one card and
+// moved onto the Overview (2026-09-21). If a route with this name returns,
+// this test suite is the place the deletion gets argued about again.
 const SECTION_ROUTES = {
-  config: "NodesIdConfigRoute",
   logs: "NodesIdLogsRoute",
   service: "NodesIdServiceRoute",
 } as const;
@@ -80,31 +82,6 @@ describe("managesNodeSections", () => {
   for (const [name, node, expected] of cases) {
     it(`${name} -> ${expected}`, () => {
       expect(managesNodeSections(node)).toBe(expected);
-    });
-  }
-});
-
-/**
- * Configuration is a WIDER door than Service/Logs, and that split is the
- * whole point: the daemon sections (Service, Logs) answer nothing for the
- * control-plane host — its half is Server Settings — but Configuration holds
- * the LAUNCH ALLOWLIST, a rule `local` genuinely has (spec 2026-09-05) and
- * the plane enforces on its own launches. So an admin sees Configuration on
- * the host (`canManage` is the server's own yes for that row's writes),
- * while Service and Logs stay hidden by `managesNodeSections` above.
- */
-describe("managesNodeConfig", () => {
-  const base = { kind: "agent", access: "owner", canManage: true } as NodeDetail;
-  const cases: [string, NodeDetail, boolean][] = [
-    ["agent + owner", base, true],
-    ["agent + edit (edit may configure, not manage)", { ...base, access: "edit", canManage: false }, true],
-    ["agent + view", { ...base, access: "view", canManage: false }, false],
-    ["local + admin (canManage)", { ...base, kind: "local", access: "edit", canManage: true }, true],
-    ["local + non-admin", { ...base, kind: "local", access: "edit", canManage: false }, false],
-  ];
-  for (const [name, node, expected] of cases) {
-    it(`${name} -> ${expected}`, () => {
-      expect(managesNodeConfig(node)).toBe(expected);
     });
   }
 });

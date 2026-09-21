@@ -1,6 +1,5 @@
 import type { NodeDetail } from "@internal/node-admin";
 import { useNode } from "@internal/node-admin";
-import { Link } from "@tanstack/react-router";
 import type { JSX, ReactNode } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { NodeSectionNav } from "@/components/nodes/node-section-nav";
@@ -44,9 +43,6 @@ export function NodePageShell({
       <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
         <PageHeader title="Node" subtitle="Machine details" />
         <ErrorBanner message="That node does not exist, or is not shared with you." className="rounded-md border" />
-        <Link to="/nodes" className="text-muted-foreground text-sm underline">
-          Back to nodes
-        </Link>
       </main>
     );
   }
@@ -69,11 +65,6 @@ export function NodePageShell({
       />
       <NodeSectionNav node={n} />
       {children(n)}
-      <p className="text-sm">
-        <Link to="/nodes" className="text-muted-foreground underline">
-          Back to nodes
-        </Link>
-      </p>
     </main>
   );
 }

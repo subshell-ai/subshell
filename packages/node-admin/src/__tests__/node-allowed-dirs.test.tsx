@@ -37,10 +37,10 @@ function node(over: Partial<Node> = {}): Node {
   };
 }
 
-function renderCard(over: Partial<Node> = {}) {
+function renderCard(over: Partial<Node> = {}, card: { readOnly?: boolean } = {}) {
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <NodeAllowedDirs node={node(over)} />
+      <NodeAllowedDirs node={node(over)} {...card} />
     </QueryClientProvider>,
   );
 }
@@ -52,7 +52,7 @@ describe("NodeAllowedDirs", () => {
     // The invariant most likely to be misread by a human. If the card implied
     // "nothing is permitted", an operator would think the node was broken.
     renderCard({ allowedDirs: [] });
-    expect(document.body.textContent).toContain("Any directory");
+    expect(document.body.textContent).toContain("anywhere its user can reach");
   });
 
   it("lists the rules in force", () => {
@@ -68,9 +68,12 @@ describe("NodeAllowedDirs", () => {
     expect(document.body.textContent).toContain("already running are unaffected");
   });
 
-  it("says the node enforces the rules itself", () => {
-    renderCard({ allowedDirs: ["/srv/work"] });
-    expect(document.body.textContent).toContain("enforces this itself");
+  it("names the control plane as the owner of the rules when read-only", () => {
+    // The machine's OWN dashboard renders this list but must not invite
+    // edits the next reconnect would overwrite (spec 2026-09-10: the plane
+    // holds the set and re-pushes on `ready`).
+    renderCard({ allowedDirs: ["/srv/work"] }, { readOnly: true });
+    expect(document.body.textContent).toContain("managed by the control plane");
   });
 
   it("offers editing controls to a manager", () => {
