@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
+  type ConfirmReadline,
   classifyPortConflict,
+  confirmOn,
   definitionFirstCommand,
+  devServerPort,
   isConfirm,
   type PortListener,
   parseAppPids,
+  parseDevServerPort,
   parseLsofListeners,
   parseServiceStatus,
 } from "../desktop-dev";
@@ -137,6 +141,109 @@ describe("parseLsofListeners", () => {
   test("malformed pid lines are dropped, not guessed", () => {
     const out = "pnot-a-pid\ncx\np8888\ncreal\n";
     expect(parseLsofListeners(out)).toEqual([{ pid: 8888, command: "real" }]);
+  });
+
+  test("one pid bound on both stacks is one entry, not two", () => {
+    // lsof emits one record per SOCKET, so a listener bound v4+v6 renders the
+    // same process twice; the verdict and the on-screen holder list are about
+    // PROCESSES. The first c line wins and the duplicate's own command is
+    // ignored.
+    const out = "p67215\ncsubshell-server\nf11\np67215\ncsubshell-server\nf12\n";
+    expect(parseLsofListeners(out)).toEqual([{ pid: 67215, command: "subshell-server" }]);
+  });
+});
+
+describe("parseDevServerPort", () => {
+  test("unset or empty reads the compiled default, 3080", () => {
+    expect(parseDevServerPort(undefined)).toEqual({ ok: true, port: 3080 });
+    expect(parseDevServerPort("")).toEqual({ ok: true, port: 3080 });
+  });
+
+  test("a valid value is honoured, whatever the default is", () => {
+    expect(parseDevServerPort("3099")).toEqual({ ok: true, port: 3099 });
+    expect(parseDevServerPort("1")).toEqual({ ok: true, port: 1 });
+  });
+
+  test("an invalid value is reported, never fallen back from", () => {
+    // The server's own asPortNumber() THROWS on these — dev must refuse the
+    // same values, or the default-YES prompt stops the operator's real
+    // service for a launch that cannot boot.
+    for (const bad of ["not-a-port", "0", "65536", "-1", "30.5", "NaN"]) {
+      expect(parseDevServerPort(bad)).toEqual({ ok: false, value: bad });
+    }
+  });
+});
+
+describe("devServerPort (env save/restore)", () => {
+  // biome-ignore lint/suspicious/noUndeclaredEnvVars: the value under test, saved to whatever this shell had
+  const ORIGINAL = process.env.SERVER_PORT;
+
+  function restore(): void {
+    // biome-ignore lint/suspicious/noUndeclaredEnvVars: the value under test, restored to whatever this shell had
+    if (ORIGINAL === undefined) delete process.env.SERVER_PORT;
+    else process.env.SERVER_PORT = ORIGINAL;
+  }
+
+  test("reads the shell's SERVER_PORT, the same value the sidecar inherits", () => {
+    try {
+      process.env.SERVER_PORT = "3099";
+      expect(devServerPort()).toBe(3099);
+    } finally {
+      restore();
+    }
+  });
+
+  test("absent reads the default", () => {
+    try {
+      // biome-ignore lint/suspicious/noUndeclaredEnvVars: the value under test
+      delete process.env.SERVER_PORT;
+      expect(devServerPort()).toBe(3080);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("confirmOn", () => {
+  /** A readline stand-in whose question never resolves until `close()` fires. */
+  function fakeRl(): { rl: ConfirmReadline; close: () => void; resolve: (answer: string) => void } {
+    let resolveQuestion: ((answer: string) => void) | undefined;
+    let closeListener: (() => void) | undefined;
+    const rl: ConfirmReadline = {
+      question: () =>
+        new Promise<string>((resolve) => {
+          resolveQuestion = resolve;
+        }),
+      once: (_event, listener) => {
+        closeListener = listener;
+      },
+    };
+    return { rl, close: () => closeListener?.(), resolve: (answer) => resolveQuestion?.(answer) };
+  }
+
+  test("a typed answer decides, exactly as isConfirm says", async () => {
+    const fake = fakeRl();
+    const pending = confirmOn(fake.rl, "?");
+    fake.resolve("y");
+    expect(await pending).toBe(true);
+  });
+
+  test("the stream closing without an answer is a DECLINE, not the default YES", async () => {
+    // Measured by the reviewer on c1a20b8c: under Bun, an input that ends
+    // before an answer never resolves `rl.question` — and mapping close to ""
+    // would read it as YES and stop the operator's running service. The
+    // prompt's default is for a typed Enter, never for an input that closed.
+    const fake = fakeRl();
+    const pending = confirmOn(fake.rl, "?");
+    fake.close();
+    expect(await pending).toBe(false);
+  });
+
+  test("close with a question already pending 'n' still declines", async () => {
+    const fake = fakeRl();
+    const pending = confirmOn(fake.rl, "?");
+    fake.resolve("n");
+    expect(await pending).toBe(false);
   });
 });
 
