@@ -82,7 +82,7 @@ export function NodeAllowedDirs({
             {dirs.map((dir) => (
               <li key={dir} className="flex items-center justify-between gap-3 rounded-md border px-3 py-1.5">
                 <code className="truncate font-mono text-detail">{dir}</code>
-                {node.canManage && !readOnly && (
+                {canEdit && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -98,8 +98,7 @@ export function NodeAllowedDirs({
           </ul>
         )}
 
-        {node.canManage &&
-          !readOnly &&
+        {canEdit &&
           (adding ? (
             <div className="space-y-2">
               {/* The picker is deliberately UNSCOPED here: you have to be able
@@ -135,7 +134,7 @@ export function NodeAllowedDirs({
             </Button>
           ))}
 
-        {dirs.length > 0 && node.canManage && !readOnly && (
+        {dirs.length > 0 && canEdit && (
           <p className="text-detail text-muted-foreground">
             Removing every directory returns this node to unrestricted.
           </p>

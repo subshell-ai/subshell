@@ -162,6 +162,14 @@ describe("NodeMaintenanceCard", () => {
     }
   });
 
+  it("keeps the CLI hint off the control-plane host", () => {
+    // `subshell maintenance on|off` is the agent's command; `local` runs no
+    // agent to type it into, and a hint pointing at a missing binary reads
+    // as a bug report.
+    renderCard(node({ kind: "local" }));
+    expect(document.body.textContent).not.toContain("subshell maintenance on|off");
+  });
+
   it("says since when, and WHICH END declared it", () => {
     const { restore } = mockFetch();
     try {

@@ -76,6 +76,15 @@ describe("NodeAllowedDirs", () => {
     expect(document.body.textContent).toContain("managed by the control plane");
   });
 
+  it("does not invite adding when the viewer has no Add control", () => {
+    // The empty-state copy names the Add action; `view`/`edit` grantees and
+    // the machine's own dashboard render no button, so they read no
+    // invitation either (the copy gate is the controls' gate, same `canEdit`).
+    renderCard({ canManage: false, allowedDirs: [] });
+    expect(document.body.textContent).toContain("anywhere its user can reach");
+    expect(document.body.textContent).not.toContain("Add a directory");
+  });
+
   it("offers editing controls to a manager", () => {
     renderCard({ canManage: true, allowedDirs: ["/srv/work"] });
     expect(screen.getByRole("button", { name: /add directory/i })).toBeDefined();
