@@ -41,6 +41,18 @@
  * `<sidecar> version` to decide what it ships, gets nothing, and shows "this
  * build ships no server binary" on the very first-run screen a developer is
  * usually here to look at. So an empty file is treated as absent.
+ *
+ * **The installed service owns :3080 in normal operation, and that is the one
+ * thing this launch cannot coexist with** (operator ruling 2026-09-21). The
+ * server app runs the freshly built CLI as its child, and the child binds
+ * SERVER_PORT (3080) — which the installed `subshell-server` service already
+ * holds. The child cannot bind, the dashboard window keeps talking to the
+ * installed build through the SPA dev proxy, and the developer debugs a brand-
+ * new client against a server that is weeks old. So before anything is staged
+ * the launcher asks who owns the port: the service is offered a stop (the CLI
+ * verb, never a kill — the manager would respawn one), a decline or a
+ * non-interactive run aborts with the remedies named, and a holder that is NOT
+ * the service is never touched.
  */
 // Everything below the node: imports is reached by RELATIVE path rather than by
 // package specifier, because `scripts/` is not a workspace and a bare
@@ -49,6 +61,7 @@
 import { chmodSync, copyFileSync, existsSync, readFileSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { createInterface } from "node:readline/promises";
 import {
   DEFAULT_DEPS as CLIENT_DEPS,
   stageSidecar as stageClientSidecar,
@@ -58,10 +71,10 @@ import {
   stageSidecar as stageServerSidecar,
 } from "../apps/server/desktop/src/scripts/release.js";
 import {
-  NODE_SIDECAR_NAME,
   DESKTOP_TARGETS,
   type DesktopTarget,
   desktopSidecarFileName,
+  NODE_SIDECAR_NAME,
   SERVER_SIDECAR_NAME,
 } from "../packages/subshell-protocol/src/paths.js";
 
@@ -341,28 +354,367 @@ async function refreshManagedCopy(app: DesktopApp, staged: string): Promise<void
  * or an installer chose, and silently overwriting a binary somewhere else on
  * the disk is not a dev convenience.
  */
-function warnIfServiceOutranksManaged(app: DesktopApp, dest: string): void {
+/**
+ * The first command a service definition runs — the launchd
+ * `ProgramArguments` array's first string, or systemd's `ExecStart` — or
+ * `null` when neither is present.
+ *
+ * `platform` is a parameter rather than a `process.platform` read so the
+ * parsing is testable on one host for both shapes.
+ */
+export function definitionFirstCommand(text: string, platform: NodeJS.Platform = process.platform): string | null {
+  const first =
+    platform === "darwin"
+      ? /<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]+)<\/string>/.exec(text)?.[1]
+      : /^ExecStart=(\S+)/m.exec(text)?.[1];
+  return first ?? null;
+}
+
+/** Where one app's service definition lives — launchd's LaunchAgents on macOS, systemd --user elsewhere. */
+function serviceDefinitionPath(app: DesktopApp): string {
   const home = homedir();
-  const definition =
-    process.platform === "darwin"
-      ? join(home, "Library", "LaunchAgents", app.service.plist)
-      : join(home, ".config", "systemd", "user", app.service.unit);
+  return process.platform === "darwin"
+    ? join(home, "Library", "LaunchAgents", app.service.plist)
+    : join(home, ".config", "systemd", "user", app.service.unit);
+}
+
+function warnIfServiceOutranksManaged(app: DesktopApp, dest: string): void {
+  const definition = serviceDefinitionPath(app);
   let text: string;
   try {
     text = readFileSync(definition, "utf8");
   } catch {
     return;
   }
-  const first =
-    process.platform === "darwin"
-      ? /<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]+)<\/string>/.exec(text)?.[1]
-      : /^ExecStart=(\S+)/m.exec(text)?.[1];
-  if (first === undefined || first === dest) return;
+  const first = definitionFirstCommand(text);
+  if (first === null || first === dest) return;
   console.log(`NOTE: ${definition} runs ${first}, which outranks the copy above — the app will resolve THAT one.`);
 }
 
 /** Where `apps/server/web`'s own Vite server listens (its `vite.config.ts`). */
 const SPA_DEV_URL = "http://localhost:5174";
+
+/**
+ * The parsed SERVER_PORT — the port the dev backend binds, whose compiled
+ * default is 3080 (`apps/server/api/src/constants.ts:40`).
+ *
+ * Read from the environment rather than imported: `constants.ts` loads the
+ * server's real config.env into `process.env` as an import side effect, and
+ * this launcher must not do that to the `tauri dev` process it is about to
+ * spawn. The launcher passes its whole environment down, so a SERVER_PORT in
+ * the developer's shell decides the sidecar's port and this probe alike — one
+ * value, both places. Drift hazard, named: the SPA dev proxy
+ * (`apps/server/web/vite.config.ts`) still targets 3080 literally, so dev with
+ * a non-default SERVER_PORT needs that proxy edited by hand until the two read
+ * one source.
+ *
+ * An INVALID value is reported, not fallen back: the server's own
+ * `asPortNumber()` THROWS on the same value, so the freshly built child would
+ * refuse to boot while the default-YES prompt stopped the operator's real
+ * service for nothing. Pure, so it is tested against fixed text.
+ */
+export function parseDevServerPort(raw: string | undefined): { ok: true; port: number } | { ok: false; value: string } {
+  if (raw === undefined || raw === "") return { ok: true, port: 3080 };
+  const parsed = Number(raw);
+  if (Number.isInteger(parsed) && parsed > 0 && parsed < 65536) return { ok: true, port: parsed };
+  return { ok: false, value: raw };
+}
+
+/** The dev port for THIS run, or a refusal naming the bad value. */
+export function devServerPort(): number {
+  // biome-ignore lint/suspicious/noUndeclaredEnvVars: a dev-shell override, the same one the server binary reads
+  const raw = process.env.SERVER_PORT;
+  const parsed = parseDevServerPort(raw);
+  if (!parsed.ok) {
+    console.error(`SERVER_PORT=${parsed.value} is not a port — the server would refuse to boot on it. Aborting.`);
+    process.exit(1);
+  }
+  return parsed.port;
+}
+
+/** One process holding a LISTEN socket, as `lsof -Fpc` reports it. */
+export interface PortListener {
+  /** The PID. */
+  pid: number;
+  /** The COMMAND column — a basename, e.g. `subshell-server`; `""` when lsof named none. */
+  command: string;
+}
+
+/**
+ * Parse `lsof -nP -sTCP:LISTEN -iTCP:<port> -Fpc` output.
+ *
+ * lsof's field output is one `x<value>` line per field; a `p` line begins a
+ * process record and the fields after it belong to that record. This build
+ * also emits an `f` (file-descriptor) line that was not asked for — unknown
+ * fields are ignored rather than assumed, so the parser survives lsof
+ * variants. Records are DEDUPED by pid, because lsof emits one record per
+ * socket and a listener bound on both stacks renders the same process twice;
+ * the output is one entry per PROCESS. Pure, so it is tested against fixed
+ * text.
+ */
+export function parseLsofListeners(output: string): PortListener[] {
+  const byPid = new Map<number, PortListener>();
+  let current: PortListener | null = null;
+  for (const line of output.split("\n")) {
+    if (line.startsWith("p")) {
+      current = { pid: Number(line.slice(1)), command: "" };
+      const existing = byPid.get(current.pid);
+      if (existing === undefined) byPid.set(current.pid, current);
+      else current = existing;
+    } else if (line.startsWith("c") && current !== null && current.command === "") {
+      current.command = line.slice(1);
+    }
+  }
+  return [...byPid.values()].filter((l) => Number.isInteger(l.pid) && l.pid > 0);
+}
+
+/** One line naming the holders: `subshell-server (pid 67215)`, comma-joined; `unknown process` when lsof named no command. */
+function holderLine(listeners: readonly PortListener[]): string {
+  return listeners.map((l) => `${l.command !== "" ? l.command : "unknown process"} (pid ${l.pid})`).join(", ");
+}
+
+/** LISTEN-only, by flag (`-sTCP:LISTEN`): a bare port match includes client sockets. */
+async function probePortListeners(port: number): Promise<PortListener[] | null> {
+  try {
+    const proc = Bun.spawn(["lsof", "-nP", "-sTCP:LISTEN", `-iTCP:${port}`, "-Fpc"], {
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    const out = await new Response(proc.stdout).text();
+    await proc.exited;
+    return parseLsofListeners(out);
+  } catch {
+    // lsof missing or unspawnable — the caller warns and continues rather
+    // than aborting a launch a machine without lsof can still make.
+    return null;
+  }
+}
+
+/** The slice of `subshell-server service status --json` the preflight reads. */
+export interface ServiceStatus {
+  /** Whether a unit/plist exists on disk. */
+  installed: boolean;
+  /** The manager's view of the process — `running` | `stopping` | `stopped` | `not-installed` | `unknown`. */
+  state: string;
+  /** Main PID when the manager reports one, else `null`. */
+  pid: number | null;
+}
+
+/** Parse the status JSON, or `null` when it is not the shape this file means. */
+export function parseServiceStatus(output: string): ServiceStatus | null {
+  try {
+    const raw = JSON.parse(output) as Partial<ServiceStatus>;
+    if (typeof raw.installed !== "boolean" || typeof raw.state !== "string") return null;
+    return { installed: raw.installed, state: raw.state, pid: typeof raw.pid === "number" ? raw.pid : null };
+  } catch {
+    return null;
+  }
+}
+
+/** Ask the installed CLI what its manager reports. `binary` is non-null from {@link resolveInstalledServer}. */
+async function readServiceStatus(binary: string): Promise<ServiceStatus | null> {
+  const proc = Bun.spawn([binary, "service", "status", "--json"], { stdout: "pipe", stderr: "ignore" });
+  const out = await new Response(proc.stdout).text();
+  await proc.exited;
+  return parseServiceStatus(out);
+}
+
+/** The port verdict: free, held by the installed Subshell Server service, or held by something else. */
+export type PortVerdict = "free" | "our-service" | "foreign";
+
+/**
+ * Who holds the port, from the listener list and the service manager's view.
+ *
+ * `our-service` requires a POSITIVE match: the service is installed AND
+ * running AND its main pid is one of the listeners. A running service whose
+ * pid does NOT hold the port is `foreign` — stopping it would not free the
+ * port, so offering to stop it would be a remedy for a different problem than
+ * the one on screen (the caller still mentions the service in that case).
+ * Pure, so it is tested against fixed inputs.
+ */
+export function classifyPortConflict(listeners: readonly PortListener[], service: ServiceStatus | null): PortVerdict {
+  if (listeners.length === 0) return "free";
+  const running = service?.installed && service.state === "running" && service.pid !== null;
+  if (running && listeners.some((l) => l.pid === service.pid)) return "our-service";
+  return "foreign";
+}
+
+/**
+ * The installed `subshell-server` the preflight would ask and stop, or `null`.
+ *
+ * The service definition's binary FIRST — the manager runs THAT file, so its
+ * `service status` is the honest answer; a PATH binary of a different vintage
+ * can misreport the installed service's state and turn `our-service` into a
+ * false `foreign`. Then PATH (the operator may keep the CLI somewhere else),
+ * then the managed copy the desktop app installs at `~/.local/bin`.
+ */
+function resolveInstalledServer(app: DesktopApp): string | null {
+  try {
+    const fromDefinition = definitionFirstCommand(readFileSync(serviceDefinitionPath(app), "utf8"));
+    if (fromDefinition !== null) return fromDefinition;
+  } catch {
+    /* no definition on disk — nothing installed, fall through */
+  }
+  const which = Bun.spawnSync(["which", "subshell-server"], { stdout: "pipe", stderr: "ignore" });
+  if (which.exitCode === 0) {
+    const onPath = which.stdout.toString().trim();
+    if (onPath !== "") return onPath;
+  }
+  const managed = join(homedir(), ".local", "bin", app.installed);
+  if (existsSync(managed)) return managed;
+  return null;
+}
+
+/** The prompt's default is YES: empty, `y`, `Y`, `yes` — anything else declines. */
+export function isConfirm(answer: string): boolean {
+  return /^\s*(y|yes)?\s*$/i.test(answer);
+}
+
+/** The slice of a readline interface {@link confirmOn} needs. */
+export interface ConfirmReadline {
+  question(question: string): Promise<string>;
+  once(event: "close", listener: () => void): unknown;
+}
+
+/**
+ * One `[Y/n]` answer, raced against the stream's close.
+ *
+ * Under Bun, a question whose input ENDS before an answer never resolves
+ * (measured: 120 s, no resolution; Node answers `""`) — so a stray Ctrl-D at
+ * the prompt would hang the launcher, and mapping the close to `""` would
+ * read it as YES. It reads as DECLINE instead: the prompt's default is for a
+ * typed Enter, never for an input that closed, and an accidental EOF must
+ * never stop the operator's running service.
+ */
+export async function confirmOn(rl: ConfirmReadline, question: string): Promise<boolean> {
+  const questionPromise = rl.question(question);
+  // The close path may abandon this promise and readline rejects a pending
+  // question on close — keep the losing branch from surfacing as an unhandled
+  // rejection.
+  questionPromise.catch(() => {});
+  const closed = await Promise.race([
+    questionPromise,
+    new Promise<null>((resolve) => rl.once("close", () => resolve(null))),
+  ]);
+  return closed !== null && isConfirm(closed);
+}
+
+/** One `[Y/n]` question on the inherited stdin. The launcher is interactive by nature. */
+async function confirm(question: string): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return confirmOn(rl, question).finally(() => rl.close());
+}
+
+/**
+ * Stop the installed service with the CLI VERB, never a kill — launchd/systemd
+ * KeepAlive would respawn a killed pid, and the CLI's own pane-safety refusal
+ * is the thing that protects live panes on an old definition.
+ */
+async function stopService(binary: string): Promise<void> {
+  const proc = Bun.spawn([binary, "service", "stop"], { stdout: "inherit", stderr: "inherit", stdin: "ignore" });
+  await proc.exited;
+}
+
+/**
+ * The :3080 preflight (operator ruling 2026-09-21): dev always uses the most
+ * recently built server, and the freshly built sidecar cannot bind a port the
+ * installed service holds — so the service is offered a stop, and a decline or
+ * an unattended run without `--stop-existing-service` aborts with the remedies
+ * named. A holder that is NOT the service is named and left alone.
+ *
+ * Abort is `process.exit(1)` rather than a thrown error: the caller is
+ * `main()`, and the message on screen is the product. Exported (like the pure
+ * seams above) so the verdict can be driven against a real machine without a
+ * launch; importing this file runs nothing — the CLI body is `main`-guarded.
+ */
+export async function preflightDevPort(
+  app: DesktopApp,
+  opts: { checkOnly: boolean; stopRequested: boolean },
+): Promise<void> {
+  const port = devServerPort();
+  const listeners = await probePortListeners(port);
+  if (listeners === null) {
+    console.warn(
+      `NOTE: could not check whether something already listens on :${port} (lsof unavailable). ` +
+        "If the dashboard later shows a server you did not just build, stop the installed service by hand.",
+    );
+    return;
+  }
+  if (listeners.length === 0) {
+    if (opts.checkOnly) console.log(`Port ${port} is free.`);
+    return;
+  }
+
+  const binary = resolveInstalledServer(app);
+  const service = binary === null ? null : await readServiceStatus(binary);
+  const verdict = classifyPortConflict(listeners, service);
+  const held = `Port ${port} is held by ${holderLine(listeners)}.`;
+
+  if (verdict === "our-service") {
+    // classifyPortConflict answers our-service only for a running, INSTALLED
+    // service, which readServiceStatus(binary) produced — binary is non-null
+    // here by construction; the ?? is unreachable and never `!`.
+    const server = binary ?? "subshell-server";
+    if (opts.checkOnly) {
+      console.log(
+        `${held} The installed subshell-server service (pid ${service?.pid ?? "unknown"}) holds the port dev binds — ` +
+          "a real run prompts to stop it (or pass --stop-existing-service). --check never stops anything.",
+      );
+      return;
+    }
+    const proceed = opts.stopRequested
+      ? true
+      : process.stdin.isTTY
+        ? await confirm(
+            `${held}\nThe freshly built server cannot bind it, so dev would run against the installed build. ` +
+              "Stop the service so dev uses the new server? [Y/n] ",
+          )
+        : false;
+    if (!proceed) {
+      console.error(held);
+      if (!process.stdin.isTTY && !opts.stopRequested) {
+        console.error("Non-interactive run: nothing is stopped without consent (--stop-existing-service consents).");
+      }
+      console.error("Two ways forward:");
+      console.error(`  - stop the service and re-run: ${server} service stop (it stays down until \`service start\`)`);
+      console.error(`  - update the installed server instead, if :${port} is the port you want served`);
+      process.exit(1);
+    }
+    console.log(`Stopping the installed service (${server} service stop)…`);
+    await stopService(server);
+    console.log("The service will not come back until `subshell-server service start`.");
+    const after = await probePortListeners(port);
+    if (after === null || after.length > 0) {
+      console.error(
+        after === null
+          ? `Could not re-check :${port} after \`service stop\` (lsof became unavailable) — ` +
+              `confirm with \`${server} service status\` before continuing.`
+          : `Port ${port} is STILL held by ${holderLine(after)}, after \`service stop\` — ` +
+              `re-check with \`${server} service status\`.`,
+      );
+      process.exit(1);
+    }
+    return;
+  }
+
+  // Foreign holder, or a service that is running but does NOT hold the port.
+  if (binary !== null && service === null) {
+    // The holder is being treated as foreign on an UNREADABLE status, not a
+    // negative one — say so, rather than "not the installed service" implying
+    // the service was asked and said no.
+    console.error(`NOTE: \`${binary} service status --json\` did not answer a readable status.`);
+  }
+  console.error(
+    `${held} Not the installed Subshell Server service — the launcher never kills processes it did not start.`,
+  );
+  console.error("Stop that process by hand, then re-run.");
+  if (service?.installed && service.state === "running") {
+    console.error(
+      "The installed service is also running, but it does not hold this port; stopping it will not free it.",
+    );
+  }
+  process.exit(1);
+}
 
 /**
  * The SPA dev server's address when one is actually listening, else null.
@@ -564,9 +916,12 @@ async function runDev(app: DesktopApp): Promise<number> {
 
 function usage(): never {
   const names = APPS.map((a) => `dev:desktop-${a.id}`).join(" | ");
-  console.error(`usage: bun run ${names} [--force] [--check]`);
+  console.error(`usage: bun run ${names} [--force] [--check] [--stop-existing-service]`);
   console.error("  --force  rebuild the CLI even when nothing under its workspaces has changed");
   console.error("  --check  build, stage and refresh as usual, then stop instead of launching the app");
+  console.error(
+    "  --stop-existing-service  when the installed subshell-server service holds the dev port, stop it without asking",
+  );
   process.exit(2);
 }
 
@@ -579,6 +934,8 @@ if (import.meta.main) {
   const force = args.includes("--force");
   /** Everything except the launch — what is this about to run, without opening a window. */
   const checkOnly = args.includes("--check");
+  /** Consent, for a non-TTY run, to stop the installed service that holds the dev port. */
+  const stopExistingService = args.includes("--stop-existing-service");
   const requested = args.find((arg) => !arg.startsWith("--"));
   const app = APPS.find((candidate) => candidate.id === requested);
   if (!app) usage();
@@ -602,6 +959,14 @@ if (import.meta.main) {
     stderr: "inherit",
   });
   if (toolchain.exitCode !== 0) process.exit(toolchain.exitCode ?? 1);
+
+  // Before anything is staged: if the installed service holds the dev port,
+  // the launch is doomed to run against the old build (see this file's header).
+  // Aborting here also spares the minutes a rebuild would spend on a launch
+  // that will be refused.
+  if (app.id === "server") {
+    await preflightDevPort(app, { checkOnly, stopRequested: stopExistingService });
+  }
 
   const staged = join(REPO_ROOT, "apps", app.dir, "src-tauri", "binaries", desktopSidecarFileName(app.sidecar, target));
 
