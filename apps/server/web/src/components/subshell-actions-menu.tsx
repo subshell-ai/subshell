@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import {
+  Activity,
   Bell,
   BellOff,
   Copy,
@@ -35,6 +36,7 @@ export function SubshellActionsMenu({
   subshell,
   disabled,
   onDeleted,
+  diagnostics,
   children,
 }: {
   subshell: SubshellView;
@@ -42,6 +44,14 @@ export function SubshellActionsMenu({
   disabled?: boolean;
   /** Called after the subshell is deleted, e.g. to leave a now-dead detail page. */
   onDeleted?: () => void;
+  /**
+   * The Wave C diagnostics HUD toggle (spec 2026-09-21). Only the subshell
+   * PAGE passes it: the HUD floats over that page's terminal, and the shared
+   * presentations (cards, rows, the sidebar's right-click) have no terminal
+   * to point a diagnostics switch at. The page owns the state and the
+   * per-device persistence; the menu only offers the act.
+   */
+  diagnostics?: { on: boolean; onToggle: () => void };
   /** When present: the menu opens on right-click of this subtree instead of
    * behind a ⋯ button — the sidebar's recent rows (spec 2026-09-03). */
   children?: ReactNode;
@@ -121,6 +131,13 @@ export function SubshellActionsMenu({
     // arrival, and a `view` grantee has no menu at all. `sidebar: true` so the
     // rail's right-click menu carries it too.
     { icon: QrCode, label: "QR code…", sidebar: true, onSelect: () => setQrOpen(true) },
+    // Page-only (see the prop's doc): toggles the pane diagnostics overlay on
+    // THIS view. A toggle, not an act on the subshell, so it is checkable
+    // rather than confirm- or mutation-shaped, and it is not `sidebar: true`
+    // because a rail row has no terminal under it to diagnose.
+    ...(diagnostics
+      ? [{ icon: Activity, label: "Diagnostics", checked: diagnostics.on, onSelect: diagnostics.onToggle }]
+      : []),
     // Owner-only: the bell decides whether THIS subshell pushes to the owner's
     // devices, so it is theirs to set regardless of who else can act on it.
     ...(isOwner

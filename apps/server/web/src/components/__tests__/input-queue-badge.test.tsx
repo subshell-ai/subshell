@@ -7,12 +7,21 @@ afterEach(() => cleanup());
 
 describe("queueBadgeView", () => {
   it("shows the depth and reads amber past the stall threshold", () => {
-    expect(queueBadgeView({ depth: 3, unackedOldestMs: 100 })).toEqual({ depth: 3, stalled: false });
-    expect(queueBadgeView({ depth: 1, unackedOldestMs: 2001 })).toEqual({ depth: 1, stalled: true });
+    expect(queueBadgeView({ depth: 3, unackedOldestMs: 100, inFlight: 3, backlog: 0 })).toEqual({
+      depth: 3,
+      stalled: false,
+    });
+    expect(queueBadgeView({ depth: 1, unackedOldestMs: 2001, inFlight: 1, backlog: 0 })).toEqual({
+      depth: 1,
+      stalled: true,
+    });
     // Exactly at the threshold is not yet stalled: the badge turns amber
     // when a keystroke has WAITED past 2 s, not when it reached it.
-    expect(queueBadgeView({ depth: 1, unackedOldestMs: 2000 }).stalled).toBe(false);
-    expect(queueBadgeView({ depth: 0, unackedOldestMs: null })).toEqual({ depth: 0, stalled: false });
+    expect(queueBadgeView({ depth: 1, unackedOldestMs: 2000, inFlight: 1, backlog: 0 }).stalled).toBe(false);
+    expect(queueBadgeView({ depth: 0, unackedOldestMs: null, inFlight: 0, backlog: 0 })).toEqual({
+      depth: 0,
+      stalled: false,
+    });
   });
 });
 

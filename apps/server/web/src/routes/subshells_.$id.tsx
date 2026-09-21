@@ -5,7 +5,7 @@ import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router"
 import type { SearchAddon } from "@xterm/addon-search";
 import type { Terminal } from "@xterm/xterm";
 import { SlidersHorizontal } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DetailBackHeader } from "@/components/detail-back-header";
 import { EditableText } from "@/components/editable-text";
 import { SubshellNotFoundCard } from "@/components/not-found-page";
@@ -23,6 +23,7 @@ import { TrustNoticeBanner } from "@/components/trust-notice-banner";
 import { useClockTick } from "@/hooks/use-clock-tick";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
+import { useNodes } from "@/hooks/use-nodes";
 import { useSwipeOrderedSubshells } from "@/hooks/use-ordered-subshells";
 import { usePresets } from "@/hooks/use-presets";
 import { useSubshellData } from "@/hooks/use-subshell-data";
@@ -30,6 +31,7 @@ import { useSubshellLog } from "@/hooks/use-subshell-log";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
 import { useSwipeNav } from "@/hooks/use-swipe-nav";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
+import { paneDiagnosticsIds, setPaneDiagnosticsIds, togglePaneDiagnostics } from "@/lib/pane-diagnostics-pref";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
 import { findNeighbors } from "@/lib/subshell-neighbors";
@@ -75,6 +77,31 @@ function SubshellPage() {
   // What this subshell discloses and to whom (foreign node / shared). The
   // icons render always; the banner shows once per exposure.
   const trustNotices = useTrustNotices(subshell);
+  // The diagnostics HUD toggle (spec 2026-09-21 Wave C): a per-DEVICE,
+  // per-subshell preference (lib/pane-diagnostics-pref), offered by the
+  // actions menu and honoured by the terminal's overlay column. Re-read on
+  // the subshell changing, because swipe navigation repoints this page
+  // without remounting it and the preference belongs to the row in view.
+  const [diagOn, setDiagOn] = useState(false);
+  useEffect(() => {
+    setDiagOn(paneDiagnosticsIds().includes(id));
+  }, [id]);
+  /** Flips this subshell's HUD and persists the per-device set. */
+  function toggleDiagnostics() {
+    const next = togglePaneDiagnostics(paneDiagnosticsIds(), id);
+    setPaneDiagnosticsIds(next);
+    setDiagOn(next.includes(id));
+  }
+  // The HUD names the machine the pane runs on. The nodes read is already
+  // mounted across the app (the trust notices use it), so this adds no
+  // request; the id short form is the card's pill's own fallback for a node
+  // this caller cannot resolve.
+  const { data: nodesData } = useNodes();
+  const nodeLabel = useMemo(() => {
+    const node = subshell?.nodeId ? nodesData?.nodes.find((candidate) => candidate.id === subshell.nodeId) : undefined;
+    if (node) return node.name || node.id;
+    return subshell?.nodeId ? subshell.nodeId.slice(0, 8) : null;
+  }, [subshell?.nodeId, nodesData]);
 
   /** Renames this subshell in place (the header title edits itself). */
   async function saveName(name: string): Promise<void> {
@@ -270,6 +297,7 @@ function SubshellPage() {
                     subshell={subshell}
                     disabled={restarting || deleting}
                     onDeleted={() => void navigate({ to: "/" })}
+                    diagnostics={{ on: diagOn, onToggle: toggleDiagnostics }}
                   />
                 )}
               </>
@@ -320,6 +348,7 @@ function SubshellPage() {
             onDelete={() => void remove()}
             deleting={deleting}
             diagnostics={logTail ?? null}
+            diagnosticsOverlay={diagOn ? { nodeLabel } : null}
             extraActions={
               preset && (
                 <Button
