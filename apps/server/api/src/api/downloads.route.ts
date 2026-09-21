@@ -288,6 +288,31 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
       // stream the release bytes THROUGH only, because the file there may be
       // the operator's hand-published binary and is never overwritten here.
       const fetched = await fetchArtifact(params.target, { cache: onDisk === null });
+      // The release the source serves NOW must be the release the COMMAND
+      // named. The index's 15-minute TTL can carry a newer release past an
+      // outstanding token, and streaming those bytes against the command's
+      // digest would land the node in exactly the refusal this path exists to
+      // prevent, one download later. So the comparison happens before the
+      // first byte is served, and a mismatch cancels the stream: nothing of
+      // the newer release reaches the node or the cache.
+      if (fetched.digest !== expected) {
+        await fetched.stream.cancel().catch(() => {});
+        // Two causes, two sentences: a STALE DISK file is the operator's
+        // artifact problem (publish or hand update), but an EMPTY disk with
+        // the index moved past the token is nothing anyone published; the
+        // operator's remedy is simply to re-run the update, which orders
+        // the release the source now serves.
+        return status(
+          409,
+          apiErrorBody({
+            code: BackendErrorCodes.NODE_UPDATE_UNAVAILABLE,
+            message:
+              onDisk === null
+                ? `The release this update ordered is no longer the newest one this server offers, so it was not served. Press Update again to order the release this server now offers.`
+                : staleArtifactRefusal(params.target),
+          }),
+        );
+      }
       return new Response(fetched.stream, { headers });
     } catch (error) {
       getLogger().warn(`node artifacts: could not fetch ${params.target} from the release: ${errorText(error)}`);

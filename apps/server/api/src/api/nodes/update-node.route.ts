@@ -337,10 +337,10 @@ export const updateNodeRoute = new Elysia()
       // air-gapped backstop: a plane that fetches nothing has no release
       // bytes to serve instead, so a stale artifact would still be the bytes
       // the node downloads, and such an offer is refused before the command
-      // goes out. (With SUBSHELL_RELEASE_URL empty the digest read above
-      // refuses first, because a signed manifest is the only digest a URL
-      // install may carry; this branch is the written backstop should that
-      // ever change.)
+      // goes out. (With SUBSHELL_RELEASE_URL empty the release lookup above
+      // refuses first, because a URL install requires a signed manifest and
+      // an air-gapped plane has none to send; this branch is the written
+      // backstop should that ever change.)
       if (!autoFetchEnabled()) {
         // A read error is refused the way the digest read above is, never
         // papered over, and a non-Error throw must not masquerade as a
