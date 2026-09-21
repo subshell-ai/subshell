@@ -249,7 +249,10 @@ export function resetGeometryQueueForTests(ids: string[]): void {
  * The payload is encoded PER MODE, not once: one subshell's viewers can be in
  * BOTH wire modes at once (a tab that negotiated CBOR beside a cached PWA
  * that did not), so the JSON string and the CBOR bytes are each built at most
- * once and handed to the sockets that want them.
+ * once and handed to the sockets that want them. The encode sits INSIDE the
+ * per-viewer try, memoized across same-mode viewers: an encode that throws
+ * then costs only that viewer's delivery, exactly like a send to a dead
+ * socket already did, and the loop still reaches the viewers after it.
  *
  * @param subshellId - Subshell whose viewers to notify
  * @param frame - The server frame to send
@@ -265,20 +268,18 @@ export function broadcastToViewers(subshellId: string, frame: object): void {
   // would skip the viewer after it.
   for (const viewer of [...viewers.values()]) {
     const wantsCbor = viewer.data?.wireMode === "cbor";
-    if (wantsCbor) {
-      cborPayload ??= encodeFrame(frame);
-      try {
+    try {
+      if (wantsCbor) {
+        cborPayload ??= encodeFrame(frame);
         viewer.send(wsBinaryPayload(cborPayload));
-      } catch {
-        // socket already gone; its close handler does the bookkeeping
-      }
-    } else {
-      jsonPayload ??= JSON.stringify(frame);
-      try {
+      } else {
+        jsonPayload ??= JSON.stringify(frame);
         viewer.send(jsonPayload);
-      } catch {
-        // socket already gone; its close handler does the bookkeeping
       }
+    } catch {
+      // socket already gone, or the encode itself refused: this viewer misses
+      // this one frame, the way a dead socket already did. The loop continues,
+      // so no other viewer ever pays for it.
     }
   }
 }

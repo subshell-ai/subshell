@@ -116,6 +116,27 @@ describe("broadcastToViewers across modes", () => {
     expect(a.sent[0]).toEqual(b.sent[0]);
     resetLiveViewersForTests();
   });
+
+  it("an encode failure costs only that viewer's delivery, never the rest of the loop", () => {
+    resetLiveViewersForTests();
+    // The CBOR viewer is FIRST, and the frame is one cbor2 refuses (a
+    // function value) while JSON.stringify tolerates it (the key drops out):
+    // a natural seam, no mock. The encode sits inside the per-viewer try, so
+    // the throw must behave exactly like a send to a dead socket.
+    const cbor = fakeSocket("cbor", crypto.randomUUID());
+    const json = fakeSocket();
+    registerViewer(cbor.ws, "s-wire");
+    registerViewer(json.ws, "s-wire");
+    const refused = { type: "output", data: () => undefined };
+    broadcastToViewers("s-wire", refused);
+    expect(cbor.sent).toEqual([]);
+    expect(json.sent).toEqual([JSON.stringify(refused)]);
+    // The loop still works after it: the next broadcast reaches BOTH.
+    broadcastToViewers("s-wire", { type: "geometry", cols: 90, rows: 28 });
+    expect(json.sent).toHaveLength(2);
+    expect(decoded(cbor.sent)).toEqual([{ type: "geometry", cols: 90, rows: 28 }]);
+    resetLiveViewersForTests();
+  });
 });
 
 describe("broadcastViewers across modes", () => {
