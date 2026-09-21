@@ -327,6 +327,17 @@ working tree:
   since that rung outranks the managed copy. `SUBSHELL_DEV_SKIP_INSTALL=1` opts
   out; `--check` does everything except launch the app.
 
+**Before anything else, the server app's launcher asks who owns :3080**
+(`SERVER_PORT`, default 3080; operator ruling 2026-09-21: dev always uses the
+most recently built server). The installed `subshell-server` service binds
+that port in normal operation, so the freshly built sidecar could not bind it
+and the dashboard would end up against the installed build. When the port is
+held by that service the launcher offers to stop it (`subshell-server service
+stop`; the CLI verb, never a kill, and it stays down until `service start`).
+A decline aborts with the remedies named, a non-interactive run stops only
+with `--stop-existing-service`, and a holder that is not the service is named
+and never killed. `--check` reports the verdict and stops nothing.
+
 **One more thing the server app's launcher does: it finds the SPA dev
 server.** `tauri dev` gives the app's own bundled page HMR, but the DASHBOARD
 window loads the running server's origin — the installed binary, serving the
