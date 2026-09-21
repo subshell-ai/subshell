@@ -302,7 +302,7 @@ export function Host(): React.JSX.Element {
    * before they reached Apply. Cleared when the screen is left, so it always
    * opens showing the machine's real state.
    */
-  const [_supervisionForm, setSupervisionForm] = useState<SupervisionChoice | null>(null);
+  const [supervisionForm, setSupervisionForm] = useState<SupervisionChoice | null>(null);
   /**
    * The **Server Addresses** screen's own form, seeded on its first render of
    * a visit and cleared when the screen is left. `null` means "not seeded for
@@ -310,18 +310,18 @@ export function Host(): React.JSX.Element {
    * deliberately: a half-typed port left behind on one screen is not an
    * answer the other should show.
    */
-  const [_settingsForm, setSettingsForm] = useState<AddressForm | null>(null);
+  const [settingsForm, setSettingsForm] = useState<AddressForm | null>(null);
   /**
    * Whether the person chose to configure Server Addresses without a reading
    * of the machine (review, 2026-09-18). Cleared with the settings form,
    * because it is a decision about THIS visit.
    */
-  const [_settingsBlind, setSettingsBlind] = useState(false);
+  const [settingsBlind, setSettingsBlind] = useState(false);
   /**
    * That screen's Force box, once touched; `null` is untouched, and untouched
    * means unticked — an override that arrives pre-accepted is not an override.
    */
-  const [_settingsForceChecked, setSettingsForceChecked] = useState<boolean | null>(null);
+  const [settingsForceChecked, setSettingsForceChecked] = useState<boolean | null>(null);
   /** That screen's own last Save or Restart, so it renders nobody else's words. */
   const [settingsResult, setSettingsResult] = useState<ActionResult | null>(null);
   /**
@@ -987,7 +987,7 @@ export function Host(): React.JSX.Element {
         if (failure) return { title: "Setup Couldn't Finish", subtitle: "Nothing else was changed.", problem };
         return { title: recoveryTitle(probe.next), subtitle: recoverySubtitle(probe.next), problem };
       }
-      // Tasks 5–7 land these screens' strings with them.
+      // Task 7 lands these screens' strings with it.
       default:
         return { title: "", subtitle: "", problem };
     }
@@ -1180,7 +1180,7 @@ export function Host(): React.JSX.Element {
             busy={busy}
             running={running}
             failure={failure}
-            supervisionForm={_supervisionForm}
+            supervisionForm={supervisionForm}
             onChoice={setSupervisionForm}
             onApply={(chosen) => void applySupervisionChoice(chosen)}
             onClose={close}
@@ -1195,11 +1195,11 @@ export function Host(): React.JSX.Element {
             probe={p}
             busy={busy}
             running={running}
-            settingsForm={_settingsForm}
+            settingsForm={settingsForm}
             onSeedForm={setSettingsForm}
-            blind={_settingsBlind}
+            blind={settingsBlind}
             onBlindChange={setSettingsBlind}
-            forceChecked={_settingsForceChecked}
+            forceChecked={settingsForceChecked}
             onForceToggle={setSettingsForceChecked}
             settingsResult={settingsResult}
             onSettingsEdit={settingsFormEdit}

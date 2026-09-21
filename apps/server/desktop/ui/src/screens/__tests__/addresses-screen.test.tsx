@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { makeProbe } from "../../__tests__/harness";
+import { installFakeIpc, makeProbe } from "../../__tests__/harness";
 import type { AddressForm } from "../../lib/config-form";
 import type { ActionResult } from "../../lib/ipc";
 import { AddressesScreen } from "../addresses-screen";
@@ -157,11 +157,19 @@ describe("the form", () => {
     ).toBeDefined();
   });
 
-  it("offers Restart with the Force box fail-closed above it, and the run through onRunSettings", () => {
-    const onRunSettings = vi.fn();
-    renderAddresses({
-      onRunSettings,
-      probe: makeProbe({
+  it("offers Restart with the Force box fail-closed above it, and passes the box's answer to the run", async () => {
+    const serviceArgs: Record<string, unknown>[] = [];
+    const fake = installFakeIpc({
+      handlers: {
+        desktop_service: (args) => {
+          serviceArgs.push(args);
+          return { ok: true, stdout: "", stderr: "" };
+        },
+      },
+    });
+    try {
+      const onRunSettings = vi.fn((fn: () => Promise<ActionResult>) => void fn());
+      const KILLS = makeProbe({
         next: "start",
         service: {
           installed: true,
@@ -172,10 +180,24 @@ describe("the form", () => {
           paneSafety: "kills",
           detail: "",
         },
-      }),
-    });
-    expect(screen.getByText(/this restart closes every subshell running here\./)).toBeDefined();
-    screen.getByRole("button", { name: "Restart" }).click();
-    expect(onRunSettings).toHaveBeenCalledTimes(1);
+      });
+      const first = renderAddresses({ onRunSettings, probe: KILLS });
+      expect(screen.getByText(/this restart closes every subshell running here\./)).toBeDefined();
+      // Untouched Force box: the passthrough is forced=false — the CLI's own refusal.
+      screen.getByRole("button", { name: "Restart" }).click();
+      expect(onRunSettings).toHaveBeenCalledTimes(1);
+      first.unmount();
+
+      const second = renderAddresses({ onRunSettings, forceChecked: true, probe: KILLS });
+      screen.getByRole("button", { name: "Restart" }).click();
+      second.unmount();
+    } finally {
+      fake.restore();
+    }
+    // The box's answer rides the `desktop_service` verb: untouched is false, ticked is true.
+    expect(serviceArgs).toEqual([
+      { verb: "restart", force: false },
+      { verb: "restart", force: true },
+    ]);
   });
 });

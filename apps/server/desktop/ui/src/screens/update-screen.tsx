@@ -79,7 +79,12 @@ export function UpdateScreen(props: {
   // transition (which CLEARS the marker) re-arms it.
   const pendingAbsent = probe.pendingInstall === null;
   useEffect(() => {
+    // Keyed on the marker's absence ALONE: `onCheck` is an inline arrow with a
+    // fresh identity every render, and including it would run the body on
+    // every render — correct only because `runUpdateCheck` guards, which is
+    // not the keying this effect should be honest about.
     if (pendingAbsent) props.onCheck(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingAbsent, props.onCheck]);
 
   // The automatic half of phase 2 — the second half of a press already made,
