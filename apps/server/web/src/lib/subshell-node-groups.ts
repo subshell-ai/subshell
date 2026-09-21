@@ -104,7 +104,7 @@ export function nodeLabelFor(
  * @param subshells - the rail's status-ordered list
  * @param nodes - the caller's visible nodes, for resolving each bucket's label
  * @param options.limit - max rows per group; omitted = no cap (filter mode)
- * @param options.unanswered - true while the nodes read has not succeeded (see {@link labelFor})
+ * @param options.unanswered - true while the nodes read has not succeeded (see {@link nodeLabelFor})
  */
 export function groupSubshellsByNode(
   subshells: readonly SubshellView[],
