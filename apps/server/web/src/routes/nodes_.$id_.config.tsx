@@ -1,6 +1,6 @@
+import { NodeAllowedDirs, NodeServerUrlCard } from "@internal/node-admin";
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Navigate } from "@tanstack/react-router";
-import { NodeAllowedDirs, NodeServerUrlCard } from "@internal/node-admin";
 import { DirectoryPickerInput } from "@/components/directory-picker-input";
 import { NodePageShell } from "@/components/nodes/node-page-shell";
 import { managesNodeSections } from "@/components/nodes/node-section-nav";

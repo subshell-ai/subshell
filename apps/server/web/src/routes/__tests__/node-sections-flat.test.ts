@@ -74,7 +74,7 @@ describe("managesNodeSections", () => {
     ["agent + owner", base, true],
     ["agent + edit", { ...base, access: "edit" }, true],
     ["agent + view", { ...base, access: "view" }, false],
-    ["local + owner (admins included)", { ...base, kind: "local" }, false],
+    ["local + owner (hypothetical — a human never owns local)", { ...base, kind: "local" }, false],
     ["local + admin-ish edit", { ...base, kind: "local", access: "edit" }, false],
   ];
   for (const [name, node, expected] of cases) {

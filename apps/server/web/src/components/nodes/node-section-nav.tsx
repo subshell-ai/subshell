@@ -9,24 +9,22 @@ import type { JSX } from "react";
  * A strip under the page header rather than a group in the global rail: the
  * rail lists Nodes, one entry, because a fleet of thirty machines must not
  * become thirty rail entries. A node's sections belong to the node the way a
- * subshell's tabs belong to the subshell.
- *
- * **Three of the four are hidden for `local` and for a viewer who cannot
- * configure**, and that is the server's rule rather than this component's
- * guess: Service, Configuration and Logs all 400 on the control-plane host
- * (its own surface is Server Settings → Service) and 403 for a `view` grantee.
- * Rendering links that answer 403 would teach a person that the app is broken.
+ * subshell's tabs belong to the subshell. Which sections show is the
+ * predicate below — and the section ROUTES hide by that same predicate too,
+ * because a hidden link is not a gated URL.
  */
 /**
  * The ONE visibility rule for the three managed sections — the nav hides
  * their links by it, and the section routes themselves redirect by it.
  *
- * Hiding the link is not gating the URL: since the sections are real
- * top-level routes, `/nodes/local/service` is reachable by typing, and it
- * must answer with the Overview the nav shows rather than a card whose
- * route 400s (or, worse, with "this node is offline" about a live
- * control-plane host). The server still enforces the refusal — this only
- * keeps the page honest about it.
+ * It is the server's rule rather than this component's guess: Service,
+ * Configuration and Logs all 400 on the control-plane host (its own surface
+ * is Server Settings → Service) and 403 for a `view` grantee. Rendering —
+ * or deep-linking — what the route refuses teaches a person the app is
+ * broken; `/nodes/local/service` answering a LIVE control-plane host with
+ * "this node is offline" is the worst case, which is why the pages redirect
+ * to the Overview rather than merely hiding the tab. The server still
+ * enforces the refusal — this only keeps the page honest about it.
  *
  * `access` is the server's own word for this viewer, so nav and routes
  * cannot disagree about who sees what.

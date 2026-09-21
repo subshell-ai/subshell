@@ -16,7 +16,8 @@
       "!**/playwright-report/**",
       "!packages/backend-client/**",
       "!**/routeTree.gen.ts",
-      "!**/assets/terminal.html"
+      "!**/assets/terminal.html",
+      "**/*.config.tsx"
     ]
   },
   "assist": {
