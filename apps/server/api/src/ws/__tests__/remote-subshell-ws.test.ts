@@ -181,7 +181,7 @@ const OWNER_UID = "u-relay-owner";
  * the point of the struct: adding an input cannot silently skip a call site.
  */
 function attachParams(over: Partial<AttachParams> = {}): AttachParams {
-  return { size: null, deviceLabel: UNNAMED_DEVICE, hidden: false, build: "MISSING", ...over };
+  return { size: null, deviceLabel: UNNAMED_DEVICE, hidden: false, build: "MISSING", wireMode: "json", ...over };
 }
 
 function attachRow(over: Partial<RemoteAttachRow> = {}): RemoteAttachRow {

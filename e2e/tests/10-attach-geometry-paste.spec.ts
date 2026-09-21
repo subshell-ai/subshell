@@ -1,3 +1,4 @@
+import { decodeFrame } from "@internal/subshell-protocol/wire";
 import { expect, test } from "@playwright/test";
 import { ADMIN_STATE, dismissDirectoryPanel, pickAgent, renameSubshell } from "./helpers";
 
@@ -15,15 +16,23 @@ test.use({ storageState: ADMIN_STATE });
  *      before xterm sees it, upload the file, and inject the returned path.
  */
 
+/**
+ * A frame as the recorder saw it. The client negotiates the CBOR wire (spec
+ * 2026-09-21 Wave B), so frames arrive as copied Uint8Arrays (server→client
+ * and client→server) as well as strings; `sent` marks the latter.
+ * {@link subshellFrames} decodes them, so every contract check below keeps
+ * reading the JSON spelling it has always read.
+ */
 interface Frame {
   url: string;
-  data: string;
+  data: string | Uint8Array;
+  sent?: boolean;
 }
 
-/** Wraps WebSocket so every text frame of the subshell socket is recorded. */
+/** Wraps WebSocket so every frame of the subshell socket is recorded, either mode. */
 async function armWsRecorder(page: import("@playwright/test").Page) {
   await page.addInitScript(() => {
-    const store: { url: string; data: string }[] = [];
+    const store: { url: string; data: string | Uint8Array; sent?: boolean }[] = [];
     (window as any).__wsFrames = store;
     const Orig = window.WebSocket;
     class RecordingWebSocket extends Orig {
@@ -32,10 +41,16 @@ async function armWsRecorder(page: import("@playwright/test").Page) {
         if (String(url).includes("/ws?subshell=")) {
           this.addEventListener("message", (ev) => {
             if (typeof ev.data === "string") store.push({ url: String(url), data: ev.data });
+            // A copied Uint8Array, never the raw ArrayBuffer: Playwright's
+            // evaluate boundary transfers typed arrays by value but empties
+            // plain ArrayBuffers, so the store must hold the bytes, not the
+            // buffer.
+            else store.push({ url: String(url), data: new Uint8Array(ev.data as ArrayBuffer).slice() });
           });
           const origSend = this.send.bind(this);
           const wrapped: typeof this.send = (d) => {
             if (typeof d === "string") store.push({ url: String(url), data: `SENT ${d}` });
+            else store.push({ url: String(url), data: d as Uint8Array, sent: true });
             origSend(d);
           };
           this.send = wrapped;
@@ -46,8 +61,15 @@ async function armWsRecorder(page: import("@playwright/test").Page) {
   });
 }
 
-async function subshellFrames(page: import("@playwright/test").Page): Promise<Frame[]> {
-  return (await page.evaluate(() => (window as any).__wsFrames)) as Frame[];
+async function subshellFrames(page: import("@playwright/test").Page): Promise<Array<{ url: string; data: string }>> {
+  const raw = (await page.evaluate(() => (window as any).__wsFrames)) as Frame[];
+  // CBOR frames (the negotiated wire) decode here, once, so the assertions
+  // below read the same JSON spelling in either wire mode.
+  return raw.map((f) => {
+    if (typeof f.data === "string") return { url: f.url, data: f.data };
+    const decoded = JSON.stringify(decodeFrame(f.data));
+    return { url: f.url, data: f.sent ? `SENT ${decoded}` : decoded };
+  });
 }
 
 /** Strip SGR/CSI/OSC so row widths reflect printable characters only.
@@ -81,11 +103,13 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
   if (!subshellId) throw new Error("no subshell id in the URL");
   await renameSubshell(p1, name);
 
-  await p1.waitForFunction(
-    () => ((window as any).__wsFrames ?? []).some((f: Frame) => f.data.includes('"replay"')),
-    undefined,
-    { timeout: 60_000 },
-  );
+  // The replay wait is NODE-SIDE now: the negotiated wire carries every
+  // frame as CBOR binary, so there is no string in the page to pattern-match
+  // (subshellFrames does the decode). The check itself is unchanged: a
+  // replay frame arrives within the leash.
+  await expect
+    .poll(async () => (await subshellFrames(p1)).some((f) => f.data.includes('"replay"')), { timeout: 60_000 })
+    .toBe(true);
   const wideUrl = (await subshellFrames(p1))[0].url;
   expect(new URL(wideUrl).searchParams.get("cols")).toBeTruthy();
 
@@ -107,11 +131,9 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
   expect(cols, "client must send cols on the attach URL").toBeGreaterThan(20);
   expect(rows, "client must send rows on the attach URL").toBeGreaterThan(5);
 
-  await p2.waitForFunction(
-    () => ((window as any).__wsFrames ?? []).some((f: Frame) => f.data.includes('"replay"')),
-    undefined,
-    { timeout: 60_000 },
-  );
+  await expect
+    .poll(async () => (await subshellFrames(p2)).some((f) => f.data.includes('"replay"')), { timeout: 60_000 })
+    .toBe(true);
   const replayFrame = (await subshellFrames(p2)).find((f) => f.data.includes('"replay"'));
   if (!replayFrame) throw new Error("no replay frame captured");
   const replay = JSON.parse(replayFrame.data) as { data: string };
@@ -190,17 +212,19 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
   const res = await upload; // RED if the paste falls through to the pane
   expect(res.status()).toBe(200);
 
-  // The injected path leaves on the wire as a client `input` frame (recorded
-  // above with the SENT marker); the stub's cat -v echo fragments it across
-  // output frames, so the sent side is the deterministic assertion.
-  await p2.waitForFunction(
-    () =>
-      ((window as any).__wsFrames ?? []).some(
-        (f: Frame) => f.data.startsWith("SENT ") && f.data.includes('"input"') && f.data.includes(".subshell/uploads"),
-      ),
-    undefined,
-    { timeout: 30_000 },
-  );
+  // The injected path leaves on the wire as a client `input` frame (with the
+  // SENT marker; the raw CBOR bytes are decoded by subshellFrames); the
+  // stub's cat -v echo fragments it across output frames, so the sent side
+  // is the deterministic assertion.
+  await expect
+    .poll(
+      async () =>
+        (await subshellFrames(p2)).some(
+          (f) => f.data.startsWith("SENT ") && f.data.includes('"input"') && f.data.includes(".subshell/uploads"),
+        ),
+      { timeout: 30_000 },
+    )
+    .toBe(true);
 
   // Cleanup: close the probe subshell (Close terminates it before deleting,
   // spec 2026-09-03 — no separate terminate step needed).

@@ -1,5 +1,6 @@
 import { apiFetch } from "@internal/node-admin";
 import type { ServerFrame, ViewersState } from "@internal/subshell-protocol";
+import { decodeFrame } from "@internal/subshell-protocol/wire";
 import type { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import { BUILD_ID } from "@/lib/build-id";
@@ -7,7 +8,7 @@ import { deviceName } from "@/lib/device-name";
 import { createInputQueue, type InputQueue } from "@/lib/input-queue";
 import { createMotionThrottle, type MotionThrottle } from "@/lib/mouse-motion-throttle";
 import { motionSampleIntervalMs } from "@/lib/mouse-sampling-pref";
-import { sendInput, sendResize, sendVisibility } from "@/lib/subshell-frames.js";
+import { markCborSocket, sendInput, sendResize, sendVisibility } from "@/lib/subshell-frames.js";
 import { dropBrokenMouseReports } from "@/lib/terminal-input";
 
 export interface TermWsHandlers {
@@ -73,6 +74,12 @@ const RECONNECT_DELAY_MS = 1500;
  * server drops input frames that arrive before its attach handler has
  * assigned `ws.data`, and both attach paths emit their first frame only after
  * that assign.
+ *
+ * Every connection negotiates the CBOR wire (spec 2026-09-21 Wave B): the
+ * attach URL carries `&enc=cbor`, frames are sent as CBOR binary, and the
+ * server answers all frames as CBOR bytes. Negotiation is per-connection (the
+ * URL decided it), so an older server that ignores the param answers JSON
+ * both ways and the same two code paths read that untouched.
  *
  * Returns refs of the current WebSocket (null while disconnected, so callers
  * outside the hook can inspect its `bufferedAmount`, e.g. before forwarding
@@ -218,11 +225,26 @@ export function useSubshellWs(
           // attach's reconnects, fresh on the next page load, and sent even
           // before the queue is engaged so the ids it later carries are always
           // windowed under it.
-          `&sid=${encodeURIComponent(ownedQueueRef.current?.sessionId ?? "")}`;
+          `&sid=${encodeURIComponent(ownedQueueRef.current?.sessionId ?? "")}` +
+          // Negotiate the CBOR wire (spec 2026-09-21 Wave B): every frame this
+          // connection exchanges is then CBOR binary. A server older than the
+          // negotiation ignores the param and answers JSON both ways, which
+          // is exactly what the fallback below reads. Negotiation is
+          // per-connection: the URL decided it, so a reconnect can fall back
+          // cleanly and no page-level state carries the answer across
+          // sockets.
+          `&enc=cbor`;
 
         const ws = new WebSocket(url);
         socket = ws;
         wsRef.current = ws;
+        // Binary frames arrive as ArrayBuffers, not Blobs, so the decoder
+        // below reads bytes directly.
+        ws.binaryType = "arraybuffer";
+        // Every frame this socket sends rides the CBOR encoder (see
+        // `subshell-frames.ts`). Per-connection: a socket created without the
+        // negotiation would never be marked.
+        markCborSocket(ws);
 
         // The one place this client states its size. A caller that PINS
         // reports only what it measured: `capacity()` returning null means
@@ -261,7 +283,14 @@ export function useSubshellWs(
         // leave one open across idle seconds — do not "restore" the markers.
         ws.onmessage = (e) => {
           try {
-            const frame = JSON.parse(e.data as string) as ServerFrame;
+            // One decoder for both wire modes (spec 2026-09-21 Wave B): the
+            // negotiated connection's frames arrive as CBOR ArrayBuffers, an
+            // un-negotiated one's (an older server) as JSON strings, and
+            // decodeFrame reads either. A malformed frame throws here and is
+            // ignored below, exactly as a malformed JSON frame always was.
+            const frame = decodeFrame(
+              e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : (e.data as string),
+            ) as ServerFrame;
             // The FIRST frame of a connection proves the attach has assigned
             // ws.data on the server (both the replay and the viewers broadcast
             // leave the attach handler), so it is the earliest point an input

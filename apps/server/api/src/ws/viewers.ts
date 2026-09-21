@@ -14,6 +14,7 @@
  */
 
 import { DEFAULT_SIZING, resolveSharedGrid, type SizingPolicy, type ViewerPresence } from "@internal/subshell-protocol";
+import { encodeFrame, type WireMode } from "@internal/subshell-protocol/wire";
 import { getRequestlessContext } from "@/lib/context.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import { logger } from "@/utils/logger.js";
@@ -21,10 +22,14 @@ import { resetInputWindowsForTests } from "@/ws/input-window.js";
 import { createGeometryQueue, type PaneGeometry } from "@/ws/pane-geometry.js";
 import { createPaneStreamRegistry } from "@/ws/pane-stream.js";
 
-/** Minimal WebSocket surface used by the attach handler (ElysiaWS provides it). */
+/**
+ * Minimal WebSocket surface used by the attach handler (ElysiaWS provides it).
+ * `send` takes a string (the JSON mode) or bytes (the CBOR mode): both are
+ * what a negotiated and an un-negotiated socket exchange.
+ */
 export interface WsSocket {
   data: WsData;
-  send(data: string): unknown;
+  send(data: string | Uint8Array): unknown;
   close(code?: number, reason?: string): void;
   readonly raw?: { request?: { headers: Headers } };
 }
@@ -74,7 +79,66 @@ export interface WsData {
    * it names the client bundle behind a "still garbled" report.
    */
   attachUa?: string;
+  /**
+   * The encoding this connection negotiated on its attach URL (`&enc=cbor`,
+   * spec 2026-09-21 Wave B). ABSENT means JSON: every socket built before the
+   * field existed, every test fake, and every hand-built socket speaks JSON,
+   * which is exactly the byte-identical default the negotiation promises. A
+   * connection's mode never changes mid-attach: it is a property of the URL
+   * the client dialed, decided once in the attach handlers.
+   */
+  wireMode?: WireMode;
   cleanup?: () => void;
+}
+
+/**
+ * The wire form of one frame for ONE socket: CBOR bytes on a negotiated
+ * connection, the exact JSON string every un-negotiated client has always
+ * received on the rest. ONE helper because every send on the attach path must
+ * make the same decision from the same socket state: a send site that
+ * stringifies by hand is the regression that ships a JSON frame into a CBOR
+ * client (which the decoder happens to survive as a string, but never as
+ * bytes).
+ *
+ * @param ws - The socket the frame is going to
+ * @param frame - The frame object
+ * @returns The encoded frame, ready for `ws.send`
+ */
+export function encodeForSocket(ws: WsSocket, frame: object): string | Uint8Array {
+  return ws.data?.wireMode === "cbor" ? encodeFrame(frame) : JSON.stringify(frame);
+}
+
+/**
+ * Wraps CBOR bytes for {@link WsSocket.send}. Elysia's `ElysiaWS.send`
+ * JSON.stringifies EVERY object it is handed that is not a Buffer: a bare
+ * `Uint8Array` would leave the socket as a TEXT frame of `{"0":165,...}`,
+ * which no CBOR client can read (measured live, 2026-09-21: the first e2e
+ * run rendered a negotiated terminal blank while every unit test stayed
+ * green, because the fakes record what they are given, not what Elysia does
+ * with it). A Buffer VIEW over the same bytes is what Elysia's own
+ * `isBuffer` guard passes straight through to Bun's binary send, with no
+ * copy.
+ * @param bytes - The CBOR-encoded frame
+ * @returns The payload to hand to `ws.send`
+ */
+function wsBinaryPayload(bytes: Uint8Array): Buffer {
+  return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+}
+
+/**
+ * Sends one frame to THIS socket, in that socket's own negotiated encoding.
+ * Absorbs the send error (socket already gone; its close handler does the
+ * bookkeeping), which is the posture every send site here already had.
+ * @param ws - The sending socket
+ * @param frame - The server frame
+ */
+export function sendFrame(ws: WsSocket, frame: object): void {
+  try {
+    const payload = encodeForSocket(ws, frame);
+    ws.send(typeof payload === "string" ? payload : wsBinaryPayload(payload));
+  } catch {
+    // socket already gone; its close handler does the bookkeeping
+  }
 }
 
 /**
@@ -182,20 +246,39 @@ export function resetGeometryQueueForTests(ids: string[]): void {
  * `geometry` frame is the case that bit — sent only to the joiner, it left
  * every incumbent rendering a grid the pane no longer held.
  *
+ * The payload is encoded PER MODE, not once: one subshell's viewers can be in
+ * BOTH wire modes at once (a tab that negotiated CBOR beside a cached PWA
+ * that did not), so the JSON string and the CBOR bytes are each built at most
+ * once and handed to the sockets that want them.
+ *
  * @param subshellId - Subshell whose viewers to notify
- * @param frame - The server frame to send, serialized once for all of them
+ * @param frame - The server frame to send
  */
 export function broadcastToViewers(subshellId: string, frame: object): void {
   const viewers = liveViewers.get(subshellId);
   if (!viewers) return;
-  const payload = JSON.stringify(frame);
+  // Built lazily and at most once per mode: a same-mode audience pays for
+  // exactly one encode, the same one-payload economics the old code had.
+  let jsonPayload: string | null = null;
+  let cborPayload: Uint8Array | null = null;
   // Snapshot: a send can close a socket, and mutating the map mid-iteration
   // would skip the viewer after it.
   for (const viewer of [...viewers.values()]) {
-    try {
-      viewer.send(payload);
-    } catch {
-      // socket already gone; its close handler does the bookkeeping
+    const wantsCbor = viewer.data?.wireMode === "cbor";
+    if (wantsCbor) {
+      cborPayload ??= encodeFrame(frame);
+      try {
+        viewer.send(wsBinaryPayload(cborPayload));
+      } catch {
+        // socket already gone; its close handler does the bookkeeping
+      }
+    } else {
+      jsonPayload ??= JSON.stringify(frame);
+      try {
+        viewer.send(jsonPayload);
+      } catch {
+        // socket already gone; its close handler does the bookkeeping
+      }
     }
   }
 }
@@ -226,26 +309,22 @@ export function broadcastViewers(subshellId: string): void {
   const policy = sizingPolicies.get(subshellId) ?? DEFAULT_SIZING;
   for (const socket of sockets) {
     if (!socket.data) continue;
-    try {
-      socket.send(
-        JSON.stringify({
-          type: "viewers",
-          you: socket.data.viewerId,
-          viewers: presence,
-          sizing: { mode: policy.mode, pinnedViewerId: policy.pinnedViewerId ?? null },
-          // The input-ack capability (spec 2026-09-21 Wave A), always true on a
-          // current server. It rides this frame rather than a hello of its own
-          // because both attach paths broadcast it right after the replay, so
-          // it reaches the client on the local AND the remote path, and it is
-          // the frame most likely to arrive: the replay frame is skipped when
-          // the capture fails. An older client ignores the unknown field; an
-          // older server omits it and the client keeps fire-and-forget.
-          inputAcks: true,
-        }),
-      );
-    } catch {
-      // socket already gone; its close handler does the bookkeeping
-    }
+    // Per-recipient encoding (this frame carries `you`), through the ONE
+    // helper every send on the attach path uses.
+    sendFrame(socket, {
+      type: "viewers",
+      you: socket.data.viewerId,
+      viewers: presence,
+      sizing: { mode: policy.mode, pinnedViewerId: policy.pinnedViewerId ?? null },
+      // The input-ack capability (spec 2026-09-21 Wave A), always true on a
+      // current server. It rides this frame rather than a hello of its own
+      // because both attach paths broadcast it right after the replay, so
+      // it reaches the client on the local AND the remote path, and it is
+      // the frame most likely to arrive: the replay frame is skipped when
+      // the capture fails. An older client ignores the unknown field; an
+      // older server omits it and the client keeps fire-and-forget.
+      inputAcks: true,
+    });
   }
 }
 

@@ -1,9 +1,33 @@
 import { BRACKETED_PASTE_END, BRACKETED_PASTE_START, type ClientFrame } from "@internal/subshell-protocol";
+import { encodeFrame } from "@internal/subshell-protocol/wire";
+
+/**
+ * The sockets speaking CBOR on this page. Negotiation is a property of the
+ * CONNECTION (the attach URL's `&enc=cbor` decided it), so the mark is set
+ * once per socket at creation and a per-socket set is the honest place for
+ * it: a reconnect builds a new socket and can decide differently, and two
+ * sockets in one page (one per terminal pane) never share the answer.
+ */
+const cborSockets = new WeakSet<WebSocket>();
+
+/**
+ * Marks a WebSocket as negotiated (`&enc=cbor` on its attach URL, spec
+ * 2026-09-21 Wave B). Every frame the page sends on it afterwards rides
+ * `encodeFrame` instead of `JSON.stringify`.
+ * @param ws - The socket the page just opened
+ */
+export function markCborSocket(ws: WebSocket): void {
+  cborSockets.add(ws);
+}
 
 /** Serializes and sends a frame when the socket is open; a no-op otherwise. */
 function send(ws: WebSocket | null, frame: ClientFrame): void {
   if (ws?.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify(frame));
+  // One encode decision for the page's every client frame: an un-negotiated
+  // socket gets the exact JSON string it always got, a negotiated one gets
+  // CBOR bytes (input frames are small, but the mode is one switch per
+  // connection and a half-CBOR client would be a protocol of its own).
+  ws.send(cborSockets.has(ws) ? encodeFrame(frame) : JSON.stringify(frame));
 }
 
 /**

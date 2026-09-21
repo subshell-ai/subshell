@@ -53,6 +53,7 @@ describe("resolveAttach", () => {
       deviceLabel: "Laptop",
       hidden: true,
       build: "MISSING",
+      wireMode: "json",
     });
   });
 
@@ -140,6 +141,12 @@ describe("resolveAttach", () => {
     const out = await resolveAttach(request(`subshell=${row.id}&token=${issueWsToken(row.userId)}`));
     expect(out.ok).toBe(true);
     if (!out.ok) return;
-    expect(out.params).toEqual({ size: null, deviceLabel: "Unnamed device", hidden: false, build: "MISSING" });
+    expect(out.params).toEqual({
+      size: null,
+      deviceLabel: "Unnamed device",
+      hidden: false,
+      build: "MISSING",
+      wireMode: "json",
+    });
   });
 });

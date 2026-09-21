@@ -8,25 +8,34 @@ function url(query: Record<string, string>): URL {
 
 describe("parseAttachParams — every attach input, read once", () => {
   it("reads the whole set a modern client declares", () => {
-    expect(parseAttachParams(url({ cols: "120", rows: "40", device: "Laptop", hidden: "1", build: "a1b2c3" }))).toEqual(
-      {
-        size: { cols: 120, rows: 40 },
-        deviceLabel: "Laptop",
-        hidden: true,
-        build: "a1b2c3",
-      },
-    );
+    expect(
+      parseAttachParams(url({ cols: "120", rows: "40", device: "Laptop", hidden: "1", build: "a1b2c3", enc: "cbor" })),
+    ).toEqual({
+      size: { cols: 120, rows: 40 },
+      deviceLabel: "Laptop",
+      hidden: true,
+      build: "a1b2c3",
+      wireMode: "cbor",
+    });
   });
 
   it("gives a client that declares nothing a complete, harmless struct", () => {
     // An older client, or a hand-built socket. Every field still has a value,
-    // so a caller can never receive a half-populated set.
+    // so a caller can never receive a half-populated set. No `enc=` means the
+    // JSON wire, byte-identical to before the negotiation existed.
     expect(parseAttachParams(url({}))).toEqual({
       size: null,
       deviceLabel: UNNAMED_DEVICE,
       hidden: false,
       build: "MISSING",
+      wireMode: "json",
     });
+  });
+
+  it("negotiates CBOR only on the exact value; a typo falls back to JSON", () => {
+    expect(parseAttachParams(url({ enc: "cbor" })).wireMode).toBe("cbor");
+    expect(parseAttachParams(url({ enc: "CBOR" })).wireMode).toBe("json");
+    expect(parseAttachParams(url({ enc: "" })).wireMode).toBe("json");
   });
 
   it("refuses a malformed size rather than passing NaN into the sizing rule", () => {

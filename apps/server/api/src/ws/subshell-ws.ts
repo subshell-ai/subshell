@@ -25,6 +25,7 @@ import {
   persistOutputFor,
   readPaneGeometry,
   registerViewer,
+  sendFrame,
   setSizingPolicy,
   sharedGridFor,
   type WsData,
@@ -143,6 +144,11 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     // viewer rather than a resurrected one.
     viewerId: crypto.randomUUID(),
     since: new Date().toISOString(),
+    // The encoding the client negotiated on its connect URL (`&enc=cbor`):
+    // every frame this socket receives is encoded per it, and its own frames
+    // are read as CBOR. Absent (an older client) means JSON, byte-identical
+    // to before the negotiation existed.
+    wireMode: params.wireMode,
   };
   // Assign onto the existing Elysia context object (ws.data holds the
   // request context; mutating it keeps both worlds in sync).
@@ -197,7 +203,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
             subshellId: row.id,
             onOutput: () => persistOutputFor(row.id),
           }),
-    (text) => ws.send(JSON.stringify({ type: "output", data: text })),
+    (text) => sendFrame(ws, { type: "output", data: text }),
   );
   if (!hasLog) logger.info(`ws attach: no log file for ${row.id}, polling pane`);
   data.cleanup = (): void => stream.close();
@@ -274,7 +280,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
 
   const replay = text != null ? captureToReplayText(text) : null;
   if (replay != null) {
-    ws.send(JSON.stringify({ type: "replay", data: replay }));
+    sendFrame(ws, { type: "replay", data: replay });
     recordAttachPaint({ subshellId: row.id, preResize, replay, repainted, nudged });
   }
 
@@ -429,16 +435,13 @@ function sessionIdOf(data: WsData): string | undefined {
 /**
  * Sends one frame to THIS socket only. An ack describes the caller's own
  * write, so unlike the pane facts (`broadcastToViewers`) it never reaches the
- * other viewers.
+ * other viewers. The frame is encoded in THIS socket's negotiated mode by
+ * {@link sendFrame}: the same helper every send on the attach path uses.
  * @param ws - The sending socket
  * @param frame - The server frame
  */
 function sendToSocket(ws: WsSocket, frame: object): void {
-  try {
-    ws.send(JSON.stringify(frame));
-  } catch {
-    // socket already gone; its close handler does the bookkeeping
-  }
+  sendFrame(ws, frame);
 }
 
 /** Stops streaming when the client disconnects. */
