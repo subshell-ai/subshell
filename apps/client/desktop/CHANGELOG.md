@@ -1,5 +1,11 @@
 # @internal/desktop-client
 
+## 0.9.3
+
+### Patch Changes
+
+- [#114](https://github.com/subshell-ai/subshell/pull/114) [`e746277`](https://github.com/subshell-ai/subshell/commit/e746277e24d1ca8d81e79d7de57b4d9022ea8453) Thanks [@theogravity](https://github.com/theogravity)! - UI copy in the Subshell Client assistant now follows the new two-sentence, no-em-dash style rule: the enroll notes, tmux hint, repoint help and daemon messages were tightened to at most two sentences with their em dashes replaced, and the re-enrolment and loopback sentences were unified with their bundled-page twins so one idea keeps one spelling.
+
 ## 0.9.2
 
 ### Patch Changes

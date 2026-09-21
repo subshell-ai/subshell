@@ -1,5 +1,11 @@
 # @internal/node
 
+## 0.14.1
+
+### Patch Changes
+
+- [#114](https://github.com/subshell-ai/subshell/pull/114) [`e746277`](https://github.com/subshell-ai/subshell/commit/e746277e24d1ca8d81e79d7de57b4d9022ea8453) Thanks [@theogravity](https://github.com/theogravity)! - UI copy in the node dashboard and the shared node-admin cards now follows the new two-sentence, no-em-dash style rule: service and control-plane explanations were tightened to at most two sentences with their em dashes replaced, and the maintenance confirmation keeps its load-bearing consequence while dropping the reassurance clause already recorded in `docs/security.md`.
+
 ## 0.14.0
 
 ### Minor Changes
