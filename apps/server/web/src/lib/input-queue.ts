@@ -8,8 +8,15 @@
  * Retry lives entirely on RECONNECT: every unacked id is re-sent in order on
  * the fresh socket, and the server's completed-write window drops the ones
  * that already landed. Every keystroke carries its id from the moment the
- * server advertised acks; before that (and on a server that never will), the
- * queue degrades to today's fire-and-forget and holds nothing.
+ * server advertised acks.
+ *
+ * Before the server has ANSWERED (its first `viewers` frame, which arrives
+ * after the replay), the queue does not fire into an attach that cannot take
+ * bytes: the sender refuses while the attach is not live, and the pre-Wave A
+ * fallback dropped them there. Instead typed bytes wait in a PRE-ENGAGE
+ * BUFFER (see {@link createInputQueue}); when the answer engages tracking
+ * they ship as the first tracked chunks, and on a server that never will
+ * they ship bare, exactly as every pre-queue client sent them.
  *
  * Ids are per-session monotonic from 1 and carry across reconnects; a fresh
  * page load starts a fresh namespace, which is safe because the server keys
@@ -55,10 +62,11 @@ export const CHUNK_MAX_BYTES = 32 * 1024;
 
 /**
  * The fixed part of an input frame, measured once against an id of
- * eleven digits (far beyond any real session's 512-frame ceiling): the
- * per-entry text budget is {@link CHUNK_MAX_BYTES} minus this.
+ * eleven digits (far beyond any real session's 512-frame ceiling). Exported
+ * beside {@link CHUNK_MAX_BYTES} because the pre-engage buffer needs the
+ * same per-piece budget the queue's own chunker applies.
  */
-const FRAME_OVERHEAD_BYTES = new TextEncoder().encode('{"type":"input","data":"","id":99999999999}').length;
+export const FRAME_OVERHEAD_BYTES = new TextEncoder().encode('{"type":"input","data":"","id":99999999999}').length;
 
 /** How many unacked frames the queue will hold. Matched to the server's
  * dedupe window (512, ws/input-window.ts): a reconnect resend can only carry
@@ -77,9 +85,10 @@ const RTT_SAMPLES = 32;
  * A sender hands one input to the wire and reports whether it actually left:
  * false means the attach was not live (socket down, server attach not
  * finished), which is the queue's signal to HOLD the bytes as unsent backlog
- * instead of pretending a frame is in flight.
- * `id` is undefined only on the unengaged fallback path (old server, or
- * before the first `viewers` frame).
+ * instead of pretending a frame is in flight — or, while unengaged, to keep
+ * them in the pre-engage buffer rather than drop them.
+ * `id` is undefined only on the bare fallback path (an old server, or a
+ * pre-engage buffer flushed by a downgrade).
  */
 export type InputSender = (data: string, id: number | undefined) => boolean;
 
@@ -140,15 +149,20 @@ export function queueBadgeView(
 
 export interface InputQueue {
   /** Turns on id tracking: call when the server's `viewers` frame carries
-   * `inputAcks`. Never un-engages except through {@link disengage}. */
+   * `inputAcks`. First ships the pre-engage buffer as tracked chunks (see
+   * {@link enqueue}), so its older bytes take the first ids. Never
+   * un-engages except through {@link disengage}. */
   engage(): void;
   /** True once the server advertised acks for this attach session. */
   readonly engaged: boolean;
   /**
    * Hands input to the wire. Engaged, the input is chunked and tracked for
    * retry, sent immediately when the queue is empty and coalesced into the
-   * unsent tail while the pipe is behind; not engaged, it is sent bare (no
-   * id), exactly as every pre-queue client did.
+   * unsent tail while the pipe is behind. Not engaged, it is sent bare (no
+   * id) when the pipe is live and nothing waits ahead of it — exactly as
+   * every pre-queue client did — and buffered pre-engage otherwise, because
+   * a bare send into a dead attach is a byte gone forever (see
+   * {@link createInputQueue}).
    */
   enqueue(text: string): void;
   /** Retires an acked id: records its RTT and drops it from the queue. Also
@@ -161,7 +175,10 @@ export interface InputQueue {
    * Turns tracking off and drops what is pending. For the server that never
    * advertised acks (a downgrade mid-session): those ids can never be acked,
    * and re-sending them would write duplicates, so the honest fallback is
-   * today's fire-and-forget with the backlog dropped.
+   * today's fire-and-forget. First ships the pre-engage buffer BARE, in
+   * order — the old server's own answer — unless the attach is still not
+   * live, in which case the buffer is dropped: bare bytes have no id to
+   * retry, and that is the outcome they already had pre-queue.
    */
   disengage(): void;
   /** Live facts; read on render (unackedOldestMs is computed at access). */
@@ -270,6 +287,17 @@ export function createInputQueue(sender: InputSender, now: () => number = Date.n
   const listeners = new Set<() => void>();
   let engaged = false;
   let nextId = 0;
+  /**
+   * The PRE-ENGAGE BUFFER: bytes typed before the queue knew how this server
+   * answers input, in typing order, held because the sender refused them (a
+   * bare send into an attach that is not yet serving frames is a byte gone
+   * forever, as this queue's first cut did). No ids: they may yet ship bare on
+   * an old server, and an id handed out before the answer would name a frame
+   * the dedupe window may never see. It fills only while `!engaged`; the
+   * first `viewers` frame — engage or disengage — is the flush point, which
+   * is why it is empty in every steady state.
+   */
+  let preEngage: string[] = [];
 
   const notify = (): void => {
     for (const cb of [...listeners]) cb();
@@ -313,65 +341,126 @@ export function createInputQueue(sender: InputSender, now: () => number = Date.n
     for (const entry of backlog) markSent(entry);
   };
 
+  /** Appends text to the pre-engage buffer, coalescing into the tail piece
+   * and spilling new ones at the per-entry budget — the same arithmetic the
+   * tracked coalesce applies, so a flush hands enqueue pieces that already
+   * fit one chunk each and the buffer's memory is bounded per piece. */
+  const appendPreEngage = (text: string): void => {
+    let rest = text;
+    const tailIndex = preEngage.length - 1;
+    if (tailIndex >= 0) {
+      const tail = preEngage[tailIndex];
+      const [fill, more] = splitAtFrameBudget(text, CHUNK_MAX_BYTES - FRAME_OVERHEAD_BYTES - escapeFrameBytes(tail));
+      if (fill) preEngage[tailIndex] = tail + fill;
+      rest = more;
+    }
+    while (rest) {
+      const [data, more] = splitAtFrameBudget(rest, CHUNK_MAX_BYTES - FRAME_OVERHEAD_BYTES);
+      preEngage.push(data);
+      rest = more;
+    }
+    // Capped like the queue is: past MAX_PENDING pieces the OLDEST bytes go,
+    // keeping the newest keystrokes (the ones the user means), the same way
+    // evicted pending frames go. The dropped bytes are the pre-queue status
+    // quo, not a new loss.
+    if (preEngage.length > MAX_PENDING) preEngage.splice(0, preEngage.length - MAX_PENDING);
+  };
+
+  /**
+   * Ships the pre-engage buffer in order. Tracked (the server advertised
+   * acks), each piece re-enters through enqueue and takes fresh ids — the
+   * buffered bytes never reached the wire, so no id names text the server
+   * may have written. Bare (the old server's answer), each piece is one
+   * untracked frame exactly as every pre-queue client sent it; a piece the
+   * sender cannot take drops it AND the rest, because bare bytes have no id
+   * to retry and that is the outcome they already had pre-queue.
+   */
+  const flushPreEngage = (tracked: boolean): void => {
+    if (preEngage.length === 0) return;
+    const pieces = preEngage;
+    preEngage = [];
+    for (const piece of pieces) {
+      if (tracked) enqueue(piece);
+      else if (!sender(piece, undefined)) break;
+    }
+  };
+
+  /**
+   * Hands input to the wire (see the interface doc for the shape). Defined as
+   * a local so the engage-time flush can route the buffer through this same
+   * path — buffered bytes are OLDER than anything typed from here on, and
+   * flushing them first is what preserves the user's arrival order.
+   */
+  const enqueue = (text: string): void => {
+    if (!text) return;
+    if (!engaged) {
+      // Bare only while the pipe is live and nothing waits ahead of it;
+      // otherwise the bytes join the pre-engage buffer (which is what keeps
+      // order: once one byte is waiting, every later byte queues behind it
+      // until the flush that ships the waiters).
+      if (preEngage.length === 0 && sender(text, undefined)) return;
+      appendPreEngage(text);
+      return;
+    }
+    // The per-entry budget subtracts the frame's fixed part, so the
+    // SERIALIZED frame of every chunk is at most CHUNK_MAX_BYTES.
+    const chunks = chunkToFrameBudget(text, CHUNK_MAX_BYTES - FRAME_OVERHEAD_BYTES);
+    if (pending.size === 0) {
+      // Fast path: the pipe is clear, so every chunk leaves now, in order.
+      for (const data of chunks) {
+        const id = ++nextId;
+        const delivered = sender(data, id);
+        track({
+          id,
+          data,
+          dataBytes: escapeFrameBytes(data),
+          queuedAt: now(),
+          sentAt: delivered ? now() : 0,
+          sent: delivered,
+        });
+      }
+      notify();
+      return;
+    }
+    // Backpressure: join the tail instead of opening a frame per keystroke.
+    // Only UNSENT bytes are appendable (see the frozen-frames rule), so a
+    // tail already on the wire is left alone and the burst opens new frames.
+    // Map iteration is insertion order and ids are monotonic, so the last
+    // value is the tail.
+    let tail: PendingInput | undefined;
+    for (const entry of pending.values()) tail = entry;
+    let rest = text;
+    if (tail && !tail.sent) {
+      const [fill, more] = splitAtFrameBudget(text, CHUNK_MAX_BYTES - FRAME_OVERHEAD_BYTES - tail.dataBytes);
+      if (fill) {
+        tail.data += fill;
+        tail.dataBytes += escapeFrameBytes(fill);
+      }
+      rest = more;
+    }
+    while (rest) {
+      const [data, more] = splitAtFrameBudget(rest, CHUNK_MAX_BYTES - FRAME_OVERHEAD_BYTES);
+      const id = ++nextId;
+      track({ id, data, dataBytes: escapeFrameBytes(data), queuedAt: now(), sentAt: 0, sent: false });
+      rest = more;
+    }
+    notify();
+  };
+
   return {
     engage: () => {
       if (engaged) return;
       engaged = true;
+      // The buffer ships FIRST, through the ordinary path: its pieces take
+      // the first ids, and anything enqueued after carries a higher id, so
+      // the pane reads the typing order either way.
+      flushPreEngage(true);
       notify();
     },
     get engaged() {
       return engaged;
     },
-    enqueue: (text) => {
-      if (!text) return;
-      if (!engaged) {
-        sender(text, undefined);
-        return;
-      }
-      // The per-entry budget subtracts the frame's fixed part, so the
-      // SERIALIZED frame of every chunk is at most CHUNK_MAX_BYTES.
-      const chunks = chunkToFrameBudget(text, CHUNK_MAX_BYTES - FRAME_OVERHEAD_BYTES);
-      if (pending.size === 0) {
-        // Fast path: the pipe is clear, so every chunk leaves now, in order.
-        for (const data of chunks) {
-          const id = ++nextId;
-          const delivered = sender(data, id);
-          track({
-            id,
-            data,
-            dataBytes: escapeFrameBytes(data),
-            queuedAt: now(),
-            sentAt: delivered ? now() : 0,
-            sent: delivered,
-          });
-        }
-        notify();
-        return;
-      }
-      // Backpressure: join the tail instead of opening a frame per keystroke.
-      // Only UNSENT bytes are appendable (see the frozen-frames rule), so a
-      // tail already on the wire is left alone and the burst opens new frames.
-      // Map iteration is insertion order and ids are monotonic, so the last
-      // value is the tail.
-      let tail: PendingInput | undefined;
-      for (const entry of pending.values()) tail = entry;
-      let rest = text;
-      if (tail && !tail.sent) {
-        const [fill, more] = splitAtFrameBudget(text, CHUNK_MAX_BYTES - FRAME_OVERHEAD_BYTES - tail.dataBytes);
-        if (fill) {
-          tail.data += fill;
-          tail.dataBytes += escapeFrameBytes(fill);
-        }
-        rest = more;
-      }
-      while (rest) {
-        const [data, more] = splitAtFrameBudget(rest, CHUNK_MAX_BYTES - FRAME_OVERHEAD_BYTES);
-        const id = ++nextId;
-        track({ id, data, dataBytes: escapeFrameBytes(data), queuedAt: now(), sentAt: 0, sent: false });
-        rest = more;
-      }
-      notify();
-    },
+    enqueue,
     ack: (id) => {
       const entry = pending.get(id);
       if (!entry) return;
@@ -397,8 +486,13 @@ export function createInputQueue(sender: InputSender, now: () => number = Date.n
       notify();
     },
     disengage: () => {
-      if (!engaged && pending.size === 0) return;
+      if (!engaged && pending.size === 0 && preEngage.length === 0) return;
       engaged = false;
+      // The buffered bytes ship bare FIRST — the old server's own answer,
+      // and chronologically they are the oldest bytes the queue holds. When
+      // the attach still cannot take them they are dropped by the flush (see
+      // flushPreEngage): untracked bytes have no reconnect rescue.
+      flushPreEngage(false);
       pending.clear();
       notify();
     },

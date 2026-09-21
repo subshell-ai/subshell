@@ -133,4 +133,31 @@ describe("useSubshellWs read-only attach", () => {
     instances[1].onmessage?.({ data: JSON.stringify({ type: "replay", data: "" }) });
     expect(sent.length).toBe(afterAck);
   });
+
+  // The #117 regression window, in miniature (the failing e2e is the key
+  // bar's presses between `onopen` and the first `viewers` frame): the socket
+  // is open but the attach's first server frame has not arrived, so the
+  // sender refuses — and the queue must buffer, not fire-and-forget.
+  async function attachWithoutAnswer() {
+    const term = fakeTerminal();
+    renderHook(() => useSubshellWs({ current: term }, "s1", {}, false));
+    await waitFor(() => expect(instances.length).toBeGreaterThan(0));
+    return { term };
+  }
+
+  it("an input typed before the first server frame is buffered, then ships with an id once the viewers frame engages", async () => {
+    const { term } = await attachWithoutAnswer();
+    term._onData?.("a"); // buffered: the attach is not serving frames yet
+    expect(sent).toEqual([]);
+    deliverViewers(instances[0], true); // first frame + engagement in one
+    expect(sent.some((f) => f === JSON.stringify({ type: "input", data: "a", id: 1 }))).toBe(true);
+  });
+
+  it("an input buffered before the first frame ships bare when the server answers without acks", async () => {
+    const { term } = await attachWithoutAnswer();
+    term._onData?.("a");
+    expect(sent).toEqual([]);
+    deliverViewers(instances[0], false); // the old server's answer
+    expect(sent.some((f) => f === JSON.stringify({ type: "input", data: "a" }))).toBe(true);
+  });
 });

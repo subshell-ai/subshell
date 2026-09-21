@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { CHUNK_MAX_BYTES, createInputQueue, type InputSender } from "@/lib/input-queue";
+import { CHUNK_MAX_BYTES, createInputQueue, FRAME_OVERHEAD_BYTES, type InputSender } from "@/lib/input-queue";
 
 /** A clock the tests advance by hand, so ages and RTTs are exact. */
 let nowMs = 10_000;
@@ -293,6 +293,108 @@ describe("createInputQueue", () => {
     // And the queue is back to fire-and-forget.
     q.enqueue("c");
     expect(sends.at(-1)).toEqual(["c", undefined]);
+  });
+
+  it("input typed while disengaged with a dead attach is buffered, and engagement ships it as the first tracked chunks", () => {
+    // The #117 regression: enqueue used to fire-and-forget into a dead
+    // sender, so every byte pressed in the window between `onopen` and the
+    // first `viewers` frame (the replay capture can be slow) was gone. Now
+    // the sender's refusal buffers the bytes instead.
+    const { state, sends, sender } = recordingSender(false);
+    const q = createInputQueue(sender, now);
+    q.enqueue("abc");
+    q.enqueue("de");
+    expect(sends).toEqual([]);
+    // Nothing is tracked yet, so the badge correctly shows an empty queue.
+    expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null });
+    state.live = true; // the first server frame made the attach live...
+    q.engage(); // ...and the viewers frame engages: the buffer ships FIRST
+    // Fresh ids from 1, in typing order. The buffer coalesced the two
+    // enqueues into one piece under the chunk budget, exactly as the tracked
+    // coalesce would have.
+    expect(sends).toEqual([["abcde", 1]]);
+    q.ack(1);
+    expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null });
+  });
+
+  it("a buffered paste larger than one chunk ships as sequential tracked chunks in order", () => {
+    const { state, sends, sender } = recordingSender(false);
+    const q = createInputQueue(sender, now);
+    const big = "x".repeat(70 * 1024);
+    q.enqueue(big);
+    expect(sends).toEqual([]);
+    state.live = true;
+    q.engage();
+    // The ordinary path, not a special one: the first chunk takes the wire,
+    // the rest is coalesced backlog that waits for the drain.
+    expect(sends.length).toBe(1);
+    q.ack(1);
+    expect(sends.map(([, id]) => id)).toEqual([1, 2, 3]);
+    expect(sends.map(([data]) => data).join("")).toBe(big);
+    for (const [data, id] of sends) expect(frameBytes(data, id as number)).toBeLessThanOrEqual(CHUNK_MAX_BYTES);
+  });
+
+  it("an old server (a viewers frame without acks) ships the buffered bytes bare, in order, with no ids", () => {
+    const { state, sends, sender } = recordingSender(false);
+    const q = createInputQueue(sender, now);
+    q.enqueue("abc");
+    q.enqueue("de");
+    expect(sends).toEqual([]);
+    state.live = true;
+    q.disengage(); // the old server's answer: bare, untracked, pre-queue behavior
+    expect(sends).toEqual([["abcde", undefined]]);
+    expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null });
+    // And bare-on-the-spot resumes: the steady state is byte-identical to
+    // what every pre-queue client did.
+    q.enqueue("f");
+    expect(sends).toEqual([
+      ["abcde", undefined],
+      ["f", undefined],
+    ]);
+  });
+
+  it("bare bytes buffered for a dead attach are dropped when the server answers without acks while still not live", () => {
+    // Documented case, not an oversight: bare bytes are untracked by design,
+    // an old server that dropped them has no recovery either, and this is
+    // the exact outcome they had pre-queue (dropped at enqueue).
+    const { sends, sender } = recordingSender(false);
+    const q = createInputQueue(sender, now);
+    q.enqueue("lost");
+    q.disengage();
+    expect(sends).toEqual([]);
+    expect(q.engaged).toBe(false);
+    // The buffer is empty again, so later input buffers anew while dead.
+    q.enqueue("later");
+    expect(sends).toEqual([]);
+  });
+
+  it("ids keep counting monotonically after a pre-engage flush", () => {
+    const { state, sends, sender } = recordingSender(false);
+    const q = createInputQueue(sender, now);
+    q.enqueue("pre");
+    state.live = true;
+    q.engage(); // "pre" ships as id 1
+    q.ack(1);
+    q.enqueue("post"); // ordinary engaged enqueue: next id
+    expect(sends.map(([, id]) => id)).toEqual([1, 2]);
+  });
+
+  it("the pre-engage buffer is capped like the queue: the oldest pieces go, the newest stay", () => {
+    const { state, sends, sender } = recordingSender(false);
+    const q = createInputQueue(sender, now);
+    // Exactly one full budget per enqueue: the tail is left full by the
+    // previous piece, so the next append can coalesce nothing and every
+    // enqueue is exactly one buffer piece.
+    const piece = "x".repeat(CHUNK_MAX_BYTES - FRAME_OVERHEAD_BYTES);
+    for (let i = 0; i < 513; i++) q.enqueue(piece);
+    state.live = true;
+    q.engage();
+    // 513 pieces entered, MAX_PENDING survived: the first-typed piece is
+    // gone, exactly as an evicted pending frame is.
+    expect(sends.length).toBe(1); // the first surviving piece on the wire
+    q.ack(1); // the drain ships the remaining backlog in order
+    expect(sends.length).toBe(512);
+    expect(sends.map(([data]) => data).join("")).toBe(piece.repeat(512));
   });
 
   it("onStats fires on enqueue, ack and resend, and unsubscribes", () => {

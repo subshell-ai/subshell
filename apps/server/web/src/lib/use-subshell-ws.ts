@@ -65,7 +65,10 @@ const RECONNECT_DELAY_MS = 1500;
  * every keystroke then carries an id, and unacked ids are re-sent in order on
  * each reconnect (the server's completed-write window absorbs the ones that
  * already landed). Without the flag (an older server) the queue stays
- * dormant and keystrokes go bare, exactly as they always did. The retry
+ * dormant and keystrokes go bare, exactly as they always did. Input typed
+ * before that answer — the window between `onopen` and the `viewers` frame —
+ * is buffered by the queue and shipped when the answer lands (with ids when
+ * acks engage, bare otherwise) instead of being dropped. The retry
  * re-send waits for the connection's FIRST SERVER FRAME, not `onopen`: the
  * server drops input frames that arrive before its attach handler has
  * assigned `ws.data`, and both attach paths emit their first frame only after
@@ -354,9 +357,10 @@ export function useSubshellWs(
     // and a change takes effect on the next terminal a person opens, without
     // a reload.
     // The one input entry point for everything xterm emits. Engaged, the queue
-    // tracks the chunk for retry; not engaged (or detached), the chunk goes
-    // bare exactly as it always did. Sits AFTER the mouse-report filter below,
-    // at the send boundary.
+    // tracks the chunk for retry; not engaged, the chunk goes bare when the
+    // pipe is live and waits in the queue's pre-engage buffer when it is not;
+    // detached, it goes bare with no queue, as always. Sits AFTER the
+    // mouse-report filter below, at the send boundary.
     const sendTyped = (data: string): void => {
       const inputQueue = inputQueueRef.current;
       if (inputQueue) inputQueue.enqueue(data);
