@@ -63,16 +63,73 @@ const TERMINAL_OPTIONS = {
 } as const;
 
 /**
+ * The terminal's overlay stack: ONE anchored column at the devices strip's
+ * top-right corner (floated, dense, pointer-events-none), holding the Wave C
+ * diagnostics HUD and the in-flight input badge.
+ *
+ * Order is load-bearing (an operator report, 2026-09-21): the HUD is the
+ * PERSISTENT surface and is the column's FIRST child, so its top edge stays
+ * at the anchor through every keystroke burst. The badge is transient and
+ * yields: while the HUD is open it renders BELOW it (flex column, one gap),
+ * and while the HUD is closed the badge is the column's only child and sits
+ * at the anchor itself, exactly where it always lived. A flex column's DOM
+ * order IS its visual order, which is what the layout test pins.
+ *
+ * On a workspace pane the devices wrapper renders after this component and
+ * at the same corner, so when both are up the devices strip wins the paint
+ * and the column reappears the moment it goes away.
+ */
+export function TerminalOverlayStack({
+  inputQueueRef,
+  diagnostics,
+}: {
+  inputQueueRef: { current: InputQueue | null };
+  /**
+   * The HUD's inputs, present only while the page turned the HUD on (the
+   * subshell page alone does). Null renders no HUD, and the badge keeps the
+   * corner to itself.
+   */
+  diagnostics?: {
+    /** The subshell row (live feed); undefined while the record has not arrived. */
+    subshell?: SubshellView;
+    /** The attach socket's state, as the terminal tracks it. */
+    socket: { connected: boolean; closed: boolean };
+    /** Reconnects this attach session has made (a ref the WS hook owns). */
+    reconnectsRef: { current: number };
+    /** The latest `viewers` frame, or null while the socket is down. */
+    viewers: ViewersState | null;
+    /** The node's label, resolved by the page; null while unknown. */
+    nodeLabel: string | null;
+  } | null;
+}) {
+  return (
+    <div className="pointer-events-none absolute top-1 right-4 z-10 flex flex-col items-end gap-1">
+      {diagnostics && (
+        <PaneDiagnosticsHud
+          subshell={diagnostics.subshell}
+          socket={diagnostics.socket}
+          reconnectsRef={diagnostics.reconnectsRef}
+          inputQueueRef={inputQueueRef}
+          viewers={diagnostics.viewers}
+          nodeLabel={diagnostics.nodeLabel}
+        />
+      )}
+      <InputQueueBadge inputQueueRef={inputQueueRef} />
+    </div>
+  );
+}
+
+/**
  * The in-flight input overlay (spec 2026-09-21 Wave A): pending count with a
  * pulsing chevron run, amber once the oldest unacked id has waited past
  * QUEUE_STALL_MS (input-queue.ts). An empty queue renders nothing: input
  * that is merely fast has no UI.
  *
- * Exported for the badge's component test; the app's only consumer renders it
- * inside the terminal container below, in the overlay column next to the
- * Wave C diagnostics HUD. Positioning lives on that column (top-right, the
- * devices strip's corner); the badge is a plate inside it, so the two stack
- * instead of fighting for the same pixels.
+ * Exported for the badge's component test; the app's only consumer renders
+ * it inside {@link TerminalOverlayStack}, below the Wave C diagnostics HUD
+ * when that is open and at the column's anchor when it is not. Positioning
+ * lives on that column; the badge is a plate inside it, so the badge is the
+ * thing that moves and the HUD never does.
  */
 export function InputQueueBadge({ inputQueueRef }: { inputQueueRef: { current: InputQueue | null } }) {
   const { stats } = useLiveInputQueue(inputQueueRef);
@@ -855,28 +912,22 @@ export function SubshellTerminal({
               onDismissPhotosNotice={uploads.dismissPhotosNotice}
             />
           )}
-          {/* The overlays, stacked in ONE column so they never fight for the
-              same pixels: the in-flight input badge above, the Wave C
-              diagnostics HUD below it, both with the devices strip's idiom
-              (floated, dense, pointer-events-none) at its top-right corner.
-              On a workspace pane the devices wrapper renders after this
-              component and at the same corner, so when both are up the
-              devices strip wins the paint and the column reappears the
-              moment it goes away. The HUD only renders when the page passed
-              `diagnosticsOverlay`, which today is the subshell page alone. */}
-          <div className="pointer-events-none absolute top-1 right-4 z-10 flex flex-col items-end gap-1">
-            <InputQueueBadge inputQueueRef={inputQueueRef} />
-            {diagnosticsOverlay && (
-              <PaneDiagnosticsHud
-                subshell={subshell}
-                socket={status}
-                reconnectsRef={reconnectsRef}
-                inputQueueRef={inputQueueRef}
-                viewers={hudViewers}
-                nodeLabel={diagnosticsOverlay.nodeLabel}
-              />
-            )}
-          </div>
+          {/* The terminal's whole overlay stack (see TerminalOverlayStack):
+              HUD anchored, badge yielding below it. */}
+          <TerminalOverlayStack
+            inputQueueRef={inputQueueRef}
+            diagnostics={
+              diagnosticsOverlay
+                ? {
+                    subshell,
+                    socket: status,
+                    reconnectsRef,
+                    viewers: hudViewers,
+                    nodeLabel: diagnosticsOverlay.nodeLabel,
+                  }
+                : null
+            }
+          />
         </div>
       )}
       {/* The pane log's tail is the only record of why a harness that died
