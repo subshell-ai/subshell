@@ -1315,9 +1315,12 @@ function renderRecovery(p: Probe): void {
   }
   // OFFERED here, never applied unasked: a newer bundled server is a choice,
   // and the screen someone reached because their server is down is exactly
-  // where "the version you have may be the problem" belongs.
+  // where "the version you have may be the problem" belongs. It rides the
+  // same stack as the doors below it — it names a screen, not an act.
+  const links = document.createElement("div");
+  links.className = "recovery-links";
   if (p.serverChoice === "upgrade-available") {
-    content.append(button(`Update Server to ${p.bundledVersion}…`, () => go("update"), "linkish"));
+    links.append(button(`Update Server to ${p.bundledVersion}…`, () => go("update"), "linkish"));
   }
   if (tmuxMissing) {
     tmuxWarn.applyPlan(tmuxInstallPlan(p.platform, p.hasBrew));
@@ -1335,24 +1338,29 @@ function renderRecovery(p: Probe): void {
     const failedHere = tmuxInstallFailure(tmuxResult, p.tmux !== null);
     if (failedHere !== null) content.append(tmuxFailureBlock(failedHere));
   }
+  // The secondary doors, one per row. `#content` is a plain block, so these
+  // appended bare used to flow onto ONE line with no gaps between them — the
+  // mash that read as three labels run together. The stack gives each its own
+  // row and the poll's churn gate (see `tick`) is what makes them pressable.
   // Reachable HERE as well as from the dashboard, and that is the point: a
   // machine whose service definition is broken has no dashboard to open the
   // door from, and switching to app mode is one of the few things that can
   // get such a machine running again.
-  content.append(button("Change how it runs…", () => go("supervision"), "linkish"));
+  links.append(button("Change how it runs…", () => go("supervision"), "linkish"));
   // Also reachable here, for the same reason: the dashboard is the ordinary
   // door to updating and a machine on this screen has no dashboard. It is
   // always offered rather than gated on a known update — nothing on THIS page
   // knows whether one exists until the screen behind it asks, and a row that
   // appeared only after an answer nobody had asked for would mean checking on
   // the poll.
-  content.append(button("Check for updates…", () => go("update"), "linkish"));
+  links.append(button("Check for updates…", () => go("update"), "linkish"));
   // The third link here for the third instance of one reason: a machine on this
   // screen has no dashboard, and a wrong port or bind address is one of the few
   // things that puts it here. The tray carries the same door for the case this
   // screen never renders — a server that answers but will not accept a sign-in
   // (spec 2026-09-18 § 14.1).
-  content.append(button(`${SETTINGS_LABEL}…`, () => go("settings"), "linkish"));
+  links.append(button(`${SETTINGS_LABEL}…`, () => go("settings"), "linkish"));
+  content.append(links);
   content.append(detailsDisclosure());
   // The ellipsis stays: it correctly says a screen follows rather than an act.
   el("bar-left").append(button(`${RESET_LABEL}…`, () => void openReset(), "ghost"));
@@ -2755,11 +2763,31 @@ async function refresh(): Promise<void> {
   probe = await ipc.probe();
   problem = probe.error ?? problem;
 }
+/**
+ * What the poll's render can change, serialized. `probe` and `lastTail` are
+ * the only state the poll itself produces — every other input to `render()`
+ * (busy, running, problem, failure, the forms, the update act's state) is
+ * mutated by a handler that renders on its own — and the screen itself moves
+ * only through `go`/`applyScreen`, which render too.
+ *
+ * Comparing before and after the poll's refresh is what makes the redraw
+ * conditional: a recovery screen the machine has nothing new to say about
+ * does NOT get torn down and rebuilt every 1500 ms any more. That churn was
+ * not cosmetic — a rebuild landing between mousedown and mouseup detaches the
+ * pressed button, and the composed click fires on an ancestor no listener is
+ * bound to. On a screen that re-renders every 1.5 s, that is one click in
+ * seven eaten, every attempt, which is exactly how a row of controls reads
+ * as dead (reported 2026-09-21 on the recovery screen).
+ */
+function pollSignature(): string {
+  return JSON.stringify([probe, lastTail, screen, busy, running, problem, failure, detailsOpen]);
+}
 async function tick(): Promise<void> {
   if ((busy || document.hidden) && !running) return;
   // Never redraw under a hand typing in the address form, or in the reset
   // screen's confirmation box.
   if (isTextEntry(document.activeElement)) return;
+  const before = pollSignature();
   try {
     await refresh();
   } catch {
@@ -2776,6 +2804,8 @@ async function tick(): Promise<void> {
       /* the pane keeps its last content */
     }
   }
+  // Nothing the reader could see has changed: leave the DOM alone.
+  if (pollSignature() === before) return;
   render();
 }
 

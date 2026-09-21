@@ -650,6 +650,18 @@
   .assistant-content:empty {
     display: none;
   }
+  /* The recovery screen's secondary doors, one per row. `#content` is a plain
+     block and a button is inline, so these appended bare used to flow onto one
+     line with no gaps between them — four labels reading as one run-on line.
+     Left-aligned like the disclosure below them: this is a control surface,
+     where the left edge is what the eye scans. */
+  .recovery-links {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: 20px;
+  }
   /* Two columns now that the dot row is gone (spec 2026-09-17 § 4.1): the
      wide left track pushes `#bar-right` to the frame edge whether or not
      `#bar-left` holds anything, which the three-track row used the middle
