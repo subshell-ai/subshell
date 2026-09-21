@@ -72,3 +72,18 @@ export async function diskArtifactSha256(target: NodeTarget): Promise<string | n
 export function publishedNodeTargets(): NodeTarget[] {
   return NODE_TARGETS.filter((target) => artifactStat(target) !== null);
 }
+
+/**
+ * The one sentence both update surfaces say when the binary this instance
+ * holds is not the release an update ordered and the plane cannot serve the
+ * release instead. The update route refuses the ORDER with it; the download
+ * route refuses the DOWNLOAD with it. Kept beside the artifact truth both
+ * read, so the two refusals cannot drift apart.
+ *
+ * The remedy is publishing or a hand update, deliberately NOT "delete the
+ * file": deleting helps only where the plane can then fetch the release, and
+ * every path that says this sentence is one where it cannot.
+ */
+export function staleArtifactRefusal(target: NodeTarget): string {
+  return `This server's published ${target} node binary is not the release the update ordered, so the node would install nothing. Publish that release's binaries to this server's node-artifacts directory with \`bun run release:cli-node\`, or update that machine by hand.`;
+}

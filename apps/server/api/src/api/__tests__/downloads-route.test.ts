@@ -200,8 +200,10 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     // The third credential (spec 2026-09-15 §5.3), and the only one here that
     // is spent by the download. A setup key has a second job afterwards (the
     // enroll), so peeking is right for it; an update token has exactly one.
+    // The token binds the digest the update command named; the disk fixture
+    // hashes to it, so this is also the token path's disk fast path.
     resetUpdateTokensForTests();
-    const token = mintUpdateToken("n1", TARGET);
+    const token = mintUpdateToken("n1", TARGET, expectedSha);
     const ok = await dlToken(`/node/${TARGET}`, token);
     expect(ok.status).toBe(200);
     expect(new Uint8Array(await ok.arrayBuffer())).toEqual(FIXTURE);
@@ -212,7 +214,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
   it("an update token minted for ANOTHER target → 401", async () => {
     // The narrowing that makes this credential worth minting: it buys ONE file.
     resetUpdateTokensForTests();
-    const token = mintUpdateToken("n1", "darwin-arm64");
+    const token = mintUpdateToken("n1", "darwin-arm64", expectedSha);
     expect((await dlToken(`/node/${TARGET}`, token)).status).toBe(401);
   });
 
@@ -221,10 +223,28 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     // so spending a single-use token on 65 bytes would leave nothing for the
     // binary the command exists to fetch.
     resetUpdateTokensForTests();
-    const token = mintUpdateToken("n1", TARGET);
+    const token = mintUpdateToken("n1", TARGET, expectedSha);
     expect((await dlToken(`/node/${TARGET}.sha256`, token)).status).toBe(401);
     // And it was not burned by the refusal: the binary still works.
     expect((await dlToken(`/node/${TARGET}`, token)).status).toBe(200);
+  });
+
+  it("an update token whose digest the disk does not hash to → 409 naming the remedy (nothing to fetch)", async () => {
+    // The air-gapped half of release-coherent serving (2026-09-21): a plane
+    // that fetches nothing cannot put verified release bytes under a stale
+    // file, so the incoherent offer is refused here rather than streamed to a
+    // node that would refuse it after a full download.
+    resetUpdateTokensForTests();
+    const token = mintUpdateToken("n1", TARGET, "f".repeat(64));
+    const res = await dlToken(`/node/${TARGET}`, token);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { code: string; message: string };
+    expect(body.code).toBe("NODE_UPDATE_UNAVAILABLE");
+    expect(body.message).toContain(TARGET);
+    expect(body.message).toContain("node-artifacts");
+    expect(body.message).toContain("release:cli-node");
+    // The token was spent by the refused request; a retry mints a fresh one.
+    expect((await dlToken(`/node/${TARGET}`, token)).status).toBe(401);
   });
 
   it("a bogus update token → 401", async () => {
@@ -952,6 +972,8 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
   let cookie = "";
   let _userId = "";
   let release: { url: string; stop: () => void; serveDigest: string };
+  /** What /manifest's `assets` map names; "" falls back to the served bytes' digest. */
+  let servedManifestDigest = "";
 
   beforeAll(async () => {
     await setupAuthTables();
@@ -1003,7 +1025,11 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
             nodeProtocol: NODE_PROTOCOL_VERSION,
             minNodeVersion: MIN_NODE_VERSION,
             commit: "0123456789abcdef0123456789abcdef01234567",
-            assets: { [`subshell-node-cli-${TARGET}`]: digest },
+            // `servedManifestDigest` defaults to the digest of the bytes /bin
+            // serves; the release-advance test below moves it to a DIFFERENT
+            // value, which is what "the source now answers another release"
+            // means without a second server.
+            assets: { [`subshell-node-cli-${TARGET}`]: servedManifestDigest || digest },
           });
         }
         return new Response("no", { status: 404 });
@@ -1074,5 +1100,178 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
     resetReleaseCacheForTests();
     const res = await app.handle(new Request(`http://localhost/api/downloads/node/${TARGET}`));
     expect(res.status).toBe(401);
+  });
+
+  it("an update token serves the release bytes past a stale disk artifact, and never overwrites it", async () => {
+    // Release-coherent serving (2026-09-21): the token's download is measured
+    // against the digest the update command named, so a stale hand-published
+    // file on disk is fetched around, streamed through, and left byte for byte
+    // alone.
+    setReleaseUrlForTests(`${release.url}/releases`);
+    resetReleaseCacheForTests();
+    resetUpdateTokensForTests();
+    rmSync(binaryPath, { force: true });
+    rmSync(`${binaryPath}.sha256`, { force: true });
+    rmSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), { force: true });
+    const STALE = "a stale hand-published darwin binary";
+    writeFileSync(binaryPath, STALE);
+    try {
+      const token = mintUpdateToken("n1", TARGET, release.serveDigest);
+      const res = await app.handle(
+        new Request(`http://localhost/api/downloads/node/${TARGET}?update_token=${encodeURIComponent(token)}`),
+      );
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe(BODY);
+      // The operator's file is untouched, byte for byte: the fetch served
+      // through, it did not overwrite.
+      expect(readFileSync(binaryPath, "utf8")).toBe(STALE);
+      // And nothing was recorded as ours: a hand-published binary has no
+      // `.fetched.json` entry, so a later supersede pass still leaves it alone.
+      expect(existsSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"))).toBe(false);
+
+      // A SECOND request with a fresh token serves the fetched bytes again;
+      // the route must not have memoized the stale disk answer, and the file
+      // still wins nothing it did not earn.
+      const token2 = mintUpdateToken("n2", TARGET, release.serveDigest);
+      const res2 = await app.handle(
+        new Request(`http://localhost/api/downloads/node/${TARGET}?update_token=${encodeURIComponent(token2)}`),
+      );
+      expect(res2.status).toBe(200);
+      expect(await res2.text()).toBe(BODY);
+      expect(readFileSync(binaryPath, "utf8")).toBe(STALE);
+    } finally {
+      rmSync(binaryPath, { force: true });
+      rmSync(`${binaryPath}.sha256`, { force: true });
+      rmSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), { force: true });
+    }
+  });
+
+  it("an update token with nothing on disk fetches AND caches, exactly as the installer path does", async () => {
+    // The absent-disk half: same `.fetched.json` semantics as the cookie
+    // path's lazy fetch above, so the next machine of this platform is served
+    // from disk.
+    setReleaseUrlForTests(`${release.url}/releases`);
+    resetReleaseCacheForTests();
+    resetUpdateTokensForTests();
+    rmSync(binaryPath, { force: true });
+    rmSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), { force: true });
+    try {
+      const token = mintUpdateToken("n1", TARGET, release.serveDigest);
+      const res = await app.handle(
+        new Request(`http://localhost/api/downloads/node/${TARGET}?update_token=${encodeURIComponent(token)}`),
+      );
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe(BODY);
+      expect(readFileSync(binaryPath, "utf8")).toBe(BODY);
+      const fetched = JSON.parse(readFileSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), "utf8")) as {
+        [target: string]: { tag: string } | undefined;
+      };
+      expect(fetched[TARGET]?.tag).toBe("cli-node-v9.9.9");
+    } finally {
+      rmSync(binaryPath, { force: true });
+      rmSync(`${binaryPath}.sha256`, { force: true });
+      rmSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), { force: true });
+    }
+  });
+
+  it("an update token refuses a release the source has moved past, before any byte is served", async () => {
+    // Release-coherent serving, the second half: the token names release A's
+    // digest, but the index's 15-minute TTL means the source may answer B by
+    // download time, and streaming B's bytes against the command's A digest
+    // would land the node in exactly the refusal this path exists to prevent,
+    // one full download later. So the plane compares the resolved release's
+    // signed digest to the token's before the first byte, and refuses.
+    setReleaseUrlForTests(`${release.url}/releases`);
+    resetReleaseCacheForTests();
+    resetUpdateTokensForTests();
+    rmSync(binaryPath, { force: true });
+    rmSync(`${binaryPath}.sha256`, { force: true });
+    rmSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), { force: true });
+    const STALE = "a stale darwin binary, ignored either way";
+    writeFileSync(binaryPath, STALE);
+    try {
+      // Release B: the manifest now names bytes nobody published here. The
+      // manifest is memoized on the index entry, so the memo must drop too.
+      servedManifestDigest = "b".repeat(64);
+      resetReleaseCacheForTests();
+
+      const token = mintUpdateToken("n1", TARGET, release.serveDigest);
+      const res = await app.handle(
+        new Request(`http://localhost/api/downloads/node/${TARGET}?update_token=${encodeURIComponent(token)}`),
+      );
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { code: string; message: string };
+      expect(body.code).toBe("NODE_UPDATE_UNAVAILABLE");
+      expect(body.message).toContain("node-artifacts");
+      expect(body.message).toContain("release:cli-node");
+      // Nothing streamed: the stale file is untouched and nothing was
+      // recorded as ours. (The upstream request head is made before the
+      // comparison; it is the stream that never starts.)
+      expect(readFileSync(binaryPath, "utf8")).toBe(STALE);
+      expect(existsSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"))).toBe(false);
+      // The token was spent by the refused request.
+      expect(
+        (
+          await app.handle(
+            new Request(`http://localhost/api/downloads/node/${TARGET}?update_token=${encodeURIComponent(token)}`),
+          )
+        ).status,
+      ).toBe(401);
+    } finally {
+      servedManifestDigest = "";
+      resetReleaseCacheForTests();
+      rmSync(binaryPath, { force: true });
+      rmSync(`${binaryPath}.sha256`, { force: true });
+      rmSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), { force: true });
+    }
+  });
+
+  it("an update token refuses a moved-past release on an EMPTY disk with the re-run remedy", async () => {
+    // The same comparison, the other cause: nothing on disk at all and the
+    // index moved past the token. Nobody published a wrong file here, so the
+    // stale-artifact remedy (publish, or update by hand) would be a lie; the
+    // refusal instead says to press Update again, which orders the release
+    // the source now serves.
+    setReleaseUrlForTests(`${release.url}/releases`);
+    resetReleaseCacheForTests();
+    resetUpdateTokensForTests();
+    rmSync(binaryPath, { force: true });
+    rmSync(`${binaryPath}.sha256`, { force: true });
+    rmSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), { force: true });
+    try {
+      servedManifestDigest = "b".repeat(64);
+      resetReleaseCacheForTests();
+
+      const token = mintUpdateToken("n1", TARGET, release.serveDigest);
+      const res = await app.handle(
+        new Request(`http://localhost/api/downloads/node/${TARGET}?update_token=${encodeURIComponent(token)}`),
+      );
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { code: string; message: string };
+      expect(body.code).toBe("NODE_UPDATE_UNAVAILABLE");
+      expect(body.message).toContain("no longer the newest");
+      expect(body.message).toContain("Press Update again");
+      // The stale-artifact remedy is NOT the answer here: nobody published
+      // anything.
+      expect(body.message).not.toContain("node-artifacts");
+      // Nothing streamed, nothing cached: the fetch was cancelled and the
+      // directory holds no record of release B.
+      expect(existsSync(binaryPath)).toBe(false);
+      expect(existsSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"))).toBe(false);
+      // The token was spent by the refused request.
+      expect(
+        (
+          await app.handle(
+            new Request(`http://localhost/api/downloads/node/${TARGET}?update_token=${encodeURIComponent(token)}`),
+          )
+        ).status,
+      ).toBe(401);
+    } finally {
+      servedManifestDigest = "";
+      resetReleaseCacheForTests();
+      rmSync(binaryPath, { force: true });
+      rmSync(`${binaryPath}.sha256`, { force: true });
+      rmSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), { force: true });
+    }
   });
 });

@@ -418,6 +418,79 @@ describe("applyUpdate", () => {
     expect(await readFile(binary, "utf8")).toBe("OLD BINARY");
   });
 
+  it("carries the refusal body's message into the refusal it raises", async () => {
+    // The plane's download refusals put a remedy in a JSON `message` (the
+    // stale-artifact 409 does); "answered 409" alone would leave the node's
+    // owner a fact with no act. The sentence travels in the UpdateRefused,
+    // which `commands/update.ts` logs on this machine. The fixture is the
+    // REAL body shape: errId + code + statusCode around the full remedy, so
+    // the whole body is ~370 characters. That size is the point: a reader
+    // that capped BEFORE parsing would cut this into invalid JSON and log
+    // the raw envelope, losing the remedy entirely. The assertion on the
+    // remedy's TAIL pins the order (parse, then cap).
+    const { binary, dataDir } = await installedNode();
+    pretendInstalledAt(binary);
+    const remedy =
+      "This server's published linux-x64 node binary is not the release the update ordered, so the node would install nothing. " +
+      "Publish that release's binaries to this server's node-artifacts directory with `bun run release:cli-node`, or update that machine by hand.";
+    const artifact = serveArtifact(
+      JSON.stringify({ errId: "V1StGXR8_Z5j", code: "NODE_UPDATE_UNAVAILABLE", message: remedy, statusCode: 409 }),
+      409,
+    );
+    try {
+      await expect(
+        applyUpdate({
+          binaryDeps: NO_SERVICE_DEFINITION,
+          source: {
+            kind: "url",
+            url: artifact.url,
+            sha256: sha256("anything"),
+            manifest: signedManifest(sha256("anything")),
+          },
+          version: "0.9.1",
+          restart: false,
+          origin: "plane",
+          dataDir,
+        }),
+      ).rejects.toMatchObject({
+        detail: NODE_RESULT_DOWNLOAD_FAILED,
+        // The remedy whole, tail included: parsed before any cap.
+        message: expect.stringContaining("or update that machine by hand."),
+      });
+    } finally {
+      artifact.stop();
+    }
+    expect(await readFile(binary, "utf8")).toBe("OLD BINARY");
+  });
+
+  it("truncates a non-JSON refusal body instead of quoting it whole", async () => {
+    const { binary, dataDir } = await installedNode();
+    pretendInstalledAt(binary);
+    const artifact = serveArtifact("x".repeat(5000), 503);
+    try {
+      const err = (await applyUpdate({
+        binaryDeps: NO_SERVICE_DEFINITION,
+        source: {
+          kind: "url",
+          url: artifact.url,
+          sha256: sha256("anything"),
+          manifest: signedManifest(sha256("anything")),
+        },
+        version: "0.9.1",
+        restart: false,
+        origin: "plane",
+        dataDir,
+      }).catch((e: unknown) => e)) as UpdateRefused;
+      expect(err).toMatchObject({ detail: NODE_RESULT_DOWNLOAD_FAILED });
+      // A proxy error page cannot write an unbounded line into the log: the
+      // quoted body is capped, and the cap is marked.
+      expect(err.message.length).toBeLessThan(400);
+      expect(err.message.endsWith("...")).toBe(true);
+    } finally {
+      artifact.stop();
+    }
+  });
+
   it("refuses when the downloaded binary reports a version other than the one asked for", async () => {
     // A wrong-architecture artifact, or a mis-tagged release: the probe is what
     // catches it before the file becomes the one the service manager runs.

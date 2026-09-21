@@ -476,7 +476,12 @@ shares and subshell shares are two independent axes:
   it** (the air-gapped configuration, where the Nodes dialog keeps its
   no-binary warning). Only files this instance fetched — recorded in
   `.fetched.json` with their release tag — are ever superseded or deleted; a
-  hand-published binary is never touched, and a file on disk always wins.
+  hand-published binary is never touched, and a file on disk always wins
+  **for enroll and install downloads**. An update download (a valid
+  `?update_token=`, which binds the digest the update command named) is
+  served release-coherently instead: disk only when it hashes to that
+  digest, the verified release fetched around it otherwise, and a stale copy
+  that cannot be fetched around is refused 409 with the remedy (2026-09-21).
   Full prose: `docs/security.md`, "Agent binaries are fetched lazily".
   Public settings now carries `appBaseUrl` so the Nodes dialog can show the
   exact URL the server will bake — the enroll-time loopback trap above is

@@ -13,10 +13,15 @@ import type { NodeTarget } from "@internal/subshell-protocol";
  * channel capped at 1 MiB with no resumption, competing with live pane output.
  *
  * So the plane mints a token that is not a credential in any general sense:
- * it names ONE node and ONE platform triple, lives ten minutes, works once,
- * and grants exactly one download of a file the release source publishes
- * publicly anyway. "A node key can do nothing on REST" stays true as written —
- * the agent presents this, not its key.
+ * it names ONE node, ONE platform triple and ONE digest (the one the update
+ * command carries, from the release's SIGNED manifest), lives ten minutes,
+ * works once, and grants exactly one download of a file the release source
+ * publishes publicly anyway. The digest rides the token because the download
+ * route must compare what it serves against the release the COMMAND named,
+ * and the token is the only channel that carries that fact to a request the
+ * node makes minutes later (the release index may have moved on by then).
+ * "A node key can do nothing on REST" stays true as written: the agent
+ * presents this, not its key.
  *
  * **In memory, never in the database.** A restart forgets every outstanding
  * token, and that is the correct behaviour rather than a gap: the agent's
@@ -42,6 +47,13 @@ interface TokenRecord {
   nodeId: string;
   /** The platform triple it may fetch; any other target is refused. */
   target: NodeTarget;
+  /**
+   * The lowercase-hex sha256 the update command carries (spec 2026-09-17: from
+   * the release's SIGNED manifest). The download route serves disk only when
+   * it hashes to THIS, and it is what a fetched stream is compared against:
+   * the command's release, never whatever the index names at download time.
+   */
+  sha256: string;
   /** Epoch ms after which it is dead. */
   expiresAt: number;
   /** Set on first use; a second presentation is refused. */
@@ -70,12 +82,16 @@ function sweep(now: number): void {
 }
 
 /**
- * Mint a token for one node and one target.
+ * Mint a token for one node, one target, and the digest its update command
+ * carries.
  *
+ * @param sha256 - the lowercase-hex digest from the release's SIGNED manifest
+ *   that the command names; the download route compares what it serves
+ *   against it.
  * @returns the PLAINTEXT token — the only time it exists outside the command
  *   frame. The caller bakes it into the URL it sends and keeps no copy.
  */
-export function mintUpdateToken(nodeId: string, target: NodeTarget): string {
+export function mintUpdateToken(nodeId: string, target: NodeTarget, sha256: string): string {
   const now = Date.now();
   sweep(now);
   // 24 random bytes → 32 url-safe base64 characters, no padding: it travels in
@@ -83,7 +99,7 @@ export function mintUpdateToken(nodeId: string, target: NodeTarget): string {
   // whichever of the three consumers forgot.
   const raw = Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString("base64url");
   const token = `${UPDATE_TOKEN_PREFIX}${raw}`;
-  tokens.set(digest(token), { nodeId, target, expiresAt: now + UPDATE_TOKEN_TTL_MS, used: false });
+  tokens.set(digest(token), { nodeId, target, sha256, expiresAt: now + UPDATE_TOKEN_TTL_MS, used: false });
   return token;
 }
 
@@ -99,9 +115,10 @@ export function mintUpdateToken(nodeId: string, target: NodeTarget): string {
  * node identity — that is what having no REST credential means. The token IS
  * the identity, which is why it is single-use and short-lived.
  *
- * @returns the node the token was minted for, or null when it may not be spent
+ * @returns what the token buys: the node it was minted for and the digest the
+ *   update command named, or null when it may not be spent
  */
-export function consumeUpdateToken(token: string, target: NodeTarget): string | null {
+export function consumeUpdateToken(token: string, target: NodeTarget): { nodeId: string; sha256: string } | null {
   const key = digest(token);
   const record = tokens.get(key);
   if (!record) return null;
@@ -114,7 +131,7 @@ export function consumeUpdateToken(token: string, target: NodeTarget): string | 
   // tick sees it, and the delete is what keeps the map from growing.
   record.used = true;
   tokens.delete(key);
-  return record.nodeId;
+  return { nodeId: record.nodeId, sha256: record.sha256 };
 }
 
 /**
