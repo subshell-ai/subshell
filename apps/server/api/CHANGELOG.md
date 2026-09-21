@@ -1,5 +1,13 @@
 # @internal/server
 
+## 0.15.3
+
+### Patch Changes
+
+- [#115](https://github.com/subshell-ai/subshell/pull/115) [`056abd0`](https://github.com/subshell-ai/subshell/commit/056abd07160261b2cb33bb2896692ddf42992250) Thanks [@theogravity](https://github.com/theogravity)! - Node updates now say so: the pressed Update button shows a spinner while the machine installs, a node already on the newest release this server can offer is refused instead of reinstalled, and every node's own page carries an Update card.
+
+- [#115](https://github.com/subshell-ai/subshell/pull/115) [`056abd0`](https://github.com/subshell-ai/subshell/commit/056abd07160261b2cb33bb2896692ddf42992250) Thanks [@theogravity](https://github.com/theogravity)! - The sidebar row's tooltip now names the preset the subshell is running ("Preset: review mode"), between the agent and the status. Rows launched without one say nothing about presets.
+
 ## 0.15.2
 
 ### Patch Changes
