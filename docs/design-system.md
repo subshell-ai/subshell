@@ -88,8 +88,7 @@ admitted here.
   card, so one row read as a heading and the other as data, and neither was the
   control the bold claimed it was.)*
 - **Copy length**: an explanation of a UI element is at most two sentences,
-  and UI copy uses no em dashes (hyphen-free prose; periods and commas
-  separate clauses). If a control needs more than two sentences, the surplus
+  and UI copy uses no em dashes; periods and commas separate clauses. If a control needs more than two sentences, the surplus
   is documentation or a detail disclosure, not help text. *(Operator ruling,
   2026-09-21, after a maintenance toggle carried a four-clause essay and a
   launch-rule card carried five sentences: the paragraph beside a control is

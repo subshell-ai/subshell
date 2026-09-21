@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui
  * The node's directory allowlist — which directories subshells may be created
  * under on this machine (spec 2026-09-05).
  *
- * Owner-only to edit (`canManage`, the server's gate too — the controls simply
+ * Owner-only to edit (`canManage`, the server's gate too). The controls simply
  * do not render for anyone else), but READ-visible to everyone who can see the
  * node: a "directory not allowed" refusal is unexplainable without the rules
  * that caused it.
@@ -40,6 +40,10 @@ export function NodeAllowedDirs({
   onDirsSaved?: () => void;
 }) {
   const dirs = node.allowedDirs;
+  /** The one expression of "this viewer may change the list", used by the
+   *  copy and by the controls: `canManage` is the server's own answer, and
+   *  a read-only surface never edits whatever else it grants. */
+  const canEdit = node.canManage && !readOnly;
   const setDirs = useSetNodeAllowedDirs(node.id);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
@@ -63,9 +67,13 @@ export function NodeAllowedDirs({
         <CardTitle>Allowed directories</CardTitle>
         <CardDescription>
           {dirs.length === 0
-            ? "Subshells on this machine can start anywhere its user can reach. Add a directory to limit them to it and what is inside."
+            ? canEdit
+              ? "Subshells on this machine can start anywhere its user can reach. Add a directory to limit them to it and what is inside."
+              : "Subshells on this machine can start anywhere its user can reach."
             : "New subshells and restarts start only inside these directories or what is under them. Panes already running are unaffected."}
-          {readOnly ? " These rules are managed by the control plane." : ""}
+          {readOnly && (
+            <p className="text-detail text-muted-foreground">These rules are managed by the control plane.</p>
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

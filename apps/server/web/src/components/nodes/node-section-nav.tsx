@@ -48,8 +48,10 @@ export function NodeSectionNav({ node }: { node: NodeDetail }): JSX.Element | nu
       : []),
   ];
 
-  // One section is not a nav. A `view` grantee sees only Overview, and a
-  // single tab above it would look like a control that does nothing.
+  // One section is not a nav. A `view` grantee and the `local` host (whose
+  // daemon tabs have no meaning there, Server Settings being its half) see
+  // only Overview, and a single tab above it looks like a control that does
+  // nothing.
   if (items.length === 1) return null;
 
   return (

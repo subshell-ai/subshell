@@ -221,9 +221,9 @@ function NodeDetailPage() {
           </div>
 
           {/* Whether this machine takes new work at all (spec 2026-09-14).
-              Every kind, and on the OVERVIEW: `local` has no Configuration
-              section — its own config surface is Server Settings — and a
-              switch that moves between sections depending on the kind of
+              Every kind, and on the Overview: the rules of a machine live
+              where every machine shows them, and the tabs are for driving
+              the daemon. A switch that moves depending on the kind of
               machine is one people stop finding. */}
           {/* The flip's fallout on THIS surface: every subshell of the viewer's
               that ran here went `terminated` the instant the PUT answered, and
@@ -273,7 +273,7 @@ function NodeDetailPage() {
               people who configure: `owner`|`edit`, the old tab's audience,
               not a `view` grantee's. The card's own write controls further
               to `owner`. */}
-          {n.kind === "agent" && managesNodeSections(n) && <NodeServerUrlCard node={n} />}
+          {managesNodeSections(n) && <NodeServerUrlCard node={n} />}
 
           <NodeSharingDialog nodeId={n.id} open={shareOpen} onOpenChange={setShareOpen} canManage={n.canManage} />
         </>

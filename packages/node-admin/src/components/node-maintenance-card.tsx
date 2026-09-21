@@ -29,11 +29,11 @@ import { Switch } from "../ui/switch";
  * Configuration tab; that tab was deleted outright and its lone card
  * promoted to the Overview beside this one.)
  *
- * The description's CLI sentence is AGENT-ONLY on purpose: `subshell
+ * The description is two sentences, per the copy rule; the CLI equivalence
+ * sits in the card's one-line detail slot, and AGENT-ONLY: `subshell
  * maintenance on|off` is the agent's own command, and the control-plane host
- * runs no agent. On `local` the sentence would point at a command that is
- * not there, even though the FLAG itself means the same thing on every
- * machine (spec 2026-09-14: `local` included).
+ * runs no agent to type it into, even though the FLAG means the same thing
+ * on every machine (spec 2026-09-14: `local` included).
  *
  * Hidden — not disabled — for a viewer who cannot manage the node, the way its
  * predecessor was: the route refuses them, and `canManage` is the server's own
@@ -102,12 +102,6 @@ export function NodeMaintenanceCard({
         <CardDescription>
           Turning this on blocks new subshells on this machine for everyone, and stops whatever is running. They will
           not come back on their own when maintenance ends.
-          {node.kind === "agent" && (
-            <>
-              {" "}
-              Same flag from the machine's own command line: <code>subshell maintenance on|off</code>.
-            </>
-          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -131,6 +125,16 @@ export function NodeMaintenanceCard({
           <Label>Maintenance mode</Label>
         </div>
         {node.maintenance && <p className="text-detail text-muted-foreground">{maintenanceSinceLabel(node)}</p>}
+        {/* The CLI equivalence is a one-line detail, not a third sentence of
+            explanation: the CardDescription stays within the two-sentence
+            rule, and this joins the card's other detail lines. AGENT-ONLY:
+            `subshell maintenance on|off` is the agent's own command, and the
+            control-plane host runs no agent to type it into. */}
+        {node.kind === "agent" && (
+          <p className="text-detail text-muted-foreground">
+            Same flag from this machine's command line: <code>subshell maintenance on|off</code>.
+          </p>
+        )}
         {error && (
           <p role="alert" className="text-destructive text-detail">
             {error}

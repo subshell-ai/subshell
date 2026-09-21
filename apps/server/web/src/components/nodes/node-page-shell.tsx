@@ -17,8 +17,8 @@ import { PageHeader } from "@/components/page-header";
  * section never has to re-handle "not loaded yet" or narrow `undefined` again.
  * The Overview section passes its own header actions (rename, share, delete);
  * the others take the plain title, because those actions belong to the node
- * rather than to a section and showing them four times would invite the
- * question of whether they differ.
+ * rather than to a section and showing them on every page would invite
+ * the question of whether they differ.
  */
 export function NodePageShell({
   id,
