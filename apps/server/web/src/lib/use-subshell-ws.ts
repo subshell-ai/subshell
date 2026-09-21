@@ -4,6 +4,7 @@ import type { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import { BUILD_ID } from "@/lib/build-id";
 import { deviceName } from "@/lib/device-name";
+import { createInputQueue, type InputQueue } from "@/lib/input-queue";
 import { createMotionThrottle, type MotionThrottle } from "@/lib/mouse-motion-throttle";
 import { motionSampleIntervalMs } from "@/lib/mouse-sampling-pref";
 import { sendInput, sendResize, sendVisibility } from "@/lib/subshell-frames.js";
@@ -59,9 +60,21 @@ const RECONNECT_DELAY_MS = 1500;
  * plain HTTP) and pass the returned single-use token as a query param on the
  * WS connection.
  *
- * Returns a ref of the current WebSocket (null while disconnected), so callers
- * outside the hook can inspect its `bufferedAmount` (e.g. before forwarding
- * paste input).
+ * Input is idempotent when the server advertises it (spec 2026-09-21 Wave A):
+ * the `viewers` frame's `inputAcks` flag engages a per-subshell retry queue,
+ * every keystroke then carries an id, and unacked ids are re-sent in order on
+ * each reconnect (the server's completed-write window absorbs the ones that
+ * already landed). Without the flag (an older server) the queue stays
+ * dormant and keystrokes go bare, exactly as they always did. The retry
+ * re-send waits for the connection's FIRST SERVER FRAME, not `onopen`: the
+ * server drops input frames that arrive before its attach handler has
+ * assigned `ws.data`, and both attach paths emit their first frame only after
+ * that assign.
+ *
+ * Returns refs of the current WebSocket (null while disconnected, so callers
+ * outside the hook can inspect its `bufferedAmount`, e.g. before forwarding
+ * paste input) and of the attach's input queue (null while detached), through
+ * which callers that inject text also route their bytes.
  */
 export function useSubshellWs(
   terminalRef: { current: Terminal | null },
@@ -106,14 +119,48 @@ export function useSubshellWs(
   handlersRef.current = handlers;
   const capacityRef = useRef(capacity);
   capacityRef.current = capacity;
+  // The attach's input queue and the session id naming it on the connect URL.
+  // `owned` remembers which subshell the queue belongs to, so a caller that
+  // repoints the terminal at another subshell gets a fresh queue (fresh
+  // session, ids from 1) rather than carrying ids across panes.
+  const ownedQueueRef = useRef<{ subshellId: string; sessionId: string; queue: InputQueue } | null>(null);
+  const inputQueueRef = useRef<InputQueue | null>(null);
+  // True once the CURRENT connection has delivered its first server frame.
+  // Input is sent (and re-sent) only while this is up: earlier frames are
+  // dropped by the server's own attach guard, so sending into that window
+  // would be silently discarding the keystrokes the queue exists to save.
+  const attachLiveRef = useRef(false);
 
   useEffect(() => {
     const term = terminalRef.current;
-    if (!term || !subshellId) return;
+    if (!term || !subshellId) {
+      // Detached: nothing to attach, and the caller must not keep injecting
+      // into the previous attach's queue.
+      inputQueueRef.current = null;
+      return;
+    }
 
     let cancelled = false;
     let socket: WebSocket | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // Per-attach input queue (spec 2026-09-21 Wave A). Recreated only when the
+    // SUBSHELL changes: a reconnect or a terminal rebuild on the same subshell
+    // must keep counting ids and keep the same session, or the server's
+    // per-session dedupe window could never absorb a retry. The sender reads
+    // the live socket and the live-attach flag at call time, so one sender
+    // serves every connection.
+    const existing = ownedQueueRef.current;
+    const reused = existing?.subshellId === subshellId;
+    const sessionId = reused ? existing.sessionId : crypto.randomUUID();
+    const queue = reused
+      ? existing.queue
+      : createInputQueue((data, id) => {
+          if (!attachLiveRef.current) return;
+          sendInput(wsRef.current, data, id);
+        });
+    ownedQueueRef.current = { subshellId, sessionId, queue };
+    inputQueueRef.current = queue;
 
     /**
      * Arms the next reconnect attempt. Replaces any pending timer so two
@@ -161,7 +208,13 @@ export function useSubshellWs(
           // and unlike a resize nothing re-sends it until the tab is shown.
           // A tab attached while already hidden would then hold every other
           // device's pane at its size for the socket's whole life.
-          `&hidden=${document.hidden ? "1" : "0"}`;
+          `&hidden=${document.hidden ? "1" : "0"}` +
+          // This page's input-retry session (spec 2026-09-21 Wave A): the key
+          // the server namespaces its dedupe window by. Constant across this
+          // attach's reconnects, fresh on the next page load, and sent even
+          // before the queue is engaged so the ids it later carries are always
+          // windowed under it.
+          `&sid=${encodeURIComponent(ownedQueueRef.current?.sessionId ?? "")}`;
 
         const ws = new WebSocket(url);
         socket = ws;
@@ -205,6 +258,20 @@ export function useSubshellWs(
         ws.onmessage = (e) => {
           try {
             const frame = JSON.parse(e.data as string) as ServerFrame;
+            // The FIRST frame of a connection proves the attach has assigned
+            // ws.data on the server (both the replay and the viewers broadcast
+            // leave the attach handler), so it is the earliest point an input
+            // frame is guaranteed to be served. The retry flush waits for it:
+            // re-sending at `onopen` would feed keys into the window the
+            // server's own attach guard silently drops.
+            if (!attachLiveRef.current) {
+              attachLiveRef.current = true;
+              inputQueueRef.current?.resendPending();
+            }
+            if (frame.type === "ack") {
+              inputQueueRef.current?.ack(frame.id);
+              return;
+            }
             if (frame.type === "replay") {
               if (frame.data) {
                 if (!replayStarted) {
@@ -224,6 +291,13 @@ export function useSubshellWs(
             } else if (frame.type === "output" && frame.data) {
               term.write(frame.data);
             } else if (frame.type === "viewers") {
+              // Engagement is the server's OWN answer, re-learned per attach:
+              // a flag engages tracking; its absence disengages and drops the
+              // backlog, because a server that never acks turns every re-send
+              // into a duplicate write. Downgrades stop retrying, they do not
+              // wedge the queue against ids that will never be retired.
+              const inputQueue = inputQueueRef.current;
+              if (inputQueue) frame.inputAcks === true ? inputQueue.engage() : inputQueue.disengage();
               handlersRef.current.onViewers?.({ you: frame.you, viewers: frame.viewers, sizing: frame.sizing });
             } else if (frame.type === "geometry") {
               // Fact, not a request — the caller pins its grid to this and
@@ -242,6 +316,9 @@ export function useSubshellWs(
           // drives retries + the page's pill.
           if (wsRef.current !== ws) return;
           wsRef.current = null;
+          // The next connection must earn its own first frame before input is
+          // sent again: the server's attach guard drops the early ones.
+          attachLiveRef.current = false;
           handlersRef.current.onClose?.(e.code, e.reason);
           // 4xxx codes are the server rejecting the attach (missing subshell /
           // unauthorized / subshell not running) — retrying cannot succeed, so
@@ -275,7 +352,16 @@ export function useSubshellWs(
     // Read per ATTACH rather than captured once: the preference is per device
     // and a change takes effect on the next terminal a person opens, without
     // a reload.
-    const motion = createMotionThrottle((data) => sendInput(wsRef.current, data), motionSampleIntervalMs());
+    // The one input entry point for everything xterm emits. Engaged, the queue
+    // tracks the chunk for retry; not engaged (or detached), the chunk goes
+    // bare exactly as it always did. Sits AFTER the mouse-report filter below,
+    // at the send boundary.
+    const sendTyped = (data: string): void => {
+      const inputQueue = inputQueueRef.current;
+      if (inputQueue) inputQueue.enqueue(data);
+      else sendInput(wsRef.current, data);
+    };
+    const motion = createMotionThrottle(sendTyped, motionSampleIntervalMs());
     motionRef.current = motion;
     inputDisposableRef.current = term.onData((data) => {
       if (readOnly) return;
@@ -337,8 +423,10 @@ export function useSubshellWs(
       resizeDisposable.dispose();
       if (socket) socket.close(1000, "client detached");
       wsRef.current = null;
+      attachLiveRef.current = false;
+      inputQueueRef.current = null;
     };
   }, [terminalRef, subshellId, readOnly, measure]);
 
-  return wsRef;
+  return { wsRef, inputQueueRef };
 }

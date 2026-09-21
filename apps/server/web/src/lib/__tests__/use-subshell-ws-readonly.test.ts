@@ -66,12 +66,29 @@ afterEach(() => {
   globalThis.WebSocket = originalWs;
 });
 
-async function attach(readOnly: boolean) {
+async function attach(readOnly: boolean, inputAcks = false) {
   const term = fakeTerminal();
   const { result } = renderHook(() => useSubshellWs({ current: term }, "s1", {}, readOnly));
   // connect() is async (it awaits the ws-token call); wait until the socket exists.
   await waitFor(() => expect(instances.length).toBeGreaterThan(0));
+  // Deliver the attach's first server frame: input is sent only once the
+  // server has PROVEN its attach handler is live (it drops earlier input
+  // frames, so the hook holds them instead of feeding that window).
+  deliverViewers(instances[0], inputAcks);
   return { term, wsRef: result.current };
+}
+
+/** Sends one `viewers` frame on a fake socket; `inputAcks` is the engagement signal. */
+function deliverViewers(ws: FakeWebSocket, inputAcks: boolean): void {
+  ws.onmessage?.({
+    data: JSON.stringify({
+      type: "viewers",
+      you: "v1",
+      viewers: [],
+      sizing: { mode: "auto", pinnedViewerId: null },
+      inputAcks,
+    }),
+  });
 }
 
 describe("useSubshellWs read-only attach", () => {
@@ -87,5 +104,33 @@ describe("useSubshellWs read-only attach", () => {
     expect(term.options.disableStdin).toBe(false);
     term._onData?.("ls\r");
     expect(sent.some((f) => f.includes('"input"'))).toBe(true);
+  });
+
+  it("without the inputAcks flag keystrokes go bare, exactly as before", async () => {
+    const { term } = await attach(false, false);
+    term._onData?.("a");
+    expect(sent.some((f) => f.includes('"input"') && !f.includes('"id"'))).toBe(true);
+  });
+
+  it("inputAcks engages the queue: ids are stamped and the retry is re-sent on the reconnect", async () => {
+    const { term } = await attach(false, true);
+    term._onData?.("a");
+    expect(sent.some((f) => f === JSON.stringify({ type: "input", data: "a", id: 1 }))).toBe(true);
+    // An ack retires the id... and a keystroke the ack never reached stays
+    // pending until the next connection's first frame re-sends it.
+    instances[0].onmessage?.({ data: JSON.stringify({ type: "ack", id: 1 }) });
+    term._onData?.("b");
+    expect(sent.some((f) => f === JSON.stringify({ type: "input", data: "b", id: 2 }))).toBe(true);
+    // Drop the transport: below 4000 the hook schedules its own reconnect.
+    instances[0].onclose?.({ code: 1006, reason: "" });
+    await waitFor(() => expect(instances.length).toBe(2), { timeout: 4000 });
+    // The new connection's first frame flushes id 2 (id 1 was acked).
+    deliverViewers(instances[1], true);
+    expect(sent.some((f) => f === JSON.stringify({ type: "input", data: "b", id: 2 }))).toBe(true);
+    // And the server's dedupe answer retires it: nothing is re-sent again.
+    instances[1].onmessage?.({ data: JSON.stringify({ type: "ack", id: 2 }) });
+    const afterAck = sent.length;
+    instances[1].onmessage?.({ data: JSON.stringify({ type: "replay", data: "" }) });
+    expect(sent.length).toBe(afterAck);
   });
 });

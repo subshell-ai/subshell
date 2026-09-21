@@ -10,6 +10,7 @@ import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
 import { resolveAttach } from "@/ws/attach-resolve.js";
 import { captureToReplayText } from "@/ws/capture-text.js";
+import { inputWindowAdd, inputWindowHas, sanitizeInputSession } from "@/ws/input-window.js";
 import type { PaneGeometry } from "@/ws/pane-geometry.js";
 import { captureStable, fitPaneAndRepaint, RESIZE_SETTLE_MS } from "@/ws/pane-repaint.js";
 import { createLogTailSource, createPanePollSource } from "@/ws/pane-sources.js";
@@ -373,7 +374,70 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
   // already encodes Enter as "\r", so bytes must not be split or terminated.
   if (frame.data) {
     if (!data.canInput) return;
+    // Idempotent input (spec 2026-09-21 Wave A): a frame carrying an id is
+    // retried by its client, so the write must be deduped against what has
+    // ALREADY landed, and the client must learn when the write DID land. Both
+    // are keyed by the client's attach session (`&sid=`, read from the same
+    // upgrade-query channel `attachUrlFromQuery` feeds), per session and not
+    // per socket, so a retry arriving on the RECONNECTED socket is still
+    // recognized, and not per subshell alone, so two viewers on one shared
+    // pane, each counting ids from 1, never collide.
+    const sessionId = sessionIdOf(data) ?? data.viewerId;
+    const id = frame.id;
+    if (id !== undefined) {
+      if (inputWindowHas(data.subshellId, sessionId, id)) {
+        // Already written. Drop WITHOUT touching the pane, but still ack: the
+        // client must be able to retire an id the server has processed, or it
+        // would re-send it on every reconnect forever.
+        sendToSocket(ws, { type: "ack", id });
+        return;
+      }
+      void data.launcher
+        .sendInput(data.socket, data.subshellId, frame.data)
+        .then(() => {
+          // Committed only on SUCCESS: a failed write must stay re-writable,
+          // because the client's reconnect re-send is the only thing that
+          // would carry the keystroke. RESIDUAL AMBIGUITY (accepted,
+          // at-least-once): a write still in flight when the retry arrives is
+          // not yet in the window, so the retry writes too: the keystroke can
+          // land twice, never zero times.
+          inputWindowAdd(data.subshellId, sessionId, id);
+          sendToSocket(ws, { type: "ack", id });
+        })
+        .catch(logFailure);
+      return;
+    }
     void data.launcher.sendInput(data.socket, data.subshellId, frame.data).catch(logFailure);
+  }
+}
+
+/**
+ * The client's `&sid=` attach param, sanitized. Read from the upgrade
+ * request's parsed query, the same place `attachUrlFromQuery` built the
+ * attach URL from, and present on BOTH attach paths' `ws.data`, which is why
+ * the remote relay needs no edit to carry it. The field is not part of
+ * `WsData` because neither attach path assigns it; it rides the request
+ * context the adapter already spread there.
+ * @param data - The socket's data (request context + the attach's WsData)
+ * @returns The sanitized session id, or undefined when the client sent none
+ */
+function sessionIdOf(data: WsData): string | undefined {
+  const query = (data as unknown as { query?: Record<string, string> }).query;
+  return sanitizeInputSession(query?.sid);
+}
+
+/**
+ * Sends one frame to THIS socket only. An ack describes the caller's own
+ * write, so unlike the pane facts (`broadcastToViewers`) it never reaches the
+ * other viewers.
+ * @param ws - The sending socket
+ * @param frame - The server frame
+ */
+function sendToSocket(ws: WsSocket, frame: object): void {
+  try {
+    ws.send(JSON.stringify(frame));
+  } catch {
+    // socket already gone; its close handler does the bookkeeping
   }
 }
 

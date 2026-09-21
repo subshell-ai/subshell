@@ -450,6 +450,18 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // reconnects. A command verified pre-`seqTracker.reset` executing post-reset
   // stays harmless: effects key by jti and the idempotence map spans reconnects.
   let execChain: Promise<void> = Promise.resolve();
+  // The INPUT fast path (spec 2026-09-21 Wave A): input commands stop queuing
+  // behind the main chain, which a dashboard's preview captures can occupy for
+  // hundreds of milliseconds, and typed keys were waiting on those. Inputs run
+  // on their own chain, in arrival order among themselves, CONCURRENTLY with
+  // the main chain; captures, probes, launches and resize keep the main chain
+  // and its order untouched. PER-DAEMON, like `execChain`, and deliberately
+  // not per-socket: a retry arriving on the reconnected socket must queue
+  // BEHIND the old socket's in-flight input, so the first write lands
+  // (entering the plane's dedupe window) before the retry is consulted;
+  // per-socket chains would let the two interleave and write the keystroke
+  // twice.
+  let inputChain: Promise<void> = Promise.resolve();
 
   // Local-liveness lock for `subshell status` (fix wave 1). Best-effort: a home that
   // cannot hold the file degrades `status`, never the daemon.
@@ -662,6 +674,16 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     // whole daemon life, never interleaved (a slow `launch` cannot let a
     // `write_file` slip past it). The chain's catch keeps a surprise throw
     // from poisoning the queue; `execute` itself swallows everything.
+    // `input` alone takes the fast path above: it joins its own chain instead,
+    // which is what stops a keystroke from waiting out a capture ahead of it.
+    // Everything else, resize included (rare, and read-your-writes adjacent),
+    // keeps the main chain.
+    if (outcome.claims.cmd.type === "input") {
+      inputChain = inputChain
+        .then(() => execute(ws, outcome.claims))
+        .catch((err: unknown) => log(`command execution failed: ${String(err)}`));
+      return;
+    }
     execChain = execChain
       .then(() => execute(ws, outcome.claims))
       .catch((err: unknown) => log(`command execution failed: ${String(err)}`));

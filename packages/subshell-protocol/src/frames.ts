@@ -26,6 +26,15 @@ export type ClientFrame =
        * sequences need no extra encoding.
        */
       data: string;
+      /**
+       * This input's id, when the client retries (spec 2026-09-21 Wave A):
+       * per-session monotonic from 1, carried across reconnects. The server
+       * dedupes a re-sent id against its completed-write window and acks
+       * after the pane write lands, so a reconnect retry cannot double-write
+       * or lose a keystroke. Absent on every frame an older client sends;
+       * those behave exactly as they always did.
+       */
+      id?: number;
     }
   | {
       /** Client terminal geometry changed; resize the tmux window to match. */
@@ -112,6 +121,26 @@ export type ServerFrame =
       viewers: ViewerPresence[];
       /** How the pane's grid is currently being decided. */
       sizing: { mode: "auto" | "pinned"; pinnedViewerId: string | null };
+      /**
+       * True when this server acks input ids (spec 2026-09-21 Wave A). A
+       * client that sees it engages its retry queue; one that does not (an
+       * older server, most of the cached-PWA window) keeps sending bare
+       * input frames. Always true on a current server; the field exists so
+       * the client's fallback is a decision the server made, not a guess.
+       */
+      inputAcks: boolean;
+    }
+  | {
+      /**
+       * The pane write for this input id LANDED (spec 2026-09-21 Wave A):
+       * the launcher's `sendInput` promise resolved. Emitted to the sending
+       * socket only, and also for a deduped re-send: the client must be able
+       * to retire an id the server already wrote. Absence after a send means
+       * "not yet"; the client's only retry is the next reconnect's re-send.
+       */
+      type: "ack";
+      /** The input id being retired. */
+      id: number;
     };
 
 /** One device watching a subshell. */
@@ -160,7 +189,16 @@ export function parseClientFrame(raw: string | object): ClientFrame | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const frame = value as Record<string, unknown>;
   if (frame.type === "input") {
-    return typeof frame.data === "string" ? { type: "input", data: frame.data } : null;
+    if (typeof frame.data !== "string") return null;
+    // An id is optional (old clients, and the unengaged fallback): when
+    // present it must be a positive integer, because a fractional or zero id
+    // would alias the session's first real keystroke in the dedupe window.
+    if (frame.id !== undefined && (typeof frame.id !== "number" || !Number.isInteger(frame.id) || frame.id < 1)) {
+      return null;
+    }
+    return frame.id === undefined
+      ? { type: "input", data: frame.data }
+      : { type: "input", data: frame.data, id: frame.id };
   }
   if (frame.type === "visibility") {
     return typeof frame.hidden === "boolean" ? { type: "visibility", hidden: frame.hidden } : null;

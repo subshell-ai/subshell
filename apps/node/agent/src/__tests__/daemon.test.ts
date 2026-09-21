@@ -953,17 +953,20 @@ test("an oversize frame is dropped on ARRIVAL, not queued behind the chain", asy
 
 test("commands run SERIALLY in arrival order (spec §3.4): the second starts only after the first's promise resolves", async () => {
   // The first command (terminate) is made slow INSIDE its await (the meta
-  // lookup); the second (input) is instant. With the old per-message
-  // `void onFrame(...)` they interleave — input lands while terminate is
-  // still parked — so the exact order array is the serialization proof.
+  // lookup); the second (resize) is instant. With the old per-message
+  // `void onFrame(...)` they interleave (the second lands while terminate is
+  // still parked), so the exact order array is the serialization proof.
+  // The second command is a RESIZE, not an input: spec 2026-09-21 Wave A moved
+  // input onto its own chain, so an input would now legitimately interleave
+  // here and the assertion would describe the fast path, not the main chain.
   const order: string[] = [];
   const fakeTmux = {
     run: () => {
       order.push("terminate:end"); // the kill-session call — the first command's effect
       return { stdout: "", stderr: "" };
     },
-    sendInput: () => {
-      order.push("input:start"); // the second command's start
+    resizeWindow: () => {
+      order.push("resize:start"); // the second command's start
     },
   } as unknown as TmuxRunner;
   const slowMeta = {
@@ -982,25 +985,98 @@ test("commands run SERIALLY in arrival order (spec §3.4): the second starts onl
   const h = await startDaemon({ tmux: fakeTmux, meta: slowMeta });
   const jtiT = await signAndSend(h, { type: "terminate", subshellId: HEX_A }, { jti: "ser-t", seq: 1 });
   // Send the second only once the first is PROVABLY executing — it is parked
-  // inside `slowMeta.get`'s 60 ms sleep at this point, so input still arrives
-  // mid-flight and the interleaving this test exists to catch is unchanged.
+  // inside `slowMeta.get`'s 60 ms sleep at this point, so the second still
+  // arrives mid-flight and the interleaving this test exists to catch is
+  // unchanged.
   //
   // Firing both back-to-back made the test depend on them landing on the same
   // socket in the same order, which is not something it means to assert: this
-  // case failed twice on CI (2026-09-07) with `order` holding ONLY
-  // "input:start", i.e. the terminate never reached its handler at all while
-  // the input did. Not reproducible locally — six full-suite runs under CPU
-  // load stayed green — so this removes the dependency rather than claiming a
+  // case failed twice on CI (2026-09-07) with `order` holding ONLY the second
+  // command's start, i.e. the terminate never reached its handler at all while
+  // the second did. Not reproducible locally (six full-suite runs under CPU
+  // load stayed green), so this removes the dependency rather than claiming a
   // diagnosis, and if the terminate is still lost the failure is now a named
   // timeout here instead of a mystifying order mismatch below.
   await waitUntil(() => order.includes("terminate:start"), "the terminate command to start");
-  const jtiI = await signAndSend(h, { type: "input", subshellId: HEX_B, data: "x" }, { jti: "ser-i", seq: 2 });
-  await waitFor(h, (e) => e.type === "result" && e.ref === jtiI, "input result");
+  const jtiR = await signAndSend(
+    h,
+    { type: "resize", subshellId: HEX_B, cols: 80, rows: 24 },
+    { jti: "ser-r", seq: 2 },
+  );
+  await waitFor(h, (e) => e.type === "result" && e.ref === jtiR, "resize result");
   // The second's start FOLLOWS the first's end — strict serial, arrival order.
-  expect(order).toEqual(["terminate:start", "terminate:awaited", "terminate:end", "input:start"]);
+  expect(order).toEqual(["terminate:start", "terminate:awaited", "terminate:end", "resize:start"]);
   // …and the result frames carry the same order.
   const refs = eventsAs(h, "result").map((e) => e.ref);
-  expect(refs.indexOf(jtiT)).toBeLessThan(refs.indexOf(jtiI));
+  expect(refs.indexOf(jtiT)).toBeLessThan(refs.indexOf(jtiR));
+  expect(h.plane.unparsed).toEqual([]);
+});
+
+test("input does not queue behind the main chain: a slow capture does not delay the next input", async () => {
+  // Spec 2026-09-21 Wave A: input joins its own chain. The capture is parked
+  // inside its 60 ms tmux await when two inputs arrive; their results must
+  // beat the capture's, while the inputs themselves keep THEIR arrival order.
+  const order: string[] = [];
+  const fakeTmux = {
+    capturePane: async () => {
+      order.push("capture:start");
+      await sleep(60);
+      order.push("capture:end");
+      return "screen";
+    },
+    sendInput: async (_socket: string, _id: string, data: string) => {
+      order.push(`input:${data}`);
+    },
+  } as unknown as TmuxRunner;
+  const h = await startDaemon({
+    tmux: fakeTmux,
+    meta: { get: async () => undefined, list: async () => [] } as unknown as SubshellMetaStore,
+  });
+  const jtiC = await signAndSend(h, { type: "capture", subshellId: HEX_A, lines: 5 }, { jti: "fast-c", seq: 1 });
+  // Only send the inputs once the capture is PROVABLY executing, so the race
+  // is the real one (a keystroke arriving mid-capture), not a scheduling gap.
+  await waitUntil(() => order.includes("capture:start"), "the capture to start");
+  const jti1 = await signAndSend(h, { type: "input", subshellId: HEX_A, data: "a" }, { jti: "fast-1", seq: 2 });
+  const jti2 = await signAndSend(h, { type: "input", subshellId: HEX_A, data: "b" }, { jti: "fast-2", seq: 3 });
+  await waitFor(h, (e) => e.type === "result" && e.ref === jti2, "the second input's result");
+  // The inputs finished while the capture was still parked in its await.
+  expect(order).toEqual(["capture:start", "input:a", "input:b"]);
+  await waitFor(h, (e) => e.type === "result" && e.ref === jtiC, "the capture's result");
+  expect(order[order.length - 1]).toBe("capture:end");
+  // …and the result frames carry the same order.
+  const refs = eventsAs(h, "result").map((e) => e.ref);
+  expect(refs.indexOf(jti1)).toBeLessThan(refs.indexOf(jti2));
+  expect(refs.indexOf(jti2)).toBeLessThan(refs.indexOf(jtiC));
+  expect(h.plane.unparsed).toEqual([]);
+});
+
+test("input keeps ITS arrival order: a slow first input delays the second (concurrency is with the main chain only)", async () => {
+  // The fast path is order-preserving WITHIN the input chain. The first input
+  // is made slow INSIDE its await; the second arrives mid-flight and must
+  // start only after the first's promise resolved.
+  const order: string[] = [];
+  let first = true;
+  const fakeTmux = {
+    sendInput: async (_socket: string, _id: string, data: string) => {
+      order.push(`input:${data}:start`);
+      if (first) {
+        first = false;
+        await sleep(60);
+      }
+      order.push(`input:${data}:end`);
+    },
+  } as unknown as TmuxRunner;
+  const h = await startDaemon({
+    tmux: fakeTmux,
+    meta: { get: async () => undefined, list: async () => [] } as unknown as SubshellMetaStore,
+  });
+  const jti1 = await signAndSend(h, { type: "input", subshellId: HEX_A, data: "a" }, { jti: "ord-1", seq: 1 });
+  await waitUntil(() => order.includes("input:a:start"), "the first input to start");
+  const jti2 = await signAndSend(h, { type: "input", subshellId: HEX_A, data: "b" }, { jti: "ord-2", seq: 2 });
+  await waitFor(h, (e) => e.type === "result" && e.ref === jti2, "the second input's result");
+  expect(order).toEqual(["input:a:start", "input:a:end", "input:b:start", "input:b:end"]);
+  const refs = eventsAs(h, "result").map((e) => e.ref);
+  expect(refs.indexOf(jti1)).toBeLessThan(refs.indexOf(jti2));
   expect(h.plane.unparsed).toEqual([]);
 });
 
