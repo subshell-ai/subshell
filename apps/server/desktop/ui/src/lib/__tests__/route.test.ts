@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import type { ActionResult, Probe } from "../ipc";
-import { nextPollDelay, route } from "../server-state";
+import { nextPollDelay, resolveJourney, route } from "../server-state";
 
 /** A minimal probe, shaped up per test with only what the routing reads. */
 function probe(over: Partial<Probe>): Probe {
@@ -129,6 +129,28 @@ describe("route", () => {
     // `go("setup")` set `screen`; the list still holds it; the render keeps it.
     expect(route(probe({ onboarded: false, next: "init" }), "setup", IDLE)).toEqual({ kind: "setup" });
     expect(route(probe({ onboarded: false, next: "init" }), "welcome", IDLE)).toEqual({ kind: "welcome" });
+  });
+});
+
+describe("resolveJourney", () => {
+  it("answers null on an empty list — the handoff's territory", () => {
+    expect(resolveJourney(probe({ next: "ready", onboarded: true }), null)).toBeNull();
+    expect(resolveJourney(probe({ next: "ready", onboarded: true }), "setup")).toBeNull();
+  });
+
+  it("resolves a null screen to the list's head", () => {
+    expect(resolveJourney(probe({ onboarded: false, next: "init" }), null)).toBe("welcome");
+  });
+
+  it("returns a screen the list still offers, unchanged", () => {
+    expect(resolveJourney(probe({ onboarded: false, next: "init" }), "setup")).toBe("setup");
+  });
+
+  it("corrects a stale screen past the welcome", () => {
+    // THE tmux advance.
+    expect(resolveJourney(probe({ onboarded: false, next: "init", tmux: "/usr/bin/tmux" }), "tmux")).toBe("setup");
+    // And the freshly-onboarded correction onto recovery.
+    expect(resolveJourney(probe({ onboarded: true, next: "start" }), "setup")).toBe("recovery");
   });
 });
 

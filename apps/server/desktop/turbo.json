@@ -25,6 +25,8 @@
     "verify-types": {
       "inputs": [
         "src/**",
+        "ui/**",
+        "vite.config.ts",
         "*.json"
       ]
     }

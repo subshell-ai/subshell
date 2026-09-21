@@ -79,7 +79,15 @@ export function Frame(props: {
       </div>
       <div className="flex h-[72px] shrink-0 items-center justify-between border-border border-t px-8">
         <div className="flex items-center gap-2">{barLeft}</div>
-        <div className="flex items-center gap-2">{barRight}</div>
+        {/*
+         * `data-slot` is how a page's global keys find this half of the bar
+         * without reaching into class names: the server assistant's
+         * Enter-presses-the-primary handler queries
+         * `[data-slot="bar-right"] button.primary`.
+         */}
+        <div data-slot="bar-right" className="flex items-center gap-2">
+          {barRight}
+        </div>
       </div>
     </div>
   );

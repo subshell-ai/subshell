@@ -18,6 +18,27 @@
  * The IPC boundary is untouched: the same commands, the same events, the
  * same order. `lib/` is untouched: `route()` and `nextPollDelay()` (the pure
  * seams this host renders from) live in `lib/server-state.ts`.
+ *
+ * **Six module vars the old page held are NOT here, on purpose** — they are
+ * screen-local in the React model, because a component that persists across
+ * re-renders no longer needs page-level state to survive the poll's DOM
+ * teardown. Each is recorded with its home so Tasks 3–7 cannot drop it:
+ *
+ * - `tmuxOutputOpen`, `tmuxOutputScroll` (wizard.ts:165/177, written at
+ *   561/655/666/672) — the tmux screen's failure-output disclosure →
+ *   **TmuxScreen**;
+ * - `manualRoute` (wizard.ts:193, 815–825) — which manager's manual
+ *   instructions the tmux screen shows → **TmuxScreen**;
+ * - `requestingNotifications` / `requestingPhotos` (wizard.ts:253–254,
+ *   written at 1915/1939) — the permission sheets' in-flight flags →
+ *   **PermissionsScreen**;
+ * - `installClock` + `startInstallClock`/`stopInstallClock` (wizard.ts:505)
+ *   — the 1 s repaint that keeps the tmux install's clock moving while
+ *   `busy` holds the poll off → the setup chain's **TmuxScreen** act (Task 3).
+ *
+ * `_checkPort` here is inline in Host for now; Task 6 lifts it into the
+ * `usePortCheck` hook the plan names, when the first consumer (the address
+ * form) exists.
  */
 
 import { Frame } from "@internal/assistant";
@@ -26,11 +47,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { type AddressForm, type ExplicitMap, effectiveForm, type FormValues } from "./lib/config-form";
 import type { About, ActionResult, AppUpdateCheck, LogTail, Probe } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
-import { nextPollDelay, route } from "./lib/server-state";
+import { nextPollDelay, resolveJourney, route } from "./lib/server-state";
 import { type ActState, NO_SELECTION, type UpdateActSelection } from "./lib/update-act";
 import {
   DEFAULT_SUPERVISION,
   handoffView,
+  isRequestedScreen,
   type ScreenId,
   type SupervisionChoice,
   screenForRequest,
@@ -225,11 +247,16 @@ export function Host(): React.JSX.Element {
   /** That screen's own last Save or Restart, so it renders nobody else's words. */
   const [_settingsResult, setSettingsResult] = useState<ActionResult | null>(null);
   /**
-   * Whether the address form has rendered at least once this visit, so the
-   * dashboard URL row reads the FORM's base URL rather than guessing it from
-   * the machine. Cleared when the form is torn down.
+   * Whether the SETUP screen's address form has seeded itself once.
+   *
+   * That form opens and closes under the Customize link while the page stays
+   * loaded, so it seeds on its first render and KEEPS what was typed across
+   * renders; only `resetForm()` — the Customize disclosure collapsing —
+   * clears it. Server Addresses shares the four fields but seeds fresh on
+   * every visit; that screen's clearing is its own settings-form reset,
+   * which `applyScreen` and `close` perform.
    */
-  const [_seeded, setSeeded] = useState(false);
+  const [_seeded, _setSeeded] = useState(false);
   /**
    * The update screen's release answer, which is a NETWORK read and therefore
    * not on the 1500 ms poll. The check runs on the screen's first render and
@@ -428,7 +455,9 @@ export function Host(): React.JSX.Element {
     setSettingsBlind(false);
     setSettingsForceChecked(null);
     setSettingsResult(null);
-    setSeeded(false);
+    // `seeded` is deliberately NOT here: it is the SETUP form's seeded-once
+    // flag, cleared only by that form's reset, and the old `applyScreen`
+    // never touched it.
     // Same rule for the update act: its result and its fired-once latch
     // belong to ONE visit. Without this a window that finished an update and
     // came back would render "up to date" from a page fact rather than from
@@ -577,7 +606,40 @@ export function Host(): React.JSX.Element {
    * render's list-non-empty path ran under.
    */
   const journeyListed = probe !== null && screensFor(probe, probe.onboarded).length > 0;
-  const r = route(probe, screen, { running, failure });
+  /**
+   * The route, gated on the boot sequence.
+   *
+   * The old page rendered NOTHING between the probe and the pendingScreen
+   * pull — `refresh()` set `probe` and rendered nothing, so nothing could
+   * slip between them and take the ready handoff. A React `setProbe` flushes
+   * a render, so without this gate a window opened FOR reset or update on a
+   * ready machine would route the handoff first: the latch would fire, the
+   * dashboard would open, and the requested screen would apply to a window
+   * already closing. `booted` flips only after the pull, so until then the
+   * host stays on `boot` and every effect below that keys off `r.kind`
+   * (the latch, the auto-open) cannot fire early.
+   */
+  const r = booted ? route(probe, screen, { running, failure }) : { kind: "boot" };
+
+  /**
+   * The correction ratchet: the old `render()` OVERWROTE `screen` with its
+   * resolution, so a screen the probe no longer offers was corrected once
+   * and stayed corrected. This effect is that overwrite. Without it, a
+   * corrected screen that re-enters `screensFor`'s list later — tmux
+   * disappearing again, say — would flip the window back to the screen the
+   * person already left.
+   *
+   * Exactly the old render's guard, then: only a NON-null screen that is not
+   * requested and is not on the list; a null screen keeps meaning "whatever
+   * the probe implies" and is re-derived every render here, and a requested
+   * screen routes by its request alone and is never corrected onto the
+   * journey.
+   */
+  useEffect(() => {
+    if (!booted || probe === null || screen === null || isRequestedScreen(screen)) return;
+    const resolved = resolveJourney(probe, screen);
+    if (resolved !== null && resolved !== screen) setScreen(resolved);
+  }, [booted, probe, screen]);
 
   useEffect(() => {
     if (r.kind === "handoff") {
@@ -620,6 +682,25 @@ export function Host(): React.JSX.Element {
       setProblem(errText(err));
     });
   }, [r.kind, probe, ranSetupHere, continued, opened]);
+
+  // ---------------------------------------------------------------------------
+  // Enter presses the bar's primary, as the old page's document keydown did.
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      // Enter inside a textarea is a newline, and on a focused button it is
+      // that button's own activation — doubling it here would press the
+      // primary on top of the ghost the person aimed at.
+      if (e.key !== "Enter" || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLButtonElement) {
+        return;
+      }
+      const primary = document.querySelector<HTMLButtonElement>('[data-slot="bar-right"] button.primary');
+      if (primary && !primary.disabled) primary.click();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   // ---------------------------------------------------------------------------
   // The poll, on the `nextPollDelay` seam.
@@ -682,6 +763,9 @@ export function Host(): React.JSX.Element {
   // The content region is the screens' (Tasks 3–7); until they land it is an
   // empty, marked region. The route is already computed and the poll, the
   // latches and the listeners are already live — only the rendering waits.
+  // `data-route` is the transition's one window into the routing: the tests
+  // that pin the boot gate and the correction read it, and it is deleted with
+  // this placeholder in Task 8.
   return (
     <HostActionsContext.Provider value={actions}>
       <Frame
@@ -701,7 +785,7 @@ export function Host(): React.JSX.Element {
         }
       >
         {/* Task 3+: the screens land here — this region is empty until then. */}
-        <div data-task="3+" />
+        <div data-task="3+" data-route={r.kind} />
       </Frame>
     </HostActionsContext.Provider>
   );

@@ -12,7 +12,7 @@
  * pin.
  */
 import type { ActionResult, Probe } from "./ipc";
-import { isRequestedScreen, screensFor } from "./wizard-state";
+import { isRequestedScreen, type ScreenId, screensFor } from "./wizard-state";
 
 /** The poll's cadence, unchanged from `wizard.ts`. */
 export const POLL_MS = 1500;
@@ -79,7 +79,7 @@ export type Route =
  */
 export function route(
   probe: Probe | null,
-  screen: ScreenIdLike,
+  screen: ScreenId | null,
   s: { running: boolean; failure: ActionResult | null },
 ): Route {
   if (screen === "reset") return { kind: "reset" };
@@ -90,20 +90,12 @@ export function route(
     if (screen === "settings") return { kind: "addresses" };
     if (screen === "permissions") return { kind: "permissions" };
   }
-  const list = screensFor(probe, probe.onboarded);
-  if (list.length === 0) {
+  const resolved = resolveJourney(probe, screen);
+  if (resolved === null) {
     if (s.running) return { kind: "setup" };
     return { kind: "handoff" };
   }
-  let resolved: string;
-  if (screen === null) {
-    resolved = list[0] ?? "setup";
-  } else if (!list.includes(screen)) {
-    resolved = (list[0] === "welcome" ? list[1] : list[0]) ?? "setup";
-  } else {
-    resolved = screen;
-  }
-  // `screen` is one of the four by construction — `list` only ever holds
+  // `resolved` is one of the four by construction — `list` only ever holds
   // those — and the fallback exists so a family added later is the screen
   // that diagnoses rather than a blank window on a machine someone is
   // repairing.
@@ -113,8 +105,31 @@ export function route(
   return { kind: "status" };
 }
 
-/** `ScreenId | null` — typed here so `route()` needs no import of its own. */
-type ScreenIdLike = Parameters<typeof isRequestedScreen>[0];
+/**
+ * The journey screen the old `render()` resolved and corrected `screen` to,
+ * or `null` when the list is empty (the ready handoff's territory).
+ *
+ * `route()` renders from this; the host ALSO writes it back — the old render
+ * overwrote its module `screen` with the resolution, so a corrected screen
+ * stayed corrected, and without that write-back a screen that re-enters the
+ * list later (tmux disappearing again) would flip the window back to a
+ * screen the person already left. The correction branch only:
+ *
+ * - a null screen keeps meaning "whatever the probe implies" and is
+ *   re-derived here every time;
+ * - a screen still offered is returned as-is;
+ * - a screen the probe no longer offers walks to
+ *   `(list[0] === "welcome" ? list[1] : list[0])` — THE tmux advance, which
+ *   skips the greeting the reader already pressed past, and the same
+ *   correction that lands a freshly-onboarded machine on recovery.
+ */
+export function resolveJourney(probe: Probe, screen: ScreenId | null): ScreenId | null {
+  const list = screensFor(probe, probe.onboarded);
+  if (list.length === 0) return null;
+  if (screen === null) return list[0] ?? "setup";
+  if (!list.includes(screen)) return (list[0] === "welcome" ? list[1] : list[0]) ?? "setup";
+  return screen;
+}
 
 /**
  * Whether the poll runs, and at what cadence — the gate `tick()` checked at
