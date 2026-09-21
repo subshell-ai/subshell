@@ -1,5 +1,15 @@
 # @internal/server
 
+## 0.15.4
+
+### Patch Changes
+
+- [#120](https://github.com/subshell-ai/subshell/pull/120) [`54bb50d`](https://github.com/subshell-ai/subshell/commit/54bb50d43dcd76d9fb3b9c5d5a71de48164de711) Thanks [@theogravity](https://github.com/theogravity)! - The attach socket can negotiate CBOR (binary) frames, defaulting on for clients that ask, so pane output costs noticeably less bandwidth, on phones especially. Older clients keep plain JSON both ways.
+
+- [#120](https://github.com/subshell-ai/subshell/pull/120) [`54bb50d`](https://github.com/subshell-ai/subshell/commit/54bb50d43dcd76d9fb3b9c5d5a71de48164de711) Thanks [@theogravity](https://github.com/theogravity)! - Terminal input now queues and retries on reconnect: keystrokes are acknowledged, retried if the connection drops, and large pastes are chunked so no frame exceeds what a node accepts. The node also stops queueing your typing behind its other work, so keys land while captures and probes run.
+
+- [#120](https://github.com/subshell-ai/subshell/pull/120) [`54bb50d`](https://github.com/subshell-ai/subshell/commit/54bb50d43dcd76d9fb3b9c5d5a71de48164de711) Thanks [@theogravity](https://github.com/theogravity)! - A Diagnostics toggle in the subshell menu overlays connection and input health (socket, node, pane, output age, echo RTT) beside the terminal. It is a per-device preference, off until you turn it on.
+
 ## 0.15.3
 
 ### Patch Changes

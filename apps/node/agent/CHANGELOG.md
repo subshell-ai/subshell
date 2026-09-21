@@ -1,5 +1,11 @@
 # @internal/node
 
+## 0.14.2
+
+### Patch Changes
+
+- [#120](https://github.com/subshell-ai/subshell/pull/120) [`54bb50d`](https://github.com/subshell-ai/subshell/commit/54bb50d43dcd76d9fb3b9c5d5a71de48164de711) Thanks [@theogravity](https://github.com/theogravity)! - Terminal input now queues and retries on reconnect: keystrokes are acknowledged, retried if the connection drops, and large pastes are chunked so no frame exceeds what a node accepts. The node also stops queueing your typing behind its other work, so keys land while captures and probes run.
+
 ## 0.14.1
 
 ### Patch Changes
