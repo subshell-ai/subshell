@@ -62,7 +62,7 @@ import type { About, ActionResult, AppUpdateCheck, LogTail, Probe } from "./lib/
 import * as ipc from "./lib/ipc";
 import { recoverySubtitle } from "./lib/recovery-model";
 import { nextPollDelay, type Route, resolveJourney, route } from "./lib/server-state";
-import { type ActState, NO_SELECTION, type UpdateActSelection } from "./lib/update-act";
+import { type ActState, NO_SELECTION, UPDATE_TITLE, type UpdateActSelection } from "./lib/update-act";
 import {
   DEFAULT_SUPERVISION,
   handoffView,
@@ -81,6 +81,7 @@ import { HandoffScreen } from "./screens/handoff-screen";
 import { SetupScreen } from "./screens/setup-screen";
 import { StatusScreen } from "./screens/status-screen";
 import { TmuxScreen } from "./screens/tmux-screen";
+import { UpdateScreen } from "./screens/update-screen";
 import { WelcomeScreen, Wordmark } from "./screens/welcome-screen";
 
 /**
@@ -138,6 +139,10 @@ export interface HostActions {
   runRecovery(kind: RecoveryActionKind): void;
   /** Pull a fresh log tail for Show Details (`refreshTail`). */
   refreshTail(): Promise<void>;
+  /** The update act: the release check, the app half, and the CLI half. */
+  runUpdateCheck(force: boolean): Promise<void>;
+  startAppUpdate(forced: boolean, bundled: boolean): Promise<void>;
+  finishUpdate(forced: boolean): Promise<void>;
 }
 
 const HostActionsContext = createContext<HostActions | null>(null);
@@ -331,11 +336,11 @@ export function Host(): React.JSX.Element {
    * not on the 1500 ms poll. The check runs on the screen's first render and
    * on Check Again, and its answer lives here across the renders in between.
    */
-  const [_appUpdate, _setAppUpdate] = useState<AppUpdateCheck | null>(null);
+  const [appUpdate, setAppUpdate] = useState<AppUpdateCheck | null>(null);
   /** What the update screen is doing; the machine's half rides the probe. */
-  const [_updateState, _setUpdateState] = useState<ActState>("idle");
+  const [updateState, setUpdateState] = useState<ActState>("idle");
   /** The download's own last line, from the plugin's progress events. */
-  const [_updateProgress, setUpdateProgress] = useState("");
+  const [updateProgress, setUpdateProgress] = useState("");
   /**
    * The update act's last answer in THIS window — the install, or the restart
    * behind it. Page state, for the reason `ranSetupHere` is: a successful
@@ -343,19 +348,19 @@ export function Host(): React.JSX.Element {
    * the probe alone would forget what it had just done between one poll and
    * the next.
    */
-  const [_updateResult, setUpdateResult] = useState<ActionResult | null>(null);
+  const [updateResult, setUpdateResult] = useState<ActionResult | null>(null);
   /**
    * The second half of an update has been fired in THIS window load. One fire
    * per load, exactly like `autoFired`; what bounds RETRIES is the marker's
    * own attempt count, not this.
    */
-  const [_resumeFired, setResumeFired] = useState(false);
+  const [resumeFired, setResumeFired] = useState(false);
   /**
    * What the person has ticked on the update screen. Held as OVERRIDES rather
    * than as the answer: an absent row id means untouched, so the model's
    * default follows the machine as the probe changes.
    */
-  const [_updateSelection, setUpdateSelection] = useState<UpdateActSelection>(NO_SELECTION);
+  const [updateSelection, setUpdateSelection] = useState<UpdateActSelection>(NO_SELECTION);
   /**
    * The setup screen's address form and its touched-fields map. `effectiveForm`
    * with no status is the old module's own initial value — the four fields
@@ -606,6 +611,9 @@ export function Host(): React.JSX.Element {
     pickBinary,
     runRecovery,
     refreshTail,
+    runUpdateCheck,
+    startAppUpdate,
+    finishUpdate,
   } = useAssistantRunners({
     probeRef,
     probe: () => probe,
@@ -628,6 +636,12 @@ export function Host(): React.JSX.Element {
     setRanFirstRunHere,
     setRanSetupHere,
     setLastTail,
+    updateState: () => updateState,
+    appUpdate: () => appUpdate,
+    setUpdateState,
+    setAppUpdate,
+    setUpdateProgress,
+    setUpdateResult,
   });
 
   /** The ready handoff's Continue: finish the handoff, then the permissions fork. */
@@ -943,6 +957,9 @@ export function Host(): React.JSX.Element {
       pickBinary,
       runRecovery,
       refreshTail,
+      runUpdateCheck,
+      startAppUpdate,
+      finishUpdate,
     }),
     [
       probe,
@@ -959,6 +976,9 @@ export function Host(): React.JSX.Element {
       pickBinary,
       runRecovery,
       refreshTail,
+      startAppUpdate,
+      runUpdateCheck,
+      finishUpdate,
     ],
   );
 
@@ -1152,8 +1172,43 @@ export function Host(): React.JSX.Element {
           />
         );
         break;
-      // Tasks 5–7: update, supervision, addresses, permissions, reset. The
-      // route is already computed; the screens land with their tasks.
+      case "update":
+        content = (
+          <UpdateScreen
+            strings={{ title: UPDATE_TITLE, subtitle: "", problem }}
+            entranceKey={entranceKey}
+            probe={p}
+            appUpdate={appUpdate}
+            state={updateState}
+            finished={updateResult}
+            selection={updateSelection}
+            busy={busy}
+            updateProgress={updateProgress}
+            resumeFired={resumeFired}
+            onResume={(forced) => {
+              // The second half of a press already made, carrying the consent
+              // the marker recorded. Once per visit; `applyScreen` clears the
+              // latch when the screen is left.
+              setResumeFired(true);
+              void finishUpdate(forced);
+            }}
+            onCheck={(force) => void runUpdateCheck(force)}
+            onRowToggle={(rowId, checked) => {
+              setUpdateSelection((prev) => ({ ...prev, rows: { ...prev.rows, [rowId]: checked } }));
+            }}
+            onForceToggle={(checked) => {
+              setUpdateSelection((prev) => ({ ...prev, force: checked }));
+            }}
+            onPress={(press) => {
+              if (press.kind === "app") void startAppUpdate(press.forced, press.bundled);
+              else void finishUpdate(press.forced);
+            }}
+            onClose={close}
+          />
+        );
+        break;
+      // Tasks 6–7: supervision, addresses, permissions, reset. The route is
+      // already computed; the screens land with their tasks.
       default:
         content = (
           /* Task 5–7: the screens land here — this region is empty until then. */

@@ -17,8 +17,9 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { RefObject } from "react";
 import { configPayload, type ExplicitMap, type FormValues } from "./lib/config-form";
-import type { ActionResult, Probe } from "./lib/ipc";
+import type { ActionResult, AppUpdateCheck, Probe } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
+import { type ActState, rejectedResult } from "./lib/update-act";
 import { failureLine, type RecoveryActionKind, type SupervisionChoice } from "./lib/wizard-state";
 
 /** A rejected command's words. Same one-liner as `host.tsx`'s, for the same reason. */
@@ -59,6 +60,13 @@ export interface RunnerDeps {
   setRanFirstRunHere(on: boolean): void;
   setRanSetupHere(on: boolean): void;
   setLastTail(tail: Awaited<ReturnType<typeof ipc.logs>> | null): void;
+  /** The update act's state machine, its release answer, and its words. */
+  updateState(): ActState;
+  appUpdate(): AppUpdateCheck | null;
+  setUpdateState(state: ActState): void;
+  setAppUpdate(check: AppUpdateCheck | null): void;
+  setUpdateProgress(line: string): void;
+  setUpdateResult(result: ActionResult | null): void;
 }
 
 export function useAssistantRunners(deps: RunnerDeps) {
@@ -232,5 +240,117 @@ export function useAssistantRunners(deps: RunnerDeps) {
     }
   };
 
-  return { act, startSetup, startTmuxInstall, pickBinary, runRecovery, refreshTail };
+  /**
+   * Ask Rust whether a newer app exists, and re-render around the answer.
+   *
+   * `force` is a press of Check Again rather than the screen opening. It
+   * re-asks where a cached answer already exists; without it the screen's own
+   * first render would re-ask on every render, which is the poll this screen
+   * exists to stay off.
+   */
+  const runUpdateCheck = async (force: boolean): Promise<void> => {
+    if (deps.updateState() !== "idle") return;
+    if (deps.appUpdate() !== null && !force) return;
+    deps.setUpdateState("checking");
+    try {
+      deps.setAppUpdate(await ipc.checkAppUpdate());
+    } catch (err) {
+      // An `Err` here is the plugin refusing — a build with no public key, a
+      // malformed endpoint — not "there is no update", which arrives as a
+      // `reason`. It belongs on the problem line like every other refusal.
+      deps.setProblem(errText(err));
+      deps.setAppUpdate(null);
+    } finally {
+      deps.setUpdateState("idle");
+    }
+  };
+
+  /**
+   * Phase 1's app half: download, verify, install, write the marker, relaunch.
+   *
+   * Does not resolve on success: the app restarts out from under this page,
+   * and the CLI half runs in the build that comes up (see `finishUpdate`). A
+   * rejection is therefore always a real failure, which is why the `catch`
+   * puts it on the problem line rather than treating it as a state to render.
+   *
+   * **Both arguments are the SELECTION** (spec § 13), and they are the only
+   * things this press carries: `bundled` false writes no marker, so phase 2
+   * does not run at all, and `forced` is the Force box's answer to a restart
+   * that happens in another process. Neither is re-derived on the far side —
+   * the marker IS the record, which is what keeps one answer in one place.
+   */
+  const startAppUpdate = async (forced: boolean, bundled: boolean): Promise<void> => {
+    if (deps.updateState() !== "idle") return;
+    deps.setUpdateState("downloading");
+    deps.setUpdateProgress("Starting the download…");
+    try {
+      await ipc.installAppUpdate(forced, bundled);
+    } catch (err) {
+      deps.setProblem(errText(err));
+      deps.setUpdateState("idle");
+      deps.setUpdateProgress("");
+    }
+  };
+
+  /**
+   * The CLI half: install the server this app ships, then restart the service.
+   *
+   * Both phases end here — the act when the app is already current, and phase
+   * 2 after the relaunch — because it is the same two steps either way. What
+   * differs is only the pane-safety answer, which the CALLER supplies, and the
+   * difference is a consent rule rather than a mechanism: a PRESS consents to
+   * what the screen says now (the Force box), while the automatic resume
+   * carries the answer the marker recorded, because nobody is at the window to
+   * ask.
+   *
+   * **A REJECTION is recorded as a result too**, which is not bookkeeping:
+   * `act` turns a throw into the problem line and leaves `updateResult` null,
+   * and null reads to the screen as "nothing has been attempted in this
+   * window" — so the finishing phase showed an error line under "Installing
+   * the server it ships…" with no Try Again, and with the automatic fire
+   * already latched for the visit there was nothing left to press (review,
+   * 2026-09-18). The throw is re-raised so `act` still says what went wrong.
+   */
+  const finishUpdate = async (forced: boolean): Promise<void> => {
+    await act(async () => {
+      // **Set INSIDE the callback, so the `finally` below always answers it**
+      // (review, 2026-09-18). `act` early-returns when something else is
+      // already in flight, and this line lived outside it — so a declined run
+      // left "Installing the server it ships…" on screen for the rest of the
+      // visit with nothing running behind it.
+      //
+      // The line exists because the CLI half can take minutes — `update
+      // --from` is budgeted at 300 s — and emits nothing on the way, so the
+      // screen would otherwise be silent beside a dead button.
+      deps.setUpdateProgress("Installing the server it ships…");
+      try {
+        const installed = await ipc.installServer();
+        deps.setUpdateProgress("Restarting the server…");
+        deps.setUpdateResult(installed);
+        if (!installed.ok) return installed;
+        // `--force` only where the definition would refuse over live panes;
+        // the CLI rejects the flag on every other verb.
+        const restarted = await ipc.service("restart", forced);
+        deps.setUpdateResult(restarted);
+        return restarted;
+      } catch (err) {
+        deps.setUpdateResult(rejectedResult(errText(err)));
+        throw err;
+      } finally {
+        deps.setUpdateProgress("");
+      }
+    }, true);
+  };
+
+  return {
+    act,
+    startSetup,
+    startTmuxInstall,
+    pickBinary,
+    runRecovery,
+    refreshTail,
+    runUpdateCheck,
+    startAppUpdate,
+    finishUpdate,
+  };
 }
