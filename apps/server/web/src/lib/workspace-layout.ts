@@ -113,7 +113,7 @@ export function resolveAddPosition(
 /**
  * The `addGroup` target that splits an EXISTING panel out of its tab group,
  * which is what the tab's context menu offers. Dockview's own split gesture
- * is tab-drag-to-edge and it works (measured in Chromium, WebKit and
+ * is tab-drag-to-edge and it works (verified live in all three engines,
  * Firefox), but dropping a tab on a group's CENTER is a merge that reads as
  * a no-op, and nothing on screen names either one, so the operator reports
  * "dragging does nothing". The menu drives this instead.

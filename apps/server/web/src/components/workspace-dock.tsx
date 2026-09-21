@@ -304,7 +304,11 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     const target = api ? splitTarget(api, panelId, direction) : null;
     if (!api || !target) return;
     const group = api.addGroup(target);
-    api.getPanel(panelId)?.api.moveTo({ group });
+    // splitTarget just resolved this id from the same api, one line above;
+    // a miss here would strand the empty destination group, so fail loudly.
+    const panel = api.getPanel(panelId);
+    if (!panel) throw new Error(`split: panel ${panelId} vanished between resolve and move`);
+    panel.api.moveTo({ group });
   }, []);
 
   /** Resolves true when the pane row now exists server-side; false when it does not and the banner says why. */
