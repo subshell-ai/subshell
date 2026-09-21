@@ -28,6 +28,7 @@ import { NodePageShell } from "@/components/nodes/node-page-shell";
 import { osLabel } from "@/components/nodes/node-row";
 import { managesNodeSections } from "@/components/nodes/node-section-nav";
 import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
+import { NodeUpdateCard } from "@/components/nodes/node-update-card";
 import { useDeleteNode, useRenameNode } from "@/hooks/use-nodes";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 
@@ -232,6 +233,10 @@ function NodeDetailPage() {
             node={n}
             onMaintenanceChanged={() => void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY })}
           />
+
+          {/* The same owner-or-edit-on-an-agent rule as the daemon sections and the route's gate.
+              `local` updates with the server, which the page already cannot ask here. */}
+          {managesNodeSections(n) && <NodeUpdateCard node={n} />}
 
           {/* Key rotation lives with the enrolled nodes: `local`'s key is the
               control plane's own credential — mint/rotate it server-side

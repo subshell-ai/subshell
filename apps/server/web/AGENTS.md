@@ -515,7 +515,11 @@ Server-URL card (`owner`/`edit` audience, write controls further to `owner`)
 render on the Overview beside the Maintenance switch. Machine facts, machine
 rules, one page; the tabs are for driving the daemon. The harness card's
 Re-check gate is spelled like `managesNodeSections` and is a DIFFERENT rule
-(its own comment says so). Do not collapse them.
+(its own comment says so). Do not collapse them. The Overview also carries an
+Update card (`node-update-card.tsx`) behind the same `managesNodeSections` rule,
+driving the same `POST /api/nodes/:id/update` the Updates table rows use; that
+route also answers 409 when the node already runs the newest release this server
+can offer, rather than reinstalling the same binary.
 
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the

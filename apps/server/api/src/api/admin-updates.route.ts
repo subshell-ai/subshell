@@ -170,6 +170,7 @@ export const adminUpdatesRoutes = new Elysia({ prefix: "/api/admin" }).use(requi
         canUpdate: canUpdate(
           rels,
           target,
+          agentVersion,
           online,
           heldRow !== null,
           node.protocolVersion ?? heldRow?.protocolVersion ?? null,
@@ -216,16 +217,30 @@ export const adminUpdatesRoutes = new Elysia({ prefix: "/api/admin" }).use(requi
  * `manifest`/`manifestSig` the command now carries, so it cannot be updated
  * from here no matter what else is true — and unlike "offline" that answer
  * does not fix itself when the machine next dials in.
+ *
+ * The up-to-date answer ranks ABOVE the protocol refusal: it says there is
+ * nothing to do, while the protocol sentence describes how to do something
+ * nobody needs done. A node that never reported a version is never refused
+ * for it: an update may be exactly what fixes the ignorance.
  */
 function canUpdate(
   rels: { node: ReleaseRef | null; nodeReason: string | null },
   target: string | null,
+  agentVersion: string | null,
   online: boolean,
   isHeld: boolean,
   protocolVersion: number | null,
 ): { ok: true; reason: null } | { ok: false; reason: string } {
   if (rels.node === null) return { ok: false, reason: rels.nodeReason ?? "no node release can be offered" };
   if (target === null) return { ok: false, reason: "no node binary is published for this machine's platform" };
+  if (rels.node !== null && agentVersion !== null && !semverLt(agentVersion, rels.node.version)) {
+    // Equality spelled as two failing `semverLt`s, so semver normalization
+    // (a `v` prefix, a dropped `-beta`) cannot make "equal" read as "ahead".
+    const equal = !semverLt(rels.node.version, agentVersion);
+    return equal
+      ? { ok: false, reason: "already running the newest version this server can offer" }
+      : { ok: false, reason: "running a newer version than this server can offer" };
+  }
   if (protocolVersion === null || protocolVersion < NODE_SIGNED_UPDATES_PROTOCOL_VERSION) {
     return { ok: false, reason: "node predates signed updates" };
   }

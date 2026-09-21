@@ -10,6 +10,7 @@ import {
   NODE_RESULT_VERSION_MISMATCH,
   NODE_SIGNED_UPDATES_PROTOCOL_VERSION,
   type NodeTarget,
+  semverLt,
 } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
@@ -244,6 +245,33 @@ export const updateNodeRoute = new Elysia()
         );
       }
 
+      // Nothing to do, stated BEFORE the artifact and digest work: a node
+      // already on the newest offerable release would re-download and
+      // reinstall the same ~70 MB binary, and one AHEAD of it would silently
+      // downgrade. A node that never reported a version falls through: an
+      // update may be exactly what fixes the ignorance. Equality is spelled
+      // as two failing `semverLt`s rather than a string compare, so semver
+      // normalization cannot make "equal" read as "ahead".
+      const reported = held?.agentVersion ?? gate.row.agentVersion ?? null;
+      if (reported !== null && !semverLt(reported, release.version)) {
+        if (!semverLt(release.version, reported)) {
+          return status(
+            409,
+            apiErrorBody({
+              code: BackendErrorCodes.NODE_UP_TO_DATE,
+              message: `This node is already running ${release.version}, the newest release this server can offer`,
+            }),
+          );
+        }
+        return status(
+          409,
+          apiErrorBody({
+            code: BackendErrorCodes.UPDATE_DOWNGRADE,
+            message: `This node reports ${reported}, which is newer than the newest release this server can offer (${release.version})`,
+          }),
+        );
+      }
+
       // The platform to fetch, from what the node reported about itself. A
       // held node's facts come off the held record — its `ready` was parsed
       // before the gates refused it, which is what makes this answerable for
@@ -295,7 +323,7 @@ export const updateNodeRoute = new Elysia()
       const publicUrl = `${base}/api/downloads/node/${target}`;
       const token = mintUpdateToken(gate.row.id, target);
 
-      const from = held?.agentVersion ?? gate.row.agentVersion ?? "unknown";
+      const from = reported ?? "unknown";
       // Read BEFORE sending: the command is about to take this socket down,
       // and this is what decides the WORDING of a pane-safety refusal.
       const paneSafety = live?.agent?.runtime?.service.paneSafety;
@@ -377,7 +405,7 @@ export const updateNodeRoute = new Elysia()
         operationId: "updateNode",
         tags: ["nodes"],
         description:
-          "Replace an enrolled node's own binary with the release this server can talk to, and restart it into the new version. Works on a HELD node — one the plane refuses for its version or protocol — which is the case it exists for. 409 when offline, when no compatible release can be offered, when there is no artifact for that platform, and for every refusal the node itself raises",
+          "Replace an enrolled node's own binary with the release this server can talk to, and restart it into the new version. Works on a HELD node — one the plane refuses for its version or protocol — which is the case it exists for. 409 when offline, when no compatible release can be offered, when there is no artifact for that platform, when the node already runs the newest offerable release (NODE_UP_TO_DATE) or reports a newer one (UPDATE_DOWNGRADE), and for every refusal the node itself raises",
       },
     },
   );
