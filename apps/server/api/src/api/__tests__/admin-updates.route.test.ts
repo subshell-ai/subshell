@@ -235,14 +235,20 @@ describe("GET /api/admin/updates", () => {
       const id = await agent({ name: `upd-equal-${crypto.randomUUID()}`, version: RELEASE_VERSION });
       const row = (await read(fx.adminCookie)).nodes.rows.find((r) => r.id === id);
       expect(row?.updateAvailable).toBe(false);
-      expect(row?.canUpdate).toEqual({ ok: false, reason: "already running the newest version this server can offer" });
+      expect(row?.canUpdate).toEqual({
+        ok: false,
+        reason: `already running ${RELEASE_VERSION}, the newest release this server can offer`,
+      });
     });
 
     it("says a row AHEAD of the offer is ahead, not that it can go backwards", async () => {
       const id = await agent({ name: `upd-ahead-${crypto.randomUUID()}`, version: "99.0.0" });
       const row = (await read(fx.adminCookie)).nodes.rows.find((r) => r.id === id);
       expect(row?.updateAvailable).toBe(false);
-      expect(row?.canUpdate).toEqual({ ok: false, reason: "running a newer version than this server can offer" });
+      expect(row?.canUpdate).toEqual({
+        ok: false,
+        reason: "running 99.0.0, newer than the newest release this server can offer (9.9.9)",
+      });
     });
 
     it("never refuses a row for a version it never got: an update may fix the ignorance", async () => {

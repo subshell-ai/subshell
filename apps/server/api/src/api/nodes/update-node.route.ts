@@ -250,8 +250,16 @@ export const updateNodeRoute = new Elysia()
       // reinstall the same ~70 MB binary, and one AHEAD of it would silently
       // downgrade. A node that never reported a version falls through: an
       // update may be exactly what fixes the ignorance. Equality is spelled
-      // as two failing `semverLt`s rather than a string compare, so semver
-      // normalization cannot make "equal" read as "ahead".
+      // as two failing `semverLt`s rather than a string compare; the
+      // comparator reads only numeric segments, so a build suffix is the same
+      // release here, which is exactly right for an offer that installs one
+      // artifact per number. That this gate sits AFTER the protocol check is
+      // deliberate and spec-pinned (2026-09-17 §6, "protocol before anything
+      // else"): below-protocol cannot be updated from here whatever its
+      // version, and the page must say so even about a node that needs
+      // nothing. The Updates table states its reasons in its own order
+      // instead, because there up-to-date outranks the protocol sentence;
+      // both answers are true for their own surface.
       const reported = held?.agentVersion ?? gate.row.agentVersion ?? null;
       if (reported !== null && !semverLt(reported, release.version)) {
         if (!semverLt(release.version, reported)) {

@@ -51,6 +51,10 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
   const updatable = fleet.rows.filter((row) => row.canUpdate.ok);
 
   async function updateAll(): Promise<void> {
+    // The single-press handler resets before it runs; the sequence must too,
+    // or a refusal from before stays pinned on its row through (and after) a
+    // run in which that row was never even asked.
+    nodeUpdate.reset();
     setRunning(true);
     try {
       for (const row of updatable) {

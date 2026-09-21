@@ -99,6 +99,12 @@ export enum BackendErrorCodes {
    */
   UPDATE_DOWNGRADE = "UPDATE_DOWNGRADE",
   /**
+   * `POST /api/nodes/:id/update`: the node already runs the newest release
+   * this server can offer, so the command would only re-download and reinstall
+   * the same binary. Refused before anything is sent.
+   */
+  NODE_UP_TO_DATE = "NODE_UP_TO_DATE",
+  /**
    * `POST /api/nodes/:id/update`: this plane has no node release it can offer
    * — none published, none carrying a release manifest, or the newest one
    * speaks a different protocol. The message names which.
@@ -106,12 +112,6 @@ export enum BackendErrorCodes {
   NODE_UPDATE_UNAVAILABLE = "NODE_UPDATE_UNAVAILABLE",
   /** `POST /api/nodes/:id/update`: the agent refused or could not apply it; the message is the agent's own. */
   NODE_UPDATE_FAILED = "NODE_UPDATE_FAILED",
-  /**
-   * `POST /api/nodes/:id/update`: the node already runs the newest release
-   * this server can offer, so the command would only re-download and reinstall
-   * the same binary. Refused before anything is sent.
-   */
-  NODE_UP_TO_DATE = "NODE_UP_TO_DATE",
   /**
    * `/api/network/:id/*`: this host's OS is not in the plugin's
    * `subshell.network.platforms`. Manifest DATA, so it is known without
@@ -278,16 +278,16 @@ export const BackendErrorCodeDefs = {
     message: "That version is older than the one running",
     statusCode: 409,
   },
+  [BackendErrorCodes.NODE_UP_TO_DATE]: {
+    message: "This node is already running the newest version this server can offer",
+    statusCode: 409,
+  },
   [BackendErrorCodes.NODE_UPDATE_UNAVAILABLE]: {
     message: "No node release can be offered",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_UPDATE_FAILED]: {
     message: "The node could not apply the update",
-    statusCode: 409,
-  },
-  [BackendErrorCodes.NODE_UP_TO_DATE]: {
-    message: "This node is already running the newest version this server can offer",
     statusCode: 409,
   },
   // Every network refusal is a 409 for the reason the update ones are: the

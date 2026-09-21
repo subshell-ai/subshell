@@ -48,6 +48,31 @@ function mount(n: NodeDetail) {
   );
 }
 
+/**
+ * Rerenders with a DIFFERENT node prop on the SAME QueryClient — which is
+ * what navigating `/nodes/a` to `/nodes/b` does to the mounted card. A fresh
+ * client would remount the hook and reset it by accident, proving nothing.
+ */
+function withNode(client: QueryClient, n: NodeDetail) {
+  return (
+    <QueryClientProvider client={client}>
+      <NodeUpdateCard node={n} />
+    </QueryClientProvider>
+  );
+}
+
+function refused(to: string) {
+  return new Response(
+    JSON.stringify({
+      errId: "e1",
+      code: "NODE_UP_TO_DATE",
+      message: `This node is already running ${to}, the newest release this server can offer`,
+      statusCode: 409,
+    }),
+    { status: 409 },
+  );
+}
+
 describe("NodeUpdateCard", () => {
   afterEach(cleanup);
 
@@ -116,6 +141,56 @@ describe("NodeUpdateCard", () => {
       fireEvent.click(screen.getByRole("button", { name: "Update to latest" }));
       const alert = await screen.findByRole("alert");
       expect(alert.textContent).toContain("already running 9.9.9");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("retires the refusal when the page moves to another node and back", async () => {
+    // TanStack reuses this route component across `:id` changes and the
+    // mutation state lives in the CARD's hook, so without a reset on node
+    // change, coming back to the failed node re-shows the stale refusal as
+    // though the press had just happened. (Review C1.)
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (_input: unknown, _init?: RequestInit) => refused("9.9.9")) as typeof globalThis.fetch;
+    try {
+      const a = node({ id: "a", name: "alpha", agentVersion: "9.9.9" });
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+      const { rerender } = render(withNode(client, a));
+      fireEvent.click(screen.getByRole("button", { name: "Update to latest" }));
+      await screen.findByRole("alert");
+      rerender(withNode(client, node({ id: "b", name: "beta" })));
+      expect(screen.queryByRole("alert")).toBeNull();
+      rerender(withNode(client, { ...a }));
+      expect(screen.queryByRole("alert")).toBeNull();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("drops the accepted line once the node reports back", async () => {
+    // The line is a transition announcement; once the node's own facts answer
+    // the question, keeping "installing 9.9.9" up would let a pane deleted
+    // mid-flight leave it hanging under a node simply running something else.
+    // (Review I4.)
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (_input: unknown, _init?: RequestInit) =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          from: "1.0.0",
+          to: "9.9.9",
+          url: "http://plane.test/api/downloads/node/linux-x64",
+        }),
+        { status: 202 },
+      )) as typeof globalThis.fetch;
+    try {
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+      const { rerender } = render(withNode(client, node({ status: "offline" })));
+      fireEvent.click(screen.getByRole("button", { name: "Update to latest" }));
+      await screen.findByText(/Update accepted/);
+      rerender(withNode(client, node({ status: "online", agentVersion: "9.9.9" })));
+      expect(screen.queryByText(/Update accepted/)).toBeNull();
     } finally {
       globalThis.fetch = original;
     }

@@ -238,8 +238,11 @@ function canUpdate(
     // (a `v` prefix, a dropped `-beta`) cannot make "equal" read as "ahead".
     const equal = !semverLt(rels.node.version, agentVersion);
     return equal
-      ? { ok: false, reason: "already running the newest version this server can offer" }
-      : { ok: false, reason: "running a newer version than this server can offer" };
+      ? { ok: false, reason: `already running ${agentVersion}, the newest release this server can offer` }
+      : {
+          ok: false,
+          reason: `running ${agentVersion}, newer than the newest release this server can offer (${rels.node.version})`,
+        };
   }
   if (protocolVersion === null || protocolVersion < NODE_SIGNED_UPDATES_PROTOCOL_VERSION) {
     return { ok: false, reason: "node predates signed updates" };

@@ -29,12 +29,32 @@ export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
   const updating = nodeUpdate.pendingNodeId === node.id;
 
   // TanStack reuses route components across param changes, so navigating to
-  // another node must retire this node's result line (same hazard as the
-  // rotate card's plaintext).
+  // another node must retire this node's result lines — and the hook's
+  // failure, which is per-hook-instance state (same hazard as the rotate
+  // card's plaintext). Without the reset, A → B → A re-mounts nothing and
+  // re-shows A's refusal as though it were fresh, even though a row press or
+  // another card's failure may have been the last write.
+  //
+  // The deps are `node.id` ONLY, and that is load-bearing: `nodeUpdate` is a
+  // fresh object with a fresh `reset` closure EVERY render, so a dep naming
+  // `nodeUpdate.reset` re-fires this effect on every render, and the reset it
+  // calls is a state change — an infinite loop, which is what an exhaustive-
+  // deps "fix" here produces. (Measured: "Maximum update depth exceeded".)
   // biome-ignore lint/correctness/useExhaustiveDependencies: fire-on-change effect: node.id is deliberately the trigger, not a read
   useEffect(() => {
     setAccepted(null);
+    nodeUpdate.reset();
   }, [node.id]);
+
+  // The accepted line is a TRANSITION announcement, and it is true only while
+  // the transition is the open question. Once the node reports back — on the
+  // version the card just asked for or any other — the Facts grid above states
+  // the truth and this line has nothing left to say; keeping it up would let a
+  // deleted mid-flight pane leave "installing X" hanging under a node that is
+  // simply running Y.
+  useEffect(() => {
+    if (node.status === "online" && node.agentVersion !== null) setAccepted(null);
+  }, [node.status, node.agentVersion]);
 
   async function start(): Promise<void> {
     setAccepted(null);
