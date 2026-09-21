@@ -243,13 +243,16 @@ export function useSubshellWs(
           // before the queue is engaged so the ids it later carries are always
           // windowed under it.
           `&sid=${encodeURIComponent(ownedQueueRef.current?.sessionId ?? "")}` +
-          // Negotiate the CBOR wire (spec 2026-09-21 Wave B): every frame this
-          // connection exchanges is then CBOR binary. A server older than the
-          // negotiation ignores the param and answers JSON both ways, which
-          // is exactly what the fallback below reads. Negotiation is
-          // per-connection: the URL decided it, so a reconnect can fall back
-          // cleanly and no page-level state carries the answer across
-          // sockets.
+          // Request the CBOR wire (spec 2026-09-21 Wave B). The param is a
+          // REQUEST, never an agreement: a server older than the negotiation
+          // ignores it and answers JSON both ways, and if this page sent it
+          // CBOR anyway the server would drop every client frame (input,
+          // resize, visibility) as non-text. So nothing is marked here; the
+          // message handler confirms the socket the moment a server frame
+          // arrives as bytes, and until then the page sends JSON. No send
+          // can precede that: the attach-live gate below opens sending only
+          // after the first server frame. Per-connection: a reconnect asks
+          // again and re-confirms from its own first frame.
           `&enc=cbor`;
 
         const ws = new WebSocket(url);
@@ -258,10 +261,6 @@ export function useSubshellWs(
         // Binary frames arrive as ArrayBuffers, not Blobs, so the decoder
         // below reads bytes directly.
         ws.binaryType = "arraybuffer";
-        // Every frame this socket sends rides the CBOR encoder (see
-        // `subshell-frames.ts`). Per-connection: a socket created without the
-        // negotiation would never be marked.
-        markCborSocket(ws);
 
         // The one place this client states its size. A caller that PINS
         // reports only what it measured: `capacity()` returning null means
@@ -305,6 +304,14 @@ export function useSubshellWs(
             // un-negotiated one's (an older server) as JSON strings, and
             // decodeFrame reads either. A malformed frame throws here and is
             // ignored below, exactly as a malformed JSON frame always was.
+            // A BINARY frame is also the server CONFIRMING the wire: the
+            // `&enc=cbor` param was only a request, and this is the moment
+            // the page learns the server honours it. From here every frame
+            // this socket sends rides the CBOR encoder (see
+            // `subshell-frames.ts`); the add is idempotent, so re-confirming
+            // on each binary frame is a no-op. No send can predate this: the
+            // attach-live gate below opens sending only after this frame.
+            if (e.data instanceof ArrayBuffer) markCborSocket(ws);
             const frame = decodeFrame(
               e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : (e.data as string),
             ) as ServerFrame;

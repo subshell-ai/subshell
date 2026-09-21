@@ -113,14 +113,44 @@ describe("useSubshellWs CBOR negotiation", () => {
     expect(seen[0].you).toBe("v2");
   });
 
-  it("sends every frame as CBOR bytes, decodable to the frame it meant", async () => {
+  it("sends every frame as CBOR bytes once the server confirmed, decodable to the frame it meant", async () => {
+    // The `&enc=cbor` param is a request; the send mode follows the server's
+    // OWN answer (a binary frame confirms it). Mixed-version deployments are
+    // the reason: an old server ignores the param and would drop every
+    // binary client frame while its JSON output kept flowing.
     const ws = await attach();
     ws.binaryType = "arraybuffer";
     ws.term._onResize?.({ cols: 90, rows: 30 });
     expect(ws.rawSends).toHaveLength(1);
-    const sent = ws.rawSends[0];
+    expect(ws.rawSends[0]).toBeTypeOf("string");
+    const bytes = encodeFrame({
+      type: "viewers",
+      you: "v1",
+      viewers: [],
+      sizing: { mode: "auto", pinnedViewerId: null },
+      inputAcks: true,
+    });
+    ws.onmessage?.({ data: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer });
+    ws.term._onResize?.({ cols: 91, rows: 31 });
+    expect(ws.rawSends).toHaveLength(2);
+    const sent = ws.rawSends[1];
     expect(sent).toBeInstanceOf(Uint8Array);
-    expect(decodeFrame(sent as Uint8Array)).toEqual({ type: "resize", cols: 90, rows: 30 });
+    expect(decodeFrame(sent as Uint8Array)).toEqual({ type: "resize", cols: 91, rows: 31 });
+  });
+
+  it("keeps sending JSON to a server that answers text, even though the URL asked for CBOR", async () => {
+    // The mixed-version case the confirmation exists for: an older server
+    // ignores `enc=cbor`, so its frames are text and NOTHING this page sends
+    // may be binary.
+    const ws = await attach();
+    ws.binaryType = "arraybuffer";
+    ws.onmessage?.({
+      data: JSON.stringify({ type: "viewers", you: "v2", viewers: [], sizing: { mode: "auto", pinnedViewerId: null } }),
+    });
+    ws.term._onResize?.({ cols: 90, rows: 30 });
+    expect(ws.rawSends).toHaveLength(1);
+    expect(ws.rawSends[0]).toBeTypeOf("string");
+    expect(JSON.parse(ws.rawSends[0] as string)).toEqual({ type: "resize", cols: 90, rows: 30 });
   });
 
   it("ignores a malformed binary frame instead of throwing", async () => {
