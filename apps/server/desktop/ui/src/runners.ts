@@ -67,6 +67,10 @@ export interface RunnerDeps {
   setAppUpdate(check: AppUpdateCheck | null): void;
   setUpdateProgress(line: string): void;
   setUpdateResult(result: ActionResult | null): void;
+  /** The addresses screen's own last Save or Restart. */
+  setSettingsResult(result: ActionResult | null): void;
+  /** Leave a requested screen — `applySupervision` closes on success. */
+  close(): void;
 }
 
 export function useAssistantRunners(deps: RunnerDeps) {
@@ -342,6 +346,40 @@ export function useAssistantRunners(deps: RunnerDeps) {
     }, true);
   };
 
+  /**
+   * Run one of the addresses screen's two acts, keeping its result where the
+   * screen can render it.
+   *
+   * `act` already settles and re-probes; what it cannot do is say WHICH
+   * screen the words belong to, because `lastResult` is the page's and every
+   * screen writes it. One wrapper rather than two, so Save and Restart cannot
+   * come to report themselves differently.
+   */
+  const runSettings = async (fn: () => Promise<ActionResult>): Promise<void> => {
+    deps.setSettingsResult(null);
+    await act(async () => {
+      const result = await fn();
+      deps.setSettingsResult(result);
+      return result;
+    }, true);
+  };
+
+  /**
+   * Apply the supervision screen's choice.
+   *
+   * Leaving IS the confirmation: this screen's whole subject is a choice, and
+   * staying on it with a greyed-out Apply is the only feedback a success
+   * would otherwise get. A failure keeps the screen, where its log has just
+   * been rendered.
+   */
+  const applySupervision = async (choice: SupervisionChoice): Promise<void> => {
+    await act(async () => {
+      const result = await ipc.setSupervision(choice.background ? "service" : "app", choice.autostart);
+      if (result.ok) deps.close();
+      return result;
+    }, true);
+  };
+
   return {
     act,
     startSetup,
@@ -352,5 +390,7 @@ export function useAssistantRunners(deps: RunnerDeps) {
     runUpdateCheck,
     startAppUpdate,
     finishUpdate,
+    runSettings,
+    applySupervision,
   };
 }

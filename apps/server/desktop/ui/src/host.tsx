@@ -50,6 +50,7 @@
 import { type AssistantStrings, Frame } from "@internal/assistant";
 import { listen } from "@tauri-apps/api/event";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { usePortCheck } from "./hooks/use-port-check";
 import {
   type AddressForm,
   type ExplicitMap,
@@ -62,6 +63,7 @@ import type { About, ActionResult, AppUpdateCheck, LogTail, Probe } from "./lib/
 import * as ipc from "./lib/ipc";
 import { recoverySubtitle } from "./lib/recovery-model";
 import { nextPollDelay, type Route, resolveJourney, route } from "./lib/server-state";
+import { SETTINGS_LABEL, SETTINGS_SUBTITLE } from "./lib/settings-screen";
 import { type ActState, NO_SELECTION, UPDATE_TITLE, type UpdateActSelection } from "./lib/update-act";
 import {
   DEFAULT_SUPERVISION,
@@ -77,9 +79,11 @@ import {
   screensFor,
 } from "./lib/wizard-state";
 import { useAssistantRunners } from "./runners";
+import { AddressesScreen } from "./screens/addresses-screen";
 import { HandoffScreen } from "./screens/handoff-screen";
 import { SetupScreen } from "./screens/setup-screen";
 import { StatusScreen } from "./screens/status-screen";
+import { SupervisionScreen } from "./screens/supervision-screen";
 import { TmuxScreen } from "./screens/tmux-screen";
 import { UpdateScreen } from "./screens/update-screen";
 import { WelcomeScreen, Wordmark } from "./screens/welcome-screen";
@@ -319,7 +323,7 @@ export function Host(): React.JSX.Element {
    */
   const [_settingsForceChecked, setSettingsForceChecked] = useState<boolean | null>(null);
   /** That screen's own last Save or Restart, so it renders nobody else's words. */
-  const [_settingsResult, setSettingsResult] = useState<ActionResult | null>(null);
+  const [settingsResult, setSettingsResult] = useState<ActionResult | null>(null);
   /**
    * Whether the SETUP screen's address form has seeded itself once.
    *
@@ -384,63 +388,10 @@ export function Host(): React.JSX.Element {
   // The port check. `checkPort`'s superseded-answer drop, as a hook.
   // ---------------------------------------------------------------------------
 
-  /**
-   * The last port this page asked about, and the answer for it.
-   *
-   * Not a probe field: the probe reports the MACHINE, and this reports a
-   * number the person may be typing into the address form, which changes
-   * without the machine changing. Keyed by the port so an answer is only ever
-   * read back for the port it was measured on.
-   */
-  const [portCheck, setPortCheck] = useState<{ port: string; inUse: boolean } | null>(null);
-  /**
-   * The port the newest check was fired for.
-   *
-   * It does two jobs: one render's question is asked once, and an answer that
-   * arrives after a newer check was fired is DROPPED — two loopback connects
-   * race, and the slower one is the older question. A ref rather than state:
-   * it is a guard on in-flight answers, never something to render.
-   */
-  const portAsked = useRef<string | null>(null);
-
-  /**
-   * Ask about one port, unless that answer is already in hand or on its way.
-   *
-   * The old page's "never redraw under a hand typing" gate is gone
-   * structurally: a React re-render is reconciliation, and controlled inputs
-   * keep their text and cursor, so the answer can land whenever it arrives.
-   * The superseded-answer drop above is the part that was ABOUT the answers,
-   * and it is preserved exactly.
-   */
-  const checkPort = useCallback(
-    (port: string): void => {
-      if (portCheck?.port === port || portAsked.current === port) return;
-      const numeric = Number(port);
-      // A port that is not a port is the CLI's refusal to make, not this
-      // check's: `u16` would reject the invoke outright, and the config form
-      // already shows the server's own complaint about the value. Cached as
-      // free so the gate opens and the chain gets to report what is actually
-      // wrong.
-      if (!Number.isInteger(numeric) || numeric < 1 || numeric > 65535) {
-        setPortCheck({ port, inUse: false });
-        return;
-      }
-      portAsked.current = port;
-      const asked = ipc.portInUse(numeric);
-      asked
-        // A refused command is not a busy port. The page has no way to tell
-        // them apart and only one of them is safe to assume, so a failed
-        // check reads as free and the chain reports the bind failure itself.
-        .catch(() => ({ inUse: false }))
-        .then(({ inUse }) => {
-          // Superseded: the field moved on while this was in flight, and the
-          // answer is about a port nothing is asking about.
-          if (portAsked.current !== port) return;
-          setPortCheck({ port, inUse });
-        });
-    },
-    [portCheck],
-  );
+  // The port check, lifted into its hook in Task 6 (the plan's `usePortCheck`);
+  // the state stays the page's, because both screens that edit addresses read
+  // the same answer.
+  const { portCheck, checkPort } = usePortCheck();
 
   // ---------------------------------------------------------------------------
   // Host actions. The old `AssistantHost`, as React state writes.
@@ -600,6 +551,11 @@ export function Host(): React.JSX.Element {
     setExplicit(nextExplicit);
   }, []);
 
+  /** The addresses screen's controlled form edit — the visit's own state. */
+  const settingsFormEdit = useCallback((values: FormValues, explicit: ExplicitMap): void => {
+    setSettingsForm({ values, explicit });
+  }, []);
+
   // ---------------------------------------------------------------------------
   // The action layer (`runners.ts`).
   // ---------------------------------------------------------------------------
@@ -614,6 +570,8 @@ export function Host(): React.JSX.Element {
     runUpdateCheck,
     startAppUpdate,
     finishUpdate,
+    runSettings,
+    applySupervision: applySupervisionChoice,
   } = useAssistantRunners({
     probeRef,
     probe: () => probe,
@@ -642,6 +600,8 @@ export function Host(): React.JSX.Element {
     setAppUpdate,
     setUpdateProgress,
     setUpdateResult,
+    setSettingsResult,
+    close,
   });
 
   /** The ready handoff's Continue: finish the handoff, then the permissions fork. */
@@ -1015,6 +975,10 @@ export function Host(): React.JSX.Element {
         const view = handoffView({ onboarded: probe.onboarded, ranSetupHere, continued });
         return { title: view.title, subtitle: view.subtitle, problem };
       }
+      case "supervision":
+        return { title: "How Your Server Runs", subtitle: "Change who starts it, and when.", problem };
+      case "addresses":
+        return { title: SETTINGS_LABEL, subtitle: SETTINGS_SUBTITLE, problem };
       case "status": {
         if (probe === null) return { title: "", subtitle: "", problem };
         // The recovery screen rendered the progress and failure views through
@@ -1207,8 +1171,45 @@ export function Host(): React.JSX.Element {
           />
         );
         break;
-      // Tasks 6–7: supervision, addresses, permissions, reset. The route is
-      // already computed; the screens land with their tasks.
+      case "supervision":
+        content = (
+          <SupervisionScreen
+            strings={shell("supervision")}
+            entranceKey={entranceKey}
+            probe={p}
+            busy={busy}
+            running={running}
+            failure={failure}
+            supervisionForm={_supervisionForm}
+            onChoice={setSupervisionForm}
+            onApply={(chosen) => void applySupervisionChoice(chosen)}
+            onClose={close}
+          />
+        );
+        break;
+      case "addresses":
+        content = (
+          <AddressesScreen
+            strings={shell("addresses")}
+            entranceKey={entranceKey}
+            probe={p}
+            busy={busy}
+            running={running}
+            settingsForm={_settingsForm}
+            onSeedForm={setSettingsForm}
+            blind={_settingsBlind}
+            onBlindChange={setSettingsBlind}
+            forceChecked={_settingsForceChecked}
+            onForceToggle={setSettingsForceChecked}
+            settingsResult={settingsResult}
+            onSettingsEdit={settingsFormEdit}
+            onRunSettings={(fn) => void runSettings(fn)}
+            onClose={close}
+          />
+        );
+        break;
+      // Tasks 7: permissions, reset. The route is already computed; the
+      // screens land with their tasks.
       default:
         content = (
           /* Task 5–7: the screens land here — this region is empty until then. */

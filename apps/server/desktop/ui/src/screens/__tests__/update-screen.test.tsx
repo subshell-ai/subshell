@@ -156,8 +156,8 @@ describe("the Force box", () => {
           paneSafety: "kills",
           detail: "",
         },
-        appUpdate: UP_TO_DATE,
       }),
+      appUpdate: UP_TO_DATE,
     });
     expect(screen.getByText(/this restart closes every subshell running here\./)).toBeDefined();
     expect(screen.getByText("Restart anyway, closing every subshell running on this machine")).toBeDefined();
@@ -175,8 +175,8 @@ describe("the Force box", () => {
           paneSafety: "keeps",
           detail: "",
         },
-        appUpdate: UP_TO_DATE,
       }),
+      appUpdate: UP_TO_DATE,
     });
     expect(screen.queryByText(/closes every subshell/)).toBeNull();
     first.unmount();
@@ -193,8 +193,8 @@ describe("the Force box", () => {
           paneSafety: "unknown",
           detail: "",
         },
-        appUpdate: UP_TO_DATE,
       }),
+      appUpdate: UP_TO_DATE,
     });
     expect(screen.getByText(/closes every subshell running here\./)).toBeDefined();
   });
