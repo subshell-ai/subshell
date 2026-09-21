@@ -18,7 +18,7 @@ import { loadNodeGate } from "@/api/nodes/node-gate.js";
 import { APP_BASE_URL } from "@/constants.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { nodeCanConfigure } from "@/lib/node-access.js";
-import { artifactStat, diskArtifactSha256 } from "@/lib/node-artifacts.js";
+import { artifactStat, diskArtifactSha256, staleArtifactRefusal } from "@/lib/node-artifacts.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
 import { getHeld, getLive } from "@/services/nodes/node-registry.js";
@@ -328,44 +328,45 @@ export const updateNodeRoute = new Elysia()
         );
       }
 
-      // The download route serves DISK-FIRST, and this digest came from the
-      // release's SIGNED manifest — two facts that disagree the moment the
-      // file on disk is from an older release than the offer. An
-      // operator-published artifact is never superseded (only files this
-      // instance FETCHED are, per `.fetched.json`), so "a stale file sits in
-      // NODE_ARTIFACTS_DIR" is a real, ordinary state. Proven live
-      // 2026-09-21: the plane told a node to install a release whose digest
-      // it had named, the node downloaded the PREVIOUS release's binary this
-      // server had on disk, and its own digest check refused the whole
-      // update after ~70 MB of download. The node's refusal is the last line
-      // of defence, never the plan: the offer is checked HERE, before the
-      // command goes out, against the same file the download route would
-      // serve (`artifactStat`'s rule, hashed as it streams). No file on disk
-      // means the lazy fetch serves verified release bytes, so there is
-      // nothing to compare — and a read error is refused the way the digest
-      // read above is, never papered over.
-      // A non-Error throw must not masquerade as a digest mismatch: convert
-      // here so the branch below can only ever mean "could not verify".
-      const onDisk = await diskArtifactSha256(target).catch((err: unknown) =>
-        err instanceof Error ? err : new Error(String(err)),
-      );
-      if (onDisk instanceof Error) {
-        return status(
-          409,
-          apiErrorBody({
-            code: BackendErrorCodes.NODE_UPDATE_UNAVAILABLE,
-            message: `This server could not verify its published ${target} node binary against the release it offers, so it will not order an uncheckable install: ${onDisk.message}`,
-          }),
+      // The coherent-offer guarantee now lives in the SERVING path
+      // (2026-09-21, amending the #122 guard): the update token carries THIS
+      // digest, and the download route serves the verified release bytes
+      // whenever the disk cache holds anything else, so a plane that can
+      // fetch no longer refuses here; refusing would send an operator to
+      // fix by hand what the plane now fixes itself. What remains is the
+      // air-gapped backstop: a plane that fetches nothing has no release
+      // bytes to serve instead, so a stale artifact would still be the bytes
+      // the node downloads, and such an offer is refused before the command
+      // goes out. (With SUBSHELL_RELEASE_URL empty the digest read above
+      // refuses first, because a signed manifest is the only digest a URL
+      // install may carry; this branch is the written backstop should that
+      // ever change.)
+      if (!autoFetchEnabled()) {
+        // A read error is refused the way the digest read above is, never
+        // papered over, and a non-Error throw must not masquerade as a
+        // digest mismatch: convert here so the branches below can only ever
+        // mean "could not verify".
+        const onDisk = await diskArtifactSha256(target).catch((err: unknown) =>
+          err instanceof Error ? err : new Error(String(err)),
         );
-      }
-      if (onDisk !== null && onDisk !== sha256) {
-        return status(
-          409,
-          apiErrorBody({
-            code: BackendErrorCodes.NODE_UPDATE_UNAVAILABLE,
-            message: `This server's published ${target} node binary is not the release it offers, so the node would install nothing. Delete the stale copy from this server's node-artifacts directory so the next download fetches the verified release, or publish the release binaries to it.`,
-          }),
-        );
+        if (onDisk instanceof Error) {
+          return status(
+            409,
+            apiErrorBody({
+              code: BackendErrorCodes.NODE_UPDATE_UNAVAILABLE,
+              message: `This server could not verify its published ${target} node binary against the release it offers, so it will not order an uncheckable install: ${onDisk.message}`,
+            }),
+          );
+        }
+        if (onDisk !== null && onDisk !== sha256) {
+          return status(
+            409,
+            apiErrorBody({
+              code: BackendErrorCodes.NODE_UPDATE_UNAVAILABLE,
+              message: staleArtifactRefusal(target),
+            }),
+          );
+        }
       }
 
       // The SAME base the enroll script bakes, so the loopback trap is the one
@@ -374,7 +375,7 @@ export const updateNodeRoute = new Elysia()
       // rather than leaving a remote machine's failure unexplained.
       const base = APP_BASE_URL.replace(/\/+$/, "");
       const publicUrl = `${base}/api/downloads/node/${target}`;
-      const token = mintUpdateToken(gate.row.id, target);
+      const token = mintUpdateToken(gate.row.id, target, sha256);
 
       const from = reported ?? "unknown";
       // Read BEFORE sending: the command is about to take this socket down,
@@ -458,7 +459,7 @@ export const updateNodeRoute = new Elysia()
         operationId: "updateNode",
         tags: ["nodes"],
         description:
-          "Replace an enrolled node's own binary with the release this server can talk to, and restart it into the new version. Works on a HELD node — one the plane refuses for its version or protocol — which is the case it exists for. 409 when offline, when no compatible release can be offered, when there is no artifact for that platform, when the published binary on disk is not the release offered, when the node already runs the newest offerable release (NODE_UP_TO_DATE) or reports a newer one (UPDATE_DOWNGRADE), and for every refusal the node itself raises",
+          "Replace an enrolled node's own binary with the release this server can talk to, and restart it into the new version. Works on a HELD node — one the plane refuses for its version or protocol — which is the case it exists for. 409 when offline, when no compatible release can be offered, when there is no artifact for that platform, when a plane that cannot fetch holds a published binary that is not the release offered, when the node already runs the newest offerable release (NODE_UP_TO_DATE) or reports a newer one (UPDATE_DOWNGRADE), and for every refusal the node itself raises",
       },
     },
   );

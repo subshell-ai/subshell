@@ -604,6 +604,20 @@ export interface FetchedArtifact {
   tag: string;
 }
 
+/** Options for {@link fetchArtifact}. */
+export interface FetchArtifactOptions {
+  /**
+   * Whether the verified bytes are also CACHED into the artifacts directory
+   * (default true). A caller that found a DIFFERENT file already at the
+   * target's path passes false: that file may be the operator's
+   * hand-published binary, and "a file we fetched is ours to replace; a file
+   * the operator put there is not" holds even when the fetch is happening on
+   * an update's behalf. The bytes are still fully verified either way; only
+   * the writing differs.
+   */
+  cache?: boolean;
+}
+
 /**
  * Fetch one platform's agent binary, streaming it to the caller as it arrives.
  *
@@ -616,15 +630,15 @@ export interface FetchedArtifact {
  * own digest check now sits behind a signature check rather than beside a
  * same-source sidecar.
  */
-export async function fetchArtifact(target: NodeTarget): Promise<FetchedArtifact> {
+export async function fetchArtifact(target: NodeTarget, options: FetchArtifactOptions = {}): Promise<FetchedArtifact> {
   const existing = inFlight.get(target);
   if (existing) return existing;
-  const work = fetchArtifactUncoordinated(target).finally(() => inFlight.delete(target));
+  const work = fetchArtifactUncoordinated(target, options.cache ?? true).finally(() => inFlight.delete(target));
   inFlight.set(target, work);
   return work;
 }
 
-async function fetchArtifactUncoordinated(target: NodeTarget): Promise<FetchedArtifact> {
+async function fetchArtifactUncoordinated(target: NodeTarget, cache: boolean): Promise<FetchedArtifact> {
   const { release, manifest } = await compatibleNodeReleaseOrThrow();
   // Resolving told us which tag is current, so this is the moment anything
   // older becomes removable. Before the download, so a plane low on disk
@@ -656,10 +670,15 @@ async function fetchArtifactUncoordinated(target: NodeTarget): Promise<FetchedAr
   // on `writer()` with ENOENT, and the node's download answered 404 with the
   // plane's own filesystem named as nothing. Measured on mac-builder
   // 2026-09-20; every test green the whole time because every test fixture
-  // created the directory itself.
-  await mkdir(NODE_ARTIFACTS_DIR, { recursive: true });
+  // created the directory itself. The directory is created only when this
+  // fetch will cache: a stream-through fetch writes nothing, and the sink
+  // below must not exist before its directory does (that ENOENT is the
+  // measured failure above).
   const tmp = `${artifactPath(target)}.fetch-${process.pid}`;
-  const sink = Bun.file(tmp).writer();
+  if (cache) await mkdir(NODE_ARTIFACTS_DIR, { recursive: true });
+  // Caching is optional (see {@link FetchArtifactOptions}); verifying is not.
+  // The sink is null exactly when the caller asked for stream-through only.
+  const sink = cache ? Bun.file(tmp).writer() : null;
   const hasher = new Bun.CryptoHasher("sha256");
   let seen = 0;
 
@@ -675,7 +694,7 @@ async function fetchArtifactUncoordinated(target: NodeTarget): Promise<FetchedAr
           return;
         }
         hasher.update(value);
-        sink.write(value);
+        sink?.write(value);
         controller.enqueue(value);
         return;
       }
@@ -692,14 +711,16 @@ async function fetchArtifactUncoordinated(target: NodeTarget): Promise<FetchedAr
         controller.error(new Error(`${names.binary} did not match the digest the ${release.tag} manifest signed`));
         return;
       }
-      await sink.end();
-      await rename(tmp, artifactPath(target));
-      // The sidecar is written from the MANIFEST's digest, not the other way
-      // round: `install.sh` keeps reading the file, it just no longer decides
-      // anything (spec 2026-09-17 §4).
-      await writeFile(`${artifactPath(target)}.sha256`, `${expected}\n`);
-      await record(target, release.tag, expected, manifest.manifest.commit);
-      getLogger().info(`node artifacts: cached ${names.binary} from ${release.tag} (${seen} bytes)`);
+      if (sink !== null) {
+        await sink.end();
+        await rename(tmp, artifactPath(target));
+        // The sidecar is written from the MANIFEST's digest, not the other way
+        // round: `install.sh` keeps reading the file, it just no longer decides
+        // anything (spec 2026-09-17 §4).
+        await writeFile(`${artifactPath(target)}.sha256`, `${expected}\n`);
+        await record(target, release.tag, expected, manifest.manifest.commit);
+        getLogger().info(`node artifacts: cached ${names.binary} from ${release.tag} (${seen} bytes)`);
+      }
       controller.close();
     },
     async cancel() {
@@ -714,11 +735,13 @@ async function fetchArtifactUncoordinated(target: NodeTarget): Promise<FetchedAr
 }
 
 /** Drop a partial download, best effort — it must never survive to be served. */
-async function discard(sink: { end: () => unknown }, tmp: string): Promise<void> {
-  try {
-    await sink.end();
-  } catch {
-    /* already closed */
+async function discard(sink: { end: () => unknown } | null, tmp: string): Promise<void> {
+  if (sink !== null) {
+    try {
+      await sink.end();
+    } catch {
+      /* already closed */
+    }
   }
   await rm(tmp, { force: true }).catch(() => {});
 }

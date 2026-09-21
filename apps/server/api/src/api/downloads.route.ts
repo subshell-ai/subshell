@@ -5,7 +5,7 @@ import { Elysia, t } from "elysia";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { apiErrorBody } from "@/lib/api-error.js";
-import { artifactPath, artifactStat } from "@/lib/node-artifacts.js";
+import { artifactPath, artifactStat, diskArtifactSha256, staleArtifactRefusal } from "@/lib/node-artifacts.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
 import { apiModels } from "@/schema/index.js";
 import { consumeUpdateToken } from "@/services/nodes/update-tokens.js";
@@ -45,6 +45,14 @@ const DownloadQuerySchema = t.Object({
 });
 
 /**
+ * WHICH credential answered a download request. The kind matters to the binary
+ * route: an update-token download is served release-coherently (see the
+ * route), the other two disk-first. A token also carries the digest the
+ * update command named, which is what "release-coherent" is measured against.
+ */
+type DownloadCredential = { kind: "cookie" | "setup-key" } | { kind: "update-token"; sha256: string };
+
+/**
  * Cookie-OR-setup-key-OR-update-token gate (spec §8, extended 2026-09-15 §5.3):
  * a browser downloads with its session cookie, the install pipeline downloads
  * with `?setup_key=`, and an agent the plane told to update downloads with
@@ -71,20 +79,26 @@ const DownloadQuerySchema = t.Object({
  *   `null`: the agent already HAS the digest — it rides in the `update`
  *   command — so spending a single-use token on 65 bytes would leave nothing
  *   for the binary the command exists to fetch.
- * @returns true when the request may download
+ * @returns WHICH credential answered (see {@link DownloadCredential}), or
+ *   null when the request may not download.
  */
 async function authorizeDownload(
   request: Request,
   query: DownloadQuery,
   updateTokenTarget: NodeTarget | null,
-): Promise<boolean> {
+): Promise<DownloadCredential | null> {
   const cookieHeader = request.headers.get("cookie") ?? "";
-  if (extractSessionToken(cookieHeader)) return (await resolveCookieSession(cookieHeader)) !== null;
-  if (query.setup_key) return await new NodeSetupKeysRepository(db).peekValid(query.setup_key);
-  if (query.update_token && updateTokenTarget !== null) {
-    return consumeUpdateToken(query.update_token, updateTokenTarget) !== null;
+  if (extractSessionToken(cookieHeader)) {
+    return (await resolveCookieSession(cookieHeader)) !== null ? { kind: "cookie" } : null;
   }
-  return false;
+  if (query.setup_key) {
+    return (await new NodeSetupKeysRepository(db).peekValid(query.setup_key)) ? { kind: "setup-key" } : null;
+  }
+  if (query.update_token && updateTokenTarget !== null) {
+    const spent = consumeUpdateToken(query.update_token, updateTokenTarget);
+    return spent === null ? null : { kind: "update-token", sha256: spent.sha256 };
+  }
+  return null;
 }
 
 /** The credentials a download request may carry in its query string. */
@@ -170,7 +184,10 @@ const notPublished = (target: string) => ({
 /**
  * `/api/downloads/node/*` — serve the prebuilt `subshell` binaries and
  * their checksums (spec 2026-08-31 §8). Auth: session cookie OR a valid,
- * unconsumed `?setup_key=` ({@link authorizeDownload}); neither → 401.
+ * unconsumed `?setup_key=` OR a one-time `?update_token=` ({@link
+ * authorizeDownload}); neither → 401. A cookie or setup key is served
+ * disk-first; an update token is served release-coherently (see the binary
+ * route).
  *
  * The `.sha256` variants are one STATIC route per target rather than a
  * `:target.sha256` param route — Elysia's tokenizer cannot express a static
@@ -188,32 +205,105 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
     // First statement, before auth and before ANY path construction: the
     // closed set is enforced here, not in a params schema (see isNodeTarget).
     if (!isNodeTarget(params.target)) return status(404, apiErrorBody(notPublished(params.target)));
-    if (!(await authorizeDownload(request, query, params.target))) return status(401, apiErrorBody(unauthorized()));
+    const credential = await authorizeDownload(request, query, params.target);
+    if (credential === null) return status(401, apiErrorBody(unauthorized()));
     const headers = {
       "Content-Type": "application/octet-stream",
       "Content-Disposition": `attachment; filename=${nodeArtifactFileName(params.target)}`,
       "Cache-Control": "private, no-cache",
     };
-    // On disk wins, always: a binary an operator published with `release:cli-node`
-    // is what this instance serves, and nothing here second-guesses it.
-    if (artifactStat(params.target)) {
+
+    // The installer and browser path: on disk wins, always. A binary an
+    // operator published with `release:cli-node` is what this instance serves,
+    // and nothing here second-guesses it.
+    if (credential.kind !== "update-token") {
+      if (artifactStat(params.target)) {
+        return new Response(Bun.file(artifactPath(params.target)), { headers });
+      }
+      // Nothing local. THIS is the lazy fetch: the first machine of a platform
+      // to ask pays for the download, and it is streamed past rather than staged
+      // (see services/releases.ts). A plane whose nodes are all one platform
+      // never spends a byte on the others.
+      if (!autoFetchEnabled()) return status(404, apiErrorBody(notPublished(params.target)));
+      try {
+        const fetched = await fetchArtifact(params.target);
+        return new Response(fetched.stream, { headers });
+      } catch (error) {
+        // A release that cannot be read is the same OUTCOME as an unpublished
+        // build — the machine cannot install — so it is the same 404 rather than
+        // a 502 the install script has no branch for. The reason is logged
+        // where an operator can find it.
+        getLogger().warn(`node artifacts: could not fetch ${params.target} from the release: ${errorText(error)}`);
+        return status(404, apiErrorBody(notPublished(params.target)));
+      }
+    }
+
+    // ── the update-token path: the download is RELEASE-COHERENT ──────────────
+    //
+    // An update command names a digest from the release's SIGNED manifest, and
+    // the token carries exactly that digest, so this request is measured
+    // against the release the COMMAND named, not against whatever the disk
+    // holds or the release index now names. The installer path above answers
+    // "whatever this instance publishes", which is the right contract for an
+    // enroll; it is the wrong one for an update, where a disk file from an
+    // older release is refused by the node's own digest check after a full
+    // ~70 MB download (the live incident of 2026-09-21). So the disk file is
+    // a cache here: served when it IS the release, fetched around otherwise.
+    //
+    // The plane fetches rather than sending the node to the release source
+    // for two reasons, and they are the answer to "why can't the node
+    // download from GH releases instead": an air-gapped plane
+    // (SUBSHELL_RELEASE_URL empty) has no release to point a node at, and the
+    // operator's release source may be a private mirror the nodes themselves
+    // cannot reach. The node re-verifies the manifest signature and digest
+    // itself either way, so verified release bytes are equally trustworthy
+    // from the plane.
+    const expected = credential.sha256;
+    // `undefined` means the file could not be READ (a disk or permission
+    // error, not an answer about its content): it is never treated as a
+    // match, and never overwritten by a fetch.
+    const onDisk = await diskArtifactSha256(params.target).catch(() => undefined);
+    if (onDisk === expected) {
+      // The cache IS the release: the fast path, unchanged in what it serves.
       return new Response(Bun.file(artifactPath(params.target)), { headers });
     }
-    // Nothing local. THIS is the lazy fetch: the first machine of a platform
-    // to ask pays for the download, and it is streamed past rather than staged
-    // (see services/releases.ts). A plane whose nodes are all one platform
-    // never spends a byte on the others.
-    if (!autoFetchEnabled()) return status(404, apiErrorBody(notPublished(params.target)));
+    if (!autoFetchEnabled()) {
+      // The air-gapped plane serves only what it holds. Nothing held: the
+      // same 404 the installer path answers, which the node reports as a
+      // download failure. Something held but not the release: the incoherent
+      // offer, refused with the remedy instead of being streamed to a node
+      // that would refuse it after the download.
+      return status(
+        onDisk === null ? 404 : 409,
+        apiErrorBody(
+          onDisk === null
+            ? notPublished(params.target)
+            : { code: BackendErrorCodes.NODE_UPDATE_UNAVAILABLE, message: staleArtifactRefusal(params.target) },
+        ),
+      );
+    }
     try {
-      const fetched = await fetchArtifact(params.target);
+      // Absent disk: cache the verified bytes, as the installer lazy fetch
+      // always has (same `.fetched.json` semantics). Present but different:
+      // stream the release bytes THROUGH only, because the file there may be
+      // the operator's hand-published binary and is never overwritten here.
+      const fetched = await fetchArtifact(params.target, { cache: onDisk === null });
       return new Response(fetched.stream, { headers });
     } catch (error) {
-      // A release that cannot be read is the same OUTCOME as an unpublished
-      // build — the machine cannot install — so it is the same 404 rather than
-      // a 502 the install script has no branch for. The reason is logged
-      // where an operator can find it.
       getLogger().warn(`node artifacts: could not fetch ${params.target} from the release: ${errorText(error)}`);
-      return status(404, apiErrorBody(notPublished(params.target)));
+      // The release could not be served. With nothing (or nothing readable)
+      // on disk that is the same outcome as an unpublished build, the 404 the
+      // installer path answers. With a stale file it is the incoherent offer
+      // again: the node would refuse those bytes after downloading them, so
+      // the refusal carries the remedy.
+      return status(
+        onDisk === null || onDisk === undefined ? 404 : 409,
+        apiErrorBody(
+          onDisk === null || onDisk === undefined
+            ? notPublished(params.target)
+            : { code: BackendErrorCodes.NODE_UPDATE_UNAVAILABLE, message: staleArtifactRefusal(params.target) },
+        ),
+      );
     }
   },
   {
@@ -223,12 +313,12 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
       }),
     }),
     query: DownloadQuerySchema,
-    response: { 401: "ApiErrorResponse", 404: "ApiErrorResponse" },
+    response: { 401: "ApiErrorResponse", 404: "ApiErrorResponse", 409: "ApiErrorResponse" },
     detail: {
       operationId: "downloadNodeCli",
       tags: ["downloads"],
       description:
-        "Downloads the prebuilt subshell binary for one platform target (session cookie or valid ?setup_key=; unknown target → 404)",
+        "Downloads the prebuilt subshell binary for one platform target (session cookie or valid ?setup_key=, served disk-first; or a one-time ?update_token=, served release-coherent and 409ing with a remedy when the disk copy is stale and no release can be fetched; unknown target → 404)",
     },
   },
 );
@@ -238,7 +328,7 @@ for (const target of NODE_TARGETS) {
     `/node/${target}.sha256`,
     async ({ request, query, status }) => {
       // `null`: an update token is not spendable on a digest — see authorizeDownload.
-      if (!(await authorizeDownload(request, query, null))) return status(401, apiErrorBody(unauthorized()));
+      if ((await authorizeDownload(request, query, null)) === null) return status(401, apiErrorBody(unauthorized()));
       const local = await artifactSha(target);
       if (local) return new Response(`${local}\n`, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
       // `install.sh` asks for the sha AFTER the binary, so by here the

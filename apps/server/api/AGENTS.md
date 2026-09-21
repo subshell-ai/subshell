@@ -115,12 +115,24 @@ stay published for `install.sh` alone). `services/releases.ts`'s
 lazy fetch, `fetchDigest` (so the `update` command's digest), the server's own
 `update`, and the Updates page — the three-way refusal grammar
 ("no manifest" / "unsigned" / "failed verification") is what lets the page
-tell those stories apart. A file on disk always wins over a fetch, and only
+tell those stories apart. A file on disk always wins over a fetch **for the
+installer path** (cookie or setup key), and only
 what this instance fetched (recorded in `<node-artifacts>/.fetched.json` with
 its release tag) is ever superseded when a newer tag appears — a hand-published
 binary has no entry and is never touched. Superseded platforms are DELETED
 rather than refreshed: the file comes back when a machine of that platform next
 enrolls, which is the same laziness the rest of the path keeps.
+
+**A download carrying a valid `update` token is served RELEASE-COHERENTLY
+instead** (2026-09-21, the live-incident follow-up). The token binds the digest
+the update command named from the signed manifest, so the disk file is served
+only when it hashes to it, and anything else is fetched around: an absent disk
+file is cached exactly as the installer lazy fetch always did, while a
+present-but-different file is streamed through and never overwritten (the
+hand-published-binary rule holds). A plane that cannot fetch refuses a token
+download whose disk copy is stale with a 409 naming the remedy, and the
+narrowed guard in `update-node.route.ts` is that case's backstop at the update
+route itself.
 
 Three surfaces still report what is on disk, so the air-gapped case is visible
 instead of being discovered: the published set (`lib/node-artifacts.ts:publishedNodeTargets`,

@@ -695,7 +695,13 @@ posture:
   removed (not refreshed — the platform comes back when a machine of that
   platform next enrolls). A binary an operator published by hand has no
   manifest entry and is never touched, and a file on disk always wins over a
-  fetch.
+  fetch for enroll and install downloads. An update download carries a
+  one-time `?update_token=` that binds the digest the update command named
+  (from the signed manifest), and is served release-coherently instead: the
+  disk file only when it hashes to that digest, the verified release fetched
+  around it otherwise (streamed through, never overwriting the hand-published
+  file), and a 409 naming the remedy when the disk copy is stale and the
+  release cannot be fetched (2026-09-21).
 
 **The enroll-time loopback trap.** If the configured server URL is
 loopback-ish, a remote node will dutifully dial its own machine. The enroll flow

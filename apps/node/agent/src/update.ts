@@ -386,6 +386,32 @@ export function redactUrl(url: string): string {
 }
 
 /**
+ * The sentence a refusal body carries, bounded, or "" when it has none.
+ *
+ * A plane-authored download refusal (the download route's 409) puts its
+ * remedy in a JSON `message`; a `status` line alone ("answered 409") would
+ * leave the node's owner a fact with no act. Anything that is not JSON with a
+ * string message is quoted as trimmed text, capped, so a proxy error page
+ * cannot write an unbounded line into the agent's log.
+ */
+async function refusalSentence(response: Response): Promise<string> {
+  const raw = await response
+    .text()
+    .then((t) => t.trim())
+    .catch(() => "");
+  if (raw === "") return "";
+  const capped = raw.length > 300 ? `${raw.slice(0, 300)}...` : raw;
+  try {
+    const parsed: unknown = JSON.parse(capped);
+    const message = parsed !== null && typeof parsed === "object" ? (parsed as { message?: unknown }).message : null;
+    if (typeof message === "string" && message.trim() !== "") return `: ${message.trim()}`;
+  } catch {
+    /* not json; the raw text below is still worth the log line */
+  }
+  return `: ${capped}`;
+}
+
+/**
  * Download to `<dir>/<basename>.download-<pid>`, hashing as the bytes arrive.
  *
  * Streamed rather than buffered for the obvious reason (the artifact is ~70 MB
@@ -414,7 +440,11 @@ async function download(url: string, expected: string, dest: string): Promise<st
     );
   }
   if (!response.ok || response.body === null) {
-    throw new UpdateRefused(NODE_RESULT_DOWNLOAD_FAILED, `${shown} answered ${response.status}`);
+    // The body may name the remedy (the plane's download refusals do); the
+    // node log is where the node's owner reads it, since the plane maps this
+    // constant to its own fixed sentence.
+    const refusal = await refusalSentence(response);
+    throw new UpdateRefused(NODE_RESULT_DOWNLOAD_FAILED, `${shown} answered ${response.status}${refusal}`);
   }
   const sink = Bun.file(dest).writer();
   const hasher = new Bun.CryptoHasher("sha256");

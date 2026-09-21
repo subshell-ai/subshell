@@ -548,30 +548,46 @@ describe("POST /api/nodes/:id/update", () => {
     expect(sock.sent).toEqual([]);
   });
 
-  // ── the artifact on disk is checked against the release it offers ────────
+  // ── the artifact on disk versus the release it offers ────────────────────
   //
-  // The download route serves DISK-FIRST, but `fetchDigest` reads the signed
-  // manifest — so a stale file in NODE_ARTIFACTS_DIR (an operator-published
-  // artifact is never superseded) made the plane order an update whose digest
-  // the bytes it serves could never match. Proven live: the node downloaded
-  // the old binary, refused it on its own digest check, and the operator paid
-  // ~70 MB to learn the offer was incoherent. These pin the plane's refusal
-  // of that offer BEFORE anything reaches the node.
+  // The download route used to serve DISK-FIRST while `fetchDigest` read the
+  // signed manifest, so a stale file in NODE_ARTIFACTS_DIR (an
+  // operator-published artifact is never superseded) made the plane order an
+  // update whose digest the bytes it serves could never match. Proven live
+  // 2026-09-21: the node downloaded the old binary, refused it on its own
+  // digest check, and the operator paid ~70 MB to learn the offer was
+  // incoherent. The #122 guard refused such an offer outright; since
+  // 2026-09-21 a plane that CAN fetch no longer does (the download route
+  // serves the verified release bytes around the stale file), and the refusal
+  // remains only where there is nothing to fetch instead.
 
-  it("a disk artifact from another release → 409 NODE_UPDATE_UNAVAILABLE, nothing sent", async () => {
+  it("a stale disk artifact on a plane that CAN fetch → the update proceeds, the serving self-corrects", async () => {
     useFakeRelease();
     publishDiskFixture(); // its sha cannot equal the manifest's fixed digest
+    const id = await mkNode();
+    const { res, cmd } = await updateWithAnswer(id, aliceCookie, {}, { ok: true });
+    // The guard no longer refuses a fetchable plane: the token carries the
+    // manifest digest, and the download route serves verified release bytes
+    // past the stale file.
+    expect(res.status).toBe(202);
+    expect(cmd.sha256).toBe("a".repeat(64));
+  });
+
+  it("a disk artifact from another release on a plane that fetches NOTHING → 409, nothing sent", async () => {
+    useNoRelease();
+    publishDiskFixture();
     const id = await mkNode();
     const sock = goOnline(id);
     const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
     expect(res.status).toBe(409);
+    // A plane with no release source has no signed manifest to send, so no
+    // URL install can be composed at all. The release lookup refuses before
+    // the artifact is ever read; the stale file on disk is beside the point
+    // here, and the operator's remedies are publishing or a hand update.
     const err = (await res.json()) as { code: string; message: string };
     expect(err.code).toBe("NODE_UPDATE_UNAVAILABLE");
-    expect(err.message).toContain("linux-x64");
-    // The remedy a BROWSER operator can act on is the delete; the repo's
-    // publish script is documentation, never a build internal in the copy.
-    expect(err.message).toContain("node-artifacts");
-    expect(err.message).toContain("verified release");
+    expect(err.message).toContain("cannot offer a node release");
+    expect(err.message).toContain("SUBSHELL_RELEASE_URL");
     // The offer was refused before the command went out — the node downloads
     // nothing, mints nothing, and learns nothing of the incoherence.
     expect(sock.sent).toEqual([]);
