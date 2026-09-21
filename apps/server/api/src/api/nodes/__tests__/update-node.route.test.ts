@@ -568,7 +568,9 @@ describe("POST /api/nodes/:id/update", () => {
     const err = (await res.json()) as { code: string; message: string };
     expect(err.code).toBe("NODE_UPDATE_UNAVAILABLE");
     expect(err.message).toContain("linux-x64");
-    expect(err.message).toContain("release:cli-node");
+    // The remedy a BROWSER operator can act on is the delete; the repo's
+    // publish script is documentation, never a build internal in the copy.
+    expect(err.message).toContain("node-artifacts");
     expect(err.message).toContain("verified release");
     // The offer was refused before the command went out — the node downloads
     // nothing, mints nothing, and learns nothing of the incoherence.

@@ -363,7 +363,7 @@ export const updateNodeRoute = new Elysia()
           409,
           apiErrorBody({
             code: BackendErrorCodes.NODE_UPDATE_UNAVAILABLE,
-            message: `This server's published ${target} node binary is not the release it offers, so the node would install nothing. Republish with \`bun run release:cli-node\`, or delete the file so the next download fetches the verified release.`,
+            message: `This server's published ${target} node binary is not the release it offers, so the node would install nothing. Delete the stale copy from this server's node-artifacts directory so the next download fetches the verified release, or publish the release binaries to it.`,
           }),
         );
       }
