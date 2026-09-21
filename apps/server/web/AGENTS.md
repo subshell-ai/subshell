@@ -501,6 +501,17 @@ badge, the menu item) moves as if the flip were clean, so dropping it tells
 someone a machine is quiet while panes are still alive on it. The wording is
 `lib/node-maintenance.ts`, once, for the card and the row.
 
+**The node section tabs are gated by ONE predicate.** `managesNodeSections`
+(`node-section-nav.tsx`: an AGENT machine AND an `owner`/`edit` viewer) is what
+the nav hides the Service/Configuration/Logs links by AND what the three
+section routes redirect by — hiding a link never gated the URL, and once the
+sections were flat routes (2026-09-20), `/nodes/local/service` was typeable
+and answered with a card calling the LIVE control plane "offline, nothing to
+report". The server remains the enforcement (400 for `local`, 403 for `view`);
+the redirect exists so the page never lies about a refusal. The harness card's
+Re-check gate is spelled the same way and is a DIFFERENT rule (its own comment
+says so) — do not collapse them.
+
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the
 **Add-node dialog is ONE screen** (operator's call, 2026-09-18) titled

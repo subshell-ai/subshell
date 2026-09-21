@@ -5,6 +5,7 @@
       "**",
       "!node_modules/**",
       "!**/*.config.*",
+      "**/*.config.tsx",
       "!**/*.json",
       "!.turbo/**",
       "!**/dist/**",

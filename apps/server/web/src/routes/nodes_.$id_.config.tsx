@@ -1,8 +1,9 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
 import { NodeAllowedDirs, NodeServerUrlCard } from "@internal/node-admin";
+import { useQueryClient } from "@tanstack/react-query";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { DirectoryPickerInput } from "@/components/directory-picker-input";
 import { NodePageShell } from "@/components/nodes/node-page-shell";
+import { managesNodeSections } from "@/components/nodes/node-section-nav";
 
 export const Route = createFileRoute("/nodes_/$id_/config")({ component: NodeConfigPage });
 
@@ -19,27 +20,39 @@ function NodeConfigPage() {
   const queryClient = useQueryClient();
   return (
     <NodePageShell id={id}>
-      {(node) => (
-        <>
-          <NodeServerUrlCard node={node} />
-          {/* The picker is passed IN because the folder browser is a
-              control-plane thing (it walks this server's file API); the
-              shared card works wherever the editor is absent — which is
-              exactly the node's own dashboard, where the list is read-only. */}
-          <NodeAllowedDirs
-            node={node}
-            renderEditor={(args) => (
-              <DirectoryPickerInput value={args.value} onChange={args.onChange} nodeId={node.id} nodeName={node.name} placeholder={args.placeholder} />
-            )}
-            // The folder picker's listings are scoped by these rules, so a
-            // change makes every cached explore response stale.
-            onDirsSaved={() => {
-              void queryClient.invalidateQueries({ queryKey: ["explore"] });
-              void queryClient.invalidateQueries({ queryKey: ["recent-paths"] });
-            }}
-          />
-        </>
-      )}
+      {(node) =>
+        managesNodeSections(node) ? (
+          <>
+            <NodeServerUrlCard node={node} />
+            {/* The picker is passed IN because the folder browser is a
+                control-plane thing (it walks this server's file API); the
+                shared card works wherever the editor is absent — which is
+                exactly the node's own dashboard, where the list is read-only. */}
+            <NodeAllowedDirs
+              node={node}
+              renderEditor={(args) => (
+                <DirectoryPickerInput
+                  value={args.value}
+                  onChange={args.onChange}
+                  nodeId={node.id}
+                  nodeName={node.name}
+                  placeholder={args.placeholder}
+                />
+              )}
+              // The folder picker's listings are scoped by these rules, so a
+              // change makes every cached explore response stale.
+              onDirsSaved={() => {
+                void queryClient.invalidateQueries({ queryKey: ["explore"] });
+                void queryClient.invalidateQueries({ queryKey: ["recent-paths"] });
+              }}
+            />
+          </>
+        ) : (
+          // Same rule as the nav: `local` and a `view` grantee get the
+          // Overview, not two cards whose routes 400/403 them.
+          <Navigate to="/nodes/$id" params={{ id: node.id }} replace />
+        )
+      }
     </NodePageShell>
   );
 }

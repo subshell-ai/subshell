@@ -9,19 +9,32 @@ import type { JSX } from "react";
  * A strip under the page header rather than a group in the global rail: the
  * rail lists Nodes, one entry, because a fleet of thirty machines must not
  * become thirty rail entries. A node's sections belong to the node the way a
- * subshell's tabs belong to the subshell.
- *
- * **Three of the four are hidden for `local` and for a viewer who cannot
- * configure**, and that is the server's rule rather than this component's
- * guess: Service, Configuration and Logs all 400 on the control-plane host
- * (its own surface is Server Settings → Service) and 403 for a `view` grantee.
- * Rendering links that answer 403 would teach a person that the app is broken.
+ * subshell's tabs belong to the subshell. Which sections show is the
+ * predicate below — and the section ROUTES hide by that same predicate too,
+ * because a hidden link is not a gated URL.
  */
+/**
+ * The ONE visibility rule for the three managed sections — the nav hides
+ * their links by it, and the section routes themselves redirect by it.
+ *
+ * It is the server's rule rather than this component's guess: Service,
+ * Configuration and Logs all 400 on the control-plane host (its own surface
+ * is Server Settings → Service) and 403 for a `view` grantee. Rendering —
+ * or deep-linking — what the route refuses teaches a person the app is
+ * broken; `/nodes/local/service` answering a LIVE control-plane host with
+ * "this node is offline" is the worst case, which is why the pages redirect
+ * to the Overview rather than merely hiding the tab. The server still
+ * enforces the refusal — this only keeps the page honest about it.
+ *
+ * `access` is the server's own word for this viewer, so nav and routes
+ * cannot disagree about who sees what.
+ */
+export function managesNodeSections(node: NodeDetail): boolean {
+  return node.kind === "agent" && (node.access === "owner" || node.access === "edit");
+}
+
 export function NodeSectionNav({ node }: { node: NodeDetail }): JSX.Element | null {
-  // `access` is the server's own word for this viewer, so the nav and the
-  // routes cannot disagree about who sees what.
-  const canConfigure = node.access === "owner" || node.access === "edit";
-  const managed = node.kind === "agent" && canConfigure;
+  const managed = managesNodeSections(node);
 
   const items: { to: string; label: string }[] = [
     { to: `/nodes/${node.id}`, label: "Overview" },
@@ -44,8 +57,12 @@ export function NodeSectionNav({ node }: { node: NodeDetail }): JSX.Element | nu
         <Link
           key={item.to}
           to={item.to}
-          // `exact` on Overview only: without it the parent route matches every
-          // child and two tabs read as current at once.
+          // `exact` on Overview only — and it is load-bearing for FLAT
+          // siblings too: TanStack's default active match is segment-prefix,
+          // so `/nodes/$id` matches while `/nodes/$id/service` is mounted,
+          // and without `exact` the Overview tab and the section tab both
+          // read as current. (The old reason — parent/child nesting — is
+          // gone; deleting this on that assumption would double-highlight.)
           activeOptions={{ exact: item.label === "Overview" }}
           className={cn(
             "border-transparent border-b-2 px-3 py-2 text-muted-foreground text-sm hover:text-foreground",
