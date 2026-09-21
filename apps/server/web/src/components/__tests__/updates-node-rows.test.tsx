@@ -107,6 +107,44 @@ describe("NodeRows", () => {
     expect(updateAll().disabled).toBe(true);
   });
 
+  it("shows the pressed row's button as Updating while its POST is in flight", async () => {
+    // The POST blocks for the node's whole download-and-restart window (up to
+    // five minutes), so the row has to say it is working rather than sit
+    // disabled and labelled "Update".
+    const original = globalThis.fetch;
+    let release: () => void = () => {};
+    globalThis.fetch = ((_input: unknown, _init?: RequestInit) =>
+      new Promise<Response>((resolve) => {
+        release = () => resolve(new Response("{}", { status: 202 }));
+      })) as typeof globalThis.fetch;
+    try {
+      renderRows(nodeUpdates({ rows: [nodeRow({ id: "a", name: "alpha", canUpdate: { ok: true, reason: null } })] }));
+      fireEvent.click(screen.getByRole("button", { name: "Update" }));
+      const updating = (await screen.findByRole("button", { name: "Updating…" })) as HTMLButtonElement;
+      expect(updating.disabled).toBe(true);
+      expect(updating.querySelector("svg")).toBeTruthy();
+      release();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("announces a refused single-row update as an alert", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (_input: unknown, _init?: RequestInit) =>
+      new Response("NODE_NOT_SUPERVISED: nothing respawns this agent", {
+        status: 409,
+      })) as typeof globalThis.fetch;
+    try {
+      renderRows(nodeUpdates({ rows: [nodeRow({ id: "a", name: "alpha", canUpdate: { ok: true, reason: null } })] }));
+      fireEvent.click(screen.getByRole("button", { name: "Update" }));
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("NODE_NOT_SUPERVISED");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("names the platform nothing is published for instead of leaving the row blank", () => {
     renderRows(nodeUpdates({ rows: [nodeRow({ target: null })] }));
     expect(screen.getByText(/no published platform/)).toBeTruthy();
