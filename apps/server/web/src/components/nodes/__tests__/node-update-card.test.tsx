@@ -95,6 +95,9 @@ describe("NodeUpdateCard", () => {
       expect(updating.disabled).toBe(true);
       expect(updating.querySelector("svg")).toBeTruthy();
       release();
+      // Let the 202 land and the mutation settle before unmount, or React
+      // logs an act() warning for the setState the resolution fires.
+      await screen.findByText(/Update accepted/);
     } finally {
       globalThis.fetch = original;
     }

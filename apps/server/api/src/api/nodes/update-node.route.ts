@@ -260,6 +260,11 @@ export const updateNodeRoute = new Elysia()
       // nothing. The Updates table states its reasons in its own order
       // instead, because there up-to-date outranks the protocol sentence;
       // both answers are true for their own surface.
+      // Prefer the HELD record's version when both exist (the admin rows read
+      // row-then-held, this route held-then-row): `applyReady` persists before
+      // either gate runs, so the two cannot disagree in practice — the
+      // asymmetry is about which one is NEWER when they ever do, and a held
+      // socket's fresh handshake outranks the DB row it refused from.
       const reported = held?.agentVersion ?? gate.row.agentVersion ?? null;
       if (reported !== null && !semverLt(reported, release.version)) {
         if (!semverLt(release.version, reported)) {

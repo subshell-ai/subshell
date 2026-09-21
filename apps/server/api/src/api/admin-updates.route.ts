@@ -233,7 +233,9 @@ function canUpdate(
 ): { ok: true; reason: null } | { ok: false; reason: string } {
   if (rels.node === null) return { ok: false, reason: rels.nodeReason ?? "no node release can be offered" };
   if (target === null) return { ok: false, reason: "no node binary is published for this machine's platform" };
-  if (rels.node !== null && agentVersion !== null && !semverLt(agentVersion, rels.node.version)) {
+  // `rels.node` is non-null here by the early return above; the reviewer's
+  // redundant-conjunct note.
+  if (agentVersion !== null && !semverLt(agentVersion, rels.node.version)) {
     // Equality spelled as two failing `semverLt`s, so semver normalization
     // (a `v` prefix, a dropped `-beta`) cannot make "equal" read as "ahead".
     const equal = !semverLt(rels.node.version, agentVersion);
