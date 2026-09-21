@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import type { NodeDetail } from "@internal/node-admin";
-import { managesNodeSections } from "@/components/nodes/node-section-nav";
+import { managesNodeConfig, managesNodeSections } from "@/components/nodes/node-section-nav";
 
 /**
  * The node section pages are FLAT SIBLINGS of the Overview, not children of
@@ -80,6 +80,31 @@ describe("managesNodeSections", () => {
   for (const [name, node, expected] of cases) {
     it(`${name} -> ${expected}`, () => {
       expect(managesNodeSections(node)).toBe(expected);
+    });
+  }
+});
+
+/**
+ * Configuration is a WIDER door than Service/Logs, and that split is the
+ * whole point: the daemon sections (Service, Logs) answer nothing for the
+ * control-plane host — its half is Server Settings — but Configuration holds
+ * the LAUNCH ALLOWLIST, a rule `local` genuinely has (spec 2026-09-05) and
+ * the plane enforces on its own launches. So an admin sees Configuration on
+ * the host (`canManage` is the server's own yes for that row's writes),
+ * while Service and Logs stay hidden by `managesNodeSections` above.
+ */
+describe("managesNodeConfig", () => {
+  const base = { kind: "agent", access: "owner", canManage: true } as NodeDetail;
+  const cases: [string, NodeDetail, boolean][] = [
+    ["agent + owner", base, true],
+    ["agent + edit (edit may configure, not manage)", { ...base, access: "edit", canManage: false }, true],
+    ["agent + view", { ...base, access: "view", canManage: false }, false],
+    ["local + admin (canManage)", { ...base, kind: "local", access: "edit", canManage: true }, true],
+    ["local + non-admin", { ...base, kind: "local", access: "edit", canManage: false }, false],
+  ];
+  for (const [name, node, expected] of cases) {
+    it(`${name} -> ${expected}`, () => {
+      expect(managesNodeConfig(node)).toBe(expected);
     });
   }
 });

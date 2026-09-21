@@ -118,25 +118,32 @@ describe("NodeMaintenanceCard", () => {
   });
 
   /**
-   * The label names the SWITCH and never changes; the state is its own line.
-   * The old pair put "Accepting subshells" beside an OFF switch — an
-   * affirmative label on a negated position reads as "accepting: off", the
-   * opposite of the truth, which is why the two roles are now split.
+   * The label names the SWITCH and never changes. The old pair put
+   * "Accepting subshells" beside an OFF switch — an affirmative label on a
+   * negated position reads as "accepting: off", the opposite of the truth.
+   * The replacement "Accepting new subshells" state line went the same way
+   * by a different road: an off switch announcing its own off-state is a
+   * tautology that says nothing anyone acts on, so the state line exists
+   * ONLY while the machine is in maintenance (since-when and which-end
+   * declared it — those are facts).
    */
-  it("labels the switch 'Maintenance mode' in BOTH positions, with the state on its own line", () => {
+  it("labels the switch 'Maintenance mode' in BOTH positions and states only the ON position", () => {
     const { restore } = mockFetch();
     try {
       renderCard(node());
       expect(screen.getByText("Maintenance")).toBeDefined();
       expect(screen.getByText("Maintenance mode")).toBeDefined();
-      expect(screen.getByText("Accepting new subshells")).toBeDefined();
       expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("false");
-      // On: same label, different state line.
+      // OFF is the ordinary state; it gets no line at all.
+      expect(screen.queryByText(/Accepting/)).toBeNull();
+      expect(screen.queryByText(/In maintenance/)).toBeNull();
+      // On: same label, plus the state line.
       cleanup();
       renderCard(node({ maintenance: true }));
       expect(screen.getByText("Maintenance mode")).toBeDefined();
       expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("true");
-      expect(screen.queryByText("Accepting new subshells")).toBeNull();
+      expect(screen.getByText("In maintenance")).toBeDefined();
+      expect(screen.queryByText(/Accepting/)).toBeNull();
     } finally {
       restore();
     }

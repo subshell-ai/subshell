@@ -501,16 +501,22 @@ badge, the menu item) moves as if the flip were clean, so dropping it tells
 someone a machine is quiet while panes are still alive on it. The wording is
 `lib/node-maintenance.ts`, once, for the card and the row.
 
-**The node section tabs are gated by ONE predicate.** `managesNodeSections`
-(`node-section-nav.tsx`: an AGENT machine AND an `owner`/`edit` viewer) is what
-the nav hides the Service/Configuration/Logs links by AND what the three
-section routes redirect by — hiding a link never gated the URL, and once the
-sections were flat routes (2026-09-20), `/nodes/local/service` was typeable
-and answered with a card calling the LIVE control plane "offline, nothing to
-report". The server remains the enforcement (400 for `local`, 403 for `view`);
-the redirect exists so the page never lies about a refusal. The harness card's
-Re-check gate is spelled the same way and is a DIFFERENT rule (its own comment
-says so) — do not collapse them.
+**The node section tabs are gated by TWO predicates, one per door.**
+`managesNodeSections` (`node-section-nav.tsx`: an AGENT machine AND an
+`owner`/`edit` viewer) hides Service and Logs AND gates the `config`-less
+routes' deep links; `managesNodeConfig` is wider by exactly one case —
+`local` for a `canManage` viewer — because Configuration holds the LAUNCH
+ALLOWLIST, a rule `local` genuinely has (spec 2026-09-05), and hiding it made
+the control-plane host's allowlist uneditable from the plane that enforces it
+(the Server-URL card self-excludes on `local` in the page: repointing is a
+daemon concept). Both nav halves AND the section routes call the same
+predicates — hiding a link never gated the URL, and once the sections were
+flat routes (2026-09-20), `/nodes/local/service` was typeable and answered
+with a card calling the LIVE control plane "offline, nothing to report". The
+server remains the enforcement (400 for `local`, 403 for `view`); the
+redirect exists so the page never lies about a refusal. The harness card's
+Re-check gate is spelled like `managesNodeSections` and is a DIFFERENT rule
+(its own comment says so) — do not collapse them.
 
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the

@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { DirectoryPickerInput } from "@/components/directory-picker-input";
 import { NodePageShell } from "@/components/nodes/node-page-shell";
-import { managesNodeSections } from "@/components/nodes/node-section-nav";
+import { managesNodeConfig } from "@/components/nodes/node-section-nav";
 
 export const Route = createFileRoute("/nodes_/$id_/config")({ component: NodeConfigPage });
 
@@ -21,9 +21,12 @@ function NodeConfigPage() {
   return (
     <NodePageShell id={id}>
       {(node) =>
-        managesNodeSections(node) ? (
+        managesNodeConfig(node) ? (
           <>
-            <NodeServerUrlCard node={node} />
+            {/* Repointing is a DAEMON concept — the control-plane host is the
+                server, there is no URL for it to dial. Its Configuration tab
+                holds the one rule that applies to it: the launch allowlist. */}
+            {node.kind !== "local" && <NodeServerUrlCard node={node} />}
             {/* The picker is passed IN because the folder browser is a
                 control-plane thing (it walks this server's file API); the
                 shared card works wherever the editor is absent — which is
@@ -48,8 +51,9 @@ function NodeConfigPage() {
             />
           </>
         ) : (
-          // Same rule as the nav: `local` and a `view` grantee get the
-          // Overview, not two cards whose routes 400/403 them.
+          // Same rule as the nav (`managesNodeConfig`): a `view` grantee and
+          // a non-admin viewer of the host get the Overview, not cards whose
+          // routes refuse them.
           <Navigate to="/nodes/$id" params={{ id: node.id }} replace />
         )
       }

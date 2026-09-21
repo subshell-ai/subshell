@@ -23,10 +23,10 @@ import { Switch } from "../ui/switch";
  * maintenance answers WHETHER ANYONE may, and the server ANDs the two into
  * `canLaunch`.
  *
- * It lives on the Overview rather than under Configuration because `local` has
- * no other section (`node-section-nav.tsx` hides all three for the host and
- * for a `view` grantee), and one switch that appears in different places
- * depending on the kind of machine is a switch people stop finding.
+ * It lives on the Overview rather than under Configuration because not every
+ * viewer who manages a node sees a Configuration tab, and one switch that
+ * appears in different places depending on the kind of machine is a switch
+ * people stop finding.
  *
  * Hidden — not disabled — for a viewer who cannot manage the node, the way its
  * predecessor was: the route refuses them, and `canManage` is the server's own
@@ -93,10 +93,8 @@ export function NodeMaintenanceCard({
       <CardHeader>
         <CardTitle>Maintenance</CardTitle>
         <CardDescription>
-          While this is on nobody can start a subshell here — not its owner, not the people it is shared with, not
-          admins. Subshells running when you turn it on are stopped, and the ones set to relaunch will not come back on
-          their own — restart them after it ends. Everything else keeps answering as usual (
-          <code>subshell maintenance on|off</code> at the machine sets the same flag).
+          While on, nobody can start a subshell here, and turning it on stops the ones running — restart them after it
+          ends. The machine can set the same flag itself: <code>subshell maintenance on|off</code>.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -110,15 +108,16 @@ export function NodeMaintenanceCard({
             // words stay a substring of this, per the label-in-name rule.
             aria-label={`Maintenance mode on ${node.name}`}
           />
-          {/* The label names WHICH SWITCH this is and never changes; the state
-              got its own line below. It used to flip to "Accepting subshells"
-              exactly when the switch was OFF, which reads as "accepting: off"
-              — the opposite of the truth. */}
+          {/* The label names WHICH SWITCH this is and never changes; it used
+              to flip to "Accepting subshells" exactly when the switch was
+              OFF, which reads as "accepting: off" — the opposite of the
+              truth. The state line below appears ONLY in maintenance: an
+              off switch describing its own off-state ("Accepting new
+              subshells") is a tautology, while how long it has been ON and
+              who said so is a fact someone acts on. */}
           <Label>Maintenance mode</Label>
         </div>
-        <p className="text-detail text-muted-foreground">
-          {node.maintenance ? maintenanceSinceLabel(node) : "Accepting new subshells"}
-        </p>
+        {node.maintenance && <p className="text-detail text-muted-foreground">{maintenanceSinceLabel(node)}</p>}
         {error && (
           <p role="alert" className="text-destructive text-detail">
             {error}
