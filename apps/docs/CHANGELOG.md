@@ -1,5 +1,11 @@
 # @internal/docs
 
+## 0.3.2
+
+### Patch Changes
+
+- [#114](https://github.com/subshell-ai/subshell/pull/114) [`e746277`](https://github.com/subshell-ai/subshell/commit/e746277e24d1ca8d81e79d7de57b4d9022ea8453) Thanks [@theogravity](https://github.com/theogravity)! - Two copy-sweep disclosures landed in the docs where they always belonged: the reset page now names how to stop a same-machine node agent after a reset (Subshell Client, or `subshell service stop`), and the users page says explicitly that re-enabling an account resumes every credential the disable refused.
+
 ## 0.3.1
 
 ### Patch Changes

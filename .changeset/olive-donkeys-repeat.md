@@ -1,5 +1,0 @@
----
-"@internal/server": patch
----
-
-Node management, three simplifications. The Maintenance card's four-clause essay is now two plain sentences. The "Accepting new subshells" line under an off switch is gone; the state line appears only while a machine IS in maintenance, because since-when and which-end-declared-it are facts while an off switch describing its own off-state is a tautology. The CLI hint ("subshell maintenance on|off at the machine") is agent-only wording now: the control-plane host runs no agent CLI, though the flag itself means the same on every machine. The Configuration tab is deleted outright. It had shrunk to one card, so the launch-allowlist card (read-visible to anyone who can see the node, editor only for whoever `canManage`, the host included, which fixes the allowlist the plane enforces but could no longer edit) and the agent-only server-URL card now sit on the node's Overview beside the Maintenance switch. And the "Back to nodes" link at the foot of every node page is gone; the rail carries that affordance permanently at the top of every page already.

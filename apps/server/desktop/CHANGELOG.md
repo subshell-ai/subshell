@@ -1,5 +1,11 @@
 # @internal/desktop-server
 
+## 0.12.1
+
+### Patch Changes
+
+- [#114](https://github.com/subshell-ai/subshell/pull/114) [`e746277`](https://github.com/subshell-ai/subshell/commit/e746277e24d1ca8d81e79d7de57b4d9022ea8453) Thanks [@theogravity](https://github.com/theogravity)! - UI copy in the Subshell Server assistant now follows the new two-sentence, no-em-dash style rule: the reset, update and permission explanations were tightened to at most two sentences with their em dashes replaced by colons, semicolons or sentence splits, and every fact cut is already carried by the docs.
+
 ## 0.12.0
 
 ### Minor Changes

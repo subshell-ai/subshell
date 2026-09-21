@@ -1,5 +1,13 @@
 # @internal/server
 
+## 0.15.2
+
+### Patch Changes
+
+- [#112](https://github.com/subshell-ai/subshell/pull/112) [`71390a6`](https://github.com/subshell-ai/subshell/commit/71390a6fd997b25bd2625427c834a90027e14e78) Thanks [@theogravity](https://github.com/theogravity)! - Node management, three simplifications. The Maintenance card's four-clause essay is now two plain sentences. The "Accepting new subshells" line under an off switch is gone; the state line appears only while a machine IS in maintenance, because since-when and which-end-declared-it are facts while an off switch describing its own off-state is a tautology. The CLI hint ("subshell maintenance on|off at the machine") is agent-only wording now: the control-plane host runs no agent CLI, though the flag itself means the same on every machine. The Configuration tab is deleted outright. It had shrunk to one card, so the launch-allowlist card (read-visible to anyone who can see the node, editor only for whoever `canManage`, the host included, which fixes the allowlist the plane enforces but could no longer edit) and the agent-only server-URL card now sit on the node's Overview beside the Maintenance switch. And the "Back to nodes" link at the foot of every node page is gone; the rail carries that affordance permanently at the top of every page already.
+
+- [#114](https://github.com/subshell-ai/subshell/pull/114) [`e746277`](https://github.com/subshell-ai/subshell/commit/e746277e24d1ca8d81e79d7de57b4d9022ea8453) Thanks [@theogravity](https://github.com/theogravity)! - UI copy across the served dashboard now follows the new two-sentence, no-em-dash style rule: several explanations were tightened to at most two sentences and their em dashes replaced with colons, semicolons or sentence splits, and every fact cut in the tightening is already carried by `docs/security.md` or the docs site.
+
 ## 0.15.1
 
 ### Patch Changes
