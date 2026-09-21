@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { createInputQueue, type InputSender } from "@/lib/input-queue";
+import { CHUNK_MAX_BYTES, createInputQueue, type InputSender } from "@/lib/input-queue";
 
 /** A clock the tests advance by hand, so ages and RTTs are exact. */
 let nowMs = 10_000;
@@ -8,12 +8,20 @@ const advance = (ms: number) => {
   nowMs += ms;
 };
 
-/** Records sends as [data, id] pairs. */
-function recordingSender() {
+/** Records sends as [data, id] pairs; `live` stands in for the attach. */
+function recordingSender(live = true) {
+  const state = { live };
   const sends: Array<[string, number | undefined]> = [];
-  const sender: InputSender = (data, id) => sends.push([data, id]);
-  return { sends, sender };
+  const sender: InputSender = (data, id) => {
+    if (!state.live) return false;
+    sends.push([data, id]);
+    return true;
+  };
+  return { state, sends, sender };
 }
+
+/** UTF-8 byte length, matching the queue's own accounting. */
+const utf8 = (s: string) => new TextEncoder().encode(s).length;
 
 describe("createInputQueue", () => {
   it("an unengaged queue sends bare frames and tracks nothing", () => {
@@ -28,36 +36,157 @@ describe("createInputQueue", () => {
     expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null });
   });
 
-  it("an engaged queue assigns monotonic ids and sends immediately", () => {
+  it("an engaged queue sends immediately while the pipe is clear, ids monotonic", () => {
     const { sends, sender } = recordingSender();
     const q = createInputQueue(sender, now);
     q.engage();
     q.enqueue("a");
+    expect(sends).toEqual([["a", 1]]);
+    q.ack(1);
+    advance(5);
     q.enqueue("b");
-    q.enqueue("c");
     expect(sends).toEqual([
       ["a", 1],
       ["b", 2],
-      ["c", 3],
     ]);
-    expect(q.stats.depth).toBe(3);
-    // The oldest is 2 units old: two enqueues advanced the fake clock by 2.
-    advance(2);
-    expect(q.stats.unackedOldestMs).toBe(2);
+    expect(q.stats.depth).toBe(1);
   });
 
-  it("ack retires the id and records its round-trip time", () => {
-    const { sender } = recordingSender();
+  it("CHUNK: a 70 KB paste on a clear pipe becomes 3 chunks of <= 32 KiB, ids sequential, order preserved", () => {
+    const { sends, sender } = recordingSender();
+    const q = createInputQueue(sender, now);
+    q.engage();
+    // 70 KB of ASCII: 71680 bytes = 32768 + 32768 + 6144.
+    const paste = "x".repeat(70 * 1024);
+    q.enqueue(paste);
+    expect(sends.map(([, id]) => id)).toEqual([1, 2, 3]);
+    expect(sends.map(([data]) => utf8(data))).toEqual([32768, 32768, 6144]);
+    expect(sends.map(([data]) => data).join("")).toBe(paste);
+    expect(q.stats.depth).toBe(3);
+  });
+
+  it("CHUNK: chunk boundaries never split a multi-byte character", () => {
+    const { sends, sender } = recordingSender();
+    const q = createInputQueue(sender, now);
+    q.engage();
+    // Emoji planted so the byte cut lands mid-character in every chunk but the last.
+    const paste = `${"a".repeat(300)}🙂`.repeat(200);
+    expect(utf8(paste)).toBeGreaterThan(CHUNK_MAX_BYTES);
+    q.enqueue(paste);
+    for (const [data] of sends) expect(utf8(data)).toBeLessThanOrEqual(CHUNK_MAX_BYTES);
+    expect(sends.map(([data]) => data).join("")).toBe(paste);
+  });
+
+  it("COALESCE: three enqueues while unacked join the tail and ship as one frame on the drain", () => {
+    const { sends, sender } = recordingSender();
+    const q = createInputQueue(sender, now);
+    q.engage();
+    q.enqueue("a"); // fast path: id 1 on the wire, unacked
+    q.enqueue("b"); // backpressure: joins the unsent tail (id 2)
+    q.enqueue("c"); // joins the same tail
+    // Only the first frame ever left; the burst is one queued frame.
+    expect(sends).toEqual([["a", 1]]);
+    expect(q.stats).toEqual({ depth: 2, unackedOldestMs: 0 });
+    advance(30);
+    // The ack that drains the pipe is the flush trigger: id 2 leaves whole.
+    q.ack(1);
+    expect(sends).toEqual([
+      ["a", 1],
+      ["bc", 2],
+    ]);
+    q.ack(2);
+    expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null });
+  });
+
+  it("COALESCE: the burst fills the tail to the chunk cap and spills the residue", () => {
+    const { sends, sender } = recordingSender();
+    const q = createInputQueue(sender, now);
+    q.engage();
+    q.enqueue("seed"); // id 1, sent
+    q.enqueue("b".repeat(100)); // id 2, unsent tail with room to spare
+    q.enqueue("c".repeat(CHUNK_MAX_BYTES - 50)); // fills id 2 to the cap, spills 50 bytes
+    q.ack(1); // drain -> the backlog ships
+    expect(sends.slice(1)).toEqual([
+      ["b".repeat(100) + "c".repeat(CHUNK_MAX_BYTES - 100), 2],
+      ["c".repeat(50), 3],
+    ]);
+    expect(q.stats.depth).toBe(2);
+  });
+
+  it("COALESCE: a sent tail is frozen; the burst opens a new unsent frame", () => {
+    // The frozen-frames rule: an entry's id names exactly the bytes the server
+    // may have written, so appending to a SENT entry would make its retry
+    // re-send text the dedupe window already dropped, losing the appended
+    // part. The appendable thing is unsent data only.
+    const { sends, sender } = recordingSender();
     const q = createInputQueue(sender, now);
     q.engage();
     q.enqueue("a");
+    q.enqueue("b"); // depth > 0, tail (id 1) is sent -> new unsent frame
+    expect(sends).toEqual([["a", 1]]);
+    q.ack(1);
+    expect(sends).toEqual([
+      ["a", 1],
+      ["b", 2],
+    ]);
+  });
+
+  it("the backlog ships in id order after the drain, oldest first", () => {
+    const { sends, sender } = recordingSender();
+    const q = createInputQueue(sender, now);
+    q.engage();
+    q.enqueue("a"); // id 1, sent
+    q.enqueue("b"); // id 2, unsent
+    q.enqueue("c"); // joins id 2
+    q.ack(1);
+    expect(sends.map(([, id]) => id)).toEqual([1, 2]);
+  });
+
+  it("resendPending ships the sent frames AND the unsent backlog, ids unchanged, in id order", () => {
+    const { sends, sender } = recordingSender();
+    const q = createInputQueue(sender, now);
+    q.engage();
+    q.enqueue("a"); // id 1, on the wire, unacked
+    q.enqueue("b"); // id 2, coalesced backlog, never sent
+    q.enqueue("c"); // joins id 2
+    expect(sends).toEqual([["a", 1]]);
+    sends.length = 0;
+    advance(500);
+    q.resendPending();
+    // id 1 is re-sent for the reconnect; the coalesced id 2 ships here for
+    // the first time. Neither id changes: the server's window absorbs id 1
+    // if its first send landed.
+    expect(sends).toEqual([
+      ["a", 1],
+      ["bc", 2],
+    ]);
+  });
+
+  it("an offline attach holds input as unsent backlog and the reconnect flushes it", () => {
+    const { state, sends, sender } = recordingSender(false);
+    const q = createInputQueue(sender, now);
+    q.engage();
+    q.enqueue("typed offline");
+    q.enqueue("more offline"); // coalesces into the unsent tail
+    expect(sends).toEqual([]);
+    expect(q.stats).toEqual({ depth: 1, unackedOldestMs: 0 });
+    state.live = true; // the reconnect
+    q.resendPending();
+    expect(sends).toEqual([["typed offlinemore offline", 1]]);
+  });
+
+  it("ack records the round-trip time against the LAST send", () => {
+    const { sender } = recordingSender();
+    const q = createInputQueue(sender, now);
+    q.engage();
+    q.enqueue("a"); // id 1 sent at t=10000
     advance(40);
-    q.enqueue("b");
+    q.enqueue("b"); // coalesced into unsent id 2 at t=10040
     advance(20);
-    q.ack(1); // 40 + 20 since "a" was sent
-    q.ack(2); // 20 since "b" was sent
+    q.ack(1); // RTT 60 for id 1; the drain flushes id 2 at t=10060
+    q.ack(2); // RTT 0 for id 2 (sent and acked in the same tick)
     expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null });
-    expect(q.rtt.p50).toBe(40);
+    expect(q.rtt.p50).toBe(30);
     expect(q.rtt.max).toBe(60);
     expect(q.rtt.count).toBe(2);
   });
@@ -70,41 +199,17 @@ describe("createInputQueue", () => {
     expect(q.rtt.count).toBe(0);
   });
 
-  it("resendPending re-sends unacked inputs in id order with their original ids", () => {
-    const { sends, sender } = recordingSender();
+  it("a resend restarts each id's RTT clock", () => {
+    const { sender } = recordingSender();
     const q = createInputQueue(sender, now);
     q.engage();
     q.enqueue("a");
-    q.enqueue("b");
-    q.enqueue("c");
-    q.ack(2);
-    sends.length = 0;
-    advance(500);
-    q.resendPending();
-    expect(sends).toEqual([
-      ["a", 1],
-      ["c", 3],
-    ]);
-    // The re-send restarts each id's RTT clock: the age the client measures
-    // after this is since the resend, not since the first send.
-    expect(q.stats.unackedOldestMs).toBe(0);
-  });
-
-  it("enqueue while the socket is down is retained and flushed by the next resend", () => {
-    // The sender reads the live socket at call time; with it down the send is
-    // a no-op, but the queue still tracks what was typed.
-    let live = false;
-    const sends: Array<[string, number | undefined]> = [];
-    const q = createInputQueue((data, id) => {
-      if (live) sends.push([data, id]);
-    }, now);
-    q.engage();
-    q.enqueue("typed offline");
-    expect(sends).toEqual([]);
-    expect(q.stats.depth).toBe(1);
-    live = true; // the reconnect
-    q.resendPending();
-    expect(sends).toEqual([["typed offline", 1]]);
+    advance(100);
+    q.resendPending(); // re-sent at t=10100
+    advance(5);
+    q.ack(1);
+    expect(q.rtt.count).toBe(1);
+    expect(q.rtt.p50).toBe(5);
   });
 
   it("disengage drops the backlog: ids a non-acking server will never retire", () => {
@@ -112,7 +217,7 @@ describe("createInputQueue", () => {
     const q = createInputQueue(sender, now);
     q.engage();
     q.enqueue("a");
-    q.enqueue("b");
+    q.enqueue("b"); // coalesced backlog
     expect(q.stats.depth).toBe(2);
     q.disengage();
     expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null });
@@ -139,13 +244,17 @@ describe("createInputQueue", () => {
     expect(calls).toBe(3);
   });
 
-  it("the pending cap drops the oldest, never the newest", () => {
+  it("the pending cap is a frame count and drops the oldest, never the newest", () => {
     const { sender } = recordingSender();
     const q = createInputQueue(sender, now);
     q.engage();
-    for (let i = 1; i <= 1025; i++) q.enqueue(`k${i}`);
+    // Each enqueue is one byte over the cap, so every one spills into its own
+    // frame: the only way to accumulate many frames while nothing is acked.
+    const overCap = "x".repeat(CHUNK_MAX_BYTES + 1);
+    for (let i = 0; i < 1024; i++) q.enqueue(overCap);
     expect(q.stats.depth).toBe(1024);
-    q.ack(1025);
+    // The oldest frame is gone; the newest is still pending and retirable.
+    q.ack(1024);
     expect(q.stats.depth).toBe(1023);
   });
 

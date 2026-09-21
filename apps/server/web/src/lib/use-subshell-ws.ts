@@ -156,8 +156,9 @@ export function useSubshellWs(
     const queue = reused
       ? existing.queue
       : createInputQueue((data, id) => {
-          if (!attachLiveRef.current) return;
+          if (!attachLiveRef.current) return false;
           sendInput(wsRef.current, data, id);
+          return true;
         });
     ownedQueueRef.current = { subshellId, sessionId, queue };
     inputQueueRef.current = queue;

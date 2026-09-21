@@ -25,7 +25,7 @@ describe("InputQueueBadge", () => {
 
   it("renders the pending count while the queue holds input, and nothing once it drains", async () => {
     nowMs = 0;
-    const queue = createInputQueue(() => undefined, now);
+    const queue = createInputQueue(() => true, now);
     queue.engage();
     queue.enqueue("a");
     const { container } = render(<InputQueueBadge inputQueueRef={refFor(queue)} />);
@@ -39,7 +39,7 @@ describe("InputQueueBadge", () => {
 
   it("turns amber once the oldest unacked id has waited past 2 s", () => {
     nowMs = 0;
-    const queue = createInputQueue(() => undefined, now);
+    const queue = createInputQueue(() => true, now);
     queue.engage();
     queue.enqueue("a");
     nowMs = 2500; // one keystroke, unacked, 2.5 s old
