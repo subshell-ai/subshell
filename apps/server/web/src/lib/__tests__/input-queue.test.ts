@@ -210,6 +210,39 @@ describe("createInputQueue", () => {
     expect(sends).toEqual([["typed offlinemore offline", 1]]);
   });
 
+  it("a flush the sender cannot deliver leaves the entry unsent backlog for the next reconnect", () => {
+    const { state, sends, sender } = recordingSender(true);
+    const q = createInputQueue(sender, now);
+    q.engage();
+    q.enqueue("a"); // id 1 sent, unacked
+    q.enqueue("b"); // id 2, unsent backlog
+    state.live = false; // the socket dies before the drain can flush
+    q.ack(1); // the drain triggers the flush, but nothing can leave
+    expect(sends).toEqual([["a", 1]]);
+    // id 2 stays honest backlog, not a frame pretending to be in flight with
+    // an ack that can never come; the reconnect's flush ships it.
+    expect(q.stats.depth).toBe(1);
+    state.live = true;
+    q.resendPending();
+    expect(sends).toEqual([
+      ["a", 1],
+      ["b", 2],
+    ]);
+  });
+
+  it("CHUNK: a lone-surrogate payload is budgeted at its real 6-byte frame cost", () => {
+    const { sends, sender } = recordingSender();
+    const q = createInputQueue(sender, now);
+    q.engage();
+    // JSON.stringify re-escapes an unpaired surrogate as \udXXX, six bytes,
+    // so the walk must count 6: with the old 3-byte guess this payload
+    // serialized ~2x past its budget and the belt would have been a lie.
+    const lone = "\uD800".repeat(7000);
+    q.enqueue(lone);
+    for (const [data, id] of sends) expect(frameBytes(data, id as number)).toBeLessThanOrEqual(CHUNK_MAX_BYTES);
+    expect(sends.map(([data]) => data).join("")).toBe(lone);
+  });
+
   it("ack records the round-trip time against the LAST send", () => {
     const { sender } = recordingSender();
     const q = createInputQueue(sender, now);

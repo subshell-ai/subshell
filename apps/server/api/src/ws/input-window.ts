@@ -29,7 +29,15 @@
  * documented in-flight race (the retry consults this window on ARRIVAL,
  * while the first write is still in flight), at most one extra write of one
  * id. Eviction can then only widen the at-least-once window, and only for a
- * client that broke the cap. */
+ * client that broke the cap.
+ *
+ * The alignment rests on one premise worth naming: acks complete in id
+ * order, because pane writes serialize on both legs (the local per-pane
+ * input chain in @internal/pane-runtime's TmuxRunner, and the node's
+ * per-daemon input chain). Completion in id order is what keeps a session's
+ * unacked set under retry the NEWEST ids, a suffix the window still holds;
+ * if acks could complete out of order, an old unacked id could sit below
+ * 512 newer completions and the same resend would re-write it. */
 const WINDOW_SIZE = 512;
 
 /** Sessions kept process-wide. A session id is never seen again once its page

@@ -187,6 +187,7 @@ function unitFrameBytes(text: string, i: number): [units: number, bytes: number]
   const high = code >= 0xd800 && code <= 0xdbff;
   const next = high ? text.charCodeAt(i + 1) : 0;
   if (high && next >= 0xdc00 && next <= 0xdfff) return [2, 4]; // one astral character, raw UTF-8
+  if (code >= 0xd800 && code <= 0xdfff) return [1, 6]; // a LONE surrogate: JSON.stringify re-escapes it as \udXXX
   if (code < 0x20) {
     if (code === 0x08 || code === 0x09 || code === 0x0a || code === 0x0c || code === 0x0d) return [1, 2];
     return [1, 6]; // \uXXXX
@@ -274,11 +275,15 @@ export function createInputQueue(sender: InputSender, now: () => number = Date.n
     for (const cb of [...listeners]) cb();
   };
 
-  /** Records one frame as on the wire. */
+  /** Puts one frame on the wire, honoring the sender's delivery report: a
+   * send that did not leave (socket down mid-flush) leaves the entry as
+   * unsent backlog, which the next reconnect's flush ships. Marking it sent
+   * anyway would start an RTT clock that never ends and an ack that can
+   * never come. */
   const markSent = (entry: PendingInput): void => {
-    entry.sent = true;
-    entry.sentAt = now();
-    sender(entry.data, entry.id);
+    const delivered = sender(entry.data, entry.id);
+    entry.sent = delivered;
+    entry.sentAt = delivered ? now() : 0;
   };
 
   /** Enters a frame into the queue, evicting the OLDEST beyond the cap (Map
