@@ -79,6 +79,7 @@ import {
 import { useAssistantRunners } from "./runners";
 import { HandoffScreen } from "./screens/handoff-screen";
 import { SetupScreen } from "./screens/setup-screen";
+import { StatusScreen } from "./screens/status-screen";
 import { TmuxScreen } from "./screens/tmux-screen";
 import { WelcomeScreen, Wordmark } from "./screens/welcome-screen";
 
@@ -210,7 +211,7 @@ export function Host(): React.JSX.Element {
   const [problem, setProblem] = useState("");
   const [customizeOpen, setCustomizeOpen] = useState(false);
   /** The last action's own words, for the recovery screen's Show Details. */
-  const [_lastResult, setLastResult] = useState<ActionResult | null>(null);
+  const [lastResult, setLastResult] = useState<ActionResult | null>(null);
   /**
    * The tmux install's own progress: the manager's last output line, and when
    * the install began (`0` = none running, the old sentinel).
@@ -242,7 +243,7 @@ export function Host(): React.JSX.Element {
    */
   const [tmuxResult, setTmuxResult] = useState<ActionResult | null>(null);
   /** The last log tail, refreshed on the poll only while the disclosure is open. */
-  const [_lastTail, setLastTail] = useState<LogTail | null>(null);
+  const [lastTail, setLastTail] = useState<LogTail | null>(null);
   /**
    * Whether Show Details is expanded.
    *
@@ -361,7 +362,7 @@ export function Host(): React.JSX.Element {
   const [form, setForm] = useState<FormValues>(() => effectiveForm(undefined));
   const [explicit, setExplicit] = useState<ExplicitMap>({});
   /** Who made this app, its version and its terms — read ONCE on boot. */
-  const [_about, setAbout] = useState<About | null>(null);
+  const [about, setAbout] = useState<About | null>(null);
   /**
    * The reset chain's most recent step event, as the listener delivers it.
    * The reset screen's meter consumes it (Task 7); the host is its writer
@@ -1098,13 +1099,58 @@ export function Host(): React.JSX.Element {
           />
         );
         break;
-      // Tasks 5–7: update, supervision, addresses, permissions, reset, and
-      // Task 4's status screen. The route is already computed; the screens
-      // land with their tasks.
+      case "status":
+        content = (
+          <StatusScreen
+            strings={shell("status")}
+            entranceKey={entranceKey}
+            probe={p}
+            busy={busy}
+            running={running}
+            failure={failure}
+            form={form}
+            supervision={supervision}
+            tmuxResult={tmuxResult}
+            outputOpen={tmuxOutputOpen}
+            onOutputOpenChange={setTmuxOutputOpen}
+            outputScroll={tmuxOutputScroll}
+            onOutputScroll={setTmuxOutputScroll}
+            problem={problem}
+            detailsOpen={detailsOpen}
+            onDetailsOpenChange={setDetailsOpen}
+            onDetailsToggle={(open) => {
+              // Pull a tail the moment it is asked for rather than waiting out
+              // the poll: an empty pane on open reads as "there are no logs".
+              setDetailsOpen(open);
+              if (open) void refreshTail();
+            }}
+            lastResult={lastResult}
+            lastTail={lastTail}
+            about={about}
+            onAction={runRecovery}
+            onInstallTmux={() => startTmuxInstall()}
+            onGo={go}
+            onOpenReset={() => {
+              // The old `openReset` set the screen and armed the plan; the
+              // plan's arming is Task 7's screen. The request routes now —
+              // the screen is what explains a refusal, so it shows whether
+              // or not a plan staged (see the plan's Task 7 note).
+              setScreen("reset");
+              setScreenEpoch((e) => e + 1);
+            }}
+            onReveal={(target) => {
+              void ipc.openPath(target).catch(fail);
+            }}
+            onFail={fail}
+          />
+        );
+        break;
+      // Tasks 5–7: update, supervision, addresses, permissions, reset. The
+      // route is already computed; the screens land with their tasks.
       default:
         content = (
-          /* Task 4–7: the screens land here — this region is empty until then. */
-          <div data-task="4-7" />
+          /* Task 5–7: the screens land here — this region is empty until then. */
+          <div data-task="5-7" />
         );
     }
   }
