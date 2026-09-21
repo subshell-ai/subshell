@@ -1,5 +1,13 @@
 # @internal/server
 
+## 0.15.5
+
+### Patch Changes
+
+- [#124](https://github.com/subshell-ai/subshell/pull/124) [`c5ff49a`](https://github.com/subshell-ai/subshell/commit/c5ff49a00634915a61e3944f37eaa5b75ef8541b) Thanks [@theogravity](https://github.com/theogravity)! - Right-click a workspace tab to split it right or down, or close its pane, without needing the drag gesture. The drag still works as before: dropping on a group's edge splits, on its center it joins that group as a tab.
+
+- [#122](https://github.com/subshell-ai/subshell/pull/122) [`9c1ed54`](https://github.com/subshell-ai/subshell/commit/9c1ed543df2a5c9073b1a4f1661c822378cc96ec) Thanks [@theogravity](https://github.com/theogravity)! - Before ordering a node update, the plane now verifies that the node binary it serves from disk is the release it offers, and refuses with NODE_UPDATE_UNAVAILABLE when a stale artifact is on disk. The refusal names both remedies: republish the binary, or delete it so the next download fetches the verified release.
+
 ## 0.15.4
 
 ### Patch Changes
