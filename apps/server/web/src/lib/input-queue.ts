@@ -291,7 +291,7 @@ export function createInputQueue(sender: InputSender, now: () => number = Date.n
    * The PRE-ENGAGE BUFFER: bytes typed before the queue knew how this server
    * answers input, in typing order, held because the sender refused them (a
    * bare send into an attach that is not yet serving frames is a byte gone
-   * forever — the regression #117 shipped). No ids: they may yet ship bare on
+   * forever, as this queue's first cut did). No ids: they may yet ship bare on
    * an old server, and an id handed out before the answer would name a frame
    * the dedupe window may never see. It fills only while `!engaged`; the
    * first `viewers` frame — engage or disengage — is the flush point, which
