@@ -21,11 +21,11 @@ import type { JSX } from "react";
  *
  * It is the server's rule rather than this component's guess: Service and
  * Logs 400 on the control-plane host (its own surface is Server Settings →
- * Service) and 403 for a `view` grantee. Rendering — or deep-linking — what
+ * Service) and 403 for a `view` grantee. Rendering, or deep-linking, what
  * the route refuses teaches a person the app is broken; `/nodes/local/service`
  * answering a LIVE control-plane host with "this node is offline" is the
  * worst case, which is why the pages redirect to the Overview rather than
- * merely hiding the tab. The server still enforces the refusal — this only
+ * merely hiding the tab. The server still enforces the refusal; this only
  * keeps the page honest about it.
  *
  * `access` is the server's own word for this viewer, so nav and routes

@@ -246,7 +246,7 @@ function NodeDetailPage() {
               unreadable from a refusal alone (the card READ-shows to
               anyone who can see the node; the editor appears only for
               `canManage`, which is also the PUT's gate). `local` included
-              — the plane enforces its own allowlist on its own launches,
+              the plane enforces its own allowlist on its own launches,
               so the host's page must be able to say what it holds. */}
           <NodeAllowedDirs
             node={n}
@@ -268,8 +268,8 @@ function NodeDetailPage() {
           />
 
           {/* Where this machine dials, and the one field that moves it.
-              Repointing is a daemon concept — no card on `local`, the host
-              IS the server — and the URL is a configuration fact for the
+              Repointing is a daemon concept: no card on `local`. The host
+              IS the server, and the URL is a configuration fact for the
               people who configure: `owner`|`edit`, the old tab's audience,
               not a `view` grantee's. The card's own write controls further
               to `owner`. */}

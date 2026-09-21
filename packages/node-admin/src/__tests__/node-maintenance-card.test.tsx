@@ -119,13 +119,13 @@ describe("NodeMaintenanceCard", () => {
 
   /**
    * The label names the SWITCH and never changes. The old pair put
-   * "Accepting subshells" beside an OFF switch — an affirmative label on a
+   * "Accepting subshells" beside an OFF switch: an affirmative label on a
    * negated position reads as "accepting: off", the opposite of the truth.
    * The replacement "Accepting new subshells" state line went the same way
    * by a different road: an off switch announcing its own off-state is a
    * tautology that says nothing anyone acts on, so the state line exists
    * ONLY while the machine is in maintenance (since-when and which-end
-   * declared it — those are facts).
+   * declared it, are facts).
    */
   it("labels the switch 'Maintenance mode' in BOTH positions and states only the ON position", () => {
     const { restore } = mockFetch();

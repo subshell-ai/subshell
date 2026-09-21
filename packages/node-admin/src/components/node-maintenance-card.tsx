@@ -117,7 +117,7 @@ export function NodeMaintenanceCard({
           />
           {/* The label names WHICH SWITCH this is and never changes; it used
               to flip to "Accepting subshells" exactly when the switch was
-              OFF, which reads as "accepting: off" — the opposite of the
+              OFF, which reads as "accepting: off", the opposite of the
               truth. The state line below appears ONLY in maintenance: an
               off switch describing its own off-state ("Accepting new
               subshells") is a tautology, while how long it has been ON and
