@@ -1,4 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
+import { createHash } from "node:crypto";
+import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   NODE_PROTOCOL_VERSION,
   NODE_RESULT_DIGEST_MISMATCH,
@@ -15,6 +18,7 @@ import type { verifyReleaseManifest } from "@internal/subshell-protocol/release-
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { nodesRoutes } from "@/api/nodes/index.js";
+import { NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
@@ -82,6 +86,39 @@ const runtime: NodeRuntimeReport = {
 /** The version the fake release publishes, chosen above any real one. */
 const RELEASE_VERSION = "9.9.9";
 const RELEASE_TAG = `cli-node-v${RELEASE_VERSION}`;
+
+/**
+ * The digest the fake manifest's `assets` map names for linux-x64. A `let`
+ * rather than a constant so the disk-artifact-matches case can be built: no
+ * real bytes hash to a fixed digest, so the test flips the manifest to name
+ * the fixture's own hash and resets the release cache to re-read it.
+ */
+let manifestDigest = "a".repeat(64);
+
+/**
+ * The disk artifact the stale-file tests publish, and its sha — a real,
+ * non-empty file whose hash cannot equal the manifest digest above (it is
+ * fixed text, and the digest is 64 hex digits of someone else's bytes).
+ */
+const DISK_FIXTURE = Buffer.from("stale-published-node-binary\n");
+const DISK_FIXTURE_SHA = createHash("sha256").update(DISK_FIXTURE).digest("hex");
+/** Where {@link DISK_FIXTURE} is published, per the download routes' own name. */
+const DISK_FIXTURE_PATH = join(NODE_ARTIFACTS_DIR, "subshell-node-cli-linux-x64");
+
+/** Publish {@link DISK_FIXTURE} as this instance's linux-x64 node binary. */
+function publishDiskFixture(): void {
+  mkdirSync(NODE_ARTIFACTS_DIR, { recursive: true });
+  writeFileSync(DISK_FIXTURE_PATH, DISK_FIXTURE);
+}
+
+/** Unpublish it — the file the download routes would otherwise keep serving. */
+function unpublishDiskFixture(): void {
+  try {
+    unlinkSync(DISK_FIXTURE_PATH);
+  } catch {
+    /* already absent */
+  }
+}
 
 /** The armor the fake verifier accepts; the fake release serves exactly this at `/sig`. */
 const TEST_ARMOR = "TEST-ARMOR";
@@ -185,11 +222,11 @@ describe("POST /api/nodes/:id/update", () => {
             nodeProtocol: NODE_PROTOCOL_VERSION,
             minNodeVersion: "0.9.0",
             commit: "deadbeef",
-            assets: { "subshell-node-cli-linux-x64": "a".repeat(64) },
+            assets: { "subshell-node-cli-linux-x64": manifestDigest },
           });
         }
         if (url.pathname === "/sig") return new Response(TEST_ARMOR);
-        if (url.pathname === "/sha") return new Response(`${"a".repeat(64)}\n`);
+        if (url.pathname === "/sha") return new Response(`${manifestDigest}\n`);
         return new Response("no", { status: 404 });
       },
     });
@@ -213,6 +250,7 @@ describe("POST /api/nodes/:id/update", () => {
   afterEach(() => {
     resetNodeRegistryForTests();
     resetUpdateTokensForTests();
+    unpublishDiskFixture();
   });
 
   /** Point the release service at the fake source and drop its memo. */
@@ -508,6 +546,60 @@ describe("POST /api/nodes/:id/update", () => {
     expect(err.message).toContain("99.0.0");
     expect(err.message).toContain(RELEASE_VERSION);
     expect(sock.sent).toEqual([]);
+  });
+
+  // ── the artifact on disk is checked against the release it offers ────────
+  //
+  // The download route serves DISK-FIRST, but `fetchDigest` reads the signed
+  // manifest — so a stale file in NODE_ARTIFACTS_DIR (an operator-published
+  // artifact is never superseded) made the plane order an update whose digest
+  // the bytes it serves could never match. Proven live: the node downloaded
+  // the old binary, refused it on its own digest check, and the operator paid
+  // ~70 MB to learn the offer was incoherent. These pin the plane's refusal
+  // of that offer BEFORE anything reaches the node.
+
+  it("a disk artifact from another release → 409 NODE_UPDATE_UNAVAILABLE, nothing sent", async () => {
+    useFakeRelease();
+    publishDiskFixture(); // its sha cannot equal the manifest's fixed digest
+    const id = await mkNode();
+    const sock = goOnline(id);
+    const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    expect(res.status).toBe(409);
+    const err = (await res.json()) as { code: string; message: string };
+    expect(err.code).toBe("NODE_UPDATE_UNAVAILABLE");
+    expect(err.message).toContain("linux-x64");
+    expect(err.message).toContain("release:cli-node");
+    expect(err.message).toContain("verified release");
+    // The offer was refused before the command went out — the node downloads
+    // nothing, mints nothing, and learns nothing of the incoherence.
+    expect(sock.sent).toEqual([]);
+    const rows = await new AuditRepository(db).listLatest(20);
+    expect(rows.find((r) => r.action === "node.update" && r.targetId === id)).toBeUndefined();
+  });
+
+  it("a disk artifact MATCHING the offered digest is served, and the update proceeds", async () => {
+    useFakeRelease();
+    publishDiskFixture();
+    // The manifest must name what is actually on disk: flip it to the
+    // fixture's own hash, then re-read the (memoized) manifest.
+    manifestDigest = DISK_FIXTURE_SHA;
+    resetReleaseCacheForTests();
+    const id = await mkNode();
+    const { res, cmd } = await updateWithAnswer(id, aliceCookie, {}, { ok: true });
+    expect(res.status).toBe(202);
+    expect(cmd.sha256).toBe(DISK_FIXTURE_SHA);
+    // Restore the shared manifest before any later test reads it.
+    manifestDigest = "a".repeat(64);
+    resetReleaseCacheForTests();
+  });
+
+  it("no disk artifact → the lazy fetch will serve the release, and the update proceeds", async () => {
+    useFakeRelease();
+    unpublishDiskFixture(); // this file's own leftovers; the 202s above already assume absence
+    const id = await mkNode();
+    const { res, cmd } = await updateWithAnswer(id, aliceCookie, {}, { ok: true });
+    expect(res.status).toBe(202);
+    expect(cmd.sha256).toBe("a".repeat(64));
   });
 
   // ── the command, end to end ─────────────────────────────────────────────

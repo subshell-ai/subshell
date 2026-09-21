@@ -18,7 +18,7 @@ import { loadNodeGate } from "@/api/nodes/node-gate.js";
 import { APP_BASE_URL } from "@/constants.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { nodeCanConfigure } from "@/lib/node-access.js";
-import { artifactStat } from "@/lib/node-artifacts.js";
+import { artifactStat, diskArtifactSha256 } from "@/lib/node-artifacts.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
 import { getHeld, getLive } from "@/services/nodes/node-registry.js";
@@ -328,6 +328,46 @@ export const updateNodeRoute = new Elysia()
         );
       }
 
+      // The download route serves DISK-FIRST, and this digest came from the
+      // release's SIGNED manifest — two facts that disagree the moment the
+      // file on disk is from an older release than the offer. An
+      // operator-published artifact is never superseded (only files this
+      // instance FETCHED are, per `.fetched.json`), so "a stale file sits in
+      // NODE_ARTIFACTS_DIR" is a real, ordinary state. Proven live
+      // 2026-09-21: the plane told a node to install a release whose digest
+      // it had named, the node downloaded the PREVIOUS release's binary this
+      // server had on disk, and its own digest check refused the whole
+      // update after ~70 MB of download. The node's refusal is the last line
+      // of defence, never the plan: the offer is checked HERE, before the
+      // command goes out, against the same file the download route would
+      // serve (`artifactStat`'s rule, hashed as it streams). No file on disk
+      // means the lazy fetch serves verified release bytes, so there is
+      // nothing to compare — and a read error is refused the way the digest
+      // read above is, never papered over.
+      // A non-Error throw must not masquerade as a digest mismatch: convert
+      // here so the branch below can only ever mean "could not verify".
+      const onDisk = await diskArtifactSha256(target).catch((err: unknown) =>
+        err instanceof Error ? err : new Error(String(err)),
+      );
+      if (onDisk instanceof Error) {
+        return status(
+          409,
+          apiErrorBody({
+            code: BackendErrorCodes.NODE_UPDATE_UNAVAILABLE,
+            message: `This server could not verify its published ${target} node binary against the release it offers, so it will not order an uncheckable install: ${onDisk.message}`,
+          }),
+        );
+      }
+      if (onDisk !== null && onDisk !== sha256) {
+        return status(
+          409,
+          apiErrorBody({
+            code: BackendErrorCodes.NODE_UPDATE_UNAVAILABLE,
+            message: `This server's published ${target} node binary is not the release it offers, so the node would install nothing. Republish with \`bun run release:cli-node\`, or delete the file so the next download fetches the verified release.`,
+          }),
+        );
+      }
+
       // The SAME base the enroll script bakes, so the loopback trap is the one
       // an operator already knows about — and the response echoes the url
       // (tokenless) so the page can say "this node was told to dial 127.0.0.1"
@@ -418,7 +458,7 @@ export const updateNodeRoute = new Elysia()
         operationId: "updateNode",
         tags: ["nodes"],
         description:
-          "Replace an enrolled node's own binary with the release this server can talk to, and restart it into the new version. Works on a HELD node — one the plane refuses for its version or protocol — which is the case it exists for. 409 when offline, when no compatible release can be offered, when there is no artifact for that platform, when the node already runs the newest offerable release (NODE_UP_TO_DATE) or reports a newer one (UPDATE_DOWNGRADE), and for every refusal the node itself raises",
+          "Replace an enrolled node's own binary with the release this server can talk to, and restart it into the new version. Works on a HELD node — one the plane refuses for its version or protocol — which is the case it exists for. 409 when offline, when no compatible release can be offered, when there is no artifact for that platform, when the published binary on disk is not the release offered, when the node already runs the newest offerable release (NODE_UP_TO_DATE) or reports a newer one (UPDATE_DOWNGRADE), and for every refusal the node itself raises",
       },
     },
   );

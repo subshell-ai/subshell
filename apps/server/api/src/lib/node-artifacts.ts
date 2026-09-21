@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { type Stats, statSync } from "node:fs";
 import { join } from "node:path";
 import { NODE_TARGETS, type NodeTarget, nodeArtifactFileName } from "@internal/subshell-protocol";
@@ -32,6 +33,32 @@ export function artifactStat(target: NodeTarget): Stats | null {
   } catch {
     return null; // ENOENT/ENOTDIR → unpublished → 404 upstream
   }
+}
+
+/**
+ * The SHA-256 of the binary ACTUALLY on disk for `target`, or null when
+ * unpublished — the same {@link artifactStat} rule, then hashed over the real
+ * bytes rather than any sidecar, because a consumer comparing this against a
+ * release's published digest is asking "would the file the download route
+ * serves match it".
+ *
+ * The published builds are tens of MB, so the hash streams; nothing buffers
+ * the file. A file that vanishes between the stat and the read answers null:
+ * at download time the route lazy-fetches the verified release instead, so
+ * "not on disk" is the honest answer rather than an error.
+ */
+export async function diskArtifactSha256(target: NodeTarget): Promise<string | null> {
+  if (artifactStat(target) === null) return null;
+  const hash = createHash("sha256");
+  try {
+    for await (const chunk of Bun.file(artifactPath(target)).stream()) {
+      hash.update(chunk);
+    }
+  } catch (error) {
+    if ((error as { code?: string }).code === "ENOENT") return null;
+    throw error;
+  }
+  return hash.digest("hex");
 }
 
 /**
