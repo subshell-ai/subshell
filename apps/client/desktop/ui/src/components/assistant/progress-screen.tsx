@@ -152,7 +152,7 @@ export function ProgressScreen(props: {
               <div className="min-w-0">
                 <p className={cn("font-strong text-label leading-normal", style.labelClass)}>
                   {row.label}
-                  <span className="sr-only">{` — ${style.word}`}</span>
+                  <span className="sr-only">{`, ${style.word}`}</span>
                 </p>
                 {/*
                  * The failed act's own words, VERBATIM and attached to the row

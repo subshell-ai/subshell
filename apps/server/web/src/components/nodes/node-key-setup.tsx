@@ -154,11 +154,10 @@ export function useSetupKeyVerdict() {
   const missingTargets = targets && !autoFetch ? NODE_TARGETS.filter((t) => !targets.includes(t)) : [];
   const missingNote = missingTargets.length > 0 && (
     <p className="text-amber-600 text-detail dark:text-amber-400">
-      This server has no node binary for: {missingTargets.join(", ")}, and it is configured not to download one. The
-      install command 404s on those machines. Publish the binaries on the server (run{" "}
+      This server has no node binary for: {missingTargets.join(", ")}, and it is configured not to download one, so the
+      install command 404s on those machines. Publish the binaries (run{" "}
       <code className="font-mono">bun run release:cli-node</code> from a checkout, or copy them from a cli-node-vX.Y.Z
-      GitHub Release into that dir), or install the node another way and run <code className="font-mono">setup</code>{" "}
-      there — or add the machine with the Subshell Client app, which ships its own node CLI.
+      release into that dir), or use the Subshell Client app, which ships its own node CLI.
     </p>
   );
   // Settings neither loaded nor errored ⇒ no verdict exists; say so instead of

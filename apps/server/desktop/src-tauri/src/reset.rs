@@ -546,7 +546,7 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
         if !wait_for_port_closed(target, STOP_VERIFY_BUDGET) {
             report_step(&app, ResetStep::Stop, "failed");
             let detail = format!(
-                "the service manager answered, but a server is still answering on {target} — \
+                "the service manager answered, but a server is still answering on {target}: \
                  nothing was deleted. If a server was started by hand (or another process \
                  holds that port), stop it and press Retry."
             );

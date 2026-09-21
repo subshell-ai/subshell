@@ -14,7 +14,7 @@ describe("consequences", () => {
     expect(mac.at(-1)).toBe("Running subshells keep running");
     const linux = consequences("service", "linux", false);
     expect(linux[1]).toBe("Installs a systemd user service and starts it");
-    expect(linux).toContain("Does not come back after you log out — you would start it yourself");
+    expect(linux).toContain("Does not come back after you log out; you would start it yourself");
     expect(consequences("service", "linux", true)).toContain("Starts it again the next time you log in");
   });
 });

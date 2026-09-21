@@ -35,7 +35,7 @@ describe("rowState", () => {
 
   it("names the server's own floor, because half the sentence is about the server", () => {
     expect(rowState(nodeRow({ held: { reason: "below-floor" }, agentVersion: "0.4.0" }), fleet)).toBe(
-      "needs update — below this server's minimum (0.7.0)",
+      "needs update: below this server's minimum (0.7.0)",
     );
   });
 
@@ -43,7 +43,7 @@ describe("rowState", () => {
     // Sometimes the answer is the server, which a node-shaped sentence would
     // never reach.
     expect(rowState(nodeRow({ held: { reason: "protocol-mismatch" }, protocolVersion: 9 }), fleet)).toBe(
-      "needs update — speaks protocol 9, this server speaks 10",
+      "needs update: speaks protocol 9, this server speaks 10",
     );
   });
 });

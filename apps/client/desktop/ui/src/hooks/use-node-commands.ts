@@ -180,7 +180,7 @@ export function useNodeCommands(args: {
           // which is the act that costs panes. An install that interrupts
           // nothing cannot kill a subshell.
           messages.push(
-            "The running daemon is not interrupted — the swap is a rename it never notices — so it keeps running " +
+            "The running daemon is not interrupted (the swap is a rename it never notices), so it keeps running " +
               "the previous version until you restart it.",
           );
         }

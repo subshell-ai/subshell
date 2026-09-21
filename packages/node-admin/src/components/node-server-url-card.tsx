@@ -40,7 +40,7 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
     const ok = await confirmAction({
       title: `Point "${node.name}" at ${url.trim()}?`,
       description:
-        "That machine will dial the new address from its next restart, carrying the node key it holds today — so only name a control plane you trust. If the new plane does not know this node, it goes offline here and stays offline until someone with a shell on that machine points it back.",
+        "That machine will dial the new address from its next restart, carrying the node key it holds today, so only name a control plane you trust. If the new plane does not know this node, it goes offline here and stays offline until someone with a shell on that machine points it back.",
       confirmLabel: "Repoint node",
       danger: true,
     });
@@ -70,8 +70,8 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
       <CardHeader>
         <CardTitle>Control plane</CardTitle>
         <CardDescription>
-          The address this machine dials. Changing it keeps the node's identity — its id, its key and the server key it
-          pinned at enrollment — so this is a move, never a re-enrollment. It takes effect when the node restarts.
+          The address this machine dials. Changing it keeps the node's identity, so this is a move, never a
+          re-enrollment; it takes effect when the node restarts.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -94,7 +94,7 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
           ) : (
             <p className="text-detail text-muted-foreground">
               {isOwner
-                ? "This server cannot see which address the node currently uses — that lives in its own config file."
+                ? "This server cannot see which address the node currently uses: that lives in its own config file."
                 : "Only the node's owner can change this."}
             </p>
           )}

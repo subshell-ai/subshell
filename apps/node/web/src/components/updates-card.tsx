@@ -92,7 +92,7 @@ export function UpdatesCard(): React.ReactNode {
         <CardTitle>Node software</CardTitle>
         <CardDescription>
           The node updates itself from its release source, exactly as <code className="font-mono">subshell update</code>{" "}
-          does — the signed release manifest is verified against the publisher key compiled into this binary, and the
+          does. The signed release manifest is verified against the publisher key compiled into this binary, and the
           install digest comes from that manifest, never from the download host.
         </CardDescription>
       </CardHeader>
@@ -171,7 +171,7 @@ export function UpdatesCard(): React.ReactNode {
         {result && <p className="text-detail text-success">{result}</p>}
 
         <p className="text-detail text-muted-foreground">
-          This page cannot ask the control plane which node version IT accepts — that compatibility check lives in the
+          This page cannot ask the control plane which node version it accepts; that compatibility check lives in the
           server's Settings → Updates.
         </p>
       </CardContent>

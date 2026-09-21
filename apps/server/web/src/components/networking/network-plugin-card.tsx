@@ -335,7 +335,7 @@ export function NetworkPluginCard({
       onPendingChange={setSavingSettings}
       requiredOnly={compact}
       {...(row.published
-        ? { reason: `Unpublish ${row.name} to change these — a change cannot reach the running publish.` }
+        ? { reason: `Unpublish ${row.name} to change these: a change cannot reach the running publish.` }
         : {})}
     />
   );
@@ -785,8 +785,7 @@ export function NetworkPluginCard({
               {state === "joined" && row.publishImplicit && (
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-detail text-muted-foreground">
-                    {row.name} publishes by joining — “{publishLabel}” records its addresses and trusts them for
-                    sign-in.
+                    {row.name} publishes by joining: “{publishLabel}” records its addresses and trusts them for sign-in.
                   </p>
                   <Button size="sm" disabled={busy} onClick={() => begin(() => publish.mutate({ id: row.id }))}>
                     {publish.isPending && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
@@ -798,7 +797,7 @@ export function NetworkPluginCard({
                 <div className="space-y-3 rounded-md border p-4">
                   <h3 className="font-strong text-label">Publish</h3>
                   <p className="text-detail text-muted-foreground">
-                    Subshell is not published on {row.name} yet — “{publishLabel}” is what lets your other devices open
+                    Subshell is not published on {row.name} yet. “{publishLabel}” is what lets your other devices open
                     this dashboard over the network.
                   </p>
                   {/* The necessity question, answered before it is asked: the
@@ -843,8 +842,8 @@ export function NetworkPluginCard({
                       const proceed = await confirmAction({
                         title: `Stop publishing Subshell on ${row.name}?`,
                         description: row.publishImplicit
-                          ? `Unpublishing ${row.name} ends its publish record — the addresses keep answering and stay trusted while this machine stays a member. "Disconnect" takes the machine off the network.`
-                          : `The published addresses stop answering, and sign-in from them stops now — addresses the network routes to this machine directly keep answering while it stays a member. This machine stays on the network.`,
+                          ? `Unpublishing ${row.name} ends its publish record: the addresses keep answering and stay trusted while this machine stays a member. "Disconnect" takes the machine off the network.`
+                          : `The published addresses stop answering, and sign-in from them stops now; addresses the network routes to this machine directly keep answering while it stays a member. This machine stays on the network.`,
                         confirmLabel: "Unpublish",
                       });
                       if (proceed) begin(() => unpublish.mutate({ id: row.id }));

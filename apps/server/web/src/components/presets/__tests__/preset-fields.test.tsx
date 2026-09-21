@@ -253,7 +253,7 @@ describe("PresetFields entry modes", () => {
       await screen.findByText("Agent");
       pasteInto("codex --effort xhigh");
       expect(
-        screen.getByText("“codex” isn't Claude Code's command — the agent selected above is what runs."),
+        screen.getByText("“codex” isn't Claude Code's command; the agent selected above is what runs."),
       ).toBeDefined();
     } finally {
       restore();

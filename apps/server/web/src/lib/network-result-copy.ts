@@ -33,7 +33,7 @@ export function andList(items: string[]): string {
 /** The publish announcement: where the other devices can sign in, now. */
 export function publishedLine(name: string, urls: string[]): string {
   if (urls.length === 0) return `Published on ${name}.`;
-  return `Published on ${name} — your other devices can sign in at ${andList(urls)} now.`;
+  return `Published on ${name}: your other devices can sign in at ${andList(urls)} now.`;
 }
 
 /** "x no longer accepts sign-ins" / "x and y no longer accept sign-ins". */
@@ -48,15 +48,15 @@ function noLongerAccepts(origins: string[]): string {
  */
 export function unpublishedLine(name: string, origins: string[]): string {
   if (origins.length === 0) {
-    return `Stopped publishing on ${name} — the addresses this server accepts sign-in from are unchanged.`;
+    return `Stopped publishing on ${name}: the addresses this server accepts sign-in from are unchanged.`;
   }
-  return `Stopped publishing on ${name} — ${noLongerAccepts(origins)}.`;
+  return `Stopped publishing on ${name}: ${noLongerAccepts(origins)}.`;
 }
 
 /** The leave result, in the same grammar; leave is NetBird's normal path off the allowlist. */
 export function leftLine(name: string, origins: string[]): string {
   if (origins.length === 0) return `Left ${name}.`;
-  return `Left ${name} — ${noLongerAccepts(origins)}.`;
+  return `Left ${name}: ${noLongerAccepts(origins)}.`;
 }
 
 /**
@@ -65,9 +65,9 @@ export function leftLine(name: string, origins: string[]): string {
  * so the number appears only when it is a fact.
  */
 export function disabledLine(count: number | undefined): string {
-  if (count === undefined || count === 0) return "Disabled — its addresses are not offered or trusted.";
-  if (count === 1) return "Disabled — its address is not offered or trusted.";
-  return `Disabled — its ${count} addresses are not offered or trusted.`;
+  if (count === undefined || count === 0) return "Disabled: its addresses are not offered or trusted.";
+  if (count === 1) return "Disabled: its address is not offered or trusted.";
+  return `Disabled: its ${count} addresses are not offered or trusted.`;
 }
 
 /**

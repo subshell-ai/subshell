@@ -194,7 +194,7 @@ function SettingsPage() {
                   "stop handing out new keys", and any key already minted stays
                   usable until it expires or is deleted. */}
               <p className="text-detail text-muted-foreground">
-                Turning this off does not revoke setup keys that already exist — they expire after 24 hours, or can be
+                Turning this off does not revoke setup keys that already exist. They expire after 24 hours, or can be
                 deleted from the Nodes page.
               </p>
             </CardContent>

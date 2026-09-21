@@ -216,7 +216,7 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
           <DialogHeader>
             <DialogTitle>Reset password for {user.email}</DialogTitle>
             <DialogDescription>
-              Sets a new password immediately and signs this user out of every device. They are not notified. There is
+              Sets a new password immediately and signs this user out of every device. They are not notified: there is
               no email on this instance, so pass the password on yourself.
             </DialogDescription>
           </DialogHeader>
@@ -271,9 +271,8 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
             <DialogTitle>Disable {user.email}</DialogTitle>
             <DialogDescription>
               They can no longer sign in, they are signed out of every device immediately, and every credential they
-              hold stops working — API keys, and the tokens their running subshells authenticate with. They are not
-              notified: there is no email on this instance, so tell them yourself. Enabling the account again restores
-              all of it.
+              hold stops working, their API keys and running subshells' tokens included. They are not notified: there is
+              no email on this instance, so tell them yourself.
             </DialogDescription>
           </DialogHeader>
 

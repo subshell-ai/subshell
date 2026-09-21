@@ -72,7 +72,7 @@ export function NotificationsMasterCard({
       <CardHeader>
         <CardTitle>Subshell notifications</CardTitle>
         <CardDescription>
-          Receive notifications when a subshell needs your attention. This is your account-wide switch. Turning it off
+          Receive notifications when a subshell needs your attention, through this account-wide switch. Turning it off
           silences every device at once, regardless of the per-subshell or per-device settings below.
         </CardDescription>
       </CardHeader>

@@ -339,7 +339,7 @@ function refusalNote(probe: Probe): string {
 function downgradeNote(probe: Probe): string {
   return (
     `This machine runs ${cliFrom(probe)} and this app ships ${probe.bundledVersion ?? "an older server"}. ` +
-    "An older server cannot boot on a database a newer one has migrated, so nothing here will replace it — " +
+    "An older server cannot boot on a database a newer one has migrated, so nothing here will replace it: " +
     "`subshell-server update --from <file>` takes a database backup first and is the supported way back."
   );
 }
@@ -533,7 +533,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
   // Try Again keeps explaining itself.
   if (failedHere) {
     notes.push(
-      "The server it ships is installed, but the restart did not finish — this machine is still running the server it had.",
+      "The server it ships is installed, but the restart did not finish; this machine is still running the server it had.",
     );
   }
   // The act restarts the service only where the CLI half is part of it: an

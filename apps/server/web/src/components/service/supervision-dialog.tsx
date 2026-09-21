@@ -51,7 +51,7 @@ export function consequences(
     `Installs a ${agent} and starts it`,
     autostart
       ? "Starts it again the next time you log in"
-      : "Does not come back after you log out — you would start it yourself",
+      : "Does not come back after you log out; you would start it yourself",
     // Leaving app mode stops a child the app signals by main pid only, so
     // panes always survive that direction.
     "Running subshells keep running",

@@ -35,7 +35,7 @@ const STEPS: Record<InstallPlatform, { label: string; steps: string[] }> = {
   apple: {
     label: "iPhone & iPad",
     steps: [
-      "Open the address above in Safari. Chrome and Firefox on iOS cannot install it — only Safari can.",
+      "Open the address above in Safari. Chrome and Firefox on iOS cannot install it; only Safari can.",
       "Tap the Share button, then Add to Home Screen.",
       "Tap Add, then open Subshell from its new icon. Notifications only ever arrive for the installed app.",
     ],
@@ -76,7 +76,7 @@ export function MobileInstallDialog({
         <DialogHeader>
           <DialogTitle>Subshell for Mobile</DialogTitle>
           <DialogDescription>
-            Subshell installs on a phone as an app — full screen, its own icon, and the only place notifications arrive.
+            Subshell installs on a phone as an app: full screen, its own icon, and the only place notifications arrive.
           </DialogDescription>
         </DialogHeader>
 

@@ -277,7 +277,7 @@ export function useTerminalUploads({
       setError("No image on the clipboard. Copy an image, or drag the file onto the terminal.");
     } catch {
       setError(
-        "Clipboard access was blocked. Click the padlock in the address bar → Site settings → Clipboard → Allow, then paste again. (Dragging the file onto the terminal always works.)",
+        "Clipboard access was blocked. Click the padlock in the address bar → Site settings → Clipboard → Allow, then paste again; dragging the file onto the terminal always works.",
       );
     }
   }, [handleFiles]);

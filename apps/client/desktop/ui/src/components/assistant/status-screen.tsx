@@ -569,7 +569,7 @@ export function StatusScreen(props: {
                   </Label>
                   <p className="text-muted-foreground">
                     Keeps this node's identity, and no setup key is spent, so this works when the new address is the
-                    same control plane under another name. A different control plane holds no key for this node and will
+                    same control plane under another name; a different control plane holds no key for this node and will
                     refuse it. The node reads its configuration at start, so restart it afterwards to apply, and this
                     app's own control-plane window moves to the new address too.
                   </p>
@@ -621,7 +621,7 @@ export function StatusScreen(props: {
                    */}
                   <p className="text-muted-foreground">
                     Repointing keeps this node's identity, so it works when both are the same control plane under two
-                    names. A different control plane holds no key for this node and will refuse it. The node would go
+                    names; a different control plane holds no key for this node and will refuse it. The node would go
                     offline, and joining that one means enrolling with a setup key from it.
                   </p>
                   {/*

@@ -189,7 +189,7 @@ export function NetworkSettingsForm({
               <div className="space-y-1.5">
                 <p className="text-detail text-muted-foreground">
                   {secretIsSet(row, field.key) ? "Set" : "Not set"}
-                  {secretIsSet(row, field.key) && " — typing here replaces it."}
+                  {secretIsSet(row, field.key) && " (typing here replaces it)"}
                 </p>
                 <Input
                   id={id}
@@ -228,8 +228,8 @@ export function NetworkSettingsForm({
                 moment it is discovered, where it is not. */}
             {field.type === "secret" && (
               <p className="text-detail text-muted-foreground">
-                <code className="font-mono">subshell-server backup</code> does not include it — after a restore, paste
-                it again.
+                <code className="font-mono">subshell-server backup</code> does not include it; after a restore, paste it
+                again.
               </p>
             )}
             {problem && <p className="text-destructive text-detail">{problem}</p>}

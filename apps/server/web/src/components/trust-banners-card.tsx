@@ -33,10 +33,10 @@ export function TrustBannersCard() {
       <CardHeader>
         <CardTitle>Sharing and node warnings</CardTitle>
         <CardDescription>
-          Shows a one-time banner when you open a subshell that runs on a machine you don&apos;t own, or one that is
-          shared with other people. Both mean someone else can read what the terminal shows. Turning this off hides the
-          banner only: the amber icon in the subshell&apos;s header says the same thing, always, and hovering it
-          explains why. Applies to this device.
+          Shows a one-time banner on this device when you open a subshell running on a machine you don&apos;t own, or
+          one shared with other people, because both mean someone else can read what the terminal shows. Turning this
+          off hides the banner only: the amber icon in the subshell&apos;s header says the same thing, always, and
+          hovering it explains why.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

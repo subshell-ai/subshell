@@ -67,7 +67,7 @@ export function signInDiagnosis(opts: { inServerApp: boolean; protocol: string }
     return {
       message:
         "Signed in, but this window could not store the session. This page is on http, and an instance whose base " +
-        "URL is an https address marks its session cookies Secure — which a browser will not keep on an http page.",
+        "URL is an https address marks its session cookies Secure, which a browser will not keep on an http page.",
       // **The remedy may not name a page that needs this session** (review,
       // 2026-09-18). It pointed at Server Settings → Networking, which is
       // exactly what cannot be reached: the premise of this branch is that no

@@ -19,10 +19,10 @@ import type { NodeUpdateRow, NodeUpdates } from "@/types/updates";
  */
 export function rowState(row: NodeUpdateRow, fleet: Pick<NodeUpdates, "minNodeVersion" | "protocol">): string {
   if (row.held?.reason === "below-floor") {
-    return `needs update — below this server's minimum (${fleet.minNodeVersion})`;
+    return `needs update: below this server's minimum (${fleet.minNodeVersion})`;
   }
   if (row.held?.reason === "protocol-mismatch") {
-    return `needs update — speaks protocol ${row.protocolVersion ?? "?"}, this server speaks ${fleet.protocol}`;
+    return `needs update: speaks protocol ${row.protocolVersion ?? "?"}, this server speaks ${fleet.protocol}`;
   }
   return row.online ? "online" : "offline";
 }

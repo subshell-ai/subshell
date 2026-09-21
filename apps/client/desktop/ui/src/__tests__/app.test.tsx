@@ -538,7 +538,7 @@ describe("enrolment is two-phase", () => {
     await openReenroll();
     expect(screen.getByText(/Mint a setup key in the browser first/)).toBeTruthy();
     expect(screen.getByText(/single-use and expires after 24 hours/)).toBeTruthy();
-    expect(screen.getByText(/already taken on that server/)).toBeTruthy();
+    expect(screen.getByText(/fails after the control plane has accepted it/)).toBeTruthy();
     // The third note is the naming one, and it says WHY the field is here rather
     // than being an optional courtesy: the control plane's guess went away.
     expect(screen.getByText(/the row on the Nodes page/)).toBeTruthy();

@@ -44,7 +44,9 @@ describe("confirmStartMaintenance", () => {
     expect(description).toContain("3 subshells running here will be stopped and their owners notified.");
     expect(description).not.toContain("3 running");
     expect(description).toContain("Nobody can launch here until maintenance ends.");
-    expect(description).toContain("Everything else about the node keeps working.");
+    // The two-sentence rule cut the reassurance clause; what the switch does
+    // (refuse launches, keep everything else answering) is docs/security's job.
+    expect(description).not.toContain("keeps working");
   });
 
   it("says one subshell in the singular", async () => {
@@ -77,7 +79,7 @@ describe("confirmStartMaintenance", () => {
     const c = captured();
     restore = c.restore;
     await confirmStartMaintenance({ name: "Server", isLocal: true, runningSubshells: 0 });
-    expect(c.seen[0]?.description).toContain("This applies to admins too.");
+    expect(c.seen[0]?.description).toContain("Nobody, admins included, can launch here until maintenance ends.");
   });
 
   it("leaves the admins clause off an agent node, where it would name nobody", async () => {

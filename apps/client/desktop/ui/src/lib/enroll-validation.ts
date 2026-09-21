@@ -74,7 +74,7 @@ export function validateEnroll(values: EnrollValues): EnrollValidation {
   // send is the bug whoever downstream catches it.
   const nameLength = [...name].length;
   if (normalizeNodeName(name) === "") {
-    errors.name = "Name this machine — the Nodes page lists it by this name.";
+    errors.name = "Name this machine: the Nodes page lists it by this name.";
   } else if (nameLength > NODE_NAME_MAX) {
     errors.name = `That name is ${nameLength} characters. The control plane accepts at most ${NODE_NAME_MAX}.`;
   }

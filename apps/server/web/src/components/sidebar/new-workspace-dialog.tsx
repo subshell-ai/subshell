@@ -128,7 +128,7 @@ export function NewWorkspaceDialog({
     if (failed > 0) {
       setCreatedId(id);
       setError(
-        `Workspace created. Couldn't add ${failed} subshell${failed === 1 ? "" : "s"}. You can add them from inside.`,
+        `Workspace created, but ${failed} subshell${failed === 1 ? "" : "s"} could not be added. You can add them from inside.`,
       );
       return;
     }

@@ -73,7 +73,7 @@ export function VersionRow({
   // The VISIBLE line is the label alone. `title` is the longer sentence, and it
   // reaches the reader through the tooltip and the accessible name — the two
   // places that are not 200px wide.
-  const title = notice === null ? label : `${label} — v${notice} available`;
+  const title = notice === null ? label : `${label}: v${notice} available`;
   const behind = notice !== null;
 
   // Collapsed with nothing to say is nothing at all: a version the rail cannot

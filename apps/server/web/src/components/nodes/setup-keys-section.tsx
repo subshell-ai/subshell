@@ -96,7 +96,7 @@ export function SetupKeysSection() {
         <CardTitle>Setup keys</CardTitle>
         <CardDescription>
           Single-use enrollment credentials, valid 24 h. Each key stays listed here until it is used, expires, or is
-          revoked — so the Add-node dialog is not the only place one can be read.
+          revoked, so the Add-node dialog is not the only place one can be read.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

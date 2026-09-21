@@ -39,7 +39,7 @@ export function MouseSamplingCard() {
       <CardHeader>
         <CardTitle>Mouse movement reporting</CardTitle>
         <CardDescription>
-          How many times a second pointer movement is sent into a terminal. Each report costs the pane a process on the
+          How many times a second pointer movement is sent into a terminal: each report costs the pane a process on the
           server, so a lower number keeps typing responsive while the mouse is moving. Clicks, scrolling and keystrokes
           are never affected.
         </CardDescription>

@@ -91,7 +91,7 @@ export const INSTALL_STALL_MS = 120_000;
  * detection is what will answer.
  */
 export const STALLED_MESSAGE =
-  "The installer stopped reporting. It may still be running — this page will say so once it finishes.";
+  "The installer stopped reporting. It may still be running; this page will say so once it finishes.";
 
 /**
  * Reads the install route's NDJSON stream to its terminal frame.

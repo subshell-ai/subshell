@@ -1,7 +1,7 @@
 import { ApiError, errMessage } from "@internal/node-admin";
 
 /** Said of a server that predates the half of the split it is failing at. */
-const STALE_SERVER = "the server is running an older build than this page — update and restart it, then try again";
+const STALE_SERVER = "the server is running an older build than this page; update and restart it, then try again";
 
 /**
  * Checks that the server actually did what a split asked of it.
@@ -23,7 +23,7 @@ const STALE_SERVER = "the server is running an older build than this page — up
  */
 export function splitWorkspaceRefusal(workspace: { draft?: boolean; subshellCount?: number }): string | null {
   if (workspace.draft === true && workspace.subshellCount === 1) return null;
-  return `The server created a workspace but did not put this subshell in it — ${STALE_SERVER}.`;
+  return `The server created a workspace but did not put this subshell in it: ${STALE_SERVER}.`;
 }
 
 /**
