@@ -461,6 +461,55 @@ describe("POST /api/nodes/:id/update", () => {
     expect(err.message).toContain("darwin/x64");
   });
 
+  // ── nothing-to-do refusals, before any artifact work ──────────────────────
+  //
+  // A node already on the offered release would re-download and reinstall the
+  // same ~70 MB binary; one AHEAD of it would silently downgrade. Both answers
+  // must arrive BEFORE the artifact/digest work, and nothing may go on the
+  // wire. A node that never reported a version falls through: an update may be
+  // exactly what fixes the ignorance.
+
+  it("409 NODE_UP_TO_DATE when the node already runs the offered release", async () => {
+    useFakeRelease();
+    const id = await mkNode();
+    await nodes.applyReady(id, {
+      agentVersion: RELEASE_VERSION,
+      protocolVersion: NODE_PROTOCOL_VERSION,
+      os: "linux",
+      arch: "x64",
+      hostname: "box",
+      capabilities: [],
+    });
+    const sock = goOnline(id);
+    const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    expect(res.status).toBe(409);
+    const err = (await res.json()) as { code: string; message: string };
+    expect(err.code).toBe("NODE_UP_TO_DATE");
+    expect(err.message).toContain(RELEASE_VERSION);
+    expect(sock.sent).toEqual([]);
+  });
+
+  it("409 UPDATE_DOWNGRADE when the node reports newer than anything this server can offer", async () => {
+    useFakeRelease();
+    const id = await mkNode();
+    await nodes.applyReady(id, {
+      agentVersion: "99.0.0",
+      protocolVersion: NODE_PROTOCOL_VERSION,
+      os: "linux",
+      arch: "x64",
+      hostname: "box",
+      capabilities: [],
+    });
+    const sock = goOnline(id);
+    const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    expect(res.status).toBe(409);
+    const err = (await res.json()) as { code: string; message: string };
+    expect(err.code).toBe("UPDATE_DOWNGRADE");
+    expect(err.message).toContain("99.0.0");
+    expect(err.message).toContain(RELEASE_VERSION);
+    expect(sock.sent).toEqual([]);
+  });
+
   // ── the command, end to end ─────────────────────────────────────────────
 
   it("202 on success, with the version, a tokenless url, and an audit row", async () => {

@@ -34,6 +34,7 @@ import { useClockTick } from "@/hooks/use-clock-tick";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useNodes } from "@/hooks/use-nodes";
 import { useOrderedSubshells } from "@/hooks/use-ordered-subshells";
+import { usePresets } from "@/hooks/use-presets";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useWorkspaces } from "@/hooks/use-workspaces";
 import { signOutAndRedirect, useCurrentUser } from "@/lib/auth";
@@ -296,6 +297,16 @@ export function AppSidebar({
   const agentLabel = useCallback(
     (harnessId: string) => pluginData?.plugins.find((p) => p.id === harnessId)?.name ?? harnessId,
     [pluginData],
+  );
+  // The tooltip's `Preset:` line, same caller-resolves pattern: one read of
+  // the list the launch form and /presets already cache, keyed alike. A
+  // presetId that names no row (loading, or since deleted) degrades to the
+  // id — the row HAS a preset, and that is the fact worth showing.
+  const { data: presetData } = usePresets();
+  const presetLabel = useCallback(
+    (presetId: string | null): string | undefined =>
+      presetId === null ? undefined : (presetData?.find((p) => p.id === presetId)?.name ?? presetId),
+    [presetData],
   );
   // NOT memoised, deliberately: a group's rank re-derives activity against
   // the CLOCK, so a `useMemo` keyed on the data would freeze the group order
@@ -639,6 +650,7 @@ export function AppSidebar({
                         active={location.pathname === `/subshells/${sub.id}`}
                         nodeLabel={group.label}
                         agentLabel={agentLabel(sub.harnessId)}
+                        presetLabel={presetLabel(sub.presetId)}
                       />
                     ))}
                   </SubshellNodeGroup>

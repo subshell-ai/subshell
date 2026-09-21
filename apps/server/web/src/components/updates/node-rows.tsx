@@ -1,4 +1,5 @@
 import { Button } from "@internal/node-admin";
+import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { DASH, MobilePair, RowRule, VersionCell } from "@/components/updates/row-cells";
 import { useNodeUpdate } from "@/hooks/use-node-update";
@@ -50,6 +51,10 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
   const updatable = fleet.rows.filter((row) => row.canUpdate.ok);
 
   async function updateAll(): Promise<void> {
+    // The single-press handler resets before it runs; the sequence must too,
+    // or a refusal from before stays pinned on its row through (and after) a
+    // run in which that row was never even asked.
+    nodeUpdate.reset();
     setRunning(true);
     try {
       for (const row of updatable) {
@@ -82,6 +87,7 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
             disabled={updatable.length === 0 || running || nodeUpdate.pendingNodeId !== null}
             onClick={() => void updateAll()}
           >
+            {running && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
             {running ? "Updating…" : `Update all (${updatable.length})`}
           </Button>
         )}
@@ -99,6 +105,7 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
 
       {fleet.rows.map((row, index) => {
         const runningValue = row.agentVersion ?? "version unknown";
+        const updating = nodeUpdate.pendingNodeId === row.id;
         return (
           <div key={row.id} className="contents">
             {index > 0 && <RowRule />}
@@ -126,14 +133,20 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
                   });
                 }}
               >
-                Update
+                {/* The POST blocks for the node's whole download-and-restart
+                    window, up to five minutes, so a bare disabled button reads
+                    as nothing happening. */}
+                {updating && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
+                {updating ? "Updating…" : "Update"}
               </Button>
             </div>
             {!row.canUpdate.ok && row.canUpdate.reason !== null && (
               <p className="col-span-full truncate text-detail text-muted-foreground">{row.canUpdate.reason}</p>
             )}
             {nodeUpdate.failure?.nodeId === row.id && (
-              <p className="col-span-full text-destructive text-detail">{nodeUpdate.failure.message}</p>
+              <p role="alert" className="col-span-full text-destructive text-detail">
+                {nodeUpdate.failure.message}
+              </p>
             )}
           </div>
         );

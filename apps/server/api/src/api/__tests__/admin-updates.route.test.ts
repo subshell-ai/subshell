@@ -1,10 +1,16 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
+import {
+  NODE_PROTOCOL_VERSION,
+  NODE_SIGNED_UPDATES_PROTOCOL_VERSION,
+  parseReleaseManifest,
+} from "@internal/subshell-protocol";
+import type { verifyReleaseManifest } from "@internal/subshell-protocol/release-signature";
 import { Elysia } from "elysia";
 import { adminUpdatesRoutes, adminUpdatesSeams } from "@/api/admin-updates.route.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
+import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
 import { SERVER_VERSION } from "@/version.js";
 import { type AdminServerFixture, bearerRequest, setupAdminServerFixture } from "../admin-server/__tests__/fixture.js";
 import { authedRequest } from "./helpers/auth-tables.js";
@@ -65,14 +71,20 @@ describe("GET /api/admin/updates", () => {
   });
 
   /** An enrolled agent row, cleaned up with the suite. */
-  async function agent(over: { name: string; os?: string | null; arch?: string | null; version?: string | null }) {
+  async function agent(over: {
+    name: string;
+    os?: string | null;
+    arch?: string | null;
+    version?: string | null;
+    protocol?: number;
+  }) {
     const id = crypto.randomUUID();
     created.push(id);
     await nodes.create({ id, ownerUserId: "system", name: over.name, kind: "agent" });
     if (over.version !== undefined && over.version !== null) {
       await nodes.applyReady(id, {
         agentVersion: over.version,
-        protocolVersion: 1,
+        protocolVersion: over.protocol ?? 1,
         os: over.os ?? "linux",
         arch: over.arch ?? "x64",
         hostname: over.name,
@@ -145,5 +157,117 @@ describe("GET /api/admin/updates", () => {
   it("is admin-only and refuses bearer keys", async () => {
     expect((await app.fetch(authedRequest("/api/admin/updates", fx.userCookie))).status).toBe(403);
     expect((await app.fetch(bearerRequest("/api/admin/updates", fx.bearer))).status).toBe(403);
+  });
+
+  // ── with an offerable release ────────────────────────────────────────────
+  //
+  // The version verdicts only exist once `rels.node` is non-null, which needs
+  // a compatible SIGNED release. Same fake source and pinned verifier as
+  // `nodes/__tests__/update-node.route.test.ts`: the real minisign crypto is
+  // pinned once in the protocol package, and what these cases check is the
+  // ROW's answer when the release side is fine.
+
+  describe("with an offerable release", () => {
+    const RELEASE_VERSION = "9.9.9";
+    const TEST_ARMOR = "TEST-ARMOR";
+    const realVerify = { ...releaseSeams };
+    let release: ReturnType<typeof Bun.serve> | undefined;
+
+    const acceptSigned: typeof verifyReleaseManifest = async (bytes, sig, _pub, expected) => {
+      const parsed = parseReleaseManifest(typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8"));
+      if (parsed === null) return { ok: false, reason: "test: the bytes are not a manifest" };
+      if (sig.trim() !== TEST_ARMOR) return { ok: false, reason: "test: signature refused" };
+      if (parsed.component !== expected.component || parsed.version !== expected.version) {
+        return { ok: false, reason: `test: payload names ${parsed.component} ${parsed.version}` };
+      }
+      return { ok: true, manifest: parsed };
+    };
+
+    beforeAll(async () => {
+      release = Bun.serve({
+        port: 0,
+        fetch(req) {
+          const url = new URL(req.url);
+          if (url.pathname === "/releases") {
+            const base = `http://127.0.0.1:${release?.port}`;
+            return Response.json([
+              {
+                tag_name: `cli-node-v${RELEASE_VERSION}`,
+                draft: false,
+                published_at: "2026-09-15T00:00:00Z",
+                assets: [
+                  { name: "release-manifest.json", browser_download_url: `${base}/manifest` },
+                  { name: "release-manifest.json.sig", browser_download_url: `${base}/sig` },
+                  { name: "subshell-node-cli-linux-x64", browser_download_url: `${base}/bin` },
+                ],
+              },
+            ]);
+          }
+          if (url.pathname === "/manifest") {
+            return Response.json({
+              component: "cli-node",
+              version: RELEASE_VERSION,
+              nodeProtocol: NODE_PROTOCOL_VERSION,
+              minNodeVersion: "0.9.0",
+              commit: "deadbeef",
+              assets: { "subshell-node-cli-linux-x64": "a".repeat(64) },
+            });
+          }
+          if (url.pathname === "/sig") return new Response(TEST_ARMOR);
+          return new Response("no", { status: 404 });
+        },
+      });
+      releaseSeams.verifyManifest = acceptSigned;
+      setReleaseUrlForTests(`http://127.0.0.1:${release.port}/releases`);
+      resetReleaseCacheForTests();
+    });
+
+    afterAll(() => {
+      Object.assign(releaseSeams, realVerify);
+      release?.stop(true);
+      setReleaseUrlForTests(null);
+      resetReleaseCacheForTests();
+    });
+
+    it("refuses a row already on the offered release, and offers no update either", async () => {
+      // The operator-reported bug: the button stayed live for a node already
+      // current, and pressing it re-downloaded and reinstalled the same binary.
+      const id = await agent({ name: `upd-equal-${crypto.randomUUID()}`, version: RELEASE_VERSION });
+      const row = (await read(fx.adminCookie)).nodes.rows.find((r) => r.id === id);
+      expect(row?.updateAvailable).toBe(false);
+      expect(row?.canUpdate).toEqual({
+        ok: false,
+        reason: `already running ${RELEASE_VERSION}, the newest release this server can offer`,
+      });
+    });
+
+    it("says a row AHEAD of the offer is ahead, not that it can go backwards", async () => {
+      const id = await agent({ name: `upd-ahead-${crypto.randomUUID()}`, version: "99.0.0" });
+      const row = (await read(fx.adminCookie)).nodes.rows.find((r) => r.id === id);
+      expect(row?.updateAvailable).toBe(false);
+      expect(row?.canUpdate).toEqual({
+        ok: false,
+        reason: "running 99.0.0, newer than the newest release this server can offer (9.9.9)",
+      });
+    });
+
+    it("never refuses a row for a version it never got: an update may fix the ignorance", async () => {
+      // No `ready` ever, so no version anywhere; held on a protocol that
+      // supports signed updates, so everything else about it says updatable.
+      const id = await agent({ name: `upd-unreported-${crypto.randomUUID()}`, version: null });
+      adminUpdatesSeams.getHeldRows = () => [
+        {
+          nodeId: id,
+          reason: "protocol-mismatch",
+          agentVersion: null,
+          protocolVersion: NODE_SIGNED_UPDATES_PROTOCOL_VERSION,
+          os: "linux",
+          arch: "x64",
+        },
+      ];
+      const row = (await read(fx.adminCookie)).nodes.rows.find((r) => r.id === id);
+      expect(row?.agentVersion).toBeNull();
+      expect(row?.canUpdate).toEqual({ ok: true, reason: null });
+    });
   });
 });
