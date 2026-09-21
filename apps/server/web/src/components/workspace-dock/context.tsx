@@ -1,6 +1,6 @@
 import type { SearchAddon } from "@xterm/addon-search";
 import { createContext, useContext } from "react";
-import type { WorkspaceDetail } from "@/types/workspace";
+import type { SplitDirection, WorkspaceDetail } from "@/types/workspace";
 
 /**
  * Shared state and handlers reachable from inside a dockview panel, a
@@ -26,6 +26,14 @@ export interface WorkspaceDockContextValue {
   onRestart: (subshellId: string) => void;
   /** Removes a pane from the workspace, leaving its subshell alone. */
   onRemovePane: (paneId: string) => void;
+  /**
+   * Splits a pane's tile into its own group beside it, moving the existing
+   * panel. The context menu's programmatic twin of dockview's
+   * tab-drag-to-edge, which the operator could not discover; the tab calls
+   * this rather than the DockviewApi itself so the move stays testable and
+   * every split runs through the dock's one implementation.
+   */
+  onSplitPane: (paneId: string, direction: Exclude<SplitDirection, "within">) => void;
   /** Closes a subshell (terminate + delete), after confirming; its pane disappears via the FK cascade. */
   onCloseSubshell: (subshellId: string) => void;
 }

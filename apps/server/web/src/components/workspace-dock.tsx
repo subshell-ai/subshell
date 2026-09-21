@@ -26,6 +26,7 @@ import {
   panelIdsInLayout,
   panesMissingFromLayout,
   resolveAddPosition,
+  splitTarget,
 } from "@/lib/workspace-layout";
 import type { SplitIntent } from "@/lib/workspace-split-intent";
 import type { SubshellView } from "@/types/subshell";
@@ -288,6 +289,28 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     [detail.panes, onRefetch],
   );
 
+  // The tab context menu's split acts. `splitTarget` resolves the destination;
+  // the two api calls then run in that order, and the order is load-bearing:
+  // `addGroup` first builds the EMPTY destination group beside the tab's group
+  // (a split beside a peer, not the container-edge move a reference-less
+  // `moveTo` would give), and `moveTo` relocates the SAME panel object into
+  // it, so its `renderer: "always"` terminal keeps its DOM and socket through
+  // the move. No pane row changes server-side; the debounced layout save
+  // picks the new arrangement up from `onDidLayoutChange` on its own. When
+  // the move empties the source group dockview removes that group itself, so
+  // a one-tab workspace splits into a visual no-op rather than a husk.
+  const handleSplitPane = useCallback((panelId: string, direction: Exclude<SplitDirection, "within">) => {
+    const api = apiRef.current;
+    const target = api ? splitTarget(api, panelId, direction) : null;
+    if (!api || !target) return;
+    const group = api.addGroup(target);
+    // splitTarget just resolved this id from the same api, one line above;
+    // a miss here would strand the empty destination group, so fail loudly.
+    const panel = api.getPanel(panelId);
+    if (!panel) throw new Error(`split: panel ${panelId} vanished between resolve and move`);
+    panel.api.moveTo({ group });
+  }, []);
+
   /** Resolves true when the pane row now exists server-side; false when it does not and the banner says why. */
   const handleAdd = useCallback(
     async (subshellId: string, direction: SplitDirection): Promise<boolean> => {
@@ -416,9 +439,10 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       setSearchAddon,
       onRestart: (subshellId) => void handleRestart(subshellId),
       onRemovePane: (paneId) => void handleRemovePane(paneId),
+      onSplitPane: handleSplitPane,
       onCloseSubshell: (subshellId) => void handleCloseSubshell(subshellId),
     }),
-    [detail, searchAddons, setSearchAddon, handleRestart, handleRemovePane, handleCloseSubshell],
+    [detail, searchAddons, setSearchAddon, handleRestart, handleRemovePane, handleSplitPane, handleCloseSubshell],
   );
 
   return (

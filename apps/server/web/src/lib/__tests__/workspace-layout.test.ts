@@ -1,10 +1,12 @@
 import { describe, expect, it } from "bun:test";
+import type { IDockviewPanel } from "dockview-react";
 import type { WorkspacePaneRow } from "@/types/workspace";
 import {
   normalizeLegacyLayout,
   panelIdsInLayout,
   panesMissingFromLayout,
   resolveAddPosition,
+  splitTarget,
 } from "../workspace-layout";
 
 function pane(id: string): WorkspacePaneRow {
@@ -63,6 +65,29 @@ describe("resolveAddPosition", () => {
 
   it("omits position entirely for 'within' with no reference — dockview's AbsolutePosition excludes it", () => {
     expect(resolveAddPosition("within")).toBeUndefined();
+  });
+});
+
+describe("splitTarget", () => {
+  /** Only `getPanel` is read; the fake answers for `p1` and `p2` with a stub panel. */
+  const api = {
+    getPanel: (id: string): IDockviewPanel | undefined =>
+      id === "p1" || id === "p2" ? ({ id } as IDockviewPanel) : undefined,
+  };
+
+  it("targets a new group beside the panel's group, never a container edge", () => {
+    expect(splitTarget(api, "p1", "right")).toEqual({ referencePanel: "p1", direction: "right" });
+    expect(splitTarget(api, "p1", "below")).toEqual({ referencePanel: "p1", direction: "below" });
+    expect(splitTarget(api, "p1", "left")).toEqual({ referencePanel: "p1", direction: "left" });
+    expect(splitTarget(api, "p1", "above")).toEqual({ referencePanel: "p1", direction: "above" });
+  });
+
+  it("carries the right-clicked tab's own panel id as the reference", () => {
+    expect(splitTarget(api, "p2", "right")).toEqual({ referencePanel: "p2", direction: "right" });
+  });
+
+  it("returns null for a panel dockview does not have", () => {
+    expect(splitTarget(api, "gone", "right")).toBeNull();
   });
 });
 
