@@ -118,6 +118,27 @@ describe("every recovery variant's diagnosis and action", () => {
   });
 });
 
+describe("the primary action's disabled states", () => {
+  it("disables while busy, like every other control the old button() helper built", () => {
+    renderStatus({ probe: makeProbe({ next: "start", tmux: "/usr/bin/tmux" }), busy: true });
+    expect((screen.getByRole("button", { name: "Start" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("keeps the problem line when a stale tmux verdict sits beside a tmux that appeared", () => {
+    // The suppression belongs to the CARD, and the card only renders while
+    // tmux is missing: with tmux present, no card renders, so the line —
+    // whatever wrote it — stays.
+    const FAIL: ActionResult = { ok: false, stdout: "", stderr: "Error: Failure while executing; brew install tmux" };
+    renderStatus({
+      probe: makeProbe({ next: "start", tmux: "/usr/bin/tmux" }),
+      tmuxResult: FAIL,
+      problem: "Error: Failure while executing; brew install tmux",
+    });
+    expect(screen.getByText("Error: Failure while executing; brew install tmux")).toBeDefined();
+    expect(screen.queryByText("The tmux install didn't finish.")).toBeNull();
+  });
+});
+
 describe("the doors", () => {
   it("offers the four doors, and the server-update door only when an upgrade is known", () => {
     const onGo = vi.fn();

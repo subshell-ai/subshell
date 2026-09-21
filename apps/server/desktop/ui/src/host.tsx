@@ -218,6 +218,9 @@ export function Host(): React.JSX.Element {
    */
   const [installLine, setInstallLine] = useState("");
   const [installStartedAt, setInstallStartedAt] = useState(0);
+  /** The install sentinel's live value, for the page-lifetime install-line listener. */
+  const installStartedAtRef = useRef(0);
+  installStartedAtRef.current = installStartedAt;
   /**
    * Whether the failed install's output disclosure is expanded, and how far
    * down it the reader has scrolled.
@@ -730,14 +733,18 @@ export function Host(): React.JSX.Element {
       const line = event.payload.trim();
       // Blank lines are spacing in the manager's output, not progress;
       // showing one would blank the only thing on screen that was saying
-      // anything.
-      if (line === "" || installStartedAt === 0) return;
+      // anything. The sentinel is read through the ref, not the closure: the
+      // old listener read the module var live, and a deps-keyed
+      // re-subscription would drop a line that lands in the teardown window
+      // between one install's end and the next's stamp.
+      if (line === "" || installStartedAtRef.current === 0) return;
       setInstallLine(line);
     });
     return () => {
       void unlisten.then((off) => off()).catch(() => {});
     };
-  }, [installStartedAt]);
+    // One subscription for the page's life, like the old module's.
+  }, []);
 
   useEffect(() => {
     // The reset chain's progress: one frame per phase transition (spec

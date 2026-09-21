@@ -150,9 +150,15 @@ export function StatusScreen(props: {
   const action = recoveryAction(probe.next);
   const tmuxMissing = probe.tmux === null;
   const failedHere = tmuxInstallFailure(props.tmuxResult, probe.tmux !== null);
+  // The problem line is suppressed only where the card that owns the story
+  // actually renders: the tmux-missing branch with a verdict in hand. A stale
+  // tmuxResult beside a tmux that has since appeared renders no card, so the
+  // line — whatever wrote it — stays.
+  const shownProblem =
+    tmuxMissing && failedHere !== null ? problemUnderTmuxFailure(props.problem, props.tmuxResult) : props.problem;
   return (
     <Frame
-      strings={{ ...props.strings, problem: problemUnderTmuxFailure(props.problem, props.tmuxResult) }}
+      strings={{ ...props.strings, problem: shownProblem }}
       entranceKey={props.entranceKey}
       barLeft={
         /* The ellipsis stays: it correctly says a screen follows rather than an act. */
@@ -162,13 +168,16 @@ export function StatusScreen(props: {
       }
     >
       {action && (
-        /* The CLI refuses `init` and `service install` without tmux, so a button
-           that could only produce the refusal is disabled — the warning below
-           names the reason. Retry and Choose are not gated — neither runs a pane. */
+        /* The old `button()` helper OR'd `busy || running` into every disabled
+           state, and this one keeps it: a press during an act is a no-op, and
+           the button must not look live. The CLI refuses `init` and `service
+           install` without tmux, so a button that could only produce the
+           refusal is disabled for that reason too — the warning below names
+           it. Retry and Choose are not gated — neither runs a pane. */
         <button
           type="button"
           className="primary big"
-          disabled={tmuxMissing && action.kind !== "retry" && action.kind !== "choose-binary"}
+          disabled={busy || running || (tmuxMissing && action.kind !== "retry" && action.kind !== "choose-binary")}
           onClick={() => props.onAction(action.kind)}
         >
           {action.label}

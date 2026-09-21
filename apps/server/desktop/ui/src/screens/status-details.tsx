@@ -9,7 +9,7 @@
  * diagnosis now, which is the whole argument for a single recovery screen.
  */
 import type { ReactElement } from "react";
-import { useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import type { About, ActionResult, LogTail, OpenTarget, Probe } from "../lib/ipc";
 import { recoveryFacts } from "../lib/recovery-model";
 
@@ -27,10 +27,15 @@ function TailPane(props: { tail: LogTail | null }): ReactElement {
   const ref = useRef<HTMLPreElement | null>(null);
   const atBottom = useRef(true);
   useEffect(() => {
+    // No deps array: the stick is load-bearing on every tick while the
+    // disclosure is open (the old renderTail re-measured and re-stuck each
+    // poll), so this effect fires on every render — re-applying the same
+    // scrollTop is a no-op, and missing a tick is a pane that stops
+    // following the log.
     const box = ref.current;
     if (box === null) return;
     if (atBottom.current) box.scrollTop = box.scrollHeight;
-  }, []);
+  });
   return (
     <pre
       ref={ref}
@@ -75,9 +80,13 @@ export function StatusDetails(props: {
   return (
     <details open={props.open} onToggle={(e) => props.onOpenChange(e.currentTarget.open)}>
       <summary>Show Details</summary>
+      {/* `.facts` is `display:grid; grid-template-columns:132px 1fr` and reads
+          its dt/dd as DIRECT children (the old code appended dt, dd); a keyed
+          wrapper div would make each row one grid item and collapse the
+          table into alternating narrow columns. The key rides a Fragment. */}
       <dl className="facts">
         {recoveryFacts(props.probe).map((f) => (
-          <div key={f.label}>
+          <Fragment key={f.label}>
             <dt>{f.label}</dt>
             <dd>
               <span className={f.tone === "bad" ? "bad-text" : f.tone === "warn" ? "warn-text" : undefined}>
@@ -92,7 +101,7 @@ export function StatusDetails(props: {
               )}
               {f.sub && <span className="fact-sub">{f.sub}</span>}
             </dd>
-          </div>
+          </Fragment>
         ))}
       </dl>
       <p className="group-heading">Server log</p>

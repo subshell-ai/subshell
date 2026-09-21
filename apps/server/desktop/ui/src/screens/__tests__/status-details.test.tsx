@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { makeAbout, makeProbe } from "../../__tests__/harness";
 import type { LogTail } from "../../lib/ipc";
 import { StatusDetails } from "../status-details";
@@ -59,6 +59,68 @@ describe("the facts", () => {
     expect(reveals.length).toBeGreaterThan(0);
     reveals[0].click();
     expect(onReveal).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts dt and dd in the grid as DIRECT children, one row per pair", () => {
+    // `.facts` is `display:grid; grid-template-columns:132px 1fr` and reads
+    // its dt/dd as direct children; a wrapper div per row would make each row
+    // ONE grid item and collapse the table into alternating narrow columns.
+    renderDetails({ probe: makeProbe() });
+    const dl = document.querySelector("dl.facts") as HTMLDListElement;
+    expect(dl.children.length).toBeGreaterThan(0);
+    for (const child of dl.children) {
+      expect(["DT", "DD"]).toContain(child.tagName);
+    }
+  });
+});
+
+describe("the tail's stick", () => {
+  it("keeps a growing tail pinned to the bottom, and does not yank a reader who scrolled up", async () => {
+    // happy-dom has no layout, so the geometry is stubbed on the element the
+    // component measures. `scrollTop` is the observable: the effect re-sticks
+    // by writing scrollHeight into it, and honours a scrolled-up reader by
+    // writing nothing.
+    const { rerender } = renderDetails({ lastTail: { text: "line 1", source: "server", note: null } });
+    const pane = document.querySelector("pre.pane-pre") as HTMLPreElement;
+    const geometry = (box: HTMLPreElement, height: number, at: number): void => {
+      Object.defineProperty(box, "scrollHeight", { configurable: true, value: height });
+      Object.defineProperty(box, "clientHeight", { configurable: true, value: 100 });
+      Object.defineProperty(box, "scrollTop", { configurable: true, get: () => at, set: (v) => (at = v) });
+    };
+    geometry(pane, 100, 0);
+    // Pinned: the pane sits at the bottom, and the next tick keeps it there.
+    rerender(
+      <StatusDetails
+        probe={makeProbe()}
+        lastResult={null}
+        lastTail={{ text: "line 1\nline 2", source: "server", note: null }}
+        about={null}
+        open
+        onOpenChange={() => {}}
+        onReveal={() => {}}
+      />,
+    );
+    await Promise.resolve();
+    expect(pane.scrollTop).toBe(pane.scrollHeight); // re-stuck to the grown log
+
+    // A reader scrolled up: the pane keeps their offset. The scroll listener
+    // is what carries that fact (the old code measured before writing; a
+    // React render writes first), so it is fired as the reader's act.
+    geometry(pane, 200, 50); // 200 - 50 - 100 = 50, outside the 24px slack
+    fireEvent.scroll(pane);
+    rerender(
+      <StatusDetails
+        probe={makeProbe()}
+        lastResult={null}
+        lastTail={{ text: "line 1\nline 2\nline 3", source: "server", note: null }}
+        about={null}
+        open
+        onOpenChange={() => {}}
+        onReveal={() => {}}
+      />,
+    );
+    await Promise.resolve();
+    expect(pane.scrollTop).toBe(50); // not yanked
   });
 });
 
