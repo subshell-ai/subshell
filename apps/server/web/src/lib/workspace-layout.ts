@@ -1,4 +1,4 @@
-import type { AddPanelPositionOptions } from "dockview-react";
+import type { AddGroupOptions, AddPanelPositionOptions, DockviewApi } from "dockview-react";
 import type { SplitDirection, WorkspacePaneRow } from "@/types/workspace";
 
 /** True when the value is a plain object. */
@@ -108,4 +108,37 @@ export function resolveAddPosition(
   if (referencePaneId) return { referencePanel: referencePaneId, direction };
   if (direction === "within") return undefined;
   return { direction };
+}
+
+/**
+ * The `addGroup` target that splits an EXISTING panel out of its tab group,
+ * which is what the tab's context menu offers. Dockview's own split gesture
+ * is tab-drag-to-edge and it works (measured in Chromium, WebKit and
+ * Firefox), but dropping a tab on a group's CENTER is a merge that reads as
+ * a no-op, and nothing on screen names either one, so the operator reports
+ * "dragging does nothing". The menu drives this instead.
+ *
+ * The panel is MOVED, never recreated: the caller runs `api.addGroup(target)`
+ * to build the empty destination group beside this panel's group (a split,
+ * not the container-edge move a reference-less `moveTo` would give), then
+ * `panel.api.moveTo({ group })` relocates the same panel object into it, so
+ * its `renderer: "always"` terminal keeps its DOM and socket. Dockview
+ * destroys the source group itself when a move empties it
+ * (`moveGroupOrPanel` removes an emptied source group), so a last-panel move
+ * never leaves a husk; with a one-tab group the split is a visual no-op for
+ * exactly that reason, the same answer the drag gesture gives.
+ *
+ * @param api - The live dockview api; only `getPanel` is read
+ * @param panelId - The panel the right-clicked tab belongs to
+ * @param direction - Where the destination group goes. "within" is tab
+ *   placement, not a split, and is unrepresentable here
+ * @returns Options for `DockviewApi.addGroup`, or null when no such panel exists
+ */
+export function splitTarget(
+  api: Pick<DockviewApi, "getPanel">,
+  panelId: string,
+  direction: Exclude<SplitDirection, "within">,
+): AddGroupOptions | null {
+  if (!api.getPanel(panelId)) return null;
+  return { referencePanel: panelId, direction };
 }

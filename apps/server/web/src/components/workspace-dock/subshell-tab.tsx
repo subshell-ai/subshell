@@ -1,6 +1,8 @@
 import type { IDockviewPanelHeaderProps } from "dockview-react";
-import { Bell, X } from "lucide-react";
+import { Bell, Columns2, Rows2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ContextMenuRoot, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useWorkspaceDockContext } from "@/components/workspace-dock/context";
 import { isPaneWaiting } from "@/lib/subshell-order";
 
@@ -59,15 +61,29 @@ function useTitle(api: IDockviewPanelHeaderProps["api"]): string {
  * user rearranged the tiling layout. The close control here only fires from
  * an actual click (or middle-click) on the tab — a move never touches it.
  *
+ * The tab is also a right-click trigger (Base UI's `ContextMenu`, the same
+ * primitive the sidebar rows use): Split right / Split down drive
+ * `onSplitPane`, Close pane is the ×'s own action. The menu exists because
+ * nothing on screen names dockview's drag gestures: dragging a tab to an
+ * EDGE splits (the one that works) while dropping it on a group's CENTER
+ * merges, which reads as the drag having done nothing — the operator's
+ * report. Right-click cannot fight the drag: dockview's drag starts from a
+ * native `dragstart`, which browsers fire for primary-button gestures only,
+ * and its pointer fallback ignores mouse pointers entirely (touch/pen only),
+ * so button 2 never arms either source.
+ *
  * The pane is looked up in the live detail by panel id (the dock context
  * refreshes every poll), so the marker follows `subshellWaitingSince` without
  * the title itself ever being rewritten.
  */
 export function SubshellTab(props: IDockviewPanelHeaderProps) {
-  const { detail, onRemovePane } = useWorkspaceDockContext();
+  const { detail, onRemovePane, onSplitPane } = useWorkspaceDockContext();
   const title = useTitle(props.api);
   const pane = detail.panes.find((p) => p.id === props.api.id);
   const waiting = pane ? isPaneWaiting(pane) : false;
+  // The trigger host doubles as the menu's anchor, as in ActionsMenu's
+  // context mode: the box dockview already styles the tab with.
+  const anchorRef = useRef<HTMLDivElement>(null);
 
   const close = useCallback(
     (event: { preventDefault(): void }) => {
@@ -81,32 +97,53 @@ export function SubshellTab(props: IDockviewPanelHeaderProps) {
   const middleDown = useRef(false);
 
   return (
-    <div
-      className="dv-default-tab"
-      onPointerDown={(event) => {
-        middleDown.current = event.button === 1;
-      }}
-      onPointerUp={(event) => {
-        if (middleDown.current && event.button === 1) {
-          middleDown.current = false;
-          close(event);
+    <ContextMenuRoot>
+      <ContextMenuTrigger
+        render={
+          <div
+            ref={anchorRef}
+            className="dv-default-tab"
+            onPointerDown={(event) => {
+              middleDown.current = event.button === 1;
+            }}
+            onPointerUp={(event) => {
+              if (middleDown.current && event.button === 1) {
+                middleDown.current = false;
+                close(event);
+              }
+            }}
+            onPointerLeave={() => {
+              middleDown.current = false;
+            }}
+          >
+            <span className="dv-default-tab-content">{title}</span>
+            {waiting && <TabWaitingMarker />}
+            <button
+              type="button"
+              className="dv-default-tab-action"
+              aria-label="Close tab"
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={close}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
         }
-      }}
-      onPointerLeave={() => {
-        middleDown.current = false;
-      }}
-    >
-      <span className="dv-default-tab-content">{title}</span>
-      {waiting && <TabWaitingMarker />}
-      <button
-        type="button"
-        className="dv-default-tab-action"
-        aria-label="Close tab"
-        onPointerDown={(event) => event.preventDefault()}
-        onClick={close}
-      >
-        <X className="h-3 w-3" />
-      </button>
-    </div>
+      />
+      <DropdownMenuContent anchor={anchorRef} side="bottom" align="start" onClick={(e) => e.stopPropagation()}>
+        <DropdownMenuItem onSelect={() => onSplitPane(props.api.id, "right")}>
+          <Columns2 className="h-4 w-4" aria-hidden />
+          Split right
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onSplitPane(props.api.id, "below")}>
+          <Rows2 className="h-4 w-4" aria-hidden />
+          Split down
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onRemovePane(props.api.id)}>
+          <X className="h-4 w-4" aria-hidden />
+          Close pane
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </ContextMenuRoot>
   );
 }
