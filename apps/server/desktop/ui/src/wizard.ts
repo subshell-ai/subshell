@@ -999,9 +999,8 @@ function checkPort(port: string): void {
  *
  * The reason beside the button is four words, which is the right size for a
  * button that is merely waiting and the wrong size for one that will not come
- * back on its own. This says what is true of the machine, what setup would do
- * with it, and both remedies — including the one already on this screen, named
- * in the words its own link uses.
+ * back on its own. This names what is true of the machine and both remedies,
+ * including the one already on this screen, in the words its own link uses.
  *
  * **It does not say what is on the port, because this page cannot know.** A
  * connect proves that something answered and nothing more, and the likeliest
@@ -1015,12 +1014,7 @@ function portWarning(port: string): HTMLElement {
   wrap.className = "port-warning mb-4";
   wrap.append(
     text("p", `Something is already answering on port ${port}.`),
-    text(
-      "p",
-      "Setting up would write that port into this server's configuration and then start a server that cannot " +
-        "bind to it, so Set Up waits until the port is free. Stop whatever is using it, or choose a different " +
-        "port under “Customize port and addresses…”.",
-    ),
+    text("p", "Stop whatever is using it, or choose a different port under “Customize port and addresses…”."),
   );
   return wrap;
 }
