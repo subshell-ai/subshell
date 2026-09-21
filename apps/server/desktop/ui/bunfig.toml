@@ -1,0 +1,14 @@
+# Bun test config for the WEB half of this app only.
+#
+# It lives here rather than at the package root on purpose. The package's `test`
+# script runs `bun test src` (the release script's tests, plain bun, no DOM) and
+# then `cd ui && bun test` — and bunfig.toml is resolved from the cwd, so the
+# happy-dom registrator below reaches the component tests and nothing else.
+# Registering DOM globals into the release-script process would give a
+# filesystem/`process`-shaped test suite a browser it never asked for.
+#
+# Ported from `apps/client/desktop/ui/bunfig.toml`, which now also carries the
+# pure `lib/` tests: they run under the same registrator and stay green under
+# it (the client's equivalent modules prove the pattern).
+[test]
+preload = ["./src/test-setup.ts"]

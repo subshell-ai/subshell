@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -27,7 +28,7 @@ export default defineConfig({
   // both that and being opened as a file, and costs nothing. (Same reasoning
   // as `apps/client/desktop`'s config; this app predates it and now matches.)
   base: "./",
-  plugins: [tailwindcss()],
+  plugins: [react(), tailwindcss()],
   build: {
     // Relative to `root`, i.e. apps/server/desktop/ui/dist — which is what
     // `tauri.conf.json`'s frontendDist names. The assistant's logic lives in

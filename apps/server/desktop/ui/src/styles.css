@@ -52,6 +52,42 @@
   --default-font-family: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
 }
 
+/*
+ * Tailwind v4 generates utilities from `@theme` tokens, and this page's tokens
+ * live in the plain `:root` block above — so the utilities the shared Frame
+ * (`@internal/assistant`) renders with do not exist yet. This block ALIASES
+ * them: `--color-<role>: var(--<role>)` and the type roles make `text-warning`,
+ * `text-display`, `font-strong` and friends resolve to the same values the
+ * page's own classes read, with one source of truth per token. The same
+ * mapping is how `apps/client/desktop/ui/src/styles.css` exposes its palette
+ * to the client assistant; the assistant's own classes below keep reading the
+ * `:root` properties directly and are untouched.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-destructive: var(--destructive);
+  --text-display: 30px;
+  --text-display--line-height: 1.2;
+  --text-heading: 20px;
+  --text-heading--line-height: 1.2;
+  --text-label: 15px;
+  --text-label--line-height: 1.5;
+  --text-body: 14px;
+  --text-body--line-height: 1.5;
+  --text-detail: 13px;
+  --text-detail--line-height: 1.5;
+  --font-weight-strong: 600;
+  --font-weight-regular: 400;
+}
+
 @layer base {
   html {
     color-scheme: dark;

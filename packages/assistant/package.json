@@ -1,0 +1,40 @@
+{
+  "name": "@internal/assistant",
+  "description": "Shared frame primitives for the two desktop assistants' bundled pages",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "private": true,
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsdown",
+    "build:dev": "hash-runner",
+    "clean": "rm -rf .turbo node_modules dist .hashes.json",
+    "lint": "biome check --write --unsafe src && biome format src --write && biome lint src --fix",
+    "lint:check": "biome check --no-errors-on-unmatched src",
+    "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src",
+    "test": "bun test",
+    "verify-types": "tsc --project tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "react": "19.2.8"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "20.11.13",
+    "@internal/tsconfig": "workspace:*",
+    "@testing-library/dom": "10.4.1",
+    "@testing-library/react": "16.3.3",
+    "@types/bun": "1.3.14",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "hash-runner": "4.0.0",
+    "tsdown": "0.22.14"
+  }
+}
