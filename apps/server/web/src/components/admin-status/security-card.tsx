@@ -23,7 +23,7 @@ export function SecurityCard({ status }: { status: AdminStatus }) {
         {security.emergencyLoginActive ? (
           <Badge
             variant="warning"
-            title="SUBSHELL_EMERGENCY_PASSWORD is set. An admin signing in with it has their credential OVERWRITTEN. Clear the variable after recovery."
+            title="SUBSHELL_EMERGENCY_PASSWORD is set: an admin signing in with it has their credential OVERWRITTEN. Clear the variable after recovery."
           >
             armed
           </Badge>

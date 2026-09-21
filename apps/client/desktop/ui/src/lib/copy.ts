@@ -64,12 +64,10 @@ export const LOOPBACK_NOTE =
 export const ENROLL_NOTES: readonly string[] = [
   "Mint a setup key in the browser first: Nodes → Add node. It stays listed on the Nodes page until it is used, so " +
     "closing that dialog is not losing the key.",
-  "A setup key is single-use and expires after 24 hours. Anything that fails AFTER the control plane has accepted " +
-    "it (a node name already taken on that server, or a server-side error) spends it permanently. The answer to " +
-    "those is a NEW key, never a retry.",
-  "Whatever you call it here is the row on the Nodes page. The control plane stopped guessing this name — it used to " +
-    "label the KEY with whatever was typed there and name the machine after its hostname — so the choice is asked " +
-    "where the answer is.",
+  "A setup key is single-use and expires after 24 hours. Anything that fails after the control plane has accepted it " +
+    "spends the key, so the answer is a NEW key, never a retry.",
+  "Whatever you call it here is the row on the Nodes page. The control plane no longer guesses this name, so the " +
+    "choice is asked where the answer is.",
 ];
 
 /**
@@ -181,8 +179,8 @@ export function manualTmuxRoutes(hasBrew: boolean): readonly ManualTmuxRoute[] {
 export function tmuxHint(probe: Probe | undefined, which: "enroll" | "service"): string {
   if (probe?.tmux) return "";
   return which === "enroll"
-    ? `tmux was not found on the login PATH, so enrolling is disabled. \`subshell enroll\` also checks for it before ` +
-        `its network call, so a missing tmux costs a message rather than the setup key. Install it (${TMUX_INSTALL_CMD}) to continue.`
+    ? `tmux was not found on the login PATH, so enrolling is disabled: \`subshell enroll\` would also refuse before ` +
+        `spending the key. Install it (${TMUX_INSTALL_CMD}) to continue.`
     : `tmux was not found on the login PATH, so starting the service is disabled: the node would come up online ` +
         `with no harnesses and refuse every launch. Install it (${TMUX_INSTALL_CMD}), then start or restart the service.`;
 }

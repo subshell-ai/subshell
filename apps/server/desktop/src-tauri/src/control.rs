@@ -2382,7 +2382,7 @@ pub fn desktop_set_server_bin(settings: State<'_, SettingsState>, path: Option<S
             }
             if server_bin::probe_version(std::slice::from_ref(&p)).is_none() {
                 return Err(format!(
-                    "{p} does not look like a subshell-server — it could not report a version"
+                    "{p} does not look like a subshell-server: it could not report a version"
                 ));
             }
             Some(p)
@@ -2668,9 +2668,9 @@ pub enum OpenTarget {
 /// and no file will ever appear; the macOS plist names one and the CLI
 /// reports it, so a null there is a server too old to have answered.
 const NO_LOG_FILE: &str = if cfg!(target_os = "macos") {
-    "the server has not reported a log file yet — update it to a version that names one"
+    "the server has not reported a log file yet; update it to a version that names one"
 } else {
-    "the server logs to the systemd journal on Linux — run `journalctl --user -u subshell-server.service -f`"
+    "the server logs to the systemd journal on Linux; run `journalctl --user -u subshell-server.service -f`"
 };
 
 /// Resolve one target to a path, or explain why there is none.
@@ -2710,7 +2710,7 @@ pub fn resolve_open_target(target: OpenTarget, probe: &Probe) -> Result<String, 
             // a server that reports garbage about its own paths wants an
             // update, not a reveal of a `true`.
             Some(serde_json::Value::Null) => Err(NO_LOG_FILE.to_string()),
-            _ => Err("the installed server does not report its log path — update it".to_string()),
+            _ => Err("the installed server does not report its log path: update it".to_string()),
         },
     }
 }

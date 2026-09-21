@@ -175,7 +175,7 @@ function NetworkingPage() {
                 // flight the card waits rather than declaring "nothing
                 // installed" about a list that may be about to arrive.
                 <p className="text-detail text-muted-foreground">
-                  No networks installed yet — add one below to reach this server over a VPN or tunnel.
+                  No networks installed yet. Add one below to reach this server over a VPN or tunnel.
                 </p>
               ) : null}
             </CardContent>

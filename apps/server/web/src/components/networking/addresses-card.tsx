@@ -68,7 +68,7 @@ const FIELDS = [
     // entry here. What still fails sign-in with an error that names nothing
     // you could change is a NAME that is not one of this host's addresses, so
     // that is what the hint says this field's own job is.
-    hint: "Comma-separated. Addresses from networks you joined under Networking are trusted automatically; list anything else here \u2014 a LAN name, a reverse proxy \u2014 or a browser there is refused at sign-in with \u201cInvalid origin\u201d.",
+    hint: "Comma-separated. Addresses from networks you joined under Networking are trusted automatically; list anything else here (a LAN name, a reverse proxy) or a browser there is refused at sign-in with \u201cInvalid origin\u201d.",
   },
 ] as const satisfies readonly { key: ServerSettingKey; id: string; label: string; hint: string }[];
 

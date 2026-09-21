@@ -810,7 +810,7 @@ describe("setup wizard: the Network step", () => {
     // vendor setup instructions reads as a wall, and the way round it was
     // nothing but an unlabelled footer control. Step 3's subtitle already said
     // "now, or later in Settings" — this says the same, and names where.
-    expect(await screen.findByText(/This step is optional — you can set it up later under/)).toBeTruthy();
+    expect(await screen.findByText(/This step is optional; you can set it up later under/)).toBeTruthy();
     // The destination names itself in the control-label weight, not just in
     // words: the split the markup introduces is the emphasis being asked for.
     expect(screen.getByText("Settings → Networking").className).toContain("font-strong");

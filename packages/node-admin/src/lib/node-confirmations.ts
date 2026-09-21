@@ -60,15 +60,9 @@ export function confirmStartMaintenance({
   isLocal: boolean;
   runningSubshells: number | undefined;
 }): Promise<boolean> {
-  const description = [
-    stoppingClause(runningSubshells),
-    "Nobody can launch here until maintenance ends.",
-    // Decision 4 of the design: maintenance refuses launches and nothing
-    // else — service control, logs, detection and restart all keep answering.
-    // Saying so is what stops it being read as taking the machine away.
-    "Everything else about the node keeps working.",
-    ...(isLocal ? ["This applies to admins too."] : []),
-  ].join(" ");
+  const description = `${stoppingClause(runningSubshells)} Nobody${
+    isLocal ? ", admins included," : ""
+  } can launch here until maintenance ends.`;
   return confirmAction({
     title: `Start maintenance on "${name}"?`,
     description,

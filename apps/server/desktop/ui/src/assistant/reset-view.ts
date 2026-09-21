@@ -93,7 +93,7 @@ export function createResetView(host: AssistantHost): ResetView {
       }
     }
     el("reset-disclosures").textContent =
-      "Enrolled remote nodes are NOT reached: their daemons and panes keep running with keys to a plane that will not exist. A subshell daemon on this very machine is not reached either and must be stopped from Subshell Client or `subshell service stop`. The installed server binary stays. Everything listed above is permanent.";
+      "Enrolled remote nodes and a node agent on this machine keep running and are NOT touched. Only the locations listed above are deleted, permanently; the installed server binary stays.";
     el("reset-hostname").textContent = host_name;
     const typed = (el("reset-confirm") as HTMLInputElement).value;
     // `busy` belongs in this gate as much as the refusal does. Without it the
@@ -214,7 +214,7 @@ export function createResetView(host: AssistantHost): ResetView {
       // this screen can fail at. The first person to read the older wording
       // took it as a prohibition, which would have sent them looking for a
       // setting that does not exist.
-      return `The reset could not be staged: ${errText(err)}. This app's window is newer than the app itself, which is what happens when a dev session reloads the page but not its Rust half. Quit and relaunch it.`;
+      return `The reset could not be staged: ${errText(err)}. This app's window is newer than the app itself, which is what happens when a dev session reloads the page but not its Rust half; quit and relaunch it.`;
     }
   }
 

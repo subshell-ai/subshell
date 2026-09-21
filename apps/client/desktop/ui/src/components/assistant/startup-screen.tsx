@@ -94,7 +94,7 @@ export function StartupScreen(props: {
           {!IS_MACOS && (
             <p className="text-detail text-muted-foreground leading-relaxed">
               Start at login arms a systemd user unit, which comes back at login and dies at logout unless this user
-              lingers — <span className="font-mono">loginctl enable-linger $USER</span> makes it come back at boot
+              lingers; <span className="font-mono">loginctl enable-linger $USER</span> makes it come back at boot
               instead.
             </p>
           )}

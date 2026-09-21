@@ -59,7 +59,7 @@ const VERBS: VerbSpec[] = [
     oneWay: true,
     destructive: true,
     describe: (name, kills, here) =>
-      `${kills ? `This will close every subshell running ${here === "local" ? "here" : `on ${name}`}. ` : ""}Nothing here can start it again — ${
+      `${kills ? `This will close every subshell running ${here === "local" ? "here" : `on ${name}`}. ` : ""}Nothing here can start it again: ${
         here === "local"
           ? "this page is served by the node, so it goes down with it; start it from a shell on this machine."
           : "that needs a shell on that machine."
@@ -71,7 +71,11 @@ const VERBS: VerbSpec[] = [
     oneWay: true,
     destructive: true,
     describe: (name, kills, here) =>
-      `${kills ? `This will close every subshell running ${here === "local" ? "here" : `on ${name}`}. ` : ""}Removes the service definition, so the node will not come back after a reboot. Nothing here can reinstall it once the node is gone — ${
+      `${
+        kills
+          ? `This will close every subshell running ${here === "local" ? "here" : `on ${name}`}, and the node will not come back after a reboot. `
+          : "Removes the service definition, so the node will not come back after a reboot. "
+      }Nothing here can reinstall it once the node is gone: ${
         here === "local" ? "that needs a shell on this machine." : "that needs a shell on that machine."
       }`,
   },
@@ -154,7 +158,7 @@ export function NodeServiceCard({
     if (spec.verb === "restart" && !runtime?.supervised) {
       return `Nothing on ${local ? "this" : "that"} machine is supervising this node, so exiting would stop it rather than restart it`;
     }
-    if (spec.oneWay && !isOwner) return "Only the node's owner can do this — it cannot be undone from here";
+    if (spec.oneWay && !isOwner) return "Only the node's owner can do this: it cannot be undone from here";
     return undefined;
   }
 
@@ -164,7 +168,7 @@ export function NodeServiceCard({
         <CardTitle>Service</CardTitle>
         <CardDescription>
           {local
-            ? "Drive this machine's service manager. Stopping or uninstalling is one-way from here — this page is served by the node it controls, so it goes down with the node and comes back only if something else starts it."
+            ? "Drive this machine's service manager. Stopping or uninstalling is one-way from here: this page goes down with the node and comes back only if something else starts it."
             : "Drive the service manager on that machine. Stopping or uninstalling is one-way from here: nothing in this app can start a node that is not running, because every command travels over the node's own connection."}
         </CardDescription>
       </CardHeader>

@@ -22,7 +22,7 @@ export function ReconnectOverlay(): React.ReactNode {
           Waiting for it to come back. This page reloads itself the moment the node answers.
         </p>
         <p className="text-detail text-muted-foreground">
-          If you stopped or uninstalled the service, it will not come back on its own — start it again from a shell on
+          If you stopped or uninstalled the service, it will not come back on its own: start it again from a shell on
           this machine.
         </p>
         <button

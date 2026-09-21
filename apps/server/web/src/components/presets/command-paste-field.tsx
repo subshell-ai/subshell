@@ -111,7 +111,7 @@ export function CommandPasteField({
         <div className="space-y-3 rounded-md border p-3">
           <p className="text-detail text-muted-foreground">
             {envCount === 0 && flagCount === 0
-              ? "Nothing to set — this preset would launch the agent as it is."
+              ? "Nothing to set: this preset would launch the agent as it is."
               : `${envCount} env var${envCount === 1 ? "" : "s"} · ${flagCount} flag${flagCount === 1 ? "" : "s"}`}
           </p>
           {command.env.length > 0 && (
@@ -140,7 +140,7 @@ export function CommandPasteField({
           {pastedBinary !== null && (
             <p className={mismatch ? "text-detail text-warning" : "text-detail text-muted-foreground"}>
               {mismatch
-                ? `“${pastedBinary}” isn't ${agentName}'s command — the agent selected above is what runs.`
+                ? `“${pastedBinary}” isn't ${agentName}'s command; the agent selected above is what runs.`
                 : `“${pastedBinary}” is ignored: subshells run ${agentName} as resolved on the machine they start on.`}
             </p>
           )}

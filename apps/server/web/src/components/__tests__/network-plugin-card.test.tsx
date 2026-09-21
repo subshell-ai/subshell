@@ -248,7 +248,7 @@ describe("NetworkPluginCard: the state matrix", () => {
     // disabled row, so no count is claimed.
     const calls = mockFetch(() => undefined);
     await renderCard(row({ enabled: false, status: undefined }));
-    expect(screen.getByText("Disabled — its addresses are not offered or trusted.")).toBeTruthy();
+    expect(screen.getByText("Disabled: its addresses are not offered or trusted.")).toBeTruthy();
     expect(screen.queryByRole("link", { name: /Settings → Plugins/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Enable" }));
@@ -260,7 +260,7 @@ describe("NetworkPluginCard: the state matrix", () => {
 
   it("a disabled row that still carries its status counts the addresses", async () => {
     await renderCard(row({ enabled: false, status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
-    expect(screen.getByText("Disabled — its 2 addresses are not offered or trusted.")).toBeTruthy();
+    expect(screen.getByText("Disabled: its 2 addresses are not offered or trusted.")).toBeTruthy();
   });
 
   it("not-installed numbers the privileged steps and never offers to run one", async () => {
@@ -899,7 +899,7 @@ describe("NetworkPluginCard: the state matrix", () => {
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
     expect(
       screen.getByText(
-        "Subshell is not published on Tailscale yet — “Publish with Tailscale Serve” is what lets your other devices open this dashboard over the network.",
+        "Subshell is not published on Tailscale yet. “Publish with Tailscale Serve” is what lets your other devices open this dashboard over the network.",
       ),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Publish/ })).toBeTruthy();
@@ -1143,7 +1143,7 @@ describe("NetworkPluginCard: the state matrix", () => {
     await renderCard(netbird);
     expect(
       screen.getByText(
-        "Subshell is not published on NetBird yet — “Use this address” is what lets your other devices open this dashboard over the network.",
+        "Subshell is not published on NetBird yet. “Use this address” is what lets your other devices open this dashboard over the network.",
       ),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Use this address" })).toBeTruthy();
@@ -1154,7 +1154,7 @@ describe("NetworkPluginCard: the state matrix", () => {
     );
     expect(
       screen.getByText(
-        "Subshell is not published on Tailscale yet — “Publish” is what lets your other devices open this dashboard over the network.",
+        "Subshell is not published on Tailscale yet. “Publish” is what lets your other devices open this dashboard over the network.",
       ),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
@@ -1311,10 +1311,10 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     expect(field.getAttribute("placeholder")).toBe(
       "Paste it from Zero Trust → Networks → Tunnels → the tunnel's connector",
     );
-    expect(screen.getByText(/Set — typing here replaces it\./)).toBeTruthy();
+    expect(screen.getByText(/Set \(typing here replaces it\)/)).toBeTruthy();
     // The caveat the page owns rather than the plugin: the backup snapshots
     // the database, and a plugin secret does not live there.
-    expect(screen.getByText(/does not include it — after a restore, paste it again/)).toBeTruthy();
+    expect(screen.getByText(/does not include it; after a restore, paste it again/)).toBeTruthy();
   });
 
   it("a refused publish renders the plugin's reason inline, not as an error", async () => {
@@ -1467,7 +1467,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     const dialog = await screen.findByRole("dialog");
     expect(
       within(dialog).getByText(
-        'Unpublishing NetBird ends its publish record — the addresses keep answering and stay trusted while this machine stays a member. "Disconnect" takes the machine off the network.',
+        'Unpublishing NetBird ends its publish record: the addresses keep answering and stay trusted while this machine stays a member. "Disconnect" takes the machine off the network.',
       ),
     ).toBeTruthy();
     expect(within(dialog).queryByText(/restart/i)).toBeNull();
@@ -1485,7 +1485,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     const dialog = await screen.findByRole("dialog");
     expect(
       within(dialog).getByText(
-        "The published addresses stop answering, and sign-in from them stops now — addresses the network routes to this machine directly keep answering while it stays a member. This machine stays on the network.",
+        "The published addresses stop answering, and sign-in from them stops now; addresses the network routes to this machine directly keep answering while it stays a member. This machine stays on the network.",
       ),
     ).toBeTruthy();
     expect(within(dialog).queryByText(/restart/i)).toBeNull();
@@ -1517,7 +1517,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Unpublish" }));
     expect(
       await screen.findByText(
-        "Stopped publishing on Cloudflare Tunnel — https://server.example.com no longer accepts sign-ins.",
+        "Stopped publishing on Cloudflare Tunnel: https://server.example.com no longer accepts sign-ins.",
       ),
     ).toBeTruthy();
     // The allowlist is live: no notice, no button, and the card never asked
@@ -1556,7 +1556,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign in with NetBird" }));
     expect(
       await screen.findByText(
-        "Published on NetBird — your other devices can sign in at https://box.tail1234.ts.net and http://100.64.0.1:3080 now.",
+        "Published on NetBird: your other devices can sign in at https://box.tail1234.ts.net and http://100.64.0.1:3080 now.",
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/once the server restarts/)).toBeNull();
@@ -1605,7 +1605,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
     expect(
-      await screen.findByText("Left NetBird — http://nb.disaresta.internal no longer accepts sign-ins."),
+      await screen.findByText("Left NetBird: http://nb.disaresta.internal no longer accepts sign-ins."),
     ).toBeTruthy();
     expect(screen.queryByText(/restart/i)).toBeNull();
   });
@@ -1662,7 +1662,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Unpublish" }));
     expect(
       await screen.findByText(
-        "Stopped publishing on NetBird — the addresses this server accepts sign-in from are unchanged.",
+        "Stopped publishing on NetBird: the addresses this server accepts sign-in from are unchanged.",
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/no longer accepts/)).toBeNull();

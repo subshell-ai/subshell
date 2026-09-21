@@ -1446,7 +1446,7 @@ function detailsDisclosure(): HTMLElement {
   // The string is Rust's copy of the legal constants (`desktop_about`); the
   // page stores none of them.
   if (about !== null) {
-    details.append(text("p", `This app — ${about.appName} ${about.appVersion}`, "detail"));
+    details.append(text("p", `This app: ${about.appName} ${about.appVersion}`, "detail"));
   }
   return details;
 }

@@ -28,7 +28,7 @@ function NodeServicePage() {
               <p className="text-muted-foreground text-sm">
                 {node.status === "online"
                   ? "This node did not report how it runs."
-                  : "This node is offline, so there is nothing to report and nothing to drive. These facts describe a running process — offline, they would be stale by definition."}
+                  : "This node is offline, so there is nothing to report and nothing to drive. Offline, these facts would be stale by definition."}
               </p>
             )}
           </>

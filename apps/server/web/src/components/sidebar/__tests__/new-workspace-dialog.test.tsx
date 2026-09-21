@@ -132,7 +132,7 @@ describe("NewWorkspaceDialog", () => {
       fireEvent.click(await screen.findByRole("checkbox", { name: /One/ }));
       fireEvent.click(screen.getByRole("checkbox", { name: /Two/ }));
       fireEvent.click(screen.getByRole("button", { name: /Create workspace/i }));
-      expect(await screen.findByText(/couldn't add 1 subshell/i)).toBeDefined();
+      expect(await screen.findByText(/but 1 subshell could not be added/i)).toBeDefined();
       expect(screen.getByRole("button", { name: /Enter workspace/i })).toBeDefined();
     } finally {
       restore();

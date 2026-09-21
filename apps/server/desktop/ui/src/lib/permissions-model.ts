@@ -175,7 +175,7 @@ export function permissionRows(probe: Probe, requesting: PermissionRequests = {}
   const photosDetail =
     photos === "unavailable"
       ? `Attaching an image to an agent can read your Photos library if you pick from there. ${DEV_BUILD_NOTE}`
-      : "Attaching an image to an agent can read your Photos library if you pick from there. Asked now, if you allow it — otherwise the first time you pick one.";
+      : "Attaching an image to an agent can read your Photos library if you pick from there. Asked now, if you allow it, otherwise the first time you pick one.";
 
   return [
     {

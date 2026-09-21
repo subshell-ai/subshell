@@ -47,7 +47,7 @@ use subshell_desktop_core::tray::{effective_close_to_tray, tray_support};
 use crate::node_bin::{self, decide_node, NodeBinary, NodeChoice, NODE_SIDECAR};
 
 /// What the page is told when nothing on the ladder answered.
-const NO_NODE: &str = "no subshell node CLI found — install the bundled one first";
+const NO_NODE: &str = "no subshell node CLI found; install the bundled one first";
 
 /// The mint shape of a node setup key: `nsk_` plus 32 url-safe base64
 /// characters (`randomBytes(24).toString("base64url")` in
@@ -354,9 +354,9 @@ fn node_log_paths_from(
 /// the fallback each has: macOS keeps a second file the plist names, Linux has
 /// the journal and will never grow a file at all.
 const NO_LOG_FILE: &str = if cfg!(target_os = "macos") {
-    "the node has not written a log yet — it appears at ~/.config/subshell/logs/agent.log once the node runs, and the service manager keeps its own copy at ~/Library/Logs/subshell.log"
+    "the node has not written a log yet: it appears at ~/.config/subshell/logs/agent.log once the node runs, and the service manager keeps its own copy at ~/Library/Logs/subshell.log"
 } else {
-    "the node has not written a log yet — it appears at ~/.config/subshell/logs/agent.log once the node runs; the service manager's own copy is the journal (`journalctl --user -u subshell.service -f`)"
+    "the node has not written a log yet: it appears at ~/.config/subshell/logs/agent.log once the node runs; the service manager's own copy is the journal (`journalctl --user -u subshell.service -f`)"
 };
 
 /// The paths the window may name, and the ones it may ask to reveal.
@@ -847,7 +847,7 @@ pub fn install_refusal(bundled: Option<&str>, installed: Option<&str>) -> Option
     let (bundled, installed) = (bundled?, installed?);
     Some(format!(
         "the agent already installed on this machine ({installed}) is newer than the one this app ships \
-         ({bundled}), so installing would downgrade it — an agent older than the control plane expects enrolls, \
+         ({bundled}), so installing would downgrade it: an agent older than the control plane expects enrolls, \
          comes up online and then refuses every launch. Nothing was changed, and the installed agent is the one \
          this app drives."
     ))
@@ -1276,9 +1276,9 @@ pub fn validate_server_url(raw: &str) -> Result<String, String> {
     if trimmed.is_empty() {
         return Err("enter the control plane's URL, e.g. https://subshell.example.com".into());
     }
-    let url: tauri::Url = trimmed.parse().map_err(|_| {
-        format!("'{trimmed}' is not a full URL — include the scheme, e.g. https://subshell.example.com")
-    })?;
+    let url: tauri::Url = trimmed
+        .parse()
+        .map_err(|_| format!("'{trimmed}' is not a full URL. Include the scheme, e.g. https://subshell.example.com"))?;
     if url.scheme() != "http" && url.scheme() != "https" {
         return Err(format!("the server URL must be http or https, not '{}'", url.scheme()));
     }
@@ -1332,18 +1332,18 @@ pub fn is_loopback_server(url: &str) -> bool {
 /// one-time credential, and an error string is the easiest place for one to end
 /// up on a screenshot.
 pub fn validate_setup_key(raw: &str) -> Result<String, String> {
-    const SHAPE: &str = "a setup key looks like `nsk_` followed by 32 letters, digits, `-` or `_` — copy it from Settings → Node setup keys";
+    const SHAPE: &str = "a setup key looks like `nsk_` followed by 32 letters, digits, `-` or `_`; copy it from Settings → Node setup keys";
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err("paste the setup key minted on the Nodes page".into());
     }
     let Some(body) = trimmed.strip_prefix(SETUP_KEY_PREFIX) else {
-        return Err(format!("that does not look like a setup key — {SHAPE}"));
+        return Err(format!("that does not look like a setup key: {SHAPE}"));
     };
     if body.chars().count() != SETUP_KEY_BODY_LEN
         || !body.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
-        return Err(format!("that setup key is malformed — {SHAPE}"));
+        return Err(format!("that setup key is malformed: {SHAPE}"));
     }
     Ok(trimmed.to_string())
 }
@@ -1359,12 +1359,12 @@ pub fn validate_setup_key(raw: &str) -> Result<String, String> {
 pub fn validate_node_name(raw: &str) -> Result<String, String> {
     let name = raw.trim();
     if name.is_empty() {
-        return Err("name this machine — the Nodes page lists it by this name".into());
+        return Err("Name this machine: the Nodes page lists it by this name".into());
     }
     let len = name.chars().count();
     if len > MAX_NODE_NAME_LEN {
         return Err(format!(
-            "that name is {len} characters — the control plane accepts at most {MAX_NODE_NAME_LEN}"
+            "that name is {len} characters; the control plane accepts at most {MAX_NODE_NAME_LEN}"
         ));
     }
     Ok(name.to_string())
@@ -1391,7 +1391,7 @@ pub enum ExistingNode {
 
 /// The sentence every AlreadyEnrolled confirmation ends with.
 const REENROLL_COST: &str = "Enrolling again overwrites that configuration, registers a SECOND node on the control \
-                             plane, and discards the current node key — whose only copy is that file. The old node \
+                             plane, and discards the current node key, whose only copy is that file. The old node \
                              row stays behind and has to be deleted by hand.";
 
 /// What the user must acknowledge before a setup key is spent.
@@ -1421,8 +1421,8 @@ pub fn confirmations_for(server: &str, existing: &ExistingNode) -> Vec<Confirmat
             kind: ConfirmKind::LoopbackServer,
             message: format!(
                 "{server} is a loopback address, so this node will look for a control plane on THIS machine. \
-                 That is right if you run the server here, and wrong if you copied the URL from a browser on \
-                 another machine — and a setup key is single-use, so a wrong URL spends it."
+                 That is right if you run the server here, and wrong if you copied the URL out of a browser on \
+                 another machine; a setup key is single-use, so a wrong URL spends it."
             ),
         });
     }
@@ -1612,7 +1612,7 @@ pub fn node_open_plane(
     let resolved = match url.map(|u| u.trim().to_string()).filter(|u| !u.is_empty()) {
         Some(raw) => validate_server_url(&raw)?,
         None => resolve_plane_url(&settings)
-            .ok_or_else(|| "no control plane yet — enter its URL, or enrol this machine first".to_string())?,
+            .ok_or_else(|| "no control plane yet; enter its URL, or enrol this machine first".to_string())?,
     };
     // Persisted BEFORE the window opens, so a plane that is merely unreachable
     // today is still the one this client comes back to tomorrow.
@@ -1634,7 +1634,7 @@ pub fn node_open_plane(
 #[tauri::command(async)]
 pub fn node_open_plane_url(app: AppHandle, settings: State<'_, SettingsState>) -> Result<(), String> {
     let url = resolve_plane_url(&settings)
-        .ok_or_else(|| "no control plane yet — enter its URL, or enrol this machine first".to_string())?;
+        .ok_or_else(|| "no control plane yet; enter its URL, or enrol this machine first".to_string())?;
     app.opener()
         .open_url(&url, None::<&str>)
         .map_err(|e| format!("could not open {url}: {e}"))
@@ -1761,7 +1761,7 @@ pub fn resolve_open_target(target: OpenTarget, paths: &NodePaths) -> Result<Stri
         OpenTarget::DataDir => paths
             .data_dir
             .clone()
-            .ok_or_else(|| "this machine has no data directory yet — it is created when the node enrolls".to_string()),
+            .ok_or_else(|| "this machine has no data directory yet; it is created when the node enrolls".to_string()),
         OpenTarget::NodeLog => paths
             .node_log
             .clone()

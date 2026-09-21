@@ -483,8 +483,8 @@ function SetupPage() {
         title="Connect a Network"
         subtitle={
           <>
-            Reach this server from your other devices over a network you already use. This step is optional — you can
-            set it up later under <span className="font-strong">Settings → Networking</span>.
+            Reach this server from your other devices over a network you already use. This step is optional; you can set
+            it up later under <span className="font-strong">Settings → Networking</span>.
           </>
         }
         dots={dotsFor(step)}
