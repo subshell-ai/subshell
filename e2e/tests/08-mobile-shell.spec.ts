@@ -158,7 +158,8 @@ test("launch dialog survives the agent dropdown's scroll shift", async ({ page }
   expect(parked).toBeGreaterThan(0);
   const combo = await page.getByRole("combobox", { name: "Agent" }).boundingBox();
   expect(combo).toBeTruthy();
-  await page.touchscreen.tap(combo!.x + combo!.width / 2, combo!.y + combo!.height / 2);
+  if (!combo) throw new Error("Agent combobox has no bounding box");
+  await page.touchscreen.tap(combo.x + combo.width / 2, combo.y + combo.height / 2);
   await page.waitForTimeout(400);
   await scroller.evaluate((el) => {
     el.scrollTop = el.scrollHeight;
@@ -168,7 +169,8 @@ test("launch dialog survives the agent dropdown's scroll shift", async ({ page }
   // whole dialog).
   const dbox = await dialog.boundingBox();
   expect(dbox).toBeTruthy();
-  await page.touchscreen.tap(dbox!.x + 40, dbox!.y + dbox!.height - 8);
+  if (!dbox) throw new Error("Dialog has no bounding box");
+  await page.touchscreen.tap(dbox.x + 40, dbox.y + dbox.height - 8);
   await page.waitForTimeout(400);
   await expect(dialog).toBeVisible(); // the dialog itself survived
   expect(await scroller.evaluate((el) => el.scrollTop)).toBe(parked);

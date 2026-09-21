@@ -77,7 +77,8 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
   await dismissDirectoryPanel(p1);
   await p1.getByRole("button", { name: "Start subshell" }).click();
   await expect(p1).toHaveURL(/\/subshells\/.+/, { timeout: 60_000 });
-  const subshellId = new URL(p1.url()).pathname.split("/").pop()!;
+  const subshellId = new URL(p1.url()).pathname.split("/").pop();
+  if (!subshellId) throw new Error("no subshell id in the URL");
   await renameSubshell(p1, name);
 
   await p1.waitForFunction(
@@ -111,9 +112,9 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
     undefined,
     { timeout: 60_000 },
   );
-  const replay = JSON.parse((await subshellFrames(p2)).find((f) => f.data.includes('"replay"'))!.data) as {
-    data: string;
-  };
+  const replayFrame = (await subshellFrames(p2)).find((f) => f.data.includes('"replay"'));
+  if (!replayFrame) throw new Error("no replay frame captured");
+  const replay = JSON.parse(replayFrame.data) as { data: string };
   const widest = Math.max(
     ...stripAnsi(replay.data)
       .split("\n")
@@ -162,10 +163,13 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
     const c = document.createElement("canvas");
     c.width = 300;
     c.height = 160;
-    const ctx = c.getContext("2d")!;
+    const ctx = c.getContext("2d");
+    if (!ctx) throw new Error("no 2d context");
     ctx.fillStyle = "#e33";
     ctx.fillRect(0, 0, 300, 160);
-    const blob = await new Promise<Blob>((res) => c.toBlob((b) => res(b!), "image/png"));
+    const blob = await new Promise<Blob>((res, rej) =>
+      c.toBlob((b) => (b ? res(b) : rej(new Error("toBlob returned null"))), "image/png"),
+    );
     const file = new File([blob], "IMG_PROBE.png", { type: "image/png" });
     const dt = new DataTransfer();
     dt.items.add(file);
