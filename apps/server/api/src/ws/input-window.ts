@@ -19,9 +19,17 @@
  * namespace, which is also what makes a client-side id restart safe.
  */
 
-/** Ids kept per session. Eviction only widens the at-least-once window: the
- * oldest id becomes re-writable again, which at worst duplicates one
- * keystroke on a retry older than 512 inputs. */
+/** Ids kept per session, sized to match the browser queue's own frame cap
+ * (MAX_PENDING in apps/server/web/src/lib/input-queue.ts). That match is the
+ * guarantee: a reconnect resend carries at most this many ids, so it can
+ * never consult an id the window has already evicted. A write that landed is
+ * therefore ALWAYS recognized and never re-written by a retry; a failed
+ * write never entered the window and is rewritten by the retry, so no
+ * keystroke is ever lost; and the one duplicate still possible is the
+ * documented in-flight race (the retry consults this window on ARRIVAL,
+ * while the first write is still in flight), at most one extra write of one
+ * id. Eviction can then only widen the at-least-once window, and only for a
+ * client that broke the cap. */
 const WINDOW_SIZE = 512;
 
 /** Sessions kept process-wide. A session id is never seen again once its page
@@ -72,53 +80,49 @@ export function sanitizeInputSession(raw: string | undefined): string | undefine
   return cleaned || undefined;
 }
 
-/** LRU touch: reading the Map entry as insertion-ordered, oldest first. */
-function sessionMapFor(subshellId: string): Map<string, IdWindow> {
-  let sessions = windows.get(subshellId);
-  if (!sessions) {
-    sessions = new Map();
-    windows.set(subshellId, sessions);
-  }
-  while (sessions.size >= MAX_SESSIONS) {
-    const oldest = sessions.keys().next().value;
-    if (oldest === undefined) break;
-    sessions.delete(oldest);
-  }
-  return sessions;
-}
-
 /**
  * Synchronously consults the window: has this input already been written?
  * Called in the frame handler BEFORE dispatch, so a re-send never queues a
- * second pane write behind the first.
+ * second pane write behind the first. A read never CREATES: a miss leaves no
+ * empty session behind, so the map holds only sessions that actually wrote.
  * @param subshellId - The subshell the input targets
  * @param sessionId - The client's attach session id
  * @param id - The client's input id
  * @returns True when the id is already committed
  */
 export function inputWindowHas(subshellId: string, sessionId: string, id: number): boolean {
-  const sessions = sessionMapFor(subshellId);
-  const window = sessions.get(sessionId);
+  const sessions = windows.get(subshellId);
+  const window = sessions?.get(sessionId);
   if (!window) return false;
   // Refresh the session's LRU position without disturbing the window itself.
-  sessions.delete(sessionId);
-  sessions.set(sessionId, window);
+  sessions?.delete(sessionId);
+  sessions?.set(sessionId, window);
   return window.has(id);
 }
 
 /**
  * Commits a completed write's id. Called in the `sendInput` success path,
- * never on failure: a failed write must stay re-writable.
+ * never on failure: a failed write must stay re-writable. The touch also
+ * refreshes the session's LRU position, so an actively writing session is
+ * never the eviction candidate.
  * @param subshellId - The subshell the input targeted
  * @param sessionId - The client's attach session id
  * @param id - The client's input id
  */
 export function inputWindowAdd(subshellId: string, sessionId: string, id: number): void {
-  const sessions = sessionMapFor(subshellId);
-  let window = sessions.get(sessionId);
-  if (!window) {
-    window = new IdWindow();
-    sessions.set(sessionId, window);
+  let sessions = windows.get(subshellId);
+  if (!sessions) {
+    sessions = new Map();
+    windows.set(subshellId, sessions);
+  }
+  const existing = sessions.get(sessionId);
+  const window = existing ?? new IdWindow();
+  if (existing) sessions.delete(sessionId); // LRU: a touched session is the newest
+  sessions.set(sessionId, window);
+  while (sessions.size > MAX_SESSIONS) {
+    const oldest = sessions.keys().next().value;
+    if (oldest === undefined) break;
+    sessions.delete(oldest);
   }
   window.add(id);
 }

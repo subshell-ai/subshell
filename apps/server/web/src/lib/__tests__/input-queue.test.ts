@@ -23,6 +23,13 @@ function recordingSender(live = true) {
 /** UTF-8 byte length, matching the queue's own accounting. */
 const utf8 = (s: string) => new TextEncoder().encode(s).length;
 
+/**
+ * The REAL serialized frame for one send. The belt is asserted against
+ * JSON.stringify itself, not against the queue's own accounting, so a drift
+ * between the two fails here rather than on a node.
+ */
+const frameBytes = (data: string, id: number) => utf8(JSON.stringify({ type: "input", data, id }));
+
 describe("createInputQueue", () => {
   it("an unengaged queue sends bare frames and tracks nothing", () => {
     const { sends, sender } = recordingSender();
@@ -52,17 +59,40 @@ describe("createInputQueue", () => {
     expect(q.stats.depth).toBe(1);
   });
 
-  it("CHUNK: a 70 KB paste on a clear pipe becomes 3 chunks of <= 32 KiB, ids sequential, order preserved", () => {
+  it("CHUNK: a 70 KB paste on a clear pipe becomes 3 chunks, ids sequential, order preserved", () => {
     const { sends, sender } = recordingSender();
     const q = createInputQueue(sender, now);
     q.engage();
-    // 70 KB of ASCII: 71680 bytes = 32768 + 32768 + 6144.
     const paste = "x".repeat(70 * 1024);
     q.enqueue(paste);
     expect(sends.map(([, id]) => id)).toEqual([1, 2, 3]);
-    expect(sends.map(([data]) => utf8(data))).toEqual([32768, 32768, 6144]);
     expect(sends.map(([data]) => data).join("")).toBe(paste);
     expect(q.stats.depth).toBe(3);
+  });
+
+  it("CHUNK: the belt is the SERIALIZED frame, and no entry can ever exceed it", () => {
+    // Printable text and control-character-heavy text cost different frame
+    // bytes for the same string (\uXXXX is six bytes), so the size that
+    // decides a split is the JSON frame's, not the string's. Asserted against
+    // the real serializer, not the queue's own accounting: a drift between
+    // the two fails here rather than on a node.
+    const { sends, sender } = recordingSender();
+    const q = createInputQueue(sender, now);
+    q.engage();
+    q.enqueue("x".repeat(70 * 1024));
+    const printableChunks = sends.length;
+    for (const [data, id] of sends) expect(frameBytes(data, id as number)).toBeLessThanOrEqual(CHUNK_MAX_BYTES);
+    // Drain so the second payload takes the fast path (its own chunks, sent).
+    q.ack(1);
+    q.ack(2);
+    q.ack(3);
+    sends.length = 0;
+    q.enqueue("\u0001".repeat(70 * 1024)); // 6 frame bytes per character
+    // The control-heavy payload is many more chunks for the same string
+    // length, and still every serialized frame is under the cap.
+    expect(sends.length).toBeGreaterThan(printableChunks);
+    for (const [data, id] of sends) expect(frameBytes(data, id as number)).toBeLessThanOrEqual(CHUNK_MAX_BYTES);
+    expect(sends.map(([data]) => data).join("")).toBe("\u0001".repeat(70 * 1024));
   });
 
   it("CHUNK: chunk boundaries never split a multi-byte character", () => {
@@ -73,7 +103,7 @@ describe("createInputQueue", () => {
     const paste = `${"a".repeat(300)}🙂`.repeat(200);
     expect(utf8(paste)).toBeGreaterThan(CHUNK_MAX_BYTES);
     q.enqueue(paste);
-    for (const [data] of sends) expect(utf8(data)).toBeLessThanOrEqual(CHUNK_MAX_BYTES);
+    for (const [data, id] of sends) expect(frameBytes(data, id as number)).toBeLessThanOrEqual(CHUNK_MAX_BYTES);
     expect(sends.map(([data]) => data).join("")).toBe(paste);
   });
 
@@ -104,12 +134,17 @@ describe("createInputQueue", () => {
     q.engage();
     q.enqueue("seed"); // id 1, sent
     q.enqueue("b".repeat(100)); // id 2, unsent tail with room to spare
-    q.enqueue("c".repeat(CHUNK_MAX_BYTES - 50)); // fills id 2 to the cap, spills 50 bytes
+    // One full-cap append: the tail takes as much as its budget allows and
+    // the rest spills into a new chunk (the exact split point is the wire
+    // budget's, so the assertions are properties, not hand-computed sizes).
+    q.enqueue("c".repeat(CHUNK_MAX_BYTES));
     q.ack(1); // drain -> the backlog ships
-    expect(sends.slice(1)).toEqual([
-      ["b".repeat(100) + "c".repeat(CHUNK_MAX_BYTES - 100), 2],
-      ["c".repeat(50), 3],
-    ]);
+    expect(sends.length).toBe(3);
+    const [chunk2, chunk3] = sends.slice(1).map(([data]) => data as string);
+    expect(chunk2.startsWith("b".repeat(100))).toBe(true);
+    expect(chunk2 + chunk3).toBe("b".repeat(100) + "c".repeat(CHUNK_MAX_BYTES));
+    for (const [data, id] of sends.slice(1))
+      expect(frameBytes(data, id as number)).toBeLessThanOrEqual(CHUNK_MAX_BYTES);
     expect(q.stats.depth).toBe(2);
   });
 
@@ -244,18 +279,19 @@ describe("createInputQueue", () => {
     expect(calls).toBe(3);
   });
 
-  it("the pending cap is a frame count and drops the oldest, never the newest", () => {
+  it("the pending cap is a frame count matched to the server window, and drops the oldest, never the newest", () => {
     const { sender } = recordingSender();
     const q = createInputQueue(sender, now);
     q.engage();
-    // Each enqueue is one byte over the cap, so every one spills into its own
-    // frame: the only way to accumulate many frames while nothing is acked.
+    // Each enqueue is one byte over the chunk budget, so every one spills
+    // into new frames: the only way to accumulate many frames while nothing
+    // is acked. 512 enqueues produce 514 frames, two past the cap.
     const overCap = "x".repeat(CHUNK_MAX_BYTES + 1);
-    for (let i = 0; i < 1024; i++) q.enqueue(overCap);
-    expect(q.stats.depth).toBe(1024);
-    // The oldest frame is gone; the newest is still pending and retirable.
-    q.ack(1024);
-    expect(q.stats.depth).toBe(1023);
+    for (let i = 0; i < 512; i++) q.enqueue(overCap);
+    expect(q.stats.depth).toBe(512);
+    // The oldest frames are gone; the newest is still pending and retirable.
+    q.ack(514);
+    expect(q.stats.depth).toBe(511);
   });
 
   it("an empty enqueue is a no-op in both modes", () => {

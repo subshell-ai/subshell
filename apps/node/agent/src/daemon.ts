@@ -456,11 +456,15 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // on their own chain, in arrival order among themselves, CONCURRENTLY with
   // the main chain; captures, probes, launches and resize keep the main chain
   // and its order untouched. PER-DAEMON, like `execChain`, and deliberately
-  // not per-socket: a retry arriving on the reconnected socket must queue
-  // BEHIND the old socket's in-flight input, so the first write lands
-  // (entering the plane's dedupe window) before the retry is consulted;
-  // per-socket chains would let the two interleave and write the keystroke
-  // twice.
+  // not per-socket: the chain ORDERS a retry's EXECUTION behind the old
+  // socket's in-flight write, so the pane takes the keystrokes in arrival
+  // order even when the retry races. It does NOT make the retry idempotent:
+  // the plane's dedupe window consults on ARRIVAL and commits only writes
+  // that have already LANDED, so a retry racing an in-flight write can still
+  // write twice (at-least-once, never zero). See the residual ambiguity in
+  // the plane's ws/subshell-ws.ts. What the chain still buys is the ordering
+  // half: even a duplicated keystroke arrives adjacent to its own first
+  // write, never interleaved behind a later one.
   let inputChain: Promise<void> = Promise.resolve();
 
   // Local-liveness lock for `subshell status` (fix wave 1). Best-effort: a home that

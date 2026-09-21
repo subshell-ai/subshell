@@ -55,6 +55,16 @@ frame: the node's byte guard would drop it whole. The queue therefore
   alive, TCP ordering means an unacked frame is "not yet", never "lost".
 - On `ack`, record the round-trip time (sent timestamp kept per id) and drop
   it from the queue. Queue depth and per-id RTTs feed the HUD (Wave C).
+- Batching (operator addendum, 2026-09-21): every queued entry SERIALIZES to
+  at most 32 KiB (the JSON frame's byte length, not the string's, so
+  escaping is part of the cost; well under the node's 1 MiB frame cap), so a
+  large paste becomes several chunks with sequential ids, acked and retried
+  independently; and while the queue holds anything (the pipe is behind), a
+  new enqueue JOINS the unsent tail, filled to the chunk cap with the
+  remainder spilling into further chunks, shipping when the acks drain, on
+  reconnect, or on an explicit resend. Sent bytes are frozen: an id names
+  exactly the bytes the server may have written, so coalescing only ever
+  targets unsent data.
 - Overlay badge on the terminal, always on when the queue is non-empty
   (independent of diagnostics mode): `N ⌨` with animated `>>>`, amber when an
   id has been unacked past 2 s. Two sentences of copy max, no em dashes.
