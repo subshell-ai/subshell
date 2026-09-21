@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { InputQueueBadge } from "@/components/subshell-terminal";
 import { createInputQueue, type InputQueue, queueBadgeView } from "@/lib/input-queue";
 
@@ -32,9 +32,12 @@ describe("InputQueueBadge", () => {
     expect(screen.getByText("1 ⌨", { exact: false })).toBeTruthy();
     expect(container.querySelector(".text-warning")).toBeNull();
     act(() => queue.ack(1));
-    // The ack drains through the queue's rAF-coalesced listener; let one turn run.
-    await new Promise((r) => setTimeout(r, 0));
-    expect(container.textContent).toBe("");
+    // The ack drains through the queue's rAF-coalesced listener, so the
+    // re-render is not on the ack's own turn. Poll on the CONDITION: one
+    // macrotask was enough locally and flaked in CI (received "1 ⌨>>>" after
+    // the drain), because a loaded runner does not schedule the coalesced
+    // turn inside one timeout.
+    await waitFor(() => expect(container.textContent).toBe(""));
   });
 
   it("turns amber once the oldest unacked id has waited past 2 s", () => {
