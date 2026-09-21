@@ -93,8 +93,9 @@ export function NodeMaintenanceCard({
       <CardHeader>
         <CardTitle>Maintenance</CardTitle>
         <CardDescription>
-          While on, nobody can start a subshell here, and turning it on stops the ones running — restart them after it
-          ends. The machine can set the same flag itself: <code>subshell maintenance on|off</code>.
+          Turning this on blocks new subshells on this machine for everyone, and stops whatever is running. They will
+          not come back on their own when maintenance ends. Same flag from the machine's own command line:{" "}
+          <code>subshell maintenance on|off</code>.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
