@@ -114,6 +114,10 @@ export interface InputQueueStats {
   depth: number;
   /** Age of the oldest unretired input, or null when the queue is empty. */
   unackedOldestMs: number | null;
+  /** How much of {@link depth} is on the wire awaiting its ack. */
+  inFlight: number;
+  /** How much of {@link depth} has never left (backpressure backlog). */
+  backlog: number;
 }
 
 /** Recent round-trip times, for the Wave C HUD's "echo RTT p50 and max". */
@@ -498,10 +502,17 @@ export function createInputQueue(sender: InputSender, now: () => number = Date.n
     },
     get stats() {
       let oldest: number | null = null;
+      let inFlight = 0;
       for (const entry of pending.values()) {
+        if (entry.sent) inFlight++;
         if (oldest === null || entry.queuedAt < oldest) oldest = entry.queuedAt;
       }
-      return { depth: pending.size, unackedOldestMs: oldest === null ? null : now() - oldest };
+      return {
+        depth: pending.size,
+        unackedOldestMs: oldest === null ? null : now() - oldest,
+        inFlight,
+        backlog: pending.size - inFlight,
+      };
     },
     get rtt() {
       if (rtts.length === 0) return { count: 0, p50: null, max: null };

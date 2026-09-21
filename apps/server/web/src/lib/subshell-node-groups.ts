@@ -37,10 +37,10 @@ export interface SubshellNodeGroup {
  * control-plane host, so they read as `local` rather than as a nameless
  * seventh group.
  */
-const FALLBACK_NODE_ID = "local";
+export const FALLBACK_NODE_ID = "local";
 
 /**
- * The label (and hover title) for one bucket, on the ladder the home card's
+ * The label (and hover title) for one node id, on the ladder the home card's
  * node pill established, with one widening the pill does not need:
  *
  * - the registry resolved the id → the node's NAME, which is what a person
@@ -60,11 +60,15 @@ const FALLBACK_NODE_ID = "local";
  *   grant (an admin narrowing `local`, a node share pulled under a live
  *   subshell) lands here too, and "unknown" claims only what is known.
  *
- * @param nodeId - the bucket's node id
+ * Exported beside {@link groupSubshellsByNode} because the Wave C diagnostics
+ * HUD names a pane's machine too, and two ladders for one question is how the
+ * sidebar and the HUD end up disagreeing about the same node.
+ *
+ * @param nodeId - the node id to name (an absent id falls back to `local`, as the grouping does)
  * @param nodes - the caller's visible nodes, or undefined while the query is unanswered
  * @param unanswered - true while NO read has ever succeeded (see the ladder above)
  */
-function labelFor(
+export function nodeLabelFor(
   nodeId: string,
   nodes: readonly Node[] | undefined,
   unanswered: boolean,
@@ -100,7 +104,7 @@ function labelFor(
  * @param subshells - the rail's status-ordered list
  * @param nodes - the caller's visible nodes, for resolving each bucket's label
  * @param options.limit - max rows per group; omitted = no cap (filter mode)
- * @param options.unanswered - true while the nodes read has not succeeded (see {@link labelFor})
+ * @param options.unanswered - true while the nodes read has not succeeded (see {@link nodeLabelFor})
  */
 export function groupSubshellsByNode(
   subshells: readonly SubshellView[],
@@ -118,7 +122,7 @@ export function groupSubshellsByNode(
   }
   const groups = [...buckets].map(([nodeId, rows]) => ({
     nodeId,
-    ...labelFor(nodeId, nodes, unanswered),
+    ...nodeLabelFor(nodeId, nodes, unanswered),
     // The liveliest member decides, whatever position the input's sort left
     // the rows in — see the docblock. `rows` is non-empty by construction.
     rank: Math.min(...rows.map(subshellStatusRank)),

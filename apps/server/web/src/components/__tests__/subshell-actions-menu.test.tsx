@@ -45,7 +45,11 @@ function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
  * renders as an index route of a minimal memory router — the same context
  * the app itself installs.
  */
-async function renderMenu(subshell: SubshellView, children?: ReactNode) {
+async function renderMenu(
+  subshell: SubshellView,
+  children?: ReactNode,
+  diagnostics?: { on: boolean; onToggle: () => void },
+) {
   // retry: 0 so the presets query settles on the first canned response.
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute();
@@ -54,7 +58,11 @@ async function renderMenu(subshell: SubshellView, children?: ReactNode) {
     path: "/",
     // With children the menu switches to right-click mode around the row
     // (sidebar use, spec 2026-09-03); without, today's ⋯ button.
-    component: () => <SubshellActionsMenu subshell={subshell}>{children}</SubshellActionsMenu>,
+    component: () => (
+      <SubshellActionsMenu subshell={subshell} diagnostics={diagnostics}>
+        {children}
+      </SubshellActionsMenu>
+    ),
   });
   const router = createRouter({
     routeTree: rootRoute.addChildren([indexRoute]),
@@ -272,6 +280,55 @@ describe("SubshellActionsMenu — Edit preset (dead-row recovery loop)", () => {
       await renderMenu(makeSubshell({ alive: false, presetId: "p1" }));
       await openMenu("subshell");
       expect(screen.queryByRole("menuitem", { name: /Edit preset/ })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("SubshellActionsMenu — diagnostics toggle (spec 2026-09-21 Wave C)", () => {
+  afterEach(cleanup);
+
+  it("the page's toggle renders as a checkable item, on and off, and clicking flips it", async () => {
+    let toggles = 0;
+    const { restore } = mockFetch();
+    try {
+      await renderMenu(makeSubshell(), undefined, { on: true, onToggle: () => toggles++ });
+      await openMenu("subshell");
+      const item = screen.getByRole("menuitem", { name: "Diagnostics" });
+      expect(item.querySelector(".text-primary")).toBeDefined();
+      fireEvent.click(item);
+      expect(toggles).toBe(1);
+      cleanup();
+
+      await renderMenu(makeSubshell(), undefined, { on: false, onToggle: () => toggles++ });
+      await openMenu("subshell");
+      // Unchecked keeps its slot (invisible), so the rows align either way.
+      expect(screen.getByRole("menuitem", { name: "Diagnostics" }).querySelector(".text-transparent")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("absent without the prop — the shared surfaces (cards, rows) offer no diagnostics switch", async () => {
+    const { restore } = mockFetch();
+    try {
+      await renderMenu(makeSubshell());
+      await openMenu("subshell");
+      expect(screen.queryByRole("menuitem", { name: "Diagnostics" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("the sidebar right-click set does not gain it (a rail row has no terminal under it)", async () => {
+    const { restore } = mockFetch();
+    const row = <a href="/subshells/id-1">the row</a>;
+    try {
+      await renderMenu(makeSubshell(), row, { on: true, onToggle: () => {} });
+      fireEvent.contextMenu(screen.getByText("the row"));
+      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(6));
+      expect(screen.queryByRole("menuitem", { name: "Diagnostics" })).toBeNull();
     } finally {
       restore();
     }

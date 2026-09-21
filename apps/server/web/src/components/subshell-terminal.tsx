@@ -9,7 +9,9 @@ import { Terminal } from "@xterm/xterm";
 import { RotateCcw, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { LogTail } from "@/components/log-tail";
+import { PaneDiagnosticsHud } from "@/components/pane-diagnostics-hud";
 import { TerminalDropOverlay } from "@/components/terminal-drop-overlay";
+import { useLiveInputQueue } from "@/hooks/use-input-queue-live";
 import { useTerminalUploads } from "@/hooks/use-terminal-uploads";
 import { shouldResetForeignScroll } from "@/lib/app-scroll-pin";
 import { deadPanelActions } from "@/lib/dead-panel-actions";
@@ -67,61 +69,18 @@ const TERMINAL_OPTIONS = {
  * that is merely fast has no UI.
  *
  * Exported for the badge's component test; the app's only consumer renders it
- * inside the terminal container below.
- *
- * The queue is created by the hook's effect, which runs AFTER this child's
- * own effects (React is child-first), so it is picked up by a short poll
- * rather than read once at mount.
+ * inside the terminal container below, in the overlay column next to the
+ * Wave C diagnostics HUD. Positioning lives on that column (top-right, the
+ * devices strip's corner); the badge is a plate inside it, so the two stack
+ * instead of fighting for the same pixels.
  */
 export function InputQueueBadge({ inputQueueRef }: { inputQueueRef: { current: InputQueue | null } }) {
-  const [queue, setQueue] = useState<InputQueue | null>(null);
-  useEffect(() => {
-    const found = inputQueueRef.current;
-    if (found) {
-      if (found !== queue) setQueue(found);
-      return;
-    }
-    const poll = setInterval(() => {
-      const picked = inputQueueRef.current;
-      if (picked) {
-        clearInterval(poll);
-        setQueue(picked);
-      }
-    }, 50);
-    return () => clearInterval(poll);
-  }, [queue, inputQueueRef]);
-  const [view, setView] = useState({ depth: 0, stalled: false });
-  useEffect(() => {
-    if (!queue) return;
-    let raf = 0;
-    const sync = () => {
-      setView(queueBadgeView(queue.stats));
-    };
-    const schedule = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        sync();
-      });
-    };
-    const unsubscribe = queue.onStats(schedule);
-    // The amber threshold is a fact about TIME, not an event: a single
-    // unacked keystroke crosses it in silence, so a visible queue keeps
-    // ticking.
-    const tick = setInterval(() => {
-      if (queue.stats.depth > 0) sync();
-    }, 500);
-    sync();
-    return () => {
-      unsubscribe();
-      clearInterval(tick);
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, [queue]);
-  if (!queue || view.depth === 0) return null;
+  const { stats } = useLiveInputQueue(inputQueueRef);
+  const view = queueBadgeView(stats);
+  if (view.depth === 0) return null;
   return (
     <div
-      className={`pointer-events-none absolute top-1 right-4 z-10 rounded-md bg-terminal-strip/85 px-1.5 py-1 text-detail backdrop-blur-sm ${
+      className={`pointer-events-none rounded-md bg-terminal-strip/85 px-1.5 py-1 text-detail backdrop-blur-sm ${
         view.stalled ? "text-warning" : "text-muted-foreground"
       }`}
     >
@@ -230,6 +189,14 @@ export interface SubshellTerminalProps {
    * "produced no output" instead of a blank box.
    */
   diagnostics?: { lines: string[]; truncated: boolean } | null;
+  /**
+   * The Wave C diagnostics HUD (spec 2026-09-21), ON while present. The page
+   * owns the toggle (the actions menu's "Diagnostics" item, persisted per
+   * device) and resolves the node label; the terminal contributes what only
+   * it can see: the socket state, the reconnect count, the input queue and
+   * the live viewers frame. Absent renders no HUD.
+   */
+  diagnosticsOverlay?: { nodeLabel: string | null } | null;
   /** Extra buttons for the exited panel's action row (e.g. Edit preset). */
   extraActions?: ReactNode;
 }
@@ -298,6 +265,7 @@ export function SubshellTerminal({
   onDelete,
   deleting = false,
   diagnostics = null,
+  diagnosticsOverlay = null,
   extraActions,
 }: SubshellTerminalProps) {
   // The pane box. The terminal's own container is pinned to the pane's grid
@@ -314,6 +282,13 @@ export function SubshellTerminal({
   // while `active` is false so a detached pane still reads as itself.
   const [snapshot, setSnapshot] = useState("");
   const [status, setStatus] = useState<SubshellTerminalStatus>({ connected: false, closed: false });
+  /**
+   * The latest `viewers` frame, kept beside the forwarded copy so the
+   * diagnostics HUD (Wave C) can name the audience and the settled grid.
+   * The forwarder below is the page's own copy; this one is the terminal's,
+   * and both are fed by the same handler.
+   */
+  const [hudViewers, setHudViewers] = useState<ViewersState | null>(null);
   // The container is pinned to exactly the pane's grid (see lib/terminal-geometry):
   // FitAddon then proposes that same grid, so fitting is idempotent and this
   // client never answers the server's geometry by asking for a different size.
@@ -755,7 +730,7 @@ export function SubshellTerminal({
   // and re-attaches to the fresh terminal when `active` returns.
   // Declared after the mount effect above so its effect runs second; the
   // effect's onReady closure reads it lazily, by which point it exists.
-  const { wsRef, inputQueueRef } = useSubshellWs(
+  const wsHookRefs = useSubshellWs(
     termRef,
     active ? subshellId : "",
     {
@@ -770,6 +745,7 @@ export function SubshellTerminal({
         // With the socket down we do not know who is watching — including
         // whether we still are. Saying so beats leaving a stale "Devices (3)"
         // on screen through a reconnect.
+        setHudViewers(null);
         onViewersRef.current?.(null);
       },
       // The pane's real grid. Pin the container to it and say nothing back:
@@ -783,7 +759,10 @@ export function SubshellTerminal({
         // read back the instant the font is assigned.
         applyLetterboxSettled();
       },
-      onViewers: (state) => onViewersRef.current?.(state),
+      onViewers: (state) => {
+        setHudViewers(state);
+        onViewersRef.current?.(state);
+      },
     },
     // A `view` grantee watches the pane but cannot type (spec §4.1).
     subshell?.access === "view",
@@ -793,6 +772,10 @@ export function SubshellTerminal({
     // a resize that happened while the socket was down is not lost.
     measureCapacity,
   );
+  // Destructured after the hook: the diagnostics HUD reads the reconnect
+  // count live on its own re-renders (clock tick, socket changes), so a ref
+  // is the whole interface it needs.
+  const { wsRef, inputQueueRef, reconnectsRef } = wsHookRefs;
 
   // A deliberate detach never reports a close: useSubshellWs nulls its socket
   // ref before the browser delivers onclose, and then discards that close as
@@ -802,6 +785,7 @@ export function SubshellTerminal({
   useEffect(() => {
     if (active) return;
     emitStatus({ connected: false, closed: statusRef.current.closed });
+    setHudViewers(null);
     onViewersRef.current?.(null);
   }, [active, emitStatus]);
 
@@ -871,12 +855,28 @@ export function SubshellTerminal({
               onDismissPhotosNotice={uploads.dismissPhotosNotice}
             />
           )}
-          {/* The in-flight input overlay, same idiom as the devices strip
-              (floated, dense, pointer-events-none). On a workspace pane the
-              devices wrapper renders after this component and at the same
-              corner, so when both are up the devices strip wins the paint and
-              the badge reappears the moment it goes away. */}
-          <InputQueueBadge inputQueueRef={inputQueueRef} />
+          {/* The overlays, stacked in ONE column so they never fight for the
+              same pixels: the in-flight input badge above, the Wave C
+              diagnostics HUD below it, both with the devices strip's idiom
+              (floated, dense, pointer-events-none) at its top-right corner.
+              On a workspace pane the devices wrapper renders after this
+              component and at the same corner, so when both are up the
+              devices strip wins the paint and the column reappears the
+              moment it goes away. The HUD only renders when the page passed
+              `diagnosticsOverlay`, which today is the subshell page alone. */}
+          <div className="pointer-events-none absolute top-1 right-4 z-10 flex flex-col items-end gap-1">
+            <InputQueueBadge inputQueueRef={inputQueueRef} />
+            {diagnosticsOverlay && (
+              <PaneDiagnosticsHud
+                subshell={subshell}
+                socket={status}
+                reconnectsRef={reconnectsRef}
+                inputQueueRef={inputQueueRef}
+                viewers={hudViewers}
+                nodeLabel={diagnosticsOverlay.nodeLabel}
+              />
+            )}
+          </div>
         </div>
       )}
       {/* The pane log's tail is the only record of why a harness that died

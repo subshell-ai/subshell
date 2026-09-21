@@ -40,7 +40,7 @@ describe("createInputQueue", () => {
       ["a", undefined],
       ["b", undefined],
     ]);
-    expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null });
+    expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null, inFlight: 0, backlog: 0 });
   });
 
   it("an engaged queue sends immediately while the pipe is clear, ids monotonic", () => {
@@ -116,7 +116,7 @@ describe("createInputQueue", () => {
     q.enqueue("c"); // joins the same tail
     // Only the first frame ever left; the burst is one queued frame.
     expect(sends).toEqual([["a", 1]]);
-    expect(q.stats).toEqual({ depth: 2, unackedOldestMs: 0 });
+    expect(q.stats).toEqual({ depth: 2, unackedOldestMs: 0, inFlight: 1, backlog: 1 });
     advance(30);
     // The ack that drains the pipe is the flush trigger: id 2 leaves whole.
     q.ack(1);
@@ -125,7 +125,7 @@ describe("createInputQueue", () => {
       ["bc", 2],
     ]);
     q.ack(2);
-    expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null });
+    expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null, inFlight: 0, backlog: 0 });
   });
 
   it("COALESCE: the burst fills the tail to the chunk cap and spills the residue", () => {
@@ -204,7 +204,7 @@ describe("createInputQueue", () => {
     q.enqueue("typed offline");
     q.enqueue("more offline"); // coalesces into the unsent tail
     expect(sends).toEqual([]);
-    expect(q.stats).toEqual({ depth: 1, unackedOldestMs: 0 });
+    expect(q.stats).toEqual({ depth: 1, unackedOldestMs: 0, inFlight: 0, backlog: 1 });
     state.live = true; // the reconnect
     q.resendPending();
     expect(sends).toEqual([["typed offlinemore offline", 1]]);
@@ -253,7 +253,7 @@ describe("createInputQueue", () => {
     advance(20);
     q.ack(1); // RTT 60 for id 1; the drain flushes id 2 at t=10060
     q.ack(2); // RTT 0 for id 2 (sent and acked in the same tick)
-    expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null });
+    expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null, inFlight: 0, backlog: 0 });
     expect(q.rtt.p50).toBe(30);
     expect(q.rtt.max).toBe(60);
     expect(q.rtt.count).toBe(2);
@@ -288,7 +288,7 @@ describe("createInputQueue", () => {
     q.enqueue("b"); // coalesced backlog
     expect(q.stats.depth).toBe(2);
     q.disengage();
-    expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null });
+    expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null, inFlight: 0, backlog: 0 });
     expect(q.engaged).toBe(false);
     // And the queue is back to fire-and-forget.
     q.enqueue("c");
@@ -306,7 +306,7 @@ describe("createInputQueue", () => {
     q.enqueue("de");
     expect(sends).toEqual([]);
     // Nothing is tracked yet, so the badge correctly shows an empty queue.
-    expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null });
+    expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null, inFlight: 0, backlog: 0 });
     state.live = true; // the first server frame made the attach live...
     q.engage(); // ...and the viewers frame engages: the buffer ships FIRST
     // Fresh ids from 1, in typing order. The buffer coalesced the two
@@ -314,7 +314,7 @@ describe("createInputQueue", () => {
     // coalesce would have.
     expect(sends).toEqual([["abcde", 1]]);
     q.ack(1);
-    expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null });
+    expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null, inFlight: 0, backlog: 0 });
   });
 
   it("a buffered paste larger than one chunk ships as sequential tracked chunks in order", () => {
@@ -343,7 +343,7 @@ describe("createInputQueue", () => {
     state.live = true;
     q.disengage(); // the old server's answer: bare, untracked, pre-queue behavior
     expect(sends).toEqual([["abcde", undefined]]);
-    expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null });
+    expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null, inFlight: 0, backlog: 0 });
     // And bare-on-the-spot resumes: the steady state is byte-identical to
     // what every pre-queue client did.
     q.enqueue("f");

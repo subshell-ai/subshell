@@ -135,6 +135,16 @@ export function useSubshellWs(
   // session, ids from 1) rather than carrying ids across panes.
   const ownedQueueRef = useRef<{ subshellId: string; sessionId: string; queue: InputQueue } | null>(null);
   const inputQueueRef = useRef<InputQueue | null>(null);
+  /**
+   * Reconnects THIS attach session has attempted, after the first connect.
+   * Read live by the diagnostics HUD (spec 2026-09-21 Wave C): a counter the
+   * hook already owns, reset when the attach session changes (the effect's
+   * dependencies are exactly what defines one) and incremented by each
+   * retry, so the HUD can state "2 reconnects" without a second socket or a
+   * poll. Refs do not re-render; the HUD re-renders on its clock tick and on
+   * every socket state change, which is freshness enough for a count.
+   */
+  const reconnectsRef = useRef(0);
   // True once the CURRENT connection has delivered its first server frame.
   // Input is sent (and re-sent) only while this is up: earlier frames are
   // dropped by the server's own attach guard, so sending into that window
@@ -172,6 +182,9 @@ export function useSubshellWs(
         });
     ownedQueueRef.current = { subshellId, sessionId, queue };
     inputQueueRef.current = queue;
+    // A new attach session is a fresh reconnect count (see `reconnectsRef`).
+    reconnectsRef.current = 0;
+    let connections = 0;
 
     /**
      * Arms the next reconnect attempt. Replaces any pending timer so two
@@ -184,6 +197,10 @@ export function useSubshellWs(
     };
 
     const connect = async () => {
+      // Counted attempts, not successes: a reconnect that fails and retries
+      // again is still 1, 2, 3… from the HUD's reader's point of view.
+      connections++;
+      if (connections > 1) reconnectsRef.current = connections - 1;
       try {
         const { token } = await apiFetch<{ token: string }>("/api/auth/ws-token", { method: "POST" });
         if (cancelled) return;
@@ -462,5 +479,5 @@ export function useSubshellWs(
     };
   }, [terminalRef, subshellId, readOnly, measure]);
 
-  return { wsRef, inputQueueRef };
+  return { wsRef, inputQueueRef, reconnectsRef };
 }
