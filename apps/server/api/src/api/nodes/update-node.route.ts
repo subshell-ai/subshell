@@ -344,7 +344,11 @@ export const updateNodeRoute = new Elysia()
       // means the lazy fetch serves verified release bytes, so there is
       // nothing to compare — and a read error is refused the way the digest
       // read above is, never papered over.
-      const onDisk = await diskArtifactSha256(target).catch((err: unknown) => err);
+      // A non-Error throw must not masquerade as a digest mismatch: convert
+      // here so the branch below can only ever mean "could not verify".
+      const onDisk = await diskArtifactSha256(target).catch((err: unknown) =>
+        err instanceof Error ? err : new Error(String(err)),
+      );
       if (onDisk instanceof Error) {
         return status(
           409,
@@ -359,7 +363,7 @@ export const updateNodeRoute = new Elysia()
           409,
           apiErrorBody({
             code: BackendErrorCodes.NODE_UPDATE_UNAVAILABLE,
-            message: `This server's published ${target} node binary is not the release it offers, so the node would install nothing. Republish with \`bun run release:cli-node\`, or delete the file so the next download fetches the verified release`,
+            message: `This server's published ${target} node binary is not the release it offers, so the node would install nothing. Republish with \`bun run release:cli-node\`, or delete the file so the next download fetches the verified release.`,
           }),
         );
       }
