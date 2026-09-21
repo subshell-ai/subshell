@@ -87,6 +87,13 @@ admitted here.
   six pixels above a quiet "Client version" over its — two label grammars in one
   card, so one row read as a heading and the other as data, and neither was the
   control the bold claimed it was.)*
+- **Copy length**: an explanation of a UI element is at most two sentences,
+  and UI copy uses no em dashes; periods and commas separate clauses. If a control needs more than two sentences, the surplus
+  is documentation or a detail disclosure, not help text. *(Operator ruling,
+  2026-09-21, after a maintenance toggle carried a four-clause essay and a
+  launch-rule card carried five sentences: the paragraph beside a control is
+  read ONCE, at the moment of decision; long run-ons teach people to skim
+  the whole screen.)*
 - **Help text** — everything a control says about itself is `detail`, at ONE
   size: its hint, "set by the environment", a saved-vs-running note, a
   validation error — the same role metadata uses, so a field never mixes sizes.

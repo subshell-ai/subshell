@@ -23,10 +23,17 @@ import { Switch } from "../ui/switch";
  * maintenance answers WHETHER ANYONE may, and the server ANDs the two into
  * `canLaunch`.
  *
- * It lives on the Overview rather than under Configuration because `local` has
- * no other section (`node-section-nav.tsx` hides all three for the host and
- * for a `view` grantee), and one switch that appears in different places
- * depending on the kind of machine is a switch people stop finding.
+ * It lives on the Overview, for everyone who manages the node, on every kind
+ * of machine: one switch that appears in different places depending on the
+ * kind of machine is a switch people stop finding. (It briefly lived under a
+ * Configuration tab; that tab was deleted outright and its lone card
+ * promoted to the Overview beside this one.)
+ *
+ * The description is two sentences, per the copy rule; the CLI equivalence
+ * sits in the card's one-line detail slot, and AGENT-ONLY: `subshell
+ * maintenance on|off` is the agent's own command, and the control-plane host
+ * runs no agent to type it into, even though the FLAG means the same thing
+ * on every machine (spec 2026-09-14: `local` included).
  *
  * Hidden — not disabled — for a viewer who cannot manage the node, the way its
  * predecessor was: the route refuses them, and `canManage` is the server's own
@@ -93,10 +100,8 @@ export function NodeMaintenanceCard({
       <CardHeader>
         <CardTitle>Maintenance</CardTitle>
         <CardDescription>
-          While this is on nobody can start a subshell here — not its owner, not the people it is shared with, not
-          admins. Subshells running when you turn it on are stopped, and the ones set to relaunch will not come back on
-          their own — restart them after it ends. Everything else keeps answering as usual (
-          <code>subshell maintenance on|off</code> at the machine sets the same flag).
+          Turning this on blocks new subshells on this machine for everyone, and stops whatever is running. They will
+          not come back on their own when maintenance ends.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -110,15 +115,26 @@ export function NodeMaintenanceCard({
             // words stay a substring of this, per the label-in-name rule.
             aria-label={`Maintenance mode on ${node.name}`}
           />
-          {/* The label names WHICH SWITCH this is and never changes; the state
-              got its own line below. It used to flip to "Accepting subshells"
-              exactly when the switch was OFF, which reads as "accepting: off"
-              — the opposite of the truth. */}
+          {/* The label names WHICH SWITCH this is and never changes; it used
+              to flip to "Accepting subshells" exactly when the switch was
+              OFF, which reads as "accepting: off", the opposite of the
+              truth. The state line below appears ONLY in maintenance: an
+              off switch describing its own off-state ("Accepting new
+              subshells") is a tautology, while how long it has been ON and
+              who said so is a fact someone acts on. */}
           <Label>Maintenance mode</Label>
         </div>
-        <p className="text-detail text-muted-foreground">
-          {node.maintenance ? maintenanceSinceLabel(node) : "Accepting new subshells"}
-        </p>
+        {node.maintenance && <p className="text-detail text-muted-foreground">{maintenanceSinceLabel(node)}</p>}
+        {/* The CLI equivalence is a one-line detail, not a third sentence of
+            explanation: the CardDescription stays within the two-sentence
+            rule, and this joins the card's other detail lines. AGENT-ONLY:
+            `subshell maintenance on|off` is the agent's own command, and the
+            control-plane host runs no agent to type it into. */}
+        {node.kind === "agent" && (
+          <p className="text-detail text-muted-foreground">
+            Same flag from this machine's command line: <code>subshell maintenance on|off</code>.
+          </p>
+        )}
         {error && (
           <p role="alert" className="text-destructive text-detail">
             {error}

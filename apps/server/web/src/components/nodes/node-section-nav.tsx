@@ -14,17 +14,19 @@ import type { JSX } from "react";
  * because a hidden link is not a gated URL.
  */
 /**
- * The ONE visibility rule for the three managed sections — the nav hides
- * their links by it, and the section routes themselves redirect by it.
+ * The visibility rule for the two DAEMON sections: the nav hides their links
+ * by it and the section routes redirect by it. The node's RULES (allowlist,
+ * server URL) are cards on the Overview now, not a tab, and each gates
+ * itself.
  *
- * It is the server's rule rather than this component's guess: Service,
- * Configuration and Logs all 400 on the control-plane host (its own surface
- * is Server Settings → Service) and 403 for a `view` grantee. Rendering —
- * or deep-linking — what the route refuses teaches a person the app is
- * broken; `/nodes/local/service` answering a LIVE control-plane host with
- * "this node is offline" is the worst case, which is why the pages redirect
- * to the Overview rather than merely hiding the tab. The server still
- * enforces the refusal — this only keeps the page honest about it.
+ * It is the server's rule rather than this component's guess: Service and
+ * Logs 400 on the control-plane host (its own surface is Server Settings →
+ * Service) and 403 for a `view` grantee. Rendering, or deep-linking, what
+ * the route refuses teaches a person the app is broken; `/nodes/local/service`
+ * answering a LIVE control-plane host with "this node is offline" is the
+ * worst case, which is why the pages redirect to the Overview rather than
+ * merely hiding the tab. The server still enforces the refusal; this only
+ * keeps the page honest about it.
  *
  * `access` is the server's own word for this viewer, so nav and routes
  * cannot disagree about who sees what.
@@ -41,14 +43,15 @@ export function NodeSectionNav({ node }: { node: NodeDetail }): JSX.Element | nu
     ...(managed
       ? [
           { to: `/nodes/${node.id}/service`, label: "Service" },
-          { to: `/nodes/${node.id}/config`, label: "Configuration" },
           { to: `/nodes/${node.id}/logs`, label: "Logs" },
         ]
       : []),
   ];
 
-  // One section is not a nav. `local` and a `view` grantee see only Overview,
-  // and a single tab above it would look like a control that does nothing.
+  // One section is not a nav. A `view` grantee and the `local` host (whose
+  // daemon tabs have no meaning there, Server Settings being its half) see
+  // only Overview, and a single tab above it looks like a control that does
+  // nothing.
   if (items.length === 1) return null;
 
   return (

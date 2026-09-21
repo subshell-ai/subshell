@@ -24,8 +24,10 @@ import { managesNodeSections } from "@/components/nodes/node-section-nav";
  */
 const generatedTree = readFileSync(new URL("../../routeTree.gen.ts", import.meta.url), "utf8");
 
+// `config` is GONE, deliberately: the Configuration tab held one card and
+// moved onto the Overview (2026-09-21). If a route with this name returns,
+// this test suite is the place the deletion gets argued about again.
 const SECTION_ROUTES = {
-  config: "NodesIdConfigRoute",
   logs: "NodesIdLogsRoute",
   service: "NodesIdServiceRoute",
 } as const;

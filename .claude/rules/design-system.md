@@ -19,6 +19,8 @@ Spacing on the 4px grid. A `text-[13px]`, a `font-size: 14.5px`, a
 `fontSize: 17` or a hex outside a token file is refused by the check — if
 the system lacks what you need, add the token to every surface in one change.
 
+**Every UI explanation is at most two sentences, and UI copy uses no em dashes** (operator ruling 2026-09-21); surplus becomes docs or a disclosure, never help text.
+
 Line items are `label` over `detail`, differing by weight and colour. **Every
 explanation a control gives about itself is `detail`** — its help text, a
 "set by the environment" note, a saved-vs-running line, a validation error —

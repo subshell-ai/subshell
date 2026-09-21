@@ -501,16 +501,21 @@ badge, the menu item) moves as if the flip were clean, so dropping it tells
 someone a machine is quiet while panes are still alive on it. The wording is
 `lib/node-maintenance.ts`, once, for the card and the row.
 
-**The node section tabs are gated by ONE predicate.** `managesNodeSections`
-(`node-section-nav.tsx`: an AGENT machine AND an `owner`/`edit` viewer) is what
-the nav hides the Service/Configuration/Logs links by AND what the three
-section routes redirect by — hiding a link never gated the URL, and once the
-sections were flat routes (2026-09-20), `/nodes/local/service` was typeable
-and answered with a card calling the LIVE control plane "offline, nothing to
-report". The server remains the enforcement (400 for `local`, 403 for `view`);
-the redirect exists so the page never lies about a refusal. The harness card's
-Re-check gate is spelled the same way and is a DIFFERENT rule (its own comment
-says so) — do not collapse them.
+**The node page is Overview + two daemon sections, and the rules live on the
+Overview.** `managesNodeSections` (`node-section-nav.tsx`: an AGENT machine
+AND an `owner`/`edit` viewer) hides the Service and Logs tabs and gates their
+deep links. Hiding a link never gated the URL: once the sections were flat
+routes (2026-09-20), `/nodes/local/service` was typeable and answered with a
+card calling the LIVE control plane "offline, nothing to report". The server
+remains the enforcement (400 for `local`, 403 for `view`); the redirect
+exists so the page never lies about a refusal. There is NO Configuration tab
+anymore (2026-09-21): it had shrunk to one card, so the allowlist card (its
+editor self-gates on `canManage`, `local` included) and the agent-only
+Server-URL card (`owner`/`edit` audience, write controls further to `owner`)
+render on the Overview beside the Maintenance switch. Machine facts, machine
+rules, one page; the tabs are for driving the daemon. The harness card's
+Re-check gate is spelled like `managesNodeSections` and is a DIFFERENT rule
+(its own comment says so). Do not collapse them.
 
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the

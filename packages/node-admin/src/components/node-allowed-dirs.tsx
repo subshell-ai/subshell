@@ -9,14 +9,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui
  * The node's directory allowlist — which directories subshells may be created
  * under on this machine (spec 2026-09-05).
  *
- * Owner-only to edit (`canManage`, the server's gate too — the controls simply
+ * Owner-only to edit (`canManage`, the server's gate too). The controls simply
  * do not render for anyone else), but READ-visible to everyone who can see the
  * node: a "directory not allowed" refusal is unexplainable without the rules
  * that caused it.
  *
- * The copy carries two things the mechanism cannot: that an empty list means
- * unrestricted rather than locked down, and that the rules gate NEW subshells
- * and restarts, not the panes already running.
+ * The copy carries the two things the mechanism cannot: an empty list means
+ * unrestricted rather than locked down, and the rules gate NEW subshells and
+ * restarts, not the panes already running. Two sentences per state, per
+ * `docs/design-system.md` (copy length).
  */
 /**
  * The picker is injected, not imported: the folder browser is a
@@ -39,6 +40,10 @@ export function NodeAllowedDirs({
   onDirsSaved?: () => void;
 }) {
   const dirs = node.allowedDirs;
+  /** The one expression of "this viewer may change the list", used by the
+   *  copy and by the controls: `canManage` is the server's own answer, and
+   *  a read-only surface never edits whatever else it grants. */
+  const canEdit = node.canManage && !readOnly;
   const setDirs = useSetNodeAllowedDirs(node.id);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
@@ -62,12 +67,13 @@ export function NodeAllowedDirs({
         <CardTitle>Allowed directories</CardTitle>
         <CardDescription>
           {dirs.length === 0
-            ? "Any directory. Subshells on this node can be created anywhere its user can read. Add a directory to restrict that."
-            : "Subshells on this node can only be created in these directories, or anywhere beneath them."}{" "}
-          Applies to new subshells and to restarts; panes already running are unaffected.{" "}
-          {readOnly
-            ? "These rules are managed by the control plane — it enforces its own copy at launch and re-pushes this machine's copy; edit them in its Nodes UI."
-            : "The node enforces this itself, so the rule holds even if it loses contact with this server."}
+            ? canEdit
+              ? "Subshells on this machine can start anywhere its user can reach. Add a directory to limit them to it and what is inside."
+              : "Subshells on this machine can start anywhere its user can reach."
+            : "New subshells and restarts start only inside these directories or what is under them. Panes already running are unaffected."}
+          {readOnly && (
+            <p className="text-detail text-muted-foreground">These rules are managed by the control plane.</p>
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -76,7 +82,7 @@ export function NodeAllowedDirs({
             {dirs.map((dir) => (
               <li key={dir} className="flex items-center justify-between gap-3 rounded-md border px-3 py-1.5">
                 <code className="truncate font-mono text-detail">{dir}</code>
-                {node.canManage && !readOnly && (
+                {canEdit && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -92,8 +98,7 @@ export function NodeAllowedDirs({
           </ul>
         )}
 
-        {node.canManage &&
-          !readOnly &&
+        {canEdit &&
           (adding ? (
             <div className="space-y-2">
               {/* The picker is deliberately UNSCOPED here: you have to be able
@@ -129,7 +134,7 @@ export function NodeAllowedDirs({
             </Button>
           ))}
 
-        {dirs.length > 0 && node.canManage && !readOnly && (
+        {dirs.length > 0 && canEdit && (
           <p className="text-detail text-muted-foreground">
             Removing every directory returns this node to unrestricted.
           </p>
