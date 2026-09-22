@@ -668,11 +668,19 @@ the `node` window alone:
   defect that whole flow removed. The dashboard opens from the status screen's
   own button afterwards.
 
-`node_service` also gained `autostart` beside `force` — `false` spells
-`--no-autostart`, the flag the node CLI gained on the same day. The Rust side
-refuses to pass it on any verb but `install`, exactly as it refuses `--force`
-anywhere but `restart`: the CLI's flag allowlists are per-subcommand, so the
-wrong pairing is a usage error rather than a no-op.
+`node_service` also gained `autostart` beside `force`. It has two jobs and no
+others: on `install`, `false` spells `--no-autostart` — the flag that installs
+and runs the service but does not arm login start; on the `autostart` VERB
+(rails addendum, 2026-09-22 — the day-2 login toggle the server's supervision
+screen always had), the boolean IS the request and spells the CLI's two-word
+`service autostart on|off`. The Rust side passes the flag on `install` and the
+word on `autostart` and refuses both anywhere else, exactly as it refuses
+`--force` outside `restart`: the CLI's flag allowlists are per-subcommand, so
+the wrong pairing is a usage error rather than a no-op. The probe surfaces the
+service's answer `autostart` the way it surfaces the whole `service status
+--json` body — verbatim, an untyped passthrough — so no Rust field could
+disagree with the CLI's, and an agent too old to answer it reads through
+`enabled`, the same fact every agent has always reported.
 
 ## The node page is an assistant
 
@@ -736,9 +744,11 @@ is DELETED, a later ruling the same day — the button speaks for itself, and
 it reads **Install the Subshell Node CLI**; the disabled-no-bundled case
 keeps the title and shows only its sentence), its
 refusal for a CLI that cannot state its own status, the contextual service
-verbs, the pane-safety rewrite door, the unrecognised-state card and the
-node's reveals — all to the **Service** section, whose subtitle carries the
-"what is a node" half the explainer dropped; the
+verbs, the pane-safety rewrite door and the unrecognised-state card — all to
+the **Service** section, whose subtitle carries the "what is a node" half the
+explainer dropped (the node's reveals joined them on 2026-09-22, left with
+the bar, and came back onto Status's OWN fact rows on the same day's second
+round — misplaced, not surplus); the
 configured plane address, the way to change it, "Open in browser instead",
 and the node's own view of the same server (its repoint machinery, the
 loopback notice and the coherence card) — all to the **Control Plane**
@@ -810,10 +820,42 @@ sentence is DELETED — the badge already says what the machine is not. The
 plane-coherence notice leads with the conflict now (review, 2026-09-22):
 "This machine's node reports to <node>, not <plane>.".
 
+**Service joins the server's layout, and the badge joins the header** (the
+same day's follow-up, rails addendum: "consistency in offering and UI").
+The Service section now offers what Subshell Server's Service offers, adapted
+to a node: the arrangement stated as one card — **In the background** with the
+server's own platform sentence — the run-at-login switch nested under it
+("Start it again at every login", the same words the server uses — the
+first-run question keeps its shorter "Start at login": day 2 mirrors the
+server, the walk's own wording stands) for an
+installed service, the lifecycle verbs (Start when it is down, Stop and
+Restart when it is up with the pane-safety force flow unchanged, Uninstall
+confirmed in its own words), and the install-service door for a machine whose
+node CLI is installed but whose service is not — driven by the definition,
+not only the step word, so no enrolled "nothing installed" answer can miss it.
+Node-specific differences stay: there is no app-managed-child supervision
+choice, because this app does not supervise its node that way. The two
+bottom-bar **reveals are gone from the bar** ("feels out of place... remove
+them") — and round two (same day) put the affordance back where the server's
+has always sat: inline on the Status fact rows whose value IS a path, with
+`node_open_path` restored unchanged, permission included, as one atomic ACL
+commit. On both standing screens the
+STATE BADGE reads in the Frame header between the title and the subtitle:
+the client's `Frame` grew an optional `badge` slot; the shared package Frame
+is untouched, because the server's Status section has no badge to move. The
+switch is only honest because the node CLI gained the verb behind it — see
+`apps/node/agent/AGENTS.md`, "service autostart" — and it is gated on that
+verb: an agent older than `0.15.0` can READ the state (it has answered
+`enabled` forever) but cannot WRITE it, so the switch shows the answer
+greyed with "Update your node to 0.15.0 to control this."
+(`lib/autostart-gate.ts`, the server's `MIN_AUTOSTART_SERVER_VERSION`
+pattern); where neither `autostart` nor `enabled` answered, the switch
+greys showing no guessed value and says the update would add the answer.
+
 Three screen ids went with it, and their absence is the design.
 **`connected`**, **`service`** and **`install-agent`** were the probe-derived
 landings; their content is distributed across the rail now — the service
-verb and the reveals on **Service**, the split that decides whether
+verbs on **Service**, the split that decides whether
 registering may be offered at all on **Status** (below) — and the configured
 client lands on **Control Plane** (operator ruling 2026-09-22, second
 addendum; it was `status` until that afternoon). A screen nothing can
@@ -852,11 +894,16 @@ What the shape changed, and why:
 - **Facts moved under "Show Details".** A person opens this window to DO
   something, not to read twelve fields. `lib/probe-facts.ts` is unchanged and
   still the only reader of the probe's shapes; only where it renders moved.
-- **Stop and Uninstall left the app.** Restarting a node is a control-plane
-  action now (spec 2026-09-12 § 6.3, `POST /api/nodes/:id/restart`), and
-  removing the service is what Reset does. What survived is the one REMEDY the
-  restart refusal names by label — rewriting a definition that would SIGKILL
-  live panes — because the confirmation text points at that button.
+- **Stop and Uninstall left the app, then came back.** Restarting a node is a
+  control-plane action too (spec 2026-09-12 § 6.3, `POST /api/nodes/:id/restart`),
+  and Reset tears everything down — but the rails addendum (2026-09-22,
+  server parity) put the full lifecycle back on the Service section: an
+  installed service that is running gets Stop, Restart and Uninstall there,
+  one that is down gets Start. The pane-safety rule is unchanged: Restart is
+  still the two-phase refusal read before `--force`, Uninstall still names
+  its cost before it runs, and the one REMEDY the refusal names by label —
+  rewriting a definition that would SIGKILL live panes — is still a card of
+  its own because the confirmation points at that button.
 - **There is ONE word for where you are, on both platforms** (operator's call,
   2026-09-12): "This Machine" in a title, "this machine" mid-sentence. The
   `darwin ? "this Mac"` split is gone from titles AND subtitles, and
@@ -879,15 +926,24 @@ What the shape changed, and why:
 The rules ported from the Subshell Server console in 2026-09-08 are unchanged
 by any of that:
 
-- **Reveals name an intent, never a path.** `node_open_path` takes the closed
-  `config-dir | data-dir | node-log` enum; a `node-log` rejection IS the
-  remedy (the path it will appear at, plus the `journalctl` command on Linux),
-  and the facts list also shows the log location so it is readable without
-  clicking.
+- **The reveal lives on the row, not the bar (round two, 2026-09-22).**
+  The first parity pass retired `node_open_path`, its closed
+  `config-dir | data-dir | node-log` enum, its ACL entry and its ipc wrapper
+  with the Service bottom bar, and the three-way pin correctly read a
+  command no page invoked as surface to delete. The audit addendum the same
+  day found what was wrong was the PLACEMENT: the server's Status rows carry
+  an inline Reveal on each path fact, naming an intent for Rust to
+  re-resolve from its own fresh probe. Round two restored the whole surface
+  unchanged and moved the buttons onto Status's `config file` and `logs`
+  rows — restore and grant are ONE commit, command + permission +
+  capability + pin, the same atomicity rule from the other direction. A
+  hint row reveals nothing: on Linux there is no file to reveal, and the
+  `journalctl` sentence IS the remedy, rendered on the facts row and on the
+  Service screen's offline card.
 - **`node-log` resolves the node's OWN capped file first**, on every
   platform (2026-09-18) — `~/.config/subshell/logs/agent.log`, the same
-  JSON-lines file the plane's node log view serves, so revealing a log here
-  and reading one in a browser cannot land on two different documents. That is
+  JSON-lines file the plane's node log view serves, so the path the facts
+  list names and the log a browser reads cannot be two different documents. That is
   the order `apps/server/desktop`'s `desktop_logs` reads the server's log in,
   for the same reason. The service manager's redirect is the FALLBACK and a
   genuinely different artifact: `~/Library/Logs/subshell.log` holds the raw
@@ -898,6 +954,25 @@ by any of that:
   `server_log_tail` follows. `node_log_paths_from` takes its two roots and a
   content predicate so the ORDER is tested without a machine in a particular
   state.
+- **The Status section's Node log pane (round two, 2026-09-22).** A group
+  heading over a scroll-stick `pre`, fed by the new `node_logs` command —
+  ARGUMENT-LESS, like the server's `desktop_logs`: Rust locates the file
+  through the same `node_paths` the probe reports (so a page can name no
+  file), renders the capped JSON-lines to `HH:MM:SS level message` with
+  unparseable lines kept VERBATIM, caps at the server's 200, and answers
+  `{text, source, note}` where every failure is a caption the pane renders,
+  never a rejection. The HOST feeds it only while Status is the shown
+  section (the server host's `statusUp` rule), once on arrival and then per
+  probe tick; the tick it rides is the probe query's `success` cache event,
+  because structural sharing hands an unchanged machine the same data
+  reference and a fast poll even the same-millisecond timestamp
+  (both measured). What is deliberately NOT ported from the server's
+  StatusDetails: its "Last action" pane — this app's output-ownership
+  ruling already decides where an action's words render (the screen the
+  press happened on), and a second always-on copy on Status would
+  contradict it. That, the missing app-managed-child choice, and the switch
+  gate naming 0.15.0 where the server's names its own floor, are the three
+  honest places the two sections read differently, each on purpose.
 - **The plane's second door.** `node_open_plane_url` opens the settled control
   plane in the SYSTEM browser — for what the in-app window is wrong for (a
   different profile, a share, passkeys). The page passes NO URL: the command
@@ -906,12 +981,16 @@ by any of that:
   browser once that lands, because an address never saved cannot be re-read —
   and the action runner drops a concurrent submission, so the two cannot be
   fired together.
-- **tmux is a gate, not a caption.** Enroll and the service verbs are disabled
-  while the probe cannot find tmux — `enroll` refuses CLI-side and a tmux-less
-  node comes up online with no harnesses, so a live button only manufactures
-  the failure. The reveals and Refresh stay live (disabling those strands the
-  box), the hint names the install command (`TMUX_INSTALL_CMD`), and the gate
-  reads the CURRENT probe, so installing tmux and refreshing re-arms it.
+- **tmux is a gate, not a caption.** Enroll and the service verbs that START
+  things (Install, Start, Restart) are disabled while the probe cannot find
+  tmux — `enroll` refuses CLI-side and a tmux-less node comes up online with
+  no harnesses, so a live button only manufactures the failure. The verbs
+  that cannot manufacture it stay live: Stop and Uninstall take things down,
+  the run-at-login switch writes only the NEXT login, the Status rows'
+  Reveals open paths whatever tmux is doing, and a disabled one of
+  those strands the box. The hint names the install command
+  (`TMUX_INSTALL_CMD`), and the gate reads the CURRENT probe, so installing
+  tmux re-arms it.
 - **The manager row says what the manager said.** `probe-facts` appends the
   service `detail` verbatim (`launchd: spawn scheduled` is the crash-throttle
   wait) and paints `state: unknown` bad — a manager that would not answer is

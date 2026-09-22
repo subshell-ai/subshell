@@ -90,6 +90,17 @@ export interface ServiceStatusBody {
   state?: ServiceRunState;
   pid?: number | null;
   enabled?: boolean | null;
+  /**
+   * Whether the installed service is armed for login start — the fact the
+   * Service section's run-at-login switch both reads and writes, and the
+   * named reading of `enabled` (`ServiceState.autostart` on the CLI).
+   *
+   * OPTIONAL, and that is the point: the agent answers from its own
+   * `service status --json`, so an agent older than the field simply does not
+   * send it, and the switch falls back to `enabled` (the same fact under its
+   * manager's name, which older agents have always reported).
+   */
+  autostart?: boolean | null;
   paneSafety?: PaneSafety | null;
   /** Manager output worth quoting when something answered oddly. */
   detail?: string;
@@ -236,7 +247,7 @@ export interface ActionResult {
 }
 
 /** The `service` verbs the page may drive. `ServiceCommand`, lowercase. */
-export type ServiceVerb = "install" | "uninstall" | "start" | "stop" | "restart";
+export type ServiceVerb = "install" | "uninstall" | "start" | "stop" | "restart" | "autostart";
 
 /** Why the app is asking before it spends a setup key. `ConfirmKind`, kebab-case. */
 export type ConfirmKind = "already-enrolled" | "loopback-server";
@@ -291,8 +302,30 @@ export interface NodeSettings {
   planeUrl: string | null;
 }
 
-/** The directories and files the window may ask to reveal. `OpenTarget`, kebab-case. */
+/**
+ * The directories and files the window may ask to reveal. `OpenTarget`,
+ * kebab-case.
+ *
+ * BACK since the rails final addendum (2026-09-22): the affordance left the
+ * Service bottom bar because of WHERE it sat, not WHAT it did, and it lives
+ * on the Status fact rows whose value is the path — the server's pattern,
+ * which kept this closed set and its safety rule intact: the page names a
+ * member, never a path.
+ */
 export type OpenTarget = "config-dir" | "data-dir" | "node-log";
+
+/**
+ * The tail of the node's own log, for the Status section's log pane
+ * (rails final addendum: the server console's `desktop_logs`, same shape).
+ */
+export interface LogTail {
+  /** The rendered lines, joined with `\n`; empty when nothing was readable. */
+  text: string;
+  /** The file's path, or a name for where the lines came from. */
+  source: string;
+  /** Why the text is empty: a hint, a refusal, or nothing when there was a log. */
+  note: string | null;
+}
 
 // ---------------------------------------------------------------------------
 // The commands
@@ -359,13 +392,19 @@ export function nodeService(args: {
   verb: ServiceVerb;
   force: boolean;
   /**
-   * `install` only, and omitting it means ARMED.
+   * Meaningful on `install` and on the `autostart` verb only, and omitting it
+   * means ARMED.
    *
-   * `false` spells `--no-autostart`: install the service and run it now, but
-   * do not arm it for login. It is asked once, on the first run's start-up
-   * screen; every other caller omits it and keeps the behaviour the node CLI has
-   * always had. The Rust side refuses to pass the flag on any other verb,
-   * because the CLI accepts it on `install` alone.
+   * On `install` it decides what the definition is written to do: `false`
+   * spells `--no-autostart`, run it now but do not arm it for login. It is
+   * asked once there, on the first run's start-up screen; every other install
+   * omits it and keeps the behaviour the node CLI has always had.
+   *
+   * On `autostart` it IS the request, spelled by the CLI as `service autostart
+   * on|off`: the day-2 change to a login preference, touching nothing that is
+   * running. The Rust side passes the flag on `install` and the word on
+   * `autostart` and refuses both anywhere else, because the CLI's flag
+   * allowlist is per-subcommand.
    */
   autostart?: boolean;
 }): Promise<ActionResult> {
@@ -417,6 +456,18 @@ export function nodeEnroll(args: {
  */
 export function nodeOpenPath(args: { target: OpenTarget }): Promise<void> {
   return invoke<void>("node_open_path", args);
+}
+
+/**
+ * The last lines of the node's own log, for the Status section's log pane
+ * (rails final addendum: the server console's `desktop_logs`, same shape).
+ *
+ * Takes NO argument. Rust locates the file from its own read of the machine
+ * — the page cannot name a file, which is what keeps a bounded read of one
+ * known log from becoming an arbitrary file read.
+ */
+export function nodeLogs(): Promise<LogTail> {
+  return invoke<LogTail>("node_logs");
 }
 
 /**

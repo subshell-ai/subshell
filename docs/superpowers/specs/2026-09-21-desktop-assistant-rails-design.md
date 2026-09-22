@@ -189,6 +189,77 @@ chain emits). The hostname gate, the danger styling, the re-arm chain and
 the deep link's gate are untouched; the SPA deep link lands the
 confirmation with the rail.
 
+### The client's Service and Status join the server's layout (operator rulings 2026-09-22)
+
+"The way we render the status and service pages for the client should match
+up the general layout and offerings we do for the server. Consistency in
+offering and UI." Four rulings, one wave:
+
+- **The reveal bar is gone** from the client's Service section. The operator's
+  words: they "feel out of place", and Status's facts already carry the paths.
+  The whole surface retired with the buttons: `node_open_path`, its ACL entry,
+  and its ipc wrapper — the three-way pin treats a command no page invokes as
+  a surface, not a door.
+- **The state chip moved into the Frame header**, between the title and the
+  subtitle, on the client's status and service screens. It was a sandwich cut
+  between the subtitle and the sentence under it; it is part of the heading.
+  The client's own `Frame` gained an optional `badge` slot. The server app's
+  shared Frame is untouched — its Status section carries no badge to move.
+- **The client's Service section offers what the server's does**, adapted to a
+  node: the arrangement stated ("In the background", with the run-at-login
+  switch nested under it exactly as the server nests it), the lifecycle verbs
+  (Start / Stop / Restart with the CLI's pane-safety refusal read before
+  `--force` is offered / Uninstall), and the install-service door for a node
+  CLI that is installed but unsupervised — the door the server's supervision
+  screen has always offered and this side had no day-2 version of.
+  Node-specific differences STAY: there is no app-managed-child supervision
+  choice (this app does not supervise its node that way), and the Control
+  Plane / Status responsibilities are unchanged.
+- **The switch had to become real on the node too**: `subshell service
+  autostart on|off` is the CLI's day-2 toggle (Linux `systemctl --user
+  enable/disable --no-reload` — never `--now`; macOS moves the plist between
+  the login directory and the config home — never a restart), and `service
+  status --json` answers `autostart` beside `enabled`, the same fact named
+  for the act. The client's Rust passes the verb through `node_service` and
+  the probe surfaces the field as it surfaces the whole service body,
+  verbatim; an agent too old to answer reads through `enabled`, which older
+  agents have always reported.
+
+The copy rules bound everything new: at most two sentences per explanation, no
+em dashes in user-visible strings, roles from the token set.
+
+### The client's Status gains the tail, and the reveal comes back (round two, 2026-09-22)
+
+Two audit items the first client wave missed, both from the server's
+`StatusDetails`. **The reveal placement**: what the operator called "out of
+place" was the BAR, not the affordance — the server's Status rows carry an
+inline Reveal on the facts whose value IS a path, naming an intent for Rust
+to re-resolve from its own probe. The client's first pass retired the whole
+surface (`node_open_path`, its permission, its capability, its ipc wrapper)
+with the bar; round two restores all four unchanged and moves the buttons
+onto the Status `config file` and `logs` rows, exactly where the server's
+sit. A hint row — Linux, where the log is the journal — reveals nothing,
+because there is no file to reveal; the hint sentence is itself the remedy.
+**The log tail**: Status gains a "Node log" group heading over a scroll-stick
+pane, fed only while the section is the shown one (the server host's
+`statusUp` rule; the client's tick is the probe query's own `success` event,
+since structural sharing makes an unchanged machine's probe data an
+undetectable dependency). A new argument-less `node_logs` command tails the
+agent's own capped file — Rust locates it from the same `node_paths` the
+probe reports, renders JSON-lines to `HH:MM:SS level message`, caps at the
+server's 200, and returns `{text, source, note}` so "no file yet" is a
+caption, never an error banner. The page can name no file. What is
+deliberately NOT ported: the server Status's "Last action" pane — the
+shipped output-ownership ruling already decides where an action's words
+render (the screen the press happened on), and an always-on second copy would
+contradict it. The run-at-login switch also gained the server's version
+gate: an agent older than `0.15.0` reads the state (it
+always answered `enabled`) but has no verb to write with, so the switch
+shows the answer greyed under "Update your node to 0.15.0 to control this."
+And when neither fact arrives there is no hiding and no guessing: the switch
+greys under "The node CLI did not report whether login start is armed." —
+the same disabled affordance carrying the honest sentence, not an absent one.
+
 ## What does not change
 
 - The 1024x720 fixed window, its zoom ladder and frame arithmetic.

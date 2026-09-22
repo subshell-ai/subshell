@@ -55,6 +55,18 @@ describe("probeFacts", () => {
     expect(value(list, "control plane")).toBeUndefined();
   });
 
+  // The reveals the Service bar lost ride on the ROWS (rails addendum,
+  // 2026-09-22, the server's facts pattern): the value stays the fact, and
+  // the intent names what the row is showing — so a row can only ever reveal
+  // the file it displays, and the page hands Rust a name rather than a path.
+  it("carries the reveal intent on the rows that show a real path", () => {
+    const list = facts({ probe: makeProbe(), settings: undefined, enrolledNode: null });
+    expect(value(list, "config file")?.value).toBe("/home/u/.config/subshell/config.json");
+    expect(value(list, "config file")?.reveal).toBe("config-dir");
+    // The definition path is a fact with no target of its own to name.
+    expect(value(list, "service")?.reveal).toBeUndefined();
+  });
+
   // PLAIN LANGUAGE, not the CLI's words (operator ruling 2026-09-22,
   // screenshot 60): the enroll-command hint belongs to the CLI and the enroll
   // flow, so the row points at Service; any other unreadable-config reason
@@ -180,6 +192,8 @@ describe("probeFacts", () => {
   // Where the agent's own output goes — the file on macOS, the journal
   // sentence where the platform has no file. The reveal buttons act on these;
   // the rows make them READABLE, which is what the server console added.
+  // And the INTENT rides with the row that shows a real path (rails addendum,
+  // 2026-09-22): a hint names no file, so a hint row can reveal nothing.
   it("shows the log location the CLI reported", () => {
     const mac = facts({
       probe: makeProbe({
@@ -195,9 +209,11 @@ describe("probeFacts", () => {
       enrolledNode: null,
     });
     expect(value(mac, "logs")?.value).toBe("/Users/u/Library/Logs/subshell.log");
+    expect(value(mac, "logs")?.reveal).toBe("node-log");
     // The default fixture is the Linux shape — the hint, not a path.
     const linux = facts({ probe: makeProbe(), settings: undefined, enrolledNode: null });
     expect(value(linux, "logs")?.value).toInclude("journalctl --user -u subshell.service");
+    expect(value(linux, "logs")?.reveal).toBeUndefined();
   });
 
   it("reports tmux, and marks its absence as bad", () => {

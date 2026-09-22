@@ -24,7 +24,7 @@ const ipcSource = readFileSync(join(UI_SRC, "lib/ipc.ts"), "utf8");
 
 /** The commands `lib/ipc.ts` actually invokes. */
 function invokedCommands(): Set<string> {
-  // `invoke<Probe>("node_probe")` and `invoke<void>("node_open_path", args)`.
+  // `invoke<Probe>("node_probe")` and `invoke<ActionResult>("node_service", args)`.
   const found = new Set<string>();
   for (const match of ipcSource.matchAll(/\binvoke\s*(?:<[^>]*>)?\s*\(\s*"([^"]+)"/g)) {
     found.add(match[1] as string);
@@ -307,11 +307,25 @@ describe("the invocations that must stay unreachable", () => {
   // `subshell run` never resolves and competes with the installed service for
   // one node (both restart on exit, so the pair flaps); `subshell mcp` is
   // per-pane plumbing only a launch's environment can configure.
-  it("keeps the service verbs to the five the CLI accepts", () => {
+  it("keeps the node log tail an argument-less read", () => {
+    // Same shape as the server's `desktop_logs` and for the same reason: the
+    // page cannot name a file. Rust locates the log from its OWN read of the
+    // machine (`node_paths(&read_node_config())`), so a compromised page can
+    // tail the node's log or nothing at all — never an arbitrary path.
+    const rust = readFileSync(join(TAURI_DIR, "src/control.rs"), "utf8");
+    const signature = rust.slice(rust.indexOf("pub fn node_logs("));
+    expect(signature.startsWith("pub fn node_logs("), "node_logs vanished from control.rs").toBe(true);
+    const params = signature.slice(signature.indexOf("(") + 1, signature.indexOf(")"));
+    expect(params.trim()).toBe("");
+  });
+
+  it("keeps the service verbs to the six the CLI accepts", () => {
     const union = /export type ServiceVerb =([^;]+);/.exec(ipcSource)?.[1] ?? "";
     expect(union).not.toBe("");
     const verbs = [...union.matchAll(/"([^"]+)"/g)].map((m) => m[1] as string);
-    expect(verbs.sort()).toEqual(["install", "restart", "start", "stop", "uninstall"]);
+    // `autostart` joined on 2026-09-22 (rails addendum): the day-2 login
+    // toggle, the CLI's `service autostart on|off`.
+    expect(verbs.sort()).toEqual(["autostart", "install", "restart", "start", "stop", "uninstall"]);
     expect(verbs).not.toContain("run");
     expect(verbs).not.toContain("mcp");
   });

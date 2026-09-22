@@ -18,17 +18,26 @@
  * the app or in the system browser, lives on the Control Plane section's
  * Dashboard card.
  *
- * The screen offers NO act (operator rulings, 2026-09-22): Register this
+ * The screen offers no ACT (operator rulings, 2026-09-22): Register this
  * machine joined the Service section beside the install offer (screenshot
  * 60, the node's machinery home), Re-enroll… lives on the Control Plane
  * section, and Unregister is the rail's Reset section (destructive-styled).
  * One act with two labels is two acts to a reader; so is a screen that
- * keeps machine state and offers acts.
+ * keeps machine state and offers acts. The rails addendum added the one
+ * exception the SERVER's Status section always had: a path row's inline
+ * Reveal is not an act on the machine, it is the row opening the fact it
+ * is already showing — the affordance that left the Service bottom bar
+ * lives HERE, beside the path it names.
  *
  * The probe facts and the CLI's last words render INLINE below (operator
  * ruling 2026-09-22, the server wave's ruling carried over): a section that
  * hides its own facts behind a second control is two navigations for one
- * answer.
+ * answer. Under the facts sits the NODE LOG pane — the server Status
+ * section's "Server log" tail, same shape, fed only while this section is
+ * up (host rule mirrored). What is deliberately NOT ported from the server:
+ * its "Last action" pane, which would collide with this app's output-
+ * ownership ruling (an action's words render only on the screen the press
+ * happened on); the divergence is recorded in the app's AGENTS.md.
  *
  * There is no Refresh button: the probe query re-reads this machine on its own
  * five-second interval (operator ruling 2026-09-22), so the poll is the
@@ -37,9 +46,9 @@
 import { Bot, Server } from "lucide-react";
 import type { ReactElement } from "react";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
-import { StatusFacts } from "@/components/assistant/status-facts";
+import { NodeLogPane, StatusFacts } from "@/components/assistant/status-facts";
 import { Badge } from "@/components/ui/badge";
-import type { EnrolledNodeBody, NodeSettings, Probe } from "@/lib/ipc";
+import type { EnrolledNodeBody, LogTail, NodeSettings, OpenTarget, Probe } from "@/lib/ipc";
 import { stepLabel, stepTone } from "@/lib/steps";
 
 /** A fact's value colour per tone — the badge palette, keyed by the step's own colour. */
@@ -58,6 +67,14 @@ export function StatusScreen(props: {
   settings: NodeSettings | undefined;
   /** The name this session enrolled under, the one fact the probe does not carry. */
   enrolledNode: EnrolledNodeBody | null;
+  /**
+   * The node log's last lines, or null between the section opening and the
+   * first read. The app feeds it ONLY while this section is up (the server
+   * host's rule, mirrored); null renders the pane empty rather than hiding it.
+   */
+  nodeLog: LogTail | null;
+  /** Reveal one of the facts' paths. Names an intent; Rust re-reads the path. */
+  onReveal: (target: OpenTarget) => void;
 }) {
   const { shell, probe, settings, enrolledNode } = props;
 
@@ -78,13 +95,16 @@ export function StatusScreen(props: {
       rail={props.rail}
       tightContent
       icon={enrolled ? <Bot /> : <Server />}
+      // The state chip sits in the header, between the title and the subtitle
+      // (operator ruling 2026-09-22): it is part of the heading, not a
+      // sandwich cut between the subtitle and the sentence under it.
+      badge={<Badge variant={TONE_BADGE[stepTone(probe?.step)]}>{stepLabel(probe?.step)}</Badge>}
       // No doors on this screen (operator ruling 2026-09-22, second addendum,
       // superseding the same day's browser ghost): anything that opens the
       // control plane lives on the Control Plane section's Dashboard card.
       // The bar is empty.
     >
       <div className="flex flex-col items-center gap-2 text-center">
-        <Badge variant={TONE_BADGE[stepTone(probe?.step)]}>{stepLabel(probe?.step)}</Badge>
         {/*
          * Said here only where the subtitle cannot say it. `subtitleFor`
          * already names the address in both branches, so the one sentence the
@@ -115,7 +135,9 @@ export function StatusScreen(props: {
        * machine** above.
        */}
 
-      <StatusFacts probe={probe} settings={settings} enrolledNode={enrolledNode} />
+      <StatusFacts probe={probe} settings={settings} enrolledNode={enrolledNode} onReveal={props.onReveal} />
+
+      <NodeLogPane tail={props.nodeLog} />
     </Frame>
   );
 }

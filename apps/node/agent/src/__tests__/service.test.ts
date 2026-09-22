@@ -11,6 +11,7 @@ import {
   SERVICE_VERBS,
   type ServiceRunState,
   serviceStateLines,
+  setAutostart,
   uninstallService,
 } from "../service.js";
 import {
@@ -370,6 +371,107 @@ describe("installService — guards", () => {
   });
 });
 
+describe("setAutostart — the day-2 login toggle", () => {
+  test("linux: enable is `enable --no-reload` — never `--now`, and no reload", async () => {
+    const s = linuxServiceStub();
+    const res = await setAutostart(s.deps, true);
+    expect(res.code).toBe(0);
+    expect(res.out).toBe("subshell will start at login.\n");
+    // The act's own command is the LAST one: the installed check ran first.
+    expect(s.calls.at(-1)).toEqual(["systemctl", "--user", "enable", "--no-reload", "subshell.service"]);
+    // `enable --now` would START a stopped node, and a reload rereads unit
+    // contents that did not change. Neither is what the switch says.
+    for (const call of s.calls) expect(call).not.toInclude("--now");
+  });
+
+  test("linux: disable keeps a running node running", async () => {
+    const s = linuxServiceStub();
+    const res = await setAutostart(s.deps, false);
+    expect(res.code).toBe(0);
+    expect(res.out).toBe("subshell will no longer start at login.\n");
+    expect(s.calls.at(-1)).toEqual(["systemctl", "--user", "disable", "--no-reload", "subshell.service"]);
+    for (const call of s.calls) expect(call).not.toInclude("--now");
+  });
+
+  test("refuses when nothing is installed, in controlService's words, without a spawn", async () => {
+    // An absent definition is NOT this function's invitation to write one:
+    // install is where the enrolled-config check lives, and a toggle that
+    // could install would be a way to arm a service that was never checked.
+    const s = stub();
+    const res = await setAutostart(s.deps, true);
+    expect(res.code).toBe(1);
+    expect(msgLine(res.err)).toInclude("nothing installed: no service definition at");
+    expect(msgLine(res.err)).toInclude("run `subshell service install` first");
+    expect(s.calls).toEqual([]);
+  });
+
+  test("linux: a failed enable is the manager's failure, quoted", async () => {
+    const failing = stub({
+      respond: (cmd) =>
+        cmd.includes("enable") ? { code: 1, out: "", err: "Unit not found.\n" } : { code: 0, out: "", err: "" },
+    });
+    failing.files.set(UNIT, "[Service]\n");
+    const res = await setAutostart(failing.deps, true);
+    expect(res.code).toBe(1);
+    expect(msgLine(res.err)).toInclude("systemctl --user enable subshell.service failed (exit 1): Unit not found.");
+  });
+
+  test("darwin: ON moves the session plist into ~/Library/LaunchAgents", async () => {
+    const s = stub({ platform: "darwin" });
+    s.files.set(SESSION_PLIST, "<plist>disarmed</plist>");
+    const res = await setAutostart(s.deps, true);
+    expect(res.code).toBe(0);
+    expect(res.out).toBe("subshell will start at login.\n");
+    // Write the new location, THEN remove the old — a failed write must leave
+    // the definition exactly where it was, not unregistered from both.
+    expect(s.files.get(PLIST)).toBe("<plist>disarmed</plist>");
+    expect(s.removed).toEqual([SESSION_PLIST]);
+    // No bootout, no bootstrap: the loaded job does not care where its
+    // definition came from, so the running node is untouched.
+    expect(s.calls.some((c) => c[1] === "bootout" || c[1] === "bootstrap")).toBe(false);
+  });
+
+  test("darwin: OFF moves the login plist back to the config home", async () => {
+    const s = darwinServiceStub();
+    const res = await setAutostart(s.deps, false);
+    expect(res.code).toBe(0);
+    expect(res.out).toBe("subshell will no longer start at login.\n");
+    expect(s.files.get(SESSION_PLIST)).toInclude("AbandonProcessGroup");
+    expect(s.removed).toEqual([PLIST]);
+  });
+
+  test("darwin: already where it is asked to be is a success with no write", async () => {
+    const s = darwinServiceStub();
+    const res = await setAutostart(s.deps, true);
+    expect(res.code).toBe(0);
+    // The line is still the answer the caller asked for — the machine agrees
+    // with it — but moving a file onto itself would risk the definition to
+    // deliver a no-op.
+    expect(res.out).toBe("subshell will start at login.\n");
+    expect(s.removed).toEqual([]);
+    expect(s.files.get(PLIST)).toInclude("AbandonProcessGroup");
+  });
+
+  test("darwin: an unreadable definition refuses the move by name", async () => {
+    const s = stub({
+      platform: "darwin",
+      readFile: async () => null,
+    });
+    s.files.set(PLIST, "<plist/>");
+    const res = await setAutostart(s.deps, false);
+    expect(res.code).toBe(1);
+    expect(msgLine(res.err)).toInclude(`could not read the service definition at ${PLIST}`);
+    expect(s.removed).toEqual([]);
+  });
+
+  test("a platform with no service manager refuses like its siblings", async () => {
+    const s = stub({ platform: "win32" });
+    const res = await setAutostart(s.deps, true);
+    expect(res.code).toBe(1);
+    expect(res.err).toInclude("enable");
+  });
+});
+
 describe("uninstallService — linux", () => {
   test("stops+disables, reloads, and removes the unit", async () => {
     const s = stub();
@@ -581,6 +683,7 @@ describe("queryService", () => {
       state: "running",
       pid: 4242,
       enabled: true,
+      autostart: true,
       linger: true,
       paneSafety: "keeps",
     });
@@ -592,7 +695,21 @@ describe("queryService", () => {
     const s = linuxServiceStub({ UnitFileState: "disabled" }, { linger: "yes" });
     const state = await queryService(s.deps);
     expect(state.enabled).toBe(false);
+    expect(state.autostart).toBe(false);
     expect(state.linger).toBe(true);
+  });
+
+  // The `autostart` name is what the run-at-login switch reads (rails addendum:
+  // the day-2 toggle). One derivation with `enabled` on both managers, and
+  // null exactly where `enabled` is — a control cannot point at a fact the
+  // manager never gave.
+  test("autostart is null when nothing is installed or the manager would not answer", async () => {
+    expect((await queryService(stub().deps)).autostart).toBeNull();
+    const silent = stub({ respond: () => ({ code: 1, out: "", err: "no bus\n" }) });
+    silent.files.set(UNIT, "[Service]\n");
+    const state = await queryService(silent.deps);
+    expect(state.autostart).toBeNull();
+    expect(state.enabled).toBeNull();
   });
 
   const LINGER_ANSWERS: [LingerAnswer, boolean | null][] = [
@@ -662,8 +779,12 @@ describe("queryService", () => {
   });
 
   test("linux: enabled-runtime still starts at login; disabled does not", async () => {
-    expect((await queryService(linuxServiceStub({ UnitFileState: "enabled-runtime" }).deps)).enabled).toBe(true);
-    expect((await queryService(linuxServiceStub({ UnitFileState: "disabled" }).deps)).enabled).toBe(false);
+    const runtime = await queryService(linuxServiceStub({ UnitFileState: "enabled-runtime" }).deps);
+    expect(runtime.enabled).toBe(true);
+    expect(runtime.autostart).toBe(true);
+    const disabled = await queryService(linuxServiceStub({ UnitFileState: "disabled" }).deps);
+    expect(disabled.enabled).toBe(false);
+    expect(disabled.autostart).toBe(false);
   });
 
   // A masked unit refuses every control verb — say it once rather than letting
@@ -728,7 +849,14 @@ describe("queryService", () => {
     const state = await queryService(s.deps);
     expect(s.calls.some((c) => c[0] === "launchctl" && c[1] === "print" && c[2] === TARGET)).toBe(true);
     expect(s.calls.some((c) => c[1] === "list")).toBe(false);
-    expect(state).toMatchObject({ installed: true, state: "running", pid: 5150, enabled: true, paneSafety: "keeps" });
+    expect(state).toMatchObject({
+      installed: true,
+      state: "running",
+      pid: 5150,
+      enabled: true,
+      autostart: true,
+      paneSafety: "keeps",
+    });
   });
 
   /**
@@ -745,7 +873,9 @@ describe("queryService", () => {
   test("darwin: starts-at-login is the plist's LOCATION, whatever its keys say", async () => {
     const s = darwinServiceStub();
     s.files.set(PLIST, "<key>RunAtLoad</key><false/><key>KeepAlive</key><true/>");
-    expect((await queryService(s.deps)).enabled).toBe(true);
+    const state = await queryService(s.deps);
+    expect(state.enabled).toBe(true);
+    expect(state.autostart).toBe(true);
   });
 
   test("darwin: the same definition in the config dir is installed but NOT at login", async () => {
@@ -753,7 +883,13 @@ describe("queryService", () => {
     s.files.delete(PLIST);
     s.files.set(SESSION_PLIST, "<key>AbandonProcessGroup</key><true/><key>RunAtLoad</key><true/>");
     const state = await queryService(s.deps);
-    expect(state).toMatchObject({ installed: true, definitionPath: SESSION_PLIST, enabled: false, state: "running" });
+    expect(state).toMatchObject({
+      installed: true,
+      definitionPath: SESSION_PLIST,
+      enabled: false,
+      autostart: false,
+      state: "running",
+    });
   });
 
   test("darwin: start bootstraps the definition that EXISTS, not the login path by convention", async () => {

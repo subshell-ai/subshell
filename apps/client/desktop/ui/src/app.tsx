@@ -24,6 +24,7 @@
  */
 
 import { Rail } from "@internal/assistant";
+import { useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 import { AboutScreen } from "@/components/assistant/about-screen";
@@ -58,7 +59,7 @@ import {
   railFor,
   registerSteps,
 } from "@/lib/client-flow";
-import type { ActionResult, EnrolledNodeBody } from "@/lib/ipc";
+import type { ActionResult, EnrolledNodeBody, LogTail } from "@/lib/ipc";
 import * as ipc from "@/lib/ipc";
 import { type NodeScreenId, type NodeUserScreen, screenTitle } from "@/lib/node-assistant-state";
 
@@ -74,6 +75,8 @@ export function App() {
    */
   const [outputScreen, setOutputScreen] = useState<NodeScreenId | null>(null);
   const screenRef = useRef<NodeScreenId | null>(null);
+  /** The query client, for the log feed's probe-tick subscription below. */
+  const queryClient = useQueryClient();
   const runner = useActionRunner({ onRun: () => setOutputScreen(screenRef.current) });
   const { probe, settings, firstProbePending, readError } = useNodeState(runner.busy);
   const form = useEnrollForm();
@@ -182,6 +185,21 @@ export function App() {
    */
   const [tmuxResult, setTmuxResult] = useState<ActionResult | null>(null);
 
+  /**
+   * The node log's last lines, rendered by the Status section's log pane.
+   *
+   * The server host's rule, mirrored: the tail is fed ONLY while Status is the
+   * shown section — pulled when the section arrives and again after every
+   * probe read that succeeded, and never asked for while any other screen is
+   * up. The tick it rides is the probe query's own `success` event, not the
+   * probe data: an unchanged machine polls to the SAME structurally-shared
+   * object, so an effect keyed on `probe` would fire on arrival and then
+   * never again while the person watches a live pane. A read that rejects is
+   * swallowed: the pane keeps what the last good read returned, and a machine
+   * whose log cannot be read already says so in the tail's own `note`.
+   */
+  const [nodeLog, setNodeLog] = useState<LogTail | null>(null);
+
   const commands = useNodeCommands({
     runner,
     probe,
@@ -215,6 +233,42 @@ export function App() {
   /** The words and the failure line, ONLY on the screen that owns the action. */
   const ownedOutput = outputScreen === screen ? runner.output : null;
   const ownedFailure = outputScreen === screen ? runner.failure : "";
+
+  // The Status log pane's feed (server host's `statusUp` rule, mirrored).
+  // The server host pulls inside its OWN poll tick; this app's poll is
+  // react-query's interval, so the tick is taken from the probe query's
+  // `success` dispatch on the cache — the one signal that fires per read no
+  // matter whether the machine changed. Leaving the section unsubscribes, so
+  // no other screen ever costs a tail read; a poll PAUSED for a running
+  // action (use-node-state) pauses the feed with it, which is the server's
+  // behavior too. Failures swallow; the pane's note covers an unreadable log.
+  const statusUp = screen === "status";
+  useEffect(() => {
+    if (!statusUp) return;
+    let alive = true;
+    const pull = () => {
+      void ipc
+        .nodeLogs()
+        .then((tail) => {
+          if (alive) setNodeLog(tail);
+        })
+        .catch(() => {});
+    };
+    pull();
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      if (
+        event.type === "updated" &&
+        event.query.queryKey[0] === "node-probe" &&
+        (event.action as { type?: string } | undefined)?.type === "success"
+      ) {
+        pull();
+      }
+    });
+    return () => {
+      alive = false;
+      unsubscribe();
+    };
+  }, [statusUp, queryClient]);
 
   /**
    * The rail, or its absence (wave 3). `railFor` answers null for every step
@@ -452,10 +506,22 @@ export function App() {
     case "connect":
       return <ConnectScreen shell={shell} commands={commands} busy={runner.busy} />;
     case "status":
-      // No spread, and no `output`/`busy`: this screen offers no act
-      // (operator ruling 2026-09-22), so it neither renders an action's
-      // words nor disables anything an action would disable. Facts only.
-      return <StatusScreen rail={rail} shell={shell} probe={probe} settings={settings} enrolledNode={enrolledNode} />;
+      // No spread, and no `output`/`busy`: this screen offers no act on the
+      // machine (operator ruling 2026-09-22), and the rails addendum's one
+      // exception is not an act — a fact row's Reveal opens the fact the row
+      // is already showing, exactly the server's pattern. Facts, their
+      // reveals, and the log tail only.
+      return (
+        <StatusScreen
+          rail={rail}
+          shell={shell}
+          probe={probe}
+          settings={settings}
+          enrolledNode={enrolledNode}
+          nodeLog={nodeLog}
+          onReveal={commands.openPath}
+        />
+      );
     case "service":
       return (
         <ServiceScreen

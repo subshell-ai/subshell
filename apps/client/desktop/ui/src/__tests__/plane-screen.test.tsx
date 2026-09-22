@@ -36,6 +36,7 @@ function makeCommands(calls: Call[]): NodeCommands {
     service: rec("service"),
     restart: rec("restart"),
     uninstall: rec("uninstall"),
+    autostart: rec("autostart"),
     rewrite: rec("rewrite"),
     enroll: rec("enroll"),
     repoint: rec("repoint"),

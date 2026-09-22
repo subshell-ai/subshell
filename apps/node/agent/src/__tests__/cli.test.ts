@@ -109,8 +109,33 @@ describe("service subtoken parsing", () => {
   });
 
   test("the refusal names the subcommand that DOES accept the flag", () => {
-    expect(() => parseArgs(["service", "install", "--json"])).toThrow(/only 'service status' accepts it/);
+    // Both owners, now: `--json` belongs to the view AND the autostart verb.
+    expect(() => parseArgs(["service", "install", "--json"])).toThrow(
+      /only 'service status' and 'service autostart' accepts it/,
+    );
     expect(() => parseArgs(["service", "stop", "--force"])).toThrow(/only 'service restart' accepts it/);
+  });
+
+  test("service autostart takes on or off, and nothing else there", () => {
+    expect(parseArgs(["service", "autostart", "on"])).toEqual({
+      command: "service",
+      sub: "autostart",
+      arg: "on",
+      flags: {},
+    });
+    expect(parseArgs(["service", "autostart", "off", "--json"]).flags.json).toBe("1");
+    // A value slot that is a fixed set: no word means no default, because
+    // "which way?" is exactly what this verb is being asked.
+    expect(() => parseArgs(["service", "autostart"])).toThrow(/service autostart requires on or off/);
+    expect(() => parseArgs(["service", "autostart", "maybe"])).toThrow(
+      /unknown service autostart argument 'maybe': requires on or off/,
+    );
+    // `--no-autostart` is install's flag; the VERB is the day-2 form and
+    // carries its state in argv, not in a flag. `--force` belongs to restart.
+    expect(() => parseArgs(["service", "autostart", "on", "--no-autostart"])).toThrow(
+      /only 'service install' accepts it/,
+    );
+    expect(() => parseArgs(["service", "autostart", "on", "--force"])).toThrow(/not valid for 'service autostart'/);
   });
 
   test("a stray per-subcommand flag is a usage error (exit 2), not a runtime one", async () => {
@@ -235,6 +260,7 @@ describe("service commands (stubbed service manager)", () => {
     expect(res.code).toBe(0);
     const body = JSON.parse(res.out) as Record<string, unknown>;
     expect(Object.keys(body).sort()).toEqual([
+      "autostart",
       "definitionPath",
       "detail",
       "enabled",
@@ -251,6 +277,9 @@ describe("service commands (stubbed service manager)", () => {
       state: "running",
       pid: 4242,
       enabled: true,
+      // The named reading of the same fact, for the consumer that arms and
+      // disarms it (Subshell Client's run-at-login switch).
+      autostart: true,
       // The stub's logind says this user lingers, so the unit comes back at
       // BOOT rather than only at the next login.
       linger: true,
@@ -270,7 +299,37 @@ describe("service commands (stubbed service manager)", () => {
       // The plist's own StandardOutPath, so the desktop reveals what launchd
       // actually writes rather than re-deriving the platform path.
       logPath: LOG,
+      // The location IS the fact on darwin, and `autostart` is its named
+      // reading: this stub's plist sits in ~/Library/LaunchAgents.
+      autostart: true,
     });
+  });
+
+  test("`service autostart on` arms login start, and touches nothing running", async () => {
+    const s = linuxServiceStub();
+    const res = await run(["service", "autostart", "on"], { service: s.deps });
+    expect(res.code).toBe(0);
+    expect(res.out).toInclude("will start at login");
+    expect(s.calls.at(-1)).toEqual(["systemctl", "--user", "enable", "--no-reload", "subshell.service"]);
+  });
+
+  test("`service autostart off --json` answers the fact the act wrote", async () => {
+    const s = linuxServiceStub();
+    const res = await run(["service", "autostart", "off", "--json"], { service: s.deps });
+    expect(res.code).toBe(0);
+    expect(JSON.parse(res.out)).toEqual({ ok: true, autostart: false });
+    expect(s.calls.at(-1)).toEqual(["systemctl", "--user", "disable", "--no-reload", "subshell.service"]);
+  });
+
+  test("`service autostart on --json` keeps a refusal as a refusal: exit 1, words, no JSON", async () => {
+    // The installed check is the whole gate, and a script must not be able
+    // to read `{ok:false}` comfort where the machine said "nothing
+    // installed". (The success shape above is the only thing JSONed.)
+    const s = serviceStub();
+    const res = await run(["service", "autostart", "on", "--json"], { service: s.deps });
+    expect(res.code).toBe(1);
+    expect(res.err).toInclude("nothing installed");
+    expect(res.out).toBe("");
   });
 
   // The 0600 config file is the nodeKey's only home (the `status --json` rule),
