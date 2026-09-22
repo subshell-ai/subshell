@@ -5,12 +5,14 @@ import {
   confirmOn,
   definitionFirstCommand,
   devServerPort,
+  distBuildRemedies,
   isConfirm,
   type PortListener,
   parseAppPids,
   parseDevServerPort,
   parseLsofListeners,
   parseServiceStatus,
+  workspaceBuildArgs,
 } from "../desktop-dev";
 
 /**
@@ -344,5 +346,43 @@ describe("definitionFirstCommand", () => {
   test("neither shape answers null", () => {
     expect(definitionFirstCommand("[Service]\nRestart=on-failure\n", "linux")).toBeNull();
     expect(definitionFirstCommand("<dict/>", "darwin")).toBeNull();
+  });
+});
+
+describe("workspaceBuildArgs", () => {
+  test("filters each app's own dependency graph, in turbo's filter spelling", () => {
+    expect(workspaceBuildArgs("server")).toEqual(["turbo", "run", "build", "--filter=@internal/desktop-server"]);
+    expect(workspaceBuildArgs("client")).toEqual(["turbo", "run", "build", "--filter=@internal/desktop-client"]);
+  });
+
+  test("the two filters cannot be confused by a prefix", () => {
+    // The same guard parseAppPids has: one name containing the other would
+    // build the wrong graph. turbo filters are exact matches, and the pinned
+    // strings make a change loud.
+    expect(workspaceBuildArgs("server")[3]).not.toBe(workspaceBuildArgs("client")[3]);
+  });
+});
+
+describe("distBuildRemedies", () => {
+  test("a broken build always names the live re-run, and never bun install", () => {
+    const remedies = distBuildRemedies("server", "error TS2304: Cannot find name 'Route'");
+    expect(remedies).toHaveLength(1);
+    expect(remedies[0]).toContain("bunx turbo run build --filter=@internal/desktop-server");
+    expect(remedies[0]).not.toContain("bun install");
+  });
+
+  test("a missing-module failure adds bun install — the other half of the 2026-09-22 afternoon", () => {
+    for (const line of [
+      "error: Cannot find package '@vitejs/plugin-react'",
+      'Rolldown failed to resolve import "@internal/assistant" from "ui/src/host.tsx"',
+    ]) {
+      const remedies = distBuildRemedies("server", line);
+      expect(remedies.length, line).toBe(2);
+      expect(remedies[1]).toContain("bun install");
+    }
+  });
+
+  test("the re-run remedy spells the caller's own app, never the other one", () => {
+    expect(distBuildRemedies("client", "")[0]).toContain("--filter=@internal/desktop-client");
   });
 });

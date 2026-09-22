@@ -362,6 +362,80 @@ async function refreshManagedCopy(app: DesktopApp, staged: string): Promise<void
  * `platform` is a parameter rather than a `process.platform` read so the
  * parsing is testable on one host for both shapes.
  */
+/**
+ * The argv that builds ONE desktop app's workspace dists, as
+ * {@link buildWorkspaceDists} spawns it — exported for the same reason every
+ * parser here is: the decision is testable without running turbo.
+ *
+ * `--filter=<the app>` is the app's dependency GRAPH, not just the app: the
+ * build task's `dependsOn: ["^build"]` makes turbo build every workspace
+ * dist the app's page consumes, in order. Wave 1 of the rails redesign is
+ * why this step exists at all — the assistant page imports a NEW workspace
+ * package, and the dev path is the one thing in the repo that never built
+ * workspace packages, so a fresh checkout with a fresh `bun install` still
+ * died in the middle of the vite step with a resolver error naming a package
+ * it had never heard of (measured 2026-09-22, the operator's `dev:desktop-server`
+ * after pulling #132).
+ */
+export function workspaceBuildArgs(appId: "server" | "client"): string[] {
+  // The app's own package name is derived, not stored: `@internal/desktop-server`
+  // and `@internal/desktop-client` are the ids' direct image, and a stored
+  // copy would be a third place to spell them.
+  return ["turbo", "run", "build", `--filter=@internal/desktop-${appId}`];
+}
+
+/**
+ * What a failed workspace-dists build tells the developer to do, keyed on
+ * what its output says.
+ *
+ * The turbo re-run is the always remedy — the captured output below the
+ * failure already says most of it, but a live run shows the whole graph. The
+ * `bun install` remedy appears ONLY when the output names a package that
+ * could not be found or resolved: that is the other half of the 2026-09-22
+ * afternoon (node_modules predating a merge), and it is a DIFFERENT remedy
+ * from a broken build.
+ */
+export function distBuildRemedies(appId: "server" | "client", output: string): string[] {
+  const remedies = [
+    `Re-run \`bunx ${workspaceBuildArgs(appId).join(" ")}\` from the repo root to see the full error live.`,
+  ];
+  // Case-insensitive: the resolver spells it "Could not resolve", rolldown
+  // "failed to resolve import" — the operator's log had both.
+  if (/cannot find package|could not resolve|failed to resolve|err_module_not_found/i.test(output)) {
+    remedies.push("A package is missing from node_modules — run `bun install` first.");
+  }
+  return remedies;
+}
+
+/**
+ * Build the workspace dists the bundled page's Vite build consumes.
+ *
+ * ALWAYS, not "when a dist is missing": the sidecar's mtime walk exists
+ * because "present but STALE" is the same broken window as "absent" — a dev
+ * launch against last week's `@internal/assistant` is exactly the failure
+ * this run prevents, and turbo's hash check is the same cost class as that
+ * walk (warm, it is under a second). Output is captured rather than
+ * inherited so a quiet warm run stays quiet; a failure prints what it
+ * captured plus {@link distBuildRemedies}, and the launch never happens —
+ * tauri dev starting vite against half-built dists is the error that ate the
+ * operator's afternoon.
+ */
+async function buildWorkspaceDists(app: DesktopApp): Promise<void> {
+  const proc = Bun.spawn(["bunx", ...workspaceBuildArgs(app.id)], {
+    cwd: REPO_ROOT,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  if ((await proc.exited) !== 0) {
+    console.error(`\nCould not build the workspace dists the bundled page's Vite build consumes.`);
+    const said = `${err}${out}`.trim();
+    if (said !== "") console.error(said);
+    for (const remedy of distBuildRemedies(app.id, `${err}${out}`)) console.error(`  ${remedy}`);
+    process.exit(1);
+  }
+}
+
 export function definitionFirstCommand(text: string, platform: NodeJS.Platform = process.platform): string | null {
   const first =
     platform === "darwin"
@@ -993,6 +1067,13 @@ if (import.meta.main) {
     console.log(`Sidecar for ${target} is newer than every source it is built from; not rebuilding.`);
   }
   await refreshManagedCopy(app, staged);
+
+  // The bundled page's vite consumes workspace dists (`@internal/assistant`
+  // and friends), and nothing else in the dev path builds them. Always —
+  // turbo's hash check is the same cost class as the sidecar walk above, and
+  // it buys the same guarantee: what the page builds against is CURRENT.
+  console.log("==> Building the workspace dists the bundled page's Vite build consumes (turbo, incremental).");
+  await buildWorkspaceDists(app);
 
   if (checkOnly) process.exit(0);
   process.exit(await runDev(app));
