@@ -7,7 +7,7 @@
  * button, and that the typed name gates the press.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { App } from "@/app";
 import { deferred, type FakeIpc, installFakeIpc, makeProbe, renderApp } from "./harness";
 
@@ -148,9 +148,17 @@ describe("the reset screen", () => {
     // holds, and no exit renders beside it.
     expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
-    gate.resolve({ ok: true, stdout: "reset complete", stderr: "" });
     // The label retires with the chain; the resting screen is unchanged.
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Resetting…" })).toBeNull());
+    // The retire is a promise continuation, not a discrete event: a `waitFor`
+    // whose FIRST check fails retries inside happy-dom's MutationObserver
+    // dispatch, where the in-flight assertion escapes the retry loop — red on
+    // Linux CI, invisible on macOS (measured 2026-09-22 in oven/bun:1.4.2).
+    // Flush the continuation under act and assert the settled DOM directly.
+    await act(async () => {
+      gate.resolve({ ok: true, stdout: "reset complete", stderr: "" });
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(screen.queryByRole("button", { name: "Resetting…" })).toBeNull();
     expect(screen.getByRole("button", { name: "Reset Everything" })).toBeTruthy();
   });
 

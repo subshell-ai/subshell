@@ -18,7 +18,7 @@
  * which exists only until Task 8's screens land (see host.tsx).
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { Host } from "../host";
 import type { Probe } from "../lib/ipc";
@@ -469,10 +469,18 @@ describe("the rail", () => {
     fireEvent.change(document.getElementById("reset-confirm") as HTMLInputElement, {
       target: { value: "testhost" },
     });
-    screen.getByRole("button", { name: "Reset everything" }).click();
-    await waitFor(() => expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull());
-    gate.resolve({ ok: true });
-    await waitFor(() => expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy());
+    // Both room transitions settle off promise continuations (the runner's
+    // busy flip, then the gate), where waitFor's observer retry escapes under
+    // happy-dom on Linux CI. Flush under act and assert the settled DOM.
+    await act(async () => {
+      screen.getByRole("button", { name: "Reset everything" }).click();
+    });
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    await act(async () => {
+      gate.resolve({ ok: true });
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy();
   });
 
   it("renders the leave buttons only where the rail is not", async () => {
