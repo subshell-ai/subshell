@@ -10,16 +10,16 @@
  * renders it INSTEAD of the frame, which is what the old `show()` did by
  * hiding `#screen` and `#bar`.
  *
- * The meter, the arming verdict and the half-run log are HOST state — page
- * state in the old module, for the same reason: the poll re-renders on its
- * own clock, so a state the DOM held would be erased mid-chain. The typed
- * hostname is this component's own state; a reopen after a cancel starts
- * with an empty box, where the old page kept the static input's value —
- * `close()` drops the component, and a fresh confirmation is what a fresh
- * visit wants.
+ * The meter, the arming verdict, the half-run log AND the typed hostname are
+ * HOST state — page state in the old module, for the same reason: the poll
+ * re-renders on its own clock, so a state the DOM held would be erased
+ * mid-chain. The hostname rides the host because the old input was static
+ * markup and never unmounted: its value survived Cancel and a reopen, and
+ * dropping this component would otherwise clear what the person had already
+ * typed.
  */
 import type { ReactElement } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { Probe } from "../lib/ipc";
 import { armed, RESET_STEPS, refusal, resetRows, resetStarted, type StepKey, type StepState } from "../lib/reset";
 
@@ -40,11 +40,13 @@ export function ResetScreen(props: {
   /** The run button's label at rest; a half-run promotes it to "Retry reset". */
   runLabel: string;
   log: ResetLog | null;
+  /** The typed hostname — host state, so it survives Cancel and a reopen. */
+  typed: string;
+  onTypedChange: (typed: string) => void;
   onRunReset: (typed: string) => void;
   onCancel: () => void;
 }): ReactElement {
-  const { probe, busy, steps, armingProblem, runLabel, log } = props;
-  const [typed, setTyped] = useState("");
+  const { probe, busy, steps, armingProblem, runLabel, log, typed } = props;
   const st = probe?.status;
   const hostname = probe?.hostname ?? "";
   // One sentence names one cause. A paths block that is complete but a name
@@ -103,7 +105,7 @@ export function ResetScreen(props: {
             value={typed}
             spellCheck={false}
             autoCapitalize="off"
-            onChange={(e) => setTyped(e.currentTarget.value)}
+            onChange={(e) => props.onTypedChange(e.currentTarget.value)}
           />
         </div>
       </div>

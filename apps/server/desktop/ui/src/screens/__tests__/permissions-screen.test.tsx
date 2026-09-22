@@ -97,9 +97,14 @@ describe("the rows", () => {
     screen.getByRole("button", { name: "Allow notifications" }).click();
     await Promise.resolve();
     expect(act).toHaveBeenCalledTimes(1);
+    const row = document.querySelectorAll("ul.checklist li")[0];
+    expect(row.getAttribute("data-state")).toBe("active");
     view.unmount();
-    // A second press goes through `act`'s own guard, not a screen one: the
-    // flags reset with the visit, as the old page-local scope always implied.
+    // The flags reset with the visit (the component unmounted above), as the
+    // old page-local scope always implied — so this fresh render's press
+    // starts the ask again rather than being refused by a stale flag. The
+    // guard that would refuse a press DURING an act is `busy`, held false
+    // here so the flag's own reset is what is under test.
     renderPermissions({ probe, act });
     screen.getByRole("button", { name: "Allow notifications" }).click();
     expect(act).toHaveBeenCalledTimes(2);

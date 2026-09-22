@@ -5,6 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { makeProbe } from "../../__tests__/harness";
 import { emptySteps } from "../../lib/reset";
 import { ResetScreen } from "../reset-screen";
@@ -34,10 +35,19 @@ function renderReset(over: {
   armingProblem?: string | null;
   runLabel?: string;
   log?: { text: string; bad: boolean } | null;
+  typed?: string;
   onRunReset?: (typed: string) => void;
   onCancel?: () => void;
 }) {
-  return render(
+  // The typed hostname is HOST state now, so the helper holds it the way the
+  // host does — the change handler feeds the state back.
+  return render(<ResetScreenHolder over={over} />);
+}
+
+function ResetScreenHolder(props: { over: Parameters<typeof renderReset>[0] }) {
+  const over = props.over;
+  const [typed, setTyped] = useState(over.typed ?? "");
+  return (
     <ResetScreen
       probe={over.probe === undefined ? RESETTABLE : over.probe}
       busy={over.busy ?? false}
@@ -45,12 +55,16 @@ function renderReset(over: {
       armingProblem={over.armingProblem ?? null}
       runLabel={over.runLabel ?? "Reset everything"}
       log={over.log ?? null}
+      typed={typed}
+      onTypedChange={setTyped}
       onRunReset={over.onRunReset ?? (() => {})}
       onCancel={over.onCancel ?? (() => {})}
-    />,
+    />
   );
 }
 
+// Through the DOM, act-wrapped: the holder's state feeds back through
+// `onTypedChange`, exactly as the host's does.
 const typeHostname = (value: string): void => {
   fireEvent.change(document.getElementById("reset-confirm") as HTMLInputElement, { target: { value } });
 };
@@ -67,7 +81,7 @@ describe("the refusal gate", () => {
   });
 
   it("lists the five promises once the paths are complete, and holds the button until the name matches", () => {
-    renderReset({});
+    const _view = renderReset({});
     const rows = document.querySelectorAll("ul.wizard-copy.list-disc li");
     expect(rows).toHaveLength(5);
     expect(rows[0].textContent).toContain("Database (users, sessions, API keys, the node signing keypair)");
@@ -87,7 +101,7 @@ describe("the refusal gate", () => {
   });
 
   it("shows the arming verdict where the refusal would be", () => {
-    renderReset({ armingProblem: "The reset could not be staged: command not found." });
+    const _view = renderReset({ armingProblem: "The reset could not be staged: command not found." });
     expect(screen.getAllByText(/The reset could not be staged/).length).toBeGreaterThan(0);
     expect((screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).disabled).toBe(true);
   });
@@ -96,7 +110,7 @@ describe("the refusal gate", () => {
 describe("the run press and its meter", () => {
   it("fires only when armed, with the typed string", () => {
     const onRunReset = vi.fn();
-    renderReset({ onRunReset });
+    const _view = renderReset({ onRunReset });
     screen.getByRole("button", { name: "Reset everything" }).click();
     expect(onRunReset).not.toHaveBeenCalled(); // disabled: empty box
     typeHostname("testhost");
@@ -148,7 +162,7 @@ describe("the run press and its meter", () => {
 
   it("hands the cancel to the page's own close", () => {
     const onCancel = vi.fn();
-    renderReset({ onCancel });
+    const _view = renderReset({ onCancel });
     screen.getByRole("button", { name: "Cancel" }).click();
     expect(onCancel).toHaveBeenCalledTimes(1);
   });

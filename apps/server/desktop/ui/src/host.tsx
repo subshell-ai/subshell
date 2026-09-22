@@ -404,6 +404,15 @@ export function Host(): React.JSX.Element {
   const [resetArmingProblem, setResetArmingProblem] = useState<string | null>(null);
   const [resetRunLabel, setResetRunLabel] = useState("Reset everything");
   const [resetLog, setResetLog] = useState<ResetLog | null>(null);
+  /**
+   * The typed confirmation. Host state because the old input was static
+   * markup and never unmounted: its value survived Cancel and a reopen, and
+   * dropping the screen would otherwise clear what the person had already
+   * typed. `openReset` keeps it — a fresh visit to the same screen resumes
+   * the same confirmation — and the reset view's own hide does not clear it
+   * either; the state is the screen's, for as long as this window lives.
+   */
+  const [resetTyped, setResetTyped] = useState("");
   /** True once the boot sequence has run to the point the old page started its poll. */
   const [booted, setBooted] = useState(false);
 
@@ -1158,6 +1167,8 @@ export function Host(): React.JSX.Element {
         armingProblem={resetArmingProblem}
         runLabel={resetRunLabel}
         log={resetLog}
+        typed={resetTyped}
+        onTypedChange={setResetTyped}
         onRunReset={(typed) => void runReset(typed)}
         onCancel={() => {
           // The old `reset-cancel`: hide, then the page's own close — which

@@ -18,7 +18,7 @@
  * which exists only until Task 8's screens land (see host.tsx).
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Host } from "../host";
 import { deferred, type FakeIpc, installFakeIpc, makeProbe } from "./harness";
 
@@ -93,4 +93,96 @@ describe("the host's correction ratchet", () => {
   // (`go`), and no screen exists to press until Task 3. Its arithmetic is
   // pinned by `resolveJourney`'s unit tests in lib/__tests__/route.test.ts;
   // this file gains the component case with the first screen that navigates.
+});
+
+describe("the host's reset chain", () => {
+  /** A ready machine whose server reports its data locations: the resettable case. */
+  const RESETTABLE = makeProbe({
+    next: "start",
+    hostname: "testhost",
+    status: {
+      configEnv: { path: "/Users/u/.config/subshell-server/config.env", exists: true },
+      paths: {
+        dataDir: "/Users/u/.local/share/subshell-server",
+        database: "/Users/u/.local/share/subshell-server/db.sqlite",
+        logsDir: "/Users/u/.local/share/subshell-server/logs",
+        nodeArtifacts: "/Users/u/.local/share/subshell-server/node-artifacts",
+      },
+      listen: { port: 3080, listening: true },
+    },
+  } as never);
+
+  const typeHostname = (value: string): void => {
+    fireEvent.change(document.getElementById("reset-confirm") as HTMLInputElement, { target: { value } });
+  };
+
+  it("runs the chain: a fresh meter per press, a re-arm on the second press, and a fresh first run after the machine answers", async () => {
+    const armCalls: unknown[] = [];
+    const resetCalls: string[] = [];
+    fake = installFakeIpc({
+      probe: RESETTABLE,
+      handlers: {
+        desktop_pending_screen: () => "reset",
+        desktop_arm_reset: (args) => {
+          armCalls.push(args);
+          return true;
+        },
+        desktop_reset: (args) => {
+          resetCalls.push(args.typed as string);
+          return { ok: true, stdout: "", stderr: "" };
+        },
+        desktop_open_main: () => undefined,
+      },
+    });
+    render(<Host />);
+    // The screen is up from the request, before the plan arms (the old open()
+    // showed first for exactly this reason).
+    await waitFor(() => expect(document.getElementById("reset-confirm")).not.toBeNull());
+    expect(fake.callsTo("desktop_arm_reset")).toHaveLength(1);
+
+    typeHostname("testhost");
+    screen.getByRole("button", { name: "Reset everything" }).click();
+    await waitFor(() => expect(resetCalls).toEqual(["testhost"]));
+    // The press RE-ARMS before it resets — arm #2 is the run's own, on top of
+    // the screen's arming (#1): `plan` is the page's own first row, and the
+    // arming round trip is its content.
+    expect(fake.callsTo("desktop_arm_reset")).toHaveLength(2);
+
+    // The machine answered: the page's fired-already latch and any pre-reset
+    // failure describe a machine that no longer exists, so a fresh first-run
+    // probe is met with a fresh welcome once the screen is dismissed — the
+    // observable half of `rearmFirstRun` (the latch it clears is the same
+    // call the welcome's auto-fire reads).
+    fake.setProbe(makeProbe({ next: "init", onboarded: false, tmux: "/usr/bin/tmux" }));
+
+    // Re-arm on EVERY press: the plan is one-shot by design, and a second
+    // press that skipped it would answer "no reset plan is staged".
+    screen.getByRole("button", { name: "Reset everything" }).click();
+    await waitFor(() => expect(resetCalls).toHaveLength(2));
+    expect(fake.callsTo("desktop_arm_reset")).toHaveLength(3);
+
+    screen.getByRole("button", { name: "Cancel" }).click();
+    await waitFor(() => expect(routeOf()).toBe("welcome"));
+  });
+
+  it("promotes the run label to Retry and renders the half-run log as a failure", async () => {
+    fake = installFakeIpc({
+      probe: RESETTABLE,
+      handlers: {
+        desktop_pending_screen: () => "reset",
+        desktop_arm_reset: () => true,
+        desktop_reset: () => ({ ok: false, stdout: "", stderr: "launchctl bootout exited 5" }),
+        desktop_open_main: () => undefined,
+      },
+    });
+    render(<Host />);
+    await waitFor(() => expect(document.getElementById("reset-confirm")).not.toBeNull());
+    typeHostname("testhost");
+    screen.getByRole("button", { name: "Reset everything" }).click();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Retry reset" })).toBeDefined());
+    // The half-run's verbatim log, reading as a failure.
+    const log = document.querySelector("pre.pane-pre.mt-3") as HTMLPreElement;
+    expect(log.textContent).toBe("launchctl bootout exited 5");
+    expect(log.className).toContain("output-bad");
+  });
 });
