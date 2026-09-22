@@ -31,7 +31,7 @@ import {
 } from "@/lib/terminal-geometry";
 import { isPasteChord } from "@/lib/terminal-keys";
 import { attachTouchScroll, attachWheelScroll, gateTouchKeyboard, isTouchUi } from "@/lib/terminal-touch-scroll";
-import { useSubshellWs } from "@/lib/use-subshell-ws";
+import { isRetryableAttachClose, useSubshellWs } from "@/lib/use-subshell-ws";
 import type { SubshellView } from "@/types/subshell";
 import "@xterm/xterm/css/xterm.css";
 
@@ -155,8 +155,43 @@ export function InputQueueBadge({ inputQueueRef }: { inputQueueRef: { current: I
 export interface SubshellTerminalStatus {
   /** True while the subshell WebSocket is open */
   connected: boolean;
-  /** True once the server *rejected* the attach (close code >= 4000) */
+  /**
+   * True once the server rejected the attach in a way a retry cannot fix
+   * (unauthorized, subshell not found). NOT set by the 4004 node-offline
+   * refusal (Wave D): that one retries, and closing over it would unmount
+   * the terminal — which cancels the retry and leaves the page stranded on
+   * the dead panel while the node is merely offline.
+   */
   closed: boolean;
+}
+
+/**
+ * The status one close leaves behind. Pure, so the Wave D recovery table is
+ * pinned by test without mounting the terminal: the terminal only renders
+ * while `closed` is false, so a 4004 refusal — retryable — must arrive as
+ * connected:false/closed:false and let the page's reconnecting pill cover
+ * the gap, while every other 4xxx refusal lands on the dead panel.
+ * @param code - The close code the server sent
+ * @returns The status to emit for that close
+ */
+export function statusAfterClose(code: number): SubshellTerminalStatus {
+  return { connected: false, closed: code >= 4000 && !isRetryableAttachClose(code) };
+}
+
+/**
+ * Whether the page shows the "reconnecting…" pill. Pure so the Wave D path
+ * is testable: a 4004 refusal leaves the socket down but NOT closed, so the
+ * pill — not the dead panel — is what the user sees while the hook keeps
+ * retrying, exactly as the comment at the old inline condition says.
+ */
+export function reconnectPillVisible(s: {
+  connected: boolean;
+  closed: boolean;
+  dead: boolean;
+  restarting: boolean;
+  isLoading: boolean;
+}): boolean {
+  return !s.connected && !s.closed && !s.dead && !s.restarting && !s.isLoading;
 }
 
 /**
@@ -791,14 +826,21 @@ export function SubshellTerminal({
     termRef,
     active ? subshellId : "",
     {
-      onOpen: () => emitStatus({ connected: true, closed: statusRef.current.closed }),
+      // CLEAN, not carried: a retried attach must arrive with closed:false.
+      // Carrying the previous close's closed:true forward is what kept the
+      // page on the dead panel after a Wave D 4004 retry landed — the hook
+      // replayed into a terminal the page had already unmounted.
+      onOpen: () => emitStatus({ connected: true, closed: false }),
       onClose: (code, _reason) => {
-        // A server rejection code (4xxx) means the attach is refused (subshell
-        // missing / not running) — a reconnect cannot succeed, so surface the
-        // dead-subshell state. All other closes (network drops, backend restart)
-        // are transient: the hook reconnects on its own and the caller's
-        // "reconnecting…" pill covers the gap.
-        emitStatus({ connected: false, closed: code >= 4000 });
+        // The one place a close becomes page state. A 4004 node-offline
+        // refusal (Wave D) must NOT flag closed: the hook keeps retrying it,
+        // and closing over it would unmount this terminal — which cancels
+        // the retry — and strand the page on "Subshell is not running" while
+        // the node is merely offline. The page's "reconnecting…" pill covers
+        // the gap. Every other 4xxx refusal cannot succeed on a retry and
+        // surfaces the dead-subshell state; everything below 4000 stays
+        // transient exactly as before.
+        emitStatus(statusAfterClose(code));
         // With the socket down we do not know who is watching — including
         // whether we still are. Saying so beats leaving a stale "Devices (3)"
         // on screen through a reconnect.

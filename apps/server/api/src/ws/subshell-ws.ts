@@ -459,6 +459,12 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
         });
       return;
     }
+    // No id: nothing to hold, and this dispatches PAST any held ids of the
+    // session (Wave D). Unreachable with the engaged client — the queue
+    // either carries ids from its first frame or was disengaged, and
+    // disengage drops its own backlog first — so the only bare frame that
+    // can land behind a hold is a client that downgraded mid-session, whose
+    // own retry machinery has already given up. Today's drop-and-log.
     void data.launcher.sendInput(data.socket, data.subshellId, frame.data).catch(logFailure);
   }
 }

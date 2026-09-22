@@ -14,7 +14,7 @@ import { SplitSubshellButton } from "@/components/split-subshell-button";
 import { StatusPill } from "@/components/status-pill";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDevices } from "@/components/subshell-devices";
-import { SubshellTerminal, type SubshellTerminalHandles } from "@/components/subshell-terminal";
+import { reconnectPillVisible, SubshellTerminal, type SubshellTerminalHandles } from "@/components/subshell-terminal";
 import { SubshellWorkspaceLink } from "@/components/subshell-workspace-link";
 import { TerminalKeyBar } from "@/components/terminal-key-bar";
 import { TranscriptSearch } from "@/components/transcript-search";
@@ -208,11 +208,14 @@ function SubshellPage() {
   // backend restart) and the subshell may still be running. The hook
   // reconnects automatically and the terminal stays mounted; history is
   // re-streamed on every attach. Only when the subshell query reports the
-  // process dead (the exited state) or the server refused the attach (closed)
-  // is the terminal replaced by a state panel.
+  // process dead (the exited state) or the server refused the attach in a
+  // way a retry cannot fix (closed) is the terminal replaced by a state
+  // panel. A 4004 node-offline refusal (Wave D) is neither: the socket is
+  // down but the attach is being retried, so the pill — not a dead panel —
+  // is what the retry shows.
   // `isLoading` is NOT a reconnect: the terminal is not even mounted yet, and
   // claiming "reconnecting…" before a first attach would be a lie.
-  const showPill = !connected && !closed && !dead && !restarting && !isLoading;
+  const showPill = reconnectPillVisible({ connected, closed, dead, restarting, isLoading });
 
   // Gone is gone: a 404 means the record will never arrive (deleted, or never
   // shared with this viewer — the backend answers 404 for both), so do NOT

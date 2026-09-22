@@ -175,6 +175,35 @@ other 4xxx refusal stays terminal, pinned by a table test. (`4004 "subshell
 not running"` rides the same code; retrying it is harmless and lets an open
 page catch an owner's restart.)
 
+**The page must survive the retry (review, 2026-09-22).** The consumer half
+was the wedge's last door: the terminal set `closed` on ANY 4xxx close, which
+unmounts the terminal, which cancels the hook — so the 4004 retry never ran
+on the page that needed it, and the user stared at "Subshell is not running"
+while the node was merely offline. The table now lives in one place
+(`statusAfterClose`): a retryable close arrives as connected:false /
+closed:false and the page's "reconnecting…" pill covers the gap; the retried
+attach's `onOpen` arrives CLEAN (connected:true, closed:false — carrying the
+previous close's flag forward was what kept the dead panel up). A refusal a
+retry cannot fix still lands on the dead panel.
+
+**"Not found" is not transient (review, 2026-09-22).** With 4004 retryable,
+its "subshell not found" spelling — a PERMANENT refusal — would be retried
+forever at ≤15 s. It moved to its own close code, **4005**
+(`attach-resolve.ts`), wire-ADDITIVE: every client older than this split
+treats any non-retryable 4xxx as terminal and never retried 4004 either, so
+the move changes nothing for a cached PWA. 4004 keeps the transient family —
+node offline, subshell not running, subshell unreachable — and the client
+retries exactly 4004.
+
+**The local leg is still open.** Wave D closed the plane→node leg only. A
+transient LOCAL write failure (the send-keys spawn fails while the pane and
+the browser socket are both fine) wedges the client queue the same way — no
+ack, no dedupe commit, later keystrokes coalesce behind the unacked head —
+and holds are deliberately not taken for `local`: there is no node-ready
+moment to re-fire from. Until a wave covers it, a browser reconnect (the
+socket dying, a page reload) is the recovery; the client's reconnect re-send
+carries what was stranded.
+
 **Premise amendment.** Wave A's "TCP ordering means an unacked frame is 'not
 yet', never 'lost'" holds ONLY for the browser↔plane leg, the one leg TCP
 actually spans there. The plane→node leg fails independently — this wave

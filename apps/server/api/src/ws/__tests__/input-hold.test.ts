@@ -253,4 +253,67 @@ describe("plane→node input hold (Wave D)", () => {
     // of the dead case's frame; a surviving window would have swallowed it.
     expect(fresh.inputs).toEqual(["k"]);
   });
+
+  it("a drain in flight when the browser session closes finishes its write once and then stops", async () => {
+    // Bespoke session: the launcher holds every write on a gate, so the
+    // re-fire can be caught mid-write when the cleanup lands.
+    const subshellId = "hold-middrain";
+    const inputs: string[] = [];
+    const sent: Array<Record<string, unknown>> = [];
+    let armed = false;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const launcher = {
+      sendInput: async (_socket: string, _id: string, input: string) => {
+        if (!armed) throw new Error(`node "${NODE}" has no live connection`);
+        inputs.push(input);
+        await gate;
+      },
+      resize: async () => undefined,
+      paneSize: async () => null,
+    } as unknown as NodeLauncher;
+    const ws = {
+      data: {
+        launcher,
+        socket: "sock",
+        subshellId,
+        nodeId: NODE,
+        logFile: "",
+        canInput: true,
+        viewerId: crypto.randomUUID(),
+        deviceLabel: "Test device",
+        since: new Date().toISOString(),
+        query: { sid: "sess-1" },
+      },
+      send: (raw: string) => {
+        sent.push(JSON.parse(raw) as Record<string, unknown>);
+      },
+      close: () => undefined,
+    } as unknown as WsSocket;
+    registerViewer(ws, subshellId);
+    const type = (data: string, id: number) => handleSubshellMessage(ws, JSON.stringify({ type: "input", data, id }));
+
+    type("k", 1);
+    await settle();
+    expect(inputs).toEqual([]); // held
+    armed = true;
+    refireInputHoldsForNode(NODE);
+    await settle(); // the drain is now parked on the gate, mid-write
+
+    // The session closes mid-write. The drop empties the queue; the drain's
+    // captured head still finishes.
+    cleanupSubshellWs(ws);
+    release();
+    await settle();
+    expect(inputs).toEqual(["k"]); // the in-flight write landed, exactly once
+    expect(inputWindowHas(subshellId, "sess-1", 1)).toBe(true); // committed: the bytes DID reach the pane
+    expect(sent).toEqual([{ type: "ack", id: 1 }]); // and its ack was still sent
+
+    // And nothing re-fires afterwards: the hold died with the session.
+    refireInputHoldsForNode(NODE);
+    await settle();
+    expect(inputs).toEqual(["k"]);
+  });
 });

@@ -10,6 +10,9 @@ import {
 import { HttpError } from "@/api/auth-guard.js";
 import type { NodeReadyReport } from "@/db/repositories/nodes.repository.js";
 import type { NodeKind, NodeTable } from "@/db/types/nodes.db-types.js";
+import { resetInputHoldsForTests } from "@/ws/input-hold.js";
+import { resetInputWindowsForTests } from "@/ws/input-window.js";
+import { handleSubshellMessage } from "@/ws/subshell-ws.js";
 import { resetNodeEventsForTests, setNodeLifecycleHooks } from "../node-events.js";
 import {
   getHeld,
@@ -867,5 +870,94 @@ describe("handleNodeClose (superseded-close hygiene, spec §5.3)", () => {
     const h = makeHarness();
     await handleNodeClose(h.deps, fakeSocket("n1"));
     expect(h.statuses).toEqual([]);
+  });
+});
+
+/**
+ * Wave D wiring (spec 2026-09-21): a node's `ready` moment is one of the two
+ * re-fire triggers for held plane→node input writes (`ws/input-hold.ts`).
+ * The hold is seeded through the real message handler against a fabricated
+ * browser session, then the node socket's ready is driven through the real
+ * handler — the seam under test is the CALL, not the hold's own math (that
+ * is pinned in ws/__tests__/input-hold.test.ts).
+ */
+describe("ready → the input-hold re-fire (Wave D)", () => {
+  /**
+   * A fabricated attached browser session. The launcher REJECTS every write
+   * until `go()` swaps it for a recording stub — the re-fire reads the
+   * launcher off ws.data at write time, so the swap is how a recovered node
+   * ships.
+   */
+  function heldSession(subshellId: string) {
+    const inputs: string[] = [];
+    let go = false;
+    const launcher = {
+      sendInput: async (_socket: string, _id: string, input: string) => {
+        if (!go) throw new Error("node n1 has no live connection");
+        inputs.push(input);
+      },
+      resize: async () => undefined,
+      paneSize: async () => null,
+    } as unknown as Parameters<typeof handleSubshellMessage>[0]["data"]["launcher"];
+    const ws = {
+      data: {
+        launcher,
+        socket: "sock",
+        subshellId,
+        nodeId: "n1",
+        logFile: "",
+        canInput: true,
+        viewerId: crypto.randomUUID(),
+        deviceLabel: "Test device",
+        since: new Date().toISOString(),
+        query: { sid: "sess-r" },
+      },
+      send: () => 0,
+      close: () => undefined,
+    } as unknown as Parameters<typeof handleSubshellMessage>[0];
+    return {
+      ws,
+      inputs,
+      /** Arms the launcher so re-fired writes land. */
+      go: () => {
+        go = true;
+      },
+      type: (data: string, id: number) => handleSubshellMessage(ws, JSON.stringify({ type: "input", data, id })),
+    };
+  }
+
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 10; i++) await new Promise<void>((r) => setTimeout(r, 0));
+  };
+
+  beforeEach(() => {
+    resetInputHoldsForTests();
+    resetInputWindowsForTests();
+  });
+
+  it("an accepted ready re-fires the node's held writes", async () => {
+    const h = makeHarness();
+    const s = heldSession("s-refire");
+    s.type("k", 1);
+    await settle();
+    expect(s.inputs).toEqual([]); // held, node down
+    s.go();
+    await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame()));
+    await settle();
+    expect(s.inputs).toEqual(["k"]); // re-fired by the ready, once
+  });
+
+  it("a ready HELD below the version floor re-fires nothing", async () => {
+    // A held agent is offline for every purpose but `update` — the same rule
+    // that keeps the detection kick off it keeps the re-fire off it too.
+    const h = makeHarness();
+    const s = heldSession("s-refire-held");
+    s.type("k", 1);
+    await settle();
+    expect(s.inputs).toEqual([]);
+    s.go();
+    await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame({ agentVersion: "0.0.1" })));
+    await settle();
+    expect(s.inputs).toEqual([]); // still held, still waiting
   });
 });

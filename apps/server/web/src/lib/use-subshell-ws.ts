@@ -45,8 +45,11 @@ const RECONNECT_DELAY_MS = 1500;
  * ways: the plane holds a failed plane→node write and re-fires it when the
  * node returns (server-side, `ws/input-hold.ts`), and the queue re-sends its
  * backlog on the next successful attach. Every other 4xxx code is a refusal
- * about this subshell or this credential — retrying cannot succeed, and the
- * page's onClose must surface it — so it stays terminal exactly as before.
+ * about this subshell or this credential — 4005 "subshell not found"
+ * permanent by the same split (attach-resolve emits it; wire-additive,
+ * because no client older than Wave D ever retried ANY 4xxx code, so moving
+ * not-found out of 4004 changes nothing for it) — retrying cannot succeed,
+ * and the page's onClose must surface it.
  *
  * Pure, so the table is pinned by test without a socket.
  * @param code - The close code the server sent

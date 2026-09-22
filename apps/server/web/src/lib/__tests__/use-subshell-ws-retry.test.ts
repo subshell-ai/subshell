@@ -27,6 +27,8 @@ describe("attach close-code policy", () => {
     for (const code of [4000, 4001, 4002, 4003, 4005, 4010, 4406, 4999]) {
       expect(isRetryableAttachClose(code)).toBe(false);
     }
+    // 4005 "subshell not found" is the permanent refusal the server split
+    // out of 4004 (Wave D review): retrying can never make a subshell exist.
   });
 
   it("sub-4000 closes retry, exactly as they always did", () => {
