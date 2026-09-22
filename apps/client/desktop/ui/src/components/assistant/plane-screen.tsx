@@ -24,19 +24,21 @@
  * Two kinds of row:
  *
  * - **The node's address.** `probe.status.serverUrl` renders as a PINNED
- *   first row badged "this node". Its menu holds the SAME opens as any row
- *   (operator note, 2026-09-22: "what about open in browser?" — the pinned
- *   row is a plane like any other to CONNECT to); only the third item
- *   differs, because the address belongs to the node's own configuration and
- *   Rust refuses to store it as an entry (one row per plane). Where a stored
- *   row offers Remove, the pinned row shows the note that points at the
- *   Service section, where the node's acts (repoint, the lifecycle verbs,
- *   and the un-enroll that follows) live. That is the ruling's split said in
- *   the interface: connecting is this section's business; being a node is
- *   Service's.
- * - **A stored address.** Its menu: "Open in dashboard", "Open in browser",
- *   "Remove" (confirmed, and confirmable nothing more: the app's bookmarks
- *   are its whole reach).
+ *   first row badged "this node". Its menu holds the SAME items as any row
+ *   (operator notes, 2026-09-22: "what about open in browser?" — the pinned
+ *   row is a plane like any other to CONNECT to) and then stops: no Remove,
+ *   because the address belongs to the node's own configuration and Rust
+ *   refuses to store it as an entry, and no sentence explaining the absence
+ *   either (same day, from the live window: the pointer note was deleted
+ *   once Un-enroll… stood up on Service — the act has its door there, and
+ *   absence is the whole message here).
+ * - **A stored address.** Its menu adds "Remove" (confirmed, and confirmable
+ *   nothing more: the app's bookmarks are its whole reach).
+ *
+ * Every menu: Open in dashboard, Open in browser, **Copy URL**, and — stored
+ * rows only — Remove. Copy is the CopyButton affordance in text form: the
+ * dismiss is the success flash, and a refused clipboard keeps the menu open
+ * and says so in the item's own label rather than flashing nothing.
  *
  * The add's grammar is the bar's own: opener primary-right when closed;
  * open, the field sits at the foot of the table where the new row will
@@ -68,12 +70,10 @@ export function PlaneScreen(props: {
   settings: NodeSettings | undefined;
   commands: NodeCommands;
   busy: boolean;
-  /** Open the Service section — where the pinned row's note sends a detaching person. */
-  onGoToService: () => void;
   /** The acts' own words — refusals included, as the section's output block. */
   output: ActionResult | null;
 }): ReactElement {
-  const { shell, probe, settings, commands, busy, onGoToService, output } = props;
+  const { shell, probe, settings, commands, busy, output } = props;
   const nodeUrl = probe?.status?.serverUrl ?? null;
   // Display guard against a stored row spelling the node's own address in a
   // way Rust's canonical compare never saw (a CLI re-point can leave two
@@ -84,6 +84,10 @@ export function PlaneScreen(props: {
   // Which row's menu is open. One at a time: two open menus over a list is a
   // maze, and opening a menu is always deliberate.
   const [menuUrl, setMenuUrl] = useState<string | null>(null);
+  // A refused clipboard. It keeps the menu OPEN and renames the item, because
+  // a press that dismissed on failure would flash nothing and read as one
+  // that never registered (the `CopyButton` argument, in text form).
+  const [copyFailed, setCopyFailed] = useState<string | null>(null);
 
   // The menu's own dismissal protocol. Each listener is mounted only while a
   // menu is open, and the trigger plus its panel are marked as one island
@@ -120,6 +124,17 @@ export function PlaneScreen(props: {
     if (busy || typed.trim() === "") return;
     setAdding(false);
     commands.addPlane(typed);
+  };
+
+  const copyUrl = (url: string) => {
+    void (async () => {
+      try {
+        await navigator.clipboard.writeText(url);
+        setMenuUrl(null);
+      } catch {
+        setCopyFailed(url);
+      }
+    })();
   };
 
   const item = (label: string, act: () => void): ReactElement => (
@@ -159,7 +174,10 @@ export function PlaneScreen(props: {
           aria-label={`Actions for ${url}`}
           aria-haspopup="menu"
           aria-expanded={menuUrl === url}
-          onClick={() => setMenuUrl(menuUrl === url ? null : url)}
+          onClick={() => {
+            setCopyFailed(null);
+            setMenuUrl(menuUrl === url ? null : url);
+          }}
         >
           <MoreVertical aria-hidden />
         </Button>
@@ -175,23 +193,12 @@ export function PlaneScreen(props: {
             setMenuUrl(null);
             commands.openPlaneUrl(url);
           })}
-          {pinned ? (
-            <>
-              <p className="px-2 py-1.5 text-detail text-muted-foreground leading-relaxed">
-                This is the control plane this machine&rsquo;s node reports to. To detach this machine, go to Service
-                and un-enroll or uninstall the node.
-              </p>
-              {item("Go to Service", () => {
-                setMenuUrl(null);
-                onGoToService();
-              })}
-            </>
-          ) : (
+          {item(copyFailed === url ? "Couldn't copy, try again" : "Copy URL", () => copyUrl(url))}
+          {!pinned &&
             item("Remove", () => {
               setMenuUrl(null);
               commands.removePlane(url);
-            })
-          )}
+            })}
         </div>
       )}
     </div>

@@ -873,15 +873,19 @@ necessarily tied with the node"). The section is a BARE TABLE, not a card:
 the node's own address renders as a PINNED first row badged **this node**
 (`probe.status.serverUrl` — a probe fact Rust refuses to store as an entry),
 stored addresses below it. Pressing a row IS the dashboard door; the `⋯` opens
-a real ACTION MENU — Open in dashboard, Open in browser, Remove — positioned
+a real ACTION MENU — Open in dashboard, Open in browser, Copy URL, Remove — positioned
 BY CLASS (`absolute right-0 top-full` in the row's own `relative` box), which
 the CSP permits even though it outlaws the style attributes a measuring popper
 writes; Escape and an outside press dismiss it, one is open at a time, and
 `ipc-acl`'s argument pins keep every plane command to the one argument: the
-address. The pinned row's menu holds the SAME two opens ("what about open in
-browser?" — to connect, it is a plane like any other); only its third slot
-differs, where a stored row says Remove it carries the note that sends a
-detaching person to Service. The add is the frame's bottom bar in the bar's
+address. The pinned row's menu holds the SAME opens plus Copy URL ("what about
+open in browser?" — to connect, it is a plane like any other) and simply has
+no Remove — and no sentence explaining the absence either (the note that
+pointed at Service was deleted the same hour Un-enroll… stood up there: the
+detaching act has its own door, and absence is the whole message here). Copy
+is the `CopyButton` affordance in text form: the menu's dismiss is the
+success flash, and a refused clipboard keeps the menu open and renames the
+item rather than flashing nothing. The add is the frame's bottom bar in the bar's
 own grammar: opener primary-right; open, the field sits at the foot of the
 table, Add takes the primary spot (it calls the form's save directly — the
 `form` attribute's submit does not fire in every engine, Enter goes through
@@ -898,10 +902,14 @@ only ever fed a `debug_assert`. FTE Connect retargeted to `addPlane`.
 
 **Service's Enrolled to Control Plane card holds the node's binding acts**:
 the address, the enroll-time loopback notice that moved with it, **Re-enroll…**
-(free-form field seeded with the current address, pressing `node_configure` —
-identity kept, no setup key spent, restart applies it, the CLI's refusals
-verbatim with the field still editable), and **Un-enroll…**, the destructive
-half. Its confirm states the orphans ("Subshells that are still running keep
+(a DIALOG — see below — with a free-form field seeded with the current
+address, pressing `node_configure` — identity kept, no setup key spent,
+restart applies it; it stays open on submit so the CLI's verbatim refusal is
+answered by an editable field, not a retype), and **Un-enroll…**, the
+destructive half. The two are deliberately SEPARATE commands (operator, same
+day: "let's keep them as separate commands") — Uninstall on the background
+card keeps its narrower meaning even though the un-enroll chain happens to
+tolerate a machine with no service. Its confirm states the orphans ("Subshells that are still running keep
 running, but nothing will manage them." / "The control plane keeps its node
 row until its owner deletes it there."); accepting makes ONE `node_unenroll`
 call, whose chain is Rust's — stop, uninstall the definition (each tolerating
@@ -915,6 +923,22 @@ truth is read, not discovered. The card is gated on the verb existing
 autostart gate's twin over the shared `lib/semver.ts`): an older agent would
 have its service stopped, its definition uninstalled, and only THEN answer
 `unenroll` with a usage error — unmanaged and still enrolled.
+
+**Confirmations answer in a dialog now** (operator ruling 2026-09-22: "use a
+dialog when it comes to user confirmation … rather than rendering another
+pane in the panel", then the audit ask). The audit's answer is ONE mount
+point, so the change is one component: every confirmation the app raises is a
+runner `asks()` outcome, every `asks()` outcome renders through
+`ConfirmPanel` at the single `shell.confirm` slot in `app.tsx`, and
+`ConfirmPanel` is now the app's own `Dialog` (`components/ui/dialog.tsx`) —
+a class-positioned fixed overlay with no measuring popper, so the CSP note
+in `confirm-panel.tsx` still holds (style ATTRIBUTES are outlawed; classes
+are not). Escape and a backdrop press ARE the cancel; the accept keeps its
+weight on the right. The dialog is labelled, which is what keeps an accept
+button that shares its words with the button behind it ("Enroll this
+machine") tellable apart by both a screen reader and a test —
+`confirmPanel()` scopes to `role=dialog` now. Reset's typed-hostname consent
+stays a full screen: a consent you TYPE is not a confirm you press.
 
 Three screen ids went with it, and their absence is the design.
 **`connected`**, **`service`** and **`install-agent`** were the probe-derived

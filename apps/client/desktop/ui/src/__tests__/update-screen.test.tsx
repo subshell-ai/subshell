@@ -178,7 +178,7 @@ describe("the second phase finishes an act this build did not start (§ 4.2)", (
     // landing the person was looking at.
     expect(screen.getByText("Update Subshell Client")).toBeTruthy();
     // No confirmation: phase 1's press was the consent for both halves.
-    expect(screen.queryByRole("region")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   /**
@@ -313,8 +313,8 @@ describe("the restart it offers rather than performs (§ 7.1)", () => {
 
     // The refusal, verbatim, with the override behind it — the existing
     // command's work, not this screen's.
-    await waitFor(() => expect(screen.queryByRole("region")).not.toBeNull());
-    expect(within(screen.getByRole("region")).getByText(/refusing to restart/)).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeNull());
+    expect(within(screen.getByRole("dialog")).getByText(/refusing to restart/)).toBeTruthy();
     // And the offer is still there to take once that conversation is over.
     expect(buttonOrNull("Restart the node")).not.toBeNull();
   });

@@ -19,7 +19,7 @@
  * `app.test.tsx` and `repoint.test.tsx`.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { PlaneScreen } from "@/components/assistant/plane-screen";
 import type { NodeCommands } from "@/hooks/use-node-commands";
 import type { ActionResult } from "@/lib/ipc";
@@ -66,10 +66,8 @@ const shell = { title: "Control Plane", subtitle: "Planes this app can connect t
 
 function mount(init: { probe?: ReturnType<typeof makeProbe>; settings?: ReturnType<typeof makeSettings> } = {}): {
   calls: Call[];
-  pressed: string[];
 } {
   const calls: Call[] = [];
-  const pressed: string[] = [];
   renderApp(
     <PlaneScreen
       shell={shell}
@@ -77,11 +75,25 @@ function mount(init: { probe?: ReturnType<typeof makeProbe>; settings?: ReturnTy
       settings={init.settings ?? makeSettings()}
       commands={makeCommands(calls)}
       busy={false}
-      onGoToService={() => pressed.push("service")}
       output={null as ActionResult | null}
     />,
   );
-  return { calls, pressed };
+  return { calls };
+}
+
+/** Install a clipboard the tests can watch; `ok: false` plays the refusal. */
+function stubClipboard(ok = true): string[] {
+  const writes: string[] = [];
+  Object.defineProperty(window.navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async (text: string) => {
+        if (!ok) throw new Error("denied");
+        writes.push(text);
+      },
+    },
+  });
+  return writes;
 }
 
 const button = (name: string | RegExp) => screen.getByRole("button", { name }) as HTMLButtonElement;
@@ -108,11 +120,15 @@ describe("the pinned row", () => {
     expect(screen.getAllByRole("button", { name: "https://subshell.example.com" }).length).toBe(1);
   });
 
-  it("its menu opens like any row's, but the Remove slot is the Service pointer", () => {
-    const { pressed, calls } = mount();
+  it("its menu offers the two opens and no Remove, and says nothing", () => {
+    // Operator rulings 2026-09-22, in order: "what about open in browser?"
+    // gave the pinned row its opens; the note that explained the missing
+    // Remove was deleted once Un-enroll… stood up on Service. Absence is the
+    // whole message — the detaching act has its own door, and a sentence in
+    // a connect-menu pointing at it is the pane-in-the-panel this wave is
+    // systematically deleting.
+    const { calls } = mount();
     const scope = openMenu("https://subshell.example.com");
-    // The pinned row is a plane like any other to CONNECT to (operator note
-    // 2026-09-22); only detachment differs, and that is Service's act.
     fireEvent.click(menuItem(scope, "Open in dashboard"));
     expect(calls).toEqual([{ name: "openPlane", args: ["https://subshell.example.com"] }]);
     const scope2 = openMenu("https://subshell.example.com");
@@ -120,13 +136,7 @@ describe("the pinned row", () => {
     expect(calls[1]).toEqual({ name: "openPlaneUrl", args: ["https://subshell.example.com"] });
     const scope3 = openMenu("https://subshell.example.com");
     expect(within(scope3).queryByRole("menuitem", { name: "Remove" })).toBeNull();
-    expect(
-      within(scope3).getByText(
-        "This is the control plane this machine’s node reports to. To detach this machine, go to Service and un-enroll or uninstall the node.",
-      ),
-    ).toBeTruthy();
-    fireEvent.click(within(scope3).getByRole("menuitem", { name: "Go to Service" }));
-    expect(pressed).toEqual(["service"]);
+    expect(within(scope3).queryByText(/detach|reports to|go to service/i)).toBeNull();
   });
 
   it("disappears with the node — a watcher's list has no pinned row", () => {
@@ -146,13 +156,36 @@ describe("a stored row's menu", () => {
     expect(calls).toEqual([{ name: "openPlane", args: ["https://work.example"] }]);
   });
 
-  it("offers dashboard, browser and remove, each aimed at the row's own address", () => {
+  it("copies the row's address and closes the menu", async () => {
+    const writes = stubClipboard();
+    mount({ settings: makeSettings({ planes: ["https://work.example"] }) });
+    const scope = openMenu("https://work.example");
+    fireEvent.click(menuItem(scope, "Copy URL"));
+    await waitFor(() => expect(writes).toEqual(["https://work.example"]));
+    // The dismiss IS the success flash.
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("keeps the menu open and renames the item when the clipboard refuses", async () => {
+    stubClipboard(false);
+    mount({ settings: makeSettings({ planes: ["https://work.example"] }) });
+    const scope = openMenu("https://work.example");
+    fireEvent.click(menuItem(scope, "Copy URL"));
+    await waitFor(() => expect(menuItem(scope, "Couldn't copy, try again")).toBeTruthy());
+    // Reopening resets the honest label to the plain one.
+    fireEvent.click(button("Actions for https://work.example"));
+    fireEvent.click(button("Actions for https://work.example"));
+    expect(menuItem(scope, "Copy URL")).toBeTruthy();
+  });
+
+  it("offers dashboard, browser, copy and remove, each aimed at the row's own address", () => {
     const { calls } = mount({ settings: makeSettings({ planes: ["https://work.example"] }) });
     const scope = openMenu("https://work.example");
     fireEvent.click(menuItem(scope, "Open in browser"));
     expect(calls).toEqual([{ name: "openPlaneUrl", args: ["https://work.example"] }]);
-    const scope2 = openMenu("https://work.example");
-    fireEvent.click(menuItem(scope2, "Open in dashboard"));
+    const scopeC = openMenu("https://work.example");
+    expect(menuItem(scopeC, "Copy URL")).toBeTruthy();
+    fireEvent.click(menuItem(scopeC, "Open in dashboard"));
     expect(calls[1]).toEqual({ name: "openPlane", args: ["https://work.example"] });
     const scope3 = openMenu("https://work.example");
     fireEvent.click(menuItem(scope3, "Remove"));

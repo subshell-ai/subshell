@@ -329,13 +329,15 @@ corrections made from the running dev window within the hour:
   and was deleted).
 - **The row is the door; the `⋯` is a real action menu.** Pressing the
   address opens the dashboard. The menu — Open in dashboard, Open in
-  browser, Remove — is positioned BY CLASS inside the row's own `relative`
+  browser, Copy URL, Remove — is positioned BY CLASS inside the row's own `relative`
   box: the CSP outlaws style ATTRIBUTES (the `confirm-panel.tsx`
   measurement), which sinks measuring poppers but not `absolute right-0
   top-full`, and a list row does not need a popper. Escape and outside
   press dismiss; one is open at a time. The pinned row's menu carries the
-  SAME opens (its third slot, where a stored row says Remove, is the note
-  pointing at Service).
+  SAME opens plus Copy URL and NO Remove and no note explaining its absence
+  — the pointer sentence was deleted the same hour Un-enroll… stood up on
+  Service ("absence is the whole message"). Copy closes the menu on success
+  and, on a refused clipboard, stays open with the item renamed.
 - **The add is the frame's bottom bar.** Opener primary-right when closed;
   open, the field sits at the foot of the table where the new row will
   appear, Add takes the primary spot and calls the save directly (form-
@@ -352,3 +354,10 @@ corrections made from the running dev window within the hour:
   autostart gate's twin). Plane-coherence and its notices died with the
   two-address state — the pinned row IS the notice — and the Status
   subtitle states the machine, not a plane.
+- **Confirmations are dialogs** (the audit ruling, same hour): every
+  confirmation flows through `ConfirmPanel`, and `ConfirmPanel` is now the
+  app's own class-positioned `Dialog` — Escape and backdrop are the cancel,
+  the accept keeps the right-hand weight. Re-enroll… opens its form in the
+  same dialog; Reset's typed-hostname consent stays a full screen, because
+  a consent you type is not a confirm you press. Uninstall and Un-enroll…
+  stay separate commands by ruling.

@@ -127,8 +127,11 @@ const menuItemOrNull = (name: string) => screen.queryByRole("menuitem", { name }
  * is about ("Uninstall the service", "Rewrite the definition"), and a test has
  * to be able to tell the panel's copy from the screen's.
  */
-const confirmPanel = () => within(screen.getByRole("region"));
-const confirmPanelOrNull = () => screen.queryByRole("region");
+// Every confirmation in the app answers in the modal `ConfirmPanel`, which
+// is a labelled dialog (operator ruling 2026-09-22: dialogs, not panes grown
+// inside the section the act belongs to).
+const confirmPanel = () => within(screen.getByRole("dialog"));
+const confirmPanelOrNull = () => screen.queryByRole("dialog");
 
 const typeInto = (label: string, value: string) => {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
@@ -938,7 +941,7 @@ describe("what the page never asks for", () => {
     fireEvent.click(button("Actions for https://elsewhere.example"));
     fireEvent.click(menuItem("Remove"));
     await screen.findByText("Remove this control plane?");
-    fireEvent.click(button("Remove"));
+    fireEvent.click(confirmPanel().getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(fake.callsTo("node_plane_remove").length).toBe(1), {
       timeout: SETTLE_DELAY_MS * (SETTLE_ATTEMPTS + 2),
     });
@@ -1078,10 +1081,18 @@ describe("what the page never asks for", () => {
     // And a declined confirm spends nothing: cancel answers the dialog and
     // the boundary sees no second call.
     fireEvent.click(button("Un-enroll…"));
-    await screen.findByText("Un-enroll this machine?");
-    fireEvent.click(button("Cancel"));
+    await screen.findByRole("dialog", { name: "Un-enroll this machine?" });
+    fireEvent.click(confirmPanel().getByRole("button", { name: "Cancel" }));
     await new Promise((resolve) => setTimeout(resolve, 120));
     expect(fake.callsTo("node_unenroll").length).toBe(1);
+
+    // Escape on the open dialog is the same refusal (the dialog's own rule).
+    fireEvent.click(button("Un-enroll…"));
+    await screen.findByRole("dialog", { name: "Un-enroll this machine?" });
+    fireEvent.keyDown(window, { key: "Escape" });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(fake.callsTo("node_unenroll").length).toBe(1);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   // The tray preference is no longer a control on this page at all: it is a
@@ -2056,16 +2067,16 @@ describe("the plane list and its doors", () => {
     await waitFor(() => expect(screen.getByText("could not open the control plane")).toBeTruthy());
   });
 
-  it("points the node's own row at Service instead of removing it", async () => {
-    // The pinned row has no Remove (plane-screen.test.tsx pins its menu);
-    // this pins the app half: the pointer lands the person on Service.
+  it("offers the node's own row everything but a Remove, and says nothing", async () => {
+    // (rulings 2026-09-22: the opens are shared, the note was deleted once
+    // Un-enroll… stood up on Service — absence is the whole message.)
     await boot();
     await openSection("Control Plane");
     fireEvent.click(button("Actions for https://subshell.example.com"));
-    await screen.findByText(/go to Service and un-enroll/i);
-    expect(buttonOrNull("Remove")).toBeNull();
-    fireEvent.click(menuItem("Go to Service"));
-    await screen.findByRole("heading", { name: "Service" });
+    await screen.findByRole("menu", { name: "Actions for https://subshell.example.com" });
+    expect(screen.queryByRole("menuitem", { name: "Remove" })).toBeNull();
+    expect(screen.queryByText(/detach|go to service/i)).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Copy URL" })).toBeTruthy();
   });
 
   it("removes a stored row only through its confirm", async () => {
@@ -2074,7 +2085,7 @@ describe("the plane list and its doors", () => {
     fireEvent.click(button("Actions for https://work.example"));
     fireEvent.click(menuItem("Remove"));
     await screen.findByText("Remove this control plane?");
-    fireEvent.click(button("Remove"));
+    fireEvent.click(confirmPanel().getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(fake.callsTo("node_plane_remove")).toEqual([{ url: "https://work.example" }]));
     // A removal is not an open, whatever else the row's menu offered.
     expect(fake.callsTo("node_open_plane")).toEqual([]);

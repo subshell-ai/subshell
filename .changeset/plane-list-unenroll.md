@@ -5,10 +5,14 @@
 
 The Subshell Client's Control Plane section is now a LIST of control planes
 to connect to, not one address tied to the node: add an address, open a row
-in the dashboard or the system browser, remove one — and the address this
-machine's node reports to sits pinned at the top badged "this node", not
-removable here because detaching a machine is the Service section's act, not
-this list's. The section is a bare table with the add on the bottom bar.
+in the dashboard or the system browser, copy its URL, remove one — and the
+address this machine's node reports to sits pinned at the top badged "this
+node", not removable here because detaching a machine is the Service
+section's act, not this list's. The section is a bare table with the add on
+the bottom bar, and every confirmation in the app — removing a row,
+uninstalling the service, un-enrolling, replacing the node CLI, spending a
+setup key — now answers in a dialog instead of a panel grown inside the
+section it belongs to.
 
 Service gained the node's own binding acts in an "Enrolled to Control Plane"
 card: Re-enroll… repoints the node to a new address keeping its identity and

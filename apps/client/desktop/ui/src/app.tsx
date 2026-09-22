@@ -554,7 +554,6 @@ export function App() {
           busy={runner.busy}
           // The pinned row's note sends a detaching person to the node's
           // acts; a rail select is how every section is reached now.
-          onGoToService={() => setOverride("service")}
           output={ownedOutput}
         />
       );

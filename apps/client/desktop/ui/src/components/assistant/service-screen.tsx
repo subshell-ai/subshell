@@ -46,6 +46,7 @@ import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { ActionOutput } from "@/components/assistant/status-facts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -402,22 +403,28 @@ export function ServiceScreen(props: {
             </p>
           )}
           {editingRepoint ? (
-            <form
-              className="mt-2 flex flex-col gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (busy || repointTyped.trim() === "") return;
-                commands.repoint(repointTyped);
-              }}
-            >
-              <Label htmlFor="repoint-url" className="text-detail text-muted-foreground">
-                Control plane this node reports to
-              </Label>
-              <p className="text-detail text-muted-foreground leading-relaxed">
-                Re-enrolling points the node at the address you enter; its identity is kept and no setup key is spent.
-                The node takes the new address when it restarts.
-              </p>
-              <div className="flex items-center gap-2">
+            // A DIALOG, not a pane grown inside the card (operator ruling
+            // 2026-09-22). It stays open on submit exactly as the inline form
+            // did: the CLI's own refusal is the answer to a bad address, and
+            // the field has to still hold what was typed. Escape and a
+            // backdrop press close it; the refusal itself renders on the
+            // card, where the address lives.
+            <Dialog title="Re-enroll this machine" onClose={() => setEditingRepoint(false)}>
+              <form
+                className="flex flex-col gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (busy || repointTyped.trim() === "") return;
+                  commands.repoint(repointTyped);
+                }}
+              >
+                <Label htmlFor="repoint-url" className="text-detail text-muted-foreground">
+                  Control plane this node reports to
+                </Label>
+                <p className="text-detail text-muted-foreground leading-relaxed">
+                  Re-enrolling points the node at the address you enter; its identity is kept and no setup key is spent.
+                  The node takes the new address when it restarts.
+                </p>
                 <Input
                   id="repoint-url"
                   value={repointTyped}
@@ -427,24 +434,27 @@ export function ServiceScreen(props: {
                   autoCapitalize="off"
                   autoCorrect="off"
                   disabled={busy}
+                  autoFocus
                 />
-                <Button type="submit" size="sm" disabled={busy || repointTyped.trim() === ""}>
-                  Re-enroll
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => {
-                    setEditingRepoint(false);
-                    setRepointTyped("");
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </form>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => {
+                      setEditingRepoint(false);
+                      setRepointTyped("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" size="sm" disabled={busy || repointTyped.trim() === ""}>
+                    Re-enroll
+                  </Button>
+                </div>
+              </form>
+            </Dialog>
           ) : (
             <div className="mt-2">
               <Button
