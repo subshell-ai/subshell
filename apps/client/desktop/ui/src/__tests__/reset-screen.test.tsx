@@ -101,15 +101,6 @@ describe("the reset screen", () => {
     });
     fireEvent.change(screen.getByLabelText(/Type/), { target: { value: "not-devbox" } });
     fireEvent.click(screen.getByRole("button", { name: "Reset Everything" }));
-    await new Promise((r) => setTimeout(r, 300));
-    console.log(
-      "DBG calls",
-      JSON.stringify(fake.callsTo("node_reset")),
-      "bodyHas",
-      screen.queryByText("the hostname did not match this machine") !== null,
-      "thatDidNot",
-      screen.queryByText("That did not work") !== null,
-    );
     await waitFor(() => expect(screen.getByText("the hostname did not match this machine")).toBeTruthy());
     expect(fake.callsTo("node_reset")).toEqual([{ typed: "not-devbox" }]);
   });
