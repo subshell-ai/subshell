@@ -27,14 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { ActionRunner } from "@/hooks/use-action-runner";
 import { finished } from "@/lib/actions";
-import {
-  type ActionResult,
-  type EnrolledNodeBody,
-  type NodeSettings,
-  nodeArmReset,
-  nodeReset,
-  type Probe,
-} from "@/lib/ipc";
+import { type ActionResult, nodeArmReset, nodeReset, type Probe } from "@/lib/ipc";
 
 /** What a reset does NOT reach (spec 2026-09-11 § 5.4). */
 const DISCLOSURES: readonly string[] = [
@@ -54,14 +47,12 @@ export function ResetScreen(props: {
    */
   rail?: ReactElement;
   probe: Probe | undefined;
-  settings: NodeSettings | undefined;
-  enrolledNode: EnrolledNodeBody | null;
   output: ActionResult | null;
   runner: ActionRunner;
   busy: boolean;
   onCancel: () => void;
 }) {
-  const { shell, probe, settings, enrolledNode, output, runner, busy, onCancel } = props;
+  const { shell, probe, output, runner, busy, onCancel } = props;
   /** null while arming; true once a plan is staged; false on a machine with nothing to reset. */
   const [armed, setArmed] = useState<boolean | null>(null);
   const [typed, setTyped] = useState("");

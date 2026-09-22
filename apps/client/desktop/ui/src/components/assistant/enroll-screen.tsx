@@ -22,13 +22,11 @@ import { Button } from "@/components/ui/button";
 import type { EnrollForm } from "@/hooks/use-enroll-form";
 import type { NodeCommands } from "@/hooks/use-node-commands";
 import { ENROLL_NOTES, tmuxHint } from "@/lib/copy";
-import type { ActionResult, EnrolledNodeBody, NodeSettings, Probe } from "@/lib/ipc";
+import type { ActionResult, Probe } from "@/lib/ipc";
 
 export function EnrollScreen(props: {
   shell: FrameShell;
   probe: Probe | undefined;
-  settings: NodeSettings | undefined;
-  enrolledNode: EnrolledNodeBody | null;
   output: ActionResult | null;
   form: EnrollForm;
   commands: NodeCommands;
@@ -36,7 +34,7 @@ export function EnrollScreen(props: {
   /** Defined only when the user asked for this screen — a re-enrolment. */
   onCancel?: () => void;
 }) {
-  const { shell, probe, settings, enrolledNode, output, form, commands, busy, onCancel } = props;
+  const { shell, probe, output, form, commands, busy, onCancel } = props;
   const reenroll = onCancel !== undefined;
   const current = probe?.status?.nodeId;
   const where = probe?.status?.serverUrl;
