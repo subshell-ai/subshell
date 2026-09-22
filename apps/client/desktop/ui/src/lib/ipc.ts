@@ -418,13 +418,30 @@ export function nodeService(args: {
  * minted, and the node key — whose only home is the 0600 `config.json` — is
  * kept. So there is no confirmation phase; nothing here is unrecoverable.
  *
- * The Rust side also repoints this app's own stored plane address on success,
- * so the two cannot drift (see `lib/plane-coherence.ts` for the drift this
- * closes). The node reads its config at start, so a repoint takes effect on
- * the next restart of the daemon.
+ * It touches only the node's own configuration: since the plane-list ruling
+ * (2026-09-22) the app's saved list is separate, and the Control Plane
+ * section's pinned row follows the node by itself on the next probe. The node
+ * reads its config at start, so a repoint takes effect on the next restart of
+ * the daemon.
  */
 export function nodeConfigure(args: { server: string }): Promise<ActionResult> {
   return invoke<ActionResult>("node_configure", args);
+}
+
+/**
+ * Stop being a node. ONE call; the confirm lives on the screen, and what it
+ * accepts is ORPHANING, never killing: running subshells keep running with
+ * nothing reporting them.
+ *
+ * The Rust side runs the chain — stop, uninstall the definition (each
+ * tolerating "nothing installed", so a Retry converges), then the CLI's
+ * `unenroll --yes --json`, which deletes `daemon.lock` then `config.json`.
+ * The data directory, the installed binary and the control plane's own node
+ * row are deliberately kept. The page names NO argument: there is no path,
+ * address or flag for a compromised page to choose.
+ */
+export function nodeUnenroll(): Promise<ActionResult> {
+  return invoke<ActionResult>("node_unenroll");
 }
 
 /**

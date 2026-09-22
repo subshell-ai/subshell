@@ -42,6 +42,7 @@ function makeCommands(calls: Call[]): NodeCommands {
     autostart: rec("autostart"),
     rewrite: rec("rewrite"),
     repoint: rec("repoint"),
+    unenroll: rec("unenroll"),
     openPath: rec("openPath"),
     openPlane: rec("openPlane"),
     openPlaneUrl: rec("openPlaneUrl"),
@@ -351,3 +352,26 @@ describe("the machine-state cards", () => {
 
 /** makeSettings is imported for the mount parity with the other screen tests. */
 void makeSettings;
+
+/** The un-enroll card (plane-list wave): gated on the verb, on the node only. */
+describe("Un-enroll", () => {
+  it("is offered on an enrolled machine and runs the confirmed command", () => {
+    const { calls } = mount();
+    fireEvent.click(button("Un-enroll…"));
+    expect(calls).toEqual([{ name: "unenroll", args: [] }]);
+  });
+
+  it("is NOT offered on a machine that is not a node", () => {
+    mount({ probe: makeProbe({ status: { nodeId: null, serverUrl: null, online: false, agentVersion: "1.9.0" } }) });
+    expect(buttonOrNull(/un-enroll/i)).toBeNull();
+  });
+
+  it("shows the gate sentence on an agent too old for the verb", () => {
+    const base = makeProbe();
+    mount({
+      probe: { ...base, nodeBinary: base.nodeBinary ? { ...base.nodeBinary, version: "0.14.0" } : null },
+    });
+    expect(button("Un-enroll…").disabled).toBe(true);
+    expect(screen.getByText(/needs node version 0\.15\.0 or newer\. Update the node first\./i)).toBeTruthy();
+  });
+});

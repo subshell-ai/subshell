@@ -34,6 +34,7 @@ import {
   nodePlaneRemove,
   nodeProbe,
   nodeService,
+  nodeUnenroll,
   type OpenTarget,
   type Probe,
   type ServiceVerb,
@@ -72,6 +73,14 @@ export interface NodeCommands {
    * than a confirmed act — reversing it reverses everything.
    */
   autostart: (on: boolean) => void;
+  /**
+   * Stop being a node: the confirmed chain (stop, uninstall, `unenroll
+   * --yes --json`) that deletes the configuration and key and keeps the
+   * data, the binary and — said plainly in the confirm — every running
+   * subshell. The narrow act beside {@link uninstall}, which stops the
+   * service but keeps this machine registered, and beside Reset.
+   */
+  unenroll: () => void;
   /** Rewrite the service definition, confirmed where the rewrite itself costs panes. */
   rewrite: () => void;
   /** Repoint this machine's node at another control plane. Non-destructive, so one click. */
@@ -324,6 +333,33 @@ export function useNodeCommands(args: {
      * is computed from it.
      */
     repoint: (server) => runner.run(async () => finished(await nodeConfigure({ server }))),
+
+    /**
+     * The one press whose confirm exists for what it KEEPS rather than what
+     * it costs: nothing here is unrecoverable in the way enroll's spent key
+     * is, but "subshells keep running with nothing managing them" must be
+     * read before it happens, not discovered after. The chain is Rust's
+     * (`node_unenroll`); this is its consent and its settle.
+     */
+    unenroll: () =>
+      runner.run(async () =>
+        asks({
+          title: "Un-enroll this machine?",
+          messages: [
+            "This removes this machine's node configuration and key, and uninstalls the node service. Subshells " +
+              "that are still running keep running, but nothing will manage them.",
+            "The control plane keeps its node row until its owner deletes it there.",
+          ],
+          acceptLabel: "Un-enroll",
+          run: async () => {
+            const result = await nodeUnenroll();
+            // A different machine afterwards: the re-probe is what lands the
+            // section off a gone node, as for every lifecycle verb.
+            if (result.ok) await runner.settle();
+            return finished(result);
+          },
+        }),
+      ),
 
     openPath: (target) =>
       runner.run(async () => {

@@ -311,3 +311,44 @@ rewritten by the wave that changes the surface they describe.
 - Wave 1 is large (~3k lines touched). It is split inside the wave: frame +
   first-run screens first, then the standing screens, one branch, two
   commits.
+
+## Addendum 7 (2026-09-22, same day, plane-list wave + three live-window follow-ups)
+
+The operator's ruling that ended the day's evolution of the Control Plane
+section: "the Control Plane should be a list of control planes to connect
+to … that way it's clear the section is for connecting to other control
+planes, not necessarily tied with the node." What shipped, including three
+corrections made from the running dev window within the hour:
+
+- **The list.** A bare table (not a card), rows canonicalized and deduped
+  by Rust. The node's own address is a PINNED first row badged "this node" —
+  a probe fact, never a stored entry, and the pinned row renders exactly
+  once whatever spelling a stored row uses. No row is marked connected and
+  nothing opens at boot: a client never opens a control plane by itself
+  (§ 2 stands; the old plane ladder existed only to feed a `debug_assert`
+  and was deleted).
+- **The row is the door; the `⋯` is a real action menu.** Pressing the
+  address opens the dashboard. The menu — Open in dashboard, Open in
+  browser, Remove — is positioned BY CLASS inside the row's own `relative`
+  box: the CSP outlaws style ATTRIBUTES (the `confirm-panel.tsx`
+  measurement), which sinks measuring poppers but not `absolute right-0
+  top-full`, and a list row does not need a popper. Escape and outside
+  press dismiss; one is open at a time. The pinned row's menu carries the
+  SAME opens (its third slot, where a stored row says Remove, is the note
+  pointing at Service).
+- **The add is the frame's bottom bar.** Opener primary-right when closed;
+  open, the field sits at the foot of the table where the new row will
+  appear, Add takes the primary spot and calls the save directly (form-
+  attribute submit is not portable; Enter rides `onSubmit`), Cancel
+  ghost-left. The bar's grammar, unchanged since § 3.
+- **The node's binding lives on Service.** The "Enrolled to Control Plane"
+  card states the address, carries the loopback notice with it, and offers
+  Re-enroll… (free-form field seeded with the current address;
+  `node_configure`; identity kept, no key spent, restart applies) and
+  Un-enroll… (confirmed; ONE `node_unenroll` call whose chain is stop →
+  uninstall → `unenroll --yes --json`, definition before config because a
+  kept definition respawns a daemon against a deleted config; panes are
+  never signalled and the confirm says so; gated on node 0.15.0, the
+  autostart gate's twin). Plane-coherence and its notices died with the
+  two-address state — the pinned row IS the notice — and the Status
+  subtitle states the machine, not a plane.

@@ -1048,6 +1048,42 @@ describe("what the page never asks for", () => {
     for (const call of fake.calls) expect(allowed.has(call.cmd)).toBe(true);
   });
 
+  // The un-enroll door, walked at the app level (review I1's rule). What is
+  // pinned HERE is the page's side of the contract: one call after the
+  // confirm is accepted, and no service verbs driven from the page on the
+  // way. The order that makes the chain safe — stop, uninstall, then the
+  // CLI's `unenroll --yes --json`, definition before config because a kept
+  // definition respawns a daemon against a deleted file — lives inside
+  // `node_unenroll` and is pinned beside that code, not re-simulated here.
+  it("runs the un-enroll chain as ONE call, through its confirm", async () => {
+    const fake = await boot({
+      handlers: {
+        node_service: () => ({ ok: true, stdout: "", stderr: "" }),
+        node_unenroll: () => ({ ok: true, stdout: "unenrolled node abc", stderr: "" }),
+      },
+    });
+    await openSection("Service");
+    fireEvent.click(button("Un-enroll…"));
+    await screen.findByText("Un-enroll this machine?");
+    // The two honest facts ride the dialog; the accept names the act.
+    expect(screen.getByText(/Subshells that are still running keep running/)).toBeTruthy();
+    expect(screen.getByText(/keeps its node row until its owner deletes it there/)).toBeTruthy();
+    fireEvent.click(button("Un-enroll"));
+    await waitFor(() => expect(fake.callsTo("node_unenroll").length).toBe(1), {
+      timeout: SETTLE_DELAY_MS * (SETTLE_ATTEMPTS + 2),
+    });
+    expect(fake.callsTo("node_unenroll")).toEqual([{}]);
+    expect(fake.callsTo("node_service")).toEqual([]);
+
+    // And a declined confirm spends nothing: cancel answers the dialog and
+    // the boundary sees no second call.
+    fireEvent.click(button("Un-enroll…"));
+    await screen.findByText("Un-enroll this machine?");
+    fireEvent.click(button("Cancel"));
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(fake.callsTo("node_unenroll").length).toBe(1);
+  });
+
   // The tray preference is no longer a control on this page at all: it is a
   // check item in the tray menu, so nothing here can invoke it.
   it("never touches the tray preference", async () => {

@@ -53,7 +53,7 @@ export function asks(confirm: PendingConfirmation, output: ActionResult | null =
  *
  * Tauri surfaces a Rust `Err(String)` as the string itself, and those strings
  * are actionable: `node_open_path` rejects with the `journalctl` command to run
- * instead, `node_set_plane` with "the server URL must be http or https".
+ * instead, `node_plane_add` with "the server URL must be http or https".
  */
 export function errorText(err: unknown): string {
   if (typeof err === "string") return err;

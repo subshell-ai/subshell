@@ -51,6 +51,7 @@ function makeCommands(calls: Call[]): NodeCommands {
     autostart: rec("autostart"),
     rewrite: rec("rewrite"),
     repoint: rec("repoint"),
+    unenroll: rec("unenroll"),
     openPath: rec("openPath"),
     openPlane: rec("openPlane"),
     openPlaneUrl: rec("openPlaneUrl"),

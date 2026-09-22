@@ -105,7 +105,7 @@ export function configured(settings: NodeSettings | undefined, probe: Probe | un
  *    the page restores the step when the screen closes.
  * 3. **The walk, while the page says one is in progress.** This deliberately
  *    outranks {@link configured}, and `registering` is the concrete case:
- *    enroll settles `planeUrl` mid-flight, before the service act it precedes
+ *    enroll settles the node's address mid-flight, before the service act it precedes
  *    has finished, so a configured-wins rule would replace the checklist a
  *    person is watching with Status between two rows of it. A walk ends when
  *    the page clears the step, not when a side effect lands.

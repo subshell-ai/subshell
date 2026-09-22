@@ -10,6 +10,7 @@
  * usage error.
  */
 import type { Probe } from "@/lib/ipc";
+import { isOlder } from "@/lib/semver";
 
 /**
  * The first node CLI whose `service autostart on|off` can carry the switch's
@@ -33,13 +34,5 @@ export function autostartSupported(probe: Probe | undefined): boolean {
   return !isOlder(found, MIN_AUTOSTART_NODE_VERSION);
 }
 
-/** Numeric semver compare — `1.10.0` is newer than `1.9.0`, which a string compare denies. */
-function isOlder(a: string, b: string): boolean {
-  const parts = (v: string) => v.split(/[.-]/).map((n) => Number.parseInt(n, 10) || 0);
-  const [x, y] = [parts(a), parts(b)];
-  for (let i = 0; i < Math.max(x.length, y.length); i += 1) {
-    const d = (x[i] ?? 0) - (y[i] ?? 0);
-    if (d !== 0) return d < 0;
-  }
-  return false;
-}
+// The compare itself lives in `lib/semver.ts`, shared with the un-enroll gate
+// the same wave grew.

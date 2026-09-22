@@ -55,6 +55,7 @@ import { tmuxHint } from "@/lib/copy";
 import type { ActionResult, Probe, ProbeStep } from "@/lib/ipc";
 import { serviceAction } from "@/lib/node-assistant-state";
 import { isLoopback, PROBE_STEPS, paneRisk, stepLabel, stepTone } from "@/lib/steps";
+import { MIN_UNENROLL_NODE_VERSION, unenrollSupported } from "@/lib/unenroll-gate";
 
 /** A fact's value colour per tone — the badge palette, keyed by the step's own colour. */
 const TONE_BADGE: Record<string, "success" | "warning" | "destructive" | "muted"> = {
@@ -462,6 +463,30 @@ export function ServiceScreen(props: {
               </Button>
             </div>
           )}
+          {/* Un-enroll rides the same card because it closes the same
+              relationship: this machine stops being a node of this plane.
+              The danger styling is the whole of its emphasis — the chain's
+              honesty lives in the confirm it opens — and the gate keeps the
+              press away from a CLI that would half-run it: an agent below
+              0.15.0 stops the service, uninstalls the definition, and THEN
+              answers `unenroll` with a usage error, which is how a machine
+              ends up unmanaged but still enrolled. The card says so in the
+              plan's sentence. */}
+          <div className="mt-3 border-t border-border pt-3">
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={busy || !unenrollSupported(probe)}
+              onClick={() => commands.unenroll()}
+            >
+              Un-enroll…
+            </Button>
+            {!unenrollSupported(probe) && (
+              <p className="mt-2 text-detail text-muted-foreground">
+                Un-enrolling needs node version {MIN_UNENROLL_NODE_VERSION} or newer. Update the node first.
+              </p>
+            )}
+          </div>
         </div>
       )}
 

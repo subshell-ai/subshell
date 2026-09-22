@@ -261,7 +261,7 @@ pub fn node_reset(app: AppHandle, settings: State<'_, SettingsState>, typed: Str
 /// A tolerated phrase (the "already done" answers the chain treats as the step
 /// succeeding) still goes into the log — the human reads what the CLI said —
 /// but does not end the chain.
-fn push_step(log: &mut String, r: &ActionResult, tolerated: &[&str]) -> Option<String> {
+pub(crate) fn push_step(log: &mut String, r: &ActionResult, tolerated: &[&str]) -> Option<String> {
     log.push_str(&r.stdout);
     if r.ok {
         if !r.stderr.trim().is_empty() {

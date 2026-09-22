@@ -150,6 +150,15 @@ pub enum NodeCommand {
     /// reaches the plane outside the enroll body, so a rename here would move
     /// a local display string and leave the Nodes page unchanged.
     Configure { server: String },
+    /// `unenroll --yes --json` — stop being a node, from the node side.
+    ///
+    /// The flags are baked into the variant, not offered to the page, for
+    /// two separate reasons that both point one way: `--yes` because the
+    /// press has ALREADY been confirmed on screen (and what it accepts is
+    /// ORPHANING live panes, never killing them — nothing in this verb
+    /// signals anything), and `--json` because the caller reads the result
+    /// rather than screen-scraping the human line.
+    Unenroll,
 }
 
 impl NodeCommand {
@@ -203,6 +212,7 @@ impl NodeCommand {
                 // off a human line. The body omits the node key.
                 vec!["configure".into(), "--server".into(), server.clone(), "--json".into()]
             }
+            NodeCommand::Unenroll => vec!["unenroll".into(), "--yes".into(), "--json".into()],
         }
     }
 
@@ -211,7 +221,10 @@ impl NodeCommand {
     fn timeout(&self) -> Duration {
         match self {
             NodeCommand::Status | NodeCommand::ServiceStatus => QUERY_TIMEOUT,
-            NodeCommand::Service { .. } | NodeCommand::Enroll { .. } | NodeCommand::Configure { .. } => ACTION_TIMEOUT,
+            NodeCommand::Service { .. }
+            | NodeCommand::Enroll { .. }
+            | NodeCommand::Configure { .. }
+            | NodeCommand::Unenroll => ACTION_TIMEOUT,
         }
     }
 }
@@ -1190,6 +1203,56 @@ pub(crate) fn service_now(
 /// The URL is validated HERE, before anything spawns: the same
 /// [`validate_server_url`] the enroll form and the plane window use, so all
 /// three refuse the same strings with the same words.
+/// Stop being a node: stop, uninstall the definition, then delete the config.
+///
+/// The narrow sibling of [`crate::reset::node_reset`]. That one is the broad
+/// teardown — it closes every pane server, wipes the data directory and takes
+/// the config with it; this one leaves the work, the data and the installed
+/// binary exactly where they are and spends only the identity. The chain
+/// deliberately carries the reset's proven first two steps and none of its
+/// tmux half: a running subshell outliving its node is this product's design
+/// (the client's confirm says so, in the plan's words the CLI itself keeps),
+/// so un-enroll orphans panes rather than killing them.
+///
+/// Stop and uninstall run FIRST and tolerate "nothing installed", for the
+/// reset's own reason: a kept definition respawns a daemon against a deleted
+/// config, and a Retry after any later failure must not die on a step whose
+/// subject an earlier half-run already removed. Then the CLI's verb deletes
+/// `daemon.lock` before `config.json` (config LAST, the resumability rule it
+/// shares with the reset), and its refusal words — a live unsupervised
+/// daemon, running panes — reach the screen verbatim, `--yes` notwithstanding
+/// for the panes only.
+#[tauri::command(async)]
+pub fn node_unenroll(settings: State<'_, SettingsState>) -> ActionResult {
+    let mut log = String::new();
+    let stop = service_now(&settings, ServiceCommand::Stop, false, true);
+    if let Some(stderr) = crate::reset::push_step(&mut log, &stop, &["nothing installed"]) {
+        return ActionResult {
+            ok: false,
+            stdout: log,
+            stderr,
+        };
+    }
+    let un = service_now(&settings, ServiceCommand::Uninstall, false, true);
+    if let Some(stderr) = crate::reset::push_step(&mut log, &un, &["nothing installed"]) {
+        return ActionResult {
+            ok: false,
+            stdout: log,
+            stderr,
+        };
+    }
+    let node_binary = node_bin::resolve(settings.get().binary_path.as_deref());
+    let Some(out) = run_node(node_binary.as_ref(), &NodeCommand::Unenroll) else {
+        return ActionResult::refused(NO_NODE);
+    };
+    let out = ActionResult::from(out);
+    ActionResult {
+        ok: out.ok,
+        stdout: format!("{log}{}", out.stdout),
+        stderr: out.stderr,
+    }
+}
+
 #[tauri::command(async)]
 pub fn node_configure(settings: State<'_, SettingsState>, server: Option<String>) -> ActionResult {
     let server = match server.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
@@ -2373,6 +2436,14 @@ mod command_set_tests {
             ACTION_TIMEOUT
         );
         assert!(ACTION_TIMEOUT > Duration::from_secs(30));
+    }
+
+    #[test]
+    fn unenroll_spells_its_flags_and_takes_the_action_deadline() {
+        // The page cannot soften either refusal: `--yes` (accept orphaning,
+        // never kill) and `--json` are in the variant, not arguments.
+        assert_eq!(NodeCommand::Unenroll.args(), ["unenroll", "--yes", "--json"]);
+        assert_eq!(NodeCommand::Unenroll.timeout(), ACTION_TIMEOUT);
     }
 
     #[test]

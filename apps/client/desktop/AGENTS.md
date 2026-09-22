@@ -662,11 +662,16 @@ the `node` window alone:
   in flight, so someone who fixed the machine in a terminal is pressing that
   button to say "look again". A tmux found there returns without spawning, and
   the screen leaves by itself as it always did.
-- **`node_set_plane`** remembers a control plane WITHOUT opening its window.
+- **`node_plane_add`** remembers a control plane WITHOUT opening anything.
   It exists because `node_open_plane` does both, and the first run's connect
   step must do only the first — a dashboard that appears mid-setup is the
-  defect that whole flow removed. The dashboard opens from the status screen's
-  own button afterwards.
+  defect that whole flow removed. Its pair `node_plane_remove` Errs on a row
+  that is not stored (the page names only rows it renders; silence would
+  lie); both compute through pure `plane_list_*` helpers that canonicalize,
+  dedupe, and refuse the node's own address, because that address renders as
+  the pinned row and two rows for one plane is what the pinned row exists to
+  prevent. `node_set_plane` — the single-address ancestor — is GONE with the
+  plane-list ruling below.
 
 `node_service` also gained `autostart` beside `force`. It has two jobs and no
 others: on `install`, `false` spells `--no-autostart` — the flag that installs
@@ -860,6 +865,57 @@ reported." The switch's help states the CURRENT condition in every state it
 can speak — armed, disarmed, too-old — operator ruling 2026-09-22: the card
 says what is, the toggle says what flipping it changes.
 
+**Control Plane became a list, and the node's binding moved to Service** (the
+same day's plane-list wave, superseding everything above about the plane
+cards, the Dashboard card's two doors and where Re-enroll… lives: "the
+control plane section is for connecting to other control planes, not
+necessarily tied with the node"). The section is a BARE TABLE, not a card:
+the node's own address renders as a PINNED first row badged **this node**
+(`probe.status.serverUrl` — a probe fact Rust refuses to store as an entry),
+stored addresses below it. Pressing a row IS the dashboard door; the `⋯` opens
+a real ACTION MENU — Open in dashboard, Open in browser, Remove — positioned
+BY CLASS (`absolute right-0 top-full` in the row's own `relative` box), which
+the CSP permits even though it outlaws the style attributes a measuring popper
+writes; Escape and an outside press dismiss it, one is open at a time, and
+`ipc-acl`'s argument pins keep every plane command to the one argument: the
+address. The pinned row's menu holds the SAME two opens ("what about open in
+browser?" — to connect, it is a plane like any other); only its third slot
+differs, where a stored row says Remove it carries the note that sends a
+detaching person to Service. The add is the frame's bottom bar in the bar's
+own grammar: opener primary-right; open, the field sits at the foot of the
+table, Add takes the primary spot (it calls the form's save directly — the
+`form` attribute's submit does not fire in every engine, Enter goes through
+`onSubmit`), Cancel ghost-left. `plane-coherence.ts` was deleted with the
+two-address state it existed to detect — the pinned row IS the notice — and
+the Status subtitle now states the MACHINE ("This machine is a node of
+<url>." / "This machine is not a node."), because a watcher has many planes
+and none of them is current. `settings.plane_url` became `planes:
+Vec<String>` in `crates/desktop-core` with NO migration (there are no users;
+an old `planeUrl` key reads as nothing), and `node_set_plane`,
+`resolve_plane_url` and the boot-open ladder are deleted outright: spec
+2026-09-18 § 2 says a client never opens a plane by itself, and the ladder
+only ever fed a `debug_assert`. FTE Connect retargeted to `addPlane`.
+
+**Service's Enrolled to Control Plane card holds the node's binding acts**:
+the address, the enroll-time loopback notice that moved with it, **Re-enroll…**
+(free-form field seeded with the current address, pressing `node_configure` —
+identity kept, no setup key spent, restart applies it, the CLI's refusals
+verbatim with the field still editable), and **Un-enroll…**, the destructive
+half. Its confirm states the orphans ("Subshells that are still running keep
+running, but nothing will manage them." / "The control plane keeps its node
+row until its owner deletes it there."); accepting makes ONE `node_unenroll`
+call, whose chain is Rust's — stop, uninstall the definition (each tolerating
+"nothing installed" so a Retry converges), then the node CLI's new
+`unenroll --yes --json`. The order is the safety property: a kept definition
+respawns a daemon against a deleted config, so the definition goes first; the
+chain deliberately carries NO copy of the reset's tmux-kill half — panes
+outliving their node is this product's design, and the confirm is where that
+truth is read, not discovered. The card is gated on the verb existing
+(`lib/unenroll-gate.ts`, `MIN_UNENROLL_NODE_VERSION = "0.15.0"`, the
+autostart gate's twin over the shared `lib/semver.ts`): an older agent would
+have its service stopped, its definition uninstalled, and only THEN answer
+`unenroll` with a usage error — unmanaged and still enrolled.
+
 Three screen ids went with it, and their absence is the design.
 **`connected`**, **`service`** and **`install-agent`** were the probe-derived
 landings; their content is distributed across the rail now — the service
@@ -981,14 +1037,13 @@ by any of that:
   contradict it. That, the missing app-managed-child choice, and the switch
   gate naming 0.15.0 where the server's names its own floor, are the three
   honest places the two sections read differently, each on purpose.
-- **The plane's second door.** `node_open_plane_url` opens the settled control
-  plane in the SYSTEM browser — for what the in-app window is wrong for (a
-  different profile, a share, passkeys). The page passes NO URL: the command
-  re-reads the same ladder `node_open_plane` points a window at. On the Connect
-  screen it therefore has to PERSIST the typed address first and open the
-  browser once that lands, because an address never saved cannot be re-read —
-  and the action runner drops a concurrent submission, so the two cannot be
-  fired together.
+- **The plane's second door.** `node_open_plane_url` opens a row in the
+  SYSTEM browser — for what the in-app window is wrong for (a different
+  profile, a share, passkeys). Since the plane-list ruling both opens take
+  `url: String` from the page (the signature pin in `ipc-acl.test.ts` covers
+  all four plane commands) and persist NOTHING: the row the person pressed
+  names the address, and the persist-then-open ordering the old ladder
+  required died with it.
 - **tmux is a gate, not a caption.** Enroll and the service verbs that START
   things (Install, Start, Restart) are disabled while the probe cannot find
   tmux — `enroll` refuses CLI-side and a tmux-less node comes up online with

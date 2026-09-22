@@ -161,6 +161,7 @@ pub fn run() {
             control::node_install_tmux,
             control::node_enroll,
             control::node_configure,
+            control::node_unenroll,
             control::node_service,
             control::node_about,
             control::node_open_web,

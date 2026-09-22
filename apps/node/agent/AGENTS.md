@@ -134,6 +134,18 @@ subshell configure --server <url> [--json]
                                    # it configured the npm mirror the old `subshell plugin
                                    # install` verbs fetched from, and those verbs (and the
                                    # whole node-side plugin concept) are GONE — see below.
+subshell unenroll [--yes] [--json] # stop being a node: deletes daemon.lock THEN
+                                     # config.json (the node key's only home — config
+                                     # LAST, the reset chain's resumability rule), and
+                                     # NOTHING else. Refuses a live daemon and live
+                                     # subshells (listed `name · id · cwd`; the
+                                     # `maintenance on` census protocol — fail-closed
+                                     # on an unanswerable tmux, text even under
+                                     # `--json`, exit 1 is the contract) unless --yes,
+                                     # which accepts ORPHANING: nothing in this verb
+                                     # signals anything. Data dir, binary and service
+                                     # definition stay, and the plane's node row stays
+                                     # until its owner deletes it there.
 subshell run                       # foreground daemon (what the service unit runs)
                                      # NOTE: there is no `subshell plugin` command anymore
                                      # (inversion spec 2026-09-10 §6, Task 7). The node
@@ -316,8 +328,13 @@ Three more things about it are deliberate:
   its setup and failing its assertion, with nothing naming the cause.
 
 `service install` refuses without an enrolled config; `service uninstall`
-deliberately does NOT (a deleted config is the de-facto unenroll — an enabled
-unit must stay removable). Linux: `~/.config/systemd/user/subshell.service`
+deliberately does NOT (an enabled unit must stay removable whatever config
+sits beside it). Until 2026-09-22 the deleted config WAS the unenroll in
+practice — a comment, not a verb — and `subshell unenroll` is that comment
+made executable: the same two files, `daemon.lock` then `config.json`, with
+the refusal protocol `maintenance on` established and nothing else touched.
+`service uninstall` keeps its unconditional door regardless; the verb that
+removes a unit must never itself require one. Linux: `~/.config/systemd/user/subshell.service`
 (`Restart=always`) + `systemctl --user enable --now`; success prints the
 `loginctl enable-linger $USER` hint UNLESS this user already lingers (see
 below). macOS: `~/Library/LaunchAgents/dev.subshell.client.plist` (KeepAlive,

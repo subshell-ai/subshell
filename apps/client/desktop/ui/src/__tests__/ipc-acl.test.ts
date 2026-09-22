@@ -323,6 +323,17 @@ describe("the invocations that must stay unreachable", () => {
   // or drops, and Rust trusts the page no further than that name. There is
   // no argument-less "open the current one" left to grow a default plane
   // from, because nothing is current.
+  // The un-enroll chain takes NOTHING from the page: not a path, not a
+  // flag, not a "--keep-data" knob. The order is Rust's, the refusal words
+  // are the CLI's, and the consent is the dialog's.
+  it("keeps un-enroll a page-blind chain", () => {
+    const rust = readFileSync(join(TAURI_DIR, "src/control.rs"), "utf8");
+    const signature = rust.slice(rust.indexOf("pub fn node_unenroll("));
+    expect(signature.startsWith("pub fn node_unenroll("), "node_unenroll vanished from control.rs").toBe(true);
+    const params = signature.slice(signature.indexOf("(") + 1, signature.indexOf(")"));
+    expect(params.trim()).toBe("settings: State<'_, SettingsState>");
+  });
+
   it("keeps the four plane commands to one argument: the address", () => {
     const rust = readFileSync(join(TAURI_DIR, "src/control.rs"), "utf8");
     for (const fn of ["node_open_plane", "node_open_plane_url", "node_plane_add", "node_plane_remove"]) {
