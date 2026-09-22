@@ -196,16 +196,20 @@ export function App() {
   const screen = clientScreen({ probe, settings, step, override });
 
   /**
-   * The screen the last SETTLED action was on — the output block travels
-   * with the screen that owns the action (operator ruling 2026-09-22), so
-   * the reset screen never renders the Dashboard card's open line and
-   * Status never inherits the Update screen's install log. Tagged when an
-   * action SETTLES (busy falls), with the screen current at that moment: a
-   * person who navigates mid-action reads the answer where they then are,
-   * which is the useful half of a long install's words. The Update
-   * screen's own watch-verdict reads the raw runner output, which is why
-   * this gates the RENDER rather than the record.
+   * The screen this render shows — the ref the PRESS reads.
+   *
+   * The output block travels with the screen that owns the action (operator
+   * ruling 2026-09-22), and the tag is taken from this ref at the moment the
+   * press fires (`useActionRunner`'s `onRun`), never when the action settles:
+   * `use-action-runner.ts` explains why a busy-fall watch cannot do it — a
+   * mutation that settles within one batch never renders `busy` true, so the
+   * fast action that most needs a tag is never seen busy. What press-time
+   * tagging needs is the CURRENT screen outside the render cycle, which is
+   * what this ref carries; the one place the press beats the effect that
+   * maintains it is {@link runRegister}, which claims the progress shell
+   * synchronously because the walk's screen change is still queued.
    */
+
   useEffect(() => {
     screenRef.current = screen;
   }, [screen]);
@@ -440,7 +444,11 @@ export function App() {
     case "connect":
       return <ConnectScreen shell={shell} commands={commands} busy={runner.busy} />;
     case "status":
-      return <StatusScreen rail={rail} shell={shell} {...facts} busy={runner.busy} />;
+      // No spread, and no `output`/`busy`: this screen offers no act
+      // (operator ruling 2026-09-22), so it neither renders an action's
+      // words nor disables anything an action would disable. Facts only.
+      return <StatusScreen rail={rail} shell={shell} probe={probe} settings={settings} enrolledNode={enrolledNode} />;
+
     case "service":
       return (
         <ServiceScreen

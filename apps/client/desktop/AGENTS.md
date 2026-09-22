@@ -696,8 +696,8 @@ decides anything. There is ONE router, deliberately: two functions answering
 **The rail is for the standing screens, and only for a settled machine**
 (wave 3 and its follow-ups; the same rulings the server wave carried —
 operator, 2026-09-22). `railFor(screen, settled)` in `lib/client-flow.ts` is
-the rule as data: the six sections — **Status**, **Service**, **Control
-Plane**, **Update**, **About**, **Reset** (destructive, styled in the
+the rule as data: the six sections — **Control Plane**, **Status**,
+**Service**, **Update**, **About**, **Reset** (destructive, styled in the
 destructive token) — appear only when the machine is settled (`configured()`
 and no `FteStep` in progress) and the screen is one of the standing kinds,
 and they answer `null` for every step of the FTE walk, for the focused act
@@ -760,7 +760,8 @@ that owns the action, and the config fact's value is PLAIN LANGUAGE —
 "Not enrolled. Go to Service to enroll." for the enroll-pointing reason,
 "The node's configuration could not be read." for any other — the raw CLI
 words render only as an action's failure output. Unregister is not a link on the status
-screen — the rail's Reset section is that door. There is no Refresh button
+screen — the rail's Reset section is its ONLY entry (one act, one door, one
+label). There is no Refresh button
 anywhere: the probe query re-reads the machine on its own five-second interval
 (operator ruling, 2026-09-22) — the poll is the refresh.
 

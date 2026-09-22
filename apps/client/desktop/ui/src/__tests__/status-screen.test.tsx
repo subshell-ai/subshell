@@ -85,9 +85,7 @@ function watcherProbe(overrides: Partial<Probe> = {}): Probe {
   });
 }
 
-function mount(
-  init: { probe?: Probe; settings?: NodeSettings; enrolledNode?: EnrolledNodeBody | null; busy?: boolean } = {},
-) {
+function mount(init: { probe?: Probe; settings?: NodeSettings; enrolledNode?: EnrolledNodeBody | null } = {}) {
   const calls: Call[] = [];
   const pressed: string[] = [];
   renderApp(
@@ -96,8 +94,6 @@ function mount(
       probe={init.probe ?? makeProbe()}
       settings={init.settings ?? makeSettings()}
       enrolledNode={init.enrolledNode ?? null}
-      output={null}
-      busy={init.busy ?? false}
     />,
   );
   return { calls, pressed };
@@ -134,6 +130,19 @@ describe("an enrolled, online machine", () => {
   it("offers no service action", () => {
     mount();
     expect(maybeButton(/^(start|restart|install and start)$/i)).toBeNull();
+  });
+
+  // The ONE-Entry ruling stated as its own pin (operator ruling 2026-09-22,
+  // fix wave): the rail's Reset section is Unregister's only entry, and
+  // "only" is testable here — not just no button or link NAMED Unregister,
+  // but no button at all, since any button on this screen would be an act
+  // the screen is not allowed to offer.
+  it("offers no second Unregister entry, and no button at all", () => {
+    mount();
+    expect(screen.queryByRole("button", { name: /unregister/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /unregister/i })).toBeNull();
+    expect(screen.queryByText(/unregister/i)).toBeNull();
+    expect(screen.queryAllByRole("button")).toEqual([]);
   });
 });
 

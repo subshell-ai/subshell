@@ -39,7 +39,7 @@ import type { ReactElement } from "react";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { StatusFacts } from "@/components/assistant/status-facts";
 import { Badge } from "@/components/ui/badge";
-import type { ActionResult, EnrolledNodeBody, NodeSettings, Probe } from "@/lib/ipc";
+import type { EnrolledNodeBody, NodeSettings, Probe } from "@/lib/ipc";
 import { stepLabel, stepTone } from "@/lib/steps";
 
 /** A fact's value colour per tone — the badge palette, keyed by the step's own colour. */
@@ -56,9 +56,8 @@ export function StatusScreen(props: {
   shell: FrameShell;
   probe: Probe | undefined;
   settings: NodeSettings | undefined;
+  /** The name this session enrolled under, the one fact the probe does not carry. */
   enrolledNode: EnrolledNodeBody | null;
-  output: ActionResult | null;
-  busy: boolean;
 }) {
   const { shell, probe, settings, enrolledNode } = props;
 

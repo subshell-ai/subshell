@@ -269,9 +269,13 @@ function actState(at: { index: number; running: number; failedAt: number; satisf
  * The rail's standing sections, in display order (wave 3; the server's
  * {@link railFor} carries the same rule with its own five). Reset is the
  * destructive one, marked for the Rail's danger styling — the DOOR in the
- * rail, while the reset SCREEN stays frame-replacing (operator ruling
- * 2026-09-22), for the same reason the server's does: its "only thing
- * happening" premise leaves no way out from under the chain.
+ * rail, whose CONFIRMATION rides the rail (operator ruling 2026-09-22,
+ * final word on the layout). FRAME-REPLACING is the RUNNING chain now:
+ * from the confirm press to its end the rail hides and no exit renders,
+ * off the runner's busy — which is where the "only thing happening"
+ * premise, no way out from under the chain, actually lives. The press
+ * itself stays visible and labeled (reset-screen.tsx), the same busy
+ * affordance the server's room carries.
  */
 export const CLIENT_RAIL_SECTIONS: RailSection[] = [
   // Control Plane reads FIRST (operator ruling 2026-09-22, second addendum):
