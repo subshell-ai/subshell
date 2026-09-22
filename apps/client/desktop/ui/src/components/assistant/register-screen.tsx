@@ -147,7 +147,9 @@ export function RegisterScreen(props: {
          */}
         <EnrollFields form={form} busy={busy} />
       </form>
-      <div className="mt-6">
+      {/* The same 360px column as the fields above: an explanation of a form
+          left-aligned OUTSIDE that form reads as a stray line, not as help. */}
+      <div className="mx-auto mt-6 w-[360px]">
         <p className="text-muted-foreground text-detail leading-relaxed">{KEY_IS_SPENT}</p>
         {hint && <p className="mt-3 text-detail text-warning">{hint}</p>}
       </div>
