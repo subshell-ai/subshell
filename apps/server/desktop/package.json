@@ -20,8 +20,6 @@
     "compile:release": "bun run src/scripts/release.ts"
   },
   "dependencies": {
-    "@internal/assistant": "workspace:*",
-    "@internal/subshell-protocol": "workspace:*",
     "@base-ui/react": "1.7.0",
     "@internal/assistant": "workspace:*",
     "@internal/subshell-protocol": "workspace:*",

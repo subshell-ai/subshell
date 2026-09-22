@@ -19,6 +19,7 @@
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { Host } from "../host";
 import { deferred, type FakeIpc, installFakeIpc, makeProbe } from "./harness";
 
@@ -184,5 +185,87 @@ describe("the host's reset chain", () => {
     const log = document.querySelector("pre.pane-pre.mt-3") as HTMLPreElement;
     expect(log.textContent).toBe("launchctl bootout exited 5");
     expect(log.className).toContain("output-bad");
+  });
+});
+
+/**
+ * StrictMode double-fires every mount effect in dev, and the host has two
+ * arms that ACT on the page's behalf rather than only draw: the setup chain's
+ * auto-fire and the update act's phase-2 auto-resume. The state latch each
+ * sets is written asynchronously, so the second invocation would pass the
+ * same guard and start a second act — the host latches them synchronously,
+ * and these two tests are that latch's regression pins. They mount the WHOLE
+ * page under StrictMode (the app entry does) and count the CLI command each
+ * chain runs.
+ */
+describe("the acting arms under StrictMode", () => {
+  it("resumes the update act ONCE across the double effect", async () => {
+    // A machine booted mid-update: the marker says phase 1 ran and the
+    // consent was given, so the screen's presence alone resumes phase 2.
+    fake = installFakeIpc({
+      probe: makeProbe({
+        next: "ready",
+        onboarded: true,
+        pendingInstall: { fromAppVersion: "0.12.0", forced: true, halted: false },
+      }),
+      handlers: {
+        desktop_pending_screen: () => "update",
+        desktop_install_server: () => ({ ok: true, stdout: "", stderr: "" }),
+        desktop_service: () => ({ ok: true, stdout: "", stderr: "" }),
+      },
+    });
+    render(
+      <StrictMode>
+        <Host />
+      </StrictMode>,
+    );
+    await waitFor(() => expect(fake?.callsTo("desktop_install_server")).toHaveLength(1));
+    // The second invocation sees `resumeFired` still clear (the state write is
+    // async), so only the synchronous ref latch stands between it and a
+    // second install.
+    await new Promise((r) => setTimeout(r, 100));
+    expect(fake?.callsTo("desktop_install_server")).toHaveLength(1);
+  });
+
+  it("auto-fires the setup chain ONCE when the port answer is already cached", async () => {
+    // The cached-answer shape is the one that double-fires: the fire effect's
+    // mount double-run both see a port answer in hand. To cache one BEFORE
+    // the setup screen mounts, the ask is held in flight while the journey
+    // corrects setup away (tmux disappears), and it lands while nobody is on
+    // the screen — the page's cached answer, nobody to act on it. Three
+    // probe corrections ride the poll's own 1500 ms.
+    const port = deferred<{ inUse: boolean }>();
+    fake = installFakeIpc({
+      probe: makeProbe({ onboarded: false, next: "setup", tmux: null }),
+      handlers: {
+        desktop_pending_screen: () => null,
+        desktop_port_in_use: () => port.promise,
+        desktop_setup: () => ({ ok: true, stdout: "", stderr: "" }),
+      },
+    });
+    render(
+      <StrictMode>
+        <Host />
+      </StrictMode>,
+    );
+    await waitFor(() => expect(routeOf()).toBe("welcome"));
+    screen.getByRole("button", { name: "Continue" }).click();
+    await waitFor(() => expect(routeOf()).toBe("tmux"));
+    // The tmux gate lifts: the correction lands the journey on setup, whose
+    // first render asks about the port — and the answer is held.
+    fake?.setProbe(makeProbe({ onboarded: false, next: "setup", tmux: "/opt/homebrew/bin/tmux" }));
+    await waitFor(() => expect(routeOf()).toBe("setup"), { timeout: 5000 });
+    // The tmux gate drops again: setup leaves with its ask still in flight.
+    fake?.setProbe(makeProbe({ onboarded: false, next: "setup", tmux: null }));
+    await waitFor(() => expect(routeOf()).toBe("tmux"), { timeout: 5000 });
+    // The answer lands, cached free, with the screen gone. Then the gate
+    // lifts for good: setup remounts ONTO the cached answer, and the fire
+    // effect's mount double-run both see it.
+    port.resolve({ inUse: false });
+    fake?.setProbe(makeProbe({ onboarded: false, next: "setup", tmux: "/opt/homebrew/bin/tmux" }));
+    await waitFor(() => expect(routeOf()).toBe("setup"), { timeout: 5000 });
+    await waitFor(() => expect(fake?.callsTo("desktop_setup")).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(fake?.callsTo("desktop_setup")).toHaveLength(1);
   });
 });

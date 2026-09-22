@@ -234,6 +234,17 @@ export function Host(): React.JSX.Element {
   const installStartedAtRef = useRef(0);
   installStartedAtRef.current = installStartedAt;
   /**
+   * StrictMode double-fires the mount effects in dev, and the two arms below
+   * ACT rather than only draw: the setup chain's auto-fire and the update
+   * act's phase-2 auto-resume both start a run on the page's behalf. The
+   * state latch each arm also sets (`autoFired`, `resumeFired`) is written
+   * asynchronously, so the second invocation sees it still clear and would
+   * start a second act — these refs are the synchronous half, set BEFORE the
+   * call, cleared exactly where the state latch is cleared.
+   */
+  const autoFireLatchRef = useRef(false);
+  const resumeLatchRef = useRef(false);
+  /**
    * Whether the failed install's output disclosure is expanded, and how far
    * down it the reader has scrolled.
    *
@@ -483,6 +494,7 @@ export function Host(): React.JSX.Element {
    */
   const rearmFirstRun = useCallback((): void => {
     setAutoFired(false);
+    autoFireLatchRef.current = false;
     setFailure(null);
   }, []);
 
@@ -634,6 +646,7 @@ export function Host(): React.JSX.Element {
       // because the button hangs off the result this would otherwise have kept.
       setUpdateResult(null);
       setResumeFired(false);
+      resumeLatchRef.current = false;
       // The ticks belong to one visit too: a selection made against the machine
       // as it was is not an answer about the machine as it is now.
       setUpdateSelection(NO_SELECTION);
@@ -1229,6 +1242,11 @@ export function Host(): React.JSX.Element {
             failure={failure}
             autoFired={autoFired}
             onAutoFire={() => {
+              // The synchronous half of `autoFired`: the state write below is
+              // async, and StrictMode's second effect invocation would pass
+              // the same guard again.
+              if (autoFireLatchRef.current) return;
+              autoFireLatchRef.current = true;
               setAutoFired(true);
               void startSetup();
             }}
@@ -1321,7 +1339,11 @@ export function Host(): React.JSX.Element {
             onResume={(forced) => {
               // The second half of a press already made, carrying the consent
               // the marker recorded. Once per visit; `applyScreen` clears the
-              // latch when the screen is left.
+              // latch when the screen is left. The ref is the synchronous
+              // half: `resumeFired` is written async, and StrictMode's second
+              // effect invocation would pass the same guard again.
+              if (resumeLatchRef.current) return;
+              resumeLatchRef.current = true;
               setResumeFired(true);
               void finishUpdate(forced);
             }}

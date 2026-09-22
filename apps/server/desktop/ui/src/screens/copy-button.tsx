@@ -51,7 +51,7 @@ import { FLASH_MS, type FlashState } from "../lib/copy-flash";
 export function CopyButton(props: {
   /** The text to copy, read when the button is pressed. */
   getText: () => string;
-  /** This button's flash slot, stable across renders and distinct per button. */
+  /** Vestigial API, kept so call sites read the same; the flash is component state. */
   copyKey: string;
   /** What is being copied, for the accessible name. */
   label?: string;
