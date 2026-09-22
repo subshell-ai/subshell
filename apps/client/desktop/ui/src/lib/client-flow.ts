@@ -294,9 +294,10 @@ export const CLIENT_RAIL_SECTIONS: RailSection[] = [
  * operator's 2026-09-22 rulings): the rail appears when the machine is
  * settled — configured, no first-run walk in progress — and the screen is
  * one of the standing kinds. Everything else answers null: every step of
- * the FTE walk, the two focused acts (reset, whose screen is
- * frame-replacing, and re-enroll, which is the same kind of moment), and
- * the not-read state.
+ * the FTE walk, the focused acts (re-enroll, and the not-read state).
+ * Reset's CONFIRMATION is a standing render since the 2026-09-22 ruling —
+ * the sidebar stays; the frame-replacing premise moved to the running
+ * chain, which reset-screen.tsx enforces off the runner's busy.
  *
  * `settled` is the part the screen cannot see: the tray can raise About
  * MID-WALK and the router honours it, and wave 2's ruling keeps the render
@@ -315,6 +316,12 @@ export function railFor(screen: NodeScreenId | null, settled: boolean): RailSect
     case "plane":
     case "update":
     case "about":
+    // The reset CONFIRMATION rides the rail now (operator ruling 2026-09-22,
+    // final word on the layout): the sidebar stays, reset active and
+    // danger-styled. The frame-replacing premise moves to the CHAIN — while
+    // the reset runs, the rail and bar hide and the screen goes full-window
+    // again (reset-screen.tsx owns that flip off the runner's busy).
+    case "reset":
       return CLIENT_RAIL_SECTIONS;
     default:
       return null;
@@ -324,6 +331,8 @@ export function railFor(screen: NodeScreenId | null, settled: boolean): RailSect
 /** The rail section THIS standing screen has active, or null when there is no rail. */
 export function railActive(screen: NodeScreenId | null): string | null {
   switch (screen) {
+    case "reset":
+      return "reset";
     case "status":
       return "status";
     case "service":

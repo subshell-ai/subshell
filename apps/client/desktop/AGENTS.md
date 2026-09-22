@@ -700,14 +700,19 @@ the rule as data: the six sections — **Status**, **Service**, **Control
 Plane**, **Update**, **About**, **Reset** (destructive, styled in the
 destructive token) — appear only when the machine is settled (`configured()`
 and no `FteStep` in progress) and the screen is one of the standing kinds,
-and they answer `null` for every step of the FTE walk, for the two focused
-acts (reset, whose screen is frame-replacing, and re-enroll, the same kind
-of moment), for the not-read state — and for any standing screen while the
-machine is NOT settled, because the exclusion is about the machine's
-journey, not about who asked: the tray can raise About mid-walk, and that
-render keeps its Back. A select is the navigation: Status clears the
-override, Service and Control Plane and Update and About set theirs, Reset
-opens the frame-replacing room; and where the rail is up, the standing
+and they answer `null` for every step of the FTE walk, for the focused act
+(re-enroll, the same kind of moment) and for the not-read state — and for
+any standing screen while the machine is NOT settled, because the exclusion
+is about the machine's journey, not about who asked: the tray can raise
+About mid-walk, and that render keeps its Back. A select is the navigation:
+every select sets its override now (see the landing ruling below). Reset's
+CONFIRMATION rides the rail (operator ruling 2026-09-22, final word on the
+reset layout, superseding the frame-replacing premise for the confirmation:
+the sidebar was being lost today and that is not wanted) — the room is the
+RUNNING chain: from the confirm press to the chain's end, reset-screen.tsx
+hides the rail and both bar buttons off the runner's busy, and no navigation
+sits beside a chain that is deleting this machine's node; and where the rail
+is up, the standing
 screens' own leave buttons (About's and Update's Back) render only where the
 rail does not. The tray's `desktop-screen` events select their section by
 the same override state — no new command.

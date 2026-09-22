@@ -234,7 +234,11 @@ describe("railFor", () => {
     expect(railFor("status", true)?.find((s) => s.id === "reset")?.danger).toBe(true);
   });
 
-  it("answers null for every FTE walk screen, reset, enroll and the unread state", () => {
+  it("answers null for every FTE walk screen, enroll and the unread state", () => {
+    // Reset LEFT this list (operator ruling 2026-09-22, final word on the
+    // layout): its confirmation rides the rail, reset active; the
+    // frame-replacing room is the RUNNING chain, which reset-screen.tsx
+    // enforces off the runner's busy, not a railFor case.
     for (const screen of [
       "welcome",
       "choice",
@@ -244,11 +248,16 @@ describe("railFor", () => {
       "progress",
       "connect",
       "enroll",
-      "reset",
     ] as const) {
       expect(railFor(screen, true), screen).toBeNull();
     }
     expect(railFor(null, true)).toBeNull();
+  });
+
+  it("gives the reset confirmation the six sections, reset active", () => {
+    const sections = railFor("reset", true);
+    expect(sections?.map((s) => s.id)).toEqual(["plane", "status", "service", "update", "about", "reset"]);
+    expect(sections?.find((s) => s.id === "reset")?.danger).toBe(true);
   });
 
   it("answers null for a standing screen on a machine mid-first-run", () => {
@@ -266,8 +275,9 @@ describe("railFor", () => {
     expect(railActive("plane")).toBe("plane");
     expect(railActive("update")).toBe("update");
     expect(railActive("about")).toBe("about");
-    // A screen that gets no rail gets no active state either.
-    expect(railActive("reset")).toBeNull();
+    // Reset rides the rail now (operator ruling 2026-09-22): its
+    // confirmation is a standing render, reset active.
+    expect(railActive("reset")).toBe("reset");
     expect(railActive("welcome")).toBeNull();
     expect(railActive(null)).toBeNull();
   });

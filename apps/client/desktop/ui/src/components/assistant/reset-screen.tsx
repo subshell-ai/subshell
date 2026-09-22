@@ -18,6 +18,7 @@
  * last moment anyone reads them.
  */
 import { TriangleAlert } from "lucide-react";
+import type { ReactElement } from "react";
 import { useEffect, useState } from "react";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { StatusFacts } from "@/components/assistant/status-facts";
@@ -46,6 +47,12 @@ const DISCLOSURES: readonly string[] = [
 
 export function ResetScreen(props: {
   shell: FrameShell;
+  /**
+   * The rail node, present on the CONFIRMATION (operator ruling 2026-09-22,
+   * final word on the layout: the sidebar stays) and WITHHELD while the
+   * chain runs — the room is the running chain's, no navigation beside it.
+   */
+  rail?: ReactElement;
   probe: Probe | undefined;
   settings: NodeSettings | undefined;
   enrolledNode: EnrolledNodeBody | null;
@@ -85,17 +92,25 @@ export function ResetScreen(props: {
   const reportsTo = probe?.status?.serverUrl ?? null;
   const paths = [probe?.paths?.dataDir, probe?.paths?.configFile].filter((p): p is string => Boolean(p));
 
+  // The chain is the runner action: from the confirm press to its end the
+  // screen is the room — the rail and both bar buttons hide, because no
+  // navigation belongs beside a chain that is deleting this machine's node.
+  const running = busy;
+
   return (
     <Frame
       {...shell}
+      rail={running ? undefined : props.rail}
       icon={<TriangleAlert />}
       barLeft={
-        <Button variant="ghost" disabled={busy} onClick={onCancel}>
-          Cancel
-        </Button>
+        running ? undefined : (
+          <Button variant="ghost" disabled={busy} onClick={onCancel}>
+            Cancel
+          </Button>
+        )
       }
       barRight={
-        armed === true ? (
+        running || armed !== true ? undefined : (
           <Button
             className="min-w-[120px]"
             variant="destructive"
@@ -107,7 +122,7 @@ export function ResetScreen(props: {
           >
             Reset Everything
           </Button>
-        ) : undefined
+        )
       }
     >
       {armed === false ? (

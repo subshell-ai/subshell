@@ -2034,12 +2034,15 @@ describe("the rail", () => {
     await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Subshell Client"));
   });
 
-  it("carries the Reset door, and its room stays frame-replacing", async () => {
+  it("carries the Reset door, and the confirmation rides the rail", async () => {
+    // Operator ruling 2026-09-22, final word on the reset layout: the
+    // sidebar STAYS on the confirmation (it was being lost today), reset
+    // active; the room is the RUNNING chain, pinned in reset-screen.test.
     await boot();
     await waitFor(() => expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy());
     fireEvent.click(button("Reset"));
     await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Reset this client"));
-    // No navigation in the room: the screen replaces the frame.
-    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reset" }).getAttribute("aria-current")).toBe("true");
   });
 });

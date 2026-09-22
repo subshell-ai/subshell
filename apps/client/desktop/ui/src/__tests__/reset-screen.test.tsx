@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { App } from "@/app";
-import { type FakeIpc, installFakeIpc, makeProbe, renderApp } from "./harness";
+import { deferred, type FakeIpc, installFakeIpc, makeProbe, renderApp } from "./harness";
 
 // Unmount after each test. Testing Library appends every `render` to
 // `document.body`, and there is ONE document per bun test process — so a file
@@ -34,8 +34,10 @@ afterEach(() => {
  * The door moved twice: the status screen's "Unregister this machine…" link
  * was the rail's Reset section's stand-in, and since wave 3's follow-ups
  * (operator ruling 2026-09-22) the sidebar's destructive item IS the door —
- * the select is the paired screen-set-and-open, and the room it opens stays
- * frame-replacing. The screen, and every property below, are unchanged.
+ * the select is the paired screen-set-and-open. Since the LAYOUT ruling the
+ * same day (final word), the CONFIRMATION rides the rail (reset active);
+ * the frame-replacing room is the RUNNING chain, pinned below off the
+ * runner's busy. The screen's own properties are unchanged.
  */
 async function openReset(init: Parameters<typeof installFakeIpc>[0] = {}) {
   ipc = installFakeIpc(init);
@@ -101,6 +103,28 @@ describe("the reset screen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Reset Everything" }));
     await waitFor(() => expect(screen.getByText("the hostname did not match this machine")).toBeTruthy());
     expect(fake.callsTo("node_reset")).toEqual([{ typed: "not-devbox" }]);
+  });
+
+  // The two-state layout pin (operator ruling 2026-09-22, final word):
+  // the confirmation rides the rail; the RUNNING chain is the room.
+  it("hides the rail while the chain runs, and gives it back when it ends", async () => {
+    const gate = deferred<{ ok: boolean; stdout: string; stderr: string }>();
+    const fake = await openReset({
+      handlers: {
+        node_arm_reset: () => true,
+        node_reset: () => gate.promise,
+      },
+    });
+    await waitFor(() => expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Reset" }).getAttribute("aria-current")).toBe("true");
+    fireEvent.change(screen.getByLabelText(/Type/), { target: { value: "devbox" } });
+    fireEvent.click(screen.getByRole("button", { name: "Reset Everything" }));
+    // The room: no navigation beside a chain that is deleting this node.
+    await waitFor(() => expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull());
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    gate.resolve({ ok: true, stdout: "reset complete", stderr: "" });
+    await waitFor(() => expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy());
+    expect(fake.callsTo("node_reset")).toEqual([{ typed: "devbox" }]);
   });
 
   // Nothing staged means nothing to run, so there is no button to press —
