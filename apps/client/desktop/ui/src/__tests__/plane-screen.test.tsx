@@ -100,15 +100,20 @@ describe("the two control-plane addresses", () => {
 
 /** The ruling deleted the status screen's "This app opens <url>" narration; the value is shown labeled. */
 describe("the address, as the ruling shows it", () => {
-  it("shows the configured address labeled, with the two doors beside it", () => {
+  it("shows the configured address labeled, with the acts grouped on their own row", () => {
+    // Screenshot 53 (operator ruling 2026-09-22): the one-line value with its
+    // buttons beside it wrapped the URL character-broken and crowded it, so
+    // the layout is the addresses-card shape — labeled value row, acts row
+    // below — and no narration.
     const { calls } = mount();
-    // The address appears twice — the app's own and the node's — so the
-    // assertion is on EXISTENCE, and the ruling's pin is the narration's
-    // absence.
+    expect(screen.getByText(/this app's control plane/i)).toBeTruthy();
     expect(screen.getAllByText("https://subshell.example.com").length).toBeGreaterThan(0);
     expect(screen.queryByText(/this app opens/i)).toBeNull();
-    fireEvent.click(button(/open in browser instead/i));
+    // The two doors for the plane itself, both on the acts row.
+    fireEvent.click(button("Open in browser"));
     expect(calls).toEqual([{ name: "openPlaneUrl", args: [] }]);
+    fireEvent.click(button("Open the control plane"));
+    expect(calls[1]).toEqual({ name: "openPlane", args: [null] });
     expect(button(/change server…/i)).toBeTruthy();
   });
 });

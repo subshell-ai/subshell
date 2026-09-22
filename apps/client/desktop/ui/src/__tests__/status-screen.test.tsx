@@ -110,26 +110,28 @@ const maybeButton = (name: string | RegExp) => screen.queryByRole("button", { na
 const buttonOrNull_ = maybeButton;
 
 describe("an enrolled, online machine", () => {
-  it("offers the dashboard, and nothing about registering or unregistering", () => {
-    // Unregister is NOT a link on this screen any more (operator ruling
-    // 2026-09-22): the rail's Reset section is that door — destructive-
-    // styled, pinned at the app level — and one act with two labels is two
-    // acts to a reader.
+  it("offers the browser ghost, and nothing about registering or unregistering", () => {
+    // The door rearrangement (operator ruling 2026-09-22): "Open Dashboard"
+    // left the bar — the in-app window door is the Control Plane section's —
+    // and this screen's only door is the system browser. Unregister is NOT a
+    // link here either: the rail's Reset section is that door, and one act
+    // with two labels is two acts to a reader.
     mount();
-    expect(button(/open dashboard/i)).toBeTruthy();
+    expect(maybeButton(/open dashboard/i)).toBeNull();
+    expect(button(/open in browser/i)).toBeTruthy();
     expect(maybeButton(/unregister this machine/i)).toBeNull();
     expect(maybeButton(/^register this machine$/i)).toBeNull();
   });
 
   /**
-   * `null` is the whole contract: the Rust side re-reads its own address
-   * ladder, so the button opens what this app is configured for rather than
-   * whatever string the page happened to be holding.
+   * The browser door takes no URL argument: `node_open_plane_url` re-reads
+   * Rust's own address ladder, so the ghost opens what this app is configured
+   * for rather than whatever string the page happened to be holding.
    */
-  it("opens the plane with no URL of its own", () => {
+  it("opens the browser on the settled plane, with no URL of its own", () => {
     const { calls } = mount();
-    fireEvent.click(button(/open dashboard/i));
-    expect(calls).toEqual([{ name: "openPlane", args: [null] }]);
+    fireEvent.click(button(/open in browser/i));
+    expect(calls).toEqual([{ name: "openPlaneUrl", args: [] }]);
   });
 
   /** The node's name is a fact only when THIS session chose it (probe-facts.ts). */
@@ -145,9 +147,9 @@ describe("an enrolled, online machine", () => {
   });
 });
 
-describe("the address the primary button will open", () => {
+describe("the address the doors will open", () => {
   /**
-   * The button says only "Open Dashboard", so which server that is has to be
+   * The doors say only "Open in browser", so which server that is has to be
    * on the face of the screen — and it is, in the SUBTITLE, in both branches.
    * The screen used to repeat it in a "Dashboard <url>" line under the badge,
    * which is the redundancy this replaced. `mount` supplies its own fixed
@@ -167,9 +169,9 @@ describe("the address the primary button will open", () => {
 });
 
 describe("a client that is not a node", () => {
-  it("offers the dashboard and Register, and never Unregister", () => {
+  it("offers the browser ghost and Register, and never Unregister", () => {
     mount({ probe: watcherProbe() });
-    expect(button(/open dashboard/i)).toBeTruthy();
+    expect(button(/open in browser/i)).toBeTruthy();
     expect(button(/^register this machine$/i)).toBeTruthy();
     expect(maybeButton(/unregister this machine/i)).toBeNull();
   });
@@ -218,7 +220,11 @@ describe("what the connected screen offered is still offered", () => {
     // status screen keeps machine state and the two machine acts.
     mount();
     expect(buttonOrNull_(/change server/i)).toBeNull();
+    expect(buttonOrNull_(/open the control plane/i)).toBeNull();
+    // "Open in browser" IS here — it is this screen's own ghost door — but
+    // "instead" is gone with the plane row it answered to.
     expect(buttonOrNull_(/open in browser instead/i)).toBeNull();
+    expect(buttonOrNull_(/open dashboard/i)).toBeNull();
     expect(buttonOrNull_(/check for updates/i)).toBeNull();
     expect(buttonOrNull_(/update the node to/i)).toBeNull();
   });
@@ -246,8 +252,12 @@ describe("what the connected screen offered is still offered", () => {
     // navigations for one answer.
     mount();
     expect(screen.queryByText("Show Details")).toBeNull();
-    // A fact and the output pane, readable without opening anything.
-    expect(screen.getByText("/usr/bin/tmux")).toBeTruthy();
+    // A fact readable without opening anything — but NOT `tmux` (or
+    // `bundled`): those rows render only on the Service section (operator
+    // ruling 2026-09-22, screenshot 52), and this screen's facts carry the
+    // machine's own.
+    expect(screen.queryByText("/usr/bin/tmux")).toBeNull();
+    expect(screen.getByText("/home/u/.config/subshell/config.json")).toBeTruthy();
   });
 
   it("offers no refresh — the probe's own interval re-reads the machine", () => {

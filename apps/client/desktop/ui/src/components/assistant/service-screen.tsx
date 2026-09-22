@@ -225,8 +225,10 @@ export function ServiceScreen(props: {
       {/* The facts and the CLI's last words, INLINE (the same ruling the
           status screen carries): the verbs' answers are this section's own
           answers, and an output block behind a disclosure would be the
-          two-navigations defect again. */}
-      <StatusFacts probe={probe} settings={undefined} enrolledNode={null} output={output} />
+          two-navigations defect again. The ONLY facts list that carries
+          `bundled` and `tmux` (operator ruling 2026-09-22) — they are the
+          node's machinery. */}
+      <StatusFacts probe={probe} settings={undefined} enrolledNode={null} output={output} binaryFacts />
     </Frame>
   );
 }

@@ -198,7 +198,11 @@ describe("the assistant frame", () => {
     // so "More…" is gone rather than moved.
     await boot();
     expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy();
-    expect(buttonOrNull("Open Dashboard")).not.toBeNull();
+    // "Open Dashboard" left the bar (operator ruling 2026-09-22): the in-app
+    // window door is the Control Plane section's, and the status screen's
+    // only door is the browser ghost.
+    expect(buttonOrNull("Open Dashboard")).toBeNull();
+    expect(buttonOrNull("Open in browser")).not.toBeNull();
     // Re-enroll… is NOT on the status screen any more (operator ruling
     // 2026-09-22): the act is on the machine's relationship to the plane, so
     // the Control Plane section carries it.
@@ -1355,8 +1359,8 @@ describe("the first run", () => {
 
     fireEvent.click(button("Back"));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy());
-    // The button they came for is back, which is the whole of the defect.
-    expect(buttonOrNull("Open Dashboard")).not.toBeNull();
+    // The door they came for is back, which is the whole of the defect.
+    expect(buttonOrNull("Open in browser")).not.toBeNull();
     // And NOT the fresh machine's answer: this person never chose anything.
     expect(screen.queryByRole("heading", { name: "What Would You Like to Do?" })).toBeNull();
     // The invitation is still there to accept a second time — a door that
@@ -1412,7 +1416,7 @@ describe("the first run", () => {
 
     fireEvent.click(button("Back"));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy());
-    expect(buttonOrNull("Open Dashboard")).not.toBeNull();
+    expect(buttonOrNull("Open in browser")).not.toBeNull();
     expect(screen.queryByRole("heading", { name: "What Would You Like to Do?" })).toBeNull();
   });
 
@@ -1615,18 +1619,25 @@ describe("the screens", () => {
 });
 
 describe("the facts", () => {
-  // Behind Show Details now, rather than a permanent card: a person opens this
-  // window to DO something. Nothing was dropped in the move.
-  it("names the config file, the control plane and tmux", async () => {
+  // INLINE on the screen now (operator ruling 2026-09-22), and the `bundled`
+  // and `tmux` rows render ONLY on the Service section (same day, screenshot
+  // 52): they are the node's machinery, and they repeated that section
+  // verbatim on the status screen.
+  it("names the config file and the control plane, with bundled and tmux absent", async () => {
     await boot();
     expect(screen.getByText("/home/u/.config/subshell/config.json")).toBeTruthy();
     expect(screen.getAllByText(/https:\/\/subshell\.example\.com/).length).toBeGreaterThan(0);
-    expect(screen.getByText("/usr/bin/tmux")).toBeTruthy();
     expect(screen.getByText(/online \(last heartbeat 4s ago\)/)).toBeTruthy();
+    expect(screen.queryByText("/usr/bin/tmux")).toBeNull();
+    // And the Service section is the one place they live.
+    await openSection("Service");
+    expect(screen.getByText("/usr/bin/tmux")).toBeTruthy();
   });
 
   it("shouts when tmux is missing, because a node without it refuses every launch", async () => {
     await boot({ probe: makeProbe({ tmux: null }) });
+    // The refusal sentence is the Service section's fact row now.
+    await openSection("Service");
     expect(screen.getByText(/NOT FOUND: enroll refuses/)).toBeTruthy();
   });
 
@@ -1733,12 +1744,14 @@ describe("tmux is a hard stop, not a hint", () => {
 });
 
 describe("the plane's two doors", () => {
-  // The in-app window stays primary; this opens the SAME settled address in
-  // the system browser, and the command takes no URL argument by design.
+  // Both doors for the plane live here (operator ruling 2026-09-22). The
+  // in-app window was the status screen's "Open Dashboard"; the system
+  // browser was "Open in browser instead". Each opens the SAME settled
+  // address, and neither takes a URL argument by design.
   it("opens the settled plane URL in the system browser", async () => {
     const fake = await boot({ handlers: { node_open_plane_url: () => null } });
     await openSection("Control Plane");
-    fireEvent.click(button("Open in browser instead"));
+    fireEvent.click(button("Open in browser"));
     await waitFor(() => expect(fake.callsTo("node_open_plane_url")).toEqual([{}]));
     // And it asked for NOTHING but the intent — no URL crossed the boundary.
     expect(fake.callsTo("node_open_plane_url")[0]).toEqual({});
@@ -1753,10 +1766,19 @@ describe("the plane's two doors", () => {
       },
     });
     await openSection("Control Plane");
-    fireEvent.click(button("Open in browser instead"));
+    fireEvent.click(button("Open in browser"));
     await waitFor(() =>
       expect(screen.getByText("no control plane yet — enter its URL, or enrol this machine first")).toBeTruthy(),
     );
+  });
+
+  it("opens the app window at the settled address, the door the status screen lost", async () => {
+    // The in-app window door IS `node_open_plane` with no URL: the Rust side
+    // re-reads its own ladder, which is how "Open Dashboard" always worked.
+    const fake = await boot({ handlers: { node_open_plane: (args) => String(args.url) } });
+    await openSection("Control Plane");
+    fireEvent.click(button("Open the control plane"));
+    await waitFor(() => expect(fake.callsTo("node_open_plane")).toEqual([{ url: null }]));
   });
 
   // Was "opens the app window at the address the connect screen was given",
@@ -1805,15 +1827,15 @@ describe("the plane's two doors", () => {
     fireEvent.click(button("Continue"));
     fireEvent.click(button(/^connect to a server/i));
     await screen.findByRole("heading", { name: "Connect to a Server" });
-    expect(buttonOrNull("Open in browser instead")).toBeNull();
+    expect(buttonOrNull("Open in browser")).toBeNull();
     cleanup();
     ipc?.restore();
 
     const fake = await boot({ handlers: { node_open_plane_url: () => null } });
     // The settled address's browser door is the Control Plane section's now.
     await openSection("Control Plane");
-    expect(buttonOrNull("Open in browser instead")).not.toBeNull();
-    fireEvent.click(button("Open in browser instead"));
+    expect(buttonOrNull("Open in browser")).not.toBeNull();
+    fireEvent.click(button("Open in browser"));
     // Still no URL across the boundary: the command re-reads the ladder.
     await waitFor(() => expect(fake.callsTo("node_open_plane_url")).toEqual([{}]));
   });

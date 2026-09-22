@@ -123,6 +123,21 @@ narrating "This app opens <url>". The node-behind doors the status screen
 carried are gone — the Update section is the door — and the facts render
 INLINE, no disclosure, the same reason the server's Show Details went.
 
+More rulings from the same operator session (2026-09-22, screenshots
+52/53), on the client: the not-a-node sentence on the status screen is
+deleted outright; the badge for `no-node` reads "Not registered as a node"
+(house sentence case over the operator's typed capital-N); the `bundled` and
+`tmux` fact rows render ONLY on the Service section; the Control Plane
+section's address row is rebuilt into the server Addresses card's form shape
+(labeled value row, acts grouped on their own row) because the one-line
+value with its buttons beside it wrapped the URL character-broken; and the
+plane's DOORS rearrange — the status screen loses "Open Dashboard" and
+gains the ghost "Open in browser", while the Control Plane section carries
+both doors for the plane itself ("Open the control plane" for the in-app
+window, "Open in browser" for the system browser). Re-enroll… moved to the
+Control Plane section the same day: it is an act on the machine's
+relationship to the plane, and the status screen keeps machine state only.
+
 ### Testing
 
 The client's harness ports to the server app: `ui/bunfig.toml` +

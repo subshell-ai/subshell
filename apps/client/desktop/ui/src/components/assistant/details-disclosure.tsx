@@ -27,9 +27,15 @@ export function StatusFacts(props: {
   enrolledNode: EnrolledNodeBody | null;
   /** The CLI's own words from the last action, or null. */
   output: ActionResult | null;
+  /**
+   * Include the `bundled` and `tmux` rows. Service-section only (operator
+   * ruling 2026-09-22) — they are the node's machinery, and everywhere else
+   * they repeated the Service section verbatim. Defaults to false.
+   */
+  binaryFacts?: boolean;
 }) {
-  const { probe, settings, enrolledNode, output } = props;
-  const facts = probeFacts({ probe, settings, enrolledNode });
+  const { probe, settings, enrolledNode, output, binaryFacts } = props;
+  const facts = probeFacts({ probe, settings, enrolledNode }, { binaryFacts });
   const parts: string[] = [];
   if (output?.stdout.trim()) parts.push(output.stdout.trim());
   if (output?.stderr.trim()) parts.push(output.stderr.trim());

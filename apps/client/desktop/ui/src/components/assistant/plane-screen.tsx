@@ -10,7 +10,15 @@
  * overwriting `config.json` and minting a second node row is an act on this
  * machine's relationship to the plane, which is exactly what this section is
  * for. The enroll screen's own confirm gate is unchanged — the door moved,
- * not the asking.
+ * not the asking. The same day's door ruling put BOTH doors for the plane
+ * here: "Open the control plane" (the in-app window, the existing
+ * `node_open_plane` path) and "Open in browser" (the system browser, what
+ * "Open in browser instead" becomes) — and rebuilt the address row into the
+ * addresses-card form shape (labeled value row, acts grouped below), because
+ * the one-line value with its buttons beside it wrapped the URL
+ * character-broken and crowded it. The `bundled` and `tmux` fact rows are
+ * NOT here: they render only on the Service section (same day, screenshot
+ * 52).
  *
  * Two addresses, and they are independent (the reason the status screen kept
  * them side by side until this split): `planeUrl` (what this APP opens) and
@@ -59,10 +67,16 @@ export function PlaneScreen(props: {
 
   return (
     <Frame {...shell} rail={props.rail} tightContent>
-      {/* Which plane this APP opens. The "This app opens <url>" sentence is
-          GONE (operator ruling 2026-09-22): the address is shown labeled, and
-          the two buttons beside it say what they do. */}
-      <div>
+      {/* Which plane this APP opens — the addresses-card form shape (operator
+          ruling 2026-09-22, screenshot 53: the one-line value with its buttons
+          beside it wrapped the URL character-broken and crowded it). The
+          address is a labeled row on its own, and the acts group on their own
+          row below it, with breathing room. The label is a noun, not the
+          deleted "This app opens <url>" narration. */}
+      <div className="space-y-1.5">
+        <Label htmlFor="plane-url" className="text-muted-foreground text-detail">
+          {editingPlane ? "Server URL" : "This app's control plane"}
+        </Label>
         {editingPlane ? (
           <form
             className="flex flex-col gap-2"
@@ -76,9 +90,6 @@ export function PlaneScreen(props: {
               commands.openPlane(planeTyped);
             }}
           >
-            <Label htmlFor="plane-url" className="text-muted-foreground text-detail">
-              Server URL
-            </Label>
             <div className="flex items-center gap-2">
               <Input
                 id="plane-url"
@@ -99,42 +110,45 @@ export function PlaneScreen(props: {
             </div>
           </form>
         ) : (
-          <div className="flex items-center justify-between gap-3">
-            <p className="min-w-0 break-all font-mono text-sm">{planeUrl ?? "nothing yet"}</p>
-            <div className="flex shrink-0 gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={() => {
-                  if (busy) return;
-                  // Seeded: a change is usually an edit of this address,
-                  // and an empty field makes someone retype a hostname to
-                  // correct one character of it.
-                  setPlaneTyped(planeUrl ?? "");
-                  setEditingPlane(true);
-                }}
-              >
-                Change server…
+          <p className="min-w-0 break-all font-mono text-sm">{planeUrl ?? "nothing yet"}</p>
+        )}
+        {!editingPlane && (
+          // The acts, grouped on their own row (ruling 4, same screenshot):
+          // the edit, the TWO DOORS for the plane itself — the in-app window
+          // ("Open the control plane", the existing `node_open_plane` path,
+          // re-reading the settled address) and the system browser ("Open in
+          // browser", which "Open in browser instead" becomes now that the
+          // in-app door lives here too) — and, for a machine that is a node,
+          // the relationship act. Re-enroll… stays where the 0aeb7709 ruling
+          // put it; the confirm gate is the enroll screen's, unchanged.
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => {
+                if (busy) return;
+                // Seeded: a change is usually an edit of this address,
+                // and an empty field makes someone retype a hostname to
+                // correct one character of it.
+                setPlaneTyped(planeUrl ?? "");
+                setEditingPlane(true);
+              }}
+            >
+              Change server…
+            </Button>
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => commands.openPlane(null)}>
+              Open the control plane
+            </Button>
+            <Button variant="outline" size="sm" disabled={busy} onClick={commands.openPlaneUrl}>
+              <ExternalLink aria-hidden />
+              Open in browser
+            </Button>
+            {enrolled && (
+              <Button variant="outline" size="sm" disabled={busy} onClick={onReenroll}>
+                Re-enroll…
               </Button>
-              <Button variant="outline" size="sm" disabled={busy} onClick={commands.openPlaneUrl}>
-                <ExternalLink aria-hidden />
-                Open in browser instead
-              </Button>
-              {/* Re-enroll… beside the plane address acts (operator ruling
-                  2026-09-22): the act is on this machine's relationship to
-                  the plane — overwriting `config.json`, minting a SECOND
-                  node row and discarding the live node key — so it is this
-                  section's, and only for a machine that is a node. On a
-                  machine that is not, the same-shaped act is the status
-                  screen's Register this machine. The confirm gate lives on
-                  the enroll screen and is unchanged. */}
-              {enrolled && (
-                <Button variant="outline" size="sm" disabled={busy} onClick={onReenroll}>
-                  Re-enroll…
-                </Button>
-              )}
-            </div>
+            )}
           </div>
         )}
       </div>

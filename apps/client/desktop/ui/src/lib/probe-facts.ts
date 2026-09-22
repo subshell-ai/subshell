@@ -48,13 +48,23 @@ export function fmtAge(ms: number | undefined): string | null {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-/** Everything the top card says about this machine. */
-export function probeFacts(args: {
-  probe: Probe | undefined;
-  settings: NodeSettings | undefined;
-  /** The `enroll --json` body from a successful enrollment in THIS session. */
-  enrolledNode: EnrolledNodeBody | null;
-}): Fact[] {
+/**
+ * Everything the top card says about this machine.
+ *
+ * The `bundled` and `tmux` rows render ONLY where the Service section asks for
+ * them (operator ruling 2026-09-22): they are the node's machinery, and they
+ * repeated verbatim on the status screen and the Control Plane section, which
+ * are not about the machinery. Every other caller omits them by default.
+ */
+export function probeFacts(
+  args: {
+    probe: Probe | undefined;
+    settings: NodeSettings | undefined;
+    /** The `enroll --json` body from a successful enrollment in THIS session. */
+    enrolledNode: EnrolledNodeBody | null;
+  },
+  opts: { binaryFacts?: boolean } = {},
+): Fact[] {
   const { probe, settings, enrolledNode } = args;
   if (probe === undefined) return [];
   const out: Fact[] = [];
@@ -68,7 +78,7 @@ export function probeFacts(args: {
     });
     out.push({ key: "found via", value: SOURCE_LABEL[probe.nodeBinary.source] ?? probe.nodeBinary.source });
   }
-  if (probe.bundledVersion) {
+  if (opts.binaryFacts && probe.bundledVersion) {
     const note = NODE_CHOICE_NOTE[probe.nodeChoice] ?? "";
     out.push({ key: "bundled", value: probe.bundledVersion + note, tone: note ? "warn" : undefined });
   }
@@ -138,11 +148,14 @@ export function probeFacts(args: {
   // From the PROBE, not from `status`: tmux is a hard stop on `enroll` — which
   // preflights it BEFORE its network call, precisely so an unenrollable box
   // does not burn a one-time setup key — and on every launch this node accepts.
-  out.push({
-    key: "tmux",
-    value: probe.tmux ?? "NOT FOUND: enroll refuses, and a node without it accepts no launches",
-    tone: probe.tmux ? undefined : "bad",
-  });
+  // Service-section only, like `bundled` (operator ruling 2026-09-22).
+  if (opts.binaryFacts) {
+    out.push({
+      key: "tmux",
+      value: probe.tmux ?? "NOT FOUND: enroll refuses, and a node without it accepts no launches",
+      tone: probe.tmux ? undefined : "bad",
+    });
+  }
 
   return out;
 }

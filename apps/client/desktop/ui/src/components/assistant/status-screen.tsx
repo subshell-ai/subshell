@@ -11,8 +11,11 @@
  *
  * The rule it exists to hold is spec 2026-09-18 § 2: **nothing opens the
  * control plane's window by itself any more.** A configured client comes up
- * HERE, and the dashboard appears when someone presses the button for it —
- * which is why that button is the one primary in the bar.
+ * HERE, and the dashboard appears when someone presses the button for it.
+ * Since the door rearrangement (operator ruling 2026-09-22) that button is
+ * not here any more — the in-app window door is the Control Plane section's,
+ * and this screen's only door is the ghost "Open in browser" beside it in
+ * kind: the same settled page, in the system browser.
  *
  * The one act the screen still offers is the one that is about the MACHINE
  * rather than the node's machinery: **Register this machine**, for a client
@@ -71,11 +74,10 @@ export function StatusScreen(props: {
   /** Whether this machine is a node at all — the axis the whole screen turns on. */
   const enrolled = Boolean(probe?.status?.nodeId);
   /**
-   * The address the primary button will land on. `node_open_plane(null)`
-   * re-reads Rust's own ladder, which falls back to the node's `serverUrl`
-   * when no preference is stored — so the button is offered on exactly the
-   * cases that ladder can answer, and the address it names is the one it will
-   * open.
+   * Whether there is an address for the browser door to open. The door itself
+   * (`node_open_plane_url`) re-reads Rust's own ladder, which falls back to
+   * the node's `serverUrl` when no preference is stored — so the ghost is
+   * offered on exactly the cases that ladder can answer.
    */
   const dashboardUrl = planeUrl ?? nodeServerUrl;
 
@@ -105,11 +107,17 @@ export function StatusScreen(props: {
       rail={props.rail}
       tightContent
       icon={enrolled ? <Bot /> : <Server />}
-      barRight={
+      barLeft={
+        // The one door this screen still offers, and in the ghost seat: the
+        // CURRENT plane's page in the system browser (operator ruling
+        // 2026-09-22 — "Open Dashboard" left the bar, and the in-app window
+        // door is the Control Plane section's). The gate is the same one the
+        // dashboard button had: the address it will actually open, resolved
+        // the way `node_open_plane_url` itself resolves it.
         dashboardUrl ? (
-          <Button className="min-w-[120px]" disabled={busy} onClick={() => commands.openPlane(null)}>
+          <Button variant="ghost" disabled={busy} onClick={commands.openPlaneUrl}>
             <ExternalLink aria-hidden />
-            Open Dashboard
+            Open in browser
           </Button>
         ) : null
       }
@@ -118,22 +126,18 @@ export function StatusScreen(props: {
         <Badge variant={TONE_BADGE[stepTone(probe?.step)]}>{stepLabel(probe?.step)}</Badge>
         {/*
          * Said here only where the subtitle cannot say it. `subtitleFor`
-         * already names the address in BOTH branches — "This machine is a node
-         * of <url>." when enrolled, "Connected to <url>." when not — so an
-         * enrolled machine needs a sentence here only for the one fact the
-         * subtitle lacks, which is the NAME it enrolled under. Not enrolled is
-         * the other way round: "Connected to <url>" says nothing about whether
-         * subshells can run here, so that sentence stays.
+         * already names the address in both branches, so the one sentence the
+         * screen carries is the one fact the subtitle lacks: the NAME this
+         * session enrolled the machine under. The not-enrolled branch says
+         * NOTHING (operator ruling 2026-09-22) — the badge already says what
+         * the machine is not, and a sentence that said so again was the third
+         * time.
          */}
-        {enrolled ? (
-          named ? (
-            <p className="text-sm">
-              Enrolled as <span className="font-strong">{named}</span>. Subshells can run on this machine.
-            </p>
-          ) : null
-        ) : (
-          <p className="text-sm">This machine is not a node yet, so subshells can't run here.</p>
-        )}
+        {enrolled && named ? (
+          <p className="text-sm">
+            Enrolled as <span className="font-strong">{named}</span>. Subshells can run on this machine.
+          </p>
+        ) : null}
       </div>
 
       {/*

@@ -731,10 +731,28 @@ doors the status screen carried ("Update the
 node to X…", "Check for updates…") are GONE: the Update section is the door,
 and the update screen's own table is where the node row's numbers live. The
 facts and the CLI's last words render INLINE (no disclosure), on the status,
-service and plane screens alike. Unregister is not a link on the status
+service and plane screens alike — with the `bundled` and `tmux` rows on the
+Service section ALONE (operator ruling 2026-09-22, screenshot 52): they are
+the node's machinery, and everywhere else they repeated that section
+verbatim. Unregister is not a link on the status
 screen — the rail's Reset section is that door. There is no Refresh button
 anywhere: the probe query re-reads the machine on its own five-second interval
 (operator ruling, 2026-09-22) — the poll is the refresh.
+
+**The doors rearranged the same day** (operator ruling 2026-09-22,
+screenshots 52/53). The status screen lost **Open Dashboard** and carries
+only the ghost **Open in browser** (the same settled page in the system
+browser, `node_open_plane_url`, gated on there being an address at all); the
+**Control Plane** section carries BOTH doors for the plane itself —
+**Open the control plane** (the in-app window, the existing
+`node_open_plane` path, re-reading the settled address) and **Open in
+browser**. Its address row is the server Addresses card's form shape
+(operator's screenshot 53: the one-line value with its buttons beside it
+wrapped the URL character-broken) — a labeled value row ("This app's control
+plane") with the acts grouped on their own row below. The `no-node` badge
+reads **Not registered as a node** (house sentence case, over the operator's
+typed capital-N), and the status screen's "This machine is not a node yet…"
+sentence is DELETED — the badge already says what the machine is not.
 
 Three screen ids went with it, and their absence is the design.
 **`connected`**, **`service`** and **`install-agent`** were the probe-derived

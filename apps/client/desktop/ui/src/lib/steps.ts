@@ -42,7 +42,7 @@ const STEP_LABELS: Record<ProbeStep, string> = {
   stopped: "Service stopped",
   "no-service": "Not running in the background",
   "not-enrolled": "Not enrolled",
-  "no-node": "No node",
+  "no-node": "Not registered as a node",
 };
 
 /** The chip's tone, which is also the dot's colour. */

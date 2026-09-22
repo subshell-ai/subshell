@@ -5,7 +5,8 @@ import { describe, expect, it } from "bun:test";
 import { fmtAge, probeFacts } from "@/lib/probe-facts";
 import { makeProbe, makeSettings } from "./harness";
 
-const facts = (args: Parameters<typeof probeFacts>[0]) => probeFacts(args);
+const facts = (args: Parameters<typeof probeFacts>[0], opts: Parameters<typeof probeFacts>[1] = {}) =>
+  probeFacts(args, opts);
 const value = (list: ReturnType<typeof probeFacts>, key: string) => list.find((f) => f.key === key);
 
 describe("fmtAge", () => {
@@ -96,9 +97,27 @@ describe("probeFacts", () => {
       ["up-to-date", undefined],
       ["install-bundled", undefined],
     ] as const) {
-      const list = facts({ probe: makeProbe({ nodeChoice: choice }), settings: undefined, enrolledNode: null });
+      const list = facts(
+        { probe: makeProbe({ nodeChoice: choice }), settings: undefined, enrolledNode: null },
+        {
+          binaryFacts: true,
+        },
+      );
       expect(value(list, "bundled")?.tone, choice).toBe(expected);
     }
+  });
+
+  // Operator ruling 2026-09-22: `bundled` and `tmux` render ONLY where the
+  // Service section asks for them — everywhere else they repeated that
+  // section verbatim on screens that are not about the machinery.
+  it("omits bundled and tmux unless the Service section asks", () => {
+    const without = facts({ probe: makeProbe(), settings: undefined, enrolledNode: null });
+    expect(value(without, "bundled")).toBeUndefined();
+    expect(value(without, "tmux")).toBeUndefined();
+
+    const withBinary = facts({ probe: makeProbe(), settings: undefined, enrolledNode: null }, { binaryFacts: true });
+    expect(value(withBinary, "bundled")?.value).toBe("1.9.0");
+    expect(value(withBinary, "tmux")?.value).toBe("/usr/bin/tmux");
   });
 
   it("names the node only when THIS session chose the name", () => {
@@ -174,9 +193,12 @@ describe("probeFacts", () => {
     expect(value(linux, "logs")?.value).toInclude("journalctl --user -u subshell.service");
   });
 
-  it("always reports tmux, and marks its absence as bad", () => {
-    expect(value(facts({ probe: makeProbe(), settings: undefined, enrolledNode: null }), "tmux")?.tone).toBeUndefined();
-    const missing = facts({ probe: makeProbe({ tmux: null }), settings: undefined, enrolledNode: null });
+  it("reports tmux when asked, and marks its absence as bad", () => {
+    const opts = { binaryFacts: true } as const;
+    expect(
+      value(facts({ probe: makeProbe(), settings: undefined, enrolledNode: null }, opts), "tmux")?.tone,
+    ).toBeUndefined();
+    const missing = facts({ probe: makeProbe({ tmux: null }), settings: undefined, enrolledNode: null }, opts);
     expect(value(missing, "tmux")?.tone).toBe("bad");
   });
 });
