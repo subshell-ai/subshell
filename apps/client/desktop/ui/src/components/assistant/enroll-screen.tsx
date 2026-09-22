@@ -15,20 +15,18 @@
  * through warnings.
  */
 import { KeyRound } from "lucide-react";
-import { DetailsDisclosure } from "@/components/assistant/details-disclosure";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
+import { ActionOutput } from "@/components/assistant/status-facts";
 import { EnrollFields } from "@/components/enroll-fields";
 import { Button } from "@/components/ui/button";
 import type { EnrollForm } from "@/hooks/use-enroll-form";
 import type { NodeCommands } from "@/hooks/use-node-commands";
 import { ENROLL_NOTES, tmuxHint } from "@/lib/copy";
-import type { ActionResult, EnrolledNodeBody, NodeSettings, Probe } from "@/lib/ipc";
+import type { ActionResult, Probe } from "@/lib/ipc";
 
 export function EnrollScreen(props: {
   shell: FrameShell;
   probe: Probe | undefined;
-  settings: NodeSettings | undefined;
-  enrolledNode: EnrolledNodeBody | null;
   output: ActionResult | null;
   form: EnrollForm;
   commands: NodeCommands;
@@ -36,7 +34,7 @@ export function EnrollScreen(props: {
   /** Defined only when the user asked for this screen — a re-enrolment. */
   onCancel?: () => void;
 }) {
-  const { shell, probe, settings, enrolledNode, output, form, commands, busy, onCancel } = props;
+  const { shell, probe, output, form, commands, busy, onCancel } = props;
   const reenroll = onCancel !== undefined;
   const current = probe?.status?.nodeId;
   const where = probe?.status?.serverUrl;
@@ -95,7 +93,7 @@ export function EnrollScreen(props: {
        * enroll`'s stderr is what says whether to mint a new one. It is the
        * reason this screen carries the disclosure at all.
        */}
-      <DetailsDisclosure probe={probe} settings={settings} enrolledNode={enrolledNode} output={output} />
+      <ActionOutput output={output} />
     </Frame>
   );
 }

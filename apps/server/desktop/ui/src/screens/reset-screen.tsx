@@ -2,13 +2,16 @@
  * The Reset screen (spec 2026-09-21; plan Task 7) — the port of
  * `assistant/reset-view.ts` and its contract with `reset.rs`.
  *
- * It still covers the whole window, and the reason is unchanged even though
- * there is no sidebar left to cover: this screen's premise is that it is the
- * only thing happening, so the assistant's own frame and its bottom bar go
- * with it — a Back button live through a chain that stops a service and
- * sweeps sockets is a way out from under a screen that has none. The host
- * renders it INSTEAD of the frame, which is what the old `show()` did by
- * hiding `#screen` and `#bar`.
+ * Since the 2026-09-22 layout ruling (final word) the CONFIRMATION renders
+ * inside the frame WITH the rail — the sidebar was being lost today and
+ * that is not wanted — and the frame carries the pane's title
+ * (`host.tsx`'s `shell("reset")`, keyed on the meter pane rather than on
+ * the room). The ROOM is still this screen's while the chain runs: the
+ * host withholds the rail for the chain's duration, because a Back button
+ * live through a chain that stops a service and sweeps sockets is a way
+ * out from under a screen that has none. The host renders this view
+ * inside the frame's content region, which is what the old `show()` did
+ * by hiding `#screen` and `#bar` for the chain.
  *
  * The meter, the arming verdict, the half-run log AND the typed hostname are
  * HOST state — page state in the old module, for the same reason: the poll
@@ -24,7 +27,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Probe } from "../lib/ipc";
 import { armed, RESET_STEPS, refusal, resetRows, resetStarted, type StepKey, type StepState } from "../lib/reset";
-import { RESET_LABEL } from "../lib/wizard-state";
 
 /** What the run left behind: its own words, and whether they are bad news. */
 export interface ResetLog {
@@ -42,6 +44,12 @@ export function ResetScreen(props: {
   armingProblem: string | null;
   /** The run button's label at rest; a half-run promotes it to "Retry reset". */
   runLabel: string;
+  /**
+   * Whether the rail is beside this render. NO CANCEL where it is (operator
+   * ruling 2026-09-22, screenshot 59): the rail is the way out of the
+   * confirmation, and the running room keeps no Cancel regardless.
+   */
+  railPresent: boolean;
   log: ResetLog | null;
   /** The typed hostname — host state, so it survives Cancel and a reopen. */
   typed: string;
@@ -83,7 +91,10 @@ export function ResetScreen(props: {
           window is how far it has got. A press does not extend the
           confirmation, it REPLACES it. */}
       <div hidden={started}>
-        <p className="reset-title">{RESET_LABEL}</p>
+        {/* The pane's title lives in the frame now (shell("reset")), keyed on
+            this pane — the ruling moved the confirmation under the rail, and
+            a second heading under the frame's own was the duplication that
+            came with it. */}
         <p className="hint mb-2.5">{refusalLine}</p>
         {why === null && st !== undefined && st !== null && (
           <ul className="wizard-copy list-disc pl-5">
@@ -113,8 +124,8 @@ export function ResetScreen(props: {
         </div>
       </div>
       <div hidden={!started}>
-        <p className="reset-title">Resetting this server</p>
-        <p className="wizard-copy muted-text mb-2.5">This takes a moment.</p>
+        {/* Titles live in the frame (shell("reset")); the meter is the pane's
+            own content. */}
         {/* The meter in the FIRST RUN's checklist, element for element —
             li[data-state] with a glyph column, which is what makes a done row's
             green tick, a running row's spinner and a failed row's cross
@@ -161,19 +172,19 @@ export function ResetScreen(props: {
         >
           {busy ? "Resetting…" : runLabel}
         </Button>
-        {/* Cancel goes with it, on the SAME predicate, and the reason is what the
-            action row now sits under. Beside the hostname box it meant "never
-            mind" — the only thing there to abandon was a half-typed name. Under
-            the meter it reads as "cancel this reset", which is the one thing it
-            cannot do: a press would leave the chain stopping services and
-            deleting directories in Rust with the window that was reporting it
-            gone. Nothing on the progress pane may offer an act the chain cannot
-            honour. `busy` ends on every exit path the run handler has, so a
-            half-run gets Cancel back beside Retry, where leaving really is a
-            choice. */}
-        <Button type="button" variant="outline" disabled={busy} onClick={props.onCancel}>
-          Cancel
-        </Button>
+        {/* Cancel renders only in a rail-LESS render and never while the chain
+            runs (operator ruling 2026-09-22, screenshot 59, superseding the
+            half-run Cancel: the rail is the way out of the confirmation, and
+            the room keeps no exit at all — a press would leave the chain
+            stopping services and deleting directories in Rust with the
+            window that was reporting it gone). Beside the hostname box it
+            meant "never mind" — the only thing there to abandon was a
+            half-typed name. */}
+        {!props.railPresent && !busy && (
+          <Button type="button" variant="outline" onClick={props.onCancel}>
+            Cancel
+          </Button>
+        )}
       </div>
       {/* The reason, beside the control it disables. Only for a REFUSAL: "you
           have not typed the hostname yet" is what the label above the box

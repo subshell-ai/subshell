@@ -11,9 +11,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { RegisterScreen } from "@/components/assistant/register-screen";
+import { subtitleFor } from "@/components/assistant/subtitles";
 import { useEnrollForm } from "@/hooks/use-enroll-form";
 import type { Probe } from "@/lib/ipc";
-import { makeProbe } from "./harness";
+import { makeProbe, makeSettings } from "./harness";
 
 afterEach(cleanup);
 
@@ -191,7 +192,10 @@ describe("the Register screen", () => {
         }}
       />,
     );
-    expect(screen.getByText(/Registering spends the setup key/)).toBeTruthy();
+    // The operator's sentence (addendum, 2026-09-22), and the retry lecture
+    // is gone with it.
+    expect(screen.getByText("Obtain a key from the Control Plane via Nodes → Add node.")).toBeTruthy();
+    expect(screen.queryByText(/Registering spends the setup key/)).toBeNull();
 
     fill();
     fireEvent.click(button());
@@ -245,5 +249,13 @@ describe("the Register screen", () => {
     expect(back.disabled).toBe(true);
     fireEvent.click(back);
     expect(backs).toBe(0);
+  });
+
+  // The subtitle is EMPTY by ruling (operator addendum, 2026-09-22): the
+  // recap of "server, key, name" repeated the three labels above the fields,
+  // so it was deleted rather than shortened. This pins the absence — a
+  // re-narration of the fields would now fail here rather than reappear.
+  it("carries no subtitle; the field labels already say all three", () => {
+    expect(subtitleFor("register", makeProbe(), makeSettings())).toBe("");
   });
 });

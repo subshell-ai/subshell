@@ -694,40 +694,142 @@ decides anything. There is ONE router, deliberately: two functions answering
 "which screen" is how they come to disagree.
 
 **The rail is for the standing screens, and only for a settled machine**
-(wave 3; the same rulings the server wave carried — operator, 2026-09-22).
-`railFor(screen, settled)` in `lib/client-flow.ts` is the rule as data: the
-four sections — **Status**, **Update**, **About**, **Reset** (destructive,
-styled in the destructive token) — appear only when the machine is settled
-(`configured()` and no `FteStep` in progress) and the screen is one of the
-standing kinds, and they answer `null` for every step of the FTE walk, for
-the two focused acts (reset, whose screen is frame-replacing, and re-enroll,
-the same kind of moment), for the not-read state — and for any standing
-screen while the machine is NOT settled, because the exclusion is about the
-machine's journey, not about who asked: the tray can raise About mid-walk,
-and that render keeps its Back. A select is the navigation: Status clears
-the override, Update and About set theirs, Reset opens the frame-replacing
-room; and where the rail is up, the standing screens' own leave buttons
-(About's and Update's Back) render only where the rail does not. The tray's
-`desktop-screen` events select their section by the same override state — no
-new command.
+(wave 3 and its follow-ups; the same rulings the server wave carried —
+operator, 2026-09-22). `railFor(screen, settled)` in `lib/client-flow.ts` is
+the rule as data: the six sections — **Control Plane**, **Status**,
+**Service**, **Update**, **About**, **Reset** (destructive, styled in the
+destructive token) — appear only when the machine is settled (`configured()`
+and no `FteStep` in progress) and the screen is one of the standing kinds,
+and they answer `null` for every step of the FTE walk, for the focused act
+(re-enroll, the same kind of moment) and for the not-read state — and for
+any standing screen while the machine is NOT settled, because the exclusion
+is about the machine's journey, not about who asked: the tray can raise
+About mid-walk, and that render keeps its Back. A select is the navigation:
+every select sets its override now (see the landing ruling below). Reset's
+CONFIRMATION rides the rail (operator ruling 2026-09-22, final word on the
+reset layout, superseding the frame-replacing premise for the confirmation:
+the sidebar was being lost today and that is not wanted) — the room is the
+RUNNING chain: from the confirm press to the chain's end, reset-screen.tsx
+hides the rail off the runner's busy and renders no exit, and no navigation
+sits beside a chain that is deleting this machine's node. The press itself
+STAYS through the chain, disabled and labelled "Resetting…" — the bar
+emptying the moment the one irreversible button is pressed reads as a hung
+window, not a running chain. That is the server room's busy affordance; the
+server can also draw its step meter, and this app has no step events to draw
+one from, so the label is the whole of it here. There is NO CANCEL
+where the rail is present (operator ruling 2026-09-22, screenshot 59) — the
+rail is the way out of the confirmation, and the room keeps no Cancel
+regardless; the not-registered refusal reads "This machine is not registered
+with a control plane." and the subtitle is "Removes the machine's Subshell
+node configuration and data." (both the operator's exact words, same
+screenshot); and where the rail
+is up, the standing
+screens' own leave buttons (About's and Update's Back) render only where the
+rail does not. The tray's `desktop-screen` events select their section by
+the same override state — no new command.
+
+**The status screen keeps machine state, not the node's machinery** (the
+follow-up rulings, 2026-09-22, live screenshots). What moved out of it and
+where: the node's install offer (the bordered card titled **Register as a
+node** — addendum 3, the operator's exact words; the explainer sentence pair
+is DELETED, a later ruling the same day — the button speaks for itself, and
+it reads **Install the Subshell Node CLI**; the disabled-no-bundled case
+keeps the title and shows only its sentence), its
+refusal for a CLI that cannot state its own status, the contextual service
+verbs, the pane-safety rewrite door, the unrecognised-state card and the
+node's reveals — all to the **Service** section, whose subtitle carries the
+"what is a node" half the explainer dropped; the
+configured plane address, the way to change it, "Open in browser instead",
+and the node's own view of the same server (its repoint machinery, the
+loopback notice and the coherence card) — all to the **Control Plane**
+section, which shows the address labeled rather than narrating "This app
+opens <url>". **Re-enroll…** moved there too, later the same day (operator
+ruling 2026-09-22): overwriting `config.json` and minting a second node row
+is an act on this machine's relationship to the plane, not on the machine
+itself, and the enroll screen's confirm gate is unchanged. **Register this
+machine** moved to the Service section beside the install offer (later the
+same day, screenshot 60, the node's machinery home) — same handler, same
+walk entry, its override-clearing wiring re-traced to the new screen, the
+card titled **Enroll this machine as a node** (the operator's exact words,
+the one card-title style) with its long blurb deleted — so the status
+screen offers NO act at all. The node-behind
+doors the status screen carried ("Update the
+node to X…", "Check for updates…") are GONE: the Update section is the door,
+and the update screen's own table is where the node row's numbers live. The
+the facts render INLINE (no disclosure) on the STATUS screen ALONE
+(operator ruling 2026-09-22, screenshot 60, superseding the screenshot-52
+scoping: one list, one panel, the `bundled` and `tmux` rows back in). A
+screen that needs a fact to explain a state says it in its own card's
+sentence; the CLI's last words render as the output block on the screen
+that owns the action, and the config fact's value is PLAIN LANGUAGE —
+"Not enrolled. Go to Service to enroll." for the enroll-pointing reason,
+"The node's configuration could not be read." for any other — the raw CLI
+words render only as an action's failure output. Unregister is not a link on the status
+screen — the rail's Reset section is its ONLY entry (one act, one door, one
+label). There is no Refresh button
+anywhere: the probe query re-reads the machine on its own five-second interval
+(operator ruling, 2026-09-22) — the poll is the refresh.
+
+**The output block travels with the screen that owns the action** (operator
+ruling 2026-09-22, extending the same day's opens-record-nothing rule). An
+OPEN records no receipt — the window or browser opening is the feedback —
+and an instantaneous save records none either; the runner output's remaining
+job is LONG actions' CLI words and FAILURES. What is recorded renders only
+on the screen the action was pressed on: `App` tags each outcome with its
+screen at press (`useActionRunner`'s `onRun`) and gates the render, so the
+reset screen never shows another action's line. The Update screen's own
+watch-verdict reads the raw runner output, which is why the rule gates the
+render rather than the record. **Every screen that renders the block is
+gated** — the fix wave (2026-09-22) found Service and Control Plane still
+handing it the raw `runner.output`, a half-gated state where Service's Start
+answer followed the person onto the plane cards while the explaining failure
+line stayed honest. And a SUCCESSFUL enroll records no visible receipt under
+the same ruling: the enroll screen unmounts on success, its words render
+nowhere, and the status facts ARE the proof — the opens-record-nothing
+precedent, not an oversight; no handoff mechanism exists or is wanted.
+
+**The doors rearranged the same day, twice** (operator rulings 2026-09-22,
+screenshots 52/53 and a superseding addendum). The FINAL state: the status
+screen carries NO door at all — anything that opens the control plane lives
+on the Control Plane section alone, under a **Dashboard** card with both
+doors, **Open in browser** (`node_open_plane_url`, the system browser) and
+**Open in app** (`node_open_plane`, the in-app window at the re-read settled
+address). Control Plane is also the LANDING and reads first in the rail:
+`clientScreen`'s configured case answers `plane`, the rail order is Control
+Plane | Status | Service | Update | About | Reset, and because "clear the
+override" no longer meant "show Status", EVERY rail select is an override
+now, Status included. The plane address row is the server Addresses card's
+form shape (screenshot 53: the one-line value with its buttons beside it
+wrapped the URL character-broken) — since addendum 4 a bordered CARD
+labeled **Control plane URL** (the operator's exact words) holding the value
+and the acts (Change server…, Re-enroll…), with the Dashboard card below
+it. The `no-node` badge
+reads **Not registered as a node** (house sentence case, over the operator's
+typed capital-N), and the status screen's "This machine is not a node yet…"
+sentence is DELETED — the badge already says what the machine is not. The
+plane-coherence notice leads with the conflict now (review, 2026-09-22):
+"This machine's node reports to <node>, not <plane>.".
 
 Three screen ids went with it, and their absence is the design.
 **`connected`**, **`service`** and **`install-agent`** were the probe-derived
-landings; every configured client lands on `status` now, which carries what
-each of them offered — the contextual service verb, the pane-safety rewrite,
-the config and node-log reveals, and the split that decides whether
-registering may be offered at all (below). A screen nothing can
+landings; their content is distributed across the rail now — the service
+verb and the reveals on **Service**, the split that decides whether
+registering may be offered at all on **Status** (below) — and the configured
+client lands on **Control Plane** (operator ruling 2026-09-22, second
+addendum; it was `status` until that afternoon). A screen nothing can
 route to is not a recovery path; it is dead code that reads like one.
 
 An address no longer comes first, either, and that reversal is load-bearing:
 `configured()` counts an ENROLLED machine as well as a stored `planeUrl`,
 because the walk ends at Register and Register on a node mints a second node
-row and discards its node key. Two screens are still things a person ASKS for
-rather than states a machine implies (re-enrol, reset, plus about and
-update); those arrive as the `override` — and `update` is the one of the four
-the MACHINE may also raise: an app update left a marker, and the process that
-boots into it opens the screen once per launch to finish the act (see
-"Updating is one act", below).
+row and discards its node key. Screens a person ASKS for rather than states
+a machine implies (re-enrol, reset, plus about and update) arrive as the
+`override` — and since the landing moved to Control Plane, EVERY rail select
+is an override too, Status included, or a Status select would clear the
+override and land on Control Plane with Status highlighted nowhere. `update`
+is the one the MACHINE may also raise: an app update left a marker, and the
+process that boots into it opens the screen once per launch to finish the act
+(see "Updating is one act", below).
 
 **`no-node` reads two ways, and status must keep them apart.** The Rust side
 folds "nothing on the ladder answered" and "a binary answered `version` but not

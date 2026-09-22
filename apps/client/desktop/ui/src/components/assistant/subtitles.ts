@@ -61,7 +61,10 @@ export function subtitleFor(
       // before it can run a subshell at all.
       return `Every subshell runs in a tmux pane, so ${here} needs it before it can run one.`;
     case "register":
-      return `The server's address, a name for ${here}, and a setup key.`;
+      // The recap is DELETED (operator addendum, 2026-09-22): it restated
+      // what the three fields already say on their own labels — Server URL,
+      // Setup key, Node name — in a sentence eight pixels above them.
+      return "";
     case "startup":
       return `Choose how the node runs on ${here}.`;
     case "progress":
@@ -79,6 +82,15 @@ export function subtitleFor(
       }
       return where ? `Connected to ${where}.` : "Connected to a Subshell server.";
     }
+    case "service":
+      // The "what is a node" half the install explainer no longer carries
+      // (operator ruling 2026-09-22, the copy trim): the section's own
+      // sentence says what the thing it installs IS.
+      return "The node is the small program that connects this machine to the control plane and runs the sessions launched here.";
+    case "plane":
+      // The address's home. It says what the screen answers without naming a
+      // value the screen itself shows.
+      return "The address this app and this node talk to.";
     case "connect":
       return "Enter the address of the Subshell server this app should show.";
     case "enroll":
@@ -86,9 +98,9 @@ export function subtitleFor(
         ? `Register ${here} again, with a different control plane or as a new node.`
         : `${probe?.nodeBinary ? "This machine has a node CLI but is" : "This machine is"} not registered with a control plane yet.`;
     case "reset":
-      // Says what is deleted rather than where it lives, which is the same
-      // reason the title names no machine (node-assistant-state.ts explains).
-      return "Delete this node's configuration, its key and its data. Nothing else on this computer is touched.";
+      // The operator's one sentence (ruling batch, 2026-09-22, screenshot
+      // 59), replacing the pair: what is removed, and that is all it says.
+      return "Removes the machine's Subshell node configuration and data.";
     case "about":
       return "What this app is, which versions are running, and under what terms.";
     case "update":

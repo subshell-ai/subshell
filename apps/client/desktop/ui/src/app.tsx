@@ -31,9 +31,11 @@ import { ChoiceScreen } from "@/components/assistant/choice-screen";
 import { ConnectScreen } from "@/components/assistant/connect-screen";
 import { EnrollScreen } from "@/components/assistant/enroll-screen";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
+import { PlaneScreen } from "@/components/assistant/plane-screen";
 import { ProgressScreen } from "@/components/assistant/progress-screen";
 import { RegisterScreen } from "@/components/assistant/register-screen";
 import { ResetScreen } from "@/components/assistant/reset-screen";
+import { ServiceScreen } from "@/components/assistant/service-screen";
 import { StartupScreen } from "@/components/assistant/startup-screen";
 import { StatusScreen } from "@/components/assistant/status-screen";
 import { subtitleFor } from "@/components/assistant/subtitles";
@@ -58,10 +60,21 @@ import {
 } from "@/lib/client-flow";
 import type { ActionResult, EnrolledNodeBody } from "@/lib/ipc";
 import * as ipc from "@/lib/ipc";
-import { type NodeUserScreen, screenTitle } from "@/lib/node-assistant-state";
+import { type NodeScreenId, type NodeUserScreen, screenTitle } from "@/lib/node-assistant-state";
 
 export function App() {
-  const runner = useActionRunner();
+  /**
+   * The screen the last action was PRESSED on — the output block travels
+   * with the screen that owns the action (operator ruling 2026-09-22), so
+   * the reset screen never renders the Dashboard card's open line and
+   * Status never inherits the Update screen's install log. Tagged at the
+   * press (`useActionRunner`'s `onRun`), shown only on the matching screen;
+   * the Update screen's own watch-verdict reads the raw runner output,
+   * which is why this gates the RENDER rather than the record.
+   */
+  const [outputScreen, setOutputScreen] = useState<NodeScreenId | null>(null);
+  const screenRef = useRef<NodeScreenId | null>(null);
+  const runner = useActionRunner({ onRun: () => setOutputScreen(screenRef.current) });
   const { probe, settings, firstProbePending, readError } = useNodeState(runner.busy);
   const form = useEnrollForm();
 
@@ -183,15 +196,36 @@ export function App() {
   const screen = clientScreen({ probe, settings, step, override });
 
   /**
+   * The screen this render shows — the ref the PRESS reads.
+   *
+   * The output block travels with the screen that owns the action (operator
+   * ruling 2026-09-22), and the tag is taken from this ref at the moment the
+   * press fires (`useActionRunner`'s `onRun`), never when the action settles:
+   * `use-action-runner.ts` explains why a busy-fall watch cannot do it — a
+   * mutation that settles within one batch never renders `busy` true, so the
+   * fast action that most needs a tag is never seen busy. What press-time
+   * tagging needs is the CURRENT screen outside the render cycle, which is
+   * what this ref carries; the one place the press beats the effect that
+   * maintains it is {@link runRegister}, which claims the progress shell
+   * synchronously because the walk's screen change is still queued.
+   */
+  useEffect(() => {
+    screenRef.current = screen;
+  }, [screen]);
+  /** The words and the failure line, ONLY on the screen that owns the action. */
+  const ownedOutput = outputScreen === screen ? runner.output : null;
+  const ownedFailure = outputScreen === screen ? runner.failure : "";
+
+  /**
    * The rail, or its absence (wave 3). `railFor` answers null for every step
    * of the FTE walk, the two focused acts and the not-read state — and for
    * any standing screen while the machine is NOT settled (configured, no
    * walk in progress), because the exclusion is about the machine's journey,
    * not about who asked: the tray can raise About mid-walk, and the render
-   * keeps its Back. The select semantics are the override model's own:
-   * Status clears the override (the machine's screen is the landing),
-   * Update and About set theirs, and Reset is the destructive DOOR — its
-   * screen is frame-replacing, exactly the server's ruling.
+   * keeps its Back. The select semantics are the override model's own, every
+   * select an override since the landing moved to Control Plane (operator
+   * ruling 2026-09-22, second addendum), and Reset's confirmation rides the
+   * rail since the same day's layout ruling — the room is the running chain.
    *
    * Nothing needs forgetting here: the one-visit draft state this page holds
    * (the enroll form) is edited only on the register and enroll screens,
@@ -205,11 +239,17 @@ export function App() {
         sections={railSections}
         active={railActive(screen)}
         onSelect={(id) => {
+          // Every select is an override now, Status included (operator ruling
+          // 2026-09-22, second addendum): the landing is Control Plane, so
+          // clearing the override no longer meant showing Status — a Status
+          // select that cleared would land on Control Plane with Status
+          // highlighted nowhere. Reset keeps its arm first: its screen is
+          // frame-replacing.
           if (id === "reset") {
             setOverride("reset");
             return;
           }
-          setOverride(id === "status" ? null : (id as NodeUserScreen));
+          setOverride(id as NodeUserScreen);
         }}
       />
     );
@@ -220,6 +260,15 @@ export function App() {
     setPhase("form");
     setFailedAct(null);
     setStep("registering");
+    // The chain's outcome belongs to the progress shell, and the press tags
+    // it NOW: `setStep` is queued, so on the FIRST attempt the ref still
+    // reads "startup" when `commands.register` fires synchronously below —
+    // and a chain tagged to a screen the person left one render ago loses
+    // the gated failure line on exactly the attempt that has no Retry
+    // history. A ref write is immediate; no effect needs to have flushed.
+    // (The words themselves survive either way — `ProgressScreen` reads the
+    // raw output for its failure block — this is the gate, not the record.)
+    screenRef.current = "progress";
     commands.register({ startAtLogin, onPhase: setPhase, onFailed: setFailedAct });
   };
 
@@ -229,7 +278,7 @@ export function App() {
    * defect this page had to preserve through two rewrites: a re-probe must
    * never be able to replace the message an action just produced.
    */
-  const problem = runner.failure || readError || probe?.error || "";
+  const problem = ownedFailure || readError || probe?.error || "";
 
   const shell: FrameShell = {
     title: screen ? screenTitle(screen) : "Checking This Machine",
@@ -274,7 +323,7 @@ export function App() {
     );
   }
 
-  const facts = { probe, settings, enrolledNode, output: runner.output };
+  const facts = { probe, settings, enrolledNode, output: ownedOutput };
 
   switch (screen) {
     case "welcome":
@@ -403,25 +452,47 @@ export function App() {
     case "connect":
       return <ConnectScreen shell={shell} commands={commands} busy={runner.busy} />;
     case "status":
+      // No spread, and no `output`/`busy`: this screen offers no act
+      // (operator ruling 2026-09-22), so it neither renders an action's
+      // words nor disables anything an action would disable. Facts only.
+      return <StatusScreen rail={rail} shell={shell} probe={probe} settings={settings} enrolledNode={enrolledNode} />;
+    case "service":
       return (
-        <StatusScreen
-          rail={rail}
+        <ServiceScreen
           shell={shell}
-          {...facts}
+          rail={rail}
+          probe={probe}
           commands={commands}
           busy={runner.busy}
           onRegister={() => {
             if (runner.busy) return;
             form.seedServer(probe?.status?.serverUrl ?? settings?.planeUrl ?? "");
+            // The walk outranks nothing the person asked for, but it DOES
+            // replace the section they are reading: Service is an override
+            // now (every rail select is), and leaving it set would swallow
+            // the walk's own screen behind it — the 11c0f14f fix, re-traced
+            // to its new home on Service.
+            setOverride(null);
             setStep("node");
           }}
+          output={ownedOutput}
+        />
+      );
+    case "plane":
+      return (
+        <PlaneScreen
+          shell={shell}
+          rail={rail}
+          probe={probe}
+          settings={settings}
+          commands={commands}
+          busy={runner.busy}
           onReenroll={() => {
             if (runner.busy) return;
             form.seedServer(probe?.status?.serverUrl ?? settings?.planeUrl ?? "");
             setOverride("enroll");
           }}
-          onReset={() => setOverride("reset")}
-          onUpdate={() => setOverride("update")}
+          output={ownedOutput}
         />
       );
     case "enroll":
@@ -458,7 +529,14 @@ export function App() {
       );
     case "reset":
       return (
-        <ResetScreen shell={shell} {...facts} runner={runner} busy={runner.busy} onCancel={() => setOverride(null)} />
+        <ResetScreen
+          shell={shell}
+          rail={rail}
+          {...facts}
+          runner={runner}
+          busy={runner.busy}
+          onCancel={() => setOverride(null)}
+        />
       );
   }
 }

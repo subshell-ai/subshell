@@ -1,77 +1,28 @@
 /**
- * The landing screen for a configured client, and the rule it carries.
+ * The landing screen a configured client returns to, and the rules IT carries.
  *
- * Spec 2026-09-18 § 2: the control plane's window is never opened by anything
- * but a press, so this screen's primary button is the only route to it — and
- * every state a configured machine can be in has to land here and still have
- * somewhere to go. The cases below are those two properties: the dashboard
- * button is present and calls the command that opens it, and the screen adapts
- * to whether this machine is a node (Unregister) or merely watching one
- * (Register) and to whether its agent is actually running.
+ * The door rulings (operator 2026-09-22): the control plane's window is opened
+ * by nothing but a press, and since the second addendum this screen carries NO
+ * door at all — the Control Plane section's Dashboard card owns both opens,
+ * and the rail's Reset section is Unregister's only entry. So the cases here
+ * are mostly absences, plus what survives them: the badge and the one
+ * sentence adapt to whether this machine is a node, and the facts render
+ * inline as Status's alone. There is no commands mock in this file because
+ * there is nothing to mock: the screen takes no commands, and the "no button
+ * at all" case is what makes that a pin rather than a habit.
  *
  * Rendered directly rather than through `App`: the routing that lands a client
- * here is `node-assistant-state`'s, tested there, and this file is about what
- * the screen offers once it is reached.
+ * here is `client-flow`'s, tested there, and this file is about what the
+ * screen offers once it is reached.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { cleanup, screen } from "@testing-library/react";
 import { StatusScreen } from "@/components/assistant/status-screen";
 import { subtitleFor } from "@/components/assistant/subtitles";
-import type { NodeCommands } from "@/hooks/use-node-commands";
 import type { EnrolledNodeBody, NodeSettings, Probe } from "@/lib/ipc";
 import { makeProbe, makeSettings, renderApp } from "./harness";
 
 afterEach(cleanup);
-
-/** One recorded command call. */
-interface Call {
-  name: string;
-  args: unknown[];
-}
-
-/**
- * A `NodeCommands` that records instead of invoking.
- *
- * Every member, spelled out: the screen decides which ones to offer, so a
- * command that becomes reachable later fails loudly here rather than being
- * silently undefined.
- */
-function makeCommands(calls: Call[]): NodeCommands {
-  const rec =
-    (name: string) =>
-    (...args: unknown[]) => {
-      // Argument-less commands are handed straight to `onClick`, exactly as
-      // the connected screen hands them, so React passes each one its click
-      // event. The real commands ignore it; recording it would make every
-      // assertion here a comparison against a synthetic event, so only VALUES
-      // are kept — a primitive, `null`, or a plain options object.
-      const kept = args.filter(
-        (a) => a === null || typeof a !== "object" || Object.getPrototypeOf(a) === Object.prototype,
-      );
-      calls.push({ name, args: kept });
-    };
-  return {
-    refresh: rec("refresh"),
-    installNode: rec("installNode"),
-    updateNode: rec("updateNode"),
-    service: rec("service"),
-    restart: rec("restart"),
-    uninstall: rec("uninstall"),
-    rewrite: rec("rewrite"),
-    enroll: rec("enroll"),
-    repoint: rec("repoint"),
-    openPath: rec("openPath"),
-    openPlane: rec("openPlane"),
-    openPlaneUrl: rec("openPlaneUrl"),
-    // The first-run commands. This screen never invokes them — it is the
-    // landing a configured client returns to — but the mock stands in for the
-    // whole interface, so leaving them out would fail the build rather than
-    // any assertion here.
-    installTmux: rec("installTmux"),
-    connectOnly: rec("connectOnly"),
-    register: rec("register"),
-  };
-}
 
 const shell = { title: "This Machine", subtitle: "What this machine is doing." };
 
@@ -85,49 +36,33 @@ function watcherProbe(overrides: Partial<Probe> = {}): Probe {
   });
 }
 
-function mount(
-  init: { probe?: Probe; settings?: NodeSettings; enrolledNode?: EnrolledNodeBody | null; busy?: boolean } = {},
-) {
-  const calls: Call[] = [];
-  const pressed: string[] = [];
+function mount(init: { probe?: Probe; settings?: NodeSettings; enrolledNode?: EnrolledNodeBody | null } = {}) {
   renderApp(
     <StatusScreen
       shell={shell}
       probe={init.probe ?? makeProbe()}
       settings={init.settings ?? makeSettings()}
       enrolledNode={init.enrolledNode ?? null}
-      output={null}
-      commands={makeCommands(calls)}
-      busy={init.busy ?? false}
-      onRegister={() => pressed.push("register")}
-      onReenroll={() => pressed.push("reenroll")}
-      onReset={() => pressed.push("reset")}
-      onUpdate={() => pressed.push("update")}
     />,
   );
-  return { calls, pressed };
 }
 
-const button = (name: string | RegExp) => screen.getByRole("button", { name }) as HTMLButtonElement;
 const maybeButton = (name: string | RegExp) => screen.queryByRole("button", { name });
 
 describe("an enrolled, online machine", () => {
-  it("offers the dashboard and the way back out, and nothing about registering", () => {
+  it("offers NO door, and nothing about registering or unregistering", () => {
+    // The door rulings (operator 2026-09-22; the second addendum superseded
+    // the same day's browser ghost): anything that opens the control plane —
+    // in the app or in the system browser — lives on the Control Plane
+    // section's Dashboard card. Unregister is NOT a link here either: the
+    // rail's Reset section is that door, and one act with two labels is two
+    // acts to a reader.
     mount();
-    expect(button(/open dashboard/i)).toBeTruthy();
-    expect(button(/unregister this machine/i)).toBeTruthy();
+    expect(maybeButton(/open dashboard/i)).toBeNull();
+    expect(maybeButton(/open in browser/i)).toBeNull();
+    expect(maybeButton(/open in app/i)).toBeNull();
+    expect(maybeButton(/unregister this machine/i)).toBeNull();
     expect(maybeButton(/^register this machine$/i)).toBeNull();
-  });
-
-  /**
-   * `null` is the whole contract: the Rust side re-reads its own address
-   * ladder, so the button opens what this app is configured for rather than
-   * whatever string the page happened to be holding.
-   */
-  it("opens the plane with no URL of its own", () => {
-    const { calls } = mount();
-    fireEvent.click(button(/open dashboard/i));
-    expect(calls).toEqual([{ name: "openPlane", args: [null] }]);
   });
 
   /** The node's name is a fact only when THIS session chose it (probe-facts.ts). */
@@ -136,22 +71,29 @@ describe("an enrolled, online machine", () => {
     expect(screen.getByText("mac mini")).toBeTruthy();
   });
 
-  it("unregisters through the reset flow", () => {
-    const { pressed } = mount();
-    fireEvent.click(button(/unregister this machine/i));
-    expect(pressed).toEqual(["reset"]);
-  });
-
   /** Nothing is wrong with this machine, so no service verb is offered. */
   it("offers no service action", () => {
     mount();
     expect(maybeButton(/^(start|restart|install and start)$/i)).toBeNull();
   });
+
+  // The ONE-Entry ruling stated as its own pin (operator ruling 2026-09-22,
+  // fix wave): the rail's Reset section is Unregister's only entry, and
+  // "only" is testable here — not just no button or link NAMED Unregister,
+  // but no button at all, since any button on this screen would be an act
+  // the screen is not allowed to offer.
+  it("offers no second Unregister entry, and no button at all", () => {
+    mount();
+    expect(screen.queryByRole("button", { name: /unregister/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /unregister/i })).toBeNull();
+    expect(screen.queryByText(/unregister/i)).toBeNull();
+    expect(screen.queryAllByRole("button")).toEqual([]);
+  });
 });
 
-describe("the address the primary button will open", () => {
+describe("the address the doors will open", () => {
   /**
-   * The button says only "Open Dashboard", so which server that is has to be
+   * The doors say only "Open in browser", so which server that is has to be
    * on the face of the screen — and it is, in the SUBTITLE, in both branches.
    * The screen used to repeat it in a "Dashboard <url>" line under the badge,
    * which is the redundancy this replaced. `mount` supplies its own fixed
@@ -171,19 +113,6 @@ describe("the address the primary button will open", () => {
 });
 
 describe("a client that is not a node", () => {
-  it("offers the dashboard and Register, and never Unregister", () => {
-    mount({ probe: watcherProbe() });
-    expect(button(/open dashboard/i)).toBeTruthy();
-    expect(button(/^register this machine$/i)).toBeTruthy();
-    expect(maybeButton(/unregister this machine/i)).toBeNull();
-  });
-
-  it("starts the registration flow", () => {
-    const { pressed } = mount({ probe: watcherProbe() });
-    fireEvent.click(button(/^register this machine$/i));
-    expect(pressed).toEqual(["register"]);
-  });
-
   /**
    * Re-enrolling is what you do to a machine that IS one; on this machine the
    * act with that meaning is Register, and two labels for one thing is two
@@ -200,130 +129,63 @@ describe("a client that is not a node", () => {
     expect(maybeButton(/repoint this node/i)).toBeNull();
   });
 
-  it("still says which server this app opens", () => {
+  it("says what the machine is, not which server it opens", () => {
+    // The status screen keeps machine state (operator ruling 2026-09-22);
+    // the plane address is the Control Plane section's, shown labeled there,
+    // and the "This app opens <url>" narration is gone.
     mount({ probe: watcherProbe(), settings: makeSettings({ planeUrl: "https://watch.example" }) });
-    expect(screen.getAllByText("https://watch.example").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/this app opens/i)).toBeNull();
   });
 });
 
-describe("a node whose agent is not running", () => {
-  const stopped = makeProbe({ step: "stopped", service: { ...makeProbe().service, state: "stopped", pid: null } });
+// The service verb cards moved to the Service section (operator ruling
+// 2026-09-22); their screen-level pins live in service-screen.test.tsx now.
 
-  it("offers Start, and says what is wrong", () => {
-    const { calls } = mount({ probe: stopped });
-    expect(screen.getByText(/the node is not running/i)).toBeTruthy();
-    fireEvent.click(button(/^start$/i));
-    expect(calls).toEqual([{ name: "service", args: ["start", { settle: true }] }]);
-  });
-
-  /** Restart is the two-phase command: its refusal is read before `--force`. */
-  it("offers Restart for an offline node, through the confirming path", () => {
-    const { calls } = mount({ probe: makeProbe({ step: "offline" }) });
-    fireEvent.click(button(/^restart$/i));
-    expect(calls).toEqual([{ name: "restart", args: [] }]);
-  });
-
-  it("offers Install and Start when nothing keeps the agent running", () => {
-    mount({ probe: makeProbe({ step: "no-service", service: { installed: false } }) });
-    expect(button(/^install and start$/i)).toBeTruthy();
-  });
-
-  /** A landing screen is not a dead end, and it is not a detour either. */
-  it("still offers the dashboard", () => {
-    mount({ probe: stopped });
-    expect(button(/open dashboard/i)).toBeTruthy();
-  });
-
-  /**
-   * tmux is a gate, not a caption: a node that starts without it comes up
-   * online with no harnesses and refuses every launch.
-   */
-  it("disables the service action while tmux is missing, and says why", () => {
-    mount({ probe: makeProbe({ step: "stopped", tmux: null }) });
-    expect(button(/^start$/i).disabled).toBe(true);
-    expect(screen.getByText(/tmux was not found/i)).toBeTruthy();
-  });
-});
-
-describe("the two control-plane addresses", () => {
-  /** Enrolled against one plane, with the app pointed at another. */
-  const diverged = { probe: makeProbe(), settings: makeSettings({ planeUrl: "https://elsewhere.example" }) };
-
-  it("names both when they disagree, and offers the reconciliation", () => {
-    const { calls } = mount(diverged);
-    const notice = screen.getByRole("status", { name: /mismatch/i });
-    expect(notice.textContent).toContain("https://elsewhere.example");
-    expect(notice.textContent).toContain("https://subshell.example.com");
-    fireEvent.click(within(notice).getByRole("button", { name: /use https:\/\/elsewhere\.example/i }));
-    expect(calls).toEqual([{ name: "repoint", args: ["https://elsewhere.example"] }]);
-  });
-
-  it("says nothing when the two agree", () => {
-    mount();
-    expect(screen.queryByRole("status", { name: /mismatch/i })).toBeNull();
-  });
-
-  it("flags a loopback node address without refusing anything", () => {
-    mount({
-      probe: makeProbe({
-        status: { nodeId: "abc", serverUrl: "http://localhost:3080", online: true, agentVersion: "1.9.0" },
-      }),
-    });
-    expect(screen.getByRole("status", { name: /loopback/i }).textContent).toMatch(/this machine/i);
-    expect(button(/repoint this node/i)).toBeTruthy();
-  });
-});
+// The plane addresses moved to the Control Plane section (operator ruling
+// 2026-09-22); their screen-level pins live in plane-screen.test.tsx now.
 
 describe("what the connected screen offered is still offered", () => {
-  it("keeps Change server…, Open in browser instead and the update door", () => {
-    const { calls, pressed } = mount();
-    expect(button(/change server/i)).toBeTruthy();
-    fireEvent.click(button(/open in browser instead/i));
-    expect(calls).toEqual([{ name: "openPlaneUrl", args: [] }]);
-    fireEvent.click(button(/check for updates/i));
-    expect(pressed).toEqual(["update"]);
-  });
-
-  it("keeps Re-enroll… for a machine that is one", () => {
-    const { pressed } = mount();
-    fireEvent.click(button(/re-enroll/i));
-    expect(pressed).toEqual(["reenroll"]);
-  });
-
-  /**
-   * Still ANNOUNCED here, and no longer INSTALLED from here (spec 2026-09-18
-   * § 7.4). This app ships the agent, so a machine whose bundled agent is
-   * newer usually has a newer app waiting too, and installing one half on the
-   * spot is what produced the loop where the next launch asked again. The
-   * button is a door to the one update screen, which then does whichever
-   * halves are actually behind.
-   */
-  it("announces a newer bundled node CLI and opens the one update screen", () => {
-    const { calls, pressed } = mount({
-      probe: makeProbe({ nodeChoice: "upgrade-available", bundledVersion: "2.0.0" }),
-    });
-    fireEvent.click(button(/update the node to 2\.0\.0/i));
-    expect(pressed).toEqual(["update"]);
-    expect(calls).toEqual([]);
-  });
-
-  /** The remedy the restart refusal names BY LABEL, so the label is pinned. */
-  it("offers the definition rewrite when a teardown would kill live panes", () => {
-    const { calls } = mount({
-      probe: makeProbe({ service: { ...makeProbe().service, paneSafety: "kills" } }),
-    });
-    fireEvent.click(button(/rewrite the service definition/i));
-    expect(calls).toEqual([{ name: "rewrite", args: [] }]);
-  });
-
-  it("keeps the facts and the CLI's last words behind Show Details", () => {
+  it("offers neither the plane doors nor the update door — the rail and the Control Plane section carry them", () => {
+    // The plane address's home is the Control Plane section and the update
+    // door is the rail's Update section (operator rulings, 2026-09-22); the
+    // status screen keeps machine state and the two machine acts.
     mount();
-    expect(screen.getByText("Show Details")).toBeTruthy();
+    expect(maybeButton(/change server/i)).toBeNull();
+    expect(maybeButton(/open the control plane/i)).toBeNull();
+    // No doors at all after the second addendum: the Control Plane section's
+    // Dashboard card is the only place that opens the plane.
+    expect(maybeButton(/open in browser/i)).toBeNull();
+    expect(maybeButton(/open in app/i)).toBeNull();
+    expect(maybeButton(/open dashboard/i)).toBeNull();
+    expect(maybeButton(/check for updates/i)).toBeNull();
+    expect(maybeButton(/update the node to/i)).toBeNull();
   });
 
-  it("lets a stuck machine be re-read", () => {
-    const { calls } = mount({ probe: makeProbe({ step: "stopped" }) });
-    fireEvent.click(button(/^refresh$/i));
-    expect(calls).toEqual([{ name: "refresh", args: [] }]);
+  it("offers no Re-enroll even on a machine that is one — the act is the Control Plane section's", () => {
+    // Operator ruling 2026-09-22: re-enrolling is an act on this machine's
+    // RELATIONSHIP to the plane, so it moved out of the machine-state screen.
+    // The Control Plane side of the move is pinned in plane-screen.test.tsx.
+    mount();
+    expect(maybeButton(/re-enroll/i)).toBeNull();
+  });
+
+  it("renders the facts INLINE, and they are this screen's alone", () => {
+    // Operator ruling 2026-09-22 (the server wave's ruling carried over): a
+    // section that hides its own facts behind a second control is two
+    // navigations for one answer. And since screenshot 60 the list is THIS
+    // screen's ALONE — every other screen lost it — so the full list
+    // including `bundled` and `tmux` lives here again (superseding the
+    // screenshot-52 scoping).
+    mount();
+    expect(screen.queryByText("Show Details")).toBeNull();
+    expect(screen.getByText("/usr/bin/tmux")).toBeTruthy();
+    expect(screen.getByText("/home/u/.config/subshell/config.json")).toBeTruthy();
+  });
+
+  it("offers no refresh — the probe's own interval re-reads the machine", () => {
+    // Operator ruling 2026-09-22: no Refresh button; the poll is the refresh.
+    // The interval wiring itself is pinned in `use-node-state.test.tsx`.
+    mount({ probe: makeProbe({ step: "stopped" }) });
+    expect(maybeButton(/^refresh$/i)).toBeNull();
   });
 });

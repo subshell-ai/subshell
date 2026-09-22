@@ -42,6 +42,8 @@ export type NodeScreenId =
   | "startup"
   | "progress"
   | "status"
+  | "service"
+  | "plane"
   | "connect"
   | "enroll"
   | "reset"
@@ -61,6 +63,8 @@ export const NODE_SCREEN_IDS: readonly NodeScreenId[] = [
   "startup",
   "progress",
   "status",
+  "service",
+  "plane",
   "connect",
   "enroll",
   "reset",
@@ -72,7 +76,10 @@ export const NODE_SCREEN_IDS: readonly NodeScreenId[] = [
  * A screen the USER chose rather than one the machine implies.
  *
  * Re-enrolling and resetting are things a person asks for from a machine that
- * is already working; no probe ever implies either. `about` joined them when
+ * is already working; no probe ever implies either. `service` and `plane`
+ * joined them in wave 3's follow-ups (operator ruling 2026-09-22): the rail's
+ * Service and Control Plane sections are screens a person SELECTS, and the
+ * override state is how a select persists. `about` joined them when
  * the permanent colophon under every screen was removed (operator's call,
  * 2026-09-12): what this app is and under what terms is something a person
  * ASKS for, not something that sits under the question being asked.
@@ -85,7 +92,7 @@ export const NODE_SCREEN_IDS: readonly NodeScreenId[] = [
  * consented act with a half still outstanding, and `app.tsx` opens this screen
  * once per launch when the probe reports one (spec 2026-09-18 § 4.2).
  */
-export type NodeUserScreen = "enroll" | "reset" | "about" | "update";
+export type NodeUserScreen = "enroll" | "reset" | "about" | "update" | "service" | "plane" | "status";
 
 /**
  * ONE word for where you are, on both platforms (operator's call, 2026-09-12).
@@ -147,6 +154,14 @@ export function screenTitle(screen: NodeScreenId): string {
       // neither. It is the one screen that asks nothing, which is why it is
       // named after the app rather than after a decision.
       return "Subshell Client";
+    case "service":
+      // The rail section's own name (operator ruling 2026-09-22): the node's
+      // install and its service lifecycle live here.
+      return "Service";
+    case "plane":
+      // Same: the Control Plane section's screen. One word for the thing both
+      // addresses name — the server this app and this node talk to.
+      return "Control Plane";
     case "connect":
       return "Connect to a Server";
     case "enroll":

@@ -48,7 +48,12 @@ export function fmtAge(ms: number | undefined): string | null {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-/** Everything the top card says about this machine. */
+/**
+ * Everything the top card says about this machine. The bundled and tmux rows
+ * are part of the list again (operator ruling 2026-09-22, screenshot 60: the
+ * facts render on the STATUS screen ALONE, so the screenshot-52 scoping that
+ * kept them on Service is superseded — one list, one panel).
+ */
 export function probeFacts(args: {
   probe: Probe | undefined;
   settings: NodeSettings | undefined;
@@ -101,10 +106,21 @@ export function probeFacts(args: {
       tone: st.online ? "ok" : "warn",
     });
   } else if (st?.reason) {
-    // The CLI's own sentence for why it could not read a config — usually "no
-    // config at … — enroll this node first", sometimes "config corrupt". The
-    // difference matters and is not something to paraphrase.
-    out.push({ key: "config", value: st.reason, tone: "warn" });
+    // PLAIN LANGUAGE, not the CLI's words (operator ruling 2026-09-22,
+    // screenshot 60): the enroll-command hint belongs to the CLI and the
+    // enroll flow, not to a facts row, and a raw refusal reads as an error
+    // the reader cannot act on. Two states, two sentences: the reason that
+    // points at enrolling becomes the pointer to the Service section; any
+    // other unreadable-config reason becomes the one sentence that is true
+    // of all of them. The CLI's own words still render VERBATIM where they
+    // belong — as an action's failure output on the screen that owns the
+    // action.
+    const notEnrolled = /enroll/i.test(st.reason);
+    out.push({
+      key: "config",
+      value: notEnrolled ? "Not enrolled. Go to Service to enroll." : "The node's configuration could not be read.",
+      tone: "warn",
+    });
   }
 
   if (svc?.installed) {

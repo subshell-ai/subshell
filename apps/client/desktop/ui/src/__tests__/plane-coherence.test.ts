@@ -26,6 +26,14 @@ describe("planeCoherence", () => {
     expect(result?.nodeServerUrl).toBe("http://localhost:3080");
     expect(result?.message).toContain("https://new.example");
     expect(result?.message).toContain("http://localhost:3080");
+    // The deixis pinned whole (delta review I-2, 2026-09-22): the node's
+    // address is named first, so the consequence sentence must say "there"
+    // (the nearest name, the node's), never "the second one" (which reads as
+    // the plane's).
+    expect(result?.message).toBe(
+      "This machine's node reports to http://localhost:3080, not https://new.example. " +
+        "Subshells started here will appear there.",
+    );
   });
 
   /**

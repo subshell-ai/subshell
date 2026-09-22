@@ -31,6 +31,7 @@ const RESETTABLE = makeProbe({
 function renderReset(over: {
   probe?: typeof RESETTABLE | null;
   busy?: boolean;
+  railPresent?: boolean;
   steps?: ReturnType<typeof emptySteps>;
   armingProblem?: string | null;
   runLabel?: string;
@@ -51,6 +52,7 @@ function ResetScreenHolder(props: { over: Parameters<typeof renderReset>[0] }) {
     <ResetScreen
       probe={over.probe === undefined ? RESETTABLE : over.probe}
       busy={over.busy ?? false}
+      railPresent={over.railPresent ?? false}
       steps={over.steps ?? emptySteps()}
       armingProblem={over.armingProblem ?? null}
       runLabel={over.runLabel ?? "Reset everything"}
@@ -154,10 +156,19 @@ describe("the run press and its meter", () => {
     renderReset({ busy: true, log: { text: "", bad: false } });
     expect((document.querySelector("pre.pane-pre.mt-3") as HTMLPreElement | null)?.hidden ?? true).toBe(true);
     expect(screen.getByRole("button", { name: "Resetting…" })).toBeDefined();
-    // Cancel reads as "cancel this reset" under the meter, which is the one
-    // thing it cannot do: disabled while the chain runs.
-    const cancel = screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement;
-    expect(cancel.disabled).toBe(true);
+    // NO CANCEL in the room, regardless (operator ruling 2026-09-22,
+    // screenshot 59, superseding the half-run Cancel): nothing on the
+    // progress pane may offer an act the chain cannot honour.
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+  });
+
+  // The Cancel rule's other half: with the rail UP there is no Cancel either
+  // (the rail is the way out of the confirmation); a rail-less render keeps
+  // it, which is what "hands the cancel to the page's own close" pins below.
+  it("offers no Cancel while the rail is present", () => {
+    renderReset({ railPresent: true });
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Reset everything" })).toBeDefined();
   });
 
   it("hands the cancel to the page's own close", () => {

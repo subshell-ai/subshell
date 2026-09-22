@@ -18,22 +18,16 @@
  * last moment anyone reads them.
  */
 import { TriangleAlert } from "lucide-react";
+import type { ReactElement } from "react";
 import { useEffect, useState } from "react";
-import { DetailsDisclosure } from "@/components/assistant/details-disclosure";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
+import { ActionOutput } from "@/components/assistant/status-facts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { ActionRunner } from "@/hooks/use-action-runner";
 import { finished } from "@/lib/actions";
-import {
-  type ActionResult,
-  type EnrolledNodeBody,
-  type NodeSettings,
-  nodeArmReset,
-  nodeReset,
-  type Probe,
-} from "@/lib/ipc";
+import { type ActionResult, nodeArmReset, nodeReset, type Probe } from "@/lib/ipc";
 
 /** What a reset does NOT reach (spec 2026-09-11 § 5.4). */
 const DISCLOSURES: readonly string[] = [
@@ -46,15 +40,19 @@ const DISCLOSURES: readonly string[] = [
 
 export function ResetScreen(props: {
   shell: FrameShell;
+  /**
+   * The rail node, present on the CONFIRMATION (operator ruling 2026-09-22,
+   * final word on the layout: the sidebar stays) and WITHHELD while the
+   * chain runs — the room is the running chain's, no navigation beside it.
+   */
+  rail?: ReactElement;
   probe: Probe | undefined;
-  settings: NodeSettings | undefined;
-  enrolledNode: EnrolledNodeBody | null;
   output: ActionResult | null;
   runner: ActionRunner;
   busy: boolean;
   onCancel: () => void;
 }) {
-  const { shell, probe, settings, enrolledNode, output, runner, busy, onCancel } = props;
+  const { shell, probe, output, runner, busy, onCancel } = props;
   /** null while arming; true once a plan is staged; false on a machine with nothing to reset. */
   const [armed, setArmed] = useState<boolean | null>(null);
   const [typed, setTyped] = useState("");
@@ -85,17 +83,39 @@ export function ResetScreen(props: {
   const reportsTo = probe?.status?.serverUrl ?? null;
   const paths = [probe?.paths?.dataDir, probe?.paths?.configFile].filter((p): p is string => Boolean(p));
 
+  // The chain is the runner action: from the confirm press to its end the
+  // screen is the room — the rail hides and no exit renders, because no
+  // navigation belongs beside a chain that is deleting this machine's node.
+  // What STAYS is the press, relabelled: a bar that empties the moment the
+  // one irreversible button is pressed reads as a hung window, not a
+  // running chain — the same defect the server's room closes with its
+  // "Resetting…" label, and the affordance it has where this app has no
+  // step events to draw a meter from.
+  const running = busy;
+
   return (
     <Frame
       {...shell}
+      rail={running ? undefined : props.rail}
       icon={<TriangleAlert />}
       barLeft={
-        <Button variant="ghost" disabled={busy} onClick={onCancel}>
-          Cancel
-        </Button>
+        // NO CANCEL where the rail is present (operator ruling 2026-09-22,
+        // screenshot 59): the rail is the way out of the confirmation, and
+        // one act with two exits is two acts to a reader. Cancel is for a
+        // rail-LESS render only, and the running room keeps none regardless.
+        running || props.rail ? undefined : (
+          <Button variant="ghost" disabled={busy} onClick={onCancel}>
+            Cancel
+          </Button>
+        )
       }
       barRight={
-        armed === true ? (
+        // The press renders from ARMING, not from rest: through the chain
+        // it stays, disabled and labelled, so the running reset is visible
+        // as running (see `running` above). It is the chain's own button,
+        // not navigation, so the room's rule — no way out from under the
+        // chain — does not take it.
+        armed !== true ? undefined : (
           <Button
             className="min-w-[120px]"
             variant="destructive"
@@ -105,14 +125,17 @@ export function ResetScreen(props: {
               runner.run(async () => finished(await nodeReset({ typed: typed.trim() })));
             }}
           >
-            Reset Everything
+            {running ? "Resetting…" : "Reset Everything"}
           </Button>
-        ) : undefined
+        )
       }
     >
       {armed === false ? (
+        // The operator's exact words (ruling batch, 2026-09-22, screenshot
+        // 59): the "nothing to reset / nothing has been changed" tail is
+        // deleted; the sentence says what the machine is not and stops.
         <p className="text-muted-foreground text-sm leading-relaxed">
-          This machine is not registered with a control plane, so there is nothing to reset. Nothing has been changed.
+          This machine is not registered with a control plane.
         </p>
       ) : (
         <>
@@ -172,7 +195,7 @@ export function ResetScreen(props: {
         </>
       )}
 
-      <DetailsDisclosure probe={probe} settings={settings} enrolledNode={enrolledNode} output={output} />
+      <ActionOutput output={output} />
     </Frame>
   );
 }

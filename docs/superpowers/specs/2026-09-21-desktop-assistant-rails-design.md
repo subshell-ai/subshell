@@ -105,10 +105,61 @@ re-renders through its own state).
 ### The client app
 
 Its screens are already components. It gains the same `Rail` for its standing
-set — **Status**, **Update**, **About** — while its FTE walk (Welcome → Choice
-→ Register/Connect → Setting Up) stays untouched and rail-less, and Reset
-stays frame-replacing. The tray's `desktop-screen` events (`about`, `update`)
-select the rail section they name.
+set — **Status**, **Service**, **Control Plane**, **Update**, **About** —
+while its FTE walk (Welcome → Choice → Register/Connect → Setting Up) stays
+untouched and rail-less, and Reset stays frame-replacing. The tray's
+`desktop-screen` events (`about`, `update`) select the rail section they
+name.
+
+Two follow-up rulings (operator, 2026-09-22, live screenshots) split the
+client's status screen the way the server's recovery screen was split: the
+node's machinery (install offer, service verbs, pane-safety rewrite, the
+node's reveals) moves to a **Service** section — whose subtitle carries the
+"what is a node" half the install explainer dropped ("lengthy as heck"); the
+plane addresses (the configured one, the way to change it, "Open in browser
+instead", the node's repoint machinery and its coherence card) move to a
+**Control Plane** section, which shows the address labeled instead of
+narrating "This app opens <url>". The node-behind doors the status screen
+carried are gone — the Update section is the door — and the facts render
+INLINE, no disclosure, the same reason the server's Show Details went.
+
+More rulings from the same operator session (2026-09-22, screenshots
+52/53), on the client: the not-a-node sentence on the status screen is
+deleted outright; the badge for `no-node` reads "Not registered as a node"
+(house sentence case over the operator's typed capital-N); the `bundled` and
+`tmux` fact rows render ONLY on the Service section; the Control Plane
+section's address row is rebuilt into the server Addresses card's form shape
+(labeled value row, acts grouped on their own row) because the one-line
+value with its buttons beside it wrapped the URL character-broken; and the
+plane's DOORS rearrange — the status screen loses "Open Dashboard" and
+gains the ghost "Open in browser", while the Control Plane section carries
+both doors for the plane itself ("Open the control plane" for the in-app
+window, "Open in browser" for the system browser). Re-enroll… moved to the
+Control Plane section the same day: it is an act on the machine's
+relationship to the plane, and the status screen keeps machine state only.
+Two addenda, still 2026-09-22, supersede parts of the above: the install
+explainer is deleted outright and the button reads "Install the Subshell
+Node CLI"; and the doors' final state puts Control Plane FIRST — it is the
+landing (`clientScreen`'s configured case answers `plane`), it reads first
+in the rail, every rail select is an override (Status included, since
+clearing would land on Control Plane), the status screen carries NO door at
+all, and the Control Plane section's Dashboard card carries both doors
+("Open in browser" for the system browser, "Open in app" for the in-app
+window).
+
+### The facts' home, and the register act's (operator ruling 2026-09-22,
+### screenshot 60)
+
+The facts render on the STATUS screen ALONE — "that data should only be in
+the status panel" — superseding the same day's screenshot-52 scoping that
+kept bundled and tmux on Service: one list, one panel, full. A screen that
+needs a fact to explain a state says it in its own card's sentence, and the
+config fact's value is plain language ("Not enrolled. Go to Service to
+enroll." / "The node's configuration could not be read."), the CLI's raw
+words rendering only as an action's failure output. **Register this
+machine** leaves the status screen for the Service section beside the
+install offer (the node's machinery home): same handler, same walk entry,
+the override-clearing wiring re-traced and re-pinned on the new screen.
 
 ### Testing
 
@@ -118,6 +169,25 @@ component tests render real trees. New coverage: rail routing, each recovery
 variant's diagnosis and action, the update act's phases and refusals, the
 supervision and addresses forms. Pure `lib/` tests are untouched and stay
 green. The old DOM-render code had no tests; nothing is lost.
+
+### The reset layout, superseded (operator ruling 2026-09-22, final word)
+
+"Rendered full-window WITHOUT the rail: Reset (its premise is that it is the
+only thing happening)" no longer holds for the CONFIRMATION — the user was
+losing the sidebar on it, and that is not wanted. Both apps: the reset
+confirmation renders inside the frame WITH the rail, reset active and
+danger-styled; the ROOM is the RUNNING chain — from the confirm press until
+the chain ends the rail and bar hide and the view goes full-window again
+(the meter/log render is the full-window one). No navigation beside a
+running chain is where the safety property lives now; it moved down to the
+chain, not away. What the room KEEPS is the press itself, disabled and
+labelled "Resetting…" — a bar that empties the moment the one irreversible
+button is pressed reads as a hung window, not a running chain (the server's
+button has carried that label throughout; the client's does too as of the
+fix wave, standing in for the meter whose step events only the server's
+chain emits). The hostname gate, the danger styling, the re-arm chain and
+the deep link's gate are untouched; the SPA deep link lands the
+confirmation with the rail.
 
 ## What does not change
 

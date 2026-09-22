@@ -160,7 +160,7 @@ export function ProgressScreen(props: {
                  * the chain got is still readable. `apps/node/agent` owns
                  * every operator-facing message and its strings are pinned by
                  * its own tests, so this prints them and nothing else. Same
-                 * block `details-disclosure.tsx` uses, for the same reason.
+                 * block `status-facts.tsx` uses, for the same reason.
                  */}
                 {row.state === "failed" && failure !== "" && (
                   <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-destructive bg-background px-3 py-2.5 font-mono text-detail leading-relaxed">

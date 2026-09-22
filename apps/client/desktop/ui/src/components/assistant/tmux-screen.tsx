@@ -392,7 +392,7 @@ function InstallProgress(props: { startedAt: number; line: string }) {
  * final stderr line is routinely a fragment (`brew update-reset`, a "Please
  * report this issue" tail) and the reason is four lines above it.
  *
- * `<details>` rather than state, the same rule {@link DetailsDisclosure}
+ * `<details>` rather than state, the same rule StatusFacts used to follow
  * keeps: a disclosure someone is reading must survive the re-render an
  * action's re-probe causes, and React leaves the element's own `open` alone.
  */

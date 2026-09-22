@@ -249,6 +249,24 @@ Pin by test: every FTE route → null; reset/permissions → null; standing rout
 - Modify: `apps/client/desktop/ui/src/app.tsx`, `ui/src/lib/client-flow.ts`, `ui/src/lib/__tests__/client-flow.test.ts` (or node-assistant-state module — wherever `NodeUserScreen` lives)
 
 - [ ] Step 1: `railFor` seam for the client, same shape: Status/Update/About sections; FTE walk steps and reset → null. Pin by test.
-- [ ] Step 2: `App` composes `Rail` from `@internal/assistant`; the tray's `desktop-screen` events (`about`, `update`) select their section (the existing override state becomes the rail's active id — same semantics, no new command). Two wave-2 rulings carry over (operator, 2026-09-22): the client rail is Status/Update/About PLUS **Reset** as its fifth, destructive-styled section — the reset door in the rail, the reset screen still frame-replacing — and the leave buttons render only where the rail does not, for the same reasons. The client app's `styles.css` must carry the rail's two nav-gradient tokens — `--nav-active-from` / `--nav-active-to`, value for value with `apps/server/web/src/styles.css`'s — the way the server app already does (wave 2); without them the shared `Rail`'s active gradient renders nothing.
+- [ ] Step 2: `App` composes `Rail` from `@internal/assistant`; the tray's `desktop-screen` events (`about`, `update`) select their section (the existing override state becomes the rail's active id — same semantics, no new command). Two wave-2 rulings carry over (operator, 2026-09-22): the client rail is Status/Update/About PLUS **Reset** as its fifth, destructive-styled section — the reset door in the rail, the reset screen still frame-replacing — and the leave buttons render only where the rail does not, for the same reasons. Two follow-up rulings the same day split the client's status screen: **Service** (the node's install offer, the service verbs, the pane-safety rewrite, the node's reveals; its subtitle carries the "what is a node" half the install explainer dropped) and **Control Plane** (the configured address, the way to change it, "Open in browser instead", the node's repoint machinery) join the standing set; the status screen's node-update doors are deleted (the Update section is the door) and its facts render inline. A later ruling batch the same day (screenshots 52/53): the not-a-node sentence is deleted; the `no-node` badge reads "Not registered as a node"; the `bundled` and `tmux` fact rows render only on Service; the Control Plane address row becomes the addresses-card form shape (labeled value row, acts grouped below); the plane's doors rearrange, and Re-enroll… moves to Control Plane. Two addenda the same day supersede part of that: the install explainer is deleted and the button reads "Install the Subshell Node CLI"; Control Plane becomes the LANDING and reads first in the rail (every rail select is an override, Status included), the status screen carries no door at all, and Control Plane's Dashboard card carries both doors ("Open in browser" system, "Open in app" in-app). The client app's `styles.css` must carry the rail's two nav-gradient tokens — `--nav-active-from` / `--nav-active-to`, value for value with `apps/server/web/src/styles.css`'s — the way the server app already does (wave 2); without them the shared `Rail`'s active gradient renders nothing.
 - [ ] Step 3: The FTE screens (`ChoiceScreen`, `EnrollScreen`, `ConnectScreen`, `RegisterScreen`, `ProgressScreen`, `TmuxScreen`, `WelcomeScreen`) render full-window as today — assert the rail is absent in their component tests.
 - [ ] Step 4: Gates (`bun test` in the app covers both halves via turbo), changeset (`@internal/desktop-client`, minor), PR. Docs: `apps/client/desktop/AGENTS.md` assistant section rewritten.
+
+## Ruling batch (2026-09-22, screenshot 60): facts on Status alone; Register on Service
+
+The facts list renders on the STATUS screen alone (bundled and tmux back
+in, superseding the screenshot-52 scoping); other screens keep only their
+actions' output block, and the config fact's value is plain language
+pointing at Service. Register this machine moves from the status screen to
+the Service section beside the install offer, same handler and walk entry,
+the override-clearing wiring re-pinned there.
+
+## Superseded by ruling (2026-09-22, final word): the reset layout
+
+The reset screen's frame-replacing premise holds for the RUNNING chain only.
+The confirmation rides the rail in both apps (reset active, danger), the
+room is the chain — from the confirm press to the chain's end the rail and
+bar hide and the view goes full-window — and the safety property lives in
+"no navigation beside a running chain". Hostname gate, danger styling,
+re-arm chain, deep-link gate: untouched.

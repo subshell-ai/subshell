@@ -63,18 +63,21 @@ describe("clientScreen", () => {
     expect(clientScreen({ probe: probe(), settings: settings(null), step: "node", override: null })).toBe("register");
   });
 
-  it("lands a configured client on its status screen, whatever the machine is doing", () => {
+  it("lands a configured client on Control Plane, whatever the machine is doing", () => {
     // The rule this module exists for: a configured client never auto-opens
-    // the dashboard and never resumes a setup walk. Every one of these used
-    // to be its own screen; the contextual action lives inside Status now.
+    // the dashboard and never resumes a setup walk. The LANDING is Control
+    // Plane (operator ruling 2026-09-22, second addendum — the section is
+    // also the landing; previously Status): the screen that says which plane
+    // this person came back to. Opening the plane's UI is still a press on
+    // the Dashboard card, never automatic.
     for (const step of ["online", "stopped", "offline", "no-service", "not-enrolled", "no-node"] as const) {
       expect(
         clientScreen({ probe: probe({ step }), settings: settings("https://plane.test"), step: null, override: null }),
-      ).toBe("status");
+      ).toBe("plane");
     }
   });
 
-  it("lands a configured client on status even for a step this build predates", () => {
+  it("lands a configured client on Control Plane even for a step this build predates", () => {
     expect(
       clientScreen({
         probe: probe({ step: "what-even" as ProbeStep }),
@@ -82,7 +85,7 @@ describe("clientScreen", () => {
         step: null,
         override: null,
       }),
-    ).toBe("status");
+    ).toBe("plane");
   });
 
   it("resumes a half-built node on Register rather than re-asking what it came to do", () => {
@@ -158,7 +161,7 @@ describe("registerSteps", () => {
 
   it("names each act the chain performs", () => {
     expect(registerSteps(probe(), "form").map((r) => [r.id, r.label])).toEqual([
-      ["install", "Install the node"],
+      ["install", "Install the Subshell Node CLI"],
       ["enroll", "Enroll this machine"],
       ["start", "Start the node service"],
     ]);
@@ -213,22 +216,29 @@ describe("registerSteps", () => {
  * machine's journey, not about who asked.
  */
 describe("railFor", () => {
-  it("answers the four standing sections for a settled machine on a standing screen", () => {
-    for (const screen of ["status", "update", "about"] as const) {
+  it("answers the six standing sections for a settled machine on a standing screen", () => {
+    // Service and Control Plane joined by operator ruling 2026-09-22 (live
+    // screenshots): the node's machinery and the plane address's home move
+    // out of the status screen, and the rail carries them.
+    for (const screen of ["status", "service", "plane", "update", "about"] as const) {
       const sections = railFor(screen, true);
       expect(
         sections?.map((s) => s.id),
         screen,
-      ).toEqual(["status", "update", "about", "reset"]);
+      ).toEqual(["plane", "status", "service", "update", "about", "reset"]);
       expect(
         sections?.map((s) => s.label),
         screen,
-      ).toEqual(["Status", "Update", "About", "Reset"]);
+      ).toEqual(["Control Plane", "Status", "Service", "Update", "About", "Reset"]);
     }
     expect(railFor("status", true)?.find((s) => s.id === "reset")?.danger).toBe(true);
   });
 
-  it("answers null for every FTE walk screen, reset, enroll and the unread state", () => {
+  it("answers null for every FTE walk screen, enroll and the unread state", () => {
+    // Reset LEFT this list (operator ruling 2026-09-22, final word on the
+    // layout): its confirmation rides the rail, reset active; the
+    // frame-replacing room is the RUNNING chain, which reset-screen.tsx
+    // enforces off the runner's busy, not a railFor case.
     for (const screen of [
       "welcome",
       "choice",
@@ -238,28 +248,36 @@ describe("railFor", () => {
       "progress",
       "connect",
       "enroll",
-      "reset",
     ] as const) {
       expect(railFor(screen, true), screen).toBeNull();
     }
     expect(railFor(null, true)).toBeNull();
   });
 
+  it("gives the reset confirmation the six sections, reset active", () => {
+    const sections = railFor("reset", true);
+    expect(sections?.map((s) => s.id)).toEqual(["plane", "status", "service", "update", "about", "reset"]);
+    expect(sections?.find((s) => s.id === "reset")?.danger).toBe(true);
+  });
+
   it("answers null for a standing screen on a machine mid-first-run", () => {
     // The tray can raise About mid-walk, and the router honours it; wave 2's
     // ruling keeps the render and takes away the rail — the exclusion is
     // about the machine's journey, not about who asked.
-    for (const screen of ["status", "update", "about"] as const) {
+    for (const screen of ["status", "service", "plane", "update", "about"] as const) {
       expect(railFor(screen, false), screen).toBeNull();
     }
   });
 
   it("marks the active section by the screen, through railActive", () => {
     expect(railActive("status")).toBe("status");
+    expect(railActive("service")).toBe("service");
+    expect(railActive("plane")).toBe("plane");
     expect(railActive("update")).toBe("update");
     expect(railActive("about")).toBe("about");
-    // A screen that gets no rail gets no active state either.
-    expect(railActive("reset")).toBeNull();
+    // Reset rides the rail now (operator ruling 2026-09-22): its
+    // confirmation is a standing render, reset active.
+    expect(railActive("reset")).toBe("reset");
     expect(railActive("welcome")).toBeNull();
     expect(railActive(null)).toBeNull();
   });

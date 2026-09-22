@@ -41,14 +41,14 @@ const BEHIND = makeProbe({
   nodeBinary: { argv: ["/home/u/.local/bin/subshell"], source: "local-bin", version: "1.9.0" },
 });
 
-describe("the status screen's button is a door (§ 7.4)", () => {
+describe("the rail's Update section is the door (§ 7.4)", () => {
   it("opens the one act instead of installing the agent on the spot", async () => {
     const fake = await boot({
       probe: BEHIND,
       handlers: { node_check_app_update: () => APP_CURRENT },
     });
 
-    fireEvent.click(button("Update the node to 1.10.0"));
+    fireEvent.click(button("Update"));
 
     await waitFor(() => expect(screen.getByText("Update Subshell Client")).toBeTruthy());
     // Nothing was installed by walking through the door — the act asks first.
@@ -92,7 +92,9 @@ describe("the status screen's button is a door (§ 7.4)", () => {
     // A settled machine (configured, no walk): the rail is up, and the leave
     // button is not — a select leaves. Status is the way back.
     await boot({ probe: BEHIND, handlers: { node_check_app_update: () => APP_CURRENT } });
-    fireEvent.click(button("Update the node to 1.10.0"));
+    // The door is the rail's own Update section (the status screen's doors
+    // are gone, operator ruling 2026-09-22).
+    fireEvent.click(button("Update"));
     await waitFor(() => expect(screen.getByText("Update Subshell Client")).toBeTruthy());
     expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy();
     expect(buttonOrNull("Back")).toBeNull();
@@ -337,8 +339,10 @@ describe("the act is a selection (§ 13)", () => {
   });
 
   async function openUpdate(init: Parameters<typeof installFakeIpc>[0]) {
+    // The doors the status screen carried are GONE (operator ruling
+    // 2026-09-22): the rail's Update section is the door now.
     const fake = await boot(init);
-    fireEvent.click(button(/Update the node to|Check for updates/));
+    fireEvent.click(button("Update"));
     await waitFor(() => expect(screen.getByText("Update Subshell Client")).toBeTruthy());
     return fake;
   }
@@ -371,7 +375,7 @@ describe("the act is a selection (§ 13)", () => {
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Update Subshell Client App" }));
     await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Update Subshell Node CLI" })).not.toBeNull());
-    expect(button(/Install the node \(1\.10\.0\)/)).toBeTruthy();
+    expect(button(/Install the Subshell Node CLI \(1\.10\.0\)/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Update Subshell Node CLI" }));
     await waitFor(() => expect(button("Nothing selected").disabled).toBe(true));
