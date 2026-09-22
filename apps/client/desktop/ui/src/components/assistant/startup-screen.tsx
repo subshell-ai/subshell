@@ -38,7 +38,6 @@ export function StartupScreen(props: {
   // The manager's name goes in the SENTENCE, where it explains something,
   // rather than in a title as a parenthetical that explains nothing — the
   // supervision card's rule, and a genuine platform fact rather than voice.
-  const manager = IS_MACOS ? "A launchd agent" : "A systemd user service";
 
   return (
     <Frame
@@ -68,7 +67,7 @@ export function StartupScreen(props: {
       }
     >
       <p className="text-muted-foreground text-sm leading-relaxed">
-        {manager} runs this node in the background, whether or not Subshell Client is open.
+        The node runs on this machine, not in this app. If it stops, it is started again.
       </p>
       <div className="mt-6 flex items-start gap-3">
         <Switch
@@ -93,9 +92,8 @@ export function StartupScreen(props: {
            */}
           {!IS_MACOS && (
             <p className="text-detail text-muted-foreground leading-relaxed">
-              Start at login arms a systemd user unit, which comes back at login and dies at logout unless this user
-              lingers; <span className="font-mono">loginctl enable-linger $USER</span> makes it come back at boot
-              instead.
+              It comes back at login but dies at logout unless this user lingers;{" "}
+              <span className="font-mono">loginctl enable-linger $USER</span> makes it come back at boot instead.
             </p>
           )}
         </div>

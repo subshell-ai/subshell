@@ -245,9 +245,9 @@ export function useNodeCommands(args: {
               first.stderr.trim(),
               rewriteKillsPanes(probe)
                 ? 'The button labelled "Rewrite the service definition" is the CLI\'s own first suggestion and it ' +
-                  "fixes this for good, but launchd has no reload, so it boots the stale job out to load the new " +
-                  "one and costs the same sessions this restart would, once. Forcing the restart loses them and " +
-                  "repairs nothing."
+                  "fixes this for good, but macOS cannot reload a running job: it stops the node to load the new " +
+                  "definition, costing the same sessions this restart would, once. Forcing the restart loses them " +
+                  "and repairs nothing."
                 : 'The button labelled "Rewrite the service definition" is the CLI\'s own first suggestion: it ' +
                   "fixes this for good and kills nothing. Forcing the restart loses every session running on this " +
                   "machine right now.",
@@ -301,9 +301,9 @@ export function useNodeCommands(args: {
         return asks({
           title: "Rewriting the definition restarts the node",
           messages: [
-            "A launchd job cannot be reloaded in place: the loaded one is booted out and the new definition is " +
-              "bootstrapped. The definition currently loaded does not spare live panes, so booting it out kills " +
-              "every subshell running on this machine.",
+            "macOS cannot reload a running job in place: the node is stopped and the new definition is loaded. " +
+              "The definition currently loaded does not spare live panes, so stopping it kills every subshell " +
+              "running on this machine.",
             "It is the last time that happens. The definition this writes spares panes, so every stop, restart " +
               "and uninstall after it is free.",
           ],

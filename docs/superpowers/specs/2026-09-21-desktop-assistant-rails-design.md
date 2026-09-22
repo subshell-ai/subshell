@@ -257,8 +257,11 @@ gate: an agent older than `0.15.0` reads the state (it
 always answered `enabled`) but has no verb to write with, so the switch
 shows the answer greyed under "Update your node to 0.15.0 to control this."
 And when neither fact arrives there is no hiding and no guessing: the switch
-greys under "The node CLI did not report whether login start is armed." —
+greys under "The node CLI did not report whether it starts at login." —
 the same disabled affordance carrying the honest sentence, not an absent one.
+The switch's help states the CURRENT condition in every state (armed,
+disarmed, unknown, too-old), operator ruling 2026-09-22: the card says what
+is, the toggle says what flipping it changes.
 
 ## What does not change
 

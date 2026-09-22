@@ -58,7 +58,9 @@ describe("the choice rows", () => {
     // so the test reads it by id — getByLabelText would match both it and the
     // role=switch span Base UI names through the same label.
     expect((document.getElementById("sup-login") as HTMLInputElement).checked).toBe(true);
-    expect(screen.getByText("A launchd agent runs it, even when this app is closed.")).toBeDefined();
+    expect(
+      screen.getByText("The server runs on this machine, not in this app. If it stops, it is started again."),
+    ).toBeDefined();
   });
 
   it("picks the app mode through the model's dependency rule", () => {

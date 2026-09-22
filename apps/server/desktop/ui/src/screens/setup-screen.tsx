@@ -194,10 +194,6 @@ export function SupervisionGroup(props: {
     </label>
   );
 
-  // The manager's name goes in the SENTENCE, where it explains something,
-  // rather than in the title as a parenthetical that explains nothing —
-  // `supervision-card.tsx`'s rule, and its exact words.
-  const agent = probe.platform === "darwin" ? "A launchd agent" : "A systemd user service";
   const reason = supervisionLoginReason(probe, supervision);
   return (
     <section className="supervision">
@@ -206,7 +202,7 @@ export function SupervisionGroup(props: {
           id: "plan-mode-service",
           background: true,
           title: "In the background",
-          body: `${agent} runs it, whether or not Subshell Server is open.`,
+          body: "The server runs on this machine, not in this app. If it stops, it is started again, whether or not Subshell Server is open.",
         })}
         {mode({
           id: "plan-mode-app",

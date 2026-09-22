@@ -102,10 +102,7 @@ export function SupervisionScreen(props: {
         id: "sup-service",
         on: chosen.background,
         title: "In the background",
-        body:
-          probe.platform === "darwin"
-            ? "A launchd agent runs it, even when this app is closed."
-            : "A systemd user service runs it, even when this app is closed.",
+        body: "The server runs on this machine, not in this app. If it stops, it is started again.",
         onPick: () => props.onChoice(applySupervisionChoice(chosen, { background: true })),
       })}
       {/* Nested under the option it belongs to, and only live while that option is
@@ -117,9 +114,13 @@ export function SupervisionScreen(props: {
           disabled={!chosen.background || !autostartSupported(probe) || busy || running}
           onCheckedChange={(checked) => props.onChoice(applySupervisionChoice(chosen, { autostart: checked }))}
         />
-        <Label htmlFor="sup-login">Start it again at every login</Label>
+        <Label htmlFor="sup-login">Start the server at login</Label>
         {chosen.background && autostartSupported(probe) && (
-          <span className="hint">Otherwise it stays stopped after you log out.</span>
+          <span className="hint">
+            {chosen.autostart
+              ? "The server comes back by itself every time you log in."
+              : "The server stays stopped after a logout until something starts it."}
+          </span>
         )}
         {!autostartSupported(probe) && (
           <span className="hint">{`Update your server to ${MIN_AUTOSTART_SERVER_VERSION} to control this.`}</span>

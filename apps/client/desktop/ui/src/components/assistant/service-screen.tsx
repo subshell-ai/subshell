@@ -75,7 +75,7 @@ function serviceProblem(step: ProbeStep): string | null {
     case "offline":
       return "The service manager reports the node as running, but no local daemon is heartbeating.";
     case "no-service":
-      return "This machine is registered, but nothing keeps the node running.";
+      return "The node is registered, but there is no service for it. It only runs when something starts it by hand.";
     default:
       return null;
   }
@@ -91,8 +91,8 @@ function serviceDetail(step: ProbeStep): string | null {
       );
     case "no-service":
       return (
-        "Running it in the background writes a user-level service definition (a systemd user unit on Linux, a " +
-        "launchd agent on macOS) that starts the node at login and brings it back if it exits."
+        `Running it in the background registers the node with ${IS_MACOS ? "macOS" : "Linux"}, so it starts at ` +
+        "login and comes back if it exits."
       );
     default:
       return null;
@@ -101,9 +101,7 @@ function serviceDetail(step: ProbeStep): string | null {
 
 /** The arrangement's own sentence — the server supervision option's words, which are true here too. */
 function arrangementBody(): string {
-  return IS_MACOS
-    ? "A launchd agent runs the node, even when this app is closed."
-    : "A systemd user service runs the node, even when this app is closed.";
+  return "The node runs on this machine, not in this app. If it stops, it is started again.";
 }
 
 export function ServiceScreen(props: {
@@ -257,14 +255,16 @@ export function ServiceScreen(props: {
                 disabled={busy || atLogin === null || !supported}
                 onCheckedChange={(checked) => commands.autostart(checked)}
               />
-              <Label htmlFor="service-autostart">Start it again at every login</Label>
+              <Label htmlFor="service-autostart">Start the node at login</Label>
             </div>
             <p className="text-detail text-muted-foreground">
-              {atLogin === null
-                ? "The node CLI did not report whether login start is armed. Updating it adds the answer."
-                : !supported
-                  ? `Update your node to ${MIN_AUTOSTART_NODE_VERSION} to control this.`
-                  : "Otherwise it stays stopped after you log out."}
+              {!supported
+                ? `Update your node to ${MIN_AUTOSTART_NODE_VERSION} to change this.`
+                : atLogin === null
+                  ? "The node CLI did not report whether it starts at login."
+                  : atLogin
+                    ? "Right now it comes back by itself every time you log in."
+                    : "Right now it does not start after a login by itself. Turn this on and it comes back at every login."}
             </p>
           </div>
 

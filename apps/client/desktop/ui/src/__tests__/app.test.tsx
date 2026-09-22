@@ -834,7 +834,7 @@ describe("a restart refused for pane safety", () => {
     });
     await openSection("Service");
     fireEvent.click(button("Restart"));
-    await waitFor(() => expect(screen.getByText(/launchd has no reload/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/cannot reload a running job/)).toBeTruthy());
     expect(screen.queryByText(/kills nothing/)).toBeNull();
   });
 });

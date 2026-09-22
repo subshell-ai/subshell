@@ -206,7 +206,7 @@ describe("the run-at-login switch", () => {
     const sw = switchOrNull();
     expect(sw?.getAttribute("aria-checked")).toBe("false");
     expect(sw?.hasAttribute("data-disabled")).toBe(true);
-    expect(screen.getByText(/did not report whether login start is armed/i)).toBeTruthy();
+    expect(screen.getByText(/did not report whether it starts at login/i)).toBeTruthy();
   });
 
   it("disables while an action is in flight", () => {
@@ -225,8 +225,8 @@ describe("the run-at-login switch", () => {
     });
     expect(switchOrNull()?.getAttribute("aria-checked")).toBe("true"); // the read survives the gate
     expect(switchOrNull()?.hasAttribute("data-disabled")).toBe(true);
-    expect(screen.getByText("Update your node to 0.15.0 to control this.")).toBeTruthy();
-    expect(screen.queryByText(/Otherwise it stays stopped/i)).toBeNull();
+    expect(screen.getByText("Update your node to 0.15.0 to change this.")).toBeTruthy();
+    expect(screen.queryByText(/Right now/i)).toBeNull();
   });
 
   it("compares numbers, so an agent at 0.9.0 is older than 0.15.0", () => {
