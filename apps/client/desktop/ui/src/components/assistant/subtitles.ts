@@ -79,6 +79,15 @@ export function subtitleFor(
       }
       return where ? `Connected to ${where}.` : "Connected to a Subshell server.";
     }
+    case "service":
+      // The "what is a node" half the install explainer no longer carries
+      // (operator ruling 2026-09-22, the copy trim): the section's own
+      // sentence says what the thing it installs IS.
+      return "The node is the small program that connects this machine to the control plane and runs the sessions launched here.";
+    case "plane":
+      // The address's home. It says what the screen answers without naming a
+      // value the screen itself shows.
+      return "The address this app and this node talk to.";
     case "connect":
       return "Enter the address of the Subshell server this app should show.";
     case "enroll":

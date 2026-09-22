@@ -213,17 +213,20 @@ describe("registerSteps", () => {
  * machine's journey, not about who asked.
  */
 describe("railFor", () => {
-  it("answers the four standing sections for a settled machine on a standing screen", () => {
-    for (const screen of ["status", "update", "about"] as const) {
+  it("answers the six standing sections for a settled machine on a standing screen", () => {
+    // Service and Control Plane joined by operator ruling 2026-09-22 (live
+    // screenshots): the node's machinery and the plane address's home move
+    // out of the status screen, and the rail carries them.
+    for (const screen of ["status", "service", "plane", "update", "about"] as const) {
       const sections = railFor(screen, true);
       expect(
         sections?.map((s) => s.id),
         screen,
-      ).toEqual(["status", "update", "about", "reset"]);
+      ).toEqual(["status", "service", "plane", "update", "about", "reset"]);
       expect(
         sections?.map((s) => s.label),
         screen,
-      ).toEqual(["Status", "Update", "About", "Reset"]);
+      ).toEqual(["Status", "Service", "Control Plane", "Update", "About", "Reset"]);
     }
     expect(railFor("status", true)?.find((s) => s.id === "reset")?.danger).toBe(true);
   });
@@ -249,13 +252,15 @@ describe("railFor", () => {
     // The tray can raise About mid-walk, and the router honours it; wave 2's
     // ruling keeps the render and takes away the rail — the exclusion is
     // about the machine's journey, not about who asked.
-    for (const screen of ["status", "update", "about"] as const) {
+    for (const screen of ["status", "service", "plane", "update", "about"] as const) {
       expect(railFor(screen, false), screen).toBeNull();
     }
   });
 
   it("marks the active section by the screen, through railActive", () => {
     expect(railActive("status")).toBe("status");
+    expect(railActive("service")).toBe("service");
+    expect(railActive("plane")).toBe("plane");
     expect(railActive("update")).toBe("update");
     expect(railActive("about")).toBe("about");
     // A screen that gets no rail gets no active state either.

@@ -29,19 +29,19 @@ afterEach(() => {
 });
 
 /**
- * Boot the app and walk to the reset screen from the status screen.
+ * Boot the app and walk to the reset screen through the rail.
  *
- * The route changed with the first run (spec 2026-09-18): the connected and
- * service screens are gone, every configured client lands on `status`, and the
- * link there is named for what it does to the MACHINE rather than for the flow
- * behind it — "Unregister this machine…", since reset is what unregisters. The
- * screen it opens, and every property below, are unchanged.
+ * The door moved twice: the status screen's "Unregister this machine…" link
+ * was the rail's Reset section's stand-in, and since wave 3's follow-ups
+ * (operator ruling 2026-09-22) the sidebar's destructive item IS the door —
+ * the select is the paired screen-set-and-open, and the room it opens stays
+ * frame-replacing. The screen, and every property below, are unchanged.
  */
 async function openReset(init: Parameters<typeof installFakeIpc>[0] = {}) {
   ipc = installFakeIpc(init);
   renderApp(<App />);
   await waitFor(() => expect(ipc?.callsTo("node_probe").length).toBeGreaterThan(0));
-  fireEvent.click(screen.getByRole("button", { name: "Unregister this machine…" }));
+  fireEvent.click(screen.getByRole("button", { name: "Reset" }));
   await screen.findByRole("heading", { name: "Reset this client" });
   return ipc as FakeIpc;
 }
@@ -146,7 +146,7 @@ describe("the reset screen", () => {
     });
     renderApp(<App />);
     await waitFor(() => expect(ipc?.callsTo("node_probe").length).toBeGreaterThan(0));
-    fireEvent.click(screen.getByRole("button", { name: "Unregister this machine…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
     await screen.findByRole("heading", { name: "Reset this client" });
   });
 });

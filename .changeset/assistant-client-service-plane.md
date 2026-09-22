@@ -1,0 +1,5 @@
+---
+"@internal/desktop-client": minor
+---
+
+The client's rail gains Service and Control Plane: the node's machinery (install offer, service verbs, pane-safety rewrite, the node's reveals) and the plane address's home (the configured address, the way to change it, the node's repoint machinery) move out of the status screen, which keeps machine state and shows its facts inline. The status screen's node-update doors are gone; the Update section is the door. The install explainer reads "This copies the node this app ships to ~/.local/bin/subshell. Nothing is downloaded."

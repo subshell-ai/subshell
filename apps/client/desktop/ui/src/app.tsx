@@ -31,9 +31,11 @@ import { ChoiceScreen } from "@/components/assistant/choice-screen";
 import { ConnectScreen } from "@/components/assistant/connect-screen";
 import { EnrollScreen } from "@/components/assistant/enroll-screen";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
+import { PlaneScreen } from "@/components/assistant/plane-screen";
 import { ProgressScreen } from "@/components/assistant/progress-screen";
 import { RegisterScreen } from "@/components/assistant/register-screen";
 import { ResetScreen } from "@/components/assistant/reset-screen";
+import { ServiceScreen } from "@/components/assistant/service-screen";
 import { StartupScreen } from "@/components/assistant/startup-screen";
 import { StatusScreen } from "@/components/assistant/status-screen";
 import { subtitleFor } from "@/components/assistant/subtitles";
@@ -420,8 +422,29 @@ export function App() {
             form.seedServer(probe?.status?.serverUrl ?? settings?.planeUrl ?? "");
             setOverride("enroll");
           }}
-          onReset={() => setOverride("reset")}
-          onUpdate={() => setOverride("update")}
+        />
+      );
+    case "service":
+      return (
+        <ServiceScreen
+          shell={shell}
+          rail={rail}
+          probe={probe}
+          commands={commands}
+          busy={runner.busy}
+          output={runner.output}
+        />
+      );
+    case "plane":
+      return (
+        <PlaneScreen
+          shell={shell}
+          rail={rail}
+          probe={probe}
+          settings={settings}
+          commands={commands}
+          busy={runner.busy}
+          output={runner.output}
         />
       );
     case "enroll":

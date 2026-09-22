@@ -105,10 +105,23 @@ re-renders through its own state).
 ### The client app
 
 Its screens are already components. It gains the same `Rail` for its standing
-set — **Status**, **Update**, **About** — while its FTE walk (Welcome → Choice
-→ Register/Connect → Setting Up) stays untouched and rail-less, and Reset
-stays frame-replacing. The tray's `desktop-screen` events (`about`, `update`)
-select the rail section they name.
+set — **Status**, **Service**, **Control Plane**, **Update**, **About** —
+while its FTE walk (Welcome → Choice → Register/Connect → Setting Up) stays
+untouched and rail-less, and Reset stays frame-replacing. The tray's
+`desktop-screen` events (`about`, `update`) select the rail section they
+name.
+
+Two follow-up rulings (operator, 2026-09-22, live screenshots) split the
+client's status screen the way the server's recovery screen was split: the
+node's machinery (install offer, service verbs, pane-safety rewrite, the
+node's reveals) moves to a **Service** section — whose subtitle carries the
+"what is a node" half the install explainer dropped ("lengthy as heck"); the
+plane addresses (the configured one, the way to change it, "Open in browser
+instead", the node's repoint machinery and its coherence card) move to a
+**Control Plane** section, which shows the address labeled instead of
+narrating "This app opens <url>". The node-behind doors the status screen
+carried are gone — the Update section is the door — and the facts render
+INLINE, no disclosure, the same reason the server's Show Details went.
 
 ### Testing
 

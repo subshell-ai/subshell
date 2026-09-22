@@ -14,7 +14,7 @@
  * the screen offers once it is reached.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { StatusScreen } from "@/components/assistant/status-screen";
 import { subtitleFor } from "@/components/assistant/subtitles";
 import type { NodeCommands } from "@/hooks/use-node-commands";
@@ -101,8 +101,6 @@ function mount(
       busy={init.busy ?? false}
       onRegister={() => pressed.push("register")}
       onReenroll={() => pressed.push("reenroll")}
-      onReset={() => pressed.push("reset")}
-      onUpdate={() => pressed.push("update")}
     />,
   );
   return { calls, pressed };
@@ -110,12 +108,17 @@ function mount(
 
 const button = (name: string | RegExp) => screen.getByRole("button", { name }) as HTMLButtonElement;
 const maybeButton = (name: string | RegExp) => screen.queryByRole("button", { name });
+const buttonOrNull_ = maybeButton;
 
 describe("an enrolled, online machine", () => {
-  it("offers the dashboard and the way back out, and nothing about registering", () => {
+  it("offers the dashboard, and nothing about registering or unregistering", () => {
+    // Unregister is NOT a link on this screen any more (operator ruling
+    // 2026-09-22): the rail's Reset section is that door — destructive-
+    // styled, pinned at the app level — and one act with two labels is two
+    // acts to a reader.
     mount();
     expect(button(/open dashboard/i)).toBeTruthy();
-    expect(button(/unregister this machine/i)).toBeTruthy();
+    expect(maybeButton(/unregister this machine/i)).toBeNull();
     expect(maybeButton(/^register this machine$/i)).toBeNull();
   });
 
@@ -134,12 +137,6 @@ describe("an enrolled, online machine", () => {
   it("says the name it enrolled under when this session knows it", () => {
     mount({ enrolledNode: { nodeId: makeProbe().status?.nodeId ?? "", name: "mac mini" } });
     expect(screen.getByText("mac mini")).toBeTruthy();
-  });
-
-  it("unregisters through the reset flow", () => {
-    const { pressed } = mount();
-    fireEvent.click(button(/unregister this machine/i));
-    expect(pressed).toEqual(["reset"]);
   });
 
   /** Nothing is wrong with this machine, so no service verb is offered. */
@@ -200,88 +197,31 @@ describe("a client that is not a node", () => {
     expect(maybeButton(/repoint this node/i)).toBeNull();
   });
 
-  it("still says which server this app opens", () => {
+  it("says what the machine is, not which server it opens", () => {
+    // The status screen keeps machine state (operator ruling 2026-09-22);
+    // the plane address is the Control Plane section's, shown labeled there,
+    // and the "This app opens <url>" narration is gone.
     mount({ probe: watcherProbe(), settings: makeSettings({ planeUrl: "https://watch.example" }) });
-    expect(screen.getAllByText("https://watch.example").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/this app opens/i)).toBeNull();
   });
 });
 
-describe("a node whose agent is not running", () => {
-  const stopped = makeProbe({ step: "stopped", service: { ...makeProbe().service, state: "stopped", pid: null } });
+// The service verb cards moved to the Service section (operator ruling
+// 2026-09-22); their screen-level pins live in service-screen.test.tsx now.
 
-  it("offers Start, and says what is wrong", () => {
-    const { calls } = mount({ probe: stopped });
-    expect(screen.getByText(/the node is not running/i)).toBeTruthy();
-    fireEvent.click(button(/^start$/i));
-    expect(calls).toEqual([{ name: "service", args: ["start", { settle: true }] }]);
-  });
-
-  /** Restart is the two-phase command: its refusal is read before `--force`. */
-  it("offers Restart for an offline node, through the confirming path", () => {
-    const { calls } = mount({ probe: makeProbe({ step: "offline" }) });
-    fireEvent.click(button(/^restart$/i));
-    expect(calls).toEqual([{ name: "restart", args: [] }]);
-  });
-
-  it("offers Install and Start when nothing keeps the agent running", () => {
-    mount({ probe: makeProbe({ step: "no-service", service: { installed: false } }) });
-    expect(button(/^install and start$/i)).toBeTruthy();
-  });
-
-  /** A landing screen is not a dead end, and it is not a detour either. */
-  it("still offers the dashboard", () => {
-    mount({ probe: stopped });
-    expect(button(/open dashboard/i)).toBeTruthy();
-  });
-
-  /**
-   * tmux is a gate, not a caption: a node that starts without it comes up
-   * online with no harnesses and refuses every launch.
-   */
-  it("disables the service action while tmux is missing, and says why", () => {
-    mount({ probe: makeProbe({ step: "stopped", tmux: null }) });
-    expect(button(/^start$/i).disabled).toBe(true);
-    expect(screen.getByText(/tmux was not found/i)).toBeTruthy();
-  });
-});
-
-describe("the two control-plane addresses", () => {
-  /** Enrolled against one plane, with the app pointed at another. */
-  const diverged = { probe: makeProbe(), settings: makeSettings({ planeUrl: "https://elsewhere.example" }) };
-
-  it("names both when they disagree, and offers the reconciliation", () => {
-    const { calls } = mount(diverged);
-    const notice = screen.getByRole("status", { name: /mismatch/i });
-    expect(notice.textContent).toContain("https://elsewhere.example");
-    expect(notice.textContent).toContain("https://subshell.example.com");
-    fireEvent.click(within(notice).getByRole("button", { name: /use https:\/\/elsewhere\.example/i }));
-    expect(calls).toEqual([{ name: "repoint", args: ["https://elsewhere.example"] }]);
-  });
-
-  it("says nothing when the two agree", () => {
-    mount();
-    expect(screen.queryByRole("status", { name: /mismatch/i })).toBeNull();
-  });
-
-  it("flags a loopback node address without refusing anything", () => {
-    mount({
-      probe: makeProbe({
-        status: { nodeId: "abc", serverUrl: "http://localhost:3080", online: true, agentVersion: "1.9.0" },
-      }),
-    });
-    expect(screen.getByRole("status", { name: /loopback/i }).textContent).toMatch(/this machine/i);
-    expect(button(/repoint this node/i)).toBeTruthy();
-  });
-});
+// The plane addresses moved to the Control Plane section (operator ruling
+// 2026-09-22); their screen-level pins live in plane-screen.test.tsx now.
 
 describe("what the connected screen offered is still offered", () => {
-  it("keeps Change server…, Open in browser instead and the update door", () => {
-    const { calls, pressed } = mount();
-    expect(button(/change server/i)).toBeTruthy();
-    fireEvent.click(button(/open in browser instead/i));
-    expect(calls).toEqual([{ name: "openPlaneUrl", args: [] }]);
-    fireEvent.click(button(/check for updates/i));
-    expect(pressed).toEqual(["update"]);
+  it("offers neither the plane doors nor the update door — the rail and the Control Plane section carry them", () => {
+    // The plane address's home is the Control Plane section and the update
+    // door is the rail's Update section (operator rulings, 2026-09-22); the
+    // status screen keeps machine state and the two machine acts.
+    mount();
+    expect(buttonOrNull_(/change server/i)).toBeNull();
+    expect(buttonOrNull_(/open in browser instead/i)).toBeNull();
+    expect(buttonOrNull_(/check for updates/i)).toBeNull();
+    expect(buttonOrNull_(/update the node to/i)).toBeNull();
   });
 
   it("keeps Re-enroll… for a machine that is one", () => {
@@ -298,27 +238,14 @@ describe("what the connected screen offered is still offered", () => {
    * button is a door to the one update screen, which then does whichever
    * halves are actually behind.
    */
-  it("announces a newer bundled node CLI and opens the one update screen", () => {
-    const { calls, pressed } = mount({
-      probe: makeProbe({ nodeChoice: "upgrade-available", bundledVersion: "2.0.0" }),
-    });
-    fireEvent.click(button(/update the node to 2\.0\.0/i));
-    expect(pressed).toEqual(["update"]);
-    expect(calls).toEqual([]);
-  });
-
-  /** The remedy the restart refusal names BY LABEL, so the label is pinned. */
-  it("offers the definition rewrite when a teardown would kill live panes", () => {
-    const { calls } = mount({
-      probe: makeProbe({ service: { ...makeProbe().service, paneSafety: "kills" } }),
-    });
-    fireEvent.click(button(/rewrite the service definition/i));
-    expect(calls).toEqual([{ name: "rewrite", args: [] }]);
-  });
-
-  it("keeps the facts and the CLI's last words behind Show Details", () => {
+  it("renders the facts and the CLI's last words INLINE", () => {
+    // Operator ruling 2026-09-22 (the server wave's ruling carried over): a
+    // section that hides its own facts behind a second control is two
+    // navigations for one answer.
     mount();
-    expect(screen.getByText("Show Details")).toBeTruthy();
+    expect(screen.queryByText("Show Details")).toBeNull();
+    // A fact and the output pane, readable without opening anything.
+    expect(screen.getByText("/usr/bin/tmux")).toBeTruthy();
   });
 
   it("lets a stuck machine be re-read", () => {

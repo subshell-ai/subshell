@@ -44,8 +44,22 @@ async function boot(init: Parameters<typeof installFakeIpc>[0] = {}) {
 const button = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
 const ok = () => ({ ok: true, stdout: "node repointed", stderr: "" });
 
+/**
+ * The plane machinery is the Control Plane section's now (operator ruling
+ * 2026-09-22); the select is the navigation there.
+ */
+async function openPlaneSection() {
+  fireEvent.click(button("Control Plane"));
+  await screen.findByRole("heading", { name: "Control Plane" });
+  // The heading is static; the node's address is not — it rides the probe,
+  // which can land a beat after the screen does. The repoint block is what
+  // every case here acts on, so it is the settle marker.
+  await screen.findByRole("button", { name: "Repoint this node…" });
+}
+
 /** Open the repoint field and submit `url`. */
 async function repointTo(url: string) {
+  await openPlaneSection();
   fireEvent.click(button("Repoint this node…"));
   const field = await screen.findByLabelText(/control plane this node reports to/i);
   fireEvent.change(field, { target: { value: url } });
@@ -66,6 +80,7 @@ describe("repointing a node", () => {
    */
   it("never asks for or sends a setup key", async () => {
     const fake = await boot({ handlers: { node_configure: ok } });
+    await openPlaneSection();
     fireEvent.click(button("Repoint this node…"));
     expect(screen.queryByLabelText(/setup key/i)).toBeNull();
     const field = await screen.findByLabelText(/control plane this node reports to/i);
@@ -83,6 +98,7 @@ describe("repointing a node", () => {
    */
   it("says a restart is what applies it, and that no setup key is spent", async () => {
     await boot({ handlers: { node_configure: ok } });
+    await openPlaneSection();
     fireEvent.click(button("Repoint this node…"));
     // Scoped to the form: "Restart" is also a service button on this page.
     const form = (await screen.findByLabelText(/control plane this node reports to/i)).closest("form");
@@ -98,6 +114,7 @@ describe("repointing a node", () => {
    */
   it("says that the app's own control-plane address moves with it", async () => {
     await boot({ handlers: { node_configure: ok } });
+    await openPlaneSection();
     fireEvent.click(button("Repoint this node…"));
     const form = (await screen.findByLabelText(/control plane this node reports to/i)).closest("form");
     expect(form?.textContent).toMatch(/this app|window/i);
@@ -115,6 +132,7 @@ describe("repointing a node", () => {
 
   it("seeds the field with the address the node currently reports to", async () => {
     await boot({ handlers: { node_configure: ok } });
+    await openPlaneSection();
     fireEvent.click(button("Repoint this node…"));
     const field = (await screen.findByLabelText(/control plane this node reports to/i)) as HTMLInputElement;
     expect(field.value).toBe("https://subshell.example.com");
@@ -132,6 +150,7 @@ describe("repointing a node", () => {
         status: { nodeId: "abc", serverUrl: "http://localhost:3080", online: true, agentVersion: "1.9.0" },
       }),
     });
+    await openPlaneSection();
     const notice = await screen.findByRole("status", { name: /loopback/i });
     expect(notice.textContent).toMatch(/this machine/i);
     // Still repointable — a warning, not a refusal.
@@ -160,6 +179,7 @@ describe("plane/node address coherence", () => {
 
   it("names BOTH addresses when they disagree", async () => {
     await boot(diverged);
+    await openPlaneSection();
     const notice = await screen.findByRole("status", { name: /mismatch/i });
     expect(notice.textContent).toContain("https://elsewhere.example");
     expect(notice.textContent).toContain("https://subshell.example.com");
@@ -174,12 +194,14 @@ describe("plane/node address coherence", () => {
    */
   it("says a restart is needed, since the banner clears before the daemon moves", async () => {
     await boot({ ...diverged, handlers: { node_configure: ok } });
+    await openPlaneSection();
     const notice = await screen.findByRole("status", { name: /mismatch/i });
     expect(notice.textContent).toMatch(/restart/i);
   });
 
   it("offers to repoint the node at the address this app is showing", async () => {
     const fake = await boot({ ...diverged, handlers: { node_configure: ok } });
+    await openPlaneSection();
     const notice = await screen.findByRole("status", { name: /mismatch/i });
     fireEvent.click(within(notice).getByRole("button", { name: /use https:\/\/elsewhere\.example/i }));
     await waitFor(() => expect(fake.callsTo("node_configure").length).toBe(1));
@@ -197,6 +219,7 @@ describe("plane/node address coherence", () => {
    */
   it("warns that repointing only works if both names are one plane", async () => {
     await boot(diverged);
+    await openPlaneSection();
     const notice = await screen.findByRole("status", { name: /mismatch/i });
     expect(notice.textContent).toMatch(/same control plane|one control plane/i);
     expect(notice.textContent).toMatch(/offline|refuse/i);
@@ -234,6 +257,7 @@ describe("plane/node address coherence", () => {
       }),
       settings: makeSettings({ planeUrl: "http://box.local:3080" }),
     });
+    await openPlaneSection();
     const loopback = await screen.findByRole("status", { name: /loopback/i });
     const mismatch = await screen.findByRole("status", { name: /mismatch/i });
     expect(loopback).not.toBe(mismatch);

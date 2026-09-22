@@ -15,7 +15,7 @@
  * through warnings.
  */
 import { KeyRound } from "lucide-react";
-import { DetailsDisclosure } from "@/components/assistant/details-disclosure";
+import { StatusFacts } from "@/components/assistant/details-disclosure";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { EnrollFields } from "@/components/enroll-fields";
 import { Button } from "@/components/ui/button";
@@ -95,7 +95,7 @@ export function EnrollScreen(props: {
        * enroll`'s stderr is what says whether to mint a new one. It is the
        * reason this screen carries the disclosure at all.
        */}
-      <DetailsDisclosure probe={probe} settings={settings} enrolledNode={enrolledNode} output={output} />
+      <StatusFacts probe={probe} settings={settings} enrolledNode={enrolledNode} output={output} />
     </Frame>
   );
 }

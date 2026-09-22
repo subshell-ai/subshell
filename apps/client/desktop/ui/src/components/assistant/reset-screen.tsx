@@ -19,7 +19,7 @@
  */
 import { TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
-import { DetailsDisclosure } from "@/components/assistant/details-disclosure";
+import { StatusFacts } from "@/components/assistant/details-disclosure";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -172,7 +172,7 @@ export function ResetScreen(props: {
         </>
       )}
 
-      <DetailsDisclosure probe={probe} settings={settings} enrolledNode={enrolledNode} output={output} />
+      <StatusFacts probe={probe} settings={settings} enrolledNode={enrolledNode} output={output} />
     </Frame>
   );
 }

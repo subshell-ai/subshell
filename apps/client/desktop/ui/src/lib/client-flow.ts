@@ -273,6 +273,13 @@ function actState(at: { index: number; running: number; failedAt: number; satisf
  */
 export const CLIENT_RAIL_SECTIONS: RailSection[] = [
   { id: "status", label: "Status" },
+  // The node's own machinery (operator ruling 2026-09-22, live screenshots):
+  // when the node is not installed, the install offer lives here; when it
+  // is, the service lifecycle does. The status screen keeps machine state.
+  { id: "service", label: "Service" },
+  // The plane address's home: the configured address, the way to change it,
+  // and the node's view of the same server.
+  { id: "plane", label: "Control Plane" },
   { id: "update", label: "Update" },
   { id: "about", label: "About" },
   { id: "reset", label: "Reset", danger: true },
@@ -301,6 +308,8 @@ export function railFor(screen: NodeScreenId | null, settled: boolean): RailSect
   if (!settled) return null;
   switch (screen) {
     case "status":
+    case "service":
+    case "plane":
     case "update":
     case "about":
       return CLIENT_RAIL_SECTIONS;
@@ -314,6 +323,10 @@ export function railActive(screen: NodeScreenId | null): string | null {
   switch (screen) {
     case "status":
       return "status";
+    case "service":
+      return "service";
+    case "plane":
+      return "plane";
     case "update":
       return "update";
     case "about":

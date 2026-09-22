@@ -694,22 +694,41 @@ decides anything. There is ONE router, deliberately: two functions answering
 "which screen" is how they come to disagree.
 
 **The rail is for the standing screens, and only for a settled machine**
-(wave 3; the same rulings the server wave carried — operator, 2026-09-22).
-`railFor(screen, settled)` in `lib/client-flow.ts` is the rule as data: the
-four sections — **Status**, **Update**, **About**, **Reset** (destructive,
-styled in the destructive token) — appear only when the machine is settled
-(`configured()` and no `FteStep` in progress) and the screen is one of the
-standing kinds, and they answer `null` for every step of the FTE walk, for
-the two focused acts (reset, whose screen is frame-replacing, and re-enroll,
-the same kind of moment), for the not-read state — and for any standing
-screen while the machine is NOT settled, because the exclusion is about the
-machine's journey, not about who asked: the tray can raise About mid-walk,
-and that render keeps its Back. A select is the navigation: Status clears
-the override, Update and About set theirs, Reset opens the frame-replacing
-room; and where the rail is up, the standing screens' own leave buttons
-(About's and Update's Back) render only where the rail does not. The tray's
-`desktop-screen` events select their section by the same override state — no
-new command.
+(wave 3 and its follow-ups; the same rulings the server wave carried —
+operator, 2026-09-22). `railFor(screen, settled)` in `lib/client-flow.ts` is
+the rule as data: the six sections — **Status**, **Service**, **Control
+Plane**, **Update**, **About**, **Reset** (destructive, styled in the
+destructive token) — appear only when the machine is settled (`configured()`
+and no `FteStep` in progress) and the screen is one of the standing kinds,
+and they answer `null` for every step of the FTE walk, for the two focused
+acts (reset, whose screen is frame-replacing, and re-enroll, the same kind
+of moment), for the not-read state — and for any standing screen while the
+machine is NOT settled, because the exclusion is about the machine's
+journey, not about who asked: the tray can raise About mid-walk, and that
+render keeps its Back. A select is the navigation: Status clears the
+override, Service and Control Plane and Update and About set theirs, Reset
+opens the frame-replacing room; and where the rail is up, the standing
+screens' own leave buttons (About's and Update's Back) render only where the
+rail does not. The tray's `desktop-screen` events select their section by
+the same override state — no new command.
+
+**The status screen keeps machine state, not the node's machinery** (the
+follow-up rulings, 2026-09-22, live screenshots). What moved out of it and
+where: the node's install offer (with its disabled-no-bundled case), its
+refusal for a CLI that cannot state its own status, the contextual service
+verbs, the pane-safety rewrite door, the unrecognised-state card and the
+node's reveals — all to the **Service** section, whose subtitle carries the
+"what is a node" half the install explainer dropped in the copy trim; the
+configured plane address, the way to change it, "Open in browser instead",
+and the node's own view of the same server (its repoint machinery, the
+loopback notice and the coherence card) — all to the **Control Plane**
+section, which shows the address labeled rather than narrating "This app
+opens <url>". The node-behind doors the status screen carried ("Update the
+node to X…", "Check for updates…") are GONE: the Update section is the door,
+and the update screen's own table is where the node row's numbers live. The
+facts and the CLI's last words render INLINE (no disclosure), on the status,
+service and plane screens alike. Unregister is not a link on the status
+screen — the rail's Reset section is that door.
 
 Three screen ids went with it, and their absence is the design.
 **`connected`**, **`service`** and **`install-agent`** were the probe-derived

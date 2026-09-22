@@ -137,6 +137,19 @@ async function openReenroll(init: Parameters<typeof installFakeIpc>[0] = {}) {
 // 0. The frame: one screen at a time, each asking one question
 // ---------------------------------------------------------------------------
 
+/**
+ * The rail select IS the navigation now (operator ruling 2026-09-22): open a
+ * section and wait for its screen's heading.
+ */
+async function openSection(name: "Service" | "Control Plane" | "Update"): Promise<void> {
+  fireEvent.click(button(name));
+  await waitFor(() =>
+    expect({ Service: "Service", "Control Plane": "Control Plane", Update: "Update Subshell Client" }[name]).toBe(
+      screen.getByRole("heading", { level: 1 }).textContent,
+    ),
+  );
+}
+
 describe("the assistant frame", () => {
   // Was "asks for a server first, ahead of anything the probe says", and the
   // rule is deliberately reversed (spec 2026-09-18 §§ 1-2). Asking for an
@@ -171,16 +184,25 @@ describe("the assistant frame", () => {
     expect(buttonOrNull("Register")).toBeNull();
   });
 
-  it("shows a working machine one decision, and the rest under More…", async () => {
+  it("shows a working machine its state, and the rail the rest", async () => {
+    // The status screen keeps machine state only, after the wave-3 follow-ups
+    // (operator rulings, 2026-09-22): the node's machinery lives on Service,
+    // the plane addresses on Control Plane, and the rail is the navigation —
+    // so "More…" is gone rather than moved.
     await boot();
-    // The heading and the primary's label are the two things that changed.
-    // `connected` became `status`, the landing every configured client returns
-    // to; and the button that opens the server's page now says so, where
-    // "Open Subshell Client" named THIS app while opening a different one.
     expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy();
     expect(buttonOrNull("Open Dashboard")).not.toBeNull();
-    expect(screen.getByText("More…")).toBeTruthy();
     expect(buttonOrNull("Re-enroll…")).not.toBeNull();
+    expect(screen.queryByText("More…")).toBeNull();
+    const rail = screen.getByRole("navigation", { name: "Main" });
+    expect([...rail.querySelectorAll("button")].map((b) => b.textContent)).toEqual([
+      "Status",
+      "Service",
+      "Control Plane",
+      "Update",
+      "About",
+      "Reset",
+    ]);
   });
 
   // Each used to be its own screen with its own heading. They land on `status`
@@ -189,6 +211,8 @@ describe("the assistant frame", () => {
   // the verb is still the step's own.
   it("names which service failure it is looking at", async () => {
     await boot({ probe: STOPPED });
+    // The verb and its diagnosis are the Service section's now.
+    await openSection("Service");
     expect(screen.getByText("Service stopped")).toBeTruthy();
     expect(screen.getByText(/the node is not running/)).toBeTruthy();
     expect(buttonOrNull("Start")).not.toBeNull();
@@ -196,6 +220,7 @@ describe("the assistant frame", () => {
     ipc?.restore();
 
     await boot({ probe: makeProbe({ step: "offline", status: { ...STOPPED.status, online: false } }) });
+    await openSection("Service");
     expect(screen.getByText("Offline")).toBeTruthy();
     expect(screen.getByText(/no local daemon is heartbeating/)).toBeTruthy();
     expect(buttonOrNull("Restart")).not.toBeNull();
@@ -223,6 +248,7 @@ describe("a failure message always reaches the screen", () => {
     });
     const probesBefore = fake.callsTo("node_probe").length;
 
+    await openSection("Service");
     fireEvent.click(button("Open the node log"));
 
     // Scoped to the FAILURE LINE (a <p>), not the page: the same sentence is
@@ -250,6 +276,7 @@ describe("a failure message always reaches the screen", () => {
         },
       },
     });
+    await openSection("Service");
     fireEvent.click(button("Open the node log"));
     await waitFor(() => expect(screen.getByText("that path does not exist yet")).toBeTruthy());
     expect(screen.queryByText(/background weather/)).toBeNull();
@@ -263,6 +290,8 @@ describe("a failure message always reaches the screen", () => {
         node_service: () => ({ ok: false, stdout: "", stderr: "Failed to start subshell.service" }),
       },
     });
+    // The service verb is the Service section's now.
+    await openSection("Service");
     fireEvent.click(button("Start"));
     await waitFor(() => expect(screen.getByText(/That did not work/)).toBeTruthy());
   });
@@ -282,6 +311,8 @@ describe("the CLI's own words", () => {
     // now. Same command, same unconfirmed offer, same reason it is safe: on a
     // machine where nothing answered there is nothing to stop, overwrite or
     // downgrade.
+    // The install offer is the Service section's now (operator ruling 2026-09-22).
+    await openSection("Service");
     fireEvent.click(button("Install the node"));
 
     await waitFor(() => expect(screen.getByText(/Installed subshell 1\.9\.0\./)).toBeTruthy());
@@ -303,6 +334,8 @@ describe("actions serialize", () => {
     const gate = deferred<{ ok: boolean; stdout: string; stderr: string }>();
     const fake = await boot({ probe: FRESH, handlers: { node_install_cli: () => gate.promise } });
 
+    // The install offer is the Service section's now (operator ruling 2026-09-22).
+    await openSection("Service");
     fireEvent.click(button("Install the node"));
     await waitFor(() => expect(button("Install the node").disabled).toBe(true));
 
@@ -321,6 +354,8 @@ describe("actions serialize", () => {
     const fake = await boot({ probe: FRESH, handlers: { node_install_cli: () => gate.promise } });
     const probesBefore = fake.callsTo("node_probe").length;
 
+    // The install offer is the Service section's now (operator ruling 2026-09-22).
+    await openSection("Service");
     fireEvent.click(button("Install the node"));
     gate.resolve({ ok: true, stdout: "Installed subshell.", stderr: "" });
 
@@ -343,6 +378,8 @@ describe("after every action, re-probe", () => {
       },
     });
 
+    // All three are the Service section's controls now.
+    await openSection("Service");
     let seen = fake.callsTo("node_probe").length;
     for (const label of ["Start", "Open the node log", "Reveal configuration"]) {
       fireEvent.click(button(label));
@@ -618,6 +655,7 @@ describe("a restart refused for pane safety", () => {
       },
     });
 
+    await openSection("Service");
     fireEvent.click(button("Restart"));
 
     // Twice on screen, deliberately: quoted into the confirmation that offers
@@ -642,6 +680,7 @@ describe("a restart refused for pane safety", () => {
       },
     });
 
+    await openSection("Service");
     fireEvent.click(button("Restart"));
 
     await waitFor(() => expect(screen.getByText(/Unit subshell.service is masked/)).toBeTruthy());
@@ -655,6 +694,7 @@ describe("a restart refused for pane safety", () => {
       handlers: { node_service: () => ({ ok: false, stdout: "", stderr: REFUSAL }) },
     });
 
+    await openSection("Service");
     fireEvent.click(button("Restart"));
     await waitFor(() => expect(buttonOrNull("Restart anyway (--force)")).not.toBeNull());
     fireEvent.click(confirmPanel().getByRole("button", { name: "Cancel" }));
@@ -673,6 +713,7 @@ describe("a restart refused for pane safety", () => {
       probe: risky,
       handlers: { node_service: () => ({ ok: false, stdout: "", stderr: REFUSAL }) },
     });
+    await openSection("Service");
     fireEvent.click(button("Restart"));
     await waitFor(() => expect(screen.getByText(/it fixes this for good and kills nothing/)).toBeTruthy());
     cleanup();
@@ -684,6 +725,7 @@ describe("a restart refused for pane safety", () => {
       probe: makeProbe({ ...risky, rewriteTearsDown: true }),
       handlers: { node_service: () => ({ ok: false, stdout: "", stderr: REFUSAL }) },
     });
+    await openSection("Service");
     fireEvent.click(button("Restart"));
     await waitFor(() => expect(screen.getByText(/launchd has no reload/)).toBeTruthy());
     expect(screen.queryByText(/kills nothing/)).toBeNull();
@@ -706,12 +748,15 @@ describe("rewriting the service definition", () => {
   };
 
   it("is offered only when the installed definition would kill panes", async () => {
+    // The rewrite is the Service section's control now.
     await boot({ probe: STOPPED });
+    await openSection("Service");
     expect(buttonOrNull("Rewrite the service definition")).toBeNull();
     cleanup();
     ipc?.restore();
 
     await boot({ probe: makeProbe({ ...STOPPED, service: riskyService }) });
+    await openSection("Service");
     expect(buttonOrNull("Rewrite the service definition")).not.toBeNull();
     // And the reason it is offered is said out loud, not left to the facts.
     expect(screen.getByText(/does not spare live panes/)).toBeTruthy();
@@ -722,6 +767,7 @@ describe("rewriting the service definition", () => {
       probe: makeProbe({ ...STOPPED, service: riskyService, rewriteTearsDown: false }),
       handlers: { node_service: () => ({ ok: true, stdout: "wrote the unit", stderr: "" }) },
     });
+    await openSection("Service");
     fireEvent.click(button("Rewrite the service definition"));
     await waitFor(() => expect(fake.callsTo("node_service").length).toBe(1));
     expect(fake.callsTo("node_service")[0]).toEqual({ verb: "install", force: false });
@@ -733,6 +779,7 @@ describe("rewriting the service definition", () => {
       handlers: { node_service: () => ({ ok: true, stdout: "wrote the plist", stderr: "" }) },
     });
 
+    await openSection("Service");
     fireEvent.click(button("Rewrite the service definition"));
 
     await waitFor(() => expect(screen.getByText(/Rewriting the definition restarts the node/)).toBeTruthy());
@@ -760,7 +807,9 @@ describe("replacing the installed node CLI", () => {
       },
     });
 
-    fireEvent.click(button("Update the node to 1.10.0"));
+    // The door is the rail's Update section now (operator ruling 2026-09-22);
+    // the doors the status screen carried are gone.
+    await openSection("Update");
     await waitFor(() => expect(buttonOrNull("Install the node (1.10.0)")).not.toBeNull());
     fireEvent.click(button("Install the node (1.10.0)"));
 
@@ -781,12 +830,16 @@ describe("replacing the installed node CLI", () => {
   });
 
   it("does not put the upgrade offer on the re-enroll screen", async () => {
+    // The node-behind door the status screen carried is GONE (operator
+    // ruling 2026-09-22): the Update section is the door, and the update
+    // screen's own table is where the node row's numbers live.
     await boot({ probe: makeProbe({ nodeChoice: "upgrade-available", bundledVersion: "1.10.0" }) });
-    expect(buttonOrNull("Update the node to 1.10.0")).not.toBeNull();
+    expect(buttonOrNull("Update the node to 1.10.0")).toBeNull();
     fireEvent.click(button("Re-enroll…"));
     // That screen ends in a destructive button; an unrelated one beside it is
     // how the wrong one gets clicked.
     await waitFor(() => expect(buttonOrNull("Update the node to 1.10.0")).toBeNull());
+    expect(buttonOrNull("Install the node (1.10.0)")).toBeNull();
   });
 });
 
@@ -801,6 +854,8 @@ describe("what the page never asks for", () => {
       handlers: { node_service: () => ({ ok: true, stdout: "", stderr: "" }) },
     });
 
+    // The service verb is the Service section's now.
+    await openSection("Service");
     fireEvent.click(button("Start"));
     await waitFor(() => expect(fake.callsTo("node_service").length).toBe(1));
 
@@ -849,6 +904,8 @@ describe("pacing", () => {
     const gate = deferred<{ ok: boolean; stdout: string; stderr: string }>();
     const fake = await boot({ probe: FRESH, handlers: { node_install_cli: () => gate.promise } });
 
+    // The install offer is the Service section's now (operator ruling 2026-09-22).
+    await openSection("Service");
     fireEvent.click(button("Install the node"));
     await waitFor(() => expect(button("Install the node").disabled).toBe(true));
     const during = fake.callsTo("node_probe").length;
@@ -1444,9 +1501,13 @@ describe("the screens", () => {
   // split between them decides what may be offered at all. What the screen
   // looks like changed; the split did not.
   it("offers the install only when nothing answered at all", async () => {
+    // The install offer is the Service section's now (operator ruling
+    // 2026-09-22); its explainer is the trimmed one, and the "what is a node"
+    // half is the section's own subtitle.
     await boot({ probe: makeProbe({ step: "no-node", nodeBinary: null, status: null, service: null }) });
+    await openSection("Service");
     expect(buttonOrNull("Install the node")).not.toBeNull();
-    expect(screen.getByText(/Installing it copies the copy that ships inside this app/)).toBeTruthy();
+    expect(screen.getByText(/This copies the node this app ships/)).toBeTruthy();
     // And registering is NOT offered beside it. A machine with no agent cannot
     // say whether it is already a node, and Register's chain enrols with
     // `confirm: true` — so the install comes first and the probe that follows
@@ -1458,6 +1519,7 @@ describe("the screens", () => {
     // An agent that answered `version` but not `status --json`: enrolling here
     // would overwrite a live config and discard its node key.
     await boot({ probe: makeProbe({ step: "no-node", status: null }) });
+    await openSection("Service");
     expect(buttonOrNull("Install the node")).toBeNull();
     expect(buttonOrNull("Register this machine")).toBeNull();
     expect(buttonOrNull("Enroll")).toBeNull();
@@ -1476,6 +1538,8 @@ describe("the screens", () => {
 
     // The daemon takes the lock a beat after the manager returns.
     fake.setProbe(makeProbe());
+    // The service verb is the Service section's now.
+    await openSection("Service");
     fireEvent.click(button("Start"));
 
     // The heading is the same before and after now (one landing for every
@@ -1497,11 +1561,16 @@ describe("the screens", () => {
   // offered over a state the app cannot read.
   it("says it does not recognise a step this build predates", async () => {
     await boot({ probe: makeProbe({ step: "quantum-superposition" as never }) });
+    // The unrecognised-state card is the Service section's now.
+    await openSection("Service");
     expect(screen.getByText(/does not recognise the state "quantum-superposition"/)).toBeTruthy();
     expect(screen.getByText(/older than the node CLI it is managing/)).toBeTruthy();
     expect(screen.getByText("Unknown")).toBeTruthy();
     expect(buttonOrNull("Refresh")).not.toBeNull();
-    expect(screen.getByText("Show Details")).toBeTruthy();
+    // The facts are INLINE (operator ruling 2026-09-22): there is no
+    // disclosure to open, and a fact is readable without one.
+    expect(screen.queryByText("Show Details")).toBeNull();
+    expect(screen.getByText("/usr/bin/tmux")).toBeTruthy();
   });
 
   it("does not strand the window when the probe itself cannot be read", async () => {
@@ -1583,6 +1652,8 @@ describe("tmux is a hard stop, not a hint", () => {
   // live; disabling those strands the box.
   it("disables what cannot work without tmux, and nothing else", async () => {
     await boot({ probe: makeProbe({ ...STOPPED, tmux: null }) });
+    // The verb and the reveals are the Service section's now.
+    await openSection("Service");
     expect(button("Start").disabled).toBe(true);
     expect(button("Refresh").disabled).toBe(false);
     expect(button("Open the node log").disabled).toBe(false);
@@ -1593,6 +1664,7 @@ describe("tmux is a hard stop, not a hint", () => {
 
   it("re-enables on the probe that finds tmux — the gate is not remembered", async () => {
     const fake = await boot({ probe: makeProbe({ ...STOPPED, tmux: null }) });
+    await openSection("Service");
     expect(button("Start").disabled).toBe(true);
     fake.setProbe(STOPPED);
     fireEvent.click(button("Refresh"));
@@ -1631,6 +1703,7 @@ describe("tmux is a hard stop, not a hint", () => {
 
   it("the install button says it also starts, because the CLI's install does", async () => {
     await boot({ probe: makeProbe({ ...STOPPED, step: "no-service" }) });
+    await openSection("Service");
     expect(button("Install and Start")).toBeTruthy();
   });
 });
@@ -1640,6 +1713,7 @@ describe("the plane's two doors", () => {
   // the system browser, and the command takes no URL argument by design.
   it("opens the settled plane URL in the system browser", async () => {
     const fake = await boot({ handlers: { node_open_plane_url: () => null } });
+    await openSection("Control Plane");
     fireEvent.click(button("Open in browser instead"));
     await waitFor(() => expect(fake.callsTo("node_open_plane_url")).toEqual([{}]));
     // And it asked for NOTHING but the intent — no URL crossed the boundary.
@@ -1654,6 +1728,7 @@ describe("the plane's two doors", () => {
         },
       },
     });
+    await openSection("Control Plane");
     fireEvent.click(button("Open in browser instead"));
     await waitFor(() =>
       expect(screen.getByText("no control plane yet — enter its URL, or enrol this machine first")).toBeTruthy(),
@@ -1687,6 +1762,7 @@ describe("the plane's two doors", () => {
   // already set up: there, pressing it IS the request to see that dashboard.
   it("opens the app window at an address changed from the status screen", async () => {
     const fake = await boot({ handlers: { node_open_plane: (args) => String(args.url) } });
+    await openSection("Control Plane");
     fireEvent.click(button("Change server…"));
     typeInto("Server URL", "https://plane.example");
     fireEvent.click(button("Open"));
@@ -1710,6 +1786,8 @@ describe("the plane's two doors", () => {
     ipc?.restore();
 
     const fake = await boot({ handlers: { node_open_plane_url: () => null } });
+    // The settled address's browser door is the Control Plane section's now.
+    await openSection("Control Plane");
     expect(buttonOrNull("Open in browser instead")).not.toBeNull();
     fireEvent.click(button("Open in browser instead"));
     // Still no URL across the boundary: the command re-reads the ladder.

@@ -1,15 +1,12 @@
 /**
- * "Show Details" — the facts, and the CLI's last words.
- *
- * The card page showed twelve fields permanently; a person opens this window
- * to DO something, not to read a status table, so the facts live behind a
- * disclosure now (spec 2026-09-12 § 6.4). Nothing is lost: the same
+ * The facts, and the CLI's last words — INLINE (operator ruling 2026-09-22,
+ * the same one the server wave carried: "show details should not be a section
+ * at all"). The card page showed twelve fields permanently; a person opens
+ * this window to DO something, not to read a status table, so the facts lived
+ * behind a disclosure — and the rail made that a second navigation for one
+ * answer, which is the defect the server ruling names. The same
  * `probe-facts.ts` list renders here, and the same verbatim output block the
- * page used to carry at the bottom.
- *
- * `<details>` rather than state, because a disclosure that survives a re-render
- * is what someone reading an error while an action re-probes needs — React
- * leaves the element's own `open` alone.
+ * page used to carry at the bottom, now always on the screen.
  */
 import { cn } from "@/lib/cn";
 import type { ActionResult, EnrolledNodeBody, NodeSettings, Probe } from "@/lib/ipc";
@@ -24,7 +21,7 @@ const FACT_CLASS: Record<Tone, string> = {
   neutral: "",
 };
 
-export function DetailsDisclosure(props: {
+export function StatusFacts(props: {
   probe: Probe | undefined;
   settings: NodeSettings | undefined;
   enrolledNode: EnrolledNodeBody | null;
@@ -39,10 +36,9 @@ export function DetailsDisclosure(props: {
   if (facts.length === 0 && parts.length === 0) return null;
 
   return (
-    <details className="mt-6 w-full">
-      <summary className="cursor-pointer text-muted-foreground text-detail hover:text-foreground">Show Details</summary>
+    <>
       {facts.length > 0 && (
-        <dl className="mt-3 grid grid-cols-[max-content_1fr] gap-x-3.5 gap-y-1 text-detail">
+        <dl className="mt-6 grid grid-cols-[max-content_1fr] gap-x-3.5 gap-y-1 text-detail">
           {facts.map((f) => (
             <div key={f.key} className="contents">
               <dt className="text-muted-foreground">{f.key}</dt>
@@ -66,6 +62,6 @@ export function DetailsDisclosure(props: {
           {parts.join("\n\n")}
         </pre>
       )}
-    </details>
+    </>
   );
 }
