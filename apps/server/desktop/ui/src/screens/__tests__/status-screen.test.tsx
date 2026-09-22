@@ -2,8 +2,11 @@
  * The recovery screen, as component tests. Every variant's title and action
  * are driven through the pure `recoveryTitle`/`recoveryAction` over a probe
  * table, so the screen cannot render a diagnosis the model did not name; the
- * links stack, the tmux warning and the gated primary action are pinned
- * beside them.
+ * tmux warning and the gated primary action are pinned beside them. The four
+ * linkish doors are GONE (wave 2): the rail's Update / How it runs /
+ * Addresses sections are what those links were the stand-in for, and the
+ * select-routing pins in host.test.tsx are the stacked-doors test now. The
+ * Reset door stays — reset is full-window, never a section.
  */
 import { afterEach, describe, expect, it, vi } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
@@ -22,7 +25,6 @@ function renderStatus(over: {
   title?: string;
   onAction?: (kind: string) => void;
   onOpenReset?: () => void;
-  onGo?: (to: string) => void;
   onInstallTmux?: () => void;
 }) {
   return render(
@@ -47,7 +49,6 @@ function renderStatus(over: {
       about={null}
       onAction={(kind) => over.onAction?.(kind)}
       onInstallTmux={over.onInstallTmux ?? (() => {})}
-      onGo={(to) => over.onGo?.(to)}
       onOpenReset={over.onOpenReset ?? (() => {})}
       onReveal={() => {}}
       onFail={() => {}}
@@ -139,26 +140,6 @@ describe("the primary action's disabled states", () => {
 });
 
 describe("the doors", () => {
-  it("offers the four doors, and the server-update door only when an upgrade is known", () => {
-    const onGo = vi.fn();
-    const view = renderStatus({
-      probe: makeProbe({ next: "start", serverChoice: "upgrade-available", bundledVersion: "0.12.2" }),
-      onGo,
-    });
-    for (const door of ["Update Server to 0.12.2…", "Change how it runs…", "Check for updates…", "Server Addresses…"]) {
-      screen.getByRole("button", { name: door }).click();
-    }
-    expect(onGo).toHaveBeenNthCalledWith(1, "update");
-    expect(onGo).toHaveBeenNthCalledWith(2, "supervision");
-    expect(onGo).toHaveBeenNthCalledWith(3, "update");
-    expect(onGo).toHaveBeenNthCalledWith(4, "settings");
-    view.unmount();
-
-    renderStatus({ probe: makeProbe({ next: "start", serverChoice: "up-to-date" }) });
-    // The server-update door is conditional, and the up-to-date machine has none.
-    expect(screen.queryByRole("button", { name: /Update Server to/ })).toBeNull();
-  });
-
   it("deep-links reset from the bar, through the screen-set the old openReset made", () => {
     const onOpenReset = vi.fn();
     renderStatus({ onOpenReset });

@@ -296,15 +296,6 @@
      the meter itself is not optional: "Resetting…" on a dead button reads
      identically to a hang. */
 
-  /* The setup assistant's frame (spec 2026-09-11 § 3.1). One fixed 1024x720
-     window: a centered 560px column, and a 72px bar pinned to the bottom. */
-  .recovery-links {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-    margin-top: 20px;
-  }
   /* Two columns now that the dot row is gone (spec 2026-09-17 § 4.1): the
      wide left track pushes `#bar-right` to the frame edge whether or not
      `#bar-left` holds anything, which the three-track row used the middle

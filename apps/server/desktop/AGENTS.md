@@ -193,9 +193,11 @@ is part of the Status section, not a disclosure — a sidebar section that hides
 its own facts behind a second control is two navigations for one answer), and
 the log tail is pulled while the Status section is up, not while it is not —
 the open-disclosure rule carried over under a new name.
-A footer link reaches Reset, and three more reach **Update Subshell Server**,
-**How Your Server Runs** and **Server Addresses** — each here for the same
-reason: a machine on this screen has no dashboard to open those doors from.
+A footer link reaches Reset — the one door the rail cannot carry, because
+reset is full-window and never a section. The other three doors the old
+screen stacked under its diagnosis (**Update Subshell Server**, **How Your
+Server Runs**, **Server Addresses**) are the rail's sections now, which is
+what those links existed to be a stand-in for.
 
 **A requested screen is routed off `REQUESTED_SCREENS`, never a literal.**
 `screenForRequest` (in `lib/wizard-state.ts`) maps the payload, and the reason

@@ -415,4 +415,29 @@ describe("the rail", () => {
     await waitFor(() => expect(routeOf()).toBe("status"));
     expect(screen.getByRole("button", { name: "Status" }).getAttribute("aria-current")).toBe("true");
   });
+
+  it("HOLDS the handoff a Status select lands on, on a ready machine", async () => {
+    // A deliberate rail select is not an arrival: the auto-continue rule was
+    // written for windows reopened over a running server, which owe no result
+    // to a reader. Selecting Status while driving this window must render the
+    // ready view HELD — Continue available, no dashboard opening by itself.
+    fake = installFakeIpc({
+      probe: makeProbe({ next: "ready", onboarded: true }),
+      handlers: {
+        desktop_pending_screen: () => "update",
+        desktop_check_app_update: () => ({ current: "0.12.1", latest: null, notes: null, reason: null }),
+        desktop_open_main: () => undefined,
+      },
+    });
+    render(<Host />);
+    await waitFor(() => expect(routeOf()).toBe("update"));
+    screen.getByRole("button", { name: "Status" }).click();
+    await waitFor(() => expect(routeOf()).toBe("handoff"));
+    // Held: the waiting arm renders its Continue, and nothing has opened.
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDefined();
+    expect(fake?.callsTo("desktop_open_main")).toHaveLength(0);
+    // The press IS the human the hold was waiting for.
+    screen.getByRole("button", { name: "Continue" }).click();
+    await waitFor(() => expect(fake?.callsTo("desktop_open_main")).toHaveLength(1));
+  });
 });

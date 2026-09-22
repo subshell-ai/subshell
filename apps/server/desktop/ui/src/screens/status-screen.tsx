@@ -1,8 +1,11 @@
 /**
  * The ONE screen a machine that has been set up sees while its server is not
  * answering (spec 2026-09-21; plan Task 4) — the port of `renderRecovery`,
- * including the `.recovery-links` stack, the tmux warning as a keyed
- * component, and the gated primary action.
+ * with the tmux warning as a keyed component and the gated primary action.
+ * The four linkish doors the old screen stacked under its diagnosis are GONE
+ * in wave 2: the rail's Update / How it runs / Addresses sections are what
+ * they were the stand-in for. Reset stays a door — it is full-window, never
+ * a section.
  *
  * The title IS the diagnosis, there is one primary action, and everything a
  * person repairing an install would otherwise have opened a console for sits
@@ -21,7 +24,6 @@ import {
   RESET_LABEL,
   type RecoveryActionKind,
   recoveryAction,
-  type ScreenId,
   type SupervisionChoice,
   tmuxInstallFailure,
 } from "../lib/wizard-state";
@@ -118,7 +120,6 @@ export function StatusScreen(props: {
   about: About | null;
   onAction: (kind: RecoveryActionKind) => void;
   onInstallTmux: () => void;
-  onGo: (to: ScreenId) => void;
   onOpenReset: () => void;
   onReveal: (target: OpenTarget) => void;
   onFail: (err: unknown) => void;
@@ -215,55 +216,6 @@ export function StatusScreen(props: {
           )}
         </>
       )}
-      {/* The secondary doors, one per row — the update link rides the same stack,
-          because it names a screen, not an act. Reachable HERE as well as from the
-          dashboard, and that is the point: a machine whose service definition is
-          broken has no dashboard to open the door from. */}
-      <div className="recovery-links">
-        {probe.serverChoice === "upgrade-available" && (
-          <button
-            type="button"
-            className="rounded-sm text-body text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
-            disabled={busy || running}
-            onClick={() => props.onGo("update")}
-          >
-            {`Update Server to ${probe.bundledVersion}…`}
-          </button>
-        )}
-        <button
-          type="button"
-          className="rounded-sm text-body text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
-          disabled={busy || running}
-          onClick={() => props.onGo("supervision")}
-        >
-          Change how it runs…
-        </button>
-        {/* Also reachable here, for the same reason: the dashboard is the ordinary
-            door to updating and a machine on this screen has no dashboard. Always
-            offered rather than gated on a known update — nothing on THIS page knows
-            whether one exists until the screen behind it asks, and a row that
-            appeared only after an answer nobody had asked for would mean checking
-            on the poll. */}
-        <button
-          type="button"
-          className="rounded-sm text-body text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
-          disabled={busy || running}
-          onClick={() => props.onGo("update")}
-        >
-          Check for updates…
-        </button>
-        {/* A wrong port or bind address is one of the few things that puts a machine
-            here. The tray carries the same door for the case this screen never
-            renders — a server that answers but will not accept a sign-in. */}
-        <button
-          type="button"
-          className="rounded-sm text-body text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
-          disabled={busy || running}
-          onClick={() => props.onGo("settings")}
-        >
-          Server Addresses…
-        </button>
-      </div>
       <StatusDetails
         probe={probe}
         lastResult={props.lastResult}

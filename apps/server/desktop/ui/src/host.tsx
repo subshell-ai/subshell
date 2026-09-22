@@ -245,6 +245,16 @@ export function Host(): React.JSX.Element {
   const autoFireLatchRef = useRef(false);
   const resumeLatchRef = useRef(false);
   /**
+   * Whether the window is ON the handoff because a person SELECTED Status in
+   * the rail, not because the machine arrived there. The handoff's
+   * auto-continue was written for arrival paths — a window reopened over a
+   * running server owes no result to a reader — and a deliberate select is
+   * the opposite of an arrival: the person is driving this window. So the
+   * ready view renders HELD (Continue available, pressed by a human), and
+   * the flag clears when the route leaves the handoff and on the press.
+   */
+  const [selectHeldHandoff, setSelectHeldHandoff] = useState(false);
+  /**
    * Whether the failed install's output disclosure is expanded, and how far
    * down it the reader has scrolled.
    *
@@ -763,6 +773,9 @@ export function Host(): React.JSX.Element {
   const handoffContinue = useCallback((): void => {
     if (probe === null) return;
     setContinued(true);
+    // A held handoff's press is the human the hold was waiting for; the next
+    // arrival path auto-continues exactly as before.
+    setSelectHeldHandoff(false);
     // The one stop AFTER the chain (operator's call, 2026-09-18): on a Mac's
     // first run this press hands off to the permissions screen rather than to
     // the dashboard, and that screen's own Continue does what this one used
@@ -969,7 +982,11 @@ export function Host(): React.JSX.Element {
       <Rail
         sections={railSections}
         active={railActive(r)}
-        onSelect={(id) => go((id === "status" ? "recovery" : id) as ScreenId)}
+        onSelect={(id) => {
+          if (id === "status") setSelectHeldHandoff(true);
+          else setSelectHeldHandoff(false);
+          go((id === "status" ? "recovery" : id) as ScreenId);
+        }}
       />
     );
 
@@ -978,6 +995,18 @@ export function Host(): React.JSX.Element {
    * rule was "while the disclosure is open"; wave 2's ruling renders the
    * details inline in the section, so the rule becomes the section itself.
    */
+  /**
+   * The hold, in effect: a rail-selected Status on a READY machine resolves
+   * to the handoff, and this is what turns its auto-continue off. Cleared
+   * whenever the route is not the handoff — a probe that goes unhealthy, a
+   * requested screen, anything — so a stale hold can never pin a later
+   * arrival.
+   */
+  const handoffHeld = r.kind === "handoff" && selectHeldHandoff;
+  useEffect(() => {
+    if (r.kind !== "handoff") setSelectHeldHandoff(false);
+  }, [r.kind]);
+
   const statusUp = r.kind === "status";
   const tailPulledForVisit = useRef(false);
   useEffect(() => {
@@ -1049,13 +1078,16 @@ export function Host(): React.JSX.Element {
     // reach, so the dashboard opening is identical whichever door it opens
     // through.
     if (handoffView({ onboarded: probe.onboarded, ranSetupHere, continued }).wait) return;
+    // A rail-selected Status is a person driving this window, not an arrival:
+    // the view renders held and waits for the press.
+    if (handoffHeld) return;
     if (opened || probe.next !== "ready") return;
     setOpened(true);
     void ipc.openMain().catch((err: unknown) => {
       setOpenFailed(true);
       setProblem(errText(err));
     });
-  }, [r.kind, probe, ranSetupHere, continued, opened]);
+  }, [r.kind, probe, ranSetupHere, continued, opened, handoffHeld]);
 
   // ---------------------------------------------------------------------------
   // The poll, on the `nextPollDelay` seam.
@@ -1202,7 +1234,8 @@ export function Host(): React.JSX.Element {
   };
 
   /** Whether the completed checklist waits for a Continue (see `handoffView`). */
-  const handoffWaiting = probe !== null && handoffView({ onboarded: probe.onboarded, ranSetupHere, continued }).wait;
+  const handoffWaiting =
+    probe !== null && (handoffView({ onboarded: probe.onboarded, ranSetupHere, continued }).wait || handoffHeld);
 
   const entranceKey = screenEpoch > 0 ? screenEpoch : undefined;
 
@@ -1361,7 +1394,6 @@ export function Host(): React.JSX.Element {
             about={about}
             onAction={runRecovery}
             onInstallTmux={() => startTmuxInstall()}
-            onGo={go}
             onOpenReset={openReset}
             onReveal={(target) => {
               void ipc.openPath(target).catch(fail);
