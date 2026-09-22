@@ -143,6 +143,9 @@ export async function attachRemoteSubshellWs(
     launcher,
     socket: row.tmuxSocket ?? "",
     subshellId: row.id,
+    // Always an agent node on this path — the local twin sets `local`. Wave D
+    // keys the plane→node input hold by it.
+    nodeId: row.nodeId,
     logFile: "",
     // Only `edit`/`owner` may type into the pane; a `view` grantee watches.
     canInput: accessAtLeast(access, "edit"),

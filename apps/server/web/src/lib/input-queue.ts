@@ -4,7 +4,12 @@
  * under backpressure, with the server's dedupe window absorbing the retries.
  *
  * While the socket is alive, TCP ordering means an unacked frame is "not
- * yet", never "lost", so there is no timer and no mid-connection resend.
+ * yet", never "lost" — ON THE BROWSER↔PLANE LEG, which is the only leg this
+ * queue rides. The plane→node leg fails independently (node daemon restart,
+ * mesh blip, command timeout) and is closed server-side: the plane holds a
+ * failed write and re-fires it when the node's connection is live again
+ * (spec 2026-09-21 Wave D, server `ws/input-hold.ts`), so an unacked id here
+ * still means "not yet", and the 4004 node-offline refusal retries.
  * Retry lives entirely on RECONNECT: every unacked id is re-sent in order on
  * the fresh socket, and the server's completed-write window drops the ones
  * that already landed. Every keystroke carries its id from the moment the

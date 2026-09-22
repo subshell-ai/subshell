@@ -16,6 +16,7 @@ import { pushAllowedDirsBestEffort } from "@/services/nodes/allowed-dirs-sync.js
 import { detectOnNodeBestEffort } from "@/services/nodes/inventory.js";
 import { announceNodePresence } from "@/services/nodes/node-presence-announce.js";
 import { logger } from "@/utils/logger.js";
+import { refireInputHoldsForNode } from "@/ws/input-hold.js";
 import { dispatchOutput, getNodeLifecycleHooks } from "./node-events.js";
 import {
   attachConnection,
@@ -480,6 +481,18 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // on it carries `nodeOffline`, and nothing writes to those rows when a
       // socket comes back either.
       announceNodePresence(nodeId);
+      // Wave D (spec 2026-09-21): input writes that failed while this node
+      // was unreachable are held per attached browser session
+      // (`ws/input-hold.ts`). This ready moment is one of the hold's two
+      // re-fire triggers — re-fire in id order, before anything newer is
+      // written. Fire-and-forget like the detect kick above, and guarded the
+      // same way: a hold must never be the reason a handshake did not
+      // complete, and a re-fire failure re-holds by itself.
+      try {
+        refireInputHoldsForNode(nodeId);
+      } catch (err: unknown) {
+        logger.withError(err).debug(`node ws: input-hold refire for ${nodeId} failed`);
+      }
       // Maintenance is the other half of that reconciliation and the harder
       // one, because it travels BOTH ways: the machine may have been flipped
       // at the keyboard while it was offline, and so may the row. The hook

@@ -37,12 +37,61 @@ export interface TermWsHandlers {
 const RECONNECT_DELAY_MS = 1500;
 
 /**
+ * The attach close-code policy (spec 2026-09-21 Wave D). Sub-4000 closes are
+ * drops and restarts, and have always been retried. Among the 4xxx refusals
+ * exactly one can name a TRANSIENT state: 4004 "node offline" — the pane is
+ * fine, the machine's agent socket is not — so it retries with an escalating
+ * backoff while the terminal is open. Anything already typed is safe two
+ * ways: the plane holds a failed plane→node write and re-fires it when the
+ * node returns (server-side, `ws/input-hold.ts`), and the queue re-sends its
+ * backlog on the next successful attach. Every other 4xxx code is a refusal
+ * about this subshell or this credential — retrying cannot succeed, and the
+ * page's onClose must surface it — so it stays terminal exactly as before.
+ *
+ * Pure, so the table is pinned by test without a socket.
+ * @param code - The close code the server sent
+ * @returns True when the hook should schedule another attach
+ */
+export function isRetryableAttachClose(code: number): boolean {
+  if (code < 4000) return true;
+  return code === 4004;
+}
+
+/** Backoff floor (the fixed reconnect delay) and ceiling. Mutable only
+ * through the test seam below. */
+let retryBaseMs = RECONNECT_DELAY_MS;
+let retryMaxMs = 15000;
+
+/**
+ * Escalating delay for consecutive attach refusals: one base interval, then
+ * doubling, capped. An outage that outlasts a fixed cadence by minutes
+ * should not have the client minting a fresh ws-token every 1.5 s forever.
+ * @param consecutiveRefusals - 4004 closes since the last successful attach
+ * @returns The delay before the next attempt, in ms
+ */
+export function attachRetryDelayMs(consecutiveRefusals: number): number {
+  return Math.min(retryBaseMs * 2 ** Math.max(0, consecutiveRefusals - 1), retryMaxMs);
+}
+
+/**
+ * Shortens the retry delays so a test can watch several attempts land.
+ * @internal
+ */
+export function setAttachRetryDelaysForTests(baseMs: number, maxMs: number): void {
+  retryBaseMs = baseMs;
+  retryMaxMs = maxMs;
+}
+
+/**
  * Attaches a WebSocket to an xterm terminal: streams server frames
  * (`replay` + `output`) into the terminal and forwards keystrokes back.
  *
  * The connection survives transient drops: after any non-rejection close the
- * hook reconnects automatically (fixed 1.5s delay) until it unmounts or the
- * server rejects the subshell. Each attach re-streams a clean snapshot: one
+ * hook reconnects automatically (fixed 1.5s delay) until it unmounts, and —
+ * since Wave D — after a 4004 "node offline" refusal it keeps retrying on an
+ * escalating backoff, because that refusal can clear while the terminal is
+ * open. Any other 4xxx refusal stays terminal. Each attach re-streams a
+ * clean snapshot: one
  * `replay` frame carries the pane grid plus a bounded window of tmux's own
  * reflowed history, and the live tail then carries ONLY output produced after
  * that snapshot — historical raw log bytes (mid-stream TUI redraw sequences)
@@ -185,15 +234,18 @@ export function useSubshellWs(
     // A new attach session is a fresh reconnect count (see `reconnectsRef`).
     reconnectsRef.current = 0;
     let connections = 0;
+    // Consecutive 4004 refusals since the last attach that actually served a
+    // frame. Drives the Wave D backoff; a successful attach resets it.
+    let refusals = 0;
 
     /**
      * Arms the next reconnect attempt. Replaces any pending timer so two
      * close paths can never stack a second attempt.
      */
-    const scheduleRetry = () => {
+    const scheduleRetry = (delayMs: number = RECONNECT_DELAY_MS) => {
       if (cancelled) return;
       if (retryTimer) clearTimeout(retryTimer);
-      retryTimer = setTimeout(() => void connect(), RECONNECT_DELAY_MS);
+      retryTimer = setTimeout(() => void connect(), delayMs);
     };
 
     const connect = async () => {
@@ -323,6 +375,9 @@ export function useSubshellWs(
             // server's own attach guard silently drops.
             if (!attachLiveRef.current) {
               attachLiveRef.current = true;
+              // A connection that served a frame ended the refusal streak:
+              // the next 4004 starts a fresh, short backoff.
+              refusals = 0;
               inputQueueRef.current?.resendPending();
             }
             if (frame.type === "ack") {
@@ -377,11 +432,15 @@ export function useSubshellWs(
           // sent again: the server's attach guard drops the early ones.
           attachLiveRef.current = false;
           handlersRef.current.onClose?.(e.code, e.reason);
-          // 4xxx codes are the server rejecting the attach (missing subshell /
-          // unauthorized / subshell not running) — retrying cannot succeed, so
-          // let the page's onClose surface the dead-subshell state. Every other
-          // close (1006 drop, backend restart, …) is retried.
-          if (!cancelled && e.code < 4000) scheduleRetry();
+          // The close-code policy is `isRetryableAttachClose` (Wave D): the
+          // sub-4000 drops and restarts retry on the fixed cadence, the 4004
+          // node-offline refusal retries on an escalating one (the backlog
+          // ships on the first successful attach; the plane holds what it
+          // already wrote), and every other 4xxx refusal is terminal — the
+          // page's onClose surfaces it and no timer stacks behind it.
+          if (!cancelled && isRetryableAttachClose(e.code)) {
+            scheduleRetry(e.code >= 4000 ? attachRetryDelayMs(++refusals) : RECONNECT_DELAY_MS);
+          }
         };
         ws.onerror = () => handlersRef.current.onError?.("WebSocket error");
       } catch (err) {

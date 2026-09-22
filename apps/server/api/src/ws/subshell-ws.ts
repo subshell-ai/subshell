@@ -10,6 +10,7 @@ import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
 import { resolveAttach } from "@/ws/attach-resolve.js";
 import { captureToReplayText } from "@/ws/capture-text.js";
+import { dropInputHolds, hasHeldInput, holdFailedInput } from "@/ws/input-hold.js";
 import { inputWindowAdd, inputWindowHas, sanitizeInputSession } from "@/ws/input-window.js";
 import type { PaneGeometry } from "@/ws/pane-geometry.js";
 import { captureStable, fitPaneAndRepaint, RESIZE_SETTLE_MS } from "@/ws/pane-repaint.js";
@@ -128,6 +129,10 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     launcher,
     socket,
     subshellId: row.id,
+    // The node the pane runs on (`local` here). Wave D keys the plane→node
+    // input hold by it, so the node-ws-handler's `ready` can find this
+    // session's holds.
+    nodeId: row.nodeId,
     logFile: subshellLogPath(row.id),
     // Only `edit`/`owner` may type into the pane; a `view` grantee watches.
     canInput: accessAtLeast(access, "edit"),
@@ -398,6 +403,23 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
         sendToSocket(ws, { type: "ack", id });
         return;
       }
+      // Wave D: once this session holds failed plane→node writes, a newer id
+      // JOINS the queue instead of dispatching past them — a held id must
+      // re-fire BEFORE anything newer is written, or the user's keystrokes
+      // land reordered. The append is itself a re-fire trigger, so a backlog
+      // arriving on a quietly-recovered node ships immediately.
+      if (hasHeldInput(data.nodeId, data.subshellId, sessionId)) {
+        holdFailedInput({
+          nodeId: data.nodeId,
+          subshellId: data.subshellId,
+          sessionId,
+          id,
+          payload: frame.data,
+          ws,
+          sendAck: () => sendToSocket(ws, { type: "ack", id }),
+        });
+        return;
+      }
       void data.launcher
         .sendInput(data.socket, data.subshellId, frame.data)
         .then(() => {
@@ -407,10 +429,34 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
           // at-least-once): a write still in flight when the retry arrives is
           // not yet in the window, so the retry writes too: the keystroke can
           // land twice, never zero times.
+          // The commit happens BEFORE the ack, on the write resolving — so a
+          // resolved write is already in the window when anything (a client
+          // re-send, a Wave D re-fire) can consult it, and only a write whose
+          // result never came back is re-writable.
           inputWindowAdd(data.subshellId, sessionId, id);
           sendToSocket(ws, { type: "ack", id });
         })
-        .catch(logFailure);
+        .catch((err) => {
+          // Wave D: a failed plane→node write is HELD, not dropped — the
+          // plane-side hold re-fires it when the node's connection is live
+          // again (ws/input-hold.ts), because the browser socket lives on and
+          // the client's own retry ships only on reconnect or ack-drain.
+          // Scoped to agent nodes: the local leg has no node-ready moment to
+          // re-fire from, and a local failure keeps today's drop-and-log.
+          if (data.nodeId !== LOCAL_NODE_ID) {
+            holdFailedInput({
+              nodeId: data.nodeId,
+              subshellId: data.subshellId,
+              sessionId,
+              id,
+              payload: frame.data,
+              ws,
+              sendAck: () => sendToSocket(ws, { type: "ack", id }),
+            });
+            return;
+          }
+          logFailure(err);
+        });
       return;
     }
     void data.launcher.sendInput(data.socket, data.subshellId, frame.data).catch(logFailure);
@@ -460,5 +506,12 @@ export function cleanupSubshellWs(ws: WsSocket): void {
   // mark instead; the attach checks it the instant it has somewhere to look.
   if (ws.data && !ws.data.viewerId) ws.data.detachedEarly = true;
   detachViewer(ws);
+  // Wave D: the session is gone, so its holds go with it — the client's own
+  // reconnect re-send is the safety net for what they held, and a hold that
+  // outlived its socket would ack a dead peer. Guarded on nodeId because the
+  // hold only ever exists for agent nodes.
+  if (ws.data?.subshellId && ws.data.nodeId) {
+    dropInputHolds(ws.data.nodeId, ws.data.subshellId, sessionIdOf(ws.data) ?? ws.data.viewerId);
+  }
   ws.data?.cleanup?.();
 }
