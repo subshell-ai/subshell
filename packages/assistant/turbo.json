@@ -1,0 +1,22 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "clean": {},
+    "build": {
+      "dependsOn": ["lint"],
+      "inputs": ["*.json", "*.ts", "*.tsx", "src/**"],
+      "outputs": ["dist/**"]
+    },
+    "build:dev": {
+      "inputs": ["*.json", "*.ts", "*.tsx", "src/**"],
+      "outputs": ["dist/**"]
+    },
+    "lint": {
+      "inputs": ["*.ts", "*.tsx", "*.json", "src/**"]
+    },
+    "verify-types": {
+      "inputs": ["*.ts", "*.tsx", "*.json", "src/**"]
+    }
+  }
+}

@@ -31,6 +31,13 @@ both apps now genuinely share:
 Screens do NOT live in the package: the two assistants drive different CLIs
 and probes. Each app composes its own screens from the package's primitives.
 
+**Screens use the shadcn kit, not raw elements** (operator ruling 2026-09-22,
+mid-wave-1): each app carries its own copy of the kit (Button, Input, Label,
+Badge, Switch, CopyButton — the client's `components/ui/` set, files copied
+verbatim), and screens compose it, the way the client assistant always has.
+The Frame stays hand-composed in the package — a frame is not a shadcn
+primitive. Copy stays verbatim; what changes is the element under it.
+
 Both apps' Vite builds consume it; turbo builds it before either.
 
 ### The server assistant's port is presentation-only
@@ -55,15 +62,14 @@ Four sections:
 
 | section | content |
 | --- | --- |
-| **Status** | running state (the handoff view) or the recovery diagnosis |
+| **Status** | running state (the handoff view) or the recovery diagnosis, with the server facts and log tail rendered INLINE — operator ruling 2026-09-22: what was the Show Details disclosure is part of the Status section, not a disclosure |
 | **Update** | the one update act, both phases |
 | **How it runs** | supervision: service or app child |
 | **Addresses** | the four address values and their restart |
 
 Rendered full-window WITHOUT the rail: **Reset** (its premise is that it is
 the only thing happening), **Permissions** (a handoff moment with its own
-Back/Continue), and every first-run screen (below). Show Details stays a
-disclosure inside Status.
+Back/Continue), and every first-run screen (below).
 
 ### The FTE rule
 

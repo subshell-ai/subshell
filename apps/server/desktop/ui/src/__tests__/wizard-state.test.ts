@@ -134,34 +134,43 @@ describe("screensFor with onboarded", () => {
  * and consulting the decision at all.
  */
 describe("auto-fire, pinned at the source", () => {
-  const wizard = readFileSync(join(import.meta.dir, "../wizard.ts"), "utf8");
-  const at = wizard.indexOf("function renderSetup(");
-  const body = wizard.slice(at, wizard.indexOf("\nfunction ", at + 1));
+  // The fire moved into the Setup screen's effect and the host's flag; the
+  // same three page-only mistakes are pinned where they now live.
+  const setup = readFileSync(join(import.meta.dir, "../screens/setup-screen.tsx"), "utf8");
+  const host = readFileSync(join(import.meta.dir, "../host.tsx"), "utf8");
+  const fireAt = setup.indexOf("if (props.autoFired || running || failure !== null) return;");
+  expect(fireAt, "the fire effect's guard must exist").toBeGreaterThan(-1);
+  const fire = setup.slice(setup.lastIndexOf("useLayoutEffect(() => {", fireAt), setup.indexOf("}, [", fireAt));
 
-  it("exists, gated by the module flag and the pure decision", () => {
-    expect(at, "renderSetup must exist").toBeGreaterThan(-1);
-    expect(wizard).toContain("let autoFired = false;");
-    expect(body).toContain("if (!autoFired &&");
-    expect(body).toContain('autoSetupDecision(p, conflict, busy || running).mode === "fire"');
+  it("exists, gated by the host flag and the pure decision", () => {
+    expect(host).toContain("const [autoFired, setAutoFired] = useState(false);");
+    expect(fire).toContain("if (props.autoFired || running || failure !== null) return;");
+    expect(fire).toContain("const decision = autoSetupDecision(probe, conflict, busy || running);");
     // The flag is set BEFORE the chain, or a re-entrant render would see it
-    // still clear and start a second chain.
-    expect(body.indexOf("autoFired = true;")).toBeLessThan(body.indexOf("void startSetup();"));
+    // still clear and start a second chain. `onAutoFire` is the host's one
+    // place both happen, in that order.
+    const armAt = host.indexOf("onAutoFire={() => {");
+    expect(armAt, "the host must hand the screen an onAutoFire").toBeGreaterThan(-1);
+    const arm = host.slice(armAt, host.indexOf("}}", armAt));
+    expect(arm.indexOf("setAutoFired(true);")).toBeLessThan(arm.indexOf("void startSetup();"));
   });
 
   it("holds fire until the port is MEASURED, so a conflicted machine gets the form, not a failed chain", () => {
     // `canSetup` treats an outstanding port check as free (a Set Up button
     // must not die for a beat per keystroke) — which is right for the button
-    // and wrong for a chain nobody pressed. The page adds the knowledge the
+    // and wrong for a chain nobody pressed. The screen adds the knowledge the
     // pure decision is not allowed to have.
-    expect(body).toContain("portKnown");
-    expect(body.indexOf("const portKnown =")).toBeLessThan(body.indexOf("if (!autoFired &&"));
+    expect(fire).toContain("if (!portKnown) return;");
+    expect(setup.indexOf("const portKnown =")).toBeLessThan(fireAt);
   });
 
   it("renders the failure before any re-fire — a chain that failed does not re-run itself", () => {
-    // Try Again is a press; the auto path is spent. Order inside renderSetup
-    // is the whole guarantee: `running` first, `failure` second, fire third.
-    expect(body.indexOf("if (running)")).toBeLessThan(body.indexOf("if (failure)"));
-    expect(body.indexOf("if (failure)")).toBeLessThan(body.indexOf("if (!autoFired &&"));
+    // Try Again is a press; the auto path is spent. The old render's order
+    // (running, failure, fire) becomes two halves here: the fire effect
+    // refuses on `failure !== null`, and the branches still render running
+    // before failure.
+    expect(fire).toContain("failure !== null");
+    expect(setup.indexOf("if (running) {")).toBeLessThan(setup.indexOf("if (failure) {"));
   });
 
   it("keeps the welcome INERT and the requested-screen routing intact", () => {
@@ -169,44 +178,46 @@ describe("auto-fire, pinned at the source", () => {
     // operator request. What the return must not smuggle back is a fire
     // beside the greeting: the intro's whole honesty is that nothing has
     // touched the machine while it is up, and the fire's placement inside
-    // `renderSetup` is the structural guarantee of that. If Welcome ever
+    // the Setup screen is the structural guarantee of that. If Welcome ever
     // grows a `startSetup`, the machine is configured while the reader is
     // still reading — which is the sentence this pin exists to keep true.
-    const wAt = wizard.indexOf("function renderWelcome(");
-    expect(wAt, "renderWelcome must exist").toBeGreaterThan(-1);
-    const wBody = wizard.slice(wAt, wizard.indexOf("\nfunction ", wAt + 1));
-    expect(wBody).not.toContain("startSetup");
-    expect(wBody).not.toContain("autoFired");
-    expect(wBody).toContain('"Continue"');
+    const welcome = readFileSync(join(import.meta.dir, "../screens/welcome-screen.tsx"), "utf8");
+    expect(welcome).not.toContain("startSetup");
+    expect(welcome).not.toContain("autoFired");
+    expect(welcome).toContain("Continue");
     // A requested screen still outranks the probe's family; `permissions`
     // lost its dual-role and the routing lost the disambiguator with it.
-    expect(wizard).toContain("if (isRequestedScreen(screen)) {");
-    expect(wizard).not.toContain("isRequestedScreen(screen) && !list.includes(screen)");
+    // The routing is `route()` in the pure seam now.
+    const state = readFileSync(join(import.meta.dir, "../lib/server-state.ts"), "utf8");
+    expect(state).toContain("if (isRequestedScreen(screen)) {");
+    expect(state).not.toContain("isRequestedScreen(screen) && !list.includes(screen)");
   });
 
   it("advances a finished tmux screen PAST the welcome, not back to it", () => {
     // The re-resolution used to be `list[0]`, which WAS the act until
     // 2026-09-18 put the greeting at the head. A reader who installed tmux
     // is done greeting; land them on the act where the chain fires.
-    expect(wizard).toContain('list[0] === "welcome" ? list[1] : list[0]');
+    const state = readFileSync(join(import.meta.dir, "../lib/server-state.ts"), "utf8");
+    expect(state).toContain('list[0] === "welcome" ? list[1] : list[0]');
   });
 
   it("is re-armed by a completed reset, never by a cancelled one", () => {
-    const resetView = readFileSync(join(import.meta.dir, "../assistant/reset-view.ts"), "utf8");
     // After the chain ran: the wipe is a new first run inside this load,
     // and its welcome press must be able to fire like the first one did.
-    expect(resetView.indexOf("host.rearmFirstRun()")).toBeGreaterThan(resetView.indexOf("await ipc.reset(typed)"));
+    // The reset chain is the host's `runReset` now.
+    const runAt = host.indexOf("await ipc.reset(typed)");
+    expect(runAt, "runReset must run the reset").toBeGreaterThan(-1);
+    expect(host.indexOf("rearmFirstRun();")).toBeGreaterThan(runAt);
     // Not in the cancel handler: closing the screen mid-nothing must not
     // un-fire a chain that already ran this load.
-    const cancel = resetView.slice(
-      resetView.indexOf('el("reset-cancel").addEventListener'),
-      resetView.indexOf('el("reset-run").addEventListener'),
-    );
+    const cancelAt = host.indexOf("onCancel={() => {");
+    const cancel = host.slice(cancelAt, host.indexOf("}}", cancelAt));
     expect(cancel).not.toContain("rearmFirstRun");
     // And the rearm clears both pre-wipe ghosts.
-    const host = wizard.slice(wizard.indexOf("rearmFirstRun: () => {"));
-    expect(host.slice(0, host.indexOf("};"))).toContain("autoFired = false;");
-    expect(host.slice(0, host.indexOf("};"))).toContain("failure = null;");
+    const rearmAt = host.indexOf("const rearmFirstRun = useCallback((): void => {");
+    const rearm = host.slice(rearmAt, host.indexOf("}, []);", rearmAt));
+    expect(rearm).toContain("setAutoFired(false);");
+    expect(rearm).toContain("setFailure(null);");
   });
 });
 
@@ -217,27 +228,25 @@ describe("auto-fire, pinned at the source", () => {
  * only the page can get wrong.
  */
 describe("the waiting handoff, pinned at the source", () => {
-  const wizard = readFileSync(join(import.meta.dir, "../wizard.ts"), "utf8");
-  const at = wizard.indexOf("function renderHandoff(");
-  const body = wizard.slice(at, wizard.indexOf("\nfunction ", at + 1));
-
-  it("exists", () => {
-    expect(at, "renderHandoff must exist").toBeGreaterThan(-1);
-  });
+  // The handoff is the host's auto-open effect and the Handoff screen now;
+  // the same page-only mistakes are pinned where they now live.
+  const host = readFileSync(join(import.meta.dir, "../host.tsx"), "utf8");
+  const effectAt = host.indexOf('if (r.kind !== "handoff") return;');
+  expect(effectAt, "the handoff effect must exist").toBeGreaterThan(-1);
+  const effect = host.slice(effectAt, host.indexOf("}, [r.kind", effectAt));
 
   it("opens the dashboard only when the view does not wait", () => {
-    // The whole report was an auto-navigation nobody dismissed:
-    // `openWhenReady()` must live INSIDE the not-waiting branch, and it must
-    // be the ONLY call in this function — the #74 shape (the call beside the
-    // frame, unconditional) is the behavior back. Range checks, not a brace
-    // regex: the property is WHERE the call sits, and a pin that forbids a
-    // comment with a `}` in the branch fails on correct code.
-    const guard = body.indexOf("if (!view.wait) {");
-    const open = body.indexOf("openWhenReady();");
+    // The whole report was an auto-navigation nobody dismissed: the open
+    // must live AFTER the waiting guard, and it must be the ONLY open call
+    // in the effect — the #74 shape (the call beside the frame,
+    // unconditional) is the behavior back. The waiting arm reaches the same
+    // open through the person's Continue, so the effect's one call is the
+    // only automatic one.
+    const guard = effect.indexOf(").wait) return;");
+    const open = effect.indexOf("void ipc.openMain()");
     expect(guard).toBeGreaterThan(-1);
-    expect(open, "renderHandoff must still open the dashboard, guarded").toBeGreaterThan(guard);
-    expect(body.indexOf("openWhenReady();", open + 1), "a second call site is an unguarded one").toBe(-1);
-    expect(open).toBeLessThan(body.indexOf('el("content").append(checklist', guard));
+    expect(open, "the handoff effect must still open the dashboard, guarded").toBeGreaterThan(guard);
+    expect(effect.indexOf("void ipc.openMain()", open + 1), "a second call site is an unguarded one").toBe(-1);
   });
 
   it("holds the progress screen while a chain runs, so the poll cannot skip the press", () => {
@@ -245,47 +254,48 @@ describe("the waiting handoff, pinned at the source", () => {
     // screen alive), and the port binds before `startSetup`'s finally sets
     // `ranSetupHere`. Without this guard a tick that observes `ready` inside
     // that window renders the handoff with the flag still false — the exact
-    // skipped press the screen exists to prevent. Same guard renderSetup and
-    // renderRecovery already run; now the ready branch runs it too.
-    const render = wizard.slice(wizard.indexOf("function render(): void {"));
-    const readyAt = render.indexOf("if (list.length === 0) {");
-    const guardAt = render.indexOf("if (running)", readyAt);
-    expect(readyAt).toBeGreaterThan(-1);
+    // skipped press the screen exists to prevent. The old render()'s ready
+    // branch is `route()` in the pure seam now, and the guard reads the same.
+    const state = readFileSync(join(import.meta.dir, "../lib/server-state.ts"), "utf8");
+    const routeAt = state.indexOf("export function route(");
+    const routeBody = state.slice(routeAt, state.indexOf("/**", routeAt + 10));
+    const guardAt = routeBody.indexOf('if (s.running) return { kind: "setup" };');
     expect(guardAt, "the ready branch must check `running`").toBeGreaterThan(-1);
-    expect(guardAt).toBeLessThan(render.indexOf("renderHandoff(p)", readyAt));
+    expect(guardAt).toBeLessThan(routeBody.indexOf('{ kind: "handoff" }'));
   });
 
   it("releases the previous press when a new chain starts", () => {
     // `continued` latches for the window otherwise, so a second chain that
     // ran here — after a failed open retried, or a dev-build reset that
     // redrew first run in place — would auto-navigate on the FIRST visit's
-    // dismissal. Each run earns its own.
-    const start = wizard.slice(
-      wizard.indexOf("async function startSetup("),
-      wizard.indexOf("\nasync function pickBinary"),
-    );
-    expect(start).toContain("continued = false;");
-    expect(start.indexOf("continued = false;")).toBeLessThan(start.indexOf("await ipc.setup("));
+    // dismissal. Each run earns its own. The chain is the runner now.
+    const runners = readFileSync(join(import.meta.dir, "../runners.ts"), "utf8");
+    const setupAt = runners.indexOf("const startSetup = async (): Promise<void> => {");
+    const start = runners.slice(setupAt, runners.indexOf("\nconst ", setupAt + 10));
+    expect(start).toContain("setContinued(false);");
+    expect(start.indexOf("setContinued(false);")).toBeLessThan(start.indexOf("await ipc.setup("));
   });
 
   it("feeds the checklist the stored addresses, not the empty form", () => {
-    const at = wizard.indexOf("function checklist(");
-    expect(wizard.slice(at, wizard.indexOf("\n", wizard.indexOf("setupRows(", at)))).toContain(
-      "checklistAddresses(p, form)",
-    );
+    const setup = readFileSync(join(import.meta.dir, "../screens/setup-screen.tsx"), "utf8");
+    expect(setup).toContain("setupRows(props.probe, checklistAddresses(props.probe, props.form)");
   });
 
   it("keeps the completed checklist on screen and offers the press", () => {
-    expect(body).toContain('checklist(p, "active")');
-    expect(body).toContain('"Continue"');
-    expect(body).toContain("continued = true;");
+    const handoff = readFileSync(join(import.meta.dir, "../screens/handoff-screen.tsx"), "utf8");
+    expect(handoff).toContain("<Checklist");
+    expect(handoff).toContain("Continue");
+    // The press finishes the handoff in the host: `continued` flips the view
+    // to the non-waiting arm, whose effect opens the dashboard.
+    expect(host).toContain("setContinued(true);");
   });
 
   it("records that this window ran the chain when the chain succeeded", () => {
     // Not the probe: `onboarded` flips on the first `ready`, which is the
     // same probe that reaches the handoff, so the page must remember the
     // chain ran here.
-    expect(wizard).toContain("if (result?.ok) ranSetupHere = true;");
+    const runners = readFileSync(join(import.meta.dir, "../runners.ts"), "utf8");
+    expect(runners).toContain("if (result?.ok) deps.setRanSetupHere(true);");
   });
 });
 
@@ -306,11 +316,13 @@ describe("RESET_LABEL", () => {
   });
 
   it("is the Reset screen's own title too, so the door and the room agree", () => {
-    // The markup is static, so this is the only thing holding the two equal.
-    // A button labelled one thing opening a screen titled another is its own
-    // small betrayal on the one screen that may not be doubted.
-    const page = readFileSync(join(import.meta.dir, "../../wizard.html"), "utf8");
-    expect(page).toContain(`<p class="reset-title">${RESET_LABEL}</p>`);
+    // The title is JSX now, and the screen renders the SAME constant the
+    // bar's button labels — the equality is structural again, which is
+    // stronger than the static-markup pin it replaces. A button labelled one
+    // thing opening a screen titled another is its own small betrayal on the
+    // one screen that may not be doubted.
+    const screen = readFileSync(join(import.meta.dir, "../screens/reset-screen.tsx"), "utf8");
+    expect(screen).toContain('<p className="reset-title">{RESET_LABEL}</p>');
   });
 });
 

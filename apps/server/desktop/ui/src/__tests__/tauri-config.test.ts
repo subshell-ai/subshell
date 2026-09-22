@@ -132,7 +132,7 @@ describe("the build wiring", () => {
     // nothing inline.
     expect(wizard).not.toMatch(/<script(?![^>]*\bsrc=)/);
     expect(wizard).not.toMatch(/style=/);
-    expect(wizard).toContain('src="/src/wizard.ts"');
+    expect(wizard).toContain('src="/src/main.tsx"');
   });
 
   it("drives the app's own scripts", () => {
@@ -156,17 +156,22 @@ describe("the build wiring", () => {
 });
 
 describe("the test runs", () => {
-  it("reaches the release-script tests and the page's", () => {
-    expect(pkg.scripts.test).toContain("src");
-    expect(pkg.scripts.test).toContain("ui/src");
+  it("runs the release-script tests, then the page's under its own harness", () => {
+    // The client app's two-half wiring, mirrored at the moment this page
+    // gained component tests: `bun test src` (the release script, plain bun,
+    // no DOM) first, then `cd ui && bun test`, whose cwd is what resolves
+    // `ui/bunfig.toml`.
+    expect(pkg.scripts.test).toContain(`bun test --path-ignore-patterns "**/ui/**" src`);
+    expect(pkg.scripts.test).toContain("cd ui && bun test");
   });
 
-  it("needs no happy-dom preload, and has no bunfig to carry one", () => {
-    // The page's tests are pure — the same fs-and-pure-import shape as the
-    // release script's. The moment a component test with a DOM arrives, this
-    // assertion should be replaced by the client app's ui/bunfig.toml pattern
-    // rather than by registering DOM globals unconditionally.
+  it("carries the happy-dom preload in ui/bunfig.toml and nowhere the release script can see", () => {
+    // The replacement this file's own comment asked for: component tests with
+    // a DOM arrived, so the client app's ui/bunfig.toml pattern is in — the
+    // registrator is resolved from the cwd, so it reaches `cd ui && bun test`
+    // and nothing else, and a package-root bunfig must not appear to carry
+    // DOM into the release-script process.
+    expect(existsSync(join(import.meta.dir, "../../bunfig.toml"))).toBe(true);
     expect(existsSync(join(import.meta.dir, "../../../bunfig.toml"))).toBe(false);
-    expect(existsSync(join(import.meta.dir, "../../bunfig.toml"))).toBe(false);
   });
 });

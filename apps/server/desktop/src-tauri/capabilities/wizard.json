@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "wizard",
-  "description": "The assistant window - the one bundled page, and the ONLY surface allowed to drive the subshell-server CLI. It owns first run, recovery, update and reset, so it holds every command that changes this machine, the destructive ones included. Pinned equal to what wizard.ts and the modules under ui/src/assistant/ actually invoke by ui/src/__tests__/ipc-acl.test.ts. It holds core:default and nothing more: the update screen's Later button was the only caller of core:window:allow-close, and consolidating that screen's two dismissals into one Close that merely leaves the screen (2026-09-18) retired the grant with it.",
+  "description": "The assistant window - the one bundled page, and the ONLY surface allowed to drive the subshell-server CLI. It owns first run, recovery, update and reset, so it holds every command that changes this machine, the destructive ones included. Pinned equal to what the assistant page's modules under ui/src/ actually invoke by ui/src/__tests__/ipc-acl.test.ts. It holds core:default and nothing more: the update screen's Later button was the only caller of core:window:allow-close, and consolidating that screen's two dismissals into one Close that merely leaves the screen (2026-09-18) retired the grant with it.",
   "local": true,
   "windows": [
     "wizard"

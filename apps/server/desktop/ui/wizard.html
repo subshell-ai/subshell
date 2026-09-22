@@ -6,76 +6,17 @@
     <title>Subshell Server</title>
   </head>
   <body class="assistant">
-    <!-- The assistant (spec 2026-09-11 § 3, § 5; spec 2026-09-12 § 5.3): one
-         frame, one screen at a time — first run, recovery, update — with the
-         same CSP rules the page has always had (a module script with a src,
-         nothing inline). wizard.ts fills #art, #title, #subtitle, #content and
-         the bar; the frame itself never changes shape. -->
-    <main class="assistant-screen" id="screen">
-      <div class="assistant-art" id="art" aria-hidden="true"></div>
-      <!-- biome-ignore lint/a11y/useHeadingContent: filled by wizard.ts on every render; never static -->
-      <h1 class="assistant-title" id="title" aria-live="polite"></h1>
-      <p class="assistant-subtitle" id="subtitle"></p>
-      <p class="assistant-problem" id="problem"></p>
-      <section class="assistant-content" id="content"></section>
-    </main>
-    <!-- The dot row is gone with the journey (spec 2026-09-17 § 4.1): a
-         first run is one automatic screen, so there is nothing to count. -->
-    <footer class="assistant-bar" id="bar">
-      <div class="assistant-bar-left" id="bar-left"></div>
-      <div class="assistant-bar-right" id="bar-right"></div>
-    </footer>
+    <!-- The assistant (spec 2026-09-21): one React host in one mount point.
+         `main.tsx` renders `<Host/>`, whose frames, bars and the reset view
+         are components; the page keeps the `wizard.html` name because the
+         name is an IDENTIFIER — `WebviewUrl::App("wizard.html")` in
+         `windows.rs`, the `wizard` window label, and the capability file keyed
+         to it — while the page it carries is first run, recovery, update and
+         reset. Renaming it would move four things to rename one. The CSP rules
+         are unchanged (a module script with a src, nothing inline) and pinned
+         by `__tests__/tauri-config.test.ts`. -->
+    <div id="root"></div>
 
-    <!-- The Reset screen (spec § 7.1). It replaces the frame ABOVE rather
-         than rendering inside it, and both of those elements are hidden while
-         it is up: this screen's premise is that it is the only thing
-         happening, so a Back button in a live bottom bar would be a way out
-         from under a chain that has none. The hostname is DISPLAYED by this
-         page and compared by Rust against the same memoized probe value
-         (R15): the typed string is the only thing the page sends back, never
-         a path. -->
-    <div id="reset-view" class="reset-view" hidden>
-      <!-- Two panes, one at a time. Confirming and watching are different
-           screens: the promises are what you read BEFORE pressing, and once
-           the chain is stopping services and deleting directories the only
-           thing worth the window is how far it has got. The progress pane is
-           the first run's Setting Up pane wearing the same checklist, because
-           it is the same kind of moment. -->
-      <div id="reset-confirm-pane">
-        <p class="reset-title">Reset this server</p>
-        <p class="hint mb-2.5" id="reset-refusal"></p>
-        <ul class="wizard-copy list-disc pl-5" id="reset-rows"></ul>
-        <div class="wizard-copy text-sm muted-text mb-2.5" id="reset-disclosures"></div>
-        <label class="mb-1 block text-sm" for="reset-confirm">Type this machine's hostname to confirm, exactly as shown: <code id="reset-hostname"></code></label>
-        <div class="flex gap-2" id="reset-confirm-row">
-          <input id="reset-confirm" class="min-w-0 flex-1" spellcheck="false" autocapitalize="off" />
-        </div>
-      </div>
-      <div id="reset-progress-pane" hidden>
-        <p class="reset-title" id="reset-progress-title">Resetting this server</p>
-        <p class="wizard-copy muted-text mb-2.5" id="reset-progress-subtitle">This takes a moment.</p>
-        <ul class="checklist" id="reset-steps" aria-live="polite"></ul>
-        <!-- The half-run record lands HERE, beside the meter it explains: the
-             assistant's own frame is hidden while this screen is up, so a
-             chain log rendered there would be invisible. -->
-        <pre class="pane-pre mt-3" id="reset-log" aria-live="polite" hidden></pre>
-      </div>
-      <!-- ONE action row, below whichever pane is showing. It is a sibling of
-           both rather than a copy in each, so Reset and Cancel keep one
-           definition and one set of listeners across the phase change. -->
-      <div class="mt-3 flex justify-end gap-2" id="reset-actions">
-        <button type="button" id="reset-run" class="primary" disabled>Reset everything</button>
-        <button type="button" id="reset-cancel">Cancel</button>
-      </div>
-      <!-- The same refusal as #reset-refusal, repeated BESIDE the control it
-           disables. The rule this app keeps is that no disabled control lacks
-           its reason next to it, and the copy above the fold does not satisfy
-           it: the disclosures are long and a reader who has scrolled to the
-           button cannot see a sentence at the top of the view. Empty (and
-           collapsed) whenever the button is live. -->
-      <p class="hint warn-text empty:hidden" id="reset-why"></p>
-    </div>
-
-    <script type="module" src="/src/wizard.ts"></script>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

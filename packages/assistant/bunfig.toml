@@ -1,0 +1,7 @@
+# Bun test config for this package's component tests.
+#
+# The package is a leaf with no plain-`bun` half, so a single bunfig is all it
+# needs: `bun test` (the `test` script) preloads the DOM registrator below and
+# every test here renders a real React tree under happy-dom.
+[test]
+preload = ["./test-setup.ts"]

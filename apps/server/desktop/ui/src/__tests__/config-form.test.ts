@@ -253,14 +253,16 @@ describe("fieldProblems", () => {
 
 describe("the assistant's wiring, pinned at the source", () => {
   // These read the render path because the tests here run without a DOM: the
-  // contract lives in code the test runner cannot execute. `wizard.ts` is the
-  // whole render path now that the console is gone, and the tmux warning is
-  // the one piece of it that lives in its own module.
+  // contract lives in code the test runner cannot execute. The render path is
+  // the React host and its screens now (spec 2026-09-21), and the tmux
+  // warning lives inside the status screen.
   //
   // Reading the wrong file would pass vacuously against a string that simply
   // is not there, so every pin below also asserts its anchor was found.
-  const wizard = readFileSync(join(ROOT, "ui/src/wizard.ts"), "utf8");
-  const tmuxWarning = readFileSync(join(ROOT, "ui/src/assistant/tmux-warning.ts"), "utf8");
+  const host = readFileSync(join(ROOT, "ui/src/host.tsx"), "utf8");
+  const runners = readFileSync(join(ROOT, "ui/src/runners.ts"), "utf8");
+  const addresses = readFileSync(join(ROOT, "ui/src/screens/addresses-screen.tsx"), "utf8");
+  const status = readFileSync(join(ROOT, "ui/src/screens/status-screen.tsx"), "utf8");
 
   /**
    * The form is prefilled, so `configPayload` decides what to send from an
@@ -277,26 +279,24 @@ describe("the assistant's wiring, pinned at the source", () => {
    * loaded here.
    */
   test("both address forms seed `explicit` from the machine, not from editing alone", () => {
-    // The first run's Customize form: seeded once per page load, keeping
-    // whatever has been typed since.
-    const at = wizard.indexOf("function setupAddressForm(");
-    expect(at, "the assistant must build the setup screen's address form").toBeGreaterThan(-1);
-    const body = wizard.slice(at, wizard.indexOf("\nfunction ", at + 1));
-    expect(body).toContain("seedAddressForm(");
+    // The first run's Customize form: seeded once per visit of the
+    // disclosure, keeping whatever has been typed since (`customizeToggle`'s
+    // merge-seed, cleared only by the collapse).
+    expect(host, "the assistant must seed the setup screen's address form").toContain("seedAddressForm(");
     // Server Addresses: seeded once per VISIT, which is the same rule against a
     // different clock — the screen states the machine's configuration, so a
     // draft from a previous visit would read as what the server has.
-    const settings = wizard.indexOf("function renderSettings(");
-    expect(settings, "the assistant must build the Server Addresses screen").toBeGreaterThan(-1);
-    expect(wizard.slice(settings, wizard.indexOf("\nfunction ", settings + 1))).toContain("seedAddressForm(");
+    expect(addresses, "the assistant must build the Server Addresses screen").toContain("seedAddressForm(");
     // And every send goes through a map. The floor is load-bearing: with zero
     // matches the loop passes vacuously, so renaming the call site would
     // silently erase this pin. Server Addresses sends through
     // `settingsPayload`, which calls `configPayload` with its own state and is
-    // covered in `settings-screen.test.ts`.
-    const sends = wizard.match(/configPayload\([^)]*\)/g) ?? [];
+    // covered in `settings-screen.test.ts`. The matcher admits ONE level of
+    // nesting, because `deps.form()` closes inside the call and `[^)]*` would
+    // stop there — a matcher that saw half the call would pin half the map.
+    const sends = runners.match(/configPayload\((?:[^()]|\([^()]*\))*\)/g) ?? [];
     expect(sends.length).toBeGreaterThanOrEqual(1);
-    for (const call of sends) expect(call).toBe("configPayload(form, explicit)");
+    for (const call of sends) expect(call).toBe("configPayload(deps.form(), deps.explicit())");
   });
 
   /**
@@ -308,9 +308,9 @@ describe("the assistant's wiring, pinned at the source", () => {
    * to install tmux for.
    */
   test("the recovery screen gates every action that needs tmux, and only those", () => {
-    const at = wizard.indexOf("const gated =");
+    const at = status.indexOf("tmuxMissing && action.kind !==");
     expect(at, "the recovery screen must compute a tmux gate").toBeGreaterThan(-1);
-    const expr = wizard.slice(at, wizard.indexOf(";", at));
+    const expr = status.slice(at, status.indexOf(")", at));
     expect(expr).toContain("tmuxMissing");
     expect(expr).toContain('action.kind !== "retry"');
     expect(expr).toContain('action.kind !== "choose-binary"');
@@ -321,10 +321,10 @@ describe("the assistant's wiring, pinned at the source", () => {
     // page, not just show a command. The link is a button calling the
     // fixed-URL command (`openTmuxDocs` in lib/ipc.ts — the page sends no URL
     // anywhere, the same rule `desktop_open_path` follows; the command name
-    // itself is pinned by ipc-acl.test.ts), and `applyPlan` decides its
+    // itself is pinned by ipc-acl.test.ts), and the warning decides its
     // visibility from the plan's `docsUrl`.
-    expect(tmuxWarning).toContain("openTmuxDocs");
-    expect(tmuxWarning).toContain("docsUrl");
+    expect(status).toContain("openTmuxDocs");
+    expect(status).toContain("docsUrl");
   });
 });
 

@@ -5,7 +5,11 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "types": ["bun"],
+    "jsx": "react-jsx",
+    "types": ["bun", "react", "react-dom"],
+    "paths": {
+      "@/*": ["./src/*"]
+    },
     "noEmit": true
   }
 }

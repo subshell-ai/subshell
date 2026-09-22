@@ -116,17 +116,36 @@ export function nextPollDelay(s: { busy: boolean; running: boolean; hidden: bool
 The host (`host.tsx`) owns ALL mutable state the old module vars held, in one
 reducer-like object of `useState` hooks, ported value-for-value: `probe`,
 `busy`, `running`, `screen`, `problem`, `lastResult`, `failure`, `lastTail`,
-`detailsOpen`, `form`/`explicit`, `supervisionForm`, `settingsForm`,
-`settingsBlind`, `settingsForceChecked`, `settingsResult`, `updateState`,
-`updateProgress`, `appUpdate`, `updateSelection`, `updateResult`,
-`resumeFired`, `installStartedAt`, `installLine`, `tmuxResult`, `autoFired`,
-`continued`, `handedOff`, `opened`, `openFailed`, `ranSetupHere`,
-`ranFirstRunHere`, `permissionsAfterHandoff`, `customizeOpen`, `portCheck`,
-`portAsked`, `resetView` state, `settingsPending`. The host passes a
-`HostActions` object (the old `AssistantHost` shape, plus `go` and the action
-runners) down as props/context. The poll is `useEffect` + the
-`nextPollDelay` seam; `checkPort`'s superseded-answer drop is preserved in a
-`usePortCheck` hook (same cache keys `port`/`portAsked`).
+`detailsOpen`, `form`/`explicit`, `supervision`, `supervisionForm`,
+`settingsForm`, `settingsBlind`, `settingsForceChecked`, `settingsResult`,
+`seeded`, `updateState`, `updateProgress`, `appUpdate`, `updateSelection`,
+`updateResult`, `resumeFired`, `installStartedAt`, `installLine`,
+`tmuxResult`, `autoFired`, `continued`, `handedOff`, `opened`, `openFailed`,
+`ranSetupHere`, `ranFirstRunHere`, `permissionsAfterHandoff`, `customizeOpen`,
+`portCheck`, `portAsked`, `about` (read once on boot), and the reset step
+events (`desktop-reset-step`; the reset view's own state moves into
+**ResetScreen** in Task 7). (`settingsPending` named nothing in `wizard.ts`
+and does not exist.) The host passes a `HostActions` object (the old
+`AssistantHost` shape, plus `go` and the action runners) down as
+props/context. The poll is `useEffect` + the `nextPollDelay` seam;
+`checkPort`'s superseded-answer drop is preserved in a `usePortCheck` hook
+(same cache keys `port`/`portAsked`) — currently inline in Host as
+`_checkPort`; **Task 6 lifts it into the hook** when the address form, its
+first consumer, lands.
+
+**Six module vars are screen-local in the React model, NOT host state** (a
+component that persists across re-renders no longer needs page-level state
+to survive the poll's DOM teardown). Each names its home so no screen task
+drops it:
+
+- `tmuxOutputOpen`, `tmuxOutputScroll` (wizard.ts:165/177, written at
+  561/655/666/672) → **TmuxScreen**;
+- `manualRoute` (wizard.ts:193, 815–825) → **TmuxScreen**;
+- `requestingNotifications` / `requestingPhotos` (wizard.ts:253–254,
+  written at 1915/1939) → **PermissionsScreen**;
+- `installClock` + `startInstallClock`/`stopInstallClock` (wizard.ts:505 —
+  the 1 s repaint while `busy` holds the poll off) → the setup chain's
+  **TmuxScreen** act (Task 3).
 
 - [ ] Step 1: Write `route()` tests FIRST, ported from the routing's behavior: requested screen outranks; running holds the progress screen; the welcome correction; the handoff guard. Run, fail, implement, pass.
 - [ ] Step 2: Implement `nextPollDelay` + its table test (busy holds off the poll except while `running`).
@@ -166,7 +185,7 @@ Port `renderSupervision` (choice rows, login checkbox, `applySupervisionChoice`,
 **Files:**
 - Create: `ui/src/screens/reset-screen.tsx`, `ui/src/screens/permissions-screen.tsx`
 
-Port `reset-view.ts` (frame-replacing; the hostname gate, the `desktop-reset-step` meter, the half-run log) and `renderPermissions` (rows from `permissions-model.ts`, allow/open-system-settings handlers, Back vs Continue by `permissionsAfterHandoff`). The `desktop-reset-step` listener feeds reset state. Tests: reset's refusal gate, the step meter round-trip; permissions' row actions per state. Commit.
+Port `reset-view.ts` (frame-replacing; the hostname gate, the `desktop-reset-step` meter, the half-run log) and `renderPermissions` (rows from `permissions-model.ts`, allow/open-system-settings handlers, Back vs Continue by `permissionsAfterHandoff`). The `desktop-reset-step` listener feeds reset state. Tests: reset's refusal gate, the step meter round-trip; permissions' row actions per state. **Keep `applyScreen("reset")`'s screen-set PAIRED with the view's own `open()`** (the old `openReset` did both: the screen shows whether or not a plan staged, because the screen is what explains a refusal), and **gate the reset route on the view's open state, not on `screen === "reset"` alone** — the old routing went blank when the two disagreed, and that blanking was the defence in depth behind `open()` showing before it arms. **Re-check the reset route's epoch bump when the view's entrance lands**: the old `openReset` did NOT replay the entrance animation, but the host's screen-set bumps the epoch (both the Reset press and `applyScreen("reset")`); if the view wants the old no-replay, gate that bump or let the view's own mount own its entrance. Commit.
 
 ### Task 8: Entry wiring, deletion, gates, PR
 
@@ -178,6 +197,11 @@ Port `reset-view.ts` (frame-replacing; the hostname gate, the `desktop-reset-ste
 ---
 
 ## Wave 2 — the rail, server app
+
+> **Operator ruling, 2026-09-22:** the Status section renders the facts and
+> log tail INLINE — what was the Show Details disclosure becomes part of the
+> section's content. Wave 1 ships the disclosure as today's transcription;
+> wave 2 folds it into the Status section and moves its tests.
 
 ### Task 9: Rail in the package
 

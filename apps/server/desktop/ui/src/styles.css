@@ -1,4 +1,11 @@
 @import "tailwindcss";
+/* The shared Frame (`@internal/assistant`) renders with Tailwind utilities but
+   lives OUTSIDE this app's Vite root, so Tailwind v4's auto-detection never
+   scans it and every utility it names generated nothing — measured in the dev
+   page and in the built dist: the shell rendered unstyled. `@source` adds the
+   package's source to the scan the same way the client app's own kit files
+   arrive through its alias. */
+@source "../../../../../packages/assistant/src";
 
 /*
  * Dreamframe (Castorice) — the SPA's palette, VALUE for value, under the
@@ -26,6 +33,14 @@
   --success: oklch(0.765 0.177 163.223);
   --warning: oklch(0.828 0.189 84.429);
   --destructive: oklch(0.65 0.2 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.29 0.034 296);
+  --secondary-foreground: oklch(0.9 0.025 312);
+  --muted: oklch(0.29 0.034 296);
+  --accent: oklch(0.33 0.04 296);
+  --accent-foreground: oklch(0.95 0.02 315);
+  --input: oklch(0.33 0.035 296);
+  --ring: oklch(0.62 0.13 322);
   /* The primary button's "sunk plum" gradient (Dreamframe: quiet at the
      component, bright at the token). Named here because `lint:design`
      refuses colour literals outside a token block, and a gradient IS a
@@ -52,6 +67,50 @@
   --default-font-family: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
 }
 
+/*
+ * Tailwind v4 generates utilities from `@theme` tokens, and this page's tokens
+ * live in the plain `:root` block above — so the utilities the shared Frame
+ * (`@internal/assistant`) renders with do not exist yet. This block ALIASES
+ * them: `--color-<role>: var(--<role>)` and the type roles make `text-warning`,
+ * `text-display`, `font-strong` and friends resolve to the same values the
+ * page's own classes read, with one source of truth per token. The same
+ * mapping is how `apps/client/desktop/ui/src/styles.css` exposes its palette
+ * to the client assistant; the assistant's own classes below keep reading the
+ * `:root` properties directly and are untouched.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --text-display: 30px;
+  --text-display--line-height: 1.2;
+  --text-heading: 20px;
+  --text-heading--line-height: 1.2;
+  --text-label: 15px;
+  --text-label--line-height: 1.5;
+  --text-body: 14px;
+  --text-body--line-height: 1.5;
+  --text-detail: 13px;
+  --text-detail--line-height: 1.5;
+  --font-weight-strong: 600;
+  --font-weight-regular: 400;
+}
+
 @layer base {
   html {
     color-scheme: dark;
@@ -67,24 +126,6 @@
     font-size: var(--text-body);
     line-height: var(--text-body--line-height);
     -webkit-font-smoothing: antialiased;
-  }
-  /* The window is a control panel, not a marketing page: every interactive
-     element is a button or an input, so the two element defaults live here
-     and the variants (.primary, .ghost, .linkish) below carry only their deltas. */
-  button {
-    border-radius: 7px;
-    border: 1px solid var(--border);
-    background: transparent;
-    color: var(--foreground);
-    padding: 8px 12px;
-    cursor: pointer;
-  }
-  button:hover:not(:disabled) {
-    border-color: var(--primary);
-  }
-  button:disabled {
-    opacity: 0.45;
-    cursor: default;
   }
   input {
     width: 100%;
@@ -115,23 +156,6 @@
 
 @layer components {
   /* Buttons, by what they DO. */
-  /* Copied verbatim from apps/server/web/src/components/ui/button.tsx's
-     `default` variant: a sunk plum gradient with frost text, deliberately
-     quieter than --primary (which stays bright for the dots/glyphs) and
-     brightening again on hover. It rides the five `--button-primary-*`
-     tokens in `:root` — the literals live there because the design check
-     refuses colour literals outside a token block; on the SPA side
-     button.tsx still spells the same values inline. */
-  .primary {
-    background: linear-gradient(135deg, var(--button-primary-from), var(--button-primary-to));
-    color: var(--button-primary-foreground);
-    border-color: transparent;
-    font-weight: var(--font-weight-strong);
-  }
-  .primary:hover:not(:disabled) {
-    background: linear-gradient(135deg, var(--button-primary-hover-from), var(--button-primary-hover-to));
-    border-color: transparent;
-  }
   /* A facts list reads as a table, not a stack. The label column is a FIXED
      132px rather than `max-content`: the widest label used to set the column
      for every row, so one long one ("mcp entrypoint") pushed every value
@@ -164,6 +188,16 @@
     font-size: var(--text-detail);
     line-height: var(--text-detail--line-height);
   }
+  .group-heading {
+    margin: 24px 0 0;
+    font-size: var(--text-detail);
+    line-height: var(--text-detail--line-height);
+    font-weight: var(--font-weight-strong);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+
   .hint {
     color: var(--muted-foreground);
     font-size: var(--text-detail);
@@ -229,323 +263,6 @@
      window has rather than stopping at the cap that kept it from pushing the
      step actions off a 620px page. `min-height: 0` is what lets a flex child
      scroll instead of growing its parent. */
-  .logs-section .pane-fill {
-    flex: 1;
-    min-height: 0;
-    max-height: none;
-    margin: 0;
-  }
-  /* The one destructive control in the console. It was a <details> that was
-     re-closed on every render, so a danger section could not be scrolled past
-     while open; on a Settings page a person chose to open, as its last group,
-     under its own explanation, the sentence is read before the button is
-     reached and the disclosure bought nothing. */
-  .danger {
-    margin-top: 8px;
-    border-color: var(--destructive);
-    color: var(--destructive);
-  }
-  .danger:hover:not(:disabled) {
-    border-color: var(--destructive);
-    background: color-mix(in oklch, var(--destructive) 12%, transparent);
-  }
-  /* ===================================================================
-     The console shell (spec 2026-09-11 § 2.1): a 200px sidebar, a content
-     column that scrolls on its own, five sections of which one is visible.
-     The sidebar lists them as a tree — two of them sit under a group header
-     (spec 2026-09-11 grouped-navigation).
-     =================================================================== */
-  body.console {
-    height: 100vh;
-    overflow: hidden;
-  }
-  .shell {
-    height: 100vh;
-    display: grid;
-    grid-template-columns: 200px 1fr;
-  }
-  .shell[hidden] {
-    display: none;
-  }
-  .sidebar {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 20px 12px 16px;
-    border-right: 1px solid var(--border);
-    overflow: hidden;
-  }
-  .sidebar-mark {
-    height: 22px;
-    width: auto;
-    align-self: flex-start;
-    margin-left: 8px;
-  }
-  .sidebar-nav {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  /* Every item is reachable, always: a section that cannot help says so in its
-     own words. A dimmed item with the reason in a tooltip would put that
-     reason somewhere a keyboard or a touch never goes. */
-  .nav-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 7px 12px;
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
-    text-align: left;
-    color: var(--muted-foreground);
-    border-color: transparent;
-  }
-  .nav-item:hover:not(:disabled) {
-    color: var(--foreground);
-    border-color: transparent;
-    background: color-mix(in oklch, var(--card) 60%, transparent);
-  }
-  .nav-item.current {
-    color: var(--foreground);
-    background: var(--card);
-    border-color: transparent;
-  }
-  /* Only Overview has one, and it mirrors the hero's state colour — so the
-     machine's state is readable from every section without switching back. */
-  .nav-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
-    flex: none;
-  }
-  .nav-dot[hidden] {
-    display: none;
-  }
-  /* A group header shares the items' geometry but never their `current`
-     state: it is a label and a chevron, and it navigates nowhere, so the
-     filled highlight would claim a page that does not exist. */
-  .nav-group {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    width: 100%;
-    padding: 7px 12px;
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
-    text-align: left;
-    color: var(--muted-foreground);
-    border-color: transparent;
-  }
-  .nav-group:hover:not(:disabled) {
-    color: var(--foreground);
-    border-color: transparent;
-    background: color-mix(in oklch, var(--card) 60%, transparent);
-  }
-  /* Shut over the section you are on, the header is the ONLY thing left that
-     can say where you are — the current row is inside the container it just
-     hid. Lit text rather than the filled `current` background, because the
-     header is still not a page: it says "in here", not "here". */
-  .nav-group.holds-current {
-    color: var(--foreground);
-  }
-  /* Drawn from a rotated border rather than an asset: the console's CSP is
-     `script-src 'self'` with no inlined data assets by build rule, and a
-     chevron is two lines. */
-  .nav-chevron {
-    position: relative;
-    width: 12px;
-    height: 12px;
-    flex: none;
-    transition: transform 200ms ease;
-  }
-  .nav-chevron::after {
-    content: "";
-    position: absolute;
-    top: 3px;
-    left: 2.5px;
-    width: 6px;
-    height: 6px;
-    border-right: 1.5px solid currentColor;
-    border-bottom: 1.5px solid currentColor;
-    transform: rotate(45deg);
-  }
-  .nav-group[aria-expanded="false"] .nav-chevron {
-    transform: rotate(-90deg);
-  }
-  /* The left rule is what makes the indent read as a branch rather than as
-     two items that happen to start further in. */
-  .nav-group-children {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding-left: 16px;
-    margin-left: 8px;
-    border-left: 1px solid var(--border);
-  }
-  .nav-group-children[hidden] {
-    display: none;
-  }
-  .nav-item.child {
-    font-size: var(--text-detail);
-    line-height: var(--text-detail--line-height);
-  }
-  .sidebar-version {
-    margin: auto 0 0 8px;
-    font-size: var(--text-detail);
-    line-height: var(--text-detail--line-height);
-    color: var(--muted-foreground);
-  }
-  /* `min-width: 0` is load-bearing, not defensive. A grid item's automatic
-     minimum size is its MIN-CONTENT width, so one long unbreakable line — a
-     log tail, a path — widened the 1fr track and pushed the page's right edge
-     past the window instead of scrolling inside the pane. Measured on the
-     Logs section, where every line is long. */
-  .content {
-    overflow: auto;
-    padding: 32px;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    min-height: 0;
-  }
-  .content > section {
-    flex: 1;
-    min-height: 0;
-  }
-  .content > section[hidden] {
-    display: none;
-  }
-  /* The Logs section is the one that fills rather than flows. */
-  .logs-section {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    min-width: 0;
-  }
-  .pane-tabs {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-  /* Pushed to the far end of the tab row, and truncated: it is a path, so it
-     is long, and it must never be the thing that decides the row's width. */
-  .pane-source {
-    margin-left: auto;
-    max-width: 55%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: var(--text-detail);
-    line-height: var(--text-detail--line-height);
-    color: var(--muted-foreground);
-  }
-  .section-title {
-    margin: 0 0 4px;
-    font-size: var(--text-heading);
-    line-height: var(--text-heading--line-height);
-    font-weight: var(--font-weight-strong);
-    letter-spacing: -0.01em;
-  }
-  .section-lead {
-    margin: 0 0 8px;
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
-    color: var(--muted-foreground);
-    max-width: 62ch;
-  }
-  /* A group inside a section: a heading rather than a card, because the ground
-     is the window here and a bordered box around every concern is what made
-     the old single-column page read as a stack of unrelated panels. */
-  .group-heading {
-    margin: 24px 0 0;
-    font-size: var(--text-detail);
-    line-height: var(--text-detail--line-height);
-    font-weight: var(--font-weight-strong);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--muted-foreground);
-  }
-
-  /* The hero: the three things a person opens this window for. */
-  .hero {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-  }
-  .hero-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 999px;
-    flex: none;
-    margin-top: 9px;
-  }
-  .hero-lines {
-    min-width: 0;
-  }
-  .hero-state {
-    margin: 0;
-    font-size: var(--text-heading);
-    line-height: var(--text-heading--line-height);
-    font-weight: var(--font-weight-strong);
-    letter-spacing: -0.01em;
-  }
-  .hero-sub {
-    margin: 2px 0 0;
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
-    color: var(--muted-foreground);
-    display: flex;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: 2px 8px;
-    word-break: break-all;
-  }
-  .hero-sub[hidden] {
-    display: none;
-  }
-  #hero-url span {
-    color: var(--foreground);
-  }
-
-  /* The step: a sentence and its buttons, on the ground rather than in a card.
-     The `ready` step renders no sentence at all — the hero above has just said
-     "Running", and repeating it is the clutter this page removed. */
-  .step-body {
-    margin: 20px 0 0;
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
-  }
-  .step-body[hidden] {
-    display: none;
-  }
-  .actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 16px;
-  }
-
-  /* One line saying what the last press did, where the press happened. */
-  .strip-line {
-    display: flex;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: 2px 8px;
-    margin: 16px 0 0;
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
-  }
-
-  .tray-missing {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 8px;
-  }
-
-  /* The reset takeover: the whole window, sidebar included. */
   .reset-view {
     padding: 24px 32px 32px;
     max-height: 100vh;
@@ -574,87 +291,6 @@
 
   /* The setup assistant's frame (spec 2026-09-11 § 3.1). One fixed 1024x720
      window: a centered 560px column, and a 72px bar pinned to the bottom. */
-  body.assistant {
-    padding: 0;
-    height: 100vh;
-    display: grid;
-    grid-template-rows: 1fr 72px;
-    overflow: hidden;
-  }
-  /* `safe center` rather than plain `center`: a screen whose content is taller
-     than the frame (the failed-setup checklist with Show Details open) would
-     otherwise overflow past the TOP edge, where a scroll container cannot
-     reach it. The keyword falls back to start alignment, which is what this
-     screen did before it was centred at all. */
-  .assistant-screen {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: safe center;
-    padding: 32px;
-    overflow: auto;
-  }
-  /* The art box is a FLOOR, not a square: the wordmark is ~4.6:1, so a fixed
-     96px width would squash it. */
-  .assistant-art {
-    min-height: 96px;
-    margin-bottom: 32px;
-    display: grid;
-    place-items: center;
-    color: color-mix(in oklch, var(--primary) 55%, transparent);
-  }
-  /* Only Welcome has art now. Every other screen leaves #art empty, and an
-     empty box must take NO room — the floor and its margin are 128px, which
-     is a fifth of the frame's height spent on nothing. `:empty` rather than a
-     class, so the rule follows what wizard.ts actually put there. */
-  .assistant-art:empty {
-    display: none;
-  }
-  .assistant-art img {
-    height: 64px;
-    width: auto;
-  }
-  .assistant-title {
-    margin: 0;
-    font-size: var(--text-display);
-    line-height: var(--text-display--line-height);
-    font-weight: var(--font-weight-strong);
-    letter-spacing: -0.01em;
-    text-align: center;
-  }
-  .assistant-subtitle {
-    margin: 8px 0 0;
-    max-width: 560px;
-    text-align: center;
-    color: var(--muted-foreground);
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
-  }
-  .assistant-subtitle:empty {
-    display: none;
-  }
-  .assistant-problem {
-    margin: 12px 0 0;
-    color: var(--warning);
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
-  }
-  .assistant-problem:empty {
-    display: none;
-  }
-  .assistant-content {
-    width: 100%;
-    max-width: 560px;
-    margin-top: 36px;
-  }
-  .assistant-content:empty {
-    display: none;
-  }
-  /* The recovery screen's secondary doors, one per row. `#content` is a plain
-     block and a button is inline, so these appended bare used to flow onto one
-     line with no gaps between them — four labels reading as one run-on line.
-     Left-aligned like the disclosure below them: this is a control surface,
-     where the left edge is what the eye scans. */
   .recovery-links {
     display: flex;
     flex-direction: column;
@@ -666,114 +302,16 @@
      wide left track pushes `#bar-right` to the frame edge whether or not
      `#bar-left` holds anything, which the three-track row used the middle
      `auto` for. */
-  .assistant-bar {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: center;
-    padding: 0 32px;
-    border-top: 1px solid var(--border);
-  }
-  .assistant-bar-left {
-    display: flex;
-    gap: 8px;
-  }
-  .assistant-bar-right {
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-    align-items: center;
-  }
-  .assistant-bar-right .reason {
+  .reason {
     color: var(--muted-foreground);
     font-size: var(--text-detail);
     line-height: var(--text-detail--line-height);
-  }
-  .assistant-bar button.primary {
-    min-width: 120px;
-  }
-  /* Matches the SPA's ghost `Button` variant: full-brightness text at rest
-     (it inherits --foreground there), a hover background rather than a
-     border. */
-  .ghost {
-    border-color: transparent;
-    background: transparent;
-    color: var(--foreground);
-  }
-  .ghost:hover:not(:disabled) {
-    color: var(--foreground);
-    border-color: transparent;
-    background: var(--card);
-  }
-  .linkish {
-    border: none;
-    background: none;
-    color: var(--muted-foreground);
-    padding: 4px 0;
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
-  }
-  /* The setup screen's own link, level with the rows above it: same size,
-     same colour. `.linkish` stays muted and 14px everywhere else, where a
-     secondary action should recede. */
-  .linkish.plain {
-    color: var(--foreground);
-    font-size: var(--text-label);
-    line-height: var(--text-label--line-height);
-  }
-  .linkish:hover:not(:disabled) {
-    color: var(--foreground);
-    border: none;
   }
   /* About is a title page, so it is the one section that centres. Everything
      else here is a control surface where the left edge is what the eye scans;
      an About box has nothing to scan, which is why every desktop app centres
      one. It also does NOT stretch: `.content > section { flex: 1 }` would
      otherwise leave the column glued to the top of a tall window. */
-  .about {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    flex: 0 0 auto;
-    padding: 32px 0 8px;
-  }
-  /* The one place the product's own logo is shown at a size meant to be
-     looked at; the sidebar's copy is 22px of chrome. */
-  .about-mark {
-    height: 52px;
-    width: auto;
-  }
-  .about-name {
-    margin: 24px 0 0;
-    font-size: var(--text-heading);
-    line-height: var(--text-heading--line-height);
-    font-weight: var(--font-weight-strong);
-    letter-spacing: -0.01em;
-  }
-  .about-version {
-    margin: 5px 0 0;
-    font-size: var(--text-detail);
-    line-height: var(--text-detail--line-height);
-    color: var(--muted-foreground);
-  }
-  /* Wide enough to hold the sentence on one line at the default window, and
-     `balance` so the two lines it becomes at the 720px minimum are even rather
-     than leaving one word alone underneath. Unsupported engines ignore the
-     property and wrap normally. */
-  .about-lead {
-    margin: 16px 0 0;
-    max-width: 68ch;
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
-    color: var(--muted-foreground);
-    text-wrap: balance;
-  }
-  /* The About block's styles are gone with the block (spec 2026-09-17 D6):
-     terms, copyright and the three links now live in the OS-standard About
-     panel under the app menu, which ships its own chrome. What stays in
-     Details is one `.detail` line, and `.detail` was already here. */
-
-  /* What-will-happen rows (Set Up) and the checklist (Setting Up). */
   .checklist {
     list-style: none;
     margin: 0;
@@ -872,10 +410,24 @@
   .supervision {
     margin-top: 4px;
   }
-  /* Both are `<label>` ELEMENTS wrapping a control and its copy, so they
-     inherit the base rule meant for a field's caption. Their spacing is their
-     own padding — the inherited bottom margin was quietly adding to it. */
-  .supervision-mode,
+  /* The mode pair is a `<label>` ELEMENT wrapping a radio and its copy, so it
+     inherits the base rule meant for a field's caption. Its spacing is its
+     own padding — the inherited bottom margin was quietly adding to it. The
+     login row is a div around the kit Switch, the same grid. */
+  .supervision-mode {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    align-items: start;
+    gap: 0 16px;
+    padding: 8px 0;
+    margin-bottom: 0;
+    font-weight: var(--font-weight-regular);
+    cursor: pointer;
+  }
+  .supervision-mode input {
+    margin: 2px 0 0;
+    justify-self: center;
+  }
   .supervision-login {
     display: grid;
     grid-template-columns: 28px 1fr;
@@ -885,16 +437,13 @@
     margin-bottom: 0;
     font-weight: var(--font-weight-regular);
   }
-  .supervision-mode {
-    cursor: pointer;
-  }
-  .supervision-mode input,
-  .supervision-login input {
-    margin: 2px 0 0;
-    justify-self: center;
-  }
   .supervision-copy {
     display: block;
+  }
+  /* The control stays visible when DISABLED because the reason beside it is
+     the actionable part; the copy dims, as the old input:disabled + did. */
+  .supervision-login:has([data-disabled]) .supervision-copy {
+    opacity: 0.55;
   }
   /* Stated rather than inherited: these are the screen's line items and they
      share one size and colour with the link below them, which is the thing
@@ -941,9 +490,6 @@
     margin-top: 8px;
     border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
     padding-top: 16px;
-  }
-  .supervision-login input:disabled + .supervision-copy {
-    opacity: 0.55;
   }
 
   /* The dashboard address at the top of the Set Up screen: name left, value
@@ -1005,37 +551,6 @@
     display: flex;
     align-items: center;
     gap: 8px;
-  }
-  /* The copy affordance, matching the SPA's `CopyableValue`: a square icon
-     button that becomes a check. Square by padding rather than a fixed size,
-     so it keeps the same border and radius as every other button here. */
-  .copy-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 7px;
-    /* No border, no box: beside a code line the chrome was louder than the
-       command it sits next to, and a bordered square next to a bordered code
-       line read as two competing fields (operator's call, 2026-09-14). The
-       glyph brightens on hover, which is the whole affordance it needs. */
-    border-color: transparent;
-    color: var(--muted-foreground);
-  }
-  .copy-button:hover:not(:disabled) {
-    border-color: transparent;
-    color: var(--foreground);
-  }
-  .copy-button svg {
-    width: 16px;
-    height: 16px;
-  }
-  .copy-button[data-state="copied"] {
-    color: var(--success);
-  }
-  /* A refused clipboard has to be visible, not only announced: a button that
-     flashed nothing would read as a press that never registered. */
-  .copy-button[data-state="failed"] {
-    color: var(--destructive);
   }
 
   /* The screen keeps probing while someone installs tmux in a terminal, and
@@ -1109,7 +624,6 @@
   /* The right-hand column: a state word, and at most one button under it.
      A grid rather than a flex row because the two stack on the narrow frame
      and reading "Not allowed" above the button that fixes it is the order
-     that makes sense. */
   .permission-side {
     display: grid;
     gap: 8px;
@@ -1143,12 +657,6 @@
     max-height: 180px;
     overflow: auto;
   }
-  .big {
-    width: 100%;
-    padding: 12px 16px;
-    font-size: var(--text-label);
-    line-height: var(--text-label--line-height);
-  }
   .code-line {
     display: inline-block;
     background: var(--background);
@@ -1160,213 +668,167 @@
     line-height: var(--text-detail--line-height);
   }
   @media (prefers-reduced-motion: no-preference) {
-    .assistant-screen.enter {
-      animation: screen-in 220ms ease-out;
-    }
-    .checklist li[data-state="active"] .glyph,
-    .tmux-checking .glyph {
-      animation: spin 0.9s linear infinite;
-    }
-    /* NO animation on a done mark. `tick` was a 160ms pop meant to fire once,
+    animation: screen-in 220ms ease-out;
+  }
+  /* The React host's entrance: `Frame`'s scroll region is KEYED on the
+       host's screen epoch, so a screen change remounts it and this class
+       plays on insertion — the same restart the forced-reflow above gave the
+       old page's persistent `<main>`. */
+  .screen-enter {
+    animation: screen-in 220ms ease-out;
+  }
+  .checklist li[data-state="active"] .glyph,
+  .tmux-checking .glyph {
+    animation: spin 0.9s linear infinite;
+  }
+  /* NO animation on a done mark. `tick` was a 160ms pop meant to fire once,
        as a row completed — but `render()` rebuilds the checklist on every
        1500ms poll, and a freshly created element replays its animation. So
        every finished row popped again, forever, and a list of completed steps
        pulsed at the reader for as long as the screen was up. The spin above
        is safe from this by being infinite already: replaying it is
        indistinguishable from continuing it. */
+}
+@keyframes screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
   }
-  @keyframes screen-in {
-    from {
-      opacity: 0;
-      transform: translateY(12px);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
+  to {
+    opacity: 1;
+    transform: none;
   }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
-  /* An empty pane shows nothing, box and all — the old page's `pre:empty`.
+}
+/* An empty pane shows nothing, box and all — the old page's `pre:empty`.
      It matters twice: at boot before the first log tail lands, and during a
      long action, whose `show(null)` empties a visible pane for tens of
      seconds. A bordered void reads as a crash. */
-  .pane-pre:empty {
-    display: none;
-  }
-  .output-bad {
-    border-color: var(--destructive);
-  }
-  /* The reset view's copy (console `#reset-rows` / `#reset-disclosures`). */
-  .wizard-copy {
-    margin: 0 0 8px;
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
-  }
-  /* The tray switch: the control stays visible when DISABLED because the
-     reason beside it is the actionable part. */
-  .switch {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
-    cursor: pointer;
-  }
-  .switch input {
-    width: auto;
-    margin: 0;
-    accent-color: var(--primary);
-  }
-  .switch input:disabled {
-    cursor: default;
-  }
-  .switch:has(input:disabled) {
-    color: var(--muted-foreground);
-    cursor: default;
-  }
-  /* The update screen's selection table (spec 2026-09-18 §13). One line per
+.pane-pre:empty {
+  display: none;
+}
+.output-bad {
+  border-color: var(--destructive);
+}
+/* The reset view's copy (console `#reset-rows` / `#reset-disclosures`). */
+.wizard-copy {
+  margin: 0 0 8px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+/* The update screen's selection table (spec 2026-09-18 §13). One line per
      component — what it runs, what it would become, and in the right-hand cell
      either a checkbox or the REASON there is none. Never a disabled checkbox:
      "not now" without a why is what the amendment removed, and the reason is
      the content of that cell rather than a tooltip on a dead control. */
-  .update-row {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: center;
-    gap: 2px 12px;
-    padding: 10px 0;
-  }
-  label.update-row {
-    cursor: pointer;
-  }
-  .update-row + .update-row {
-    border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
-  }
-  .update-row input {
-    width: auto;
-    margin: 0;
-    accent-color: var(--primary);
-  }
-  .update-row .hint {
-    margin: 0;
-  }
-  .update-reason {
-    color: var(--muted-foreground);
-    font-size: var(--text-detail);
-    line-height: var(--text-detail--line-height);
-    text-align: right;
-  }
-  /* The Force box wears the plain `.switch`; this only puts air between it and
-     the amber sentence it answers. */
-  .update-force {
-    margin-top: 8px;
-  }
-  /* The supervision screen's two mode choices. A radio in its own column so
+.update-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px 12px;
+  padding: 10px 0;
+}
+label.update-row {
+  cursor: pointer;
+}
+.update-row + .update-row {
+  border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+}
+.update-row input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--primary);
+}
+.update-row .hint {
+  margin: 0;
+}
+.update-reason {
+  color: var(--muted-foreground);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  text-align: right;
+}
+/* The supervision screen's two mode choices. A radio in its own column so
      the description under each title hangs off the title rather than the
      control, which is what makes two multi-line options readable as a pair. */
-  .choice-row {
-    display: grid;
-    grid-template-columns: 20px 1fr;
-    align-items: start;
-    gap: 2px 8px;
-    padding: 12px 0;
-    cursor: pointer;
-  }
-  .choice-row + .choice-row {
-    border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
-  }
-  .choice-row input {
-    width: auto;
-    margin: 2px 0 0;
-    accent-color: var(--primary);
-  }
-  .choice-row .hint {
-    margin: 0;
-  }
-  /* The login box, nested under the option it belongs to — indented past the
+.choice-row {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  align-items: start;
+  gap: 2px 8px;
+  padding: 12px 0;
+  cursor: pointer;
+}
+.choice-row + .choice-row {
+  border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+}
+.choice-row input {
+  width: auto;
+  margin: 2px 0 0;
+  accent-color: var(--primary);
+}
+.choice-row .hint {
+  margin: 0;
+}
+/* The login box, nested under the option it belongs to — indented past the
      radio column so the dependency is visible rather than only enforced. */
-  .choice-sub {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    /* 28px = the choice-row's 20px radio column + its 8px gap, so the login
+.choice-sub {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  /* 28px = the choice-row's 20px radio column + its 8px gap, so the login
        box still starts where the option's copy starts. */
-    margin-left: 28px;
-    padding-bottom: 12px;
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
-    cursor: pointer;
-  }
-  .choice-sub input {
-    width: auto;
-    margin: 0;
-    accent-color: var(--primary);
-  }
-  .choice-sub:has(input:disabled) {
-    color: var(--muted-foreground);
-    cursor: default;
-  }
-  .choice-sub .hint {
-    margin: 0;
-  }
-  /* The tmux hard-stop notice: same amber as the facts warnings, full width
+  margin-left: 28px;
+  padding-bottom: 12px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  cursor: pointer;
+}
+.choice-sub .hint {
+  margin: 0;
+}
+/* The tmux hard-stop notice: same amber as the facts warnings, full width
      of the action area because it explains why parts of it are disabled. */
-  /* The port-conflict notice wears the same box on purpose. It is the other
+/* The port-conflict notice wears the same box on purpose. It is the other
      thing that disables Set Up, and two explanations of "why is this button
      dead" that looked different would read as two different KINDS of trouble
      — one of them serious — when both are a machine fact with a way out. */
-  .tmux-warning,
-  .port-warning {
-    width: 100%;
-    border: 1px solid var(--warning);
-    border-radius: 8px;
-    padding: 12px;
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
-  }
-  .tmux-warning p,
-  .port-warning p {
-    margin: 0 0 8px;
-    color: var(--warning);
-  }
-  /* The port notice ends on a paragraph rather than on a row of controls, so
+.tmux-warning,
+.port-warning {
+  width: 100%;
+  border: 1px solid var(--warning);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.tmux-warning p,
+.port-warning p {
+  margin: 0 0 8px;
+  color: var(--warning);
+}
+/* The port notice ends on a paragraph rather than on a row of controls, so
      its last line would otherwise sit 8px off the bottom of its own box. */
-  .port-warning p:last-child {
-    margin-bottom: 0;
-  }
-  .tmux-warning-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-  }
-  .tmux-warning code {
-    background: var(--background);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 2px 7px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: var(--text-detail);
-    line-height: var(--text-detail--line-height);
-    overflow-wrap: anywhere;
-  }
-  /* The pane's two tabs. Selected tab gets the inset look of a raised tab;
-     unselected ones are quiet until hovered. */
-  .pane-tabs button {
-    font-size: var(--text-detail);
-    line-height: var(--text-detail--line-height);
-    padding: 3px 9px;
-    color: var(--muted-foreground);
-    background: transparent;
-    border-color: transparent;
-  }
-  .pane-tabs button[aria-selected="true"] {
-    color: var(--foreground);
-    background: var(--background);
-    border-color: var(--border);
-  }
+.port-warning p:last-child {
+  margin-bottom: 0;
+}
+.tmux-warning-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.tmux-warning code {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  overflow-wrap: anywhere;
 }

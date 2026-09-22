@@ -84,11 +84,14 @@ function invokedCommands(): Set<string> {
  * The commands ONE page can reach: the `ipc.<name>` calls in its own modules,
  * mapped to command names through ipc.ts's own exports.
  *
- * A page is a LIST of files, not one entry: the assistant is `wizard.ts` plus
- * every module under `assistant/`, which are loaded by that entry and by
- * nothing else. Reading the entry alone would make this pin blind to the
- * modules that hold the reset and the tmux docs — and blind in the
- * SAFE-LOOKING direction, reporting a smaller set than the window can reach.
+ * A page is a LIST of files, not one entry: the assistant is `main.tsx`, the
+ * host, the action layer, and every screen and hook module, loaded by the
+ * entry and by nothing else. Reading the entry alone would make this pin
+ * blind to the modules that hold the reset and the tmux docs — and blind in
+ * the SAFE-LOOKING direction, reporting a smaller set than the window can
+ * reach. The member matcher admits whitespace, because the formatter wraps a
+ * long call into an `ipc\n    .name(` chain and a blind spot in the DETECTOR
+ * is a grant kept after its last caller leaves.
  */
 function commandsInvokedBy(...pageFiles: string[]): Set<string> {
   const nameToCommand = new Map<string, string>();
@@ -99,7 +102,7 @@ function commandsInvokedBy(...pageFiles: string[]): Set<string> {
   const out = new Set<string>();
   for (const file of pageFiles) {
     const src = codeOf(join(UI_SRC, file)); // codeOf takes a PATH and strips comments itself
-    for (const m of src.matchAll(/\bipc\.(\w+)\s*\(/g)) {
+    for (const m of src.matchAll(/\bipc\b[\s.]*?(\w+)\s*\(/g)) {
       const cmd = nameToCommand.get(m[1] as string);
       if (cmd) out.add(cmd);
     }
@@ -107,16 +110,24 @@ function commandsInvokedBy(...pageFiles: string[]): Set<string> {
   return out;
 }
 
-/** Every file the assistant loads: its entry and the modules under `assistant/`. */
+/**
+ * Every file the assistant loads (spec 2026-09-21; plan Task 8): the entry,
+ * the host, the action layer, the port-check hook, and every screen module.
+ *
+ * Enumerated from DISK (screens/ and hooks/ listings) rather than listed by
+ * hand, so a screen module added later joins this pin without a third edit
+ * to forget — the same reason the old list walked `assistant/`.
+ */
 function assistantPageFiles(): string[] {
-  const dir = join(UI_SRC, "assistant");
-  const modules = readdirSync(dir)
-    .filter((name) => name.endsWith(".ts"))
-    .map((name) => join("assistant", name));
+  const pageModules = (dir: string, ext: string[]): string[] =>
+    readdirSync(join(UI_SRC, dir))
+      .filter((name) => ext.some((e) => name.endsWith(e)))
+      .map((name) => join(dir, name));
+  const modules = [...pageModules("screens", [".tsx"]), ...pageModules("hooks", [".ts"])];
   // A floor, so a directory that failed to list cannot pass this file's
   // equality checks by reporting an empty page.
   expect(modules.length, "the assistant's screen modules must be found").toBeGreaterThan(2);
-  return ["wizard.ts", ...modules];
+  return ["main.tsx", "host.tsx", "runners.ts", ...modules];
 }
 
 /** The `desktop_*` commands a capability file grants, expanded through the manifest. */

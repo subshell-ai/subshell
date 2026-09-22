@@ -9,6 +9,7 @@
   "access": "restricted",
   "baseBranch": "main",
   "ignore": [
+    "@internal/assistant",
     "@internal/backend-client",
     "@internal/backend-errors",
     "@internal/brand",

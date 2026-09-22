@@ -2,7 +2,7 @@
  * The one update act's whole decision (spec 2026-09-18 § 4, § 6, § 13).
  *
  * This file is where the screen is actually covered. `ui/src/__tests__/` has
- * no DOM harness — nothing here can mount `wizard.ts` — so a judgment left in
+ * no DOM harness — nothing here can mount the host — so a judgment left in
  * the render is a judgment with no test at all, and the point of
  * `lib/update-act.ts` is that every one of them is here instead.
  *
