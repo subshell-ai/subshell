@@ -2,19 +2,28 @@ import { BRACKETED_PASTE_END, BRACKETED_PASTE_START, type ClientFrame } from "@i
 import { encodeFrame } from "@internal/subshell-protocol/wire";
 
 /**
- * The sockets speaking CBOR on this page. Negotiation is a property of the
- * CONNECTION (the attach URL's `&enc=cbor` decided it), so the mark is set
- * once per socket at creation and a per-socket set is the honest place for
- * it: a reconnect builds a new socket and can decide differently, and two
- * sockets in one page (one per terminal pane) never share the answer.
+ * The sockets the SERVER has confirmed for CBOR. The attach URL's `&enc=cbor`
+ * is a REQUEST, not an agreement: a server older than Wave B ignores the
+ * param and would drop every binary frame the page sent it (input, resize,
+ * visibility, all of it, while its own JSON output kept flowing). So the
+ * mark means "a server frame arrived as binary", set once per socket from
+ * the page's own message handler, and a per-socket set is the honest place
+ * for it: a reconnect builds a new socket and can decide differently, and
+ * two sockets in one page (one per terminal pane) never share the answer.
+ * Frames the page sends before confirmation (the on-open visibility, an
+ * early resize) ride JSON, which a CBOR server accepts as passthrough, so
+ * deferring the mode costs only the size win on those frames and nothing
+ * else.
  */
 const cborSockets = new WeakSet<WebSocket>();
 
 /**
- * Marks a WebSocket as negotiated (`&enc=cbor` on its attach URL, spec
- * 2026-09-21 Wave B). Every frame the page sends on it afterwards rides
- * `encodeFrame` instead of `JSON.stringify`.
- * @param ws - The socket the page just opened
+ * Confirms a WebSocket for CBOR after the server answered with a binary
+ * frame (spec 2026-09-21 Wave B, as amended against a mixed-version
+ * deployment: request with `&enc=cbor`, but never send CBOR until the
+ * server has proven it speaks it). Every frame the page sends on it
+ * afterwards rides `encodeFrame` instead of `JSON.stringify`.
+ * @param ws - The socket that just delivered a binary server frame
  */
 export function markCborSocket(ws: WebSocket): void {
   cborSockets.add(ws);
