@@ -1824,9 +1824,14 @@ pub fn desktop_open_in_browser(app: AppHandle, path: String) -> Result<(), Strin
 
 /// Open whatever the plane window is showing, in the system browser.
 ///
-/// The tray's and the menu bar's entry point, and Rust-side on purpose: this
-/// app tells the plane's page nothing (no `eval` bridge, no `DesktopAction`),
-/// so a menu item that needed the page to act could not exist here at all.
+/// The MENU BAR's entry point, and Rust-side on purpose: this app tells the
+/// plane's page nothing (no `eval` bridge, no `DesktopAction`), so a menu
+/// item that needed the page to act could not exist here at all. The tray
+/// lost its use of this on 2026-09-22, when its flat "Open in Browser" item
+/// became the per-address submenu — those arms name the address and run
+/// through [`tray_open_in_browser`], and only macOS still has the bar whose
+/// item means "whatever is on screen". Hence the gate: uncapped, this reads
+/// as dead code on Linux CI, which is true there and false here.
 ///
 /// The CURRENT route when the window can report one, `/` otherwise — the plane
 /// is still a sensible page to offer, and a menu item disabled until a window
@@ -1836,6 +1841,7 @@ pub fn desktop_open_in_browser(app: AppHandle, path: String) -> Result<(), Strin
 /// Failure goes to stderr and nowhere else: a menu item has no place to render
 /// an error, and the one way this fails (no plane opened yet) is a state the
 /// person can see.
+#[cfg(target_os = "macos")]
 pub fn open_current_in_browser(app: &AppHandle) {
     let path = app
         .get_webview_window(crate::windows::PLANE_LABEL)
