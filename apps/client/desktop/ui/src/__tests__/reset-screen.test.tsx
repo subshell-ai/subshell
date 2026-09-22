@@ -127,6 +127,33 @@ describe("the reset screen", () => {
     expect(fake.callsTo("node_reset")).toEqual([{ typed: "devbox" }]);
   });
 
+  // The room hides navigation, but it must not go SILENT: a chain that
+  // empties the bar the moment the one irreversible button is pressed reads
+  // as a hung window. The press stays through the run, disabled and
+  // labelled — the server room's "Resetting…" affordance, which this app
+  // has because its chain is one command with no step events for a meter.
+  it("labels the running chain rather than emptying the bar", async () => {
+    const gate = deferred<{ ok: boolean; stdout: string; stderr: string }>();
+    await openReset({
+      handlers: {
+        node_arm_reset: () => true,
+        node_reset: () => gate.promise,
+      },
+    });
+    fireEvent.change(screen.getByLabelText(/Type/), { target: { value: "devbox" } });
+    fireEvent.click(screen.getByRole("button", { name: "Reset Everything" }));
+    const running = (await screen.findByRole("button", { name: "Resetting…" })) as HTMLButtonElement;
+    expect(running.disabled).toBe(true);
+    // It is the chain's own press, not navigation: the room rule still
+    // holds, and no exit renders beside it.
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    gate.resolve({ ok: true, stdout: "reset complete", stderr: "" });
+    // The label retires with the chain; the resting screen is unchanged.
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Resetting…" })).toBeNull());
+    expect(screen.getByRole("button", { name: "Reset Everything" })).toBeTruthy();
+  });
+
   // Nothing staged means nothing to run, so there is no button to press —
   // the CLI omits its `paths` block entirely when no config loaded.
   it("offers no reset at all on a machine that is not enrolled, and no Cancel beside the rail", async () => {

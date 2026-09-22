@@ -710,8 +710,13 @@ CONFIRMATION rides the rail (operator ruling 2026-09-22, final word on the
 reset layout, superseding the frame-replacing premise for the confirmation:
 the sidebar was being lost today and that is not wanted) — the room is the
 RUNNING chain: from the confirm press to the chain's end, reset-screen.tsx
-hides the rail and both bar buttons off the runner's busy, and no navigation
-sits beside a chain that is deleting this machine's node. There is NO CANCEL
+hides the rail off the runner's busy and renders no exit, and no navigation
+sits beside a chain that is deleting this machine's node. The press itself
+STAYS through the chain, disabled and labelled "Resetting…" — the bar
+emptying the moment the one irreversible button is pressed reads as a hung
+window, not a running chain. That is the server room's busy affordance; the
+server can also draw its step meter, and this app has no step events to draw
+one from, so the label is the whole of it here. There is NO CANCEL
 where the rail is present (operator ruling 2026-09-22, screenshot 59) — the
 rail is the way out of the confirmation, and the room keeps no Cancel
 regardless; the not-registered refusal reads "This machine is not registered

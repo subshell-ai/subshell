@@ -180,7 +180,12 @@ danger-styled; the ROOM is the RUNNING chain — from the confirm press until
 the chain ends the rail and bar hide and the view goes full-window again
 (the meter/log render is the full-window one). No navigation beside a
 running chain is where the safety property lives now; it moved down to the
-chain, not away. The hostname gate, the danger styling, the re-arm chain and
+chain, not away. What the room KEEPS is the press itself, disabled and
+labelled "Resetting…" — a bar that empties the moment the one irreversible
+button is pressed reads as a hung window, not a running chain (the server's
+button has carried that label throughout; the client's does too as of the
+fix wave, standing in for the meter whose step events only the server's
+chain emits). The hostname gate, the danger styling, the re-arm chain and
 the deep link's gate are untouched; the SPA deep link lands the
 confirmation with the rail.
 

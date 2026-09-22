@@ -93,8 +93,13 @@ export function ResetScreen(props: {
   const paths = [probe?.paths?.dataDir, probe?.paths?.configFile].filter((p): p is string => Boolean(p));
 
   // The chain is the runner action: from the confirm press to its end the
-  // screen is the room — the rail and both bar buttons hide, because no
+  // screen is the room — the rail hides and no exit renders, because no
   // navigation belongs beside a chain that is deleting this machine's node.
+  // What STAYS is the press, relabelled: a bar that empties the moment the
+  // one irreversible button is pressed reads as a hung window, not a
+  // running chain — the same defect the server's room closes with its
+  // "Resetting…" label, and the affordance it has where this app has no
+  // step events to draw a meter from.
   const running = busy;
 
   return (
@@ -114,7 +119,12 @@ export function ResetScreen(props: {
         )
       }
       barRight={
-        running || armed !== true ? undefined : (
+        // The press renders from ARMING, not from rest: through the chain
+        // it stays, disabled and labelled, so the running reset is visible
+        // as running (see `running` above). It is the chain's own button,
+        // not navigation, so the room's rule — no way out from under the
+        // chain — does not take it.
+        armed !== true ? undefined : (
           <Button
             className="min-w-[120px]"
             variant="destructive"
@@ -124,7 +134,7 @@ export function ResetScreen(props: {
               runner.run(async () => finished(await nodeReset({ typed: typed.trim() })));
             }}
           >
-            Reset Everything
+            {running ? "Resetting…" : "Reset Everything"}
           </Button>
         )
       }
