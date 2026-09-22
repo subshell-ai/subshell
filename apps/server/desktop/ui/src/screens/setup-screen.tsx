@@ -202,7 +202,7 @@ export function SupervisionGroup(props: {
           id: "plan-mode-service",
           background: true,
           title: "In the background",
-          body: "The server runs on this machine, not in this app. If it stops, it is started again, whether or not Subshell Server is open.",
+          body: "The Subshell Server Service runs in the background and comes back if it stops.",
         })}
         {mode({
           id: "plan-mode-app",

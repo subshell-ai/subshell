@@ -67,7 +67,7 @@ export function StartupScreen(props: {
       }
     >
       <p className="text-muted-foreground text-sm leading-relaxed">
-        The node runs on this machine, not in this app. If it stops, it is started again.
+        The Subshell Node Service will run in the background and come back if it stops.
       </p>
       <div className="mt-6 flex items-start gap-3">
         <Switch

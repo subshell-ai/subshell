@@ -49,7 +49,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import type { NodeCommands } from "@/hooks/use-node-commands";
 import { autostartSupported, MIN_AUTOSTART_NODE_VERSION } from "@/lib/autostart-gate";
-import { IS_MACOS, tmuxHint } from "@/lib/copy";
+import { tmuxHint } from "@/lib/copy";
 import type { ActionResult, Probe, ProbeStep } from "@/lib/ipc";
 import { serviceAction } from "@/lib/node-assistant-state";
 import { PROBE_STEPS, paneRisk, stepLabel, stepTone } from "@/lib/steps";
@@ -75,7 +75,7 @@ function serviceProblem(step: ProbeStep): string | null {
     case "offline":
       return "The service manager reports the node as running, but no local daemon is heartbeating.";
     case "no-service":
-      return "The node is registered, but there is no service for it. It only runs when something starts it by hand.";
+      return "Currently there is no Subshell Node Service. The node only runs when you start it yourself.";
     default:
       return null;
   }
@@ -90,18 +90,24 @@ function serviceDetail(step: ProbeStep): string | null {
         "missing tmux, an unreachable control plane, or a node key the server no longer recognises."
       );
     case "no-service":
-      return (
-        `Running it in the background registers the node with ${IS_MACOS ? "macOS" : "Linux"}, so it starts at ` +
-        "login and comes back if it exits."
-      );
+      return "Installing the Subshell Node Service runs it in the background and brings it back if it stops.";
     default:
       return null;
   }
 }
 
-/** The arrangement's own sentence — the server supervision option's words, which are true here too. */
-function arrangementBody(): string {
-  return "The node runs on this machine, not in this app. If it stops, it is started again.";
+/**
+ * The arrangement sentence STATES THE CURRENT CONDITION (operator ruling
+ * 2026-09-22): the card says what is, the toggle says what flipping it
+ * changes. Unknown is said as unknown — the card never guesses.
+ */
+function arrangementBody(atLogin: boolean | null): string {
+  if (atLogin === null) {
+    return "Currently the Subshell Node Service runs in the background. Whether it starts on startup is not reported.";
+  }
+  return atLogin
+    ? "Currently the Subshell Node Service runs in the background, and starts automatically on startup."
+    : "Currently the Subshell Node Service runs in the background, but does not automatically start on startup.";
 }
 
 export function ServiceScreen(props: {
@@ -237,7 +243,7 @@ export function ServiceScreen(props: {
       {enrolled && installed && (
         <div className="mt-6 rounded-md border border-border p-3">
           <p className="font-strong text-detail">In the background</p>
-          <p className="mt-2 text-detail leading-relaxed">{arrangementBody()}</p>
+          <p className="mt-2 text-detail leading-relaxed">{arrangementBody(atLogin)}</p>
           {problem && <p className="mt-2 text-detail leading-relaxed">{problem}</p>}
           {detail && <p className="mt-2 text-detail text-muted-foreground leading-relaxed">{detail}</p>}
 
@@ -255,16 +261,16 @@ export function ServiceScreen(props: {
                 disabled={busy || atLogin === null || !supported}
                 onCheckedChange={(checked) => commands.autostart(checked)}
               />
-              <Label htmlFor="service-autostart">Start the node at login</Label>
+              <Label htmlFor="service-autostart">Start automatically on startup</Label>
             </div>
             <p className="text-detail text-muted-foreground">
               {!supported
-                ? `Update your node to ${MIN_AUTOSTART_NODE_VERSION} to change this.`
+                ? `Currently the installed version cannot change this. Updating to version ${MIN_AUTOSTART_NODE_VERSION} lets you.`
                 : atLogin === null
-                  ? "The node CLI did not report whether it starts at login."
+                  ? ""
                   : atLogin
-                    ? "Right now it comes back by itself every time you log in."
-                    : "Right now it does not start after a login by itself. Turn this on and it comes back at every login."}
+                    ? "Turning this off leaves it running in the background, but it will not start again after a startup."
+                    : "Turning this on starts it automatically every time the machine starts."}
             </p>
           </div>
 

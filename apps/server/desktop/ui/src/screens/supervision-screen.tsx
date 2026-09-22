@@ -102,7 +102,9 @@ export function SupervisionScreen(props: {
         id: "sup-service",
         on: chosen.background,
         title: "In the background",
-        body: "The server runs on this machine, not in this app. If it stops, it is started again.",
+        body: chosen.autostart
+          ? "Currently the Subshell Server Service runs in the background, and starts automatically on startup."
+          : "Currently the Subshell Server Service runs in the background, but does not automatically start on startup.",
         onPick: () => props.onChoice(applySupervisionChoice(chosen, { background: true })),
       })}
       {/* Nested under the option it belongs to, and only live while that option is
@@ -114,12 +116,12 @@ export function SupervisionScreen(props: {
           disabled={!chosen.background || !autostartSupported(probe) || busy || running}
           onCheckedChange={(checked) => props.onChoice(applySupervisionChoice(chosen, { autostart: checked }))}
         />
-        <Label htmlFor="sup-login">Start the server at login</Label>
+        <Label htmlFor="sup-login">Start automatically on startup</Label>
         {chosen.background && autostartSupported(probe) && (
           <span className="hint">
             {chosen.autostart
-              ? "The server comes back by itself every time you log in."
-              : "The server stays stopped after a logout until something starts it."}
+              ? "Turning this off leaves it running in the background, but it will not start again after a startup."
+              : "Turning this on starts it automatically every time the machine starts."}
           </span>
         )}
         {!autostartSupported(probe) && (

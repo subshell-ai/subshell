@@ -24,7 +24,8 @@ Behind the switch, the node CLI gains `subshell service autostart on|off`:
 it arms or disarms login start for an installed service and touches nothing
 that is running. `subshell service status --json` answers the same fact
 under its own name, `autostart`, so an older agent without the field still
-probes (the switch reads `enabled` there). The copy now names no service managers: the card states what IS true
-("The node runs on this machine, not in this app. If it stops, it is started
-again.") and the "Start the node at login" switch carries help that says what
-flipping it changes, in each of its states.
+probes (the switch reads `enabled` there). The copy names no service managers. The named thing is the Subshell Node
+Service, the card states the CURRENT condition ("Currently the Subshell Node
+Service runs in the background, but does not automatically start on
+startup."), and the "Start automatically on startup" switch carries help that
+says what flipping it changes, in each of its states.

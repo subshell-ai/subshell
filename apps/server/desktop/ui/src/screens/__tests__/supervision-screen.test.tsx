@@ -59,7 +59,9 @@ describe("the choice rows", () => {
     // role=switch span Base UI names through the same label.
     expect((document.getElementById("sup-login") as HTMLInputElement).checked).toBe(true);
     expect(
-      screen.getByText("The server runs on this machine, not in this app. If it stops, it is started again."),
+      screen.getByText(
+        "Currently the Subshell Server Service runs in the background, and starts automatically on startup.",
+      ),
     ).toBeDefined();
   });
 

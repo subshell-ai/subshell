@@ -834,7 +834,7 @@ describe("a restart refused for pane safety", () => {
     });
     await openSection("Service");
     fireEvent.click(button("Restart"));
-    await waitFor(() => expect(screen.getByText(/cannot reload a running job/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/restarts the service once/)).toBeTruthy());
     expect(screen.queryByText(/kills nothing/)).toBeNull();
   });
 });
@@ -889,7 +889,7 @@ describe("rewriting the service definition", () => {
     await openSection("Service");
     fireEvent.click(button("Rewrite the service definition"));
 
-    await waitFor(() => expect(screen.getByText(/Rewriting the definition restarts the node/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/restarts the Subshell Node Service/)).toBeTruthy());
     expect(fake.callsTo("node_service").length).toBe(0);
     expect(screen.getByText(/It is the last time that happens/)).toBeTruthy();
 

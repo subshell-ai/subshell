@@ -825,10 +825,12 @@ same day's follow-up, rails addendum: "consistency in offering and UI").
 The Service section now offers what Subshell Server's Service offers, adapted
 to a node: the arrangement stated as one card — **In the background** with the
 server's own platform sentence — the run-at-login switch nested under it
-("Start the node at login", with help text that states the CURRENT
-state rather than a static warning; the server's switch reads
-"Start the server at login" with the same shape. The first-run question
-keeps its shorter "Start at login": the walk's own wording stands) for an
+("Start automatically on startup"). The named thing is the **Subshell
+Node Service** (the server app: the **Subshell Server Service**), and the
+card STATES THE CURRENT CONDITION ("Currently the Subshell Node Service
+runs in the background, but does not automatically start on startup.")
+while the switch help says what flipping it changes. The first-run
+question keeps its shorter "Start at login": the walk's own wording stands) for an
 installed service, the lifecycle verbs (Start when it is down, Stop and
 Restart when it is up with the pane-safety force flow unchanged, Uninstall
 confirmed in its own words), and the install-service door for a machine whose

@@ -244,10 +244,8 @@ export function useNodeCommands(args: {
             messages: [
               first.stderr.trim(),
               rewriteKillsPanes(probe)
-                ? 'The button labelled "Rewrite the service definition" is the CLI\'s own first suggestion and it ' +
-                  "fixes this for good, but macOS cannot reload a running job: it stops the node to load the new " +
-                  "definition, costing the same sessions this restart would, once. Forcing the restart loses them " +
-                  "and repairs nothing."
+                ? "Rewriting the definition fixes this permanently, but it restarts the service once, so " +
+                  "sessions end either way. Forcing the restart ends them without fixing anything."
                 : 'The button labelled "Rewrite the service definition" is the CLI\'s own first suggestion: it ' +
                   "fixes this for good and kills nothing. Forcing the restart loses every session running on this " +
                   "machine right now.",
@@ -299,11 +297,9 @@ export function useNodeCommands(args: {
       runner.run(async () => {
         if (!rewriteKillsPanes(probe)) return finished(await runService("install", { settle: true }));
         return asks({
-          title: "Rewriting the definition restarts the node",
+          title: "Rewriting the definition restarts the Subshell Node Service",
           messages: [
-            "macOS cannot reload a running job in place: the node is stopped and the new definition is loaded. " +
-              "The definition currently loaded does not spare live panes, so stopping it kills every subshell " +
-              "running on this machine.",
+            "All running subshells on this machine will stop while it restarts.",
             "It is the last time that happens. The definition this writes spares panes, so every stop, restart " +
               "and uninstall after it is free.",
           ],
