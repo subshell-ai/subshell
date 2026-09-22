@@ -148,20 +148,43 @@ export function PermissionsScreen(props: {
               <div className="detail">{row.detail}</div>
             </div>
             <div className="permission-side">
+              {/* The right-hand text comes FIRST, then the buttons: the old page
+                  appended the suffix before either button (wizard.ts:1856, before
+                  the 1864/1870 appends), and styles.css documents that order
+                  explicitly. */}
+              {row.suffix !== "" && <span className="detail">{row.suffix}</span>}
               {/* Both the WORDS and the handler come from the row, so a request
                   added to the model without its handler here is a type error
-                  rather than a silent mis-wiring. */}
-              {row.action === "allow" && row.allow && (
-                <button type="button" className="primary" onClick={() => REQUESTS[row.allow!.request]()}>
-                  {row.allow.label}
-                </button>
-              )}
+                  rather than a silent mis-wiring. The old `button()` helper OR'd
+                  `busy || running` into EVERY disabled state, these two
+                  included: a press during an act is a no-op, and the buttons
+                  must not look live. */}
+              {/* The old code assigned `allow` to a local before the guard, so
+                  the closure the button hands its press to had a narrowed
+                  local rather than a property TS cannot narrow across a
+                  callback — the non-null assertion the first port reached for
+                  is that same gap, papered over. */}
+              {(() => {
+                const allow = row.allow;
+                if (row.action !== "allow" || allow === null) return null;
+                return (
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={busy || running}
+                    onClick={() => REQUESTS[allow.request]()}
+                  >
+                    {allow.label}
+                  </button>
+                );
+              })()}
               {row.action === "open-settings" && row.pane !== null && (
                 /* No `ghost`: on the tmux screen that treatment read as a link
                     and did not say it could be pressed, and this is the one
                     control a person arrives here specifically to find. */
                 <button
                   type="button"
+                  disabled={busy || running}
                   onClick={() =>
                     void ipc
                       .openSystemSettings(row.pane as Parameters<typeof ipc.openSystemSettings>[0])
@@ -171,7 +194,6 @@ export function PermissionsScreen(props: {
                   Open System Settings
                 </button>
               )}
-              {row.suffix !== "" && <span className="detail">{row.suffix}</span>}
             </div>
           </li>
         ))}
