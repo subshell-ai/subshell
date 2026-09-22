@@ -281,7 +281,7 @@ export function StatusScreen(props: {
             </p>
           ) : null
         ) : (
-          <p className="text-sm">This machine is not registered as a node, so no subshells run on it.</p>
+          <p className="text-sm">This machine is not a node yet, so subshells can't run here.</p>
         )}
       </div>
 
