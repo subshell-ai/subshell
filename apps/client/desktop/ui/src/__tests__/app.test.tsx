@@ -1389,6 +1389,32 @@ describe("the first run", () => {
     expect(buttonOrNull("Edit details")).toBeNull();
   });
 
+  // The FIRST attempt passes through the same gate a Retry never did.
+  //
+  // `runRegister` fires the chain synchronously while `setStep` is still
+  // queued, so at the press the screen ref the output tag reads said
+  // "startup" — a chain tagged to the question the person answered one
+  // render ago, which loses the gated failure sentence on the progress
+  // shell exactly when there is no Retry history to fall back on. (The
+  // words themselves always rendered: the checklist's failure block reads
+  // the raw output. This pins the sentence, which is the gated half.)
+  it("tags a first-attempt failure to the progress screen the chain runs on", async () => {
+    await boot({
+      settings: makeSettings({ planeUrl: null }),
+      probe: untouched(),
+      handlers: {
+        node_install_cli: () => ({ ok: false, stdout: "", stderr: "brew refused to run" }),
+      },
+    });
+
+    await registerAs("https://subshell.example.com");
+    await waitFor(() => expect(screen.getByText("That did not work. See the output below.")).toBeTruthy());
+    expect(screen.getByRole("heading", { name: "Setting Up…" })).toBeTruthy();
+    // And beside the sentence, the raw half the gate never held: the act's
+    // own last words, on the same screen.
+    expect(screen.getByText("brew refused to run")).toBeTruthy();
+  });
+
   // 4. The Retry that must not re-enrol.
   //
   // A Retry after the SERVICE act failed arrives with the machine ALREADY

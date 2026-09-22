@@ -209,7 +209,6 @@ export function App() {
    * maintains it is {@link runRegister}, which claims the progress shell
    * synchronously because the walk's screen change is still queued.
    */
-
   useEffect(() => {
     screenRef.current = screen;
   }, [screen]);
@@ -261,6 +260,15 @@ export function App() {
     setPhase("form");
     setFailedAct(null);
     setStep("registering");
+    // The chain's outcome belongs to the progress shell, and the press tags
+    // it NOW: `setStep` is queued, so on the FIRST attempt the ref still
+    // reads "startup" when `commands.register` fires synchronously below —
+    // and a chain tagged to a screen the person left one render ago loses
+    // the gated failure line on exactly the attempt that has no Retry
+    // history. A ref write is immediate; no effect needs to have flushed.
+    // (The words themselves survive either way — `ProgressScreen` reads the
+    // raw output for its failure block — this is the gate, not the record.)
+    screenRef.current = "progress";
     commands.register({ startAtLogin, onPhase: setPhase, onFailed: setFailedAct });
   };
 
@@ -448,7 +456,6 @@ export function App() {
       // (operator ruling 2026-09-22), so it neither renders an action's
       // words nor disables anything an action would disable. Facts only.
       return <StatusScreen rail={rail} shell={shell} probe={probe} settings={settings} enrolledNode={enrolledNode} />;
-
     case "service":
       return (
         <ServiceScreen
