@@ -252,10 +252,13 @@ caption, never an error banner. The page can name no file. What is
 deliberately NOT ported: the server Status's "Last action" pane — the
 shipped output-ownership ruling already decides where an action's words
 render (the screen the press happened on), and an always-on second copy would
-contradict it. The run-at-login switch also gained the server's version gate
-beside its honest-hide: an agent older than `0.15.0` reads the state (it
+contradict it. The run-at-login switch also gained the server's version
+gate: an agent older than `0.15.0` reads the state (it
 always answered `enabled`) but has no verb to write with, so the switch
 shows the answer greyed under "Update your node to 0.15.0 to control this."
+And when neither fact arrives there is no hiding and no guessing: the switch
+greys under "The node CLI did not report whether login start is armed." —
+the same disabled affordance carrying the honest sentence, not an absent one.
 
 ## What does not change
 

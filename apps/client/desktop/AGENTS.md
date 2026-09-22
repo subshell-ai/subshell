@@ -825,7 +825,9 @@ same day's follow-up, rails addendum: "consistency in offering and UI").
 The Service section now offers what Subshell Server's Service offers, adapted
 to a node: the arrangement stated as one card — **In the background** with the
 server's own platform sentence — the run-at-login switch nested under it
-("Start it again at every login", the same words the server uses) for an
+("Start it again at every login", the same words the server uses — the
+first-run question keeps its shorter "Start at login": day 2 mirrors the
+server, the walk's own wording stands) for an
 installed service, the lifecycle verbs (Start when it is down, Stop and
 Restart when it is up with the pane-safety force flow unchanged, Uninstall
 confirmed in its own words), and the install-service door for a machine whose
