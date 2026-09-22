@@ -8,7 +8,7 @@
  * the paths). The install/no-node split and the unrecognised step are pinned
  * at the app level, where the whole page is under test.
  */
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, setSystemTime } from "bun:test";
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { ServiceScreen } from "@/components/assistant/service-screen";
 import type { NodeCommands } from "@/hooks/use-node-commands";
@@ -16,6 +16,9 @@ import type { ActionResult, ServiceStatusBody } from "@/lib/ipc";
 import { makeProbe, makeSettings, renderApp } from "./harness";
 
 afterEach(cleanup);
+// The hush grace is read off `Date.now()`; any test that mocks the clock
+// restores it here rather than trusting its own last line to run.
+afterEach(() => setSystemTime());
 
 /** One recorded command call, values kept the way the status screen's does. */
 interface Call {
@@ -426,4 +429,64 @@ describe("while the section's own act is in flight", () => {
     mount({ probe: offline });
     expect(screen.getByText(/service manager reports the node as running/i)).toBeTruthy();
   });
+
+  // The follow-up ruling, from the same live window: busy is not the whole
+  // of coming back. The manager needs a few probe cycles after a deliberate
+  // kick, so after a STARTING act the hush outlives the spinner by the
+  // named grace, and what then surfaces is written as the warning it is.
+  it("the hush outlives the spinner after a starting act, then the warning says its piece", () => {
+    const offline = makeProbe({ step: "offline" });
+    setSystemTime(new Date("2026-09-22T12:00:00Z"));
+    const ended = { label: "restart", at: Date.now() };
+    const { again } = mountView({ probe: offline, busy: true, active: "restart" });
+    expect(screen.queryByText(/service manager reports the node as running/i)).toBeNull();
+    // The act settles. The spinner is gone; the daemon is still booting.
+    again({ probe: offline, busy: false, active: null, actEnded: ended });
+    expect(screen.queryByText(/service manager reports the node as running/i)).toBeNull();
+    // The grace ends on a later poll, and the sentence arrives in the
+    // screen's warning dress ("it should probably be written as a yellow
+    // warning"), not as body text.
+    setSystemTime(new Date("2026-09-22T12:00:16Z"));
+    again({ probe: offline, busy: false, active: null, actEnded: ended });
+    const line = screen.getByText(/service manager reports the node as running/i);
+    expect(line.closest("[class*='warning']")).not.toBeNull();
+    expect(screen.getByText(/A node that starts, fails/i)).toBeTruthy();
+  });
+
+  it("a stop keeps no grace: the stopped sentence is the point of the act", () => {
+    const stopped = makeProbe({ step: "stopped", service: service({ state: "stopped" }) });
+    setSystemTime(new Date("2026-09-22T12:00:00Z"));
+    const { again } = mountView({ probe: stopped, busy: true, active: "stop" });
+    expect(screen.queryByText(/not running/i)).toBeNull();
+    again({ probe: stopped, busy: false, active: null, actEnded: { label: "stop", at: Date.now() } });
+    expect(screen.getByText(/not running/i)).toBeTruthy();
+  });
 });
+
+/** Like `mount`, but hands back an `again(...)` that rerenders the SAME
+ *  screen with new props — the hush grace compares `Date.now()` to the
+ *  runner's stamp, so it moves between renders, not inside them. */
+interface ViewInit {
+  probe: ReturnType<typeof makeProbe>;
+  busy?: boolean;
+  active?: string | null;
+  actEnded?: { label: string | null; at: number } | null;
+}
+
+function mountView(init: ViewInit) {
+  const calls: Call[] = [];
+  const tree = (v: ViewInit) => (
+    <ServiceScreen
+      shell={shell}
+      probe={v.probe}
+      commands={makeCommands(calls)}
+      busy={v.busy ?? false}
+      active={v.active ?? null}
+      actEnded={v.actEnded ?? null}
+      onRegister={() => {}}
+      output={null as ActionResult | null}
+    />
+  );
+  const view = renderApp(tree(init));
+  return { calls, again: (over: ViewInit) => view.rerender(tree(over)) };
+}

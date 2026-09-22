@@ -558,6 +558,7 @@ export function App() {
             commands={commands}
             busy={runner.busy}
             active={runner.active}
+            actEnded={runner.activeEnded}
             onRegister={() => {
               if (runner.busy) return;
               form.seedServer(probe?.status?.serverUrl ?? settings?.planes[0] ?? "");

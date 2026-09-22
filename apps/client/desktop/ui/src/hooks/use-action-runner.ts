@@ -63,6 +63,14 @@ export interface ActionRunner {
    * restart — keeps the word its button began with.
    */
   active: string | null;
+  /**
+   * The LAST settled submission: its label and the moment it ended. The
+   * Service section reads this to keep a started node's offline narration
+   * quiet for a grace after the act — the manager takes a few probe cycles
+   * to actually have a daemon, and that window is not the crash the
+   * sentence explains.
+   */
+  activeEnded: { label: string | null; at: number } | null;
   /** The CLI's own words from the last action, or null. */
   output: ActionResult | null;
   /** Why the last action failed, in the CLI's (or Rust's) words. "" when it did not. */
@@ -104,6 +112,7 @@ export function useActionRunner(args: { onRun?: () => void } = {}): ActionRunner
   // settles: the only reader gates on `busy`, and a confirm's `accept()` must
   // still find the label the original press carried.
   const [active, setActive] = useState<string | null>(null);
+  const [activeEnded, setActiveEnded] = useState<{ label: string | null; at: number } | null>(null);
 
   const mutation = useMutation<ActionOutcome, unknown, ActionSpec>({
     mutationFn: (spec) => spec.run(),
@@ -116,6 +125,9 @@ export function useActionRunner(args: { onRun?: () => void } = {}): ActionRunner
       setConfirmDismissed(false);
     },
     onSettled: async (_data, _error, spec) => {
+      // FIRST, so the stamp is on the screen before `busy` drops: a reader
+      // comparing `Date.now()` to this moment never catches the gap.
+      setActiveEnded({ label: spec.label, at: Date.now() });
       // Awaited, so `busy` covers the re-probe too — see the note above.
       if (spec.reprobe) await queryClient.refetchQueries({ queryKey: PROBE_KEY });
       await queryClient.refetchQueries({ queryKey: SETTINGS_KEY });
@@ -175,5 +187,5 @@ export function useActionRunner(args: { onRun?: () => void } = {}): ActionRunner
     }
   }
 
-  return { busy, active, output, failure, pending, run, accept, cancel, settle };
+  return { busy, active, activeEnded, output, failure, pending, run, accept, cancel, settle };
 }

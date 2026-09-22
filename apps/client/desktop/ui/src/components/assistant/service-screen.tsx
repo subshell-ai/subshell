@@ -56,6 +56,17 @@ import { serviceAction } from "@/lib/node-assistant-state";
 import { isLoopback, PROBE_STEPS, paneRisk, stepLabel, stepTone } from "@/lib/steps";
 import { MIN_UNENROLL_NODE_VERSION, unenrollSupported } from "@/lib/unenroll-gate";
 
+/**
+ * The acts that bring the daemon UP. Their first `offline` read is the
+ * restart in progress, not the crash the sentence explains: `service
+ * restart` returns when the manager has been kicked, and launchd's throttle
+ * plus the daemon's own boot run several 5 s probe cycles before anything
+ * heartbeats. So the hush outlives the spinner by this grace. Three cycles,
+ * named; the poll's own re-render ends it, no timer of ours.
+ */
+export const PROBLEM_GRACE_MS = 15_000;
+const STARTING_ACTS = new Set(["restart", "start", "rewrite", "install"]);
+
 /** A fact's value colour per tone — the badge palette, keyed by the step's own colour. */
 const TONE_BADGE: Record<string, "success" | "warning" | "destructive" | "muted"> = {
   ok: "success",
@@ -122,12 +133,14 @@ export function ServiceScreen(props: {
   /** The in-flight press's label from the runner — what makes the PRESSED
    *  button spin (see the `pressed` helper below). */
   active?: string | null;
+  /** The runner's last-settled act (label + moment), for the hush grace. */
+  actEnded?: { label: string | null; at: number } | null;
   /** Start the node registration flow — for a client that is not a node yet. */
   onRegister: () => void;
   /** The CLI's last words — the verbs' answers, rendered inline below. */
   output: ActionResult | null;
 }): ReactElement {
-  const { shell, probe, commands, busy, active, onRegister, output } = props;
+  const { shell, probe, commands, busy, active, actEnded, onRegister, output } = props;
 
   /**
    * The pressed button becomes a spinner and the progressive word (operator
@@ -178,17 +191,28 @@ export function ServiceScreen(props: {
   const blocked = probe !== undefined && !probe.tmux;
 
   /**
-   * The press narrates the card. While a verb this section raised is
-   * running, the problem and detail sentences would describe the machine
-   * MID-ACTION — "The service manager reports the node as running, but no
-   * local daemon is heartbeating." is a restart caught at the wrong moment
-   * (operator ruling 2026-09-22: "when restarting this additional message
-   * occurs, can we remove it"). The spinner on the pressed button is the
-   * message the wait gets; the sentences come back the moment the act has
-   * settled and the awaited re-probe has landed, so a node that IS offline
-   * when the wait ends still says so, once.
+   * The press narrates the card, and it narrates it for longer than the
+   * spinner. While a verb this section raised is running, the problem and
+   * detail sentences would describe the machine MID-ACTION — "The service
+   * manager reports the node as running, but no local daemon is
+   * heartbeating." is a restart caught at the wrong moment (operator ruling
+   * 2026-09-22: "when restarting this additional message occurs, can we
+   * remove it"). And the wait is not the whole of coming back: the manager
+   * takes a few 5 s probe cycles after a deliberate kick to actually HAVE a
+   * daemon, so after an act that STARTS the node the hush outlives the
+   * spinner by {@link PROBLEM_GRACE_MS} after any act that STARTS the node
+   * (the runner's `activeEnded` carries which act just finished and when).
+   * A machine still offline when the grace ends says so then, once, on a
+   * probe that is no longer anyone's in-flight press, and in the WARNING
+   * dress below. No timer of ours: the probe's own poll is what re-renders
+   * the quiet away.
    */
-  const quiet = busy;
+  const quiet =
+    busy ||
+    (actEnded !== null &&
+      actEnded !== undefined &&
+      STARTING_ACTS.has(actEnded.label ?? "") &&
+      Date.now() - actEnded.at < PROBLEM_GRACE_MS);
   const known = probe === undefined || (PROBE_STEPS as readonly string[]).includes(probe.step);
   const mute = probe?.step === "no-node" && probe.nodeBinary != null;
   const noNode = probe?.step === "no-node" && probe.nodeBinary == null;
@@ -284,8 +308,17 @@ export function ServiceScreen(props: {
         <div className="mt-6 rounded-md border border-border p-3">
           <p className="font-strong text-detail">In the background</p>
           <p className="mt-2 text-detail leading-relaxed">{arrangementBody(atLogin)}</p>
-          {!quiet && problem && <p className="mt-2 text-detail leading-relaxed">{problem}</p>}
-          {!quiet && detail && <p className="mt-2 text-detail text-muted-foreground leading-relaxed">{detail}</p>}
+          {/* What survives the hush is a WARNING (operator ruling 2026-09-22:
+              "if this is something we want to inform the user of, it should
+              probably be written as a yellow warning") — this card's own
+              problem sentences say the machine cannot do its job, and the
+              screen's other warnings are already the same tinted band. */}
+          {!quiet && problem && (
+            <div className="mt-2 rounded-md border border-warning/40 bg-warning/10 p-2">
+              <p className="text-warning text-detail leading-relaxed">{problem}</p>
+              {detail && <p className="text-detail text-muted-foreground leading-relaxed">{detail}</p>}
+            </div>
+          )}
 
           {/* The switch, nested under the arrangement it belongs to — arming
               login means nothing without a service, which is why this whole
