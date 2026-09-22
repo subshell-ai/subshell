@@ -714,11 +714,13 @@ the same override state — no new command.
 
 **The status screen keeps machine state, not the node's machinery** (the
 follow-up rulings, 2026-09-22, live screenshots). What moved out of it and
-where: the node's install offer (with its disabled-no-bundled case), its
+where: the node's install offer (with its disabled-no-bundled case; the
+explainer sentence pair is DELETED, a later ruling the same day — the button
+speaks for itself, and it reads **Install the Subshell Node CLI**), its
 refusal for a CLI that cannot state its own status, the contextual service
 verbs, the pane-safety rewrite door, the unrecognised-state card and the
 node's reveals — all to the **Service** section, whose subtitle carries the
-"what is a node" half the install explainer dropped in the copy trim; the
+"what is a node" half the explainer dropped; the
 configured plane address, the way to change it, "Open in browser instead",
 and the node's own view of the same server (its repoint machinery, the
 loopback notice and the coherence card) — all to the **Control Plane**
@@ -739,38 +741,47 @@ screen — the rail's Reset section is that door. There is no Refresh button
 anywhere: the probe query re-reads the machine on its own five-second interval
 (operator ruling, 2026-09-22) — the poll is the refresh.
 
-**The doors rearranged the same day** (operator ruling 2026-09-22,
-screenshots 52/53). The status screen lost **Open Dashboard** and carries
-only the ghost **Open in browser** (the same settled page in the system
-browser, `node_open_plane_url`, gated on there being an address at all); the
-**Control Plane** section carries BOTH doors for the plane itself —
-**Open the control plane** (the in-app window, the existing
-`node_open_plane` path, re-reading the settled address) and **Open in
-browser**. Its address row is the server Addresses card's form shape
-(operator's screenshot 53: the one-line value with its buttons beside it
+**The doors rearranged the same day, twice** (operator rulings 2026-09-22,
+screenshots 52/53 and a superseding addendum). The FINAL state: the status
+screen carries NO door at all — anything that opens the control plane lives
+on the Control Plane section alone, under a **Dashboard** card with both
+doors, **Open in browser** (`node_open_plane_url`, the system browser) and
+**Open in app** (`node_open_plane`, the in-app window at the re-read settled
+address). Control Plane is also the LANDING and reads first in the rail:
+`clientScreen`'s configured case answers `plane`, the rail order is Control
+Plane | Status | Service | Update | About | Reset, and because "clear the
+override" no longer meant "show Status", EVERY rail select is an override
+now, Status included. The plane address row is the server Addresses card's
+form shape (screenshot 53: the one-line value with its buttons beside it
 wrapped the URL character-broken) — a labeled value row ("This app's control
-plane") with the acts grouped on their own row below. The `no-node` badge
+plane") with the acts (Change server…, Re-enroll…) grouped on their own row
+and the Dashboard card below. The `no-node` badge
 reads **Not registered as a node** (house sentence case, over the operator's
 typed capital-N), and the status screen's "This machine is not a node yet…"
-sentence is DELETED — the badge already says what the machine is not.
+sentence is DELETED — the badge already says what the machine is not. The
+plane-coherence notice leads with the conflict now (review, 2026-09-22):
+"This machine's node reports to <node>, not <plane>.".
 
 Three screen ids went with it, and their absence is the design.
 **`connected`**, **`service`** and **`install-agent`** were the probe-derived
-landings; every configured client lands on `status` now, which carries what
-each of them offered — the contextual service verb, the pane-safety rewrite,
-the config and node-log reveals, and the split that decides whether
-registering may be offered at all (below). A screen nothing can
+landings; their content is distributed across the rail now — the service
+verb and the reveals on **Service**, the split that decides whether
+registering may be offered at all on **Status** (below) — and the configured
+client lands on **Control Plane** (operator ruling 2026-09-22, second
+addendum; it was `status` until that afternoon). A screen nothing can
 route to is not a recovery path; it is dead code that reads like one.
 
 An address no longer comes first, either, and that reversal is load-bearing:
 `configured()` counts an ENROLLED machine as well as a stored `planeUrl`,
 because the walk ends at Register and Register on a node mints a second node
-row and discards its node key. Two screens are still things a person ASKS for
-rather than states a machine implies (re-enrol, reset, plus about and
-update); those arrive as the `override` — and `update` is the one of the four
-the MACHINE may also raise: an app update left a marker, and the process that
-boots into it opens the screen once per launch to finish the act (see
-"Updating is one act", below).
+row and discards its node key. Screens a person ASKS for rather than states
+a machine implies (re-enrol, reset, plus about and update) arrive as the
+`override` — and since the landing moved to Control Plane, EVERY rail select
+is an override too, Status included, or a Status select would clear the
+override and land on Control Plane with Status highlighted nowhere. `update`
+is the one the MACHINE may also raise: an app update left a marker, and the
+process that boots into it opens the screen once per launch to finish the act
+(see "Updating is one act", below).
 
 **`no-node` reads two ways, and status must keep them apart.** The Rust side
 folds "nothing on the ladder answered" and "a binary answered `version` but not

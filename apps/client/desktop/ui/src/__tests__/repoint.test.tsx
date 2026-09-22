@@ -128,6 +128,11 @@ describe("repointing a node", () => {
     });
     await repointTo("nope");
     expect(await screen.findByText(/--server must be http\(s\)/)).toBeTruthy();
+    // The title's whole claim, asserted (review M5, 2026-09-22): the form is
+    // still open with the typed address in it, so the fix is an edit and not
+    // a retyped URL.
+    const field = screen.getByLabelText(/control plane this node reports to/i) as HTMLInputElement;
+    expect(field.value).toBe("nope");
   });
 
   it("seeds the field with the address the node currently reports to", async () => {

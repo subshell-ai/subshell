@@ -24,8 +24,8 @@
  *   the node's machinery, not the machine's).
  */
 import type { ReactElement } from "react";
-import { StatusFacts } from "@/components/assistant/details-disclosure";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
+import { StatusFacts } from "@/components/assistant/status-facts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { NodeCommands } from "@/hooks/use-node-commands";
@@ -107,7 +107,6 @@ export function ServiceScreen(props: {
       {...shell}
       rail={props.rail}
       tightContent
-      icon={enrolled ? undefined : undefined}
       barLeft={
         // The two reveals are the NODE's config directory and log — the
         // machinery this section is for — and they follow the node rather
@@ -154,20 +153,15 @@ export function ServiceScreen(props: {
 
       {noNode && (
         <div className="mt-6 rounded-md border border-border p-3">
-          {/* The trimmed explainer (operator ruling 2026-09-22, "lengthy as
-              heck"): what it does and what it does not. The "what is a node"
-              half is the section's own subtitle now. */}
-          <p className="text-detail leading-relaxed">
-            This copies the node this app ships to ~/.local/bin/subshell. Nothing is downloaded.
-          </p>
+          {/* The explainer is DELETED (operator ruling 2026-09-22, second
+              addendum): the button speaks for itself, and the "what is a
+              node" half is the section's own subtitle. */}
           {probe?.bundledVersion ? (
-            <div className="mt-2">
-              <Button variant="outline" size="sm" disabled={busy} onClick={commands.installNode}>
-                Install the node
-              </Button>
-            </div>
+            <Button variant="outline" size="sm" disabled={busy} onClick={commands.installNode}>
+              Install the Subshell Node CLI
+            </Button>
           ) : (
-            <p className="mt-2 text-muted-foreground text-detail">
+            <p className="text-muted-foreground text-detail">
               This build ships no node CLI, so one has to be installed on this machine some other way.
             </p>
           )}

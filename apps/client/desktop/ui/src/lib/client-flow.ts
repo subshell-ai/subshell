@@ -9,11 +9,12 @@
  *
  * Two rules carry the whole design, and every branch below serves one of them:
  *
- * 1. **A configured client lands on Status, never on the dashboard.** Opening
+ * 1. **A configured client lands in the app, never on the dashboard.** Opening
  *    a control plane's own UI used to be the first-run action — the Connect
  *    screen's primary button persisted an address and opened the other window,
  *    while the setup this person had come to do carried on behind it. Nothing
- *    here opens that window; Status carries it as a button.
+ *    here opens that window; the doors live on the Control Plane section's
+ *    Dashboard card as buttons.
  * 2. **Nothing touches this machine before the person says which half of the
  *    app they want.** Welcome and Choice exist so the register path is chosen
  *    rather than defaulted into, and so a watcher is never walked past tmux,
@@ -108,11 +109,12 @@ export function configured(settings: NodeSettings | undefined, probe: Probe | un
  *    has finished, so a configured-wins rule would replace the checklist a
  *    person is watching with Status between two rows of it. A walk ends when
  *    the page clears the step, not when a side effect lands.
- * 4. **A configured client ⇒ Status**, whatever the probe says. A stopped
- *    service, a node that will not answer, a client that never enrolled:
- *    all of them are Status with a different action inside it, because the
- *    person came back to an app they had already set up and the screen that
- *    says so is the honest landing.
+ * 4. **A configured client ⇒ Control Plane** (operator ruling 2026-09-22,
+ *    second addendum: the section is also the landing; previously Status),
+ *    whatever the probe says. A stopped service, a node that will not answer,
+ *    a client that never enrolled: all of them are one standing section or
+ *    another of the app they had already set up, and Control Plane first says
+ *    which plane they came back to.
  * 5. **A machine already half-built ⇒ Register.** A node that reports
  *    `not-enrolled` is a first run that got as far as installing and stopped
  *    (spec § 5.5): the walk is not news to this machine, and Register's chain
@@ -124,7 +126,7 @@ export function clientScreen(i: FlowInput): NodeScreenId | null {
   if (!i.settings) return null;
   if (i.override) return i.override;
   if (i.step) return walkScreen(i.step, i.probe);
-  if (configured(i.settings, i.probe)) return "status";
+  if (configured(i.settings, i.probe)) return "plane";
   // Spec § 5.5's resume: a node CLI exists and has no config. Keyed on the step
   // rather than on `probe.nodeBinary`, because `no-node` also covers a binary that
   // answered `version` and not `status --json` — a machine we cannot say
@@ -272,14 +274,15 @@ function actState(at: { index: number; running: number; failedAt: number; satisf
  * happening" premise leaves no way out from under the chain.
  */
 export const CLIENT_RAIL_SECTIONS: RailSection[] = [
+  // Control Plane reads FIRST (operator ruling 2026-09-22, second addendum):
+  // the plane relationship is this app's subject, and the section is also
+  // the landing (see {@link clientScreen} rule 4).
+  { id: "plane", label: "Control Plane" },
   { id: "status", label: "Status" },
   // The node's own machinery (operator ruling 2026-09-22, live screenshots):
   // when the node is not installed, the install offer lives here; when it
   // is, the service lifecycle does. The status screen keeps machine state.
   { id: "service", label: "Service" },
-  // The plane address's home: the configured address, the way to change it,
-  // and the node's view of the same server.
-  { id: "plane", label: "Control Plane" },
   { id: "update", label: "Update" },
   { id: "about", label: "About" },
   { id: "reset", label: "Reset", danger: true },

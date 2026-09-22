@@ -109,11 +109,14 @@ describe("the address, as the ruling shows it", () => {
     expect(screen.getByText(/this app's control plane/i)).toBeTruthy();
     expect(screen.getAllByText("https://subshell.example.com").length).toBeGreaterThan(0);
     expect(screen.queryByText(/this app opens/i)).toBeNull();
-    // The two doors for the plane itself, both on the acts row.
+    // The two doors for the plane live under the Dashboard card (operator
+    // ruling 2026-09-22, second addendum) — the only place in the app that
+    // opens the plane.
     fireEvent.click(button("Open in browser"));
     expect(calls).toEqual([{ name: "openPlaneUrl", args: [] }]);
-    fireEvent.click(button("Open the control plane"));
+    fireEvent.click(button("Open in app"));
     expect(calls[1]).toEqual({ name: "openPlane", args: [null] });
+    expect(screen.getByText("Dashboard")).toBeTruthy();
     expect(button(/change server…/i)).toBeTruthy();
   });
 });

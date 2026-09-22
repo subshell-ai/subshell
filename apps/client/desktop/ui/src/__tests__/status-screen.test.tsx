@@ -110,28 +110,20 @@ const maybeButton = (name: string | RegExp) => screen.queryByRole("button", { na
 const buttonOrNull_ = maybeButton;
 
 describe("an enrolled, online machine", () => {
-  it("offers the browser ghost, and nothing about registering or unregistering", () => {
-    // The door rearrangement (operator ruling 2026-09-22): "Open Dashboard"
-    // left the bar — the in-app window door is the Control Plane section's —
-    // and this screen's only door is the system browser. Unregister is NOT a
-    // link here either: the rail's Reset section is that door, and one act
-    // with two labels is two acts to a reader.
-    mount();
+  it("offers NO door, and nothing about registering or unregistering", () => {
+    // The door rulings (operator 2026-09-22; the second addendum superseded
+    // the same day's browser ghost): anything that opens the control plane —
+    // in the app or in the system browser — lives on the Control Plane
+    // section's Dashboard card. Unregister is NOT a link here either: the
+    // rail's Reset section is that door, and one act with two labels is two
+    // acts to a reader.
+    const { calls } = mount();
     expect(maybeButton(/open dashboard/i)).toBeNull();
-    expect(button(/open in browser/i)).toBeTruthy();
+    expect(maybeButton(/open in browser/i)).toBeNull();
+    expect(maybeButton(/open in app/i)).toBeNull();
     expect(maybeButton(/unregister this machine/i)).toBeNull();
     expect(maybeButton(/^register this machine$/i)).toBeNull();
-  });
-
-  /**
-   * The browser door takes no URL argument: `node_open_plane_url` re-reads
-   * Rust's own address ladder, so the ghost opens what this app is configured
-   * for rather than whatever string the page happened to be holding.
-   */
-  it("opens the browser on the settled plane, with no URL of its own", () => {
-    const { calls } = mount();
-    fireEvent.click(button(/open in browser/i));
-    expect(calls).toEqual([{ name: "openPlaneUrl", args: [] }]);
+    expect(calls).toEqual([]);
   });
 
   /** The node's name is a fact only when THIS session chose it (probe-facts.ts). */
@@ -169,10 +161,10 @@ describe("the address the doors will open", () => {
 });
 
 describe("a client that is not a node", () => {
-  it("offers the browser ghost and Register, and never Unregister", () => {
+  it("offers Register and no door, and never Unregister", () => {
     mount({ probe: watcherProbe() });
-    expect(button(/open in browser/i)).toBeTruthy();
     expect(button(/^register this machine$/i)).toBeTruthy();
+    expect(maybeButton(/open in browser/i)).toBeNull();
     expect(maybeButton(/unregister this machine/i)).toBeNull();
   });
 
@@ -221,9 +213,10 @@ describe("what the connected screen offered is still offered", () => {
     mount();
     expect(buttonOrNull_(/change server/i)).toBeNull();
     expect(buttonOrNull_(/open the control plane/i)).toBeNull();
-    // "Open in browser" IS here — it is this screen's own ghost door — but
-    // "instead" is gone with the plane row it answered to.
-    expect(buttonOrNull_(/open in browser instead/i)).toBeNull();
+    // No doors at all after the second addendum: the Control Plane section's
+    // Dashboard card is the only place that opens the plane.
+    expect(buttonOrNull_(/open in browser/i)).toBeNull();
+    expect(buttonOrNull_(/open in app/i)).toBeNull();
     expect(buttonOrNull_(/open dashboard/i)).toBeNull();
     expect(buttonOrNull_(/check for updates/i)).toBeNull();
     expect(buttonOrNull_(/update the node to/i)).toBeNull();

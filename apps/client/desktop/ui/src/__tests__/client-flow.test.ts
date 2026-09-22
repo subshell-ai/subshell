@@ -63,18 +63,21 @@ describe("clientScreen", () => {
     expect(clientScreen({ probe: probe(), settings: settings(null), step: "node", override: null })).toBe("register");
   });
 
-  it("lands a configured client on its status screen, whatever the machine is doing", () => {
+  it("lands a configured client on Control Plane, whatever the machine is doing", () => {
     // The rule this module exists for: a configured client never auto-opens
-    // the dashboard and never resumes a setup walk. Every one of these used
-    // to be its own screen; the contextual action lives inside Status now.
+    // the dashboard and never resumes a setup walk. The LANDING is Control
+    // Plane (operator ruling 2026-09-22, second addendum — the section is
+    // also the landing; previously Status): the screen that says which plane
+    // this person came back to. Opening the plane's UI is still a press on
+    // the Dashboard card, never automatic.
     for (const step of ["online", "stopped", "offline", "no-service", "not-enrolled", "no-node"] as const) {
       expect(
         clientScreen({ probe: probe({ step }), settings: settings("https://plane.test"), step: null, override: null }),
-      ).toBe("status");
+      ).toBe("plane");
     }
   });
 
-  it("lands a configured client on status even for a step this build predates", () => {
+  it("lands a configured client on Control Plane even for a step this build predates", () => {
     expect(
       clientScreen({
         probe: probe({ step: "what-even" as ProbeStep }),
@@ -82,7 +85,7 @@ describe("clientScreen", () => {
         step: null,
         override: null,
       }),
-    ).toBe("status");
+    ).toBe("plane");
   });
 
   it("resumes a half-built node on Register rather than re-asking what it came to do", () => {
@@ -222,11 +225,11 @@ describe("railFor", () => {
       expect(
         sections?.map((s) => s.id),
         screen,
-      ).toEqual(["status", "service", "plane", "update", "about", "reset"]);
+      ).toEqual(["plane", "status", "service", "update", "about", "reset"]);
       expect(
         sections?.map((s) => s.label),
         screen,
-      ).toEqual(["Status", "Service", "Control Plane", "Update", "About", "Reset"]);
+      ).toEqual(["Control Plane", "Status", "Service", "Update", "About", "Reset"]);
     }
     expect(railFor("status", true)?.find((s) => s.id === "reset")?.danger).toBe(true);
   });

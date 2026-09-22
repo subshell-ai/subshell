@@ -92,7 +92,7 @@ export const NODE_SCREEN_IDS: readonly NodeScreenId[] = [
  * consented act with a half still outstanding, and `app.tsx` opens this screen
  * once per launch when the probe reports one (spec 2026-09-18 § 4.2).
  */
-export type NodeUserScreen = "enroll" | "reset" | "about" | "update" | "service" | "plane";
+export type NodeUserScreen = "enroll" | "reset" | "about" | "update" | "service" | "plane" | "status";
 
 /**
  * ONE word for where you are, on both platforms (operator's call, 2026-09-12).

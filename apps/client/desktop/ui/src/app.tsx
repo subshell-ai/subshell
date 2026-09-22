@@ -207,11 +207,17 @@ export function App() {
         sections={railSections}
         active={railActive(screen)}
         onSelect={(id) => {
+          // Every select is an override now, Status included (operator ruling
+          // 2026-09-22, second addendum): the landing is Control Plane, so
+          // clearing the override no longer meant showing Status — a Status
+          // select that cleared would land on Control Plane with Status
+          // highlighted nowhere. Reset keeps its arm first: its screen is
+          // frame-replacing.
           if (id === "reset") {
             setOverride("reset");
             return;
           }
-          setOverride(id === "status" ? null : (id as NodeUserScreen));
+          setOverride(id as NodeUserScreen);
         }}
       />
     );
@@ -415,6 +421,11 @@ export function App() {
           onRegister={() => {
             if (runner.busy) return;
             form.seedServer(probe?.status?.serverUrl ?? settings?.planeUrl ?? "");
+            // The walk outranks nothing the person asked for, but it DOES
+            // replace the section they are reading: Status is an override
+            // now (the landing moved to Control Plane), and leaving it set
+            // would swallow the walk's own screen behind it.
+            setOverride(null);
             setStep("node");
           }}
         />

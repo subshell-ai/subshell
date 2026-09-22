@@ -20,7 +20,7 @@ export interface PlaneDivergence {
   planeUrl: string;
   /** What this machine's node dials (`config.json`). */
   nodeServerUrl: string;
-  /** One sentence naming both addresses — neither should have to be guessed. */
+  /** Two sentences: the conflict first, then what it costs. */
   message: string;
 }
 
@@ -63,8 +63,12 @@ export function planeCoherence(
   return {
     planeUrl,
     nodeServerUrl,
+    // Leads with the CONFLICT (review M2, 2026-09-22): "This app opens <url>,
+    // but…" was the sentence shape the labeled rows made redundant, since the
+    // reader is already looking at both addresses and the news is the
+    // disagreement itself.
     message:
-      `This app opens ${planeUrl}, but this machine's node reports to ${nodeServerUrl}. ` +
+      `This machine's node reports to ${nodeServerUrl}, not ${planeUrl}. ` +
       "Subshells started here will appear on the second one.",
   };
 }

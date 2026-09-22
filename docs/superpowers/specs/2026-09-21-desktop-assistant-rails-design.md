@@ -137,6 +137,15 @@ both doors for the plane itself ("Open the control plane" for the in-app
 window, "Open in browser" for the system browser). Re-enroll… moved to the
 Control Plane section the same day: it is an act on the machine's
 relationship to the plane, and the status screen keeps machine state only.
+Two addenda, still 2026-09-22, supersede parts of the above: the install
+explainer is deleted outright and the button reads "Install the Subshell
+Node CLI"; and the doors' final state puts Control Plane FIRST — it is the
+landing (`clientScreen`'s configured case answers `plane`), it reads first
+in the rail, every rail select is an override (Status included, since
+clearing would land on Control Plane), the status screen carries NO door at
+all, and the Control Plane section's Dashboard card carries both doors
+("Open in browser" for the system browser, "Open in app" for the in-app
+window).
 
 ### Testing
 

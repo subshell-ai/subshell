@@ -208,7 +208,7 @@ export interface TmuxInstallFailure {
  * Both apps reported a failed install as ONE line beside a button that redrew
  * exactly as it had been. That line was `runner.failure`'s "That did not work.
  * See the output below." here — and there is no output below on this screen,
- * which renders no `DetailsDisclosure` — so the sentence pointed at nothing.
+ * which renders no `StatusFacts` — so the sentence pointed at nothing.
  *
  * **Two failures, not one.** A non-zero exit is `ActionResult.ok`; an install
  * that exits ZERO and still leaves no tmux on the login PATH was

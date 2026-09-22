@@ -1,6 +1,6 @@
 /**
- * Status — the screen a configured client lands on, every launch, and the
- * rail's landing section. It evolves from `connected-screen.tsx` and carried
+ * Status — the machine-state screen of the configured client. It evolves from
+ * `connected-screen.tsx` and carried
  * the whole configured machine until the wave-3 follow-ups split it (operator
  * rulings, 2026-09-22, live screenshots): the node's machinery moved to the
  * Service section (`service-screen.tsx`) — the install offer, the service
@@ -9,13 +9,14 @@
  * STAYS here is machine state: what this machine is, whether subshells can
  * run on it, what its dashboard is, and the facts that say so.
  *
- * The rule it exists to hold is spec 2026-09-18 § 2: **nothing opens the
- * control plane's window by itself any more.** A configured client comes up
- * HERE, and the dashboard appears when someone presses the button for it.
- * Since the door rearrangement (operator ruling 2026-09-22) that button is
- * not here any more — the in-app window door is the Control Plane section's,
- * and this screen's only door is the ghost "Open in browser" beside it in
- * kind: the same settled page, in the system browser.
+ * It is NOT the landing any more (operator ruling 2026-09-22, second
+ * addendum): a settled machine lands on Control Plane, which says which
+ * plane the person came back to, and the rail's Status select raises this
+ * screen as its own override. The rule it exists to hold is spec 2026-09-18
+ * § 2, held absolutely since the door rulings (operator, 2026-09-22): this
+ * screen offers NO door at all. Anything that opens the control plane, in
+ * the app or in the system browser, lives on the Control Plane section's
+ * Dashboard card.
  *
  * The one act the screen still offers is the one that is about the MACHINE
  * rather than the node's machinery: **Register this machine**, for a client
@@ -35,10 +36,10 @@
  * five-second interval (operator ruling 2026-09-22), so the poll is the
  * refresh.
  */
-import { Bot, ExternalLink, Server } from "lucide-react";
+import { Bot, Server } from "lucide-react";
 import type { ReactElement } from "react";
-import { StatusFacts } from "@/components/assistant/details-disclosure";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
+import { StatusFacts } from "@/components/assistant/status-facts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { NodeCommands } from "@/hooks/use-node-commands";
@@ -66,20 +67,11 @@ export function StatusScreen(props: {
   /** Start the node registration flow — for a client that is not a node yet. */
   onRegister: () => void;
 }) {
-  const { shell, probe, settings, enrolledNode, output, commands, busy } = props;
+  const { shell, probe, settings, enrolledNode, output, busy } = props;
   const { onRegister } = props;
-  const planeUrl = settings?.planeUrl ?? null;
-  const nodeServerUrl = probe?.status?.serverUrl ?? null;
 
   /** Whether this machine is a node at all — the axis the whole screen turns on. */
   const enrolled = Boolean(probe?.status?.nodeId);
-  /**
-   * Whether there is an address for the browser door to open. The door itself
-   * (`node_open_plane_url`) re-reads Rust's own ladder, which falls back to
-   * the node's `serverUrl` when no preference is stored — so the ghost is
-   * offered on exactly the cases that ladder can answer.
-   */
-  const dashboardUrl = planeUrl ?? nodeServerUrl;
 
   /**
    * The node's name, and ONLY when this session chose it: `status --json`
@@ -107,20 +99,10 @@ export function StatusScreen(props: {
       rail={props.rail}
       tightContent
       icon={enrolled ? <Bot /> : <Server />}
-      barLeft={
-        // The one door this screen still offers, and in the ghost seat: the
-        // CURRENT plane's page in the system browser (operator ruling
-        // 2026-09-22 — "Open Dashboard" left the bar, and the in-app window
-        // door is the Control Plane section's). The gate is the same one the
-        // dashboard button had: the address it will actually open, resolved
-        // the way `node_open_plane_url` itself resolves it.
-        dashboardUrl ? (
-          <Button variant="ghost" disabled={busy} onClick={commands.openPlaneUrl}>
-            <ExternalLink aria-hidden />
-            Open in browser
-          </Button>
-        ) : null
-      }
+      // No doors on this screen (operator ruling 2026-09-22, second addendum,
+      // superseding the same day's browser ghost): anything that opens the
+      // control plane lives on the Control Plane section's Dashboard card.
+      // The bar is empty.
     >
       <div className="flex flex-col items-center gap-2 text-center">
         <Badge variant={TONE_BADGE[stepTone(probe?.step)]}>{stepLabel(probe?.step)}</Badge>

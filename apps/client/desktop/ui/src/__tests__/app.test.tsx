@@ -148,12 +148,17 @@ async function openReenroll(init: Parameters<typeof installFakeIpc>[0] = {}) {
  * The rail select IS the navigation now (operator ruling 2026-09-22): open a
  * section and wait for its screen's heading.
  */
-async function openSection(name: "Service" | "Control Plane" | "Update"): Promise<void> {
+async function openSection(name: "Status" | "Service" | "Control Plane" | "Update"): Promise<void> {
   fireEvent.click(button(name));
   await waitFor(() =>
-    expect({ Service: "Service", "Control Plane": "Control Plane", Update: "Update Subshell Client" }[name]).toBe(
-      screen.getByRole("heading", { level: 1 }).textContent,
-    ),
+    expect(
+      {
+        Status: "Subshell Client",
+        Service: "Service",
+        "Control Plane": "Control Plane",
+        Update: "Update Subshell Client",
+      }[name],
+    ).toBe(screen.getByRole("heading", { level: 1 }).textContent),
   );
 }
 
@@ -186,7 +191,9 @@ describe("the assistant frame", () => {
   // plane and discards the node key whose only copy is `config.json`.
   it("never walks an enrolled machine through a first run, address or no address", async () => {
     await boot({ settings: makeSettings({ planeUrl: null }) });
-    expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy();
+    // The landing is Control Plane now (operator ruling 2026-09-22, second
+    // addendum), and it is a standing screen, never a walk.
+    expect(screen.getByRole("heading", { name: "Control Plane" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Welcome to Subshell Client" })).toBeNull();
     expect(buttonOrNull("Register")).toBeNull();
   });
@@ -197,12 +204,17 @@ describe("the assistant frame", () => {
     // the plane addresses on Control Plane, and the rail is the navigation —
     // so "More…" is gone rather than moved.
     await boot();
-    expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy();
-    // "Open Dashboard" left the bar (operator ruling 2026-09-22): the in-app
-    // window door is the Control Plane section's, and the status screen's
-    // only door is the browser ghost.
+    // The landing is Control Plane (operator ruling 2026-09-22, second
+    // addendum); the rail reads Control Plane first, and it is active.
+    expect(screen.getByRole("heading", { name: "Control Plane" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Control Plane" }).getAttribute("aria-current")).toBe("true");
+    await openSection("Status");
+    // No doors on the status screen (the second addendum superseded the same
+    // day's browser ghost): the Dashboard card is the only place that opens
+    // the plane.
     expect(buttonOrNull("Open Dashboard")).toBeNull();
-    expect(buttonOrNull("Open in browser")).not.toBeNull();
+    expect(buttonOrNull("Open in browser")).toBeNull();
+    expect(buttonOrNull("Open in app")).toBeNull();
     // Re-enroll… is NOT on the status screen any more (operator ruling
     // 2026-09-22): the act is on the machine's relationship to the plane, so
     // the Control Plane section carries it.
@@ -210,13 +222,14 @@ describe("the assistant frame", () => {
     expect(screen.queryByText("More…")).toBeNull();
     const rail = screen.getByRole("navigation", { name: "Main" });
     expect([...rail.querySelectorAll("button")].map((b) => b.textContent)).toEqual([
+      "Control Plane",
       "Status",
       "Service",
-      "Control Plane",
       "Update",
       "About",
       "Reset",
     ]);
+    // Back to the landing section, where the relationship act lives.
     await openSection("Control Plane");
     expect(buttonOrNull("Re-enroll…")).not.toBeNull();
   });
@@ -329,7 +342,7 @@ describe("the CLI's own words", () => {
     // downgrade.
     // The install offer is the Service section's now (operator ruling 2026-09-22).
     await openSection("Service");
-    fireEvent.click(button("Install the node"));
+    fireEvent.click(button("Install the Subshell Node CLI"));
 
     await waitFor(() => expect(screen.getByText(/Installed subshell 1\.9\.0\./)).toBeTruthy());
     const block = screen.getByText(/Installed subshell 1\.9\.0\./);
@@ -352,17 +365,17 @@ describe("actions serialize", () => {
 
     // The install offer is the Service section's now (operator ruling 2026-09-22).
     await openSection("Service");
-    fireEvent.click(button("Install the node"));
-    await waitFor(() => expect(button("Install the node").disabled).toBe(true));
+    fireEvent.click(button("Install the Subshell Node CLI"));
+    await waitFor(() => expect(button("Install the Subshell Node CLI").disabled).toBe(true));
 
     // Both the guard and the disabled attribute; a click dispatched anyway
     // (a stale reference, a synthetic event) must still not reach the CLI.
-    fireEvent.click(button("Install the node"));
+    fireEvent.click(button("Install the Subshell Node CLI"));
     expect(fake.callsTo("node_install_cli").length).toBe(1);
-    expect(button("Install the node").disabled).toBe(true);
+    expect(button("Install the Subshell Node CLI").disabled).toBe(true);
 
     gate.resolve({ ok: true, stdout: "Installed subshell.", stderr: "" });
-    await waitFor(() => expect(button("Install the node").disabled).toBe(false));
+    await waitFor(() => expect(button("Install the Subshell Node CLI").disabled).toBe(false));
   });
 
   it("keeps the UI disabled until the re-probe has landed", async () => {
@@ -372,12 +385,12 @@ describe("actions serialize", () => {
 
     // The install offer is the Service section's now (operator ruling 2026-09-22).
     await openSection("Service");
-    fireEvent.click(button("Install the node"));
+    fireEvent.click(button("Install the Subshell Node CLI"));
     gate.resolve({ ok: true, stdout: "Installed subshell.", stderr: "" });
 
     // A button that came back alive before the re-probe would be a button
     // acting on a machine that has moved on.
-    await waitFor(() => expect(button("Install the node").disabled).toBe(false));
+    await waitFor(() => expect(button("Install the Subshell Node CLI").disabled).toBe(false));
     expect(fake.callsTo("node_probe").length).toBeGreaterThan(probesBefore);
   });
 });
@@ -634,7 +647,8 @@ describe("enrolment is two-phase", () => {
     // Asked for, so it can be taken back — and the machine's own screen is
     // what it goes back to.
     fireEvent.click(button("Cancel"));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy());
+    // The machine's own screen is the landing, Control Plane now.
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Control Plane" })).toBeTruthy());
   });
 });
 
@@ -867,21 +881,68 @@ describe("replacing the installed node CLI", () => {
 // ---------------------------------------------------------------------------
 
 describe("what the page never asks for", () => {
+  // THE pin (review I1, 2026-09-22): every screen the app ships must be WALKED
+  // here, pressing what it offers, or the declared set proves nothing — a
+  // screen nobody visits can drive any command it likes. The standing
+  // sections are walked below; the FTE walk's screens have their own test,
+  // because their machine state is a different boot.
   it("drives no command outside the set it declares", async () => {
     const fake = await boot({
       probe: STOPPED,
-      handlers: { node_service: () => ({ ok: true, stdout: "", stderr: "" }) },
+      handlers: {
+        node_service: () => ({ ok: true, stdout: "", stderr: "" }),
+        node_open_plane: (args) => String(args.url),
+        node_open_plane_url: () => null,
+        node_configure: () => ({ ok: true, stdout: "node repointed", stderr: "" }),
+        node_check_app_update: () => ({ current: "0.6.1", latest: null, notes: null, reason: null }),
+      },
     });
 
-    // The service verb is the Service section's now.
+    // Service: the contextual verb.
     await openSection("Service");
     fireEvent.click(button("Start"));
     await waitFor(() => expect(fake.callsTo("node_service").length).toBe(1));
 
+    // Control Plane: both doors, and the repoint form. Each act waits out the
+    // runner (Start's settle included) before the next press, because a press
+    // refused on `busy` is a silent no-op and this pin must not pass by luck.
+    await openSection("Control Plane");
+    await waitFor(() => expect(button("Open in app").disabled).toBe(false), {
+      timeout: SETTLE_DELAY_MS * (SETTLE_ATTEMPTS + 2),
+    });
+    fireEvent.click(button("Open in app"));
+    await waitFor(() => expect(fake.callsTo("node_open_plane").length).toBe(1));
+    await waitFor(() => expect(button("Open in browser").disabled).toBe(false));
+    fireEvent.click(button("Open in browser"));
+    await waitFor(() => expect(fake.callsTo("node_open_plane_url").length).toBe(1));
+    await waitFor(() => expect(button("Repoint this node…").disabled).toBe(false));
+    fireEvent.click(button("Repoint this node…"));
+    const field = await screen.findByLabelText("Control plane this node reports to");
+    fireEvent.change(field, { target: { value: "https://elsewhere.example" } });
+    fireEvent.click(button("Repoint"));
+    await waitFor(() => expect(fake.callsTo("node_configure").length).toBe(1));
+
+    // Update: the check runs on mount, and Check Again re-asks it.
+    await openSection("Update");
+    await waitFor(() => expect(fake.callsTo("node_check_app_update").length).toBe(1));
+    fireEvent.click(button("Check Again"));
+    await waitFor(() => expect(fake.callsTo("node_check_app_update").length).toBe(2));
+
     const allowed = new Set([
       "node_probe",
       "node_settings",
+      // The standing sections' commands: the service verb, the plane doors,
+      // the repoint, the app-update check.
       "node_service",
+      "node_open_plane",
+      "node_open_plane_url",
+      "node_configure",
+      "node_check_app_update",
+      // The FTE walk's screens (pinned in the test below): the connect
+      // screen's persist, the tmux gate's install.
+      "node_set_plane",
+      "node_install_tmux",
+      // The enroll flow's commands, reached from the rail.
       "node_install_cli",
       "node_enroll",
       "node_open_path",
@@ -898,6 +959,59 @@ describe("what the page never asks for", () => {
     for (const call of fake.calls) expect(allowed.has(call.cmd)).toBe(true);
     // No `service run` — it never resolves and flaps against the service.
     for (const args of fake.callsTo("node_service")) expect(args.verb).not.toBe("run");
+  });
+
+  // The FTE walk's screens, walked the same way the standing sections are
+  // (review I1, 2026-09-22): Connect presses `node_set_plane`, the tmux gate
+  // presses `node_install_tmux`. Anything else either screen drives is this
+  // test's failure.
+  it("drives no command outside the set on the first-run walk", async () => {
+    const fake = await boot({
+      settings: makeSettings({ planeUrl: null }),
+      probe: FRESH,
+      handlers: {
+        node_set_plane: (args) => String(args.url),
+        node_install_tmux: () => ({ ok: true, stdout: "installed tmux", stderr: "" }),
+      },
+    });
+
+    // The watch path: Connect persists the address, and opens nothing.
+    fireEvent.click(button("Continue"));
+    fireEvent.click(button(/^connect to a server/i));
+    await screen.findByRole("heading", { name: "Connect to a Server" });
+    typeInto("Server URL", "https://plane.example");
+    fireEvent.click(button("Connect"));
+    await waitFor(() => expect(fake.callsTo("node_set_plane").length).toBe(1));
+
+    cleanup();
+    ipc?.restore();
+
+    // The node path on a machine without tmux: the gate installs it.
+    const gate = await boot({
+      settings: makeSettings({ planeUrl: null }),
+      probe: makeProbe({ tmux: null, status: null, service: null }),
+      handlers: {
+        node_set_plane: (args) => String(args.url),
+        node_install_tmux: () => ({ ok: true, stdout: "installed tmux", stderr: "" }),
+      },
+    });
+    fireEvent.click(button("Continue"));
+    fireEvent.click(button(/^run subshells on this machine/i));
+    await screen.findByRole("heading", { name: "Install tmux" });
+    fireEvent.click(button("Install tmux"));
+    await waitFor(() => expect(gate.callsTo("node_install_tmux").length).toBe(1));
+
+    const allowed = new Set([
+      "node_probe",
+      "node_settings",
+      "node_set_plane",
+      "node_install_tmux",
+      "node_pending_screen",
+      "plugin:event|listen",
+      "plugin:event|unlisten",
+    ]);
+    for (const call of gate.calls) expect(allowed.has(call.cmd)).toBe(true);
+    for (const call of fake.calls) expect(allowed.has(call.cmd)).toBe(true);
   });
 
   // The tray preference is no longer a control on this page at all: it is a
@@ -928,14 +1042,14 @@ describe("pacing", () => {
 
     // The install offer is the Service section's now (operator ruling 2026-09-22).
     await openSection("Service");
-    fireEvent.click(button("Install the node"));
-    await waitFor(() => expect(button("Install the node").disabled).toBe(true));
+    fireEvent.click(button("Install the Subshell Node CLI"));
+    await waitFor(() => expect(button("Install the Subshell Node CLI").disabled).toBe(true));
     const during = fake.callsTo("node_probe").length;
     await new Promise((resolve) => setTimeout(resolve, 120));
     expect(fake.callsTo("node_probe").length).toBe(during);
 
     gate.resolve({ ok: true, stdout: "", stderr: "" });
-    await waitFor(() => expect(button("Install the node").disabled).toBe(false));
+    await waitFor(() => expect(button("Install the Subshell Node CLI").disabled).toBe(false));
   });
 });
 
@@ -1070,7 +1184,8 @@ describe("the first run", () => {
     );
     expect(screen.getByRole("heading", { name: "Setting Up…" })).toBeTruthy();
     fireEvent.click(button("Continue"));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy());
+    // The walk ends on the landing, Control Plane now.
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Control Plane" })).toBeTruthy());
   });
 
   // THE safety property of this chain, and what it costs to lose.
@@ -1353,18 +1468,23 @@ describe("the first run", () => {
   // a door out of the dashboard for the rest of the session.
   it("returns a configured client to its landing screen, not to a choice it never saw", async () => {
     await boot({ probe: watcher() });
+    // Register lives on the status screen; the landing is Control Plane.
+    await openSection("Status");
     expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy();
     fireEvent.click(button("Register this machine"));
     await screen.findByRole("heading", { name: "Register This Machine" });
 
     fireEvent.click(button("Back"));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy());
-    // The door they came for is back, which is the whole of the defect.
-    expect(buttonOrNull("Open in browser")).not.toBeNull();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Control Plane" })).toBeTruthy());
+    // The door they came for is back, which is the whole of the defect: the
+    // landing, now Control Plane, whose Dashboard card carries the doors.
+    expect(buttonOrNull("Open in app")).not.toBeNull();
     // And NOT the fresh machine's answer: this person never chose anything.
     expect(screen.queryByRole("heading", { name: "What Would You Like to Do?" })).toBeNull();
-    // The invitation is still there to accept a second time — a door that
-    // closes behind you is the thing being fixed.
+    // The invitation is still there to accept a second time, on the status
+    // screen where it lives: a door that closes behind you is the thing
+    // being fixed.
+    await openSection("Status");
     expect(buttonOrNull("Register this machine")).not.toBeNull();
   });
 
@@ -1411,12 +1531,13 @@ describe("the first run", () => {
   // the landing they came from — with the dashboard button on it.
   it("returns a configured client from the tmux gate to its landing screen", async () => {
     await boot({ probe: makeProbe({ ...watcher(), tmux: null }) });
+    await openSection("Status");
     fireEvent.click(button("Register this machine"));
     await screen.findByRole("heading", { name: "Install tmux" });
 
     fireEvent.click(button("Back"));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy());
-    expect(buttonOrNull("Open in browser")).not.toBeNull();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Control Plane" })).toBeTruthy());
+    expect(buttonOrNull("Open in app")).not.toBeNull();
     expect(screen.queryByRole("heading", { name: "What Would You Like to Do?" })).toBeNull();
   });
 
@@ -1528,8 +1649,10 @@ describe("the screens", () => {
     // half is the section's own subtitle.
     await boot({ probe: makeProbe({ step: "no-node", nodeBinary: null, status: null, service: null }) });
     await openSection("Service");
-    expect(buttonOrNull("Install the node")).not.toBeNull();
-    expect(screen.getByText(/This copies the node this app ships/)).toBeTruthy();
+    expect(buttonOrNull("Install the Subshell Node CLI")).not.toBeNull();
+    // The explainer is deleted (operator ruling 2026-09-22, second addendum):
+    // the button speaks for itself.
+    expect(screen.queryByText(/This copies the node this app ships/)).toBeNull();
     // And registering is NOT offered beside it. A machine with no agent cannot
     // say whether it is already a node, and Register's chain enrols with
     // `confirm: true` — so the install comes first and the probe that follows
@@ -1670,7 +1793,11 @@ describe("the facts", () => {
     await waitFor(() => expect(fake.callsTo("node_enroll").length).toBe(1));
 
     // Twice over, and both are the same fact: the status screen greets the
-    // machine by name, and the facts list carries it beside the node id.
+    // machine by name, and the facts list carries it beside the node id. The
+    // enroll success closes the override onto the landing, Control Plane,
+    // whose facts carry no name (enrolledNode is the status screen's to
+    // show), so the greeting is read on Status, raised by its own select.
+    await openSection("Status");
     await waitFor(() => expect(screen.getAllByText(/workstation/).length).toBeGreaterThan(0));
     expect(screen.getByText(/Enrolled as/)).toBeTruthy();
   });
@@ -1772,12 +1899,14 @@ describe("the plane's two doors", () => {
     );
   });
 
-  it("opens the app window at the settled address, the door the status screen lost", async () => {
+  it("opens the app window at the settled address, the door the Dashboard card carries", async () => {
     // The in-app window door IS `node_open_plane` with no URL: the Rust side
     // re-reads its own ladder, which is how "Open Dashboard" always worked.
+    // "Open in app" is its name under the Dashboard card (operator ruling
+    // 2026-09-22, second addendum).
     const fake = await boot({ handlers: { node_open_plane: (args) => String(args.url) } });
     await openSection("Control Plane");
-    fireEvent.click(button("Open the control plane"));
+    fireEvent.click(button("Open in app"));
     await waitFor(() => expect(fake.callsTo("node_open_plane")).toEqual([{ url: null }]));
   });
 
@@ -1847,11 +1976,13 @@ describe("the plane's two doors", () => {
  * request selecting its section, and Reset a door to a frame-replacing room.
  */
 describe("the rail", () => {
-  it("shows the four sections on a settled machine, Status active", async () => {
+  it("shows the six sections on a settled machine, Control Plane active and first", async () => {
+    // The landing is Control Plane (operator ruling 2026-09-22, second
+    // addendum), and the section reads first in the rail.
     await boot();
     await waitFor(() => expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy());
-    expect(screen.getByRole("button", { name: "Status" }).getAttribute("aria-current")).toBe("true");
-    for (const section of ["Update", "About", "Reset"]) {
+    expect(screen.getByRole("button", { name: "Control Plane" }).getAttribute("aria-current")).toBe("true");
+    for (const section of ["Status", "Update", "About", "Reset"]) {
       expect(screen.getByRole("button", { name: section })).toBeTruthy();
     }
   });

@@ -10,11 +10,12 @@
  * overwriting `config.json` and minting a second node row is an act on this
  * machine's relationship to the plane, which is exactly what this section is
  * for. The enroll screen's own confirm gate is unchanged — the door moved,
- * not the asking. The same day's door ruling put BOTH doors for the plane
- * here: "Open the control plane" (the in-app window, the existing
- * `node_open_plane` path) and "Open in browser" (the system browser, what
- * "Open in browser instead" becomes) — and rebuilt the address row into the
- * addresses-card form shape (labeled value row, acts grouped below), because
+ * not the asking. The same day's door rulings put BOTH doors for the plane
+ * here, under a **Dashboard** card (the second addendum: "Open in browser"
+ * for the system browser, "Open in app" for the in-app window, the existing
+ * `node_open_plane` path) — the only place in the app that opens the control
+ * plane — and rebuilt the address row into the addresses-card form shape
+ * (labeled value row, acts grouped below), because
  * the one-line value with its buttons beside it wrapped the URL
  * character-broken and crowded it. The `bundled` and `tmux` fact rows are
  * NOT here: they render only on the Service section (same day, screenshot
@@ -27,8 +28,8 @@
  */
 import { ExternalLink, TriangleAlert } from "lucide-react";
 import { type ReactElement, useState } from "react";
-import { StatusFacts } from "@/components/assistant/details-disclosure";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
+import { StatusFacts } from "@/components/assistant/status-facts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -114,13 +115,9 @@ export function PlaneScreen(props: {
         )}
         {!editingPlane && (
           // The acts, grouped on their own row (ruling 4, same screenshot):
-          // the edit, the TWO DOORS for the plane itself — the in-app window
-          // ("Open the control plane", the existing `node_open_plane` path,
-          // re-reading the settled address) and the system browser ("Open in
-          // browser", which "Open in browser instead" becomes now that the
-          // in-app door lives here too) — and, for a machine that is a node,
-          // the relationship act. Re-enroll… stays where the 0aeb7709 ruling
-          // put it; the confirm gate is the enroll screen's, unchanged.
+          // the edit and, for a machine that is a node, the relationship act.
+          // Re-enroll… stays where the 0aeb7709 ruling put it; the confirm
+          // gate is the enroll screen's, unchanged.
           <div className="flex flex-wrap gap-2 pt-1">
             <Button
               variant="outline"
@@ -137,13 +134,6 @@ export function PlaneScreen(props: {
             >
               Change server…
             </Button>
-            <Button variant="outline" size="sm" disabled={busy} onClick={() => commands.openPlane(null)}>
-              Open the control plane
-            </Button>
-            <Button variant="outline" size="sm" disabled={busy} onClick={commands.openPlaneUrl}>
-              <ExternalLink aria-hidden />
-              Open in browser
-            </Button>
             {enrolled && (
               <Button variant="outline" size="sm" disabled={busy} onClick={onReenroll}>
                 Re-enroll…
@@ -151,6 +141,26 @@ export function PlaneScreen(props: {
             )}
           </div>
         )}
+      </div>
+
+      {/* The Dashboard card (operator ruling 2026-09-22, second addendum,
+          superseding the same day's "Open the control plane" on the acts
+          row): BOTH doors for the plane, under one name — the system browser
+          and the in-app window — and the ONLY place in the app that opens
+          the control plane. The in-app door is the existing `node_open_plane`
+          path, re-reading the settled address; the browser door is
+          `node_open_plane_url`. Neither takes a URL argument by design. */}
+      <div className="mt-6 rounded-md border border-border p-3">
+        <p className="font-strong text-detail">Dashboard</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" disabled={busy} onClick={commands.openPlaneUrl}>
+            <ExternalLink aria-hidden />
+            Open in browser
+          </Button>
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => commands.openPlane(null)}>
+            Open in app
+          </Button>
+        </div>
       </div>
 
       {/* Which plane this MACHINE'S NODE reports to — the node's own view of

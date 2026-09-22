@@ -130,8 +130,9 @@ describe("the reset screen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     // The landing a configured client returns to, whatever its agent is doing.
     // It used to be the connected screen's "This Machine Is a Node"; that
-    // screen is gone, and `status` is the one this app comes back to.
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy());
+    // screen is gone, and the landing is Control Plane now (operator ruling
+    // 2026-09-22, second addendum).
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Control Plane" })).toBeTruthy());
   });
 
   // Was "reachable from the service screen too". That screen is gone — a

@@ -15,8 +15,8 @@
  * through warnings.
  */
 import { KeyRound } from "lucide-react";
-import { StatusFacts } from "@/components/assistant/details-disclosure";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
+import { StatusFacts } from "@/components/assistant/status-facts";
 import { EnrollFields } from "@/components/enroll-fields";
 import { Button } from "@/components/ui/button";
 import type { EnrollForm } from "@/hooks/use-enroll-form";

@@ -52,7 +52,15 @@ export interface NodeCommands {
   service: (verb: ServiceVerb, opts?: { settle?: boolean }) => void;
   /** Restart, offering `--force` only behind the verbatim refusal `--force` answers. */
   restart: () => void;
-  /** Uninstall the background service. Always confirmed. */
+  /**
+   * Uninstall the background service. Always confirmed.
+   *
+   * Currently screen-less (review M6, 2026-09-22): no rendered screen invokes
+   * it, because the rail's Reset section is the door for leaving and
+   * uninstalling the service while keeping the node is an act nothing offers
+   * yet. It stays on the command surface rather than being deleted: the verb
+   * is the CLI's, and a screen for it is a ruling away, not a rebuild.
+   */
   uninstall: () => void;
   /** Rewrite the service definition, confirmed where the rewrite itself costs panes. */
   rewrite: () => void;

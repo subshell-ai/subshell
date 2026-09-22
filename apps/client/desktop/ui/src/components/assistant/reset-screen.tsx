@@ -19,8 +19,8 @@
  */
 import { TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
-import { StatusFacts } from "@/components/assistant/details-disclosure";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
+import { StatusFacts } from "@/components/assistant/status-facts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
