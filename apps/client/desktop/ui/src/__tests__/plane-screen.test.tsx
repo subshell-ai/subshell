@@ -124,6 +124,23 @@ describe("the address, as the ruling shows it", () => {
   });
 });
 
+/**
+ * The coherence notice's deixis, pinned WHOLE with both URLs interpolated
+ * (delta review I-2, 2026-09-22): the node's address is named FIRST, so the
+ * consequence sentence must read as pointing THERE — the nearest name, the
+ * node's. "The second one" read as the plane's, the exact opposite of the
+ * truth.
+ */
+describe("the coherence notice's deixis", () => {
+  it("names the node's address first, and points there", () => {
+    mount({ probe: makeProbe(), settings: makeSettings({ planeUrl: "https://elsewhere.example" }) });
+    expect(screen.getByRole("status", { name: /mismatch/i }).textContent).toContain(
+      "This machine's node reports to https://subshell.example.com, not https://elsewhere.example. " +
+        "Subshells started here will appear there.",
+    );
+  });
+});
+
 /** Addendum 5 (operator ruling 2026-09-22): one card-title style across the section, the Dashboard rendering the reference. */
 describe("the card titles, one style", () => {
   it("renders both card titles foreground strong at detail size", () => {

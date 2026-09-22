@@ -42,7 +42,6 @@ import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { StatusFacts } from "@/components/assistant/status-facts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { NodeCommands } from "@/hooks/use-node-commands";
 import type { ActionResult, EnrolledNodeBody, NodeSettings, Probe } from "@/lib/ipc";
 import { PROBE_STEPS, stepLabel, stepTone } from "@/lib/steps";
 
@@ -62,7 +61,6 @@ export function StatusScreen(props: {
   settings: NodeSettings | undefined;
   enrolledNode: EnrolledNodeBody | null;
   output: ActionResult | null;
-  commands: NodeCommands;
   busy: boolean;
   /** Start the node registration flow — for a client that is not a node yet. */
   onRegister: () => void;

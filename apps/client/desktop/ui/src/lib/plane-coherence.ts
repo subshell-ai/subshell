@@ -66,9 +66,13 @@ export function planeCoherence(
     // Leads with the CONFLICT (review M2, 2026-09-22): "This app opens <url>,
     // but…" was the sentence shape the labeled rows made redundant, since the
     // reader is already looking at both addresses and the news is the
-    // disagreement itself.
+    // disagreement itself. And the second sentence names the target EXPLICITLY
+    // (delta review I-2, 2026-09-22): with the node's address named FIRST,
+    // "the second one" grammatically pointed at the plane's address — the
+    // exact opposite of the truth. "There" reads to the nearest name, which
+    // is the node's.
     message:
       `This machine's node reports to ${nodeServerUrl}, not ${planeUrl}. ` +
-      "Subshells started here will appear on the second one.",
+      "Subshells started here will appear there.",
   };
 }

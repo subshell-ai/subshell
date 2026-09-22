@@ -1899,6 +1899,24 @@ describe("the plane's two doors", () => {
     );
   });
 
+  it("lands the in-app door's refusal on the problem line, like the browser door", async () => {
+    // Mirror of the browser door's pin below: "Open in app" with nothing
+    // configured is refused BY the Rust side, and its sentence is the
+    // problem line (delta review m-2).
+    await boot({
+      handlers: {
+        node_open_plane: () => {
+          throw "no control plane yet — enter its URL, or enrol this machine first";
+        },
+      },
+    });
+    await openSection("Control Plane");
+    fireEvent.click(button("Open in app"));
+    await waitFor(() =>
+      expect(screen.getByText("no control plane yet — enter its URL, or enrol this machine first")).toBeTruthy(),
+    );
+  });
+
   it("opens the app window at the settled address, the door the Dashboard card carries", async () => {
     // The in-app window door IS `node_open_plane` with no URL: the Rust side
     // re-reads its own ladder, which is how "Open Dashboard" always worked.

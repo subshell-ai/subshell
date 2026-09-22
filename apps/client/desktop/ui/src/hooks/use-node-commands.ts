@@ -167,7 +167,7 @@ export function useNodeCommands(args: {
     updateNode: () =>
       runner.run(async () => {
         const messages = [
-          `Install the node CLI that ships inside this app (${probe?.bundledVersion ?? "unknown version"}) over ` +
+          `Install the Subshell Node CLI that ships inside this app (${probe?.bundledVersion ?? "unknown version"}) over ` +
             "~/.local/bin/subshell. Nothing is downloaded.",
         ];
         if (probe?.managed === true) {

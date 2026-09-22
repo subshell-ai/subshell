@@ -79,9 +79,16 @@ export function PlaneScreen(props: {
           the reference, the muted label style was the odd one out). */}
       <div className="rounded-md border border-border p-3">
         <div className="space-y-1.5">
-          <Label htmlFor="plane-url" className="font-strong text-detail">
-            Control plane URL
-          </Label>
+          {/* The title is a Label ONLY while the labeled input exists (delta
+              review m-3): a htmlFor with no control in the tree is dead
+              pointing. The rendering classes are the same either way. */}
+          {editingPlane ? (
+            <Label htmlFor="plane-url" className="font-strong text-detail">
+              Control plane URL
+            </Label>
+          ) : (
+            <p className="font-strong text-detail">Control plane URL</p>
+          )}
           {editingPlane ? (
             <form
               className="flex flex-col gap-2"

@@ -416,7 +416,6 @@ export function App() {
           rail={rail}
           shell={shell}
           {...facts}
-          commands={commands}
           busy={runner.busy}
           onRegister={() => {
             if (runner.busy) return;

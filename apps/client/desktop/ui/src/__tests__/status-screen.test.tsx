@@ -36,7 +36,7 @@ interface Call {
  * command that becomes reachable later fails loudly here rather than being
  * silently undefined.
  */
-function makeCommands(calls: Call[]): NodeCommands {
+function _makeCommands(calls: Call[]): NodeCommands {
   const rec =
     (name: string) =>
     (...args: unknown[]) => {
@@ -97,7 +97,6 @@ function mount(
       settings={init.settings ?? makeSettings()}
       enrolledNode={init.enrolledNode ?? null}
       output={null}
-      commands={makeCommands(calls)}
       busy={init.busy ?? false}
       onRegister={() => pressed.push("register")}
     />,
