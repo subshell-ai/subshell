@@ -3,7 +3,7 @@
  * are driven through the pure `recoveryTitle`/`recoveryAction` over a probe
  * table, so the screen cannot render a diagnosis the model did not name; the
  * tmux warning and the gated primary action are pinned beside them. The four
- * linkish doors are GONE (wave 2): the rail's Update / How it runs /
+ * linkish doors are GONE (wave 2): the rail's Update / Service /
  * Addresses sections are what those links were the stand-in for, and the
  * select-routing pins in host.test.tsx are the stacked-doors test now. The
  * Reset door stays — reset is full-window, never a section.

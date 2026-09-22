@@ -122,7 +122,7 @@ the defect the removal closed.
 **The rail is for the standing screens, and only for an onboarded machine**
 (wave 2; the operator's ruling: "i do not want a sidebar applied to the FTE").
 `railFor(route, onboarded)` in `lib/server-state.ts` is the rule as data: the
-five sections — **Status**, **Update**, **How it runs**, **Addresses**,
+five sections — **Status**, **Update**, **Service**, **Addresses**,
 **Reset** — appear only when the machine is onboarded and the route is one of
 the standing kinds, and they answer `null` for the FTE family (welcome, tmux,
 setup, handoff), for the two frame-replacing screens (reset, permissions),
@@ -133,7 +133,7 @@ screenshot): the DOOR moves into the rail — `onSelect("reset")` is
 token, while the SCREEN stays frame-replacing, because its "only thing
 happening" premise is the safety design that leaves no way out from under
 the chain. With the sidebar present the rail is also the navigation: the
-standing screens' own leave buttons (Back on How it runs, Back on
+standing screens' own leave buttons (Back on Service, Back on
 Addresses, Close on Update) render only where the rail does not — a
 requested screen over a mid-first-run machine has none, and there the leave
 button is still the only way out. That last case is the

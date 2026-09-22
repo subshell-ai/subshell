@@ -3,7 +3,7 @@
  * answering (spec 2026-09-21; plan Task 4) — the port of `renderRecovery`,
  * with the tmux warning as a keyed component and the gated primary action.
  * The four linkish doors the old screen stacked under its diagnosis are GONE
- * in wave 2: the rail's Update / How it runs / Addresses sections are what
+ * in wave 2: the rail's Update / Service / Addresses sections are what
  * they were the stand-in for. Reset stays a door — it is full-window, never
  * a section.
  *
