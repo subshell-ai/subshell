@@ -18,6 +18,7 @@ import { encodeFrame, type WireMode } from "@internal/subshell-protocol/wire";
 import { getRequestlessContext } from "@/lib/context.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import { logger } from "@/utils/logger.js";
+import { resetInputHoldsForTests } from "@/ws/input-hold.js";
 import { resetInputWindowsForTests } from "@/ws/input-window.js";
 import { createGeometryQueue, type PaneGeometry } from "@/ws/pane-geometry.js";
 import { createPaneStreamRegistry } from "@/ws/pane-stream.js";
@@ -45,6 +46,13 @@ export interface WsData {
   launcher: NodeLauncher;
   socket: string;
   subshellId: string;
+  /**
+   * The node the subshell runs on (`local` for the control-plane host). Wave
+   * D keys the plane→node input hold by it — the node-ws-handler's `ready`
+   * moment is what re-fires a failed write, so the hold has to know which
+   * node's readiness to follow. Both attach paths set it from the row.
+   */
+  nodeId: string;
   logFile: string;
 
   /** True when the caller may send terminal input (`edit`/`owner`); a `view` grantee is read-only. */
@@ -224,8 +232,11 @@ export function resetLiveViewersForTests(): void {
   geometryQueue.releaseAll();
   // The input windows join this reset: tests reuse subshell ids, and a
   // surviving window would silently drop the next case's id-1 keystroke as an
-  // already-written duplicate.
+  // already-written duplicate. The Wave D holds join them for the same
+  // reason — a surviving hold would re-fire the previous case's keystroke
+  // into the next one's pane.
   resetInputWindowsForTests();
+  resetInputHoldsForTests();
 }
 
 /**

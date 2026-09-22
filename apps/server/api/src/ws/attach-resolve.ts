@@ -44,7 +44,11 @@ export interface AttachResolved {
 /** The attach is refused; the caller closes with exactly this. */
 export interface AttachRefused {
   ok: false;
-  /** WebSocket close code (4001 unauthorized, 4004 not found). */
+  /**
+   * WebSocket close code (4001 unauthorized; 4005 subshell not found; 4004
+   * the transient family — not running, unreachable, node offline — which
+   * the Wave D client retries).
+   */
   code: number;
   /** Close reason, shown in the client's console. */
   reason: string;
@@ -81,15 +85,23 @@ export async function resolveAttach(input: AttachRequest): Promise<AttachResolve
   const { repos } = getRequestlessContext();
   // Resolve the caller's access to THIS subshell (a human browser path: admin
   // and shared grants both count). Invisible (absent or unshared) closes with
-  // the same 4004 an owner-mismatch used to, so a stranger learns nothing.
+  // the same 4005 an owner-mismatch used to, so a stranger learns nothing.
   const { row, access } = await loadSubshellAccess(
     { subshells: repos.subshells, shares: repos.subshellShares, userMeta: repos.userMeta },
     userId,
     subshellId,
   );
   // Invisible and refused look identical on the wire, so a stranger cannot
-  // probe ids: absent, unshared and forbidden all answer the same 4004.
-  if (!row || !accessAtLeast(access, "view")) return { ok: false, code: 4004, reason: "subshell not found" };
+  // probe ids: absent, unshared and forbidden all answer the same 4005.
+  //
+  // 4005, NOT 4004 (spec 2026-09-21 Wave D review): "not found" is permanent,
+  // while the 4004 family (not running, unreachable, node offline) is what
+  // the client now retries. Wire-ADDITIVE — every client older than this
+  // split treats any 4xxx it cannot retry as terminal (the pre-Wave D rule
+  // was `code < 4000` retries, everything else terminal), and none of them
+  // ever retried 4004 either, so no cached PWA's behavior changes by the
+  // move; a current client retries exactly 4004 and nothing else.
+  if (!row || !accessAtLeast(access, "view")) return { ok: false, code: 4005, reason: "subshell not found" };
 
   // The client's fitted geometry rides the URL so the pane can be resized
   // BEFORE the replay is captured: a capture taken at tmux's 80×24 birth size

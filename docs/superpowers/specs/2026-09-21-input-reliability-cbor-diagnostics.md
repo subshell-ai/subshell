@@ -120,3 +120,92 @@ frame: the node's byte guard would drop it whole. The queue therefore
 A (server + node + client queue + badge) → B (encoder + negotiation) →
 C (HUD, consumes A's RTT stats). A and B both touch `subshell-ws.ts` and
 `use-subshell-ws.ts`; sequential waves, reviewed each, avoid the collision.
+
+## Wave D — the plane→node wedge (2026-09-22)
+
+Measured after A shipped: the at-least-once machinery holds on the
+browser↔plane leg, but the plane→node leg fails INDEPENDENTLY while the
+browser socket lives. A node daemon restart, a mesh blip, or a command
+timeout makes the plane's `launcher.sendInput` reject; the old
+`.catch(logFailure)` dropped the keystroke, no ack fired, and no dedupe
+commit happened. The client never learns: its queue holds a sent-but-unacked
+frame, `flushBacklog` early-returns while any sent frame is unacked, so every
+later keystroke coalesces into the unsent tail and waits for an ack that will
+never come. And the escape hatch is welded shut: the browser socket only
+reconnects when IT dies, a reconnect DURING the outage is refused 4004 "node
+offline", which the client treated as terminal — typing stays dead until the
+page is remounted, and a remount drops the stranded bytes permanently.
+Reproduced 100%.
+
+**The plane-side retry (server, the load-bearing half).** A failed
+plane→node write for an attached session is held, keyed
+(node, subshell, session, id) beside the dedupe window's own keying
+(`ws/input-hold.ts`), and re-fired through the SAME `launcher.sendInput` path
+when the node's connection is live again — the node-ws-handler's `ready`
+moment for that node. Four rules:
+
+1. **Scoped to the attached /ws session.** The browser socket closing drops
+   its holds; the client's own reconnect re-send is the safety net for what
+   they held (a duplicate at worst, never a loss).
+2. **The re-fire is the same write.** The drain reads the session's
+   launcher off `ws.data` at write time, so acks and the dedupe window
+   behave identically. The dedupe window is committed BEFORE the ack, on the
+   write resolving (verified in `handleSubshellMessage`, unchanged) — so a
+   resolved write is never re-fired and its re-send is absorbed; only a
+   write whose result never came back can double, Wave A's accepted
+   residual.
+3. **No timer.** The re-fire triggers are the node's `ready` and a new-write
+   arrival (which joins the queue and kicks the drain); a re-fire failure
+   re-enters the hold. Memory is bounded by the client's own backlog: once a
+   write goes unacked the client coalesces and stops shipping, and a
+   re-arriving id never duplicates a hold.
+4. **Order.** Holds re-fire in id order; an arrival while holds exist joins
+   the queue, so nothing newer is written ahead of a held id. The accepted
+   residual is the frame already in flight on the node's serial input chain
+   when its neighbor failed — it can land before the re-fire, the same
+   at-least-once family, with a sub-millisecond window.
+
+**The 4004 refusal is retryable (client).** Wave A's client never retries a
+4xxx close. The table is now: sub-4000 drops and restarts retry on the fixed
+1.5 s cadence; **4004 retries on an escalating backoff (base, doubling,
+capped at 15 s, reset by a successful attach)**, because "node offline" can
+clear while the terminal is open — the backlog ships on the next successful
+attach and the plane-side hold keeps anything already written safe; every
+other 4xxx refusal stays terminal, pinned by a table test. (`4004 "subshell
+not running"` rides the same code; retrying it is harmless and lets an open
+page catch an owner's restart.)
+
+**The page must survive the retry (review, 2026-09-22).** The consumer half
+was the wedge's last door: the terminal set `closed` on ANY 4xxx close, which
+unmounts the terminal, which cancels the hook — so the 4004 retry never ran
+on the page that needed it, and the user stared at "Subshell is not running"
+while the node was merely offline. The table now lives in one place
+(`statusAfterClose`): a retryable close arrives as connected:false /
+closed:false and the page's "reconnecting…" pill covers the gap; the retried
+attach's `onOpen` arrives CLEAN (connected:true, closed:false — carrying the
+previous close's flag forward was what kept the dead panel up). A refusal a
+retry cannot fix still lands on the dead panel.
+
+**"Not found" is not transient (review, 2026-09-22).** With 4004 retryable,
+its "subshell not found" spelling — a PERMANENT refusal — would be retried
+forever at ≤15 s. It moved to its own close code, **4005**
+(`attach-resolve.ts`), wire-ADDITIVE: every client older than this split
+treats any non-retryable 4xxx as terminal and never retried 4004 either, so
+the move changes nothing for a cached PWA. 4004 keeps the transient family —
+node offline, subshell not running, subshell unreachable — and the client
+retries exactly 4004.
+
+**The local leg is still open.** Wave D closed the plane→node leg only. A
+transient LOCAL write failure (the send-keys spawn fails while the pane and
+the browser socket are both fine) wedges the client queue the same way — no
+ack, no dedupe commit, later keystrokes coalesce behind the unacked head —
+and holds are deliberately not taken for `local`: there is no node-ready
+moment to re-fire from. Until a wave covers it, a browser reconnect (the
+socket dying, a page reload) is the recovery; the client's reconnect re-send
+carries what was stranded.
+
+**Premise amendment.** Wave A's "TCP ordering means an unacked frame is 'not
+yet', never 'lost'" holds ONLY for the browser↔plane leg, the one leg TCP
+actually spans there. The plane→node leg fails independently — this wave
+closes it: the plane holds what the node could not take, and the client
+retries the attach the node would not grant.

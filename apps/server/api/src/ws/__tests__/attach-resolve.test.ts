@@ -97,7 +97,11 @@ describe("resolveAttach", () => {
     const missing = await resolveAttach(
       request(`subshell=${crypto.randomUUID()}&token=${issueWsToken(theirs.userId)}`),
     );
-    expect(unshared).toEqual({ ok: false, code: 4004, reason: "subshell not found" });
+    // 4005, the PERMANENT refusal (Wave D review): the 4004 family is what
+    // the client retries, so "not found" needed its own code. Wire-additive:
+    // a pre-Wave D client treated every non-retryable 4xxx as terminal and
+    // never retried 4004, so the move changes nothing for it.
+    expect(unshared).toEqual({ ok: false, code: 4005, reason: "subshell not found" });
     expect(unshared).toEqual(missing);
   });
 
