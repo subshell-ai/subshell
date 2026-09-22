@@ -37,6 +37,9 @@
  */
 import { type AssistantStrings, Frame } from "@internal/assistant";
 import { type ReactElement, useLayoutEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { dashboardUrl, type ExplicitMap, type FormName, type FormValues } from "../lib/config-form";
 import type { ActionResult, Probe, SettingEntry } from "../lib/ipc";
 import {
@@ -216,17 +219,14 @@ export function SupervisionGroup(props: {
         })}
       </div>
       <div className="supervision-login">
-        <input
-          type="checkbox"
+        <Switch
           id="plan-autostart"
           checked={supervision.autostart && autostartSupported(probe)}
           disabled={reason !== null || locked}
-          onChange={(e) => props.onChoice(applySupervisionChoice(supervision, { autostart: e.currentTarget.checked }))}
+          onCheckedChange={(checked) => props.onChoice(applySupervisionChoice(supervision, { autostart: checked }))}
         />
         <span className="supervision-copy">
-          <label className="label" htmlFor="plan-autostart">
-            Start at login
-          </label>
+          <Label htmlFor="plan-autostart">Start at login</Label>
           <span className="detail">
             {reason ??
               "Starts the server again the next time you log in to this machine. Without it, the service runs now but nothing brings it back after you log out or restart."}
@@ -325,9 +325,9 @@ export function SetupScreen(props: {
         strings={props.strings}
         entranceKey={props.entranceKey}
         barRight={
-          <button type="button" className="primary" disabled={busy || running} onClick={props.onStartSetup}>
+          <Button type="button" disabled={busy || running} onClick={props.onStartSetup}>
             Try Again
-          </button>
+          </Button>
         }
       >
         <FailureBody
@@ -355,9 +355,9 @@ export function SetupScreen(props: {
               come back on its own. An empty reason means busy: a spinner is already
               on screen. */}
           {!gate.ok && gate.reason && <span className="reason">{gate.reason}</span>}
-          <button type="button" className="primary" disabled={!gate.ok} onClick={props.onStartSetup}>
+          <Button type="button" disabled={!gate.ok} onClick={props.onStartSetup}>
             Set Up
-          </button>
+          </Button>
         </>
       }
     >
@@ -378,11 +378,19 @@ export function SetupScreen(props: {
         onChoice={props.onSupervision}
       />
       <div className="mt-4 flex gap-4">
-        <button type="button" className="linkish plain" onClick={props.onCustomizeToggle}>
+        <button
+          type="button"
+          className="rounded-sm text-label underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+          onClick={props.onCustomizeToggle}
+        >
           {props.customizeOpen ? "Use defaults" : "Customize port and addresses…"}
         </button>
         {probe.serverChoice === "no-bundled" && (
-          <button type="button" className="linkish" onClick={props.onPickBinary}>
+          <button
+            type="button"
+            className="rounded-sm text-body text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+            onClick={props.onPickBinary}
+          >
             Choose an existing server…
           </button>
         )}

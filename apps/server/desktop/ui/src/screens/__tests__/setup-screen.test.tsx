@@ -127,7 +127,7 @@ describe("the form", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Set Up Subshell Server");
     expect(screen.getByRole("radiogroup", { name: "How this server runs" })).toBeDefined();
     expect(screen.getByLabelText(/In the background/)).toBeDefined();
-    expect((screen.getByLabelText("Start at login") as HTMLInputElement).checked).toBe(true);
+    expect((document.getElementById("plan-autostart") as HTMLInputElement).checked).toBe(true);
     expect(screen.getByText(/Starts the server again the next time you log in/)).toBeDefined();
   });
 

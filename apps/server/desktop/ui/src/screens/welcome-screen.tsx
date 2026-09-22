@@ -17,6 +17,7 @@
  */
 import { type AssistantStrings, Frame } from "@internal/assistant";
 import type { ReactElement } from "react";
+import { Button } from "@/components/ui/button";
 
 /** The wordmark, transcribed from the old page's `ART.icon`: the CSP allows no remote images. */
 export function Wordmark(): ReactElement {
@@ -38,9 +39,9 @@ export function WelcomeScreen(props: {
       entranceKey={props.entranceKey}
       art={<Wordmark />}
       barRight={
-        <button type="button" className="primary" disabled={props.disabled} onClick={props.onContinue}>
+        <Button type="button" disabled={props.disabled} onClick={props.onContinue}>
           Continue
-        </button>
+        </Button>
       }
     />
   );

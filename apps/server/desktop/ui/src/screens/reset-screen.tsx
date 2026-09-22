@@ -20,6 +20,8 @@
  */
 import type { ReactElement } from "react";
 import { useEffect, useRef } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import type { Probe } from "../lib/ipc";
 import { armed, RESET_STEPS, refusal, resetRows, resetStarted, type StepKey, type StepState } from "../lib/reset";
 import { RESET_LABEL } from "../lib/wizard-state";
@@ -100,7 +102,7 @@ export function ResetScreen(props: {
           <code>{hostname}</code>
         </label>
         <div className="flex gap-2">
-          <input
+          <Input
             id="reset-confirm"
             className="min-w-0 flex-1"
             value={typed}
@@ -151,15 +153,14 @@ export function ResetScreen(props: {
             button stayed lit and lettered "Reset everything" through a chain that
             stops a service and sweeps hundreds of sockets, so the one press that
             matters looked like it had not registered and invited a second. */}
-        <button
+        <Button
           type="button"
-          className="primary"
           disabled={busy || !(why === null && armedOk)}
           data-armed={String(armedOk)}
           onClick={() => props.onRunReset(typed)}
         >
           {busy ? "Resetting…" : runLabel}
-        </button>
+        </Button>
         {/* Cancel goes with it, on the SAME predicate, and the reason is what the
             action row now sits under. Beside the hostname box it meant "never
             mind" — the only thing there to abandon was a half-typed name. Under
@@ -170,9 +171,9 @@ export function ResetScreen(props: {
             honour. `busy` ends on every exit path the run handler has, so a
             half-run gets Cancel back beside Retry, where leaving really is a
             choice. */}
-        <button type="button" disabled={busy} onClick={props.onCancel}>
+        <Button type="button" variant="outline" disabled={busy} onClick={props.onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
       {/* The reason, beside the control it disables. Only for a REFUSAL: "you
           have not typed the hostname yet" is what the label above the box

@@ -17,6 +17,8 @@
  * carried in the next state the handler hands up.
  */
 import type { ReactElement } from "react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   CONFIG_FIELDS,
   derivedBaseUrl,
@@ -64,8 +66,8 @@ export function AddressFields(props: {
     <div className="mt-4 grid w-full grid-cols-2 gap-2.5">
       {CONFIG_FIELDS.map((field) => (
         <div key={field.name} className={field.wide ? "col-span-2" : undefined}>
-          <label htmlFor={`field-${field.name}`}>{field.label}</label>
-          <input
+          <Label htmlFor={`field-${field.name}`}>{field.label}</Label>
+          <Input
             id={`field-${field.name}`}
             value={props.values[field.name]}
             placeholder={field.placeholder}

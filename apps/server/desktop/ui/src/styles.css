@@ -1,4 +1,11 @@
 @import "tailwindcss";
+/* The shared Frame (`@internal/assistant`) renders with Tailwind utilities but
+   lives OUTSIDE this app's Vite root, so Tailwind v4's auto-detection never
+   scans it and every utility it names generated nothing — measured in the dev
+   page and in the built dist: the shell rendered unstyled. `@source` adds the
+   package's source to the scan the same way the client app's own kit files
+   arrive through its alias. */
+@source "../../../../../packages/assistant/src";
 
 /*
  * Dreamframe (Castorice) — the SPA's palette, VALUE for value, under the
@@ -26,6 +33,14 @@
   --success: oklch(0.765 0.177 163.223);
   --warning: oklch(0.828 0.189 84.429);
   --destructive: oklch(0.65 0.2 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.29 0.034 296);
+  --secondary-foreground: oklch(0.9 0.025 312);
+  --muted: oklch(0.29 0.034 296);
+  --accent: oklch(0.33 0.04 296);
+  --accent-foreground: oklch(0.95 0.02 315);
+  --input: oklch(0.33 0.035 296);
+  --ring: oklch(0.62 0.13 322);
   /* The primary button's "sunk plum" gradient (Dreamframe: quiet at the
      component, bright at the token). Named here because `lint:design`
      refuses colour literals outside a token block, and a gradient IS a
@@ -74,6 +89,14 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
   --text-display: 30px;
   --text-display--line-height: 1.2;
   --text-heading: 20px;
@@ -104,24 +127,6 @@
     line-height: var(--text-body--line-height);
     -webkit-font-smoothing: antialiased;
   }
-  /* The window is a control panel, not a marketing page: every interactive
-     element is a button or an input, so the two element defaults live here
-     and the variants (.primary, .ghost, .linkish) below carry only their deltas. */
-  button {
-    border-radius: 7px;
-    border: 1px solid var(--border);
-    background: transparent;
-    color: var(--foreground);
-    padding: 8px 12px;
-    cursor: pointer;
-  }
-  button:hover:not(:disabled) {
-    border-color: var(--primary);
-  }
-  button:disabled {
-    opacity: 0.45;
-    cursor: default;
-  }
   input {
     width: 100%;
     padding: 8px 9px;
@@ -151,23 +156,6 @@
 
 @layer components {
   /* Buttons, by what they DO. */
-  /* Copied verbatim from apps/server/web/src/components/ui/button.tsx's
-     `default` variant: a sunk plum gradient with frost text, deliberately
-     quieter than --primary (which stays bright for the dots/glyphs) and
-     brightening again on hover. It rides the five `--button-primary-*`
-     tokens in `:root` — the literals live there because the design check
-     refuses colour literals outside a token block; on the SPA side
-     button.tsx still spells the same values inline. */
-  .primary {
-    background: linear-gradient(135deg, var(--button-primary-from), var(--button-primary-to));
-    color: var(--button-primary-foreground);
-    border-color: transparent;
-    font-weight: var(--font-weight-strong);
-  }
-  .primary:hover:not(:disabled) {
-    background: linear-gradient(135deg, var(--button-primary-hover-from), var(--button-primary-hover-to));
-    border-color: transparent;
-  }
   /* A facts list reads as a table, not a stack. The label column is a FIXED
      132px rather than `max-content`: the widest label used to set the column
      for every row, so one long one ("mcp entrypoint") pushed every value
@@ -319,36 +307,6 @@
     font-size: var(--text-detail);
     line-height: var(--text-detail--line-height);
   }
-  .ghost {
-    border-color: transparent;
-    background: transparent;
-    color: var(--foreground);
-  }
-  .ghost:hover:not(:disabled) {
-    color: var(--foreground);
-    border-color: transparent;
-    background: var(--card);
-  }
-  .linkish {
-    border: none;
-    background: none;
-    color: var(--muted-foreground);
-    padding: 4px 0;
-    font-size: var(--text-body);
-    line-height: var(--text-body--line-height);
-  }
-  /* The setup screen's own link, level with the rows above it: same size,
-     same colour. `.linkish` stays muted and 14px everywhere else, where a
-     secondary action should recede. */
-  .linkish.plain {
-    color: var(--foreground);
-    font-size: var(--text-label);
-    line-height: var(--text-label--line-height);
-  }
-  .linkish:hover:not(:disabled) {
-    color: var(--foreground);
-    border: none;
-  }
   /* About is a title page, so it is the one section that centres. Everything
      else here is a control surface where the left edge is what the eye scans;
      an About box has nothing to scan, which is why every desktop app centres
@@ -452,10 +410,24 @@
   .supervision {
     margin-top: 4px;
   }
-  /* Both are `<label>` ELEMENTS wrapping a control and its copy, so they
-     inherit the base rule meant for a field's caption. Their spacing is their
-     own padding — the inherited bottom margin was quietly adding to it. */
-  .supervision-mode,
+  /* The mode pair is a `<label>` ELEMENT wrapping a radio and its copy, so it
+     inherits the base rule meant for a field's caption. Its spacing is its
+     own padding — the inherited bottom margin was quietly adding to it. The
+     login row is a div around the kit Switch, the same grid. */
+  .supervision-mode {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    align-items: start;
+    gap: 0 16px;
+    padding: 8px 0;
+    margin-bottom: 0;
+    font-weight: var(--font-weight-regular);
+    cursor: pointer;
+  }
+  .supervision-mode input {
+    margin: 2px 0 0;
+    justify-self: center;
+  }
   .supervision-login {
     display: grid;
     grid-template-columns: 28px 1fr;
@@ -465,16 +437,13 @@
     margin-bottom: 0;
     font-weight: var(--font-weight-regular);
   }
-  .supervision-mode {
-    cursor: pointer;
-  }
-  .supervision-mode input,
-  .supervision-login input {
-    margin: 2px 0 0;
-    justify-self: center;
-  }
   .supervision-copy {
     display: block;
+  }
+  /* The control stays visible when DISABLED because the reason beside it is
+     the actionable part; the copy dims, as the old input:disabled + did. */
+  .supervision-login:has([data-disabled]) .supervision-copy {
+    opacity: 0.55;
   }
   /* Stated rather than inherited: these are the screen's line items and they
      share one size and colour with the link below them, which is the thing
@@ -521,9 +490,6 @@
     margin-top: 8px;
     border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
     padding-top: 16px;
-  }
-  .supervision-login input:disabled + .supervision-copy {
-    opacity: 0.55;
   }
 
   /* The dashboard address at the top of the Set Up screen: name left, value
@@ -585,37 +551,6 @@
     display: flex;
     align-items: center;
     gap: 8px;
-  }
-  /* The copy affordance, matching the SPA's `CopyableValue`: a square icon
-     button that becomes a check. Square by padding rather than a fixed size,
-     so it keeps the same border and radius as every other button here. */
-  .copy-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 7px;
-    /* No border, no box: beside a code line the chrome was louder than the
-       command it sits next to, and a bordered square next to a bordered code
-       line read as two competing fields (operator's call, 2026-09-14). The
-       glyph brightens on hover, which is the whole affordance it needs. */
-    border-color: transparent;
-    color: var(--muted-foreground);
-  }
-  .copy-button:hover:not(:disabled) {
-    border-color: transparent;
-    color: var(--foreground);
-  }
-  .copy-button svg {
-    width: 16px;
-    height: 16px;
-  }
-  .copy-button[data-state="copied"] {
-    color: var(--success);
-  }
-  /* A refused clipboard has to be visible, not only announced: a button that
-     flashed nothing would read as a press that never registered. */
-  .copy-button[data-state="failed"] {
-    color: var(--destructive);
   }
 
   /* The screen keeps probing while someone installs tmux in a terminal, and
@@ -722,12 +657,6 @@
     max-height: 180px;
     overflow: auto;
   }
-  .big {
-    width: 100%;
-    padding: 12px 16px;
-    font-size: var(--text-label);
-    line-height: var(--text-label--line-height);
-  }
   .code-line {
     display: inline-block;
     background: var(--background);
@@ -791,28 +720,6 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
 }
-/* The tray switch: the control stays visible when DISABLED because the
-     reason beside it is the actionable part. */
-.switch {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: var(--text-body);
-  line-height: var(--text-body--line-height);
-  cursor: pointer;
-}
-.switch input {
-  width: auto;
-  margin: 0;
-  accent-color: var(--primary);
-}
-.switch input:disabled {
-  cursor: default;
-}
-.switch:has(input:disabled) {
-  color: var(--muted-foreground);
-  cursor: default;
-}
 /* The update screen's selection table (spec 2026-09-18 §13). One line per
      component — what it runs, what it would become, and in the right-hand cell
      either a checkbox or the REASON there is none. Never a disabled checkbox:
@@ -844,11 +751,6 @@ label.update-row {
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   text-align: right;
-}
-/* The Force box wears the plain `.switch`; this only puts air between it and
-     the amber sentence it answers. */
-.update-force {
-  margin-top: 8px;
 }
 /* The supervision screen's two mode choices. A radio in its own column so
      the description under each title hangs off the title rather than the
@@ -885,15 +787,6 @@ label.update-row {
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   cursor: pointer;
-}
-.choice-sub input {
-  width: auto;
-  margin: 0;
-  accent-color: var(--primary);
-}
-.choice-sub:has(input:disabled) {
-  color: var(--muted-foreground);
-  cursor: default;
 }
 .choice-sub .hint {
   margin: 0;

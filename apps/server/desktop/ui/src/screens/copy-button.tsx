@@ -9,8 +9,11 @@
  * **An icon, not the word.** The SPA's `CopyableValue` is a lucide `Copy` that
  * becomes a `Check`, with the state carried on the accessible name; this is
  * that affordance, so the same gesture looks the same in both halves of the
- * product (operator's call, 2026-09-14). The page's CSP allows no remote
- * images, so the two glyphs are inline SVG rather than a sprite or a font.
+ * product (operator's call, 2026-09-14). The VISUALS are the client
+ * assistant's CopyButton — the kit's ghost icon-sm `Button` carrying lucide's
+ * own glyphs — reconciled with THIS app's API, which is load-bearing and
+ * unchanged: the text is read through `getText` at click time and the flash
+ * slot is named by `copyKey`.
  *
  * **The flash is component state now.** The old page held it in a module map
  * (`lib/copy-flash.ts`) because the DOM was rebuilt every 1500 ms and an
@@ -22,35 +25,10 @@
  * dance existed for.
  */
 
+import { Check, Copy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { FLASH_MS, type FlashState } from "../lib/copy-flash";
-
-/** lucide `copy` and `check`, drawn with the same attributes lucide-react emits. */
-const ICON_PATHS = {
-  copy: (
-    <>
-      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
-      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-    </>
-  ),
-  check: <path d="M20 6 9 17l-5-5" />,
-} as const;
-
-function Glyph({ shape }: { shape: keyof typeof ICON_PATHS }): React.JSX.Element {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {ICON_PATHS[shape]}
-    </svg>
-  );
-}
 
 /**
  * A button that copies whatever `getText` answers AT CLICK TIME.
@@ -97,9 +75,10 @@ export function CopyButton(props: {
   };
 
   return (
-    <button
+    <Button
       type="button"
-      className="copy-button"
+      variant="ghost"
+      size="icon-sm"
       data-state={state}
       onClick={() => {
         navigator.clipboard.writeText(props.getText()).then(
@@ -114,7 +93,7 @@ export function CopyButton(props: {
       {/* The failed state keeps the copy glyph — there is no lucide mark for "try
           again" that reads as anything but a second action — so the announcement
           is what distinguishes it, which is why the label is set on every path. */}
-      <Glyph shape={state === "copied" ? "check" : "copy"} />
-    </button>
+      {state === "copied" ? <Check className="text-success" /> : <Copy />}
+    </Button>
   );
 }

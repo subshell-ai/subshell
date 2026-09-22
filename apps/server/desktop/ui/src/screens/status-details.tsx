@@ -95,7 +95,11 @@ export function StatusDetails(props: {
               {f.reveal && (
                 /* Names an INTENT, never a path: the Rust side re-reads the path from
                    its own fresh probe, so a row can only reveal the fact it is showing. */
-                <button type="button" className="linkish" onClick={() => props.onReveal(f.reveal as OpenTarget)}>
+                <button
+                  type="button"
+                  className="rounded-sm text-body text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+                  onClick={() => props.onReveal(f.reveal as OpenTarget)}
+                >
                   Reveal
                 </button>
               )}

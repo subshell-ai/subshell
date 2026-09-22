@@ -22,6 +22,7 @@
  */
 import { type AssistantStrings, Frame } from "@internal/assistant";
 import { type ReactElement, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { type ManualRoute, manualTmuxRoutes, tmuxInstallPlan } from "../lib/installers";
 import type { ActionResult, Probe } from "../lib/ipc";
 import * as ipc from "../lib/ipc";
@@ -168,9 +169,9 @@ export function ManualRouteSteps(props: { route: ManualRoute; onFail: (err: unkn
       <p className="hint">{`Don't have ${route.name}? Install it from its site, then come back.`}</p>
       {/* A MEMBER of the closed URL set, never the address: Rust owns every page
           this app can open (see `WebTarget`). */}
-      <button type="button" onClick={() => void ipc.openWeb(route.target).catch(props.onFail)}>
+      <Button type="button" variant="outline" onClick={() => void ipc.openWeb(route.target).catch(props.onFail)}>
         {`Open ${route.name} site`}
-      </button>
+      </Button>
       <p className="hint">{`Once you have ${route.name}, run:`}</p>
       <div className="manual-command">
         <span className="code-line">{route.command}</span>
@@ -242,9 +243,9 @@ export function TmuxScreen(props: {
               failed asks the reader to believe the same press will do something
               different this time. It will — it re-reads the machine first — and the
               label is where that is said. */}
-          <button type="button" className="primary big" disabled={busy || running} onClick={props.onInstall}>
+          <Button type="button" className="w-full" disabled={busy || running} onClick={props.onInstall}>
             {failed === null ? plan.label : "Try again"}
-          </button>
+          </Button>
           {/* Centred under a full-width button: left-aligned, it read as a caption for
               the screen's left edge rather than for the button it belongs to. */}
           <p className="hint centered">Your package manager may ask for your password.</p>
@@ -275,9 +276,9 @@ export function TmuxScreen(props: {
             <p className="hint">This machine has no package manager this app can drive. In a terminal:</p>
             {plan.command.length > 0 && <span className="code-line">{plan.command.join(" ")}</span>}
             {plan.docsUrl !== "" && (
-              <button type="button" className="ghost" onClick={() => void ipc.openTmuxDocs().catch(props.onFail)}>
+              <Button type="button" variant="ghost" onClick={() => void ipc.openTmuxDocs().catch(props.onFail)}>
                 Read the tmux docs
-              </button>
+              </Button>
             )}
           </>
         ) : (
@@ -291,15 +292,16 @@ export function TmuxScreen(props: {
                 manager's instructions below; nothing is shown until asked for. */}
             <div className="manual-routes">
               {routes.map((route) => (
-                <button
+                <Button
                   key={route.target}
                   type="button"
+                  variant="outline"
                   id={`route-${route.target}`}
                   aria-pressed={manualRoute === route.target}
                   onClick={() => setManualRoute(manualRoute === route.target ? null : route.target)}
                 >
                   {route.name}
-                </button>
+                </Button>
               ))}
             </div>
             {routes

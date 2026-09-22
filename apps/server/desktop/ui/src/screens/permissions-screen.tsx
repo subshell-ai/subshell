@@ -25,6 +25,7 @@
 import { type AssistantStrings, Frame } from "@internal/assistant";
 import type { ReactElement } from "react";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import type { ActionResult, Probe } from "../lib/ipc";
 import * as ipc from "../lib/ipc";
 import type { PermissionRequest } from "../lib/permissions-model";
@@ -117,9 +118,9 @@ export function PermissionsScreen(props: {
       entranceKey={props.entranceKey}
       barLeft={
         !props.afterHandoff && (
-          <button type="button" className="ghost" disabled={busy || running} onClick={props.onClose}>
+          <Button type="button" variant="ghost" disabled={busy || running} onClick={props.onClose}>
             {leaveLabel(probe, probe.onboarded)}
-          </button>
+          </Button>
         )
       }
       barRight={
@@ -130,9 +131,9 @@ export function PermissionsScreen(props: {
               there would be the button lying about where it leads. Every OTHER
               door falls through to the shared ghost on the left, whose word
               `leaveLabel` picks by the same argument. */
-          <button type="button" className="primary" disabled={busy || running} onClick={props.onContinue}>
+          <Button type="button" disabled={busy || running} onClick={props.onContinue}>
             Continue
-          </button>
+          </Button>
         )
       }
     >
@@ -168,22 +169,18 @@ export function PermissionsScreen(props: {
                 const allow = row.allow;
                 if (row.action !== "allow" || allow === null) return null;
                 return (
-                  <button
-                    type="button"
-                    className="primary"
-                    disabled={busy || running}
-                    onClick={() => REQUESTS[allow.request]()}
-                  >
+                  <Button type="button" disabled={busy || running} onClick={() => REQUESTS[allow.request]()}>
                     {allow.label}
-                  </button>
+                  </Button>
                 );
               })()}
               {row.action === "open-settings" && row.pane !== null && (
                 /* No `ghost`: on the tmux screen that treatment read as a link
                     and did not say it could be pressed, and this is the one
                     control a person arrives here specifically to find. */
-                <button
+                <Button
                   type="button"
+                  variant="outline"
                   disabled={busy || running}
                   onClick={() =>
                     void ipc
@@ -192,7 +189,7 @@ export function PermissionsScreen(props: {
                   }
                 >
                   Open System Settings
-                </button>
+                </Button>
               )}
             </div>
           </li>

@@ -25,6 +25,9 @@
  */
 import { type AssistantStrings, Frame } from "@internal/assistant";
 import { type ReactElement, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import type { ActionResult, AppUpdateCheck, Probe } from "../lib/ipc";
 import { type ActState, leaveHeld, type UpdateActPress, type UpdateActSelection, updateAct } from "../lib/update-act";
 
@@ -111,9 +114,9 @@ export function UpdateScreen(props: {
               install is actually running — a control that vanishes mid-act
               reads as a page that lost a button. `leaveHeld` owns the flags. */}
           {props.state === "idle" && !busy && view.phase !== "finishing" && (
-            <button type="button" className="ghost" onClick={() => props.onCheck(true)}>
+            <Button type="button" variant="ghost" onClick={() => props.onCheck(true)}>
               Check Again
-            </button>
+            </Button>
           )}
           {/* **Close is this screen's PRIMARY, in the Save seat** (operator's
               call, 2026-09-18): the act is the big press in the CONTENT, so
@@ -122,14 +125,9 @@ export function UpdateScreen(props: {
               `openWhenReady` → `open_main`, which DESTROYS this window, so
               the progress, the failure line and the phase-2 screen all go
               with it. */}
-          <button
-            type="button"
-            className="primary"
-            disabled={leaveHeld({ busy, state: props.state })}
-            onClick={props.onClose}
-          >
+          <Button type="button" disabled={leaveHeld({ busy, state: props.state })} onClick={props.onClose}>
             Close
-          </button>
+          </Button>
         </>
       }
     >
@@ -198,16 +196,15 @@ export function UpdateScreen(props: {
       {view.force !== null && (
         <>
           <p className="hint warn-text">{view.force.warning}</p>
-          <label className="switch update-force" htmlFor="update-force">
-            <input
-              type="checkbox"
+          <div className="mt-2 flex items-center gap-2.5">
+            <Switch
               id="update-force"
               checked={view.force.checked}
               disabled={locked}
-              onChange={(e) => props.onForceToggle(e.currentTarget.checked)}
+              onCheckedChange={(checked) => props.onForceToggle(checked)}
             />
-            <span className="label">{view.force.label}</span>
-          </label>
+            <Label htmlFor="update-force">{view.force.label}</Label>
+          </div>
         </>
       )}
 
@@ -220,14 +217,14 @@ export function UpdateScreen(props: {
           {view.press.kind === "app" && probe.platform === "linux" && (
             <p className="hint">Linux installs the package with dpkg, so your system will ask for your password.</p>
           )}
-          <button
+          <Button
             type="button"
-            className="primary big"
+            className="w-full"
             disabled={!view.press.enabled}
             onClick={() => props.onPress(view.press as UpdateActPress)}
           >
             {view.press.label}
-          </button>
+          </Button>
         </>
       )}
     </Frame>

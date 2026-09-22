@@ -10,6 +10,9 @@
  */
 import { type AssistantStrings, Frame } from "@internal/assistant";
 import type { ReactElement } from "react";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import type { ActionResult, Probe } from "../lib/ipc";
 import {
   applySupervisionChoice,
@@ -75,19 +78,14 @@ export function SupervisionScreen(props: {
       strings={props.strings}
       entranceKey={props.entranceKey}
       barLeft={
-        <button type="button" className="ghost" disabled={busy || running} onClick={props.onClose}>
+        <Button type="button" variant="ghost" disabled={busy || running} onClick={props.onClose}>
           {leaveLabel(probe, probe.onboarded)}
-        </button>
+        </Button>
       }
       barRight={
-        <button
-          type="button"
-          className="primary"
-          disabled={unchanged || busy || running}
-          onClick={() => props.onApply(chosen)}
-        >
+        <Button type="button" disabled={unchanged || busy || running} onClick={() => props.onApply(chosen)}>
           Apply
-        </button>
+        </Button>
       }
     >
       {option({
@@ -102,22 +100,21 @@ export function SupervisionScreen(props: {
       })}
       {/* Nested under the option it belongs to, and only live while that option is
           the one selected — arming login means nothing without a service. */}
-      <label className="choice-sub" htmlFor="sup-login">
-        <input
-          type="checkbox"
+      <div className="choice-sub">
+        <Switch
           id="sup-login"
           checked={chosen.autostart && autostartSupported(probe)}
           disabled={!chosen.background || !autostartSupported(probe) || busy || running}
-          onChange={(e) => props.onChoice(applySupervisionChoice(chosen, { autostart: e.currentTarget.checked }))}
+          onCheckedChange={(checked) => props.onChoice(applySupervisionChoice(chosen, { autostart: checked }))}
         />
-        <span className="label">Start it again at every login</span>
+        <Label htmlFor="sup-login">Start it again at every login</Label>
         {chosen.background && autostartSupported(probe) && (
           <span className="hint">Otherwise it stays stopped after you log out.</span>
         )}
         {!autostartSupported(probe) && (
           <span className="hint">{`Update your server to ${MIN_AUTOSTART_SERVER_VERSION} to control this.`}</span>
         )}
-      </label>
+      </div>
       {option({
         id: "sup-app",
         on: !chosen.background,

@@ -21,6 +21,7 @@
  */
 import { type AssistantStrings, Frame } from "@internal/assistant";
 import type { ReactElement } from "react";
+import { Button } from "@/components/ui/button";
 import type { FormValues } from "../lib/config-form";
 import type { Probe } from "../lib/ipc";
 import type { SupervisionChoice } from "../lib/wizard-state";
@@ -47,9 +48,9 @@ export function HandoffScreen(props: {
         strings={props.strings}
         entranceKey={props.entranceKey}
         barRight={
-          <button type="button" className="primary" disabled={props.busy} onClick={props.onRetryOpen}>
+          <Button type="button" disabled={props.busy} onClick={props.onRetryOpen}>
             Open Dashboard
-          </button>
+          </Button>
         }
       />
     );
@@ -64,9 +65,9 @@ export function HandoffScreen(props: {
       strings={props.strings}
       entranceKey={props.entranceKey}
       barRight={
-        <button type="button" className="primary" disabled={props.busy} onClick={props.onContinue}>
+        <Button type="button" disabled={props.busy} onClick={props.onContinue}>
           Continue
-        </button>
+        </Button>
       }
     >
       {/* The checklist stays on screen, every row ticked. It is the answer to

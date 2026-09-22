@@ -21,6 +21,9 @@
  */
 import { type AssistantStrings, Frame } from "@internal/assistant";
 import { type ReactElement, useLayoutEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { type AddressForm, seedAddressForm } from "../lib/config-form";
 import type { ActionResult, Probe } from "../lib/ipc";
 import * as ipc from "../lib/ipc";
@@ -105,25 +108,25 @@ export function AddressesScreen(props: {
         strings={props.strings}
         entranceKey={props.entranceKey}
         barLeft={
-          <button type="button" className="ghost" disabled={locked} onClick={props.onClose}>
+          <Button type="button" variant="ghost" disabled={locked} onClick={props.onClose}>
             {leaveLabel(probe, probe.onboarded)}
-          </button>
+          </Button>
         }
         barRight={
           <>
             {unreadable && (
-              <button type="button" className="ghost" disabled={locked} onClick={() => props.onBlindChange(true)}>
+              <Button type="button" variant="ghost" disabled={locked} onClick={() => props.onBlindChange(true)}>
                 Configure anyway
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               type="button"
-              className="ghost"
+              variant="ghost"
               disabled={locked}
               onClick={() => props.onRunSettings(() => ipc.service("restart", false))}
             >
               Restart
-            </button>
+            </Button>
           </>
         }
       >
@@ -150,9 +153,9 @@ export function AddressesScreen(props: {
       strings={props.strings}
       entranceKey={props.entranceKey}
       barLeft={
-        <button type="button" className="ghost" disabled={locked} onClick={props.onClose}>
+        <Button type="button" variant="ghost" disabled={locked} onClick={props.onClose}>
           {leaveLabel(probe, probe.onboarded)}
-        </button>
+        </Button>
       }
       barRight={
         <>
@@ -163,22 +166,21 @@ export function AddressesScreen(props: {
           {/* Restart is offered whatever the form holds: someone who reached this
               screen because their server is unreachable may have nothing to save
               and still need the restart that applies a change made elsewhere. */}
-          <button
+          <Button
             type="button"
-            className="ghost"
+            variant="ghost"
             disabled={locked}
             onClick={() => props.onRunSettings(() => ipc.service("restart", force?.checked === true))}
           >
             Restart
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="primary"
             disabled={locked || refusal !== null || !settingsEdited(probe, state)}
             onClick={() => props.onRunSettings(() => ipc.setup(settingsPayload(probe, state)))}
           >
             Save
-          </button>
+          </Button>
         </>
       }
     >
@@ -211,16 +213,15 @@ export function AddressesScreen(props: {
       {force !== null && (
         <>
           <p className="hint warn-text">{force.warning}</p>
-          <label className="switch update-force" htmlFor="settings-force">
-            <input
-              type="checkbox"
+          <div className="mt-2 flex items-center gap-2.5">
+            <Switch
               id="settings-force"
               checked={force.checked}
               disabled={locked}
-              onChange={(e) => props.onForceToggle(e.currentTarget.checked)}
+              onCheckedChange={(checked) => props.onForceToggle(checked)}
             />
-            <span className="label">{force.label}</span>
-          </label>
+            <Label htmlFor="settings-force">{force.label}</Label>
+          </div>
         </>
       )}
 

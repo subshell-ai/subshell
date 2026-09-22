@@ -12,6 +12,7 @@
  */
 import { type AssistantStrings, Frame } from "@internal/assistant";
 import type { ReactElement } from "react";
+import { Button } from "@/components/ui/button";
 import type { FormValues } from "../lib/config-form";
 import { tmuxInstallPlan } from "../lib/installers";
 import type { About, ActionResult, LogTail, OpenTarget, Probe } from "../lib/ipc";
@@ -58,9 +59,9 @@ export function TmuxWarning(props: {
         {/* Ahead of the command it acts on, when the plan says we can run it at
             all: a user who downloaded a GUI should not be sent to a terminal for
             the fix a button can perform. */}
-        <button type="button" className="primary" hidden={plan.kind !== "run"} onClick={props.onInstall}>
+        <Button type="button" hidden={plan.kind !== "run"} onClick={props.onInstall}>
           {plan.label}
-        </button>
+        </Button>
         {/* The command line follows the plan rather than a UA guess: on a Mac
             without Homebrew there is no button, so this line IS the fix, and the
             plan's MacPorts alternative is the honest thing to show. An empty
@@ -79,9 +80,14 @@ export function TmuxWarning(props: {
             value that crosses the IPC boundary — the same rule `desktop_open_path`
             follows. Not disabled while busy, which is what this and Copy both
             want. */}
-        <button type="button" hidden={!plan.docsUrl} onClick={() => void ipc.openTmuxDocs().catch(props.onFail)}>
+        <Button
+          type="button"
+          variant="outline"
+          hidden={!plan.docsUrl}
+          onClick={() => void ipc.openTmuxDocs().catch(props.onFail)}
+        >
           Read the docs
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -130,9 +136,9 @@ export function StatusScreen(props: {
         strings={props.strings}
         entranceKey={props.entranceKey}
         barRight={
-          <button type="button" className="primary" disabled={busy || running} onClick={() => props.onAction("setup")}>
+          <Button type="button" disabled={busy || running} onClick={() => props.onAction("setup")}>
             Try Again
-          </button>
+          </Button>
         }
       >
         <FailureBody
@@ -162,9 +168,9 @@ export function StatusScreen(props: {
       entranceKey={props.entranceKey}
       barLeft={
         /* The ellipsis stays: it correctly says a screen follows rather than an act. */
-        <button type="button" className="ghost" disabled={busy || running} onClick={props.onOpenReset}>
+        <Button type="button" variant="ghost" disabled={busy || running} onClick={props.onOpenReset}>
           {`${RESET_LABEL}…`}
-        </button>
+        </Button>
       }
     >
       {action && (
@@ -174,14 +180,14 @@ export function StatusScreen(props: {
            install` without tmux, so a button that could only produce the
            refusal is disabled for that reason too — the warning below names
            it. Retry and Choose are not gated — neither runs a pane. */
-        <button
+        <Button
           type="button"
-          className="primary big"
+          className="w-full"
           disabled={busy || running || (tmuxMissing && action.kind !== "retry" && action.kind !== "choose-binary")}
           onClick={() => props.onAction(action.kind)}
         >
           {action.label}
-        </button>
+        </Button>
       )}
       {tmuxMissing && (
         <>
@@ -212,11 +218,21 @@ export function StatusScreen(props: {
           broken has no dashboard to open the door from. */}
       <div className="recovery-links">
         {probe.serverChoice === "upgrade-available" && (
-          <button type="button" className="linkish" disabled={busy || running} onClick={() => props.onGo("update")}>
+          <button
+            type="button"
+            className="rounded-sm text-body text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+            disabled={busy || running}
+            onClick={() => props.onGo("update")}
+          >
             {`Update Server to ${probe.bundledVersion}…`}
           </button>
         )}
-        <button type="button" className="linkish" disabled={busy || running} onClick={() => props.onGo("supervision")}>
+        <button
+          type="button"
+          className="rounded-sm text-body text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+          disabled={busy || running}
+          onClick={() => props.onGo("supervision")}
+        >
           Change how it runs…
         </button>
         {/* Also reachable here, for the same reason: the dashboard is the ordinary
@@ -225,13 +241,23 @@ export function StatusScreen(props: {
             whether one exists until the screen behind it asks, and a row that
             appeared only after an answer nobody had asked for would mean checking
             on the poll. */}
-        <button type="button" className="linkish" disabled={busy || running} onClick={() => props.onGo("update")}>
+        <button
+          type="button"
+          className="rounded-sm text-body text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+          disabled={busy || running}
+          onClick={() => props.onGo("update")}
+        >
           Check for updates…
         </button>
         {/* A wrong port or bind address is one of the few things that puts a machine
             here. The tray carries the same door for the case this screen never
             renders — a server that answers but will not accept a sign-in. */}
-        <button type="button" className="linkish" disabled={busy || running} onClick={() => props.onGo("settings")}>
+        <button
+          type="button"
+          className="rounded-sm text-body text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+          disabled={busy || running}
+          onClick={() => props.onGo("settings")}
+        >
           Server Addresses…
         </button>
       </div>

@@ -28,6 +28,14 @@ export default defineConfig({
   // both that and being opened as a file, and costs nothing. (Same reasoning
   // as `apps/client/desktop`'s config; this app predates it and now matches.)
   base: "./",
+  // The shadcn kit the screens compose (`components/ui/`) imports through
+  // `@/`, exactly as the client app's copy of the same files does — the files
+  // are verbatim copies and their imports resolve the same way here.
+  resolve: {
+    alias: {
+      "@": path.resolve(dirname, "ui/src"),
+    },
+  },
   plugins: [react(), tailwindcss()],
   build: {
     // Relative to `root`, i.e. apps/server/desktop/ui/dist — which is what

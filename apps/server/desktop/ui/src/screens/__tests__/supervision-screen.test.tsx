@@ -54,7 +54,10 @@ describe("the choice rows", () => {
       }),
     });
     expect((screen.getByLabelText(/^In the background/) as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByLabelText(/^Start it again at every login/) as HTMLInputElement).checked).toBe(true);
+    // The kit Switch renders the labelled control as a hidden native input,
+    // so the test reads it by id — getByLabelText would match both it and the
+    // role=switch span Base UI names through the same label.
+    expect((document.getElementById("sup-login") as HTMLInputElement).checked).toBe(true);
     expect(screen.getByText("A launchd agent runs it, even when this app is closed.")).toBeDefined();
   });
 
@@ -84,7 +87,7 @@ describe("the choice rows", () => {
         server: { argv: ["/usr/bin/subshell-server"], source: "local-bin", version: "0.8.0" },
       }),
     });
-    const login = screen.getByLabelText(/^Start it again at every login/) as HTMLInputElement;
+    const login = document.getElementById("sup-login") as HTMLInputElement;
     expect(login.disabled).toBe(true);
     expect(screen.getByText("Update your server to 0.9.0 to control this.")).toBeDefined();
   });
