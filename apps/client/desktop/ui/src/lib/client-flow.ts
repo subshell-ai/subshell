@@ -25,6 +25,7 @@
  * of truth for a step that costs one re-pick to redo is the expensive kind of
  * cheap.
  */
+import type { RailSection } from "@internal/assistant";
 import type { NodeSettings, Probe } from "@/lib/ipc";
 import type { NodeScreenId, NodeUserScreen } from "@/lib/node-assistant-state";
 
@@ -260,4 +261,64 @@ function actState(at: { index: number; running: number; failedAt: number; satisf
   if (at.index < at.running) return "done";
   if (at.index === at.running) return "active";
   return at.satisfied ? "done" : "pending";
+}
+
+/**
+ * The rail's standing sections, in display order (wave 3; the server's
+ * {@link railFor} carries the same rule with its own five). Reset is the
+ * destructive one, marked for the Rail's danger styling — the DOOR in the
+ * rail, while the reset SCREEN stays frame-replacing (operator ruling
+ * 2026-09-22), for the same reason the server's does: its "only thing
+ * happening" premise leaves no way out from under the chain.
+ */
+export const CLIENT_RAIL_SECTIONS: RailSection[] = [
+  { id: "status", label: "Status" },
+  { id: "update", label: "Update" },
+  { id: "about", label: "About" },
+  { id: "reset", label: "Reset", danger: true },
+];
+
+/**
+ * Whether THIS screen gets the rail, and which sections it shows (wave 3;
+ * the same rule the server's `railFor` carries — spec 2026-09-21, with the
+ * operator's 2026-09-22 rulings): the rail appears when the machine is
+ * settled — configured, no first-run walk in progress — and the screen is
+ * one of the standing kinds. Everything else answers null: every step of
+ * the FTE walk, the two focused acts (reset, whose screen is
+ * frame-replacing, and re-enroll, which is the same kind of moment), and
+ * the not-read state.
+ *
+ * `settled` is the part the screen cannot see: the tray can raise About
+ * MID-WALK and the router honours it, and wave 2's ruling keeps the render
+ * but takes away the rail — the exclusion is about the machine's journey,
+ * not about who asked.
+ *
+ * The active section is not folded in here — a `RailSection` is
+ * `{id, label}` by design — so {@link railActive} answers it, keyed on the
+ * same screen.
+ */
+export function railFor(screen: NodeScreenId | null, settled: boolean): RailSection[] | null {
+  if (!settled) return null;
+  switch (screen) {
+    case "status":
+    case "update":
+    case "about":
+      return CLIENT_RAIL_SECTIONS;
+    default:
+      return null;
+  }
+}
+
+/** The rail section THIS standing screen has active, or null when there is no rail. */
+export function railActive(screen: NodeScreenId | null): string | null {
+  switch (screen) {
+    case "status":
+      return "status";
+    case "update":
+      return "update";
+    case "about":
+      return "about";
+    default:
+      return null;
+  }
 }

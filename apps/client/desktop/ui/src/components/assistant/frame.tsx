@@ -74,36 +74,48 @@ export function Frame(props: {
   barRight?: ReactNode;
   /** A confirmation awaiting an answer, rendered under the content it is about. */
   confirm?: ReactNode;
+  /**
+   * The rail node, when this screen's machine has one (wave 3): the shared
+   * `@internal/assistant` `Rail` rendered by the app and positioned here —
+   * the window's left at full height, the scroll region and the 72px bar in
+   * the remaining column, the SPA sidebar's arrangement, so the bar reads as
+   * belonging to the content it serves. Absent, the frame is exactly what it
+   * was: one column, full width.
+   */
+  rail?: ReactNode;
 }) {
-  const { title, subtitle, icon, problem, children, barLeft, barRight, confirm, tightContent } = props;
+  const { title, subtitle, icon, problem, children, barLeft, barRight, confirm, tightContent, rail } = props;
   return (
-    <div className="flex h-screen flex-col">
-      <div className="flex-1 overflow-y-auto px-8 py-8">
-        <div className="mx-auto flex min-h-full w-full max-w-[560px] flex-col justify-center">
-          {icon && (
-            <div aria-hidden className="flex justify-center text-primary/20 [&_svg]:size-[72px]">
-              {icon}
-            </div>
-          )}
-          <h1 className="mt-6 text-center font-strong text-display leading-tight tracking-[-0.01em]">{title}</h1>
-          {subtitle && <p className="mt-2 text-center text-body text-muted-foreground leading-normal">{subtitle}</p>}
-          {/*
-           * Above the content rather than below it: the problem is why the
-           * screen still looks like this, so it has to be read before the
-           * button that failed is pressed again.
-           */}
-          {problem && (
-            <p role="status" className="mt-4 text-center text-warning text-detail leading-relaxed">
-              {problem}
-            </p>
-          )}
-          {children && <div className={cn("w-full", tightContent ? "mt-4" : "mt-9")}>{children}</div>}
-          {confirm}
+    <div className="flex h-screen">
+      {rail}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex-1 overflow-y-auto px-8 py-8">
+          <div className="mx-auto flex min-h-full w-full max-w-[560px] flex-col justify-center">
+            {icon && (
+              <div aria-hidden className="flex justify-center text-primary/20 [&_svg]:size-[72px]">
+                {icon}
+              </div>
+            )}
+            <h1 className="mt-6 text-center font-strong text-display leading-tight tracking-[-0.01em]">{title}</h1>
+            {subtitle && <p className="mt-2 text-center text-body text-muted-foreground leading-normal">{subtitle}</p>}
+            {/*
+             * Above the content rather than below it: the problem is why the
+             * screen still looks like this, so it has to be read before the
+             * button that failed is pressed again.
+             */}
+            {problem && (
+              <p role="status" className="mt-4 text-center text-warning text-detail leading-relaxed">
+                {problem}
+              </p>
+            )}
+            {children && <div className={cn("w-full", tightContent ? "mt-4" : "mt-9")}>{children}</div>}
+            {confirm}
+          </div>
         </div>
-      </div>
-      <div className="flex h-[72px] shrink-0 items-center justify-between border-border border-t px-8">
-        <div className="flex items-center gap-2">{barLeft}</div>
-        <div className="flex items-center gap-2">{barRight}</div>
+        <div className="flex h-[72px] shrink-0 items-center justify-between border-border border-t px-8">
+          <div className="flex items-center gap-2">{barLeft}</div>
+          <div className="flex items-center gap-2">{barRight}</div>
+        </div>
       </div>
     </div>
   );

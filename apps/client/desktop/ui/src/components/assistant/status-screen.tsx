@@ -38,7 +38,9 @@
  * `plane-coherence.ts` is what notices. The notice sits between both values
  * and the button that reconciles them.
  */
+
 import { Bot, ExternalLink, Server, TriangleAlert } from "lucide-react";
+import type { ReactElement } from "react";
 import { useState } from "react";
 import { DetailsDisclosure } from "@/components/assistant/details-disclosure";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
@@ -123,6 +125,8 @@ function serviceDetail(step: ProbeStep): string | null {
 }
 
 export function StatusScreen(props: {
+  /** The rail node the app computed for this screen, or undefined when the screen is full-window. */
+  rail?: ReactElement;
   shell: FrameShell;
   probe: Probe | undefined;
   settings: NodeSettings | undefined;
@@ -214,6 +218,7 @@ export function StatusScreen(props: {
   return (
     <Frame
       {...shell}
+      rail={props.rail}
       tightContent
       icon={enrolled ? <Bot /> : <Server />}
       barLeft={

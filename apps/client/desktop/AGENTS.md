@@ -693,6 +693,24 @@ vocabulary — `NodeScreenId`, `screenTitle`, `serviceAction` — and no longer
 decides anything. There is ONE router, deliberately: two functions answering
 "which screen" is how they come to disagree.
 
+**The rail is for the standing screens, and only for a settled machine**
+(wave 3; the same rulings the server wave carried — operator, 2026-09-22).
+`railFor(screen, settled)` in `lib/client-flow.ts` is the rule as data: the
+four sections — **Status**, **Update**, **About**, **Reset** (destructive,
+styled in the destructive token) — appear only when the machine is settled
+(`configured()` and no `FteStep` in progress) and the screen is one of the
+standing kinds, and they answer `null` for every step of the FTE walk, for
+the two focused acts (reset, whose screen is frame-replacing, and re-enroll,
+the same kind of moment), for the not-read state — and for any standing
+screen while the machine is NOT settled, because the exclusion is about the
+machine's journey, not about who asked: the tray can raise About mid-walk,
+and that render keeps its Back. A select is the navigation: Status clears
+the override, Update and About set theirs, Reset opens the frame-replacing
+room; and where the rail is up, the standing screens' own leave buttons
+(About's and Update's Back) render only where the rail does not. The tray's
+`desktop-screen` events select their section by the same override state — no
+new command.
+
 Three screen ids went with it, and their absence is the design.
 **`connected`**, **`service`** and **`install-agent`** were the probe-derived
 landings; every configured client lands on `status` now, which carries what
