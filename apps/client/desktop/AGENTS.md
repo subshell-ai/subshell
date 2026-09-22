@@ -728,7 +728,9 @@ node to X…", "Check for updates…") are GONE: the Update section is the door,
 and the update screen's own table is where the node row's numbers live. The
 facts and the CLI's last words render INLINE (no disclosure), on the status,
 service and plane screens alike. Unregister is not a link on the status
-screen — the rail's Reset section is that door.
+screen — the rail's Reset section is that door. There is no Refresh button
+anywhere: the probe query re-reads the machine on its own five-second interval
+(operator ruling, 2026-09-22) — the poll is the refresh.
 
 Three screen ids went with it, and their absence is the design.
 **`connected`**, **`service`** and **`install-agent`** were the probe-derived

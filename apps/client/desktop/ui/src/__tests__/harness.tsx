@@ -159,7 +159,13 @@ export function renderApp(element: ReactElement) {
       mutations: { retry: false },
     },
   });
-  return render(<QueryClientProvider client={client}>{element}</QueryClientProvider>);
+  // `client` rides along for the tests that need to drive a query directly —
+  // a probe refetch the page no longer has a Refresh button for (operator
+  // ruling 2026-09-22: the poll is the refresh), and a test asserting the
+  // poll's EFFECTS asks the cache for the re-read rather than sleeping.
+  return Object.assign(render(<QueryClientProvider client={client}>{element}</QueryClientProvider>), {
+    client,
+  });
 }
 
 /** A promise plus its resolver, for holding a command in flight. */

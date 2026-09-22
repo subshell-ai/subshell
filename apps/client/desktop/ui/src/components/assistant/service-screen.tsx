@@ -109,32 +109,25 @@ export function ServiceScreen(props: {
       tightContent
       icon={enrolled ? undefined : undefined}
       barLeft={
-        <>
-          {/* Re-reading is not a decision, so it sits with the ghosts — the
-              same note the status screen's Refresh carries; this is the
-              screen someone waits on while they fix the node from a
-              terminal. */}
-          <Button variant="ghost" disabled={busy} onClick={commands.refresh}>
-            Refresh
-          </Button>
-          {/* The two reveals are the NODE's config directory and log — the
-              machinery this section is for — and they follow the node rather
-              than the screen: a machine with no node has neither, so offering
-              them there would be two buttons whose only outcome is the Rust
-              side's refusal. The log one is offered on every platform even
-              though Linux has no log FILE: the rejection IS the `journalctl`
-              command to run, which is the actionable answer. */}
-          {enrolled && (
-            <>
-              <Button variant="ghost" disabled={busy} onClick={() => commands.openPath("config-dir")}>
-                Reveal configuration
-              </Button>
-              <Button variant="ghost" disabled={busy} onClick={() => commands.openPath("node-log")}>
-                Open the node log
-              </Button>
-            </>
-          )}
-        </>
+        // The two reveals are the NODE's config directory and log — the
+        // machinery this section is for — and they follow the node rather
+        // than the screen: a machine with no node has neither, so offering
+        // them there would be two buttons whose only outcome is the Rust
+        // side's refusal. The log one is offered on every platform even
+        // though Linux has no log FILE: the rejection IS the `journalctl`
+        // command to run, which is the actionable answer. There is no
+        // Refresh beside them: the probe query re-reads the machine on its
+        // own five-second interval, so the poll is the refresh.
+        enrolled ? (
+          <>
+            <Button variant="ghost" disabled={busy} onClick={() => commands.openPath("config-dir")}>
+              Reveal configuration
+            </Button>
+            <Button variant="ghost" disabled={busy} onClick={() => commands.openPath("node-log")}>
+              Open the node log
+            </Button>
+          </>
+        ) : undefined
       }
     >
       <div className="flex flex-col items-center gap-2 text-center">

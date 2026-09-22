@@ -248,9 +248,11 @@ describe("what the connected screen offered is still offered", () => {
     expect(screen.getByText("/usr/bin/tmux")).toBeTruthy();
   });
 
-  it("lets a stuck machine be re-read", () => {
+  it("offers no refresh — the probe's own interval re-reads the machine", () => {
+    // Operator ruling 2026-09-22: no Refresh button; the poll is the refresh.
+    // The interval wiring itself is pinned in `use-node-state.test.tsx`.
     const { calls } = mount({ probe: makeProbe({ step: "stopped" }) });
-    fireEvent.click(button(/^refresh$/i));
-    expect(calls).toEqual([{ name: "refresh", args: [] }]);
+    expect(buttonOrNull_(/^refresh$/i)).toBeNull();
+    expect(calls).toEqual([]);
   });
 });

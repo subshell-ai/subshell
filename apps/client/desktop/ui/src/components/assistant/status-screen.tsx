@@ -26,6 +26,10 @@
  * ruling 2026-09-22, the server wave's ruling carried over): a section that
  * hides its own facts behind a second control is two navigations for one
  * answer.
+ *
+ * There is no Refresh button: the probe query re-reads this machine on its own
+ * five-second interval (operator ruling 2026-09-22), so the poll is the
+ * refresh.
  */
 import { Bot, ExternalLink, Server } from "lucide-react";
 import type { ReactElement } from "react";
@@ -101,17 +105,6 @@ export function StatusScreen(props: {
       rail={props.rail}
       tightContent
       icon={enrolled ? <Bot /> : <Server />}
-      barLeft={
-        <>
-          {/* Re-reading is not a decision, so it sits with the ghosts — and this
-              is the screen someone waits on while they fix the machine from a
-              terminal, where the background poll is too slow to feel like an
-              answer to "I just installed tmux". */}
-          <Button variant="ghost" disabled={busy} onClick={commands.refresh}>
-            Refresh
-          </Button>
-        </>
-      }
       barRight={
         dashboardUrl ? (
           <Button className="min-w-[120px]" disabled={busy} onClick={() => commands.openPlane(null)}>

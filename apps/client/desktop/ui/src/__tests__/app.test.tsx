@@ -36,7 +36,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { App } from "@/app";
 import { SETTLE_ATTEMPTS, SETTLE_DELAY_MS } from "@/hooks/use-action-runner";
-import { PROBE_POLL_MS } from "@/hooks/use-node-state";
+import { PROBE_KEY, PROBE_POLL_MS } from "@/hooks/use-node-state";
 import { deferred, type FakeIpc, installFakeIpc, makeProbe, makeSettings, renderApp } from "./harness";
 
 // Unmount after each test. Testing Library appends every `render` to
@@ -86,9 +86,13 @@ afterEach(() => {
 /** Render App against a fake IPC and wait for the first probe to land. */
 async function boot(init: Parameters<typeof installFakeIpc>[0] = {}) {
   ipc = installFakeIpc(init);
-  renderApp(<App />);
+  const view = renderApp(<App />);
   await waitFor(() => expect(ipc?.callsTo("node_probe").length).toBeGreaterThan(0));
-  return ipc;
+  // A plain FakeIpc copy with the query client along for the tests that need
+  // to drive a re-probe without a Refresh button (the poll is the refresh,
+  // operator ruling 2026-09-22). The module-level `ipc` still holds the
+  // original for `restore()`.
+  return Object.assign({}, ipc, { client: view.client });
 }
 
 /**
@@ -894,6 +898,9 @@ describe("pacing", () => {
   // `node_probe` is two CLI spawns plus the ladder probes. Nothing here may
   // poll on a sub-second timer.
   it("never polls or settles faster than seconds", () => {
+    // The exact cadence is the freshness guarantee (operator ruling
+    // 2026-09-22) and is pinned to the constant in `use-node-state.test.tsx`;
+    // this is the coarser guard beside it.
     expect(PROBE_POLL_MS).toBeGreaterThanOrEqual(1_000);
     expect(SETTLE_DELAY_MS).toBeGreaterThanOrEqual(1_000);
     // A settle, never a poll: bounded to a couple of extra probes.
@@ -1523,10 +1530,10 @@ describe("the screens", () => {
     expect(buttonOrNull("Install the node")).toBeNull();
     expect(buttonOrNull("Register this machine")).toBeNull();
     expect(buttonOrNull("Enroll")).toBeNull();
-    // The one thing that can change this state is still live. It is labelled
-    // Refresh rather than Retry now — one word for re-reading the machine, on
-    // the one screen that does it.
-    expect(buttonOrNull("Refresh")).not.toBeNull();
+    // There is no re-read button on this state (operator ruling 2026-09-22):
+    // the probe's own interval re-reads the machine, which is what makes the
+    // state live. The wiring is pinned in `use-node-state.test.tsx`.
+    expect(buttonOrNull("Refresh")).toBeNull();
     expect(screen.getByText(/cannot say whether it is already a node/)).toBeTruthy();
   });
 
@@ -1566,7 +1573,9 @@ describe("the screens", () => {
     expect(screen.getByText(/does not recognise the state "quantum-superposition"/)).toBeTruthy();
     expect(screen.getByText(/older than the node CLI it is managing/)).toBeTruthy();
     expect(screen.getByText("Unknown")).toBeTruthy();
-    expect(buttonOrNull("Refresh")).not.toBeNull();
+    // No refresh affordance over an unreadable state either: the poll is the
+    // re-read (operator ruling 2026-09-22).
+    expect(buttonOrNull("Refresh")).toBeNull();
     // The facts are INLINE (operator ruling 2026-09-22): there is no
     // disclosure to open, and a fact is readable without one.
     expect(screen.queryByText("Show Details")).toBeNull();
@@ -1583,13 +1592,13 @@ describe("the screens", () => {
     });
     renderApp(<App />);
     await waitFor(() => expect(screen.getByText(/Could not read this machine's state/)).toBeTruthy());
-    // A configured client lands on `status` whatever the probe did, so the way
-    // out is that screen's own re-read rather than a checking screen of its
-    // own. And nothing that could spend a key is drawn over a machine this app
-    // failed to read at all.
-    const refresh = buttonOrNull("Refresh");
-    expect(refresh).not.toBeNull();
-    expect(refresh?.disabled).toBe(false);
+    // A configured client lands on `status` whatever the probe did, and the
+    // window does not strand: the probe's own interval keeps re-reading the
+    // failed command (the poll is the refresh, operator ruling 2026-09-22;
+    // the wiring is pinned in `use-node-state.test.tsx`). And nothing that
+    // could spend a key is drawn over a machine this app failed to read at
+    // all.
+    expect(buttonOrNull("Refresh")).toBeNull();
     expect(buttonOrNull("Register this machine")).toBeNull();
   });
 });
@@ -1648,14 +1657,13 @@ describe("the facts", () => {
 describe("tmux is a hard stop, not a hint", () => {
   // The CLI refuses (or degrades far from the cause), and a live button that
   // only produces that outcome trains the user to click through warnings. The
-  // buttons that DO work without tmux — the reveals, the re-read — must stay
-  // live; disabling those strands the box.
+  // buttons that DO work without tmux — the reveals — must stay live;
+  // disabling those strands the box.
   it("disables what cannot work without tmux, and nothing else", async () => {
     await boot({ probe: makeProbe({ ...STOPPED, tmux: null }) });
     // The verb and the reveals are the Service section's now.
     await openSection("Service");
     expect(button("Start").disabled).toBe(true);
-    expect(button("Refresh").disabled).toBe(false);
     expect(button("Open the node log").disabled).toBe(false);
     expect(button("Reveal configuration").disabled).toBe(false);
     // The hint names the install command, so the refusal is one step from action.
@@ -1667,7 +1675,11 @@ describe("tmux is a hard stop, not a hint", () => {
     await openSection("Service");
     expect(button("Start").disabled).toBe(true);
     fake.setProbe(STOPPED);
-    fireEvent.click(button("Refresh"));
+    // No Refresh button drives the re-read any more (operator ruling
+    // 2026-09-22); the poll is the refresh, and the test asks the cache for
+    // the same re-read the interval performs rather than sleeping out the
+    // cadence. The gate reads the LIVE probe, so any re-read re-decides it.
+    await fake.client.refetchQueries({ queryKey: PROBE_KEY });
     await waitFor(() => expect(button("Start").disabled).toBe(false));
   });
 

@@ -37,29 +37,18 @@ export function useNodeState(paused: boolean) {
   const settings = useQuery({
     queryKey: SETTINGS_KEY,
     queryFn: nodeSettings,
-    // Not polled. On Linux this carries the tray probe (one `busctl`), which
-    // the Rust side deliberately re-runs per call rather than memoizing — so
-    // a refetch IS the re-check the page offers, and the answer is never
-    // older than the last action.
+    // Not polled, deliberately: everything in it is something this app's own
+    // actions wrote (the stored plane address) or answers the runner already
+    // re-reads after every action (`useActionRunner` refetches this key in
+    // `onSettled` unconditionally). The machine's own state — the thing that
+    // changes OUTSIDE this app — is the probe's business, and the probe is
+    // what carries the poll.
     retry: false,
   });
 
   return {
     probe: probe.data,
     settings: settings.data,
-    /**
-     * Ask the machine about the tray again.
-     *
-     * A user who installs GNOME's AppIndicator extension can turn
-     * `not-detected` into `supported` without restarting the app, so the page
-     * needs a way to ask — and since the Rust side holds no cached answer,
-     * re-reading the settings is that way.
-     */
-    recheckSettings: () => {
-      void settings.refetch();
-    },
-    /** True while that re-read is in flight. */
-    settingsFetching: settings.isFetching,
     /** True until the first probe lands — the "Checking this machine…" state. */
     firstProbePending: probe.isPending,
     /**
