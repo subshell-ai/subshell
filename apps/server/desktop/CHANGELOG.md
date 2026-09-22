@@ -1,5 +1,11 @@
 # @internal/desktop-server
 
+## 0.14.0
+
+### Minor Changes
+
+- [#142](https://github.com/subshell-ai/subshell/pull/142) [`67f3196`](https://github.com/subshell-ai/subshell/commit/67f31966cc7bf0707bcb9152ff125ffad653dd78) Thanks [@theogravity](https://github.com/theogravity)! - The client's rail gains Service and Control Plane: the node's machinery (install offer, service verbs, pane-safety rewrite, the node's reveals) and the plane address's home (the configured address, the way to change it, the node's repoint machinery) move out of the status screen, which keeps machine state and shows its facts inline. The status screen's node-update doors are gone; the Update section is the door. The install button speaks for itself: the standing explainer paragraph is gone, and what the copy does is said at the confirmation. On Subshell Server the assistant's supervision section is labeled Service, the reset confirmation rides the rail, and the reset room keeps no Cancel.
+
 ## 0.13.0
 
 ### Minor Changes
