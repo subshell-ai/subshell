@@ -253,6 +253,15 @@ Pin by test: every FTE route → null; reset/permissions → null; standing rout
 - [ ] Step 3: The FTE screens (`ChoiceScreen`, `EnrollScreen`, `ConnectScreen`, `RegisterScreen`, `ProgressScreen`, `TmuxScreen`, `WelcomeScreen`) render full-window as today — assert the rail is absent in their component tests.
 - [ ] Step 4: Gates (`bun test` in the app covers both halves via turbo), changeset (`@internal/desktop-client`, minor), PR. Docs: `apps/client/desktop/AGENTS.md` assistant section rewritten.
 
+## Ruling batch (2026-09-22, screenshot 60): facts on Status alone; Register on Service
+
+The facts list renders on the STATUS screen alone (bundled and tmux back
+in, superseding the screenshot-52 scoping); other screens keep only their
+actions' output block, and the config fact's value is plain language
+pointing at Service. Register this machine moves from the status screen to
+the Service section beside the install offer, same handler and walk entry,
+the override-clearing wiring re-pinned there.
+
 ## Superseded by ruling (2026-09-22, final word): the reset layout
 
 The reset screen's frame-replacing premise holds for the RUNNING chain only.

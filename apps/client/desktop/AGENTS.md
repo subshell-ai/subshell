@@ -741,15 +741,23 @@ section, which shows the address labeled rather than narrating "This app
 opens <url>". **Re-enroll…** moved there too, later the same day (operator
 ruling 2026-09-22): overwriting `config.json` and minting a second node row
 is an act on this machine's relationship to the plane, not on the machine
-itself, and the enroll screen's confirm gate is unchanged. The node-behind
+itself, and the enroll screen's confirm gate is unchanged. **Register this
+machine** moved to the Service section beside the install offer (later the
+same day, screenshot 60, the node's machinery home) — same handler, same
+walk entry, its override-clearing wiring re-traced to the new screen — so
+the status screen offers NO act at all. The node-behind
 doors the status screen carried ("Update the
 node to X…", "Check for updates…") are GONE: the Update section is the door,
 and the update screen's own table is where the node row's numbers live. The
-facts and the CLI's last words render INLINE (no disclosure), on the status,
-service and plane screens alike — with the `bundled` and `tmux` rows on the
-Service section ALONE (operator ruling 2026-09-22, screenshot 52): they are
-the node's machinery, and everywhere else they repeated that section
-verbatim. Unregister is not a link on the status
+the facts render INLINE (no disclosure) on the STATUS screen ALONE
+(operator ruling 2026-09-22, screenshot 60, superseding the screenshot-52
+scoping: one list, one panel, the `bundled` and `tmux` rows back in). A
+screen that needs a fact to explain a state says it in its own card's
+sentence; the CLI's last words render as the output block on the screen
+that owns the action, and the config fact's value is PLAIN LANGUAGE —
+"Not enrolled. Go to Service to enroll." for the enroll-pointing reason,
+"The node's configuration could not be read." for any other — the raw CLI
+words render only as an action's failure output. Unregister is not a link on the status
 screen — the rail's Reset section is that door. There is no Refresh button
 anywhere: the probe query re-reads the machine on its own five-second interval
 (operator ruling, 2026-09-22) — the poll is the refresh.

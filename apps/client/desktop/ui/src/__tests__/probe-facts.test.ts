@@ -5,8 +5,7 @@ import { describe, expect, it } from "bun:test";
 import { fmtAge, probeFacts } from "@/lib/probe-facts";
 import { makeProbe, makeSettings } from "./harness";
 
-const facts = (args: Parameters<typeof probeFacts>[0], opts: Parameters<typeof probeFacts>[1] = {}) =>
-  probeFacts(args, opts);
+const facts = (args: Parameters<typeof probeFacts>[0]) => probeFacts(args);
 const value = (list: ReturnType<typeof probeFacts>, key: string) => list.find((f) => f.key === key);
 
 describe("fmtAge", () => {
@@ -56,19 +55,36 @@ describe("probeFacts", () => {
     expect(value(list, "control plane")).toBeUndefined();
   });
 
-  // The CLI's own sentence for why it could not read a config — "no config at
-  // … — enroll this node first" vs "config corrupt" — is not something to
-  // paraphrase, and it replaces the daemon fact rather than sitting beside it.
-  it("quotes the CLI's reason when there is no node", () => {
-    const list = facts({
+  // PLAIN LANGUAGE, not the CLI's words (operator ruling 2026-09-22,
+  // screenshot 60): the enroll-command hint belongs to the CLI and the enroll
+  // flow, so the row points at Service; any other unreadable-config reason
+  // becomes the one sentence true of all of them. The CLI's own words render
+  // only as an action's failure output.
+  it("reads the config row plainly, pointing at Service when enrolling is the remedy", () => {
+    const enrollable = facts({
       probe: makeProbe({
-        status: { nodeId: null, online: false, reason: "no config at /home/u/.config/subshell/config.json" },
+        // The CLI's own sentence, as the agent writes it — the enroll hint is
+        // what the plain-language rule keys on.
+        status: {
+          nodeId: null,
+          online: false,
+          reason:
+            "no config at /home/u/.config/subshell/config.json. Enroll this node first: subshell enroll --server <url> --key <nsk_...>",
+        },
       }),
       settings: undefined,
       enrolledNode: null,
     });
-    expect(value(list, "config")?.value).toContain("no config at");
-    expect(value(list, "daemon")).toBeUndefined();
+    expect(value(enrollable, "config")?.value).toBe("Not enrolled. Go to Service to enroll.");
+    expect(value(enrollable, "daemon")).toBeUndefined();
+
+    const corrupt = facts({
+      probe: makeProbe({ status: { nodeId: null, online: false, reason: "config corrupt: unexpected token" } }),
+      settings: undefined,
+      enrolledNode: null,
+    });
+    expect(value(corrupt, "config")?.value).toBe("The node's configuration could not be read.");
+    expect(value(corrupt, "config")?.value).not.toContain("config corrupt");
   });
 
   it("names the teardown cost, which no service manager will state", () => {
@@ -97,27 +113,18 @@ describe("probeFacts", () => {
       ["up-to-date", undefined],
       ["install-bundled", undefined],
     ] as const) {
-      const list = facts(
-        { probe: makeProbe({ nodeChoice: choice }), settings: undefined, enrolledNode: null },
-        {
-          binaryFacts: true,
-        },
-      );
+      const list = facts({ probe: makeProbe({ nodeChoice: choice }), settings: undefined, enrolledNode: null });
       expect(value(list, "bundled")?.tone, choice).toBe(expected);
     }
   });
 
-  // Operator ruling 2026-09-22: `bundled` and `tmux` render ONLY where the
-  // Service section asks for them — everywhere else they repeated that
-  // section verbatim on screens that are not about the machinery.
-  it("omits bundled and tmux unless the Service section asks", () => {
-    const without = facts({ probe: makeProbe(), settings: undefined, enrolledNode: null });
-    expect(value(without, "bundled")).toBeUndefined();
-    expect(value(without, "tmux")).toBeUndefined();
-
-    const withBinary = facts({ probe: makeProbe(), settings: undefined, enrolledNode: null }, { binaryFacts: true });
-    expect(value(withBinary, "bundled")?.value).toBe("1.9.0");
-    expect(value(withBinary, "tmux")?.value).toBe("/usr/bin/tmux");
+  // Operator ruling 2026-09-22, screenshot 60: the facts render on Status
+  // ALONE, so the screenshot-52 scoping is superseded — the list carries
+  // bundled and tmux again, unconditionally.
+  it("carries bundled and tmux in the one list", () => {
+    const list = facts({ probe: makeProbe(), settings: undefined, enrolledNode: null });
+    expect(value(list, "bundled")?.value).toBe("1.9.0");
+    expect(value(list, "tmux")?.value).toBe("/usr/bin/tmux");
   });
 
   it("names the node only when THIS session chose the name", () => {
@@ -193,12 +200,9 @@ describe("probeFacts", () => {
     expect(value(linux, "logs")?.value).toInclude("journalctl --user -u subshell.service");
   });
 
-  it("reports tmux when asked, and marks its absence as bad", () => {
-    const opts = { binaryFacts: true } as const;
-    expect(
-      value(facts({ probe: makeProbe(), settings: undefined, enrolledNode: null }, opts), "tmux")?.tone,
-    ).toBeUndefined();
-    const missing = facts({ probe: makeProbe({ tmux: null }), settings: undefined, enrolledNode: null }, opts);
+  it("reports tmux, and marks its absence as bad", () => {
+    expect(value(facts({ probe: makeProbe(), settings: undefined, enrolledNode: null }), "tmux")?.tone).toBeUndefined();
+    const missing = facts({ probe: makeProbe({ tmux: null }), settings: undefined, enrolledNode: null });
     expect(value(missing, "tmux")?.tone).toBe("bad");
   });
 });

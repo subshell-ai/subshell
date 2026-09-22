@@ -53,16 +53,18 @@ const shell = { title: "Service", subtitle: "The node is the small program.", pr
 
 function mount(init: { probe?: ReturnType<typeof makeProbe>; busy?: boolean } = {}) {
   const calls: Call[] = [];
+  const pressed: string[] = [];
   renderApp(
     <ServiceScreen
       shell={shell}
       probe={init.probe ?? makeProbe()}
       commands={makeCommands(calls)}
       busy={init.busy ?? false}
+      onRegister={() => pressed.push("register")}
       output={null as ActionResult | null}
     />,
   );
-  return { calls };
+  return { calls, pressed };
 }
 
 const button = (name: string | RegExp) => screen.getByRole("button", { name }) as HTMLButtonElement;

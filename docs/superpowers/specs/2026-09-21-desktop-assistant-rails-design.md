@@ -147,6 +147,20 @@ all, and the Control Plane section's Dashboard card carries both doors
 ("Open in browser" for the system browser, "Open in app" for the in-app
 window).
 
+### The facts' home, and the register act's (operator ruling 2026-09-22,
+### screenshot 60)
+
+The facts render on the STATUS screen ALONE — "that data should only be in
+the status panel" — superseding the same day's screenshot-52 scoping that
+kept bundled and tmux on Service: one list, one panel, full. A screen that
+needs a fact to explain a state says it in its own card's sentence, and the
+config fact's value is plain language ("Not enrolled. Go to Service to
+enroll." / "The node's configuration could not be read."), the CLI's raw
+words rendering only as an action's failure output. **Register this
+machine** leaves the status screen for the Service section beside the
+install offer (the node's machinery home): same handler, same walk entry,
+the override-clearing wiring re-traced and re-pinned on the new screen.
+
 ### Testing
 
 The client's harness ports to the server app: `ui/bunfig.toml` +

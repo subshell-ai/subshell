@@ -25,7 +25,7 @@
  */
 import type { ReactElement } from "react";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
-import { StatusFacts } from "@/components/assistant/status-facts";
+import { ActionOutput } from "@/components/assistant/status-facts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { NodeCommands } from "@/hooks/use-node-commands";
@@ -86,10 +86,12 @@ export function ServiceScreen(props: {
   probe: Probe | undefined;
   commands: NodeCommands;
   busy: boolean;
+  /** Start the node registration flow — for a client that is not a node yet. */
+  onRegister: () => void;
   /** The CLI's last words — the verbs' answers, rendered inline below. */
   output: ActionResult | null;
 }): ReactElement {
-  const { shell, probe, commands, busy, output } = props;
+  const { shell, probe, commands, busy, onRegister, output } = props;
 
   const enrolled = Boolean(probe?.status?.nodeId);
   const action = probe ? serviceAction(probe.step) : null;
@@ -221,13 +223,35 @@ export function ServiceScreen(props: {
         </div>
       )}
 
-      {/* The facts and the CLI's last words, INLINE (the same ruling the
-          status screen carries): the verbs' answers are this section's own
-          answers, and an output block behind a disclosure would be the
-          two-navigations defect again. The ONLY facts list that carries
-          `bundled` and `tmux` (operator ruling 2026-09-22) — they are the
-          node's machinery. */}
-      <StatusFacts probe={probe} settings={undefined} enrolledNode={null} output={output} binaryFacts />
+      {/* Register this machine, beside the install offer (operator ruling
+          2026-09-22, screenshot 60): the act LEFT the status screen, which
+          keeps machine state only, and joined the node's machinery home.
+          Same gate as the card it was: offered on a machine the probe has
+          read, that is not already a node, and whose step this build knows —
+          and NOT on the no-node cases, where the install above comes first
+          (Register's chain enrolls with `confirm: true`, so it may not be
+          offered over a state this app cannot read). The walk entry and its
+          override-clearing wiring are the handler App supplies, unchanged. */}
+      {probe !== undefined && !enrolled && known && probe.step !== "no-node" && (
+        <div className="mt-6 rounded-md border border-border p-3">
+          <p className="text-detail leading-relaxed">
+            Registering installs the node, enrolls this machine with a setup key from that server, and runs it in the
+            background so subshells can be launched here.
+          </p>
+          <div className="mt-2">
+            <Button variant="outline" size="sm" disabled={busy} onClick={onRegister}>
+              Register this machine
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* The verbs' and installs' own words, INLINE — the screen's actions'
+          answers, rendered as the output block alone (operator ruling
+          2026-09-22, screenshot 60: the FACTS list is Status's alone; a
+          fact this section needs to explain a state is its card's own
+          sentence). */}
+      <ActionOutput output={output} />
     </Frame>
   );
 }

@@ -29,7 +29,7 @@
 import { ExternalLink, TriangleAlert } from "lucide-react";
 import { type ReactElement, useState } from "react";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
-import { StatusFacts } from "@/components/assistant/status-facts";
+import { ActionOutput } from "@/components/assistant/status-facts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -320,9 +320,10 @@ export function PlaneScreen(props: {
         </div>
       )}
 
-      {/* The CLI's last words, INLINE — the repoint and open acts' answers
-          are this section's own answers. */}
-      <StatusFacts probe={probe} settings={settings} enrolledNode={null} output={output} />
+      {/* The repoint and save acts' own words, INLINE — this section's
+          actions' answers, as the output block alone (operator ruling
+          2026-09-22, screenshot 60: the facts list is Status's alone). */}
+      <ActionOutput output={output} />
     </Frame>
   );
 }

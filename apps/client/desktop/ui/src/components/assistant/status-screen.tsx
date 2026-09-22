@@ -18,14 +18,12 @@
  * the app or in the system browser, lives on the Control Plane section's
  * Dashboard card.
  *
- * The one act the screen still offers is the one that is about the MACHINE
- * rather than the node's machinery: **Register this machine**, for a client
- * that only ever watched a server. Re-enroll… moved to the Control Plane
- * section (operator ruling 2026-09-22): it is an act on this machine's
- * RELATIONSHIP to the plane, not on the machine itself. Unregister is NOT
- * offered as a link any more: the rail's Reset section is that door
- * (destructive-styled, operator ruling 2026-09-22), and one act with two
- * labels is two acts to a reader.
+ * The screen offers NO act (operator rulings, 2026-09-22): Register this
+ * machine joined the Service section beside the install offer (screenshot
+ * 60, the node's machinery home), Re-enroll… lives on the Control Plane
+ * section, and Unregister is the rail's Reset section (destructive-styled).
+ * One act with two labels is two acts to a reader; so is a screen that
+ * keeps machine state and offers acts.
  *
  * The probe facts and the CLI's last words render INLINE below (operator
  * ruling 2026-09-22, the server wave's ruling carried over): a section that
@@ -41,9 +39,8 @@ import type { ReactElement } from "react";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { StatusFacts } from "@/components/assistant/status-facts";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import type { ActionResult, EnrolledNodeBody, NodeSettings, Probe } from "@/lib/ipc";
-import { PROBE_STEPS, stepLabel, stepTone } from "@/lib/steps";
+import { stepLabel, stepTone } from "@/lib/steps";
 
 /** A fact's value colour per tone — the badge palette, keyed by the step's own colour. */
 const TONE_BADGE: Record<string, "success" | "warning" | "destructive" | "muted"> = {
@@ -62,11 +59,8 @@ export function StatusScreen(props: {
   enrolledNode: EnrolledNodeBody | null;
   output: ActionResult | null;
   busy: boolean;
-  /** Start the node registration flow — for a client that is not a node yet. */
-  onRegister: () => void;
 }) {
-  const { shell, probe, settings, enrolledNode, output, busy } = props;
-  const { onRegister } = props;
+  const { shell, probe, settings, enrolledNode } = props;
 
   /** Whether this machine is a node at all — the axis the whole screen turns on. */
   const enrolled = Boolean(probe?.status?.nodeId);
@@ -78,18 +72,6 @@ export function StatusScreen(props: {
    * would be showing a default as a fact.
    */
   const named = enrolledNode?.nodeId === probe?.status?.nodeId ? enrolledNode?.name : undefined;
-
-  /**
-   * Whether this build knows the step at all.
-   *
-   * A step this app predates means the node CLI is newer than the app managing
-   * it, and the honest thing is to say so rather than to assert anything about
-   * the machine — and, above all, rather than to offer registration, which
-   * spends a key on a machine whose state is unread. The Service section
-   * carries the "does not recognise the state" card now; the gate here is
-   * what keeps the invitation itself off the screen.
-   */
-  const known = probe === undefined || (PROBE_STEPS as readonly string[]).includes(probe.step);
 
   return (
     <Frame
@@ -121,34 +103,11 @@ export function StatusScreen(props: {
       </div>
 
       {/*
-       * A client that only ever watched a server. Offered as the screen's own
-       * invitation rather than as the bar's primary: this person came to look
-       * at a dashboard, and registering their machine is the second thing they
-       * might want, not the thing they are here for.
+       * Register this machine is NOT here (operator ruling 2026-09-22,
+       * screenshot 60): the act joined the Service section beside the install
+       * offer, the node's machinery home, and the status screen keeps
+       * machine state only.
        *
-       * Withheld on the states that make it unsafe, each a machine this app
-       * has not actually READ: registering spends a single-use key and enrolls
-       * with `confirm: true`, so it may only be offered on a machine the probe
-       * describes, that is not already a node, and whose step this build
-       * knows. The no-node and mute cases live on the Service section now and
-       * their refusals went with them; the unknown step's card went too, but
-       * the gate stays.
-       */}
-      {probe !== undefined && !enrolled && known && probe.step !== "no-node" && (
-        <div className="mt-6 rounded-md border border-border p-3">
-          <p className="text-detail leading-relaxed">
-            Registering installs the node, enrolls this machine with a setup key from that server, and runs it in the
-            background so subshells can be launched here.
-          </p>
-          <div className="mt-2">
-            <Button variant="outline" size="sm" disabled={busy} onClick={onRegister}>
-              Register this machine
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/*
        * Re-enroll… is NOT here (operator ruling 2026-09-22): overwriting
        * `config.json` and minting a second node row is an act on this
        * machine's relationship to the control plane, so it lives on the
@@ -157,7 +116,7 @@ export function StatusScreen(props: {
        * machine** above.
        */}
 
-      <StatusFacts probe={probe} settings={settings} enrolledNode={enrolledNode} output={output} />
+      <StatusFacts probe={probe} settings={settings} enrolledNode={enrolledNode} />
     </Frame>
   );
 }

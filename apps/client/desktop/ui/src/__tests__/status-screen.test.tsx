@@ -14,7 +14,7 @@
  * the screen offers once it is reached.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { cleanup, screen } from "@testing-library/react";
 import { StatusScreen } from "@/components/assistant/status-screen";
 import { subtitleFor } from "@/components/assistant/subtitles";
 import type { NodeCommands } from "@/hooks/use-node-commands";
@@ -98,13 +98,12 @@ function mount(
       enrolledNode={init.enrolledNode ?? null}
       output={null}
       busy={init.busy ?? false}
-      onRegister={() => pressed.push("register")}
     />,
   );
   return { calls, pressed };
 }
 
-const button = (name: string | RegExp) => screen.getByRole("button", { name }) as HTMLButtonElement;
+const _button = (name: string | RegExp) => screen.getByRole("button", { name }) as HTMLButtonElement;
 const maybeButton = (name: string | RegExp) => screen.queryByRole("button", { name });
 const buttonOrNull_ = maybeButton;
 
@@ -160,19 +159,6 @@ describe("the address the doors will open", () => {
 });
 
 describe("a client that is not a node", () => {
-  it("offers Register and no door, and never Unregister", () => {
-    mount({ probe: watcherProbe() });
-    expect(button(/^register this machine$/i)).toBeTruthy();
-    expect(maybeButton(/open in browser/i)).toBeNull();
-    expect(maybeButton(/unregister this machine/i)).toBeNull();
-  });
-
-  it("starts the registration flow", () => {
-    const { pressed } = mount({ probe: watcherProbe() });
-    fireEvent.click(button(/^register this machine$/i));
-    expect(pressed).toEqual(["register"]);
-  });
-
   /**
    * Re-enrolling is what you do to a machine that IS one; on this machine the
    * act with that meaning is Register, and two labels for one thing is two
@@ -238,17 +224,16 @@ describe("what the connected screen offered is still offered", () => {
    * button is a door to the one update screen, which then does whichever
    * halves are actually behind.
    */
-  it("renders the facts and the CLI's last words INLINE", () => {
+  it("renders the facts INLINE, and they are this screen's alone", () => {
     // Operator ruling 2026-09-22 (the server wave's ruling carried over): a
     // section that hides its own facts behind a second control is two
-    // navigations for one answer.
+    // navigations for one answer. And since screenshot 60 the list is THIS
+    // screen's ALONE — every other screen lost it — so the full list
+    // including `bundled` and `tmux` lives here again (superseding the
+    // screenshot-52 scoping).
     mount();
     expect(screen.queryByText("Show Details")).toBeNull();
-    // A fact readable without opening anything — but NOT `tmux` (or
-    // `bundled`): those rows render only on the Service section (operator
-    // ruling 2026-09-22, screenshot 52), and this screen's facts carry the
-    // machine's own.
-    expect(screen.queryByText("/usr/bin/tmux")).toBeNull();
+    expect(screen.getByText("/usr/bin/tmux")).toBeTruthy();
     expect(screen.getByText("/home/u/.config/subshell/config.json")).toBeTruthy();
   });
 

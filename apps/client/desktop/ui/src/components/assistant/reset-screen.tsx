@@ -21,7 +21,7 @@ import { TriangleAlert } from "lucide-react";
 import type { ReactElement } from "react";
 import { useEffect, useState } from "react";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
-import { StatusFacts } from "@/components/assistant/status-facts";
+import { ActionOutput } from "@/components/assistant/status-facts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -194,7 +194,7 @@ export function ResetScreen(props: {
         </>
       )}
 
-      <StatusFacts probe={probe} settings={settings} enrolledNode={enrolledNode} output={output} />
+      <ActionOutput output={output} />
     </Frame>
   );
 }

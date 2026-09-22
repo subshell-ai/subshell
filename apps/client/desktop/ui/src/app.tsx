@@ -440,24 +440,7 @@ export function App() {
     case "connect":
       return <ConnectScreen shell={shell} commands={commands} busy={runner.busy} />;
     case "status":
-      return (
-        <StatusScreen
-          rail={rail}
-          shell={shell}
-          {...facts}
-          busy={runner.busy}
-          onRegister={() => {
-            if (runner.busy) return;
-            form.seedServer(probe?.status?.serverUrl ?? settings?.planeUrl ?? "");
-            // The walk outranks nothing the person asked for, but it DOES
-            // replace the section they are reading: Status is an override
-            // now (the landing moved to Control Plane), and leaving it set
-            // would swallow the walk's own screen behind it.
-            setOverride(null);
-            setStep("node");
-          }}
-        />
-      );
+      return <StatusScreen rail={rail} shell={shell} {...facts} busy={runner.busy} />;
     case "service":
       return (
         <ServiceScreen
@@ -466,6 +449,17 @@ export function App() {
           probe={probe}
           commands={commands}
           busy={runner.busy}
+          onRegister={() => {
+            if (runner.busy) return;
+            form.seedServer(probe?.status?.serverUrl ?? settings?.planeUrl ?? "");
+            // The walk outranks nothing the person asked for, but it DOES
+            // replace the section they are reading: Service is an override
+            // now (every rail select is), and leaving it set would swallow
+            // the walk's own screen behind it — the 11c0f14f fix, re-traced
+            // to its new home on Service.
+            setOverride(null);
+            setStep("node");
+          }}
           output={runner.output}
         />
       );

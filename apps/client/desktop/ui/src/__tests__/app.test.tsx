@@ -1468,9 +1468,10 @@ describe("the first run", () => {
   // a door out of the dashboard for the rest of the session.
   it("returns a configured client to its landing screen, not to a choice it never saw", async () => {
     await boot({ probe: watcher() });
-    // Register lives on the status screen; the landing is Control Plane.
-    await openSection("Status");
-    expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy();
+    // Register lives on the Service section (operator ruling 2026-09-22,
+    // screenshot 60); the landing is Control Plane.
+    await openSection("Service");
+    expect(screen.getByRole("heading", { name: "Service" })).toBeTruthy();
     fireEvent.click(button("Register this machine"));
     await screen.findByRole("heading", { name: "Register This Machine" });
 
@@ -1481,10 +1482,10 @@ describe("the first run", () => {
     expect(buttonOrNull("Open in app")).not.toBeNull();
     // And NOT the fresh machine's answer: this person never chose anything.
     expect(screen.queryByRole("heading", { name: "What Would You Like to Do?" })).toBeNull();
-    // The invitation is still there to accept a second time, on the status
-    // screen where it lives: a door that closes behind you is the thing
+    // The invitation is still there to accept a second time, on the Service
+    // section where it lives: a door that closes behind you is the thing
     // being fixed.
-    await openSection("Status");
+    await openSection("Service");
     expect(buttonOrNull("Register this machine")).not.toBeNull();
   });
 
@@ -1531,7 +1532,7 @@ describe("the first run", () => {
   // the landing they came from — with the dashboard button on it.
   it("returns a configured client from the tmux gate to its landing screen", async () => {
     await boot({ probe: makeProbe({ ...watcher(), tmux: null }) });
-    await openSection("Status");
+    await openSection("Service");
     fireEvent.click(button("Register this machine"));
     await screen.findByRole("heading", { name: "Install tmux" });
 
@@ -1714,10 +1715,10 @@ describe("the screens", () => {
     // No refresh affordance over an unreadable state either: the poll is the
     // re-read (operator ruling 2026-09-22).
     expect(buttonOrNull("Refresh")).toBeNull();
-    // The facts are INLINE (operator ruling 2026-09-22): there is no
-    // disclosure to open, and a fact is readable without one.
+    // And no facts list here: the facts are Status's alone (operator ruling
+    // 2026-09-22, screenshot 60); the card's own sentence is the explanation.
     expect(screen.queryByText("Show Details")).toBeNull();
-    expect(screen.getByText("/usr/bin/tmux")).toBeTruthy();
+    expect(screen.queryByText("/usr/bin/tmux")).toBeNull();
   });
 
   it("does not strand the window when the probe itself cannot be read", async () => {
@@ -1742,25 +1743,29 @@ describe("the screens", () => {
 });
 
 describe("the facts", () => {
-  // INLINE on the screen now (operator ruling 2026-09-22), and the `bundled`
-  // and `tmux` rows render ONLY on the Service section (same day, screenshot
-  // 52): they are the node's machinery, and they repeated that section
-  // verbatim on the status screen.
-  it("names the config file and the control plane, with bundled and tmux absent", async () => {
+  // INLINE on the status screen (operator ruling 2026-09-22), and the list is
+  // STATUS's ALONE (same day, screenshot 60, superseding the screenshot-52
+  // scoping): one list, one panel, bundled and tmux included. No other
+  // screen renders it.
+  it("names the machine on Status, with the full list", async () => {
     await boot();
+    // The landing is Control Plane; the facts list is Status's.
+    await openSection("Status");
     expect(screen.getByText("/home/u/.config/subshell/config.json")).toBeTruthy();
     expect(screen.getAllByText(/https:\/\/subshell\.example\.com/).length).toBeGreaterThan(0);
     expect(screen.getByText(/online \(last heartbeat 4s ago\)/)).toBeTruthy();
-    expect(screen.queryByText("/usr/bin/tmux")).toBeNull();
-    // And the Service section is the one place they live.
-    await openSection("Service");
     expect(screen.getByText("/usr/bin/tmux")).toBeTruthy();
+    // And nowhere else: the Service section renders no facts list.
+    await openSection("Service");
+    expect(screen.queryByText("/usr/bin/tmux")).toBeNull();
+    expect(screen.queryByText("node binary")).toBeNull();
   });
 
   it("shouts when tmux is missing, because a node without it refuses every launch", async () => {
     await boot({ probe: makeProbe({ tmux: null }) });
-    // The refusal sentence is the Service section's fact row now.
-    await openSection("Service");
+    // The refusal sentence is the facts list's row, on Status (the landing
+    // is Control Plane).
+    await openSection("Status");
     expect(screen.getByText(/NOT FOUND: enroll refuses/)).toBeTruthy();
   });
 

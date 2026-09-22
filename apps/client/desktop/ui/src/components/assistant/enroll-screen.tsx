@@ -16,7 +16,7 @@
  */
 import { KeyRound } from "lucide-react";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
-import { StatusFacts } from "@/components/assistant/status-facts";
+import { ActionOutput } from "@/components/assistant/status-facts";
 import { EnrollFields } from "@/components/enroll-fields";
 import { Button } from "@/components/ui/button";
 import type { EnrollForm } from "@/hooks/use-enroll-form";
@@ -95,7 +95,7 @@ export function EnrollScreen(props: {
        * enroll`'s stderr is what says whether to mint a new one. It is the
        * reason this screen carries the disclosure at all.
        */}
-      <StatusFacts probe={probe} settings={settings} enrolledNode={enrolledNode} output={output} />
+      <ActionOutput output={output} />
     </Frame>
   );
 }

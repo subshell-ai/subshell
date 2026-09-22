@@ -49,22 +49,17 @@ export function fmtAge(ms: number | undefined): string | null {
 }
 
 /**
- * Everything the top card says about this machine.
- *
- * The `bundled` and `tmux` rows render ONLY where the Service section asks for
- * them (operator ruling 2026-09-22): they are the node's machinery, and they
- * repeated verbatim on the status screen and the Control Plane section, which
- * are not about the machinery. Every other caller omits them by default.
+ * Everything the top card says about this machine. The bundled and tmux rows
+ * are part of the list again (operator ruling 2026-09-22, screenshot 60: the
+ * facts render on the STATUS screen ALONE, so the screenshot-52 scoping that
+ * kept them on Service is superseded — one list, one panel).
  */
-export function probeFacts(
-  args: {
-    probe: Probe | undefined;
-    settings: NodeSettings | undefined;
-    /** The `enroll --json` body from a successful enrollment in THIS session. */
-    enrolledNode: EnrolledNodeBody | null;
-  },
-  opts: { binaryFacts?: boolean } = {},
-): Fact[] {
+export function probeFacts(args: {
+  probe: Probe | undefined;
+  settings: NodeSettings | undefined;
+  /** The `enroll --json` body from a successful enrollment in THIS session. */
+  enrolledNode: EnrolledNodeBody | null;
+}): Fact[] {
   const { probe, settings, enrolledNode } = args;
   if (probe === undefined) return [];
   const out: Fact[] = [];
@@ -78,7 +73,7 @@ export function probeFacts(
     });
     out.push({ key: "found via", value: SOURCE_LABEL[probe.nodeBinary.source] ?? probe.nodeBinary.source });
   }
-  if (opts.binaryFacts && probe.bundledVersion) {
+  if (probe.bundledVersion) {
     const note = NODE_CHOICE_NOTE[probe.nodeChoice] ?? "";
     out.push({ key: "bundled", value: probe.bundledVersion + note, tone: note ? "warn" : undefined });
   }
@@ -111,10 +106,21 @@ export function probeFacts(
       tone: st.online ? "ok" : "warn",
     });
   } else if (st?.reason) {
-    // The CLI's own sentence for why it could not read a config — usually "no
-    // config at … — enroll this node first", sometimes "config corrupt". The
-    // difference matters and is not something to paraphrase.
-    out.push({ key: "config", value: st.reason, tone: "warn" });
+    // PLAIN LANGUAGE, not the CLI's words (operator ruling 2026-09-22,
+    // screenshot 60): the enroll-command hint belongs to the CLI and the
+    // enroll flow, not to a facts row, and a raw refusal reads as an error
+    // the reader cannot act on. Two states, two sentences: the reason that
+    // points at enrolling becomes the pointer to the Service section; any
+    // other unreadable-config reason becomes the one sentence that is true
+    // of all of them. The CLI's own words still render VERBATIM where they
+    // belong — as an action's failure output on the screen that owns the
+    // action.
+    const notEnrolled = /enroll/i.test(st.reason);
+    out.push({
+      key: "config",
+      value: notEnrolled ? "Not enrolled. Go to Service to enroll." : "The node's configuration could not be read.",
+      tone: "warn",
+    });
   }
 
   if (svc?.installed) {
@@ -148,14 +154,11 @@ export function probeFacts(
   // From the PROBE, not from `status`: tmux is a hard stop on `enroll` — which
   // preflights it BEFORE its network call, precisely so an unenrollable box
   // does not burn a one-time setup key — and on every launch this node accepts.
-  // Service-section only, like `bundled` (operator ruling 2026-09-22).
-  if (opts.binaryFacts) {
-    out.push({
-      key: "tmux",
-      value: probe.tmux ?? "NOT FOUND: enroll refuses, and a node without it accepts no launches",
-      tone: probe.tmux ? undefined : "bad",
-    });
-  }
+  out.push({
+    key: "tmux",
+    value: probe.tmux ?? "NOT FOUND: enroll refuses, and a node without it accepts no launches",
+    tone: probe.tmux ? undefined : "bad",
+  });
 
   return out;
 }
