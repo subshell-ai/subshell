@@ -360,8 +360,12 @@ export function useNodeCommands(args: {
     openPlane: (url) =>
       runner.run(
         async () => {
-          const opened = await nodeOpenPlane({ url });
-          return finished({ ok: true, stdout: `Opened ${opened}`, stderr: "" });
+          await nodeOpenPlane({ url });
+          // An OPEN needs no receipt (operator ruling 2026-09-22): the
+          // window or browser opening IS the feedback, so the runner
+          // records nothing and no other section inherits an "Opened
+          // <url>" line that is not its business.
+          return finished(null);
         },
         { reprobe: false },
       ),
@@ -408,8 +412,12 @@ export function useNodeCommands(args: {
      */
     connectOnly: (url) =>
       runner.run(async () => {
-        const opened = await nodeSetPlane({ url });
-        return finished({ ok: true, stdout: `Using ${opened}`, stderr: "" });
+        await nodeSetPlane({ url });
+        // An instantaneous save records nothing (operator ruling 2026-09-22):
+        // the runner's settings refetch is what moves the address on screen,
+        // and a receipt line for a save nobody watched is the same
+        // foreign-output defect the opens had.
+        return finished(null);
       }),
 
     /**

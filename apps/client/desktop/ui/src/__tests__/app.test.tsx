@@ -1882,6 +1882,9 @@ describe("the plane's two doors", () => {
     await waitFor(() => expect(fake.callsTo("node_open_plane_url")).toEqual([{}]));
     // And it asked for NOTHING but the intent — no URL crossed the boundary.
     expect(fake.callsTo("node_open_plane_url")[0]).toEqual({});
+    // No receipt either (operator ruling 2026-09-22): the browser opening
+    // is the feedback.
+    expect(screen.queryByText(/Opened\b|Using\b/)).toBeNull();
   });
 
   it("rejection reaches the problem line, like every command", async () => {
@@ -1926,6 +1929,9 @@ describe("the plane's two doors", () => {
     await openSection("Control Plane");
     fireEvent.click(button("Open in app"));
     await waitFor(() => expect(fake.callsTo("node_open_plane")).toEqual([{ url: null }]));
+    // An OPEN records NO receipt (operator ruling 2026-09-22): the window
+    // opening is the feedback, so no "Opened <url>" line renders anywhere.
+    expect(screen.queryByText(/Opened\b|Using\b/)).toBeNull();
   });
 
   // Was "opens the app window at the address the connect screen was given",
@@ -1953,14 +1959,27 @@ describe("the plane's two doors", () => {
 
   // The `openPlane` door itself survives, on the screen of a client that is
   // already set up: there, pressing it IS the request to see that dashboard.
-  it("opens the app window at an address changed from the Control Plane section", async () => {
-    const fake = await boot({ handlers: { node_open_plane: (args) => String(args.url) } });
+  it("saves the address WITHOUT opening anything, under the label Change", async () => {
+    // Operator ruling 2026-09-22, addendum 6: the submit persists the
+    // address and opens NOTHING — the Dashboard card's two doors are the
+    // explicit opens. The save rides node_set_plane (the persist-only
+    // command), so the boundary sees no open call from it, and the field
+    // label is the addendum-4 "Control plane URL".
+    const fake = await boot({
+      handlers: {
+        node_set_plane: (args) => String(args.url),
+        node_open_plane: (args) => String(args.url),
+        node_open_plane_url: () => null,
+      },
+    });
     await openSection("Control Plane");
     fireEvent.click(button("Change server…"));
-    // The URL card's field label (operator ruling 2026-09-22, addendum 4).
     typeInto("Control plane URL", "https://plane.example");
-    fireEvent.click(button("Open"));
-    await waitFor(() => expect(fake.callsTo("node_open_plane")).toEqual([{ url: "https://plane.example" }]));
+    fireEvent.click(button("Change"));
+    await waitFor(() => expect(fake.callsTo("node_set_plane")).toEqual([{ url: "https://plane.example" }]));
+    // The whole pin: no open crossed the boundary from the save.
+    expect(fake.callsTo("node_open_plane")).toEqual([]);
+    expect(fake.callsTo("node_open_plane_url")).toEqual([]);
   });
 
   // Was "persists the typed address before opening a browser on it". That

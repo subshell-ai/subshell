@@ -99,7 +99,13 @@ export function PlaneScreen(props: {
                 // as its own message, and leaving the form open on success
                 // would look like nothing happened.
                 setEditingPlane(false);
-                commands.openPlane(planeTyped);
+                // SAVES ONLY (operator ruling 2026-09-22, addendum 6): the
+                // Dashboard card's two doors are the explicit opens; the
+                // submit persists the address and nothing else. An
+                // instantaneous save also records no receipt (the opens
+                // record none either), so the form's feedback is the
+                // refetched address itself.
+                commands.connectOnly(planeTyped);
               }}
             >
               <div className="flex items-center gap-2">
@@ -114,7 +120,7 @@ export function PlaneScreen(props: {
                   disabled={busy}
                 />
                 <Button type="submit" size="sm" disabled={busy || planeTyped.trim() === ""}>
-                  Open
+                  Change
                 </Button>
                 <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setEditingPlane(false)}>
                   Cancel
