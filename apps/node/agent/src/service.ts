@@ -440,6 +440,78 @@ export async function installService(deps: ServiceDeps, opts: { autostart?: bool
 }
 
 /**
+ * Turn "starts at login" on or off for an ALREADY-INSTALLED service, WITHOUT
+ * touching the running process (the node's day-2 toggle for the same fact the
+ * first run's start-up screen asks once — a port of the server CLI's
+ * {@link setAutostart} twin, spec 2026-09-22 rails addendum).
+ *
+ * That last clause is the contract, and it is why this is not another arm of
+ * `controlService`: an operator toggling a preference about the NEXT login
+ * must not discover that their node went down. So Linux gets
+ * `enable`/`disable` with no `--now` — and with `--no-reload`, which the
+ * server's twin does not pass: the unit's CONTENTS are not changing here,
+ * only its wants symlink, so the daemon's copy has nothing to reread, and a
+ * reload is a conversation this act has no business starting. On darwin the
+ * plist MOVES between the login directory and the session one — the loaded
+ * job does not care where its definition came from, so nothing restarts.
+ *
+ * Refuses when nothing is installed, in the same words `controlService`
+ * uses: there is no definition to arm, and writing one here would make this
+ * a way to install a service whose enrolled config was never checked.
+ *
+ * @param deps - the service seams (the same {@link ServiceDeps} every other
+ *   verb runs through)
+ * @param enabled - `true` arms login start, `false` disarms it
+ */
+export async function setAutostart(deps: ServiceDeps, enabled: boolean): Promise<CliResult> {
+  if (deps.platform !== "linux" && deps.platform !== "darwin") {
+    return errLine(unsupported(enabled ? "enable" : "disable", deps.platform));
+  }
+  const state = await queryService(deps);
+  if (!state.installed) {
+    return errLine(
+      `nothing installed: no service definition at ${state.definitionPath} (run \`subshell service install\` first)`,
+    );
+  }
+  const done = (): CliResult => ({
+    code: 0,
+    out: `subshell ${enabled ? "will start at login" : "will no longer start at login"}.\n`,
+    err: "",
+  });
+
+  if (deps.platform === "linux") {
+    // No `--now`: `enable --now` would START a stopped node and `disable
+    // --now` would STOP a running one, and neither is what was asked for.
+    // `uninstall` is where `disable --now` belongs.
+    const verb = enabled ? "enable" : "disable";
+    const res = await deps.runCmd(["systemctl", "--user", verb, "--no-reload", SYSTEMD_UNIT_NAME]);
+    if (res.code !== 0) {
+      return errLine(`systemctl --user ${verb} ${SYSTEMD_UNIT_NAME} failed (exit ${res.code}): ${cmdDetail(res)}`);
+    }
+    return done();
+  }
+
+  // darwin: move the definition. WRITE FIRST, then remove — a failed write
+  // must leave the service exactly as it was rather than unregistered from
+  // both places, which is a machine with no definition at all. (The server
+  // twin's measured ordering, kept verbatim.)
+  const from = await darwinDefinition(deps);
+  if (from.enabled === enabled) return done(); // already there; moving it would be a no-op with a risk
+  const to = enabled ? plistPath(deps.home) : sessionPlistPath(deps.configDir);
+  const text = await deps.readFile(from.path);
+  if (text === null) return errLine(`could not read the service definition at ${from.path}`);
+  try {
+    await deps.writeFile(to, text);
+    await deps.removeFile(from.path);
+  } catch (err) {
+    return errLine(
+      `could not move the service definition to ${to}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  return done();
+}
+
+/**
  * Remove the per-user service. Unlike install, this NEVER gates on
  * {@link ServiceDeps.hasConfig}: deleting the config is the de-facto unenroll,
  * and a guard here would strand an enabled unit (Restart=always) with no way
@@ -640,6 +712,20 @@ export interface ServiceState {
   pid: number | null;
   /** Whether it starts at login (systemd `UnitFileState`; launchd `RunAtLoad` OR `KeepAlive`). `null` when unknown. */
   enabled: boolean | null;
+  /**
+   * The same "starts at login" fact, spelled for the consumer that ARMS and
+   * DISARMS it: {@link setAutostart} on this CLI, and Subshell Client's
+   * run-at-login switch on the probe (spec 2026-09-22 rails addendum — the
+   * day-2 toggle the server's `setAutostart` always had and this side did not).
+   *
+   * Today it is one derivation with {@link enabled} on both platforms (the
+   * systemd `UnitFileState`, the plist's directory), and it is deliberately
+   * not collapsed into it: `enabled` is a manager reading, this is the name of
+   * the act, and a control deciding which way to point a switch should read
+   * the word that says what pressing it does. `null` exactly where
+   * {@link enabled} is: nothing installed, or the manager would not answer.
+   */
+  autostart: boolean | null;
   /**
    * Linux only: whether this machine's OS user LINGERS
    * (`loginctl enable-linger`).
@@ -903,6 +989,7 @@ export async function queryService(deps: ServiceDeps): Promise<ServiceState> {
       state: "not-installed",
       pid: null,
       enabled: null,
+      autostart: null,
       linger: null,
       paneSafety: null,
       detail: `no per-user service manager on '${deps.platform}'`,
@@ -916,6 +1003,7 @@ export async function queryService(deps: ServiceDeps): Promise<ServiceState> {
       state: "not-installed",
       pid: null,
       enabled: null,
+      autostart: null,
       linger: null,
       paneSafety: null,
       detail: "",
@@ -964,6 +1052,7 @@ async function querySystemd(deps: ServiceDeps, definitionPath: string): Promise<
       state: "unknown",
       pid: null,
       enabled: null,
+      autostart: null,
       // `systemctl show` itself did not answer, so nothing here is worth a
       // second spawn: logind is asked only on the branch where systemd talked.
       linger: null,
@@ -990,6 +1079,10 @@ async function querySystemd(deps: ServiceDeps, definitionPath: string): Promise<
           ? "stopped"
           : "unknown";
   const killMode = (props.KillMode ?? "").toLowerCase();
+  // `enabled-runtime` starts at login too, for this boot. One reading, two
+  // names — `enabled` for the manager's view, `autostart` for the arm/disarm
+  // act — see `ServiceState.autostart`.
+  const enabled = unitFileState === "" ? null : unitFileState.startsWith("enabled");
   // Asked whether or not the unit is enabled: linger is a property of the USER,
   // not of this unit, so it is as true of a machine mid-install as of a running
   // one — and an operator enabling the unit next wants the answer already.
@@ -1000,8 +1093,8 @@ async function querySystemd(deps: ServiceDeps, definitionPath: string): Promise<
     logPath: deps.platform === "darwin" ? launchLogPath(deps.home) : null,
     state,
     pid: Number.isInteger(mainPid) && mainPid > 0 ? mainPid : null,
-    // `enabled-runtime` starts at login too, for this boot.
-    enabled: unitFileState === "" ? null : unitFileState.startsWith("enabled"),
+    enabled,
+    autostart: enabled,
     linger,
     paneSafety: killMode === "" ? "unknown" : PANE_SPARING_KILL_MODES.has(killMode) ? "keeps" : "kills",
     detail: notes(
@@ -1054,6 +1147,7 @@ async function queryLaunchd(deps: ServiceDeps, definitionPath: string): Promise<
         state: "unknown",
         pid: null,
         enabled,
+        autostart: enabled,
         // launchd has no linger equivalent: a LaunchAgent's lifetime IS the
         // login session by design, so there is no fact here to report.
         linger: null,
@@ -1069,6 +1163,7 @@ async function queryLaunchd(deps: ServiceDeps, definitionPath: string): Promise<
       state: "stopped",
       pid: null,
       enabled,
+      autostart: enabled,
       linger: null,
       loaded: false,
       paneSafety,
@@ -1089,6 +1184,7 @@ async function queryLaunchd(deps: ServiceDeps, definitionPath: string): Promise<
     state: running ? "running" : "stopped",
     pid,
     enabled,
+    autostart: enabled,
     linger: null,
     loaded: true,
     paneSafety,

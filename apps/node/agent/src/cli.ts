@@ -26,6 +26,7 @@ import {
   SERVICE_VERBS,
   type ServiceDeps,
   serviceStateLines,
+  setAutostart,
   uninstallService,
 } from "./service.js";
 import { type ConfirmFn, type PromptTextFn, promptConfirm, promptName, runSetup } from "./setup.js";
@@ -92,6 +93,9 @@ usage:
   subshell service uninstall
   subshell service status [--json]     (what the service manager reports)
   subshell service start|stop|restart  (restart takes --force: override the live-pane refusal)
+  subshell service autostart on|off [--json]
+                          start the service at login, or not; needs an installed
+                          service and touches nothing that is running
   subshell maintenance on [--yes] [--json]
                           take this node out of service: it answers everything
                           else, launches nothing, and STOPS every subshell
@@ -152,7 +156,7 @@ const COMMAND_ALIASES: Record<string, string> = {
  * cannot be silently unreachable here.
  */
 const SUBCOMMANDS: Record<string, string[]> = {
-  service: ["install", "uninstall", "status", ...SERVICE_VERBS],
+  service: ["install", "uninstall", "status", "autostart", ...SERVICE_VERBS],
   // Spread for the same reason: a subtoken added in maintenance-cli.ts must
   // not be silently unreachable from the parser that admits it.
   maintenance: [...MAINTENANCE_SUBS],
@@ -187,6 +191,11 @@ const SUBCOMMAND_ARGS: Record<string, Record<string, readonly string[] | typeof 
   // makes the argument required, and a generated hook that lost its word must
   // fail loudly here rather than report a death with no status as a clean one.
   report: { attention: ATTENTION_KINDS, exit: FREE_ARG },
+  // `service autostart` is the first two-word service verb: its second slot is
+  // the state to arm. A value rather than two subwords (`autostart-on`)
+  // because the pair is one act in two moods, exactly like
+  // `maintenance on|off`, and the CLI already reads that shape here.
+  service: { autostart: ["on", "off"] },
 };
 /**
  * Command → subtoken → the flags THAT subtoken accepts. `--json` is a VIEW's
@@ -197,8 +206,14 @@ const SUBCOMMAND_ARGS: Record<string, Record<string, readonly string[] | typeof 
 const SUBCOMMAND_FLAGS: Record<string, Record<string, string[]>> = {
   // `--no-autostart` is install's alone: it decides what the NEXT login does,
   // and the manager verbs drive a definition whose login behaviour is already
-  // written down.
-  service: { install: ["--no-autostart"], status: ["--json"], restart: ["--force"] },
+  // written down. The `autostart` VERB is the day-2 version of that decision,
+  // and `--json` is its view flag, the same shape `status` takes.
+  service: {
+    install: ["--no-autostart"],
+    status: ["--json"],
+    restart: ["--force"],
+    autostart: ["--json"],
+  },
   // `--yes` overrides ONE refusal, the live-pane one `on` raises; `off` and
   // `status` have nothing to confirm, so accepting it there would read as
   // meaningful.
@@ -581,6 +596,17 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
             ? `${JSON.stringify(state, null, 2)}\n`
             : `${serviceStateLines(state).join("\n")}\n`;
           return { code: 0, out, err: "" };
+        }
+        if (parsed.sub === "autostart") {
+          // The parser pinned `parsed.arg` to "on"/"off" (SUBCOMMAND_ARGS), so
+          // this only says the two-word verb in the boolean the seam takes.
+          const on = parsed.arg === "on";
+          const res = await setAutostart(sdeps, on);
+          // A failed act stays a failed act under `--json`: the refusal keeps
+          // its exit 1 and its words — a JSON mask over "nothing installed"
+          // would make a script read success where the machine says no.
+          if (!parsed.flags.json || res.code !== 0) return res;
+          return { code: 0, out: `${JSON.stringify({ ok: true, autostart: on }, null, 2)}\n`, err: res.err };
         }
         // Narrowed by exclusion — install/uninstall/status returned above — so
         // a SUBCOMMANDS.service entry that nothing handles lands on the usage

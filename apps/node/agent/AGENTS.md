@@ -151,6 +151,10 @@ subshell service status [--json]   # what the service MANAGER reports; always ex
 subshell service start|stop         # drive an installed service; never installs one
 subshell service restart [--force]  # --force overrides the refusal to restart a
                                      # definition that would SIGKILL live panes
+subshell service autostart on|off [--json]
+                                     # arm or disarm login start for an INSTALLED
+                                     # service; refuses when there is no definition,
+                                     # and touches nothing that is running
 subshell maintenance on [--yes]    # take this node out of service (spec 2026-09-14):
                                      # it keeps answering every other command and
                                      # launches nothing. `on` STOPS every subshell
@@ -360,9 +364,25 @@ honest reading of the request (the frame has no field to say otherwise, and
 "install the service" from a plane means the ordinary one), but it is the one
 place the "the two locations are kept apart everywhere" rule above does not
 hold, so it is written down rather than discovered. Giving the plane a say
-would mean a new field on the frame and a protocol bump; there is no day-2
-toggle on this side either, unlike the server's `setAutostart` — both are
-deliberate omissions for now, not oversights.
+would mean a new field on the frame and a protocol bump, which stays a
+deliberate omission; what the KEYBOARD and Subshell Client gained on
+2026-09-22 (rails addendum) is the day-2 toggle this side used to lack:
+`subshell service autostart on|off` (`src/service.ts`'s `setAutostart`, the
+node's port of the server CLI's twin). It refuses when nothing is installed,
+in `controlService`'s words — an arm/disarm that could write a definition
+would be a way to install a service whose config was never checked — and it
+interrupts NOTHING running: Linux runs `systemctl --user enable|disable
+--no-reload`, never `--now` (which would start or stop the node as a side
+effect of a preference about the next login; the `--no-reload` the server's
+twin does not pass is this port's one divergence, and it is honest about the
+work: no unit CONTENTS change here, only the wants symlink, so the daemon has
+nothing to reread), and darwin MOVES the plist between the two locations with
+the loaded job entirely unbothered — write first, then remove, so a failed
+move leaves the definition exactly where it was. `service status --json`
+answers the same fact twice by name: `enabled` is the manager's reading,
+`autostart` is the act's, one derivation on both platforms and `null` exactly
+together, so an older reader loses nothing and the run-at-login switch reads
+the word that says what pressing it does.
 
 `service status` also reports `logPath` (that file on macOS, `null` on Linux —
 the unit redirects nothing and the journal holds the output), so a GUI reveals
