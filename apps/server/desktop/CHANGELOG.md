@@ -1,5 +1,19 @@
 # @internal/desktop-server
 
+## 0.13.0
+
+### Minor Changes
+
+- [#136](https://github.com/subshell-ai/subshell/pull/136) [`106ee7f`](https://github.com/subshell-ai/subshell/commit/106ee7f73ef7cd627192b443f5a8072aa195ba85) Thanks [@theogravity](https://github.com/theogravity)! - The assistant's rail gains Reset as its fifth, destructive-styled section: the door moves into the sidebar while the reset screen stays full-window, so nothing competes with the chain running. With the rail present it is the navigation — the standing screens' leave buttons (Back on How it runs, Back on Addresses, Close on Update) render only where the rail does not, keeping the way out for screens that have none.
+
+- [#134](https://github.com/subshell-ai/subshell/pull/134) [`99e7ee0`](https://github.com/subshell-ai/subshell/commit/99e7ee0022df53204c71242241b24e9d7a7c128f) Thanks [@theogravity](https://github.com/theogravity)! - The server desktop assistant gains a sidebar rail of standing options — Status, Update, How it runs, Addresses — on an onboarded machine's standing screens, and only there: the first-time experience, reset, permissions and boot stay full-window. The recovery screen's Show Details disclosure is gone; its facts, log tail and last output render inline in the Status section, fed while the section is up.
+
+### Patch Changes
+
+- [#130](https://github.com/subshell-ai/subshell/pull/130) [`ade0066`](https://github.com/subshell-ai/subshell/commit/ade006677ee6918d298a1aa3f6c78218685a7779) Thanks [@theogravity](https://github.com/theogravity)! - The recovery screen's secondary actions stack one per row instead of running together on a single line, and they take a press reliably: the background poll no longer tears down and rebuilds the screen every 1.5 seconds when nothing has changed.
+
+- [#132](https://github.com/subshell-ai/subshell/pull/132) [`03270bd`](https://github.com/subshell-ai/subshell/commit/03270bd5831f6b4b6098129fe242fa5eb409dbf8) Thanks [@theogravity](https://github.com/theogravity)! - The assistant window is rebuilt in React. The hand-built DOM render (wizard.ts and the assistant/ modules) is replaced by components over the same pure decision modules, with every string, gate and latch carried over as it was; the shared Frame now lives in `@internal/assistant`, and the screens compose the shadcn kit the client assistant uses. Behavior is unchanged: first run, recovery, update, reset and permissions work as before.
+
 ## 0.12.1
 
 ### Patch Changes
