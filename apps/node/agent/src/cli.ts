@@ -30,6 +30,7 @@ import {
   uninstallService,
 } from "./service.js";
 import { type ConfirmFn, type PromptTextFn, promptConfirm, promptName, runSetup } from "./setup.js";
+import { defaultUnenrollDeps, runUnenroll, type UnenrollDeps } from "./unenroll-cli.js";
 import {
   applyUpdate,
   failedMarkerPath,
@@ -102,6 +103,13 @@ usage:
                           running here (listed first; --yes is the confirmation)
   subshell maintenance off [--json]     put it back in service
   subshell maintenance status [--json]  what this machine's mirror says
+  subshell unenroll [--yes] [--json]
+                          stop being a node: deletes this machine's node config
+                          (its node key's only home) and the daemon lock. Keeps
+                          the data directory, the panes, and the installed
+                          binary; the control plane's row stays until its owner
+                          deletes it there. Refuses while a daemon runs or
+                          subshells are live; --yes is the confirmation.
   subshell status [--json] [--probe]
   subshell update [--check] [--to <version>] [--from <file>] [--force] [--yes]
                   [--json] [--no-restart]
@@ -135,6 +143,7 @@ const COMMANDS = new Set([
   "service",
   "setup",
   "status",
+  "unenroll",
   "update",
   "version",
 ]);
@@ -268,6 +277,7 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   // of, so accepting it there would read as meaningful.
   setup: ["--server", "--key", "--name", "--data-dir", "--no-service", "--yes", "--json"],
   status: ["--json", "--probe"],
+  unenroll: ["--yes", "--json"],
   // No subtoken table: `--rollback` is a FLAG rather than a `subshell update
   // rollback` subcommand, because it is the same verb pointed backwards and a
   // subcommand would invite `update rollback --to 0.8.0`, which means nothing.
@@ -413,6 +423,12 @@ export interface RunDeps {
    * kills must not need a tmux server on the host running them.
    */
   maintenance?: MaintenanceDeps;
+  /**
+   * lock/tmux/meta/fs seams for `unenroll` (default: built over the enrolled
+   * data dir). `--yes` deletes the config and the lock, so the tests that pin
+   * the ORDER need neither a daemon nor a filesystem write to act on.
+   */
+  unenroll?: UnenrollDeps;
   /**
    * How `setup` asks for the node's name (default: {@link promptName}, a clack
    * text input prefilled with this machine's hostname).
@@ -629,6 +645,17 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           parsed.sub,
           { yes: parsed.flags.yes === "1", json: parsed.flags.json === "1" },
           deps.maintenance ?? defaultMaintenanceDeps(cfg.dataDir),
+        );
+      }
+      case "unenroll": {
+        // Config first, `maintenance`'s rule for the same reason: a machine
+        // that was never enrolled has nothing to unenroll, and loadConfig's
+        // own sentence is the one that points at `enroll`.
+        const cfg = await loadConfig();
+        return await runUnenroll(
+          cfg,
+          { yes: parsed.flags.yes === "1", json: parsed.flags.json === "1" },
+          deps.unenroll ?? defaultUnenrollDeps(cfg.dataDir),
         );
       }
       case "setup": {
