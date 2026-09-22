@@ -475,6 +475,34 @@ describe("the rail", () => {
     expect(screen.queryByRole("button", { name: "Close" })).not.toBeNull();
   });
 
+  it("discards a screen's draft when the person leaves through the rail", async () => {
+    // With Back gone from the rail-bearing screens, a select is the only
+    // exit — and a draft that survived it would read as the machine's
+    // configuration. The form re-seeds from the machine on the next visit.
+    fake = installFakeIpc({
+      probe: makeProbe({
+        next: "start",
+        onboarded: true,
+        status: { settings: { SERVER_PORT: { value: "4000", source: "configured" } } },
+      }),
+      handlers: { desktop_pending_screen: () => "settings" },
+    });
+    render(<Host />);
+    await waitFor(() => expect(routeOf()).toBe("addresses"));
+    const port = () => document.getElementById("field-port") as HTMLInputElement;
+    expect(port().value).toBe("4000");
+    port().focus();
+    port().value = "5000";
+    port().dispatchEvent(new window.Event("input", { bubbles: true }));
+    expect(port().value).toBe("5000");
+    screen.getByRole("button", { name: "How it runs" }).click();
+    await waitFor(() => expect(routeOf()).toBe("supervision"));
+    screen.getByRole("button", { name: "Addresses" }).click();
+    await waitFor(() => expect(routeOf()).toBe("addresses"));
+    // Re-seeded from the machine: the typed 5000 is gone.
+    expect(port().value).toBe("4000");
+  });
+
   it("HOLDS the handoff a Status select lands on, on a ready machine", async () => {
     // A deliberate rail select is not an arrival: the auto-continue rule was
     // written for windows reopened over a running server, which owe no result

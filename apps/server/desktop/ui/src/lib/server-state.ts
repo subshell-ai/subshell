@@ -153,11 +153,11 @@ export function nextPollDelay(s: { busy: boolean; running: boolean; hidden: bool
 
 /**
  * The rail's standing sections, in display order (spec 2026-09-21; plan Task
- * 10). Four, and the labels are the section's own copy — the Rail primitive
- * renders no strings of its own. The ids are the wire words they route to,
- * with Status the one exception: the recovery screen has no requested id, so
- * its section routes to `recovery`, which the journey resolves back onto the
- * diagnosis.
+ * 10, Reset joined by the operator's 2026-09-22 ruling). Five, and the labels
+ * are the section's own copy — the Rail primitive renders no strings of its
+ * own. The ids are the wire words they route to, with Status the one
+ * exception: the recovery screen has no requested id, so its section routes
+ * to `recovery`, which the journey resolves back onto the diagnosis.
  */
 export const RAIL_SECTIONS: RailSection[] = [
   { id: "status", label: "Status" },

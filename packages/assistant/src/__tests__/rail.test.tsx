@@ -50,6 +50,24 @@ describe("Rail", () => {
     expect(screen.getByRole("button", { name: "Status" }).className).toContain("text-muted-foreground");
   });
 
+  it("keeps a danger section in the danger styling even when a caller marks it active", () => {
+    // Structural, not caller discipline: the active gradient is FORBIDDEN for
+    // a destructive section, whoever asks for it.
+    render(
+      <Rail
+        sections={[
+          { id: "status", label: "Status" },
+          { id: "reset", label: "Reset", danger: true },
+        ]}
+        active="reset"
+        onSelect={() => {}}
+      />,
+    );
+    const reset = screen.getByRole("button", { name: "Reset" });
+    expect(reset.className).toContain("text-destructive");
+    expect(reset.className).not.toContain("linear-gradient");
+  });
+
   it("selects with the section's id", () => {
     const picked: string[] = [];
     render(<Rail sections={SECTIONS} active="status" onSelect={(id) => picked.push(id)} />);

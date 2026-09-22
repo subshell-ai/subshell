@@ -233,7 +233,7 @@ export function railFor(r: Route, onboarded: boolean): RailSection[] | null;
 //   Status | Update | How it runs | Addresses  (ids: status|update|supervision|settings)
 ```
 
-Pin by test: every FTE route → null; reset/permissions → null; standing routes → the four sections with the right active id; a machine mid-first-run (probe says journey) → null even when a requested screen was never named.
+Pin by test: every FTE route → null; reset/permissions → null; standing routes → the five sections (Reset joined by the operator's 2026-09-22 ruling) with the right active id; a machine mid-first-run (probe says journey) → null even when a requested screen was never named.
 
 - [ ] Step 2: Host renders `<Frame><Rail/><content/></Frame>` when `railFor` answers a list, full-window `<Frame>` otherwise. `go(section)` on select; a requested `desktop-screen` event lands on its section; `reset`/`permissions` still replace full-window.
 - [ ] Step 3: Window: the rail lives in the same 1024x720 frame (rail ~200px column inside Frame). Verify at the zoom ladder's edges (`desktop-core`'s zoom floor) — no horizontal scroll, content ≥360px.
