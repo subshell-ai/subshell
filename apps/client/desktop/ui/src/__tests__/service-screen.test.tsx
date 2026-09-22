@@ -91,9 +91,13 @@ const service = (over: Partial<ServiceStatusBody>): ServiceStatusBody => ({ ...m
 describe("a node whose agent is not running", () => {
   const stopped = makeProbe({ step: "stopped", service: service({ state: "stopped", pid: null }) });
 
-  it("offers Start inside the arrangement card, and says what is wrong", () => {
+  it("offers Start inside the arrangement card, and does NOT re-say the badge", () => {
+    // Ruling 2026-09-22: "just remove this, the badge already shows the
+    // status" — the chip reads "Service stopped"; the sentence must not
+    // return beside it.
     const { calls } = mount({ probe: stopped });
-    expect(screen.getByText(/the node is not running/i)).toBeTruthy();
+    expect(screen.queryByText(/the node is not running/i)).toBeNull();
+    expect(screen.getByText("Service stopped")).toBeTruthy();
     expect(screen.getByText("In the background")).toBeTruthy();
     fireEvent.click(button(/^start$/i));
     expect(calls).toEqual([{ name: "service", args: ["start", { settle: true }] }]);
@@ -504,13 +508,18 @@ describe("while the section's own act is in flight", () => {
     expect(screen.getByText(/A node that starts, fails/i)).toBeTruthy();
   });
 
-  it("a stop keeps no grace: the stopped sentence is the point of the act", () => {
-    const stopped = makeProbe({ step: "stopped", service: service({ state: "stopped" }) });
+  it("a stop keeps no grace: its answer is on the card the moment the act ends", () => {
+    // The grace belongs to STARTING acts. Stop's answer is the absence, and
+    // it is true the instant the verb returns — (a stopped machine's own
+    // sentence was deleted by the badge ruling; OFFLINE is the live case:
+    // manager still saying running, nothing heartbeating, seconds after a
+    // stop, and it must not wait anything out).
+    const offline = makeProbe({ step: "offline" });
     setSystemTime(new Date("2026-09-22T12:00:00Z"));
-    const { again } = mountView({ probe: stopped, busy: true, active: "stop" });
-    expect(screen.queryByText(/not running/i)).toBeNull();
-    again({ probe: stopped, busy: false, active: null, actEnded: { label: "stop", at: Date.now() } });
-    expect(screen.getByText(/not running/i)).toBeTruthy();
+    const { again } = mountView({ probe: offline, busy: true, active: "stop" });
+    expect(screen.queryByText(/service manager reports the node as running/i)).toBeNull();
+    again({ probe: offline, busy: false, active: null, actEnded: { label: "stop", at: Date.now() } });
+    expect(screen.getByText(/service manager reports the node as running/i)).toBeTruthy();
   });
 });
 

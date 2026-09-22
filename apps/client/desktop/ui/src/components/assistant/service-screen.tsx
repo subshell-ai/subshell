@@ -92,15 +92,20 @@ const TONE_BADGE: Record<string, "success" | "warning" | "destructive" | "muted"
 };
 
 /**
- * Why the node is not answering — one sentence per step, carried verbatim from
- * the status screen this section split off of (they were this screen's own
- * sentences, written for a card under a heading that named the machine; here
- * the heading names the NODE, and the sentences still carry the consequence).
+ * Why the node is not answering — carried verbatim from the status screen
+ * this section split off of (they were this screen's own sentences, written
+ * for a card under a heading that named the machine; here the heading names
+ * the NODE, and the sentences still carry the consequence).
+ *
+ * STOPPED HAS NO SENTENCE (operator ruling 2026-09-22: "just remove this,
+ * the badge already shows the status" — "Service stopped" is the chip, and
+ * "the node is not running" was that fact said twice). OFFLINE keeps one
+ * because it names a DISAGREEMENT the badge cannot show: the manager says
+ * running, nothing heartbeats. NO-SERVICE's sentence states the
+ * arrangement's absence and stands beside the door that ends it.
  */
 function serviceProblem(step: ProbeStep): string | null {
   switch (step) {
-    case "stopped":
-      return "The background service is installed, but the node is not running, so nothing can launch on this machine.";
     case "offline":
       return "The service manager reports the node as running, but no local daemon is heartbeating.";
     case "no-service":

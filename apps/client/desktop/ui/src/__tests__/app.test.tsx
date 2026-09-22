@@ -276,10 +276,12 @@ describe("the assistant frame", () => {
   // the verb is still the step's own.
   it("names which service failure it is looking at", async () => {
     await boot({ probe: STOPPED });
-    // The verb and its diagnosis are the Service section's now.
+    // The verb and its diagnosis are the Service section's now. STOPPED
+    // carries no sentence (ruling 2026-09-22: the badge IS the status);
+    // OFFLINE keeps one because it names a disagreement the chip cannot.
     await openSection("Service");
     expect(screen.getByText("Service stopped")).toBeTruthy();
-    expect(screen.getByText(/the node is not running/)).toBeTruthy();
+    expect(screen.queryByText(/the node is not running/)).toBeNull();
     expect(buttonOrNull("Start")).not.toBeNull();
     cleanup();
     ipc?.restore();

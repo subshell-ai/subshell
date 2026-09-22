@@ -386,7 +386,10 @@ corrections made from the running dev window as it went:
   same with the stop / start button"; "when restarting this additional
   message occurs, can we remove it"; "keep it spinning / disabled until
   it's confirmed started or unable to start"; "it should probably be written
-  as a yellow warning".
+  as a yellow warning". A later ruling that night deleted the STOPPED
+  sentence outright ("just remove this, the badge already shows the
+  status") — only sentences that say MORE than the chip survived: offline's
+  disagreement, no-service's absent arrangement.
 - **Confirmations are dialogs** (the audit ruling, same hour): every
   confirmation flows through `ConfirmPanel`, and `ConfirmPanel` is now the
   app's own class-positioned `Dialog` — Escape and backdrop are the cancel,

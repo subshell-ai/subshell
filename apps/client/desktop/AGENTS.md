@@ -972,7 +972,12 @@ the act. What survives is written as the screen's WARNING band (same-day
 ruling: "if this is something we want to inform the user of, it should
 probably be written as a yellow warning"), on a probe that is no longer
 anyone's in-flight press. No timer of ours narrates the hush's end: the
-probe's own poll re-renders the quiet away. And a SUCCESS on this section
+probe's own poll re-renders the quiet away. STOPPED keeps no sentence at all
+(later ruling the same night: "just remove this, the badge already shows the
+status" — the chip reads "Service stopped" and the sentence said it twice);
+OFFLINE keeps its pair because it names a disagreement the chip cannot show,
+and NO-SERVICE's because the sentence stands beside the door that ends it.
+And a SUCCESS on this section
 leaves no receipt line (same hour's ruling, on the "subshell restarted."
 block: "just remove it, the user won't notice it anyways"): the card
 rendering `ActionOutput` gates on `output?.ok === false`, so refusals still
