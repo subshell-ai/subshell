@@ -98,10 +98,6 @@ export function subtitleFor(
       return "Planes this app can connect to. The address this machine's node reports to is marked.";
     case "connect":
       return "Enter the address of the Subshell server this app should show.";
-    case "reset":
-      // The operator's one sentence (ruling batch, 2026-09-22, screenshot
-      // 59), replacing the pair: what is removed, and that is all it says.
-      return "Removes the machine's Subshell node configuration and data.";
     case "about":
       return "What this app is, which versions are running, and under what terms.";
     case "update":

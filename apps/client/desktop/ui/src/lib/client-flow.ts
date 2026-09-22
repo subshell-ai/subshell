@@ -268,14 +268,13 @@ function actState(at: { index: number; running: number; failedAt: number; satisf
 /**
  * The rail's standing sections, in display order (wave 3; the server's
  * {@link railFor} carries the same rule with its own five). Reset is the
- * destructive one, marked for the Rail's danger styling — the DOOR in the
- * rail, whose CONFIRMATION rides the rail (operator ruling 2026-09-22,
- * final word on the layout). FRAME-REPLACING is the RUNNING chain now:
- * from the confirm press to its end the rail hides and no exit renders,
- * off the runner's busy — which is where the "only thing happening"
- * premise, no way out from under the chain, actually lives. The press
- * itself stays visible and labeled (reset-screen.tsx), the same busy
- * affordance the server's room carries.
+ * destructive one, marked for the Rail's danger styling — and it is a DOOR,
+ * not a section (operator ruling 2026-09-22, the dialog wave): pressing it
+ * opens `reset-dialog.tsx` over whatever section stands, selects nothing,
+ * and activates nothing in the rail. The old room's rule — no way out from
+ * under the running chain — the modal simply IS: while the chain runs the
+ * dialog cannot be dismissed, and its press stays visible labeled
+ * "Resetting…" rather than vanishing.
  */
 export const CLIENT_RAIL_SECTIONS: RailSection[] = [
   // Control Plane reads FIRST (operator ruling 2026-09-22, second addendum):
@@ -299,9 +298,8 @@ export const CLIENT_RAIL_SECTIONS: RailSection[] = [
  * settled — configured, no first-run walk in progress — and the screen is
  * one of the standing kinds. Everything else answers null: every step of
  * the FTE walk, the focused acts (re-enroll, and the not-read state).
- * Reset's CONFIRMATION is a standing render since the 2026-09-22 ruling —
- * the sidebar stays; the frame-replacing premise moved to the running
- * chain, which reset-screen.tsx enforces off the runner's busy.
+ * Reset left the screen set entirely with the dialog ruling (2026-09-22):
+ * its door lives in this list, its confirmation floats over any section.
  *
  * `settled` is the part the screen cannot see: the tray can raise About
  * MID-WALK and the router honours it, and wave 2's ruling keeps the render
@@ -320,12 +318,6 @@ export function railFor(screen: NodeScreenId | null, settled: boolean): RailSect
     case "plane":
     case "update":
     case "about":
-    // The reset CONFIRMATION rides the rail now (operator ruling 2026-09-22,
-    // final word on the layout): the sidebar stays, reset active and
-    // danger-styled. The frame-replacing premise moves to the CHAIN — while
-    // the reset runs, the rail and bar hide and the screen goes full-window
-    // again (reset-screen.tsx owns that flip off the runner's busy).
-    case "reset":
       return CLIENT_RAIL_SECTIONS;
     default:
       return null;
@@ -335,8 +327,6 @@ export function railFor(screen: NodeScreenId | null, settled: boolean): RailSect
 /** The rail section THIS standing screen has active, or null when there is no rail. */
 export function railActive(screen: NodeScreenId | null): string | null {
   switch (screen) {
-    case "reset":
-      return "reset";
     case "status":
       return "status";
     case "service":

@@ -2151,7 +2151,8 @@ describe("the plane list and its doors", () => {
 /**
  * The rail (wave 3, the same rulings the server wave carried): present on a
  * settled machine's standing screens, absent everywhere else, the tray's
- * request selecting its section, and Reset a door to a frame-replacing room.
+ * request selecting its section, and Reset a door to the confirmation
+ * dialog (dialog ruling, 2026-09-22 — it was a frame-replacing room first).
  */
 describe("the rail", () => {
   it("shows the six sections on a settled machine, Control Plane active and first", async () => {
@@ -2193,16 +2194,15 @@ describe("the rail", () => {
     await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Subshell Client"));
   });
 
-  it("carries the Reset door, and the confirmation rides the rail", async () => {
-    // Operator ruling 2026-09-22, final word on the reset layout: the
-    // sidebar STAYS on the confirmation (it was being lost today), reset
-    // active; the room is the RUNNING chain, pinned in reset-screen.test.
+  it("carries the Reset door, and it opens the confirmation DIALOG", async () => {
+    // Ruling 2026-09-22, the dialog wave: the rail's danger item is a DOOR,
+    // not a section — it overrides nothing, selects nothing, and the landing
+    // keeps its own highlight while the confirmation is up.
     await boot();
     await waitFor(() => expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy());
     fireEvent.click(button("Reset"));
-    await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Reset this client"));
-    expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Reset" }).getAttribute("aria-current")).toBe("true");
+    await screen.findByRole("dialog", { name: "Reset everything?" });
+    expect(screen.getByRole("button", { name: "Control Plane" }).getAttribute("aria-current")).toBe("true");
   });
 });
 
@@ -2215,11 +2215,11 @@ describe("the rail", () => {
  * screen gated it — so Service's Start answer followed a person onto the
  * plane cards, and the explaining failure line stayed honestly gated while
  * the words beneath it were not. The reset screen's own pin ("renders no
- * other action's output", reset-screen.test) covers the direction the two
+ * own press, reset-dialog.test) covers the direction the two
  * leaked INTO; these cover the direction they now refuse: what is recorded
  * renders only on the screen the action was pressed on. That each screen
  * still shows its OWN words is pinned beside the gate — Service's by
- * reset-screen.test's setup walk, Control Plane's by repoint.test's verbatim
+ * runOneReset's walk, Control Plane's by repoint.test's verbatim
  * refusal — so these cases are free to assert only the absence.
  *
  * A SUCCESSFUL enroll records no receipt by ruling (its screen unmounts, the
@@ -2228,41 +2228,48 @@ describe("the rail", () => {
  */
 describe("output ownership on Service and Control Plane", () => {
   /**
-   * Run a reset to completion from the landing, leaving its words on Reset.
+   * Run a reset to completion FROM A SECTION, leaving its words there.
    *
    * The reset chain is the cheap cross-screen press to borrow: one command,
-   * no settle budget, and the output line is the chain's own. Waiting for
-   * the words on their own screen doubles as the completion signal.
+   * and the output line is the chain's own. Since the dialog ruling there is
+   * no reset SCREEN to own the words — the section the press happened on
+   * does, exactly like every other action. Waiting for the words doubles as
+   * the completion signal; the dialog closing is the chain's end.
    */
-  async function runOneReset() {
+  async function runOneReset(from: "Control Plane" | "Service") {
     const fake = await boot({
       handlers: {
         node_arm_reset: () => true,
         node_reset: () => ({ ok: true, stdout: "reset complete", stderr: "" }),
       },
     });
+    await openSection(from);
     fireEvent.click(button("Reset"));
-    await screen.findByRole("heading", { name: "Reset this client" });
+    await screen.findByRole("dialog", { name: "Reset everything?" });
     // The label is `Type <mono>devbox</mono> to confirm`, three nodes, so it
     // is matched the way the reset file matches it: by its stem.
     fireEvent.change(screen.getByLabelText(/Type/), { target: { value: "devbox" } });
     fireEvent.click(button("Reset Everything"));
     await waitFor(() => expect(screen.getByText("reset complete")).toBeTruthy());
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     return fake;
   }
 
-  it("keeps another screen's words off Control Plane", async () => {
-    const fake = await runOneReset();
-    await openSection("Control Plane");
+  it("keeps a reset's words on the section it was pressed from, and off the others", async () => {
+    const fake = await runOneReset("Control Plane");
+    // The press happened on Control Plane, so its words STAY there…
+    expect(screen.getByText("reset complete")).toBeTruthy();
+    // …and do not follow the person to Service.
+    await openSection("Service");
     expect(screen.queryByText("reset complete")).toBeNull();
-    // Sanity: the press was the chain's own, on Reset — nothing else could
-    // have produced these words to begin with.
+    // Sanity: the press was the chain's own — nothing else produced them.
     expect(fake.callsTo("node_reset")).toEqual([{ typed: "devbox" }]);
   });
 
-  it("keeps another screen's words off Service", async () => {
-    await runOneReset();
-    await openSection("Service");
+  it("presses from Service and leaves the words there, off Control Plane", async () => {
+    await runOneReset("Service");
+    expect(screen.getByText("reset complete")).toBeTruthy();
+    await openSection("Control Plane");
     expect(screen.queryByText("reset complete")).toBeNull();
   });
 });

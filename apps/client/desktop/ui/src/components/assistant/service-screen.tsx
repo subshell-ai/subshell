@@ -404,18 +404,25 @@ export function ServiceScreen(props: {
           )}
           {editingRepoint ? (
             // A DIALOG, not a pane grown inside the card (operator ruling
-            // 2026-09-22). It stays open on submit exactly as the inline form
-            // did: the CLI's own refusal is the answer to a bad address, and
-            // the field has to still hold what was typed. Escape and a
-            // backdrop press close it; the refusal itself renders on the
-            // card, where the address lives.
+            // 2026-09-22), and it CLOSES on submit like every other save in
+            // this app (same-day report from the live window: the inline
+            // form's stay-open habit was invisible behind a modal — a
+            // successful repoint updated the card underneath while the
+            // dialog sat there saying nothing). The card is the feedback:
+            // the address line and the Control Plane list's pinned row
+            // follow the node on the next probe; a refusal lands on this
+            // section's output block in the CLI's verbatim words, and the
+            // retry is an open and an edit of the seeded current address.
             <Dialog title="Re-enroll this machine" onClose={() => setEditingRepoint(false)}>
               <form
                 className="flex flex-col gap-2"
                 onSubmit={(e) => {
                   e.preventDefault();
                   if (busy || repointTyped.trim() === "") return;
-                  commands.repoint(repointTyped);
+                  const url = repointTyped;
+                  setEditingRepoint(false);
+                  setRepointTyped("");
+                  commands.repoint(url);
                 }}
               >
                 <Label htmlFor="repoint-url" className="text-detail text-muted-foreground">

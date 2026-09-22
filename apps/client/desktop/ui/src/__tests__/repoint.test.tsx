@@ -65,6 +65,8 @@ describe("re-enroll, which is repointing", () => {
     fireEvent.click(button("Re-enroll"));
     await waitFor(() => expect(fake.callsTo("node_configure").length).toBe(1));
     expect(fake.callsTo("node_configure")[0]).toMatchObject({ server: "https://new.example" });
+    // A submit closes, success or not: the card is the feedback.
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   /**
@@ -100,7 +102,7 @@ describe("re-enroll, which is repointing", () => {
     expect(help.textContent).toMatch(/when it restarts/i);
   });
 
-  it("shows the CLI's own refusal verbatim and leaves the field to fix", async () => {
+  it("closes on submit and shows the CLI's own refusal verbatim on the card", async () => {
     await boot({
       handlers: {
         node_configure: () => ({ ok: false, stdout: "", stderr: "subshell: --server must be http(s), got 'nope'" }),
@@ -110,10 +112,16 @@ describe("re-enroll, which is repointing", () => {
     fireEvent.change(screen.getByLabelText("Control plane this node reports to"), { target: { value: "nope" } });
     fireEvent.click(button("Re-enroll"));
     expect(await screen.findByText(/--server must be http\(s\)/)).toBeTruthy();
-    // The claim the old form made and this one keeps: the field is still
-    // open with the typed address in it, so the fix is an edit, not a
-    // retype.
-    expect((screen.getByLabelText("Control plane this node reports to") as HTMLInputElement).value).toBe("nope");
+    // The live-window ruling on the dialog's first cut: a modal that stays
+    // open after submit is zero feedback whatever the answer was. Submit
+    // closes it; the refusal is this section's output block, in the CLI's
+    // words; the retry opens the field seeded with the address that DID
+    // work — the bad string is quoted back by the refusal itself.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(button("Re-enroll…"));
+    expect((screen.getByLabelText("Control plane this node reports to") as HTMLInputElement).value).toBe(
+      "https://subshell.example.com",
+    );
   });
 
   /**

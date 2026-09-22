@@ -40,9 +40,11 @@
  * dismiss is the success flash, and a refused clipboard keeps the menu open
  * and says so in the item's own label rather than flashing nothing.
  *
- * The add's grammar is the bar's own: opener primary-right when closed;
- * open, the field sits at the foot of the table where the new row will
- * appear, Add takes the primary spot, and Cancel goes ghost-left.
+ * The add's opener is the bar's own primary-right slot; the FORM is a
+ * dialog (operator ruling 2026-09-22, the dialog audit's last inline pane),
+ * and — like every save after it — it CLOSES on submit: the refetched list
+ * appearing beneath is the feedback, and a refused add lands on the
+ * section's output block in Rust's verbatim words.
  *
  * The list is the app's own settings, canonical spellings, deduped by the
  * Rust side that validates every add. The add form SAVES only — the refetched
@@ -57,6 +59,7 @@ import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { ActionOutput } from "@/components/assistant/status-facts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { NodeCommands } from "@/hooks/use-node-commands";
@@ -115,15 +118,18 @@ export function PlaneScreen(props: {
     commands.openPlane(url);
   };
 
-  // The save, from either door: the bar's Add press and Enter in the field
-  // (whose implicit submission the form's own onSubmit answers). Closed
-  // unconditionally: a rejection (a bad URL, the node's own address)
-  // surfaces as the runner's own message, and leaving the form open on
-  // success would look like nothing happened.
+  // The save, from either door: the dialog's Add press and Enter in the
+  // field (whose implicit submission the form's own onSubmit answers).
+  // Closed unconditionally: a rejection (a bad URL, the node's own address)
+  // surfaces on the section's output block, and leaving the dialog open on
+  // success would look like nothing happened — the refetched list is the
+  // entire validation and dedupe feedback.
   const submitAdd = () => {
     if (busy || typed.trim() === "") return;
+    const url = typed;
     setAdding(false);
-    commands.addPlane(typed);
+    setTyped("");
+    commands.addPlane(url);
   };
 
   const copyUrl = (url: string) => {
@@ -208,38 +214,17 @@ export function PlaneScreen(props: {
     <Frame
       {...shell}
       rail={props.rail}
-      barLeft={
-        adding ? (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setAdding(false);
-              setTyped("");
-            }}
-          >
-            Cancel
-          </Button>
-        ) : undefined
-      }
       barRight={
-        adding ? (
-          // The bar's primary calls the form's save directly; the field's
-          // Enter reaches the same handler through the form's onSubmit.
-          <Button type="button" onClick={submitAdd} disabled={busy || typed.trim() === ""}>
-            Add
-          </Button>
-        ) : (
-          <Button
-            variant="outline"
-            disabled={busy}
-            onClick={() => {
-              setTyped("");
-              setAdding(true);
-            }}
-          >
-            Add a control plane…
-          </Button>
-        )
+        <Button
+          variant="outline"
+          disabled={busy}
+          onClick={() => {
+            setTyped("");
+            setAdding(true);
+          }}
+        >
+          Add a control plane…
+        </Button>
       }
     >
       <div>
@@ -248,9 +233,11 @@ export function PlaneScreen(props: {
         )}
         {nodeUrl !== null && row(nodeUrl, true)}
         {planes.map((p) => row(p, false))}
-        {adding && (
+      </div>
+      {adding && (
+        <Dialog title="Add a control plane" onClose={() => setAdding(false)}>
           <form
-            className="flex flex-col gap-2 py-3"
+            className="flex flex-col gap-2"
             onSubmit={(e) => {
               e.preventDefault();
               submitAdd();
@@ -259,7 +246,7 @@ export function PlaneScreen(props: {
             {/* The Label is a Label only while its input exists (delta
                 review m-3): a htmlFor with no control in the tree is dead
                 pointing. */}
-            <Label htmlFor="plane-add-url" className="font-strong text-detail">
+            <Label htmlFor="plane-add-url" className="text-detail text-muted-foreground">
               Control plane URL
             </Label>
             <Input
@@ -271,10 +258,28 @@ export function PlaneScreen(props: {
               autoCapitalize="off"
               autoCorrect="off"
               disabled={busy}
+              autoFocus
             />
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => {
+                  setAdding(false);
+                  setTyped("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" disabled={busy || typed.trim() === ""}>
+                Add
+              </Button>
+            </div>
           </form>
-        )}
-      </div>
+        </Dialog>
+      )}
 
       {/* The acts' own words, INLINE — refusals from the opens and the saves
           included (the facts list is Status's alone, ruling screenshot 60). */}

@@ -107,7 +107,9 @@ re-renders through its own state).
 Its screens are already components. It gains the same `Rail` for its standing
 set — **Status**, **Service**, **Control Plane**, **Update**, **About** —
 while its FTE walk (Welcome → Choice → Register/Connect → Setting Up) stays
-untouched and rail-less, and Reset stays frame-replacing. The tray's
+untouched and rail-less, and Reset stays frame-replacing (until the same
+day's dialog wave, Addendum 8: it became a dialog over the standing
+section). The tray's
 `desktop-screen` events (`about`, `update`) select the rail section they
 name.
 
@@ -338,15 +340,17 @@ corrections made from the running dev window within the hour:
   — the pointer sentence was deleted the same hour Un-enroll… stood up on
   Service ("absence is the whole message"). Copy closes the menu on success
   and, on a refused clipboard, stays open with the item renamed.
-- **The add is the frame's bottom bar.** Opener primary-right when closed;
-  open, the field sits at the foot of the table where the new row will
-  appear, Add takes the primary spot and calls the save directly (form-
-  attribute submit is not portable; Enter rides `onSubmit`), Cancel
-  ghost-left. The bar's grammar, unchanged since § 3.
+- **The add is the frame's bottom bar; its form is a dialog.** The opener
+  keeps the bar's primary-right slot; pressing it opens `Add a control
+  plane` in the app's dialog, and a submit closes it — the refetched list
+  underneath is the feedback. (Both halves are same-day live-window
+  rulings; § 3's bar grammar survives as the opener's home.)
 - **The node's binding lives on Service.** The "Enrolled to Control Plane"
   card states the address, carries the loopback notice with it, and offers
-  Re-enroll… (free-form field seeded with the current address;
-  `node_configure`; identity kept, no key spent, restart applies) and
+  Re-enroll… (a dialog with a free-form field seeded with the current
+  address; `node_configure`; identity kept, no key spent, restart applies;
+  submit closes — a modal that stays open after the press is zero feedback,
+  the card under it is the answer) and
   Un-enroll… (confirmed; ONE `node_unenroll` call whose chain is stop →
   uninstall → `unenroll --yes --json`, definition before config because a
   kept definition respawns a daemon against a deleted config; panes are
@@ -358,6 +362,8 @@ corrections made from the running dev window within the hour:
   confirmation flows through `ConfirmPanel`, and `ConfirmPanel` is now the
   app's own class-positioned `Dialog` — Escape and backdrop are the cancel,
   the accept keeps the right-hand weight. Re-enroll… opens its form in the
-  same dialog; Reset's typed-hostname consent stays a full screen, because
-  a consent you type is not a confirm you press. Uninstall and Un-enroll…
-  stay separate commands by ruling.
+  same dialog. Reset followed within the hour — the rail keeps its "Reset"
+  item and pressing it opens `Reset everything?` as a dialog over whatever
+  section stands, typing the hostname inside it; running, the dialog cannot
+  be dismissed, which is the old frame-replacing room's rule expressed
+  harder. Uninstall and Un-enroll… stay separate commands by ruling.

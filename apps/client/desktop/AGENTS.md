@@ -720,7 +720,8 @@ is about the machine's journey, not about who asked: the tray can raise
 About mid-walk, and that render keeps its Back. A select is the navigation:
 every select sets its override now (see the landing ruling below). Reset's
 CONFIRMATION rides the rail (operator ruling 2026-09-22, final word on the
-reset layout, superseding the frame-replacing premise for the confirmation:
+reset layout, superseding the frame-replacing premise for the confirmation
+(now itself superseded — see the dialog addendum below):
 the sidebar was being lost today and that is not wanted) — the room is the
 RUNNING chain: from the confirm press to the chain's end, reset-screen.tsx
 hides the rail off the runner's busy and renders no exit, and no navigation
@@ -780,8 +781,9 @@ that owns the action, and the config fact's value is PLAIN LANGUAGE —
 "Not enrolled. Go to Service to enroll." for the enroll-pointing reason,
 "The node's configuration could not be read." for any other — the raw CLI
 words render only as an action's failure output. Unregister is not a link on the status
-screen — the rail's Reset section is its ONLY entry (one act, one door, one
-label). There is no Refresh button
+screen — the rail's Reset item is its ONLY entry (one act, one door, one
+label), and since the dialog ruling that item opens the confirmation over
+the standing section instead of selecting one. There is no Refresh button
 anywhere: the probe query re-reads the machine on its own five-second interval
 (operator ruling, 2026-09-22) — the poll is the refresh.
 
@@ -886,10 +888,11 @@ detaching act has its own door, and absence is the whole message here). Copy
 is the `CopyButton` affordance in text form: the menu's dismiss is the
 success flash, and a refused clipboard keeps the menu open and renames the
 item rather than flashing nothing. The add is the frame's bottom bar in the bar's
-own grammar: opener primary-right; open, the field sits at the foot of the
-table, Add takes the primary spot (it calls the form's save directly — the
-`form` attribute's submit does not fire in every engine, Enter goes through
-`onSubmit`), Cancel ghost-left. `plane-coherence.ts` was deleted with the
+own grammar: opener primary-right. The FORM is a dialog (the audit's last
+inline pane), Add its primary, Cancel its ghost, Enter submits — and like
+every save after it the dialog CLOSES on submit, because the refetched list
+underneath is the entire validation and dedupe feedback and a modal that
+stays open says nothing. `plane-coherence.ts` was deleted with the
 two-address state it existed to detect — the pinned row IS the notice — and
 the Status subtitle now states the MACHINE ("This machine is a node of
 <url>." / "This machine is not a node."), because a watcher has many planes
@@ -904,9 +907,10 @@ only ever fed a `debug_assert`. FTE Connect retargeted to `addPlane`.
 the address, the enroll-time loopback notice that moved with it, **Re-enroll…**
 (a DIALOG — see below — with a free-form field seeded with the current
 address, pressing `node_configure` — identity kept, no setup key spent,
-restart applies it; it stays open on submit so the CLI's verbatim refusal is
-answered by an editable field, not a retype), and **Un-enroll…**, the
-destructive half. The two are deliberately SEPARATE commands (operator, same
+restart applies it; submit CLOSES it like every other save — the live
+window's first cut kept the inline form's stay-open habit and read as zero
+feedback behind a modal, since the card that answers sits underneath), and
+**Un-enroll…**, the destructive half. The two are deliberately SEPARATE commands (operator, same
 day: "let's keep them as separate commands") — Uninstall on the background
 card keeps its narrower meaning even though the un-enroll chain happens to
 tolerate a machine with no service. Its confirm states the orphans ("Subshells that are still running keep
@@ -937,8 +941,18 @@ are not). Escape and a backdrop press ARE the cancel; the accept keeps its
 weight on the right. The dialog is labelled, which is what keeps an accept
 button that shares its words with the button behind it ("Enroll this
 machine") tellable apart by both a screen reader and a test —
-`confirmPanel()` scopes to `role=dialog` now. Reset's typed-hostname consent
-stays a full screen: a consent you TYPE is not a confirm you press.
+`confirmPanel()` scopes to `role=dialog` now. Reset followed within the
+hour: the rail keeps its **Reset** item and pressing it opens **Reset
+everything?** as a dialog over whatever section stands — paths, the five
+disclosures, and the typed-hostname gate all inside it — and it is a DOOR,
+not a section: it overrides nothing and activates nothing in the rail, so
+the standing screen keeps its highlight underneath. While the chain runs the
+dialog cannot be dismissed (Escape and backdrop inert, Cancel disabled, the
+press relabels "Resetting…"): the old frame-replacing room's no-way-out rule
+expressed harder. Completion closes it and the words land on the section the
+press happened on, like every other action (`reset-dialog.tsx`; the
+`reset` id is gone from `NodeScreenId`, `NodeUserScreen`, the titles and the
+subtitles; `CLIENT_RAIL_SECTIONS` keeps the danger entry as the door).
 
 Three screen ids went with it, and their absence is the design.
 **`connected`**, **`service`** and **`install-agent`** were the probe-derived

@@ -97,7 +97,7 @@ function stubClipboard(ok = true): string[] {
 }
 
 const button = (name: string | RegExp) => screen.getByRole("button", { name }) as HTMLButtonElement;
-const buttonOrNull = (name: string | RegExp) => screen.queryByRole("button", { name }) as HTMLButtonElement | null;
+const _buttonOrNull = (name: string | RegExp) => screen.queryByRole("button", { name }) as HTMLButtonElement | null;
 const menuItem = (scope: HTMLElement, name: string) => within(scope).getByRole("menuitem", { name }) as HTMLElement;
 
 /** Open one row's `⋮` disclosure and return the group that holds its actions. */
@@ -253,11 +253,16 @@ describe("the table and its footer", () => {
     expect(button("Add a control plane…").closest('[class*="border-t"]')).not.toBeNull();
   });
 
-  it("moves the bar's primary to the form's Add, with Cancel ghost-left", () => {
-    mount();
+  it("opens the add as a dialog, and a submit closes it", () => {
+    // (ruling 2026-09-22, the dialog audit's last inline pane; and the
+    // close-on-submit grammar the re-enroll dialog learned from the live
+    // window the same hour).
+    const { calls } = mount({ settings: makeSettings({ planes: [] }) });
     fireEvent.click(button("Add a control plane…"));
-    expect(buttonOrNull("Add a control plane…")).toBeNull();
-    expect(button("Add").closest('[class*="border-t"]')).not.toBeNull();
-    expect(button("Cancel").closest('[class*="border-t"]')).not.toBeNull();
+    expect(screen.getByRole("dialog", { name: "Add a control plane" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Control plane URL"), { target: { value: "https://new.example" } });
+    fireEvent.click(button("Add"));
+    expect(calls).toEqual([{ name: "addPlane", args: ["https://new.example"] }]);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

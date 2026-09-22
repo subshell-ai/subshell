@@ -48,7 +48,6 @@ export type NodeScreenId =
   | "service"
   | "plane"
   | "connect"
-  | "reset"
   | "about"
   | "update";
 
@@ -68,7 +67,6 @@ export const NODE_SCREEN_IDS: readonly NodeScreenId[] = [
   "service",
   "plane",
   "connect",
-  "reset",
   "about",
   "update",
 ];
@@ -93,7 +91,7 @@ export const NODE_SCREEN_IDS: readonly NodeScreenId[] = [
  * consented act with a half still outstanding, and `app.tsx` opens this screen
  * once per launch when the probe reports one (spec 2026-09-18 § 4.2).
  */
-export type NodeUserScreen = "reset" | "about" | "update" | "service" | "plane" | "status";
+export type NodeUserScreen = "about" | "update" | "service" | "plane" | "status";
 
 /**
  * ONE word for where you are, on both platforms (operator's call, 2026-09-12).
@@ -165,29 +163,6 @@ export function screenTitle(screen: NodeScreenId): string {
       return "Control Plane";
     case "connect":
       return "Connect to a Server";
-    case "reset":
-      // The one title that names no machine at all, on either platform
-      // (operator's call, 2026-09-12). It was "Reset This Mac", and that was
-      // wrong twice over.
-      //
-      // It OVERCLAIMED. This deletes Subshell's own state — the config, the
-      // node key, the data directory — and touches nothing else on the
-      // computer. A destructive label that reads as "erase this computer" is
-      // alarming about the wrong thing, which is worse than being alarming,
-      // because it teaches people not to trust what these labels say.
-      //
-      // And it read as TRUNCATED: "Mac" is a prefix of "Machine", the
-      // sibling string on Linux really is "This Machine", and the label ends
-      // there under the ellipsis a button that opens a screen carries. That
-      // is how it was reported — as a layout bug.
-      //
-      // Naming WHAT IS RESET fixes both and needs no platform word:
-      // everything this app does is on this machine, so saying so was only
-      // ever redundant (operator's call, 2026-09-12). The two apps do NOT
-      // share a string — Subshell Server's twin reads "Reset this server",
-      // because the two resets destroy different things and one label over
-      // both is the overloading the vocabulary rule exists to prevent.
-      return "Reset this client";
     case "about":
       return "About Subshell Client";
     case "update":

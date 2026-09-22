@@ -147,7 +147,7 @@ describe("clientScreen", () => {
 
   it("gives a screen the user asked for precedence over everything but the first read", () => {
     const s = settings("https://plane.test");
-    expect(clientScreen({ probe: probe(), settings: s, step: null, override: "reset" })).toBe("reset");
+    expect(clientScreen({ probe: probe(), settings: s, step: null, override: "service" })).toBe("service");
     expect(clientScreen({ probe: probe(), settings: s, step: "node", override: "about" })).toBe("about");
     expect(clientScreen({ probe: probe(), settings: settings(null), step: "choice", override: "update" })).toBe(
       "update",
@@ -238,8 +238,8 @@ describe("railFor", () => {
 
   it("answers null for every FTE walk screen, enroll and the unread state", () => {
     // Reset LEFT this list (operator ruling 2026-09-22, final word on the
-    // layout): its confirmation rides the rail, reset active; the
-    // frame-replacing room is the RUNNING chain, which reset-screen.tsx
+    // dialog ruling): its door rides the rail, activates nothing, and the
+    // running chain is un-dismissable, which reset-dialog.tsx
     // enforces off the runner's busy, not a railFor case.
     for (const screen of ["welcome", "choice", "tmux", "register", "startup", "progress", "connect"] as const) {
       expect(railFor(screen, true), screen).toBeNull();
@@ -247,8 +247,10 @@ describe("railFor", () => {
     expect(railFor(null, true)).toBeNull();
   });
 
-  it("gives the reset confirmation the six sections, reset active", () => {
-    const sections = railFor("reset", true);
+  it("carries the Reset DOOR on every standing section, danger-styled", () => {
+    // Reset is not a section (dialog ruling 2026-09-22): the rail's sixth
+    // item is a door that opens the confirmation over whatever stands.
+    const sections = railFor("plane", true);
     expect(sections?.map((s) => s.id)).toEqual(["plane", "status", "service", "update", "about", "reset"]);
     expect(sections?.find((s) => s.id === "reset")?.danger).toBe(true);
   });
@@ -268,9 +270,9 @@ describe("railFor", () => {
     expect(railActive("plane")).toBe("plane");
     expect(railActive("update")).toBe("update");
     expect(railActive("about")).toBe("about");
-    // Reset rides the rail now (operator ruling 2026-09-22): its
-    // confirmation is a standing render, reset active.
-    expect(railActive("reset")).toBe("reset");
+    // Reset activates NOTHING (dialog ruling 2026-09-22): it is a door in
+    // the rail, not a section, and the standing screen keeps the highlight
+    // while the confirmation is up.
     expect(railActive("welcome")).toBeNull();
     expect(railActive(null)).toBeNull();
   });

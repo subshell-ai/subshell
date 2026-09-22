@@ -79,7 +79,9 @@ describe("screenTitle", () => {
     // not remotely what this does; and a label ending on "Mac" reads as a
     // truncated "Machine", against a sibling string that really is "This
     // Machine". This is the one title that names no machine on any platform.
-    expect(screenTitle("reset")).toBe("Reset this client");
+    // (Reset's title retired with the screen: the confirmation is a dialog
+    // now — "Reset everything?" — and a dialog is named by its Dialog role,
+    // operator ruling 2026-09-22.)
     // And the rule it became: NO title names a Mac, because there is one word
     // for where you are and it is "This Machine" (operator's call,
     // 2026-09-12). A title is a label; a label that might have been cut off is
