@@ -278,7 +278,7 @@ describe("a failure message always reaches the screen", () => {
     const probesBefore = fake.callsTo("node_probe").length;
 
     await openSection("Service");
-    fireEvent.click(button("Open the node log"));
+    fireEvent.click(button("Start"));
 
     // Scoped to the FAILURE LINE (a <p>), not the page: the same sentence is
     // also the `logs` fact's value, and a duplicate would make a bare
@@ -300,14 +300,14 @@ describe("a failure message always reaches the screen", () => {
     const fake = await boot({
       probe: makeProbe({ ...STOPPED, error: "background weather" }),
       handlers: {
-        node_open_path: () => {
-          throw "that path does not exist yet";
+        node_service: () => {
+          throw "the service manager would not answer";
         },
       },
     });
     await openSection("Service");
-    fireEvent.click(button("Open the node log"));
-    await waitFor(() => expect(screen.getByText("that path does not exist yet")).toBeTruthy());
+    fireEvent.click(button("Start"));
+    await waitFor(() => expect(screen.getByText("the service manager would not answer")).toBeTruthy());
     expect(screen.queryByText(/background weather/)).toBeNull();
     expect(fake.callsTo("node_probe").length).toBeGreaterThan(1);
   });
@@ -1895,7 +1895,9 @@ describe("tmux is a hard stop, not a hint", () => {
   });
 
   it("the install button says it also starts, because the CLI's install does", async () => {
-    await boot({ probe: makeProbe({ ...STOPPED, step: "no-service" }) });
+    await boot({
+      probe: makeProbe({ ...STOPPED, step: "no-service", service: { installed: false } }),
+    });
     await openSection("Service");
     expect(button("Install and Start")).toBeTruthy();
   });

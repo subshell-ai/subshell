@@ -78,13 +78,16 @@ export function StatusScreen(props: {
       rail={props.rail}
       tightContent
       icon={enrolled ? <Bot /> : <Server />}
+      // The state chip sits in the header, between the title and the subtitle
+      // (operator ruling 2026-09-22): it is part of the heading, not a
+      // sandwich cut between the subtitle and the sentence under it.
+      badge={<Badge variant={TONE_BADGE[stepTone(probe?.step)]}>{stepLabel(probe?.step)}</Badge>}
       // No doors on this screen (operator ruling 2026-09-22, second addendum,
       // superseding the same day's browser ghost): anything that opens the
       // control plane lives on the Control Plane section's Dashboard card.
       // The bar is empty.
     >
       <div className="flex flex-col items-center gap-2 text-center">
-        <Badge variant={TONE_BADGE[stepTone(probe?.step)]}>{stepLabel(probe?.step)}</Badge>
         {/*
          * Said here only where the subtitle cannot say it. `subtitleFor`
          * already names the address in both branches, so the one sentence the

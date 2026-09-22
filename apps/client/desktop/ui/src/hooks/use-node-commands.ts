@@ -203,6 +203,16 @@ export function useNodeCommands(args: {
     service: (verb, opts) => runner.run(async () => finished(await runService(verb, opts))),
 
     /**
+     * The run-at-login switch's press. No confirmation and no settle: the CLI
+     * arms or disarms the NEXT login and interrupts nothing, so there is
+     * nothing to wait for. The re-probe the runner already does is what moves
+     * the switch when the fact comes back different, and the CLI's line
+     * ("subshell will start at login.") is the receipt.
+     */
+    autostart: (on) =>
+      runner.run(async () => finished(await nodeService({ verb: "autostart", force: false, autostart: on }))),
+
+    /**
      * The one place this file reads the CLI's prose, and the reason is that
      * nothing structured says "refused": the pane guard's refusal and a masked
      * unit, a dead D-Bus or a permission error all arrive as the same non-zero

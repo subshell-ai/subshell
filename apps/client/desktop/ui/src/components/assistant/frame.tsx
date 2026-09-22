@@ -47,6 +47,13 @@ export interface FrameShell {
 export function Frame(props: {
   /** Title Case, one line, no trailing punctuation. */
   title: string;
+  /**
+   * The machine's state chip, read between the title and the subtitle
+   * (operator ruling 2026-09-22): the badge is part of the heading — title,
+   * state, one sentence about it — and not a sandwich cut between the
+   * subtitle and the content. Absent on every screen that reports no state.
+   */
+  badge?: ReactNode;
   /** Sentence case, at most two lines. What will happen or why, never how. */
   subtitle?: string;
   /** The screen's glyph — 72px, `--primary` at 20%. */
@@ -62,10 +69,11 @@ export function Frame(props: {
    * The wide gap is right for a screen whose content is a distinct SECTION
    * under the question — a form, a checklist, a card that answers it. It is
    * wrong for a screen whose content CONTINUES the header, which is what the
-   * status screen's badge is: a state chip and the sentence under it read as
-   * part of the title, and nine units of nothing between them looks like a
-   * layout that lost something. Opt-in per screen rather than a new default,
-   * because every other screen here wants the section break.
+   * status screen's "Enrolled as" sentence is: the state chip moved into the
+   * header above it (ruling 2026-09-22), and the sentence still reads as part
+   * of the title, so nine units of nothing before it would look like a layout
+   * that lost something. Opt-in per screen rather than a new default, because
+   * every other screen here wants the section break.
    */
   tightContent?: boolean;
   /** Bottom bar, left: ghost buttons only. */
@@ -84,7 +92,7 @@ export function Frame(props: {
    */
   rail?: ReactNode;
 }) {
-  const { title, subtitle, icon, problem, children, barLeft, barRight, confirm, tightContent, rail } = props;
+  const { title, badge, subtitle, icon, problem, children, barLeft, barRight, confirm, tightContent, rail } = props;
   return (
     <div className="flex h-screen">
       {rail}
@@ -97,6 +105,7 @@ export function Frame(props: {
               </div>
             )}
             <h1 className="mt-6 text-center font-strong text-display leading-tight tracking-[-0.01em]">{title}</h1>
+            {badge && <div className="mt-3 flex justify-center">{badge}</div>}
             {subtitle && <p className="mt-2 text-center text-body text-muted-foreground leading-normal">{subtitle}</p>}
             {/*
              * Above the content rather than below it: the problem is why the

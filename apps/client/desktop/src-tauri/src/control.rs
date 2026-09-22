@@ -78,6 +78,11 @@ pub enum ServiceCommand {
     Start,
     Stop,
     Restart,
+    /// `service autostart on|off` — the day-2 login toggle (spec 2026-09-22
+    /// rails addendum). Which way it turns is the command's `autostart`
+    /// boolean, the same field `install` uses to arm the definition as it
+    /// writes it.
+    Autostart,
 }
 
 impl ServiceCommand {
@@ -88,6 +93,7 @@ impl ServiceCommand {
             ServiceCommand::Start => "start",
             ServiceCommand::Stop => "stop",
             ServiceCommand::Restart => "restart",
+            ServiceCommand::Autostart => "autostart",
         }
     }
 }
@@ -108,11 +114,14 @@ pub enum NodeCommand {
     ServiceStatus,
     /// One `service` verb, with the two flags the CLI accepts and where.
     ///
-    /// `force` is `restart` only; `autostart` is `install` only, and `false`
-    /// spells `--no-autostart` — install it and run it NOW, but do not arm it
-    /// for login. Both are fields rather than variants because that is how
-    /// `force` was already modelled, and one invocation shape with two
-    /// qualifiers reads better than three variants of "install".
+    /// `force` is `restart` only. `autostart` has two jobs and no others: on
+    /// `install` it decides what the definition is WRITTEN to do (`false`
+    /// spells `--no-autostart` — run it now, do not arm it for login), and on
+    /// the `autostart` verb its VALUE is the request itself, spelled as the
+    /// CLI's `on`/`off` argument. Both are fields rather than variants
+    /// because that is how `force` was already modelled, and one invocation
+    /// shape with two qualifiers reads better than three variants of
+    /// "install".
     ///
     /// `autostart: true` is the default everywhere except the first-run
     /// register chain, which asks the person on its start-up screen.
@@ -153,6 +162,17 @@ impl NodeCommand {
             // elsewhere would turn a stop into a usage error.
             NodeCommand::Service { verb, force, .. } if *force && *verb == ServiceCommand::Restart => {
                 vec!["service".into(), verb.as_str().into(), "--force".into()]
+            }
+            // The day-2 toggle spells its DIRECTION in the argument slot —
+            // `service autostart on|off` is how the CLI parses it — and never
+            // grows `--no-autostart`: that flag is install's alone.
+            NodeCommand::Service {
+                verb: ServiceCommand::Autostart,
+                autostart,
+                ..
+            } => {
+                let direction = if *autostart { "on" } else { "off" };
+                vec!["service".into(), "autostart".into(), direction.into()]
             }
             // The CLI accepts `--no-autostart` on `install` alone (it is in
             // that subcommand's flag allowlist and nowhere else), so passing
@@ -1128,8 +1148,10 @@ pub fn node_service(
     autostart: Option<bool>,
 ) -> ActionResult {
     // Absent means armed: every caller that predates the start-up screen —
-    // and every verb but `install`, for which the flag is meaningless — must
-    // keep installing a service that comes back at login.
+    // and every verb but `install` and `autostart`, for which the flag is
+    // meaningless — must keep installing a service that comes back at login.
+    // On `autostart` the value is the request itself (on/off), so the page
+    // always sends it for that verb; the default is the belt.
     service_now(&settings, verb, force, autostart.unwrap_or(true))
 }
 
@@ -1955,6 +1977,7 @@ mod command_set_tests {
             ServiceCommand::Start,
             ServiceCommand::Stop,
             ServiceCommand::Restart,
+            ServiceCommand::Autostart,
         ] {
             for force in [false, true] {
                 out.push(NodeCommand::Service {
@@ -2048,7 +2071,9 @@ mod command_set_tests {
     // `--no-autostart` is in the CLI's flag allowlist for `install` and nothing
     // else, so any other verb carrying it would die as a usage error — the
     // same failure `--force` has on the arm above, and the reason both are
-    // qualifiers on one variant rather than free-floating flags.
+    // qualifiers on one variant rather than free-floating flags. The
+    // `autostart` VERB is the field's other home, and it spells its request
+    // in the argument slot, never in a flag.
     #[test]
     fn no_autostart_only_reaches_install() {
         for verb in [
