@@ -106,7 +106,10 @@ describe("the address, as the ruling shows it", () => {
     // the layout is the addresses-card shape — labeled value row, acts row
     // below — and no narration.
     const { calls } = mount();
-    expect(screen.getByText(/this app's control plane/i)).toBeTruthy();
+    // The URL block is its own bordered card (operator ruling 2026-09-22,
+    // addendum 4), labeled with the operator's exact words.
+    const label = screen.getByText("Control plane URL");
+    expect(label.closest(".rounded-md.border.border-border")).toBeTruthy();
     expect(screen.getAllByText("https://subshell.example.com").length).toBeGreaterThan(0);
     expect(screen.queryByText(/this app opens/i)).toBeNull();
     // The two doors for the plane live under the Dashboard card (operator

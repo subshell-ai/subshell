@@ -155,16 +155,21 @@ export function ServiceScreen(props: {
         <div className="mt-6 rounded-md border border-border p-3">
           {/* The explainer is DELETED (operator ruling 2026-09-22, second
               addendum): the button speaks for itself, and the "what is a
-              node" half is the section's own subtitle. */}
-          {probe?.bundledVersion ? (
-            <Button variant="outline" size="sm" disabled={busy} onClick={commands.installNode}>
-              Install the Subshell Node CLI
-            </Button>
-          ) : (
-            <p className="text-muted-foreground text-detail">
-              This build ships no node CLI, so one has to be installed on this machine some other way.
-            </p>
-          )}
+              node" half is the section's own subtitle. The card carries a
+              title (addendum 3, the operator's exact words): what the button
+              does, in the vocabulary the plane uses for the same act. */}
+          <p className="font-strong text-detail">Register as a node</p>
+          <div className="mt-2">
+            {probe?.bundledVersion ? (
+              <Button variant="outline" size="sm" disabled={busy} onClick={commands.installNode}>
+                Install the Subshell Node CLI
+              </Button>
+            ) : (
+              <p className="text-muted-foreground text-detail">
+                This build ships no node CLI, so one has to be installed on this machine some other way.
+              </p>
+            )}
+          </div>
         </div>
       )}
 

@@ -714,9 +714,11 @@ the same override state — no new command.
 
 **The status screen keeps machine state, not the node's machinery** (the
 follow-up rulings, 2026-09-22, live screenshots). What moved out of it and
-where: the node's install offer (with its disabled-no-bundled case; the
-explainer sentence pair is DELETED, a later ruling the same day — the button
-speaks for itself, and it reads **Install the Subshell Node CLI**), its
+where: the node's install offer (the bordered card titled **Register as a
+node** — addendum 3, the operator's exact words; the explainer sentence pair
+is DELETED, a later ruling the same day — the button speaks for itself, and
+it reads **Install the Subshell Node CLI**; the disabled-no-bundled case
+keeps the title and shows only its sentence), its
 refusal for a CLI that cannot state its own status, the contextual service
 verbs, the pane-safety rewrite door, the unrecognised-state card and the
 node's reveals — all to the **Service** section, whose subtitle carries the
@@ -753,9 +755,10 @@ Plane | Status | Service | Update | About | Reset, and because "clear the
 override" no longer meant "show Status", EVERY rail select is an override
 now, Status included. The plane address row is the server Addresses card's
 form shape (screenshot 53: the one-line value with its buttons beside it
-wrapped the URL character-broken) — a labeled value row ("This app's control
-plane") with the acts (Change server…, Re-enroll…) grouped on their own row
-and the Dashboard card below. The `no-node` badge
+wrapped the URL character-broken) — since addendum 4 a bordered CARD
+labeled **Control plane URL** (the operator's exact words) holding the value
+and the acts (Change server…, Re-enroll…), with the Dashboard card below
+it. The `no-node` badge
 reads **Not registered as a node** (house sentence case, over the operator's
 typed capital-N), and the status screen's "This machine is not a node yet…"
 sentence is DELETED — the badge already says what the machine is not. The

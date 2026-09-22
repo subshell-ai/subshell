@@ -1935,11 +1935,12 @@ describe("the plane's two doors", () => {
 
   // The `openPlane` door itself survives, on the screen of a client that is
   // already set up: there, pressing it IS the request to see that dashboard.
-  it("opens the app window at an address changed from the status screen", async () => {
+  it("opens the app window at an address changed from the Control Plane section", async () => {
     const fake = await boot({ handlers: { node_open_plane: (args) => String(args.url) } });
     await openSection("Control Plane");
     fireEvent.click(button("Change server…"));
-    typeInto("Server URL", "https://plane.example");
+    // The URL card's field label (operator ruling 2026-09-22, addendum 4).
+    typeInto("Control plane URL", "https://plane.example");
     fireEvent.click(button("Open"));
     await waitFor(() => expect(fake.callsTo("node_open_plane")).toEqual([{ url: "https://plane.example" }]));
   });

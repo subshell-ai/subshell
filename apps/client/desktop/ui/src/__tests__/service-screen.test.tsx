@@ -129,6 +129,26 @@ describe("the reveals", () => {
     mount({ probe: makeProbe({ step: "no-node", nodeBinary: null, status: null, service: null }) });
     expect(buttonOrNull_(/reveal configuration/i)).toBeNull();
   });
+
+  it("titles the install card 'Register as a node', with the button below it", () => {
+    // Operator ruling 2026-09-22, addendum 3: the card's title is the
+    // operator's exact words, and the explainer is gone (the button speaks
+    // for itself).
+    mount({ probe: makeProbe({ step: "no-node", nodeBinary: null, status: null, service: null }) });
+    expect(screen.getByText("Register as a node")).toBeTruthy();
+    expect(button(/install the subshell node cli/i)).toBeTruthy();
+    cleanup();
+  });
+
+  it("keeps the title on the no-bundled case, where only the sentence shows", () => {
+    mount({
+      probe: makeProbe({ step: "no-node", nodeBinary: null, status: null, service: null, bundledVersion: null }),
+    });
+    expect(screen.getByText("Register as a node")).toBeTruthy();
+    expect(buttonOrNull_(/install the subshell node cli/i)).toBeNull();
+    expect(screen.getByText(/ships no node CLI/)).toBeTruthy();
+    cleanup();
+  });
 });
 
 function buttonOrNull_(name: string | RegExp) {

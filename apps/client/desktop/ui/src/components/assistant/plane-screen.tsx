@@ -70,55 +70,57 @@ export function PlaneScreen(props: {
     <Frame {...shell} rail={props.rail} tightContent>
       {/* Which plane this APP opens — the addresses-card form shape (operator
           ruling 2026-09-22, screenshot 53: the one-line value with its buttons
-          beside it wrapped the URL character-broken and crowded it). The
-          address is a labeled row on its own, and the acts group on their own
-          row below it, with breathing room. The label is a noun, not the
-          deleted "This app opens <url>" narration. */}
-      <div className="space-y-1.5">
-        <Label htmlFor="plane-url" className="text-muted-foreground text-detail">
-          {editingPlane ? "Server URL" : "This app's control plane"}
-        </Label>
-        {editingPlane ? (
-          <form
-            className="flex flex-col gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (busy || planeTyped.trim() === "") return;
-              // Closed unconditionally: the runner surfaces a rejected URL
-              // as its own message, and leaving the form open on success
-              // would look like nothing happened.
-              setEditingPlane(false);
-              commands.openPlane(planeTyped);
-            }}
-          >
-            <div className="flex items-center gap-2">
-              <Input
-                id="plane-url"
-                value={planeTyped}
-                onChange={(e) => setPlaneTyped(e.target.value)}
-                placeholder="https://subshell.example.com"
-                spellCheck={false}
-                autoCapitalize="off"
-                autoCorrect="off"
-                disabled={busy}
-              />
-              <Button type="submit" size="sm" disabled={busy || planeTyped.trim() === ""}>
-                Open
-              </Button>
-              <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setEditingPlane(false)}>
-                Cancel
-              </Button>
-            </div>
-          </form>
-        ) : (
-          <p className="min-w-0 break-all font-mono text-sm">{planeUrl ?? "nothing yet"}</p>
-        )}
+          beside it wrapped the URL character-broken and crowded it), since
+          addendum 4 as its own bordered CARD, matching the Dashboard card
+          below it. The label is the operator's exact words (addendum 4), a
+          noun rather than the deleted "This app opens <url>" narration. */}
+      <div className="rounded-md border border-border p-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="plane-url" className="text-muted-foreground text-detail">
+            Control plane URL
+          </Label>
+          {editingPlane ? (
+            <form
+              className="flex flex-col gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (busy || planeTyped.trim() === "") return;
+                // Closed unconditionally: the runner surfaces a rejected URL
+                // as its own message, and leaving the form open on success
+                // would look like nothing happened.
+                setEditingPlane(false);
+                commands.openPlane(planeTyped);
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <Input
+                  id="plane-url"
+                  value={planeTyped}
+                  onChange={(e) => setPlaneTyped(e.target.value)}
+                  placeholder="https://subshell.example.com"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  disabled={busy}
+                />
+                <Button type="submit" size="sm" disabled={busy || planeTyped.trim() === ""}>
+                  Open
+                </Button>
+                <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setEditingPlane(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <p className="min-w-0 break-all font-mono text-sm">{planeUrl ?? "nothing yet"}</p>
+          )}
+        </div>
         {!editingPlane && (
-          // The acts, grouped on their own row (ruling 4, same screenshot):
-          // the edit and, for a machine that is a node, the relationship act.
-          // Re-enroll… stays where the 0aeb7709 ruling put it; the confirm
-          // gate is the enroll screen's, unchanged.
-          <div className="flex flex-wrap gap-2 pt-1">
+          // The acts, grouped on their own row inside the card (ruling 4,
+          // same screenshot): the edit and, for a machine that is a node, the
+          // relationship act. Re-enroll… stays where the 0aeb7709 ruling put
+          // it; the confirm gate is the enroll screen's, unchanged.
+          <div className="mt-2 flex flex-wrap gap-2">
             <Button
               variant="outline"
               size="sm"
