@@ -1295,6 +1295,7 @@ export function Host(): React.JSX.Element {
         <ResetScreen
           probe={probe}
           busy={busy || running}
+          railPresent={rail !== undefined}
           steps={resetSteps}
           armingProblem={resetArmingProblem}
           runLabel={resetRunLabel}

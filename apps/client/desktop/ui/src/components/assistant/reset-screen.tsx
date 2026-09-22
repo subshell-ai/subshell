@@ -103,7 +103,11 @@ export function ResetScreen(props: {
       rail={running ? undefined : props.rail}
       icon={<TriangleAlert />}
       barLeft={
-        running ? undefined : (
+        // NO CANCEL where the rail is present (operator ruling 2026-09-22,
+        // screenshot 59): the rail is the way out of the confirmation, and
+        // one act with two exits is two acts to a reader. Cancel is for a
+        // rail-LESS render only, and the running room keeps none regardless.
+        running || props.rail ? undefined : (
           <Button variant="ghost" disabled={busy} onClick={onCancel}>
             Cancel
           </Button>
@@ -126,8 +130,11 @@ export function ResetScreen(props: {
       }
     >
       {armed === false ? (
+        // The operator's exact words (ruling batch, 2026-09-22, screenshot
+        // 59): the "nothing to reset / nothing has been changed" tail is
+        // deleted; the sentence says what the machine is not and stops.
         <p className="text-muted-foreground text-sm leading-relaxed">
-          This machine is not registered with a control plane, so there is nothing to reset. Nothing has been changed.
+          This machine is not registered with a control plane.
         </p>
       ) : (
         <>

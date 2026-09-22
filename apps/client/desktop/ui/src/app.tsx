@@ -60,10 +60,21 @@ import {
 } from "@/lib/client-flow";
 import type { ActionResult, EnrolledNodeBody } from "@/lib/ipc";
 import * as ipc from "@/lib/ipc";
-import { type NodeUserScreen, screenTitle } from "@/lib/node-assistant-state";
+import { type NodeScreenId, type NodeUserScreen, screenTitle } from "@/lib/node-assistant-state";
 
 export function App() {
-  const runner = useActionRunner();
+  /**
+   * The screen the last action was PRESSED on — the output block travels
+   * with the screen that owns the action (operator ruling 2026-09-22), so
+   * the reset screen never renders the Dashboard card's open line and
+   * Status never inherits the Update screen's install log. Tagged at the
+   * press (`useActionRunner`'s `onRun`), shown only on the matching screen;
+   * the Update screen's own watch-verdict reads the raw runner output,
+   * which is why this gates the RENDER rather than the record.
+   */
+  const [outputScreen, setOutputScreen] = useState<NodeScreenId | null>(null);
+  const screenRef = useRef<NodeScreenId | null>(null);
+  const runner = useActionRunner({ onRun: () => setOutputScreen(screenRef.current) });
   const { probe, settings, firstProbePending, readError } = useNodeState(runner.busy);
   const form = useEnrollForm();
 
@@ -185,15 +196,33 @@ export function App() {
   const screen = clientScreen({ probe, settings, step, override });
 
   /**
+   * The screen the last SETTLED action was on — the output block travels
+   * with the screen that owns the action (operator ruling 2026-09-22), so
+   * the reset screen never renders the Dashboard card's open line and
+   * Status never inherits the Update screen's install log. Tagged when an
+   * action SETTLES (busy falls), with the screen current at that moment: a
+   * person who navigates mid-action reads the answer where they then are,
+   * which is the useful half of a long install's words. The Update
+   * screen's own watch-verdict reads the raw runner output, which is why
+   * this gates the RENDER rather than the record.
+   */
+  useEffect(() => {
+    screenRef.current = screen;
+  }, [screen]);
+  /** The words and the failure line, ONLY on the screen that owns the action. */
+  const ownedOutput = outputScreen === screen ? runner.output : null;
+  const ownedFailure = outputScreen === screen ? runner.failure : "";
+
+  /**
    * The rail, or its absence (wave 3). `railFor` answers null for every step
    * of the FTE walk, the two focused acts and the not-read state — and for
    * any standing screen while the machine is NOT settled (configured, no
    * walk in progress), because the exclusion is about the machine's journey,
    * not about who asked: the tray can raise About mid-walk, and the render
-   * keeps its Back. The select semantics are the override model's own:
-   * Status clears the override (the machine's screen is the landing),
-   * Update and About set theirs, and Reset is the destructive DOOR — its
-   * screen is frame-replacing, exactly the server's ruling.
+   * keeps its Back. The select semantics are the override model's own, every
+   * select an override since the landing moved to Control Plane (operator
+   * ruling 2026-09-22, second addendum), and Reset's confirmation rides the
+   * rail since the same day's layout ruling — the room is the running chain.
    *
    * Nothing needs forgetting here: the one-visit draft state this page holds
    * (the enroll form) is edited only on the register and enroll screens,
@@ -237,7 +266,7 @@ export function App() {
    * defect this page had to preserve through two rewrites: a re-probe must
    * never be able to replace the message an action just produced.
    */
-  const problem = runner.failure || readError || probe?.error || "";
+  const problem = ownedFailure || readError || probe?.error || "";
 
   const shell: FrameShell = {
     title: screen ? screenTitle(screen) : "Checking This Machine",
@@ -282,7 +311,7 @@ export function App() {
     );
   }
 
-  const facts = { probe, settings, enrolledNode, output: runner.output };
+  const facts = { probe, settings, enrolledNode, output: ownedOutput };
 
   switch (screen) {
     case "welcome":

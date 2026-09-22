@@ -67,8 +67,15 @@ export interface ActionRunner {
   settle: () => Promise<void>;
 }
 
-export function useActionRunner(): ActionRunner {
+export function useActionRunner(args: { onRun?: () => void } = {}): ActionRunner {
   const queryClient = useQueryClient();
+  // Called at the top of every submission, BEFORE the mutation goes pending —
+  // the page tags the outcome with the screen the press happened on (operator
+  // ruling 2026-09-22: the output block travels with the screen that owns the
+  // action). A busy-fall watch cannot do this: a mutation that settles within
+  // one batch never renders its pending state, so no render ever sees busy
+  // true.
+  const onRun = args.onRun;
   /**
    * Whether the user dismissed the confirmation the current outcome carries.
    *
@@ -114,6 +121,7 @@ export function useActionRunner(): ActionRunner {
 
   function run(body: ActionRun, opts?: { reprobe?: boolean }): void {
     if (mutation.isPending) return;
+    onRun?.();
     mutation.mutate({ run: body, reprobe: opts?.reprobe ?? true });
   }
 
@@ -122,6 +130,7 @@ export function useActionRunner(): ActionRunner {
     // confirmation this was read from.
     const confirmed = pending;
     if (confirmed === null || mutation.isPending) return;
+    onRun?.();
     mutation.mutate({ run: confirmed.run, reprobe: true });
   }
 

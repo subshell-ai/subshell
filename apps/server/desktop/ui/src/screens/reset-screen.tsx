@@ -44,6 +44,12 @@ export function ResetScreen(props: {
   armingProblem: string | null;
   /** The run button's label at rest; a half-run promotes it to "Retry reset". */
   runLabel: string;
+  /**
+   * Whether the rail is beside this render. NO CANCEL where it is (operator
+   * ruling 2026-09-22, screenshot 59): the rail is the way out of the
+   * confirmation, and the running room keeps no Cancel regardless.
+   */
+  railPresent: boolean;
   log: ResetLog | null;
   /** The typed hostname — host state, so it survives Cancel and a reopen. */
   typed: string;
@@ -166,19 +172,19 @@ export function ResetScreen(props: {
         >
           {busy ? "Resetting…" : runLabel}
         </Button>
-        {/* Cancel goes with it, on the SAME predicate, and the reason is what the
-            action row now sits under. Beside the hostname box it meant "never
-            mind" — the only thing there to abandon was a half-typed name. Under
-            the meter it reads as "cancel this reset", which is the one thing it
-            cannot do: a press would leave the chain stopping services and
-            deleting directories in Rust with the window that was reporting it
-            gone. Nothing on the progress pane may offer an act the chain cannot
-            honour. `busy` ends on every exit path the run handler has, so a
-            half-run gets Cancel back beside Retry, where leaving really is a
-            choice. */}
-        <Button type="button" variant="outline" disabled={busy} onClick={props.onCancel}>
-          Cancel
-        </Button>
+        {/* Cancel renders only in a rail-LESS render and never while the chain
+            runs (operator ruling 2026-09-22, screenshot 59, superseding the
+            half-run Cancel: the rail is the way out of the confirmation, and
+            the room keeps no exit at all — a press would leave the chain
+            stopping services and deleting directories in Rust with the
+            window that was reporting it gone). Beside the hostname box it
+            meant "never mind" — the only thing there to abandon was a
+            half-typed name. */}
+        {!props.railPresent && !busy && (
+          <Button type="button" variant="outline" onClick={props.onCancel}>
+            Cancel
+          </Button>
+        )}
       </div>
       {/* The reason, beside the control it disables. Only for a REFUSAL: "you
           have not typed the hostname yet" is what the label above the box

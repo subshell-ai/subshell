@@ -135,7 +135,13 @@ CONFIRMATION rides the rail too, reset active: the sidebar was being lost
 on it and that is not wanted. The frame-replacing premise moved to the
 RUNNING chain — host.tsx withholds the rail from the render for
 `busy || running`, so no navigation sits beside a chain that is deleting
-this server; that is where the safety property lives now. With the sidebar present the rail is also the navigation: the
+this server; that is where the safety property lives now. There is NO CANCEL
+where the rail is present (operator ruling 2026-09-22, screenshot 59) — the
+rail is the way out of the confirmation — and the room keeps no Cancel
+regardless, superseding the half-run Cancel beside Retry. The reset's
+half-run log is its own slot and the other screens keep theirs, so no
+cross-screen output inheritance existed here to cut. With the sidebar
+present the rail is also the navigation: the
 standing screens' own leave buttons (Back on Service, Back on
 Addresses, Close on Update) render only where the rail does not — a
 requested screen over a mid-first-run machine has none, and there the leave

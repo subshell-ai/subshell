@@ -95,9 +95,9 @@ export function subtitleFor(
         ? `Register ${here} again, with a different control plane or as a new node.`
         : `${probe?.nodeBinary ? "This machine has a node CLI but is" : "This machine is"} not registered with a control plane yet.`;
     case "reset":
-      // Says what is deleted rather than where it lives, which is the same
-      // reason the title names no machine (node-assistant-state.ts explains).
-      return "Delete this node's configuration, its key and its data. Nothing else on this computer is touched.";
+      // The operator's one sentence (ruling batch, 2026-09-22, screenshot
+      // 59), replacing the pair: what is removed, and that is all it says.
+      return "Removes the machine's Subshell node configuration and data.";
     case "about":
       return "What this app is, which versions are running, and under what terms.";
     case "update":

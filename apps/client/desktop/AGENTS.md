@@ -711,7 +711,13 @@ reset layout, superseding the frame-replacing premise for the confirmation:
 the sidebar was being lost today and that is not wanted) — the room is the
 RUNNING chain: from the confirm press to the chain's end, reset-screen.tsx
 hides the rail and both bar buttons off the runner's busy, and no navigation
-sits beside a chain that is deleting this machine's node; and where the rail
+sits beside a chain that is deleting this machine's node. There is NO CANCEL
+where the rail is present (operator ruling 2026-09-22, screenshot 59) — the
+rail is the way out of the confirmation, and the room keeps no Cancel
+regardless; the not-registered refusal reads "This machine is not registered
+with a control plane." and the subtitle is "Removes the machine's Subshell
+node configuration and data." (both the operator's exact words, same
+screenshot); and where the rail
 is up, the standing
 screens' own leave buttons (About's and Update's Back) render only where the
 rail does not. The tray's `desktop-screen` events select their section by
@@ -747,6 +753,17 @@ verbatim. Unregister is not a link on the status
 screen — the rail's Reset section is that door. There is no Refresh button
 anywhere: the probe query re-reads the machine on its own five-second interval
 (operator ruling, 2026-09-22) — the poll is the refresh.
+
+**The output block travels with the screen that owns the action** (operator
+ruling 2026-09-22, extending the same day's opens-record-nothing rule). An
+OPEN records no receipt — the window or browser opening is the feedback —
+and an instantaneous save records none either; the runner output's remaining
+job is LONG actions' CLI words and FAILURES. What is recorded renders only
+on the screen the action was pressed on: `App` tags each outcome with its
+screen at press (`useActionRunner`'s `onRun`) and gates the render, so the
+reset screen never shows another action's line. The Update screen's own
+watch-verdict reads the raw runner output, which is why the rule gates the
+render rather than the record.
 
 **The doors rearranged the same day, twice** (operator rulings 2026-09-22,
 screenshots 52/53 and a superseding addendum). The FINAL state: the status
