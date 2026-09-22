@@ -723,7 +723,11 @@ configured plane address, the way to change it, "Open in browser instead",
 and the node's own view of the same server (its repoint machinery, the
 loopback notice and the coherence card) — all to the **Control Plane**
 section, which shows the address labeled rather than narrating "This app
-opens <url>". The node-behind doors the status screen carried ("Update the
+opens <url>". **Re-enroll…** moved there too, later the same day (operator
+ruling 2026-09-22): overwriting `config.json` and minting a second node row
+is an act on this machine's relationship to the plane, not on the machine
+itself, and the enroll screen's confirm gate is unchanged. The node-behind
+doors the status screen carried ("Update the
 node to X…", "Check for updates…") are GONE: the Update section is the door,
 and the update screen's own table is where the node row's numbers live. The
 facts and the CLI's last words render INLINE (no disclosure), on the status,

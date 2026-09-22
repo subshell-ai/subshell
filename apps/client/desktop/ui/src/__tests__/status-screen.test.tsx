@@ -100,7 +100,6 @@ function mount(
       commands={makeCommands(calls)}
       busy={init.busy ?? false}
       onRegister={() => pressed.push("register")}
-      onReenroll={() => pressed.push("reenroll")}
     />,
   );
   return { calls, pressed };
@@ -224,10 +223,13 @@ describe("what the connected screen offered is still offered", () => {
     expect(buttonOrNull_(/update the node to/i)).toBeNull();
   });
 
-  it("keeps Re-enroll… for a machine that is one", () => {
+  it("offers no Re-enroll even on a machine that is one — the act is the Control Plane section's", () => {
+    // Operator ruling 2026-09-22: re-enrolling is an act on this machine's
+    // RELATIONSHIP to the plane, so it moved out of the machine-state screen.
+    // The Control Plane side of the move is pinned in plane-screen.test.tsx.
     const { pressed } = mount();
-    fireEvent.click(button(/re-enroll/i));
-    expect(pressed).toEqual(["reenroll"]);
+    expect(buttonOrNull_(/re-enroll/i)).toBeNull();
+    expect(pressed).toEqual([]);
   });
 
   /**

@@ -52,6 +52,7 @@ const shell = { title: "Control Plane", subtitle: "The address this app and this
 
 function mount(init: { probe?: ReturnType<typeof makeProbe>; settings?: ReturnType<typeof makeSettings> } = {}) {
   const calls: Call[] = [];
+  const pressed: string[] = [];
   renderApp(
     <PlaneScreen
       shell={shell}
@@ -59,10 +60,11 @@ function mount(init: { probe?: ReturnType<typeof makeProbe>; settings?: ReturnTy
       settings={init.settings ?? makeSettings()}
       commands={makeCommands(calls)}
       busy={false}
+      onReenroll={() => pressed.push("reenroll")}
       output={null as ActionResult | null}
     />,
   );
-  return { calls };
+  return { calls, pressed };
 }
 
 const button = (name: string | RegExp) => screen.getByRole("button", { name }) as HTMLButtonElement;
@@ -108,5 +110,23 @@ describe("the address, as the ruling shows it", () => {
     fireEvent.click(button(/open in browser instead/i));
     expect(calls).toEqual([{ name: "openPlaneUrl", args: [] }]);
     expect(button(/change server…/i)).toBeTruthy();
+  });
+});
+
+/** Re-enroll… moved here from the status screen (operator ruling 2026-09-22): the act is on this machine's relationship to the plane. */
+describe("re-enroll, beside the plane address acts", () => {
+  it("is offered on a machine that is a node, and opens the enroll flow", () => {
+    const { pressed } = mount();
+    expect(button(/re-enroll/i)).toBeTruthy();
+    fireEvent.click(button(/re-enroll/i));
+    expect(pressed).toEqual(["reenroll"]);
+  });
+
+  it("is not offered on a machine that is not a node — that act is Register", () => {
+    const { pressed } = mount({
+      probe: makeProbe({ status: { nodeId: null, online: false, reason: "no config" } }),
+    });
+    expect(screen.queryByRole("button", { name: /re-enroll/i })).toBeNull();
+    expect(pressed).toEqual([]);
   });
 });

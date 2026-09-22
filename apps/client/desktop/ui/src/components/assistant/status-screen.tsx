@@ -14,10 +14,11 @@
  * HERE, and the dashboard appears when someone presses the button for it —
  * which is why that button is the one primary in the bar.
  *
- * The two acts the screen still offers are the two that are about the MACHINE
+ * The one act the screen still offers is the one that is about the MACHINE
  * rather than the node's machinery: **Register this machine**, for a client
- * that only ever watched a server, and **Re-enroll…**, for one that is —
- * overwriting `config.json` and minting a second node row. Unregister is NOT
+ * that only ever watched a server. Re-enroll… moved to the Control Plane
+ * section (operator ruling 2026-09-22): it is an act on this machine's
+ * RELATIONSHIP to the plane, not on the machine itself. Unregister is NOT
  * offered as a link any more: the rail's Reset section is that door
  * (destructive-styled, operator ruling 2026-09-22), and one act with two
  * labels is two acts to a reader.
@@ -61,10 +62,9 @@ export function StatusScreen(props: {
   busy: boolean;
   /** Start the node registration flow — for a client that is not a node yet. */
   onRegister: () => void;
-  onReenroll: () => void;
 }) {
   const { shell, probe, settings, enrolledNode, output, commands, busy } = props;
-  const { onRegister, onReenroll } = props;
+  const { onRegister } = props;
   const planeUrl = settings?.planeUrl ?? null;
   const nodeServerUrl = probe?.status?.serverUrl ?? null;
 
@@ -165,19 +165,13 @@ export function StatusScreen(props: {
       )}
 
       {/*
-       * Re-enrolling is a thing you do to a machine that IS enrolled — it
-       * overwrites `config.json` and mints a second node row. On a machine
-       * that is not one, the act with that meaning is **Register this
-       * machine** above, so offering both would be two buttons for one thing
-       * under two names.
+       * Re-enroll… is NOT here (operator ruling 2026-09-22): overwriting
+       * `config.json` and minting a second node row is an act on this
+       * machine's relationship to the control plane, so it lives on the
+       * Control Plane section beside the plane address acts. On a machine
+       * that is not a node, the act with that meaning is **Register this
+       * machine** above.
        */}
-      {enrolled && (
-        <div className="mt-6">
-          <Button variant="outline" size="sm" disabled={busy} onClick={onReenroll}>
-            Re-enroll…
-          </Button>
-        </div>
-      )}
 
       <StatusFacts probe={probe} settings={settings} enrolledNode={enrolledNode} output={output} />
     </Frame>

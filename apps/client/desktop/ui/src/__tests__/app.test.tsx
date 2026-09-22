@@ -120,8 +120,10 @@ const typeInto = (label: string, value: string) => {
 };
 
 /**
- * Open the enrol form the way a person now reaches it: **Re-enroll…**, from
- * the status screen of a machine that already IS a node.
+ * Open the enrol form the way a person reaches it: **Re-enroll…**, on the
+ * Control Plane section of a machine that already IS a node (operator ruling
+ * 2026-09-22 — the act moved there from the status screen, which keeps
+ * machine state only).
  *
  * The probe-derived `enroll` landing is gone (spec 2026-09-18 § 5.4). An
  * unconfigured machine walks to **Register**, whose press is the consent and
@@ -132,6 +134,7 @@ const typeInto = (label: string, value: string) => {
  */
 async function openReenroll(init: Parameters<typeof installFakeIpc>[0] = {}) {
   const fake = await boot(init);
+  await openSection("Control Plane");
   fireEvent.click(button("Re-enroll…"));
   await screen.findByRole("heading", { name: "Enroll This Machine" });
   return fake;
@@ -196,7 +199,10 @@ describe("the assistant frame", () => {
     await boot();
     expect(screen.getByRole("heading", { name: "Subshell Client" })).toBeTruthy();
     expect(buttonOrNull("Open Dashboard")).not.toBeNull();
-    expect(buttonOrNull("Re-enroll…")).not.toBeNull();
+    // Re-enroll… is NOT on the status screen any more (operator ruling
+    // 2026-09-22): the act is on the machine's relationship to the plane, so
+    // the Control Plane section carries it.
+    expect(buttonOrNull("Re-enroll…")).toBeNull();
     expect(screen.queryByText("More…")).toBeNull();
     const rail = screen.getByRole("navigation", { name: "Main" });
     expect([...rail.querySelectorAll("button")].map((b) => b.textContent)).toEqual([
@@ -207,6 +213,8 @@ describe("the assistant frame", () => {
       "About",
       "Reset",
     ]);
+    await openSection("Control Plane");
+    expect(buttonOrNull("Re-enroll…")).not.toBeNull();
   });
 
   // Each used to be its own screen with its own heading. They land on `status`
@@ -547,6 +555,7 @@ describe("enrolment is two-phase", () => {
     // the page rather than in the DOM, which is the whole reason they survive
     // a screen change at all.
     await waitFor(() => expect(fake.callsTo("node_enroll").length).toBe(1));
+    await openSection("Control Plane");
     await waitFor(() => expect(buttonOrNull("Re-enroll…")).not.toBeNull());
     fireEvent.click(button("Re-enroll…"));
     await screen.findByRole("heading", { name: "Enroll This Machine" });
@@ -612,6 +621,7 @@ describe("enrolment is two-phase", () => {
 
   it("seeds the re-enroll form from the server this machine already answers to", async () => {
     await boot();
+    await openSection("Control Plane");
     fireEvent.click(button("Re-enroll…"));
     await waitFor(() =>
       expect((screen.getByLabelText("Server URL") as HTMLInputElement).value).toBe("https://subshell.example.com"),
@@ -839,6 +849,7 @@ describe("replacing the installed node CLI", () => {
     // screen's own table is where the node row's numbers live.
     await boot({ probe: makeProbe({ nodeChoice: "upgrade-available", bundledVersion: "1.10.0" }) });
     expect(buttonOrNull("Update the node to 1.10.0")).toBeNull();
+    await openSection("Control Plane");
     fireEvent.click(button("Re-enroll…"));
     // That screen ends in a destructive button; an unrelated one beside it is
     // how the wrong one gets clicked.
@@ -1707,6 +1718,7 @@ describe("tmux is a hard stop, not a hint", () => {
     ipc?.restore();
 
     await boot({ probe: makeProbe({ tmux: null }) });
+    await openSection("Control Plane");
     fireEvent.click(button("Re-enroll…"));
     await screen.findByRole("heading", { name: "Enroll This Machine" });
     expect(button("Enroll").disabled).toBe(true);

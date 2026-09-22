@@ -6,6 +6,11 @@
  * server — its reported address, the repoint machinery, the loopback warning
  * and the coherence notice. The status screen's "This app opens <url>"
  * sentence is DELETED per the ruling: the value is shown labeled, not narrated.
+ * Later the same day, Re-enroll… moved here too (operator ruling 2026-09-22):
+ * overwriting `config.json` and minting a second node row is an act on this
+ * machine's relationship to the plane, which is exactly what this section is
+ * for. The enroll screen's own confirm gate is unchanged — the door moved,
+ * not the asking.
  *
  * Two addresses, and they are independent (the reason the status screen kept
  * them side by side until this split): `planeUrl` (what this APP opens) and
@@ -32,12 +37,20 @@ export function PlaneScreen(props: {
   settings: NodeSettings | undefined;
   commands: NodeCommands;
   busy: boolean;
+  /**
+   * Open the re-enroll flow — for a machine that already IS a node. Offered
+   * beside the plane address acts (operator ruling 2026-09-22): the enroll
+   * screen's confirm gate is unchanged, so this is a door, not a new act.
+   */
+  onReenroll: () => void;
   /** The CLI's last words — the address acts' answers, rendered inline below. */
   output: ActionResult | null;
 }): ReactElement {
-  const { shell, probe, settings, commands, busy, output } = props;
+  const { shell, probe, settings, commands, busy, onReenroll, output } = props;
   const planeUrl = settings?.planeUrl ?? null;
   const nodeServerUrl = probe?.status?.serverUrl ?? null;
+  /** Re-enroll… overwrites a live `config.json`, so it exists only where there is one. */
+  const enrolled = Boolean(probe?.status?.nodeId);
   const divergence = planeCoherence(planeUrl, nodeServerUrl);
   const [editingPlane, setEditingPlane] = useState(false);
   const [planeTyped, setPlaneTyped] = useState("");
@@ -108,6 +121,19 @@ export function PlaneScreen(props: {
                 <ExternalLink aria-hidden />
                 Open in browser instead
               </Button>
+              {/* Re-enroll… beside the plane address acts (operator ruling
+                  2026-09-22): the act is on this machine's relationship to
+                  the plane — overwriting `config.json`, minting a SECOND
+                  node row and discarding the live node key — so it is this
+                  section's, and only for a machine that is a node. On a
+                  machine that is not, the same-shaped act is the status
+                  screen's Register this machine. The confirm gate lives on
+                  the enroll screen and is unchanged. */}
+              {enrolled && (
+                <Button variant="outline" size="sm" disabled={busy} onClick={onReenroll}>
+                  Re-enroll…
+                </Button>
+              )}
             </div>
           </div>
         )}

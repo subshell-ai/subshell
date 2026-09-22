@@ -417,11 +417,6 @@ export function App() {
             form.seedServer(probe?.status?.serverUrl ?? settings?.planeUrl ?? "");
             setStep("node");
           }}
-          onReenroll={() => {
-            if (runner.busy) return;
-            form.seedServer(probe?.status?.serverUrl ?? settings?.planeUrl ?? "");
-            setOverride("enroll");
-          }}
         />
       );
     case "service":
@@ -444,6 +439,11 @@ export function App() {
           settings={settings}
           commands={commands}
           busy={runner.busy}
+          onReenroll={() => {
+            if (runner.busy) return;
+            form.seedServer(probe?.status?.serverUrl ?? settings?.planeUrl ?? "");
+            setOverride("enroll");
+          }}
           output={runner.output}
         />
       );
