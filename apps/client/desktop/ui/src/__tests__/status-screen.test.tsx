@@ -1,77 +1,28 @@
 /**
- * The landing screen for a configured client, and the rule it carries.
+ * The landing screen a configured client returns to, and the rules IT carries.
  *
- * Spec 2026-09-18 § 2: the control plane's window is never opened by anything
- * but a press, so this screen's primary button is the only route to it — and
- * every state a configured machine can be in has to land here and still have
- * somewhere to go. The cases below are those two properties: the dashboard
- * button is present and calls the command that opens it, and the screen adapts
- * to whether this machine is a node (Unregister) or merely watching one
- * (Register) and to whether its agent is actually running.
+ * The door rulings (operator 2026-09-22): the control plane's window is opened
+ * by nothing but a press, and since the second addendum this screen carries NO
+ * door at all — the Control Plane section's Dashboard card owns both opens,
+ * and the rail's Reset section is Unregister's only entry. So the cases here
+ * are mostly absences, plus what survives them: the badge and the one
+ * sentence adapt to whether this machine is a node, and the facts render
+ * inline as Status's alone. There is no commands mock in this file because
+ * there is nothing to mock: the screen takes no commands, and the "no button
+ * at all" case is what makes that a pin rather than a habit.
  *
  * Rendered directly rather than through `App`: the routing that lands a client
- * here is `node-assistant-state`'s, tested there, and this file is about what
- * the screen offers once it is reached.
+ * here is `client-flow`'s, tested there, and this file is about what the
+ * screen offers once it is reached.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, screen } from "@testing-library/react";
 import { StatusScreen } from "@/components/assistant/status-screen";
 import { subtitleFor } from "@/components/assistant/subtitles";
-import type { NodeCommands } from "@/hooks/use-node-commands";
 import type { EnrolledNodeBody, NodeSettings, Probe } from "@/lib/ipc";
 import { makeProbe, makeSettings, renderApp } from "./harness";
 
 afterEach(cleanup);
-
-/** One recorded command call. */
-interface Call {
-  name: string;
-  args: unknown[];
-}
-
-/**
- * A `NodeCommands` that records instead of invoking.
- *
- * Every member, spelled out: the screen decides which ones to offer, so a
- * command that becomes reachable later fails loudly here rather than being
- * silently undefined.
- */
-function _makeCommands(calls: Call[]): NodeCommands {
-  const rec =
-    (name: string) =>
-    (...args: unknown[]) => {
-      // Argument-less commands are handed straight to `onClick`, exactly as
-      // the connected screen hands them, so React passes each one its click
-      // event. The real commands ignore it; recording it would make every
-      // assertion here a comparison against a synthetic event, so only VALUES
-      // are kept — a primitive, `null`, or a plain options object.
-      const kept = args.filter(
-        (a) => a === null || typeof a !== "object" || Object.getPrototypeOf(a) === Object.prototype,
-      );
-      calls.push({ name, args: kept });
-    };
-  return {
-    refresh: rec("refresh"),
-    installNode: rec("installNode"),
-    updateNode: rec("updateNode"),
-    service: rec("service"),
-    restart: rec("restart"),
-    uninstall: rec("uninstall"),
-    rewrite: rec("rewrite"),
-    enroll: rec("enroll"),
-    repoint: rec("repoint"),
-    openPath: rec("openPath"),
-    openPlane: rec("openPlane"),
-    openPlaneUrl: rec("openPlaneUrl"),
-    // The first-run commands. This screen never invokes them — it is the
-    // landing a configured client returns to — but the mock stands in for the
-    // whole interface, so leaving them out would fail the build rather than
-    // any assertion here.
-    installTmux: rec("installTmux"),
-    connectOnly: rec("connectOnly"),
-    register: rec("register"),
-  };
-}
 
 const shell = { title: "This Machine", subtitle: "What this machine is doing." };
 
@@ -86,8 +37,6 @@ function watcherProbe(overrides: Partial<Probe> = {}): Probe {
 }
 
 function mount(init: { probe?: Probe; settings?: NodeSettings; enrolledNode?: EnrolledNodeBody | null } = {}) {
-  const calls: Call[] = [];
-  const pressed: string[] = [];
   renderApp(
     <StatusScreen
       shell={shell}
@@ -96,12 +45,9 @@ function mount(init: { probe?: Probe; settings?: NodeSettings; enrolledNode?: En
       enrolledNode={init.enrolledNode ?? null}
     />,
   );
-  return { calls, pressed };
 }
 
-const _button = (name: string | RegExp) => screen.getByRole("button", { name }) as HTMLButtonElement;
 const maybeButton = (name: string | RegExp) => screen.queryByRole("button", { name });
-const buttonOrNull_ = maybeButton;
 
 describe("an enrolled, online machine", () => {
   it("offers NO door, and nothing about registering or unregistering", () => {
@@ -111,13 +57,12 @@ describe("an enrolled, online machine", () => {
     // section's Dashboard card. Unregister is NOT a link here either: the
     // rail's Reset section is that door, and one act with two labels is two
     // acts to a reader.
-    const { calls } = mount();
+    mount();
     expect(maybeButton(/open dashboard/i)).toBeNull();
     expect(maybeButton(/open in browser/i)).toBeNull();
     expect(maybeButton(/open in app/i)).toBeNull();
     expect(maybeButton(/unregister this machine/i)).toBeNull();
     expect(maybeButton(/^register this machine$/i)).toBeNull();
-    expect(calls).toEqual([]);
   });
 
   /** The node's name is a fact only when THIS session chose it (probe-facts.ts). */
@@ -205,34 +150,25 @@ describe("what the connected screen offered is still offered", () => {
     // door is the rail's Update section (operator rulings, 2026-09-22); the
     // status screen keeps machine state and the two machine acts.
     mount();
-    expect(buttonOrNull_(/change server/i)).toBeNull();
-    expect(buttonOrNull_(/open the control plane/i)).toBeNull();
+    expect(maybeButton(/change server/i)).toBeNull();
+    expect(maybeButton(/open the control plane/i)).toBeNull();
     // No doors at all after the second addendum: the Control Plane section's
     // Dashboard card is the only place that opens the plane.
-    expect(buttonOrNull_(/open in browser/i)).toBeNull();
-    expect(buttonOrNull_(/open in app/i)).toBeNull();
-    expect(buttonOrNull_(/open dashboard/i)).toBeNull();
-    expect(buttonOrNull_(/check for updates/i)).toBeNull();
-    expect(buttonOrNull_(/update the node to/i)).toBeNull();
+    expect(maybeButton(/open in browser/i)).toBeNull();
+    expect(maybeButton(/open in app/i)).toBeNull();
+    expect(maybeButton(/open dashboard/i)).toBeNull();
+    expect(maybeButton(/check for updates/i)).toBeNull();
+    expect(maybeButton(/update the node to/i)).toBeNull();
   });
 
   it("offers no Re-enroll even on a machine that is one — the act is the Control Plane section's", () => {
     // Operator ruling 2026-09-22: re-enrolling is an act on this machine's
     // RELATIONSHIP to the plane, so it moved out of the machine-state screen.
     // The Control Plane side of the move is pinned in plane-screen.test.tsx.
-    const { pressed } = mount();
-    expect(buttonOrNull_(/re-enroll/i)).toBeNull();
-    expect(pressed).toEqual([]);
+    mount();
+    expect(maybeButton(/re-enroll/i)).toBeNull();
   });
 
-  /**
-   * Still ANNOUNCED here, and no longer INSTALLED from here (spec 2026-09-18
-   * § 7.4). This app ships the agent, so a machine whose bundled agent is
-   * newer usually has a newer app waiting too, and installing one half on the
-   * spot is what produced the loop where the next launch asked again. The
-   * button is a door to the one update screen, which then does whichever
-   * halves are actually behind.
-   */
   it("renders the facts INLINE, and they are this screen's alone", () => {
     // Operator ruling 2026-09-22 (the server wave's ruling carried over): a
     // section that hides its own facts behind a second control is two
@@ -249,8 +185,7 @@ describe("what the connected screen offered is still offered", () => {
   it("offers no refresh — the probe's own interval re-reads the machine", () => {
     // Operator ruling 2026-09-22: no Refresh button; the poll is the refresh.
     // The interval wiring itself is pinned in `use-node-state.test.tsx`.
-    const { calls } = mount({ probe: makeProbe({ step: "stopped" }) });
-    expect(buttonOrNull_(/^refresh$/i)).toBeNull();
-    expect(calls).toEqual([]);
+    mount({ probe: makeProbe({ step: "stopped" }) });
+    expect(maybeButton(/^refresh$/i)).toBeNull();
   });
 });
