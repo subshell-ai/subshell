@@ -316,13 +316,13 @@ describe("RESET_LABEL", () => {
   });
 
   it("is the Reset screen's own title too, so the door and the room agree", () => {
-    // The title is JSX now, and the screen renders the SAME constant the
-    // bar's button labels — the equality is structural again, which is
-    // stronger than the static-markup pin it replaces. A button labelled one
-    // thing opening a screen titled another is its own small betrayal on the
-    // one screen that may not be doubted.
-    const screen = readFileSync(join(import.meta.dir, "../screens/reset-screen.tsx"), "utf8");
-    expect(screen).toContain('<p className="reset-title">{RESET_LABEL}</p>');
+    // The title moved to the frame (operator ruling 2026-09-22, final word
+    // on the reset layout: the confirmation rides the rail, so the frame
+    // carries the heading and the pane's own title lines are gone). The
+    // equality is still structural: host.tsx's shell names the confirmation
+    // with the SAME constant the rail's door labels.
+    const host = readFileSync(join(import.meta.dir, "../host.tsx"), "utf8");
+    expect(host).toContain('return { title: RESET_LABEL, subtitle: "", problem };');
   });
 });
 

@@ -62,7 +62,7 @@ import {
 import type { About, ActionResult, AppUpdateCheck, LogTail, Probe } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
 import { recoverySubtitle } from "./lib/recovery-model";
-import { armed, emptySteps, knownStep, refusal, type StepKey, type StepState } from "./lib/reset";
+import { armed, emptySteps, knownStep, refusal, resetStarted, type StepKey, type StepState } from "./lib/reset";
 import { nextPollDelay, type Route, railActive, railFor, resolveJourney, route } from "./lib/server-state";
 import { SETTINGS_LABEL, SETTINGS_SUBTITLE } from "./lib/settings-screen";
 import { type ActState, NO_SELECTION, UPDATE_TITLE, type UpdateActSelection } from "./lib/update-act";
@@ -71,6 +71,7 @@ import {
   handoffView,
   isRequestedScreen,
   permissionsAfterSetup,
+  RESET_LABEL,
   type RecoveryActionKind,
   recoveryTitle,
   type ScreenId,
@@ -1240,6 +1241,16 @@ export function Host(): React.JSX.Element {
         };
       case "addresses":
         return { title: SETTINGS_LABEL, subtitle: SETTINGS_SUBTITLE, problem };
+      case "reset":
+        // The title follows the PANE, not the room (operator ruling
+        // 2026-09-22, final word on the layout): the meter's own heading was
+        // "Resetting this server" while the confirmation's was the reset
+        // label, and the pane predicate is `started`, not `running` — a
+        // finished chain stays on the meter pane with its log. The ROOM is
+        // `running`: the rail hides for the chain's duration and no longer.
+        if (resetStarted(resetSteps))
+          return { title: "Resetting this server", subtitle: "This takes a moment.", problem };
+        return { title: RESET_LABEL, subtitle: "", problem };
       case "status": {
         if (probe === null) return { title: "", subtitle: "", problem };
         // The recovery screen rendered the progress and failure views through
@@ -1270,22 +1281,34 @@ export function Host(): React.JSX.Element {
     // `resetView.isOpen()` check sat: the screen shows with or without a
     // probe, because it is what explains a refusal.
     content = (
-      <ResetScreen
-        probe={probe}
-        busy={busy || running}
-        steps={resetSteps}
-        armingProblem={resetArmingProblem}
-        runLabel={resetRunLabel}
-        log={resetLog}
-        typed={resetTyped}
-        onTypedChange={setResetTyped}
-        onRunReset={(typed) => void runReset(typed)}
-        onCancel={() => {
-          // The old `reset-cancel`: hide, then the page's own close — which
-          // drops the screen for whatever the probe implies.
-          close();
-        }}
-      />
+      <Frame
+        strings={shell("reset")}
+        // The confirmation rides the rail (operator ruling 2026-09-22, final
+        // word on the reset layout); the ROOM is the running chain — while it
+        // runs the rail is withheld and no navigation sits beside a chain
+        // that is deleting this server.
+        // From the confirm PRESS, not merely the chain's first step: the
+        // runner's busy comes up first (the re-arm), and `running` covers the
+        // chain itself. Same predicate the screen's own `busy` prop gets.
+        rail={busy || running ? undefined : rail}
+      >
+        <ResetScreen
+          probe={probe}
+          busy={busy || running}
+          steps={resetSteps}
+          armingProblem={resetArmingProblem}
+          runLabel={resetRunLabel}
+          log={resetLog}
+          typed={resetTyped}
+          onTypedChange={setResetTyped}
+          onRunReset={(typed) => void runReset(typed)}
+          onCancel={() => {
+            // The old `reset-cancel`: hide, then the page's own close — which
+            // drops the screen for whatever the probe implies.
+            close();
+          }}
+        />
+      </Frame>
     );
   } else if (probe === null || r.kind === "boot") {
     content = <Frame strings={shell("boot")} art={<Wordmark />} />;

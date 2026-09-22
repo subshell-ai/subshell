@@ -125,14 +125,17 @@ the defect the removal closed.
 five sections — **Status**, **Update**, **Service**, **Addresses**,
 **Reset** — appear only when the machine is onboarded and the route is one of
 the standing kinds, and they answer `null` for the FTE family (welcome, tmux,
-setup, handoff), for the two frame-replacing screens (reset, permissions),
-for boot, and for ANY standing route on a machine mid-first-run. Reset is the
+setup, handoff), for the permissions screen, for boot, and for ANY standing
+route on a machine mid-first-run. Reset is the
 fifth section and the DESTRUCTIVE one (operator ruling 2026-09-22, live
 screenshot): the DOOR moves into the rail — `onSelect("reset")` is
 `openReset`, the paired screen-set-and-open — styled in the destructive
-token, while the SCREEN stays frame-replacing, because its "only thing
-happening" premise is the safety design that leaves no way out from under
-the chain. With the sidebar present the rail is also the navigation: the
+token. Since the same day's LAYOUT ruling (final word) the reset
+CONFIRMATION rides the rail too, reset active: the sidebar was being lost
+on it and that is not wanted. The frame-replacing premise moved to the
+RUNNING chain — host.tsx withholds the rail from the render for
+`busy || running`, so no navigation sits beside a chain that is deleting
+this server; that is where the safety property lives now. With the sidebar present the rail is also the navigation: the
 standing screens' own leave buttons (Back on Service, Back on
 Addresses, Close on Update) render only where the rail does not — a
 requested screen over a mid-first-run machine has none, and there the leave
@@ -207,8 +210,8 @@ The other three doors the old screen stacked under its diagnosis (**Update
 Subshell Server**, **How Your Server Runs**, **Server Addresses**) are the
 rail's sections now, which is what those links existed to be a stand-in
 for — and Reset is a rail section too (operator ruling 2026-09-22): the
-door is the sidebar's destructive item, while the screen it opens stays
-frame-replacing.
+door is the sidebar's destructive item, and since the same day's layout
+ruling the confirmation it opens renders under that rail, reset active.
 
 **A requested screen is routed off `REQUESTED_SCREENS`, never a literal.**
 `screenForRequest` (in `lib/wizard-state.ts`) maps the payload, and the reason
@@ -816,14 +819,19 @@ To check it by hand — it has no automated coverage — reset with close-to-tra
 ON and confirm the whole app relaunches into first run, with no dashboard
 recoverable from the tray.
 
-**The Reset screen replaces the frame rather than filling it**: `#screen` and
-`#bar` are hidden while it is up. The reason survived the console's sidebar
-going away — this screen's premise is that it is the only thing happening, so
-a Back button in a live bottom bar would be a way out from under a chain that
-has none.
+**The Reset screen fills the frame on the confirmation, and replaces it for
+the chain** (operator ruling 2026-09-22, final word on the layout,
+superseding "replaces the frame rather than filling it"). The confirmation
+rides the rail — the sidebar stays, reset active — and the pane's title
+lives in the frame's `shell("reset")`, keyed on the meter pane. The room is
+the RUNNING chain: for `busy || running` the rail is withheld and the view
+goes full-window again, because a Back button live through a chain that
+stops a service and sweeps sockets is a way out from under a screen that
+has none. The safety property did not move; it moved DOWN, to the chain.
 
 **Its label names what is reset.** `RESET_LABEL` is one string, used by the
-recovery footer and carried verbatim by the screen's own title, and it is
+recovery footer and carried verbatim by the frame's reset title
+(`shell("reset")`), and it is
 `Reset this server` here and `Reset this client` in the other app (operator's call, 2026-09-12). It was
 `Reset ${here()}…`, which rendered "Reset this Mac…" and was wrong twice over:
 it read as TRUNCATED, because "Mac" is a prefix of "Machine", the Linux

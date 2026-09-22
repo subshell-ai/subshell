@@ -349,7 +349,10 @@ describe("the rail", () => {
     expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
     cleanup();
     fake?.restore();
-    // reset
+    // reset: the CONFIRMATION rides the rail now (operator ruling
+    // 2026-09-22, final word on the reset layout), so it is NOT a
+    // full-window case any more; the room pin lives in the dedicated test
+    // below, off a hanging desktop_reset.
     fake = installFakeIpc({
       probe: cases[2][0],
       handlers: {
@@ -360,7 +363,8 @@ describe("the rail", () => {
     });
     render(<Host />);
     await waitFor(() => expect(routeOf()).toBe("reset"));
-    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reset" }).getAttribute("aria-current")).toBe("true");
     cleanup();
     fake?.restore();
     // permissions
@@ -416,13 +420,37 @@ describe("the rail", () => {
     expect(screen.getByRole("button", { name: "Status" }).getAttribute("aria-current")).toBe("true");
   });
 
-  it("carries the Reset door in the rail, and its room stays frame-replacing", async () => {
-    // Operator ruling 2026-09-22: the DOOR moves into the rail; the SCREEN
-    // keeps its "only thing happening" premise — no rail, no bar — because
-    // that is the design that leaves no way out from under the chain.
+  it("carries the Reset door in the rail, and the room is the running chain", async () => {
+    // Operator ruling 2026-09-22, final word on the layout: the DOOR is in
+    // the rail and the CONFIRMATION rides the rail too (the sidebar was
+    // being lost today). The frame-replacing premise moved to the RUNNING
+    // chain — that is where "no way out from under it" lives now.
+    const gate = deferred<{ ok: boolean }>();
+    // The plan needs a complete `paths` block (the same shape the chain
+    // test's RESETTABLE carries), or the screen refuses and the room has
+    // nothing to run into.
+    const resettable = makeProbe({
+      next: "start",
+      hostname: "testhost",
+      status: {
+        configEnv: { path: "/Users/u/.config/subshell-server/config.env", exists: true },
+        paths: {
+          dataDir: "/Users/u/.local/share/subshell-server",
+          database: "/Users/u/.local/share/subshell-server/db.sqlite",
+          logsDir: "/Users/u/.local/share/subshell-server/logs",
+          nodeArtifacts: "/Users/u/.local/share/subshell-server/node-artifacts",
+        },
+        listen: { port: 3080, listening: true },
+      },
+    } as never);
     fake = installFakeIpc({
-      probe: makeProbe({ onboarded: true, next: "start" }),
-      handlers: { desktop_pending_screen: () => null, desktop_arm_reset: () => true },
+      probe: resettable,
+      handlers: {
+        desktop_pending_screen: () => null,
+        desktop_arm_reset: () => true,
+        desktop_reset: () => gate.promise,
+        desktop_open_main: () => undefined,
+      },
     });
     render(<Host />);
     await waitFor(() => expect(routeOf()).toBe("status"));
@@ -431,9 +459,20 @@ describe("the rail", () => {
     expect(screen.queryByRole("button", { name: "Reset this server…" })).toBeNull();
     screen.getByRole("button", { name: "Reset" }).click();
     await waitFor(() => expect(routeOf()).toBe("reset"));
-    // The room replaces the frame: no navigation, and the hostname gate is there.
-    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    // The confirmation renders INSIDE the frame, reset active.
+    expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reset" }).getAttribute("aria-current")).toBe("true");
     expect(document.getElementById("reset-confirm")).not.toBeNull();
+    // And the ROOM is the running chain: while desktop_reset is in flight
+    // the rail is withheld, and it comes back when the chain ends.
+    // typeHostname is the chain test's local; the same act, spelled out here.
+    fireEvent.change(document.getElementById("reset-confirm") as HTMLInputElement, {
+      target: { value: "testhost" },
+    });
+    screen.getByRole("button", { name: "Reset everything" }).click();
+    await waitFor(() => expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull());
+    gate.resolve({ ok: true });
+    await waitFor(() => expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy());
   });
 
   it("renders the leave buttons only where the rail is not", async () => {

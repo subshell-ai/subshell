@@ -2,13 +2,16 @@
  * The Reset screen (spec 2026-09-21; plan Task 7) — the port of
  * `assistant/reset-view.ts` and its contract with `reset.rs`.
  *
- * It still covers the whole window, and the reason is unchanged even though
- * there is no sidebar left to cover: this screen's premise is that it is the
- * only thing happening, so the assistant's own frame and its bottom bar go
- * with it — a Back button live through a chain that stops a service and
- * sweeps sockets is a way out from under a screen that has none. The host
- * renders it INSTEAD of the frame, which is what the old `show()` did by
- * hiding `#screen` and `#bar`.
+ * Since the 2026-09-22 layout ruling (final word) the CONFIRMATION renders
+ * inside the frame WITH the rail — the sidebar was being lost today and
+ * that is not wanted — and the frame carries the pane's title
+ * (`host.tsx`'s `shell("reset")`, keyed on the meter pane rather than on
+ * the room). The ROOM is still this screen's while the chain runs: the
+ * host withholds the rail for the chain's duration, because a Back button
+ * live through a chain that stops a service and sweeps sockets is a way
+ * out from under a screen that has none. The host renders this view
+ * inside the frame's content region, which is what the old `show()` did
+ * by hiding `#screen` and `#bar` for the chain.
  *
  * The meter, the arming verdict, the half-run log AND the typed hostname are
  * HOST state — page state in the old module, for the same reason: the poll
@@ -24,7 +27,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Probe } from "../lib/ipc";
 import { armed, RESET_STEPS, refusal, resetRows, resetStarted, type StepKey, type StepState } from "../lib/reset";
-import { RESET_LABEL } from "../lib/wizard-state";
 
 /** What the run left behind: its own words, and whether they are bad news. */
 export interface ResetLog {
@@ -83,7 +85,10 @@ export function ResetScreen(props: {
           window is how far it has got. A press does not extend the
           confirmation, it REPLACES it. */}
       <div hidden={started}>
-        <p className="reset-title">{RESET_LABEL}</p>
+        {/* The pane's title lives in the frame now (shell("reset")), keyed on
+            this pane — the ruling moved the confirmation under the rail, and
+            a second heading under the frame's own was the duplication that
+            came with it. */}
         <p className="hint mb-2.5">{refusalLine}</p>
         {why === null && st !== undefined && st !== null && (
           <ul className="wizard-copy list-disc pl-5">
@@ -113,8 +118,8 @@ export function ResetScreen(props: {
         </div>
       </div>
       <div hidden={!started}>
-        <p className="reset-title">Resetting this server</p>
-        <p className="wizard-copy muted-text mb-2.5">This takes a moment.</p>
+        {/* Titles live in the frame (shell("reset")); the meter is the pane's
+            own content. */}
         {/* The meter in the FIRST RUN's checklist, element for element —
             li[data-state] with a glyph column, which is what makes a done row's
             green tick, a running row's spinner and a failed row's cross

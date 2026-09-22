@@ -156,6 +156,20 @@ variant's diagnosis and action, the update act's phases and refusals, the
 supervision and addresses forms. Pure `lib/` tests are untouched and stay
 green. The old DOM-render code had no tests; nothing is lost.
 
+### The reset layout, superseded (operator ruling 2026-09-22, final word)
+
+"Rendered full-window WITHOUT the rail: Reset (its premise is that it is the
+only thing happening)" no longer holds for the CONFIRMATION — the user was
+losing the sidebar on it, and that is not wanted. Both apps: the reset
+confirmation renders inside the frame WITH the rail, reset active and
+danger-styled; the ROOM is the RUNNING chain — from the confirm press until
+the chain ends the rail and bar hide and the view goes full-window again
+(the meter/log render is the full-window one). No navigation beside a
+running chain is where the safety property lives now; it moved down to the
+chain, not away. The hostname gate, the danger styling, the re-arm chain and
+the deep link's gate are untouched; the SPA deep link lands the
+confirmation with the rail.
+
 ## What does not change
 
 - The 1024x720 fixed window, its zoom ladder and frame arithmetic.

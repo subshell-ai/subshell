@@ -166,10 +166,10 @@ export const RAIL_SECTIONS: RailSection[] = [
   { id: "settings", label: "Addresses" },
   // The fifth section is the DESTRUCTIVE one (operator ruling 2026-09-22,
   // live screenshot): the DOOR moves into the rail, styled in the destructive
-  // token. The SCREEN does not — it stays frame-replacing, because its "only
-  // thing happening" premise is the safety design that leaves no way out
-  // from under the chain. `railFor` answers null for the reset ROUTE, so no
-  // rail renders while the screen is up; the section is the door to it.
+  // token. Since the same day's LAYOUT ruling (final word) the confirmation
+  // rides the rail too, reset active — the frame-replacing premise moved to
+  // the RUNNING chain, which host.tsx enforces by withholding the rail from
+  // the render for `busy || running`.
   { id: "reset", label: "Reset", danger: true },
 ];
 
@@ -179,10 +179,11 @@ export const RAIL_SECTIONS: RailSection[] = [
  * The rule is the spec's sentence (2026-09-21, with the operator's 2026-09-22
  * ruling on the FTE): **the rail appears when the machine is onboarded and no
  * first-run step is in progress.** So the FTE family (welcome, tmux, setup,
- * handoff), the two frame-replacing SCREENS (reset, permissions) and boot
- * answer null — full-window, no rail, the reset screen's frame-replacing
- * premise being the safety design that leaves no way out from under the
- * chain — and a STANDING route on a machine that
+ * handoff), the permissions screen and boot answer null — full-window, no
+ * rail. Reset's CONFIRMATION rides the rail (the 2026-09-22 layout ruling
+ * superseded its frame-replacing premise; the room is the running chain,
+ * which host.tsx enforces off `busy || running`), and a STANDING route on a machine
+ * that
  * is not onboarded answers null too: the old page let a requested update
  * render mid-first-run, and wave 2 keeps the render but takes away the rail,
  * because the exclusion is about the machine's journey, not about who asked.
@@ -198,6 +199,13 @@ export function railFor(r: Route, onboarded: boolean): RailSection[] | null {
     case "update":
     case "supervision":
     case "addresses":
+    // The reset CONFIRMATION rides the rail now (operator ruling 2026-09-22,
+    // final word on the reset layout, superseding the frame-replacing
+    // premise for the confirmation): the sidebar stays, reset active and
+    // danger-styled. The room is the RUNNING chain — host.tsx withholds the
+    // rail from the render while the chain runs, which is where the safety
+    // property lives now.
+    case "reset":
       return RAIL_SECTIONS;
     default:
       return null;
@@ -215,6 +223,9 @@ export function railActive(r: Route): string | null {
       return "supervision";
     case "addresses":
       return "settings";
+    // The reset confirmation rides the rail (2026-09-22 layout ruling).
+    case "reset":
+      return "reset";
     default:
       return null;
   }

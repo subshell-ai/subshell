@@ -177,17 +177,30 @@ describe("nextPollDelay", () => {
  * The rail's exclusion, as data (spec 2026-09-21; plan Task 10, with the
  * operator's 2026-09-22 ruling that the FTE never gets it). The rule is the
  * spec's sentence: the rail appears when the machine is onboarded and no
- * first-run step is in progress — so the FTE family, reset, permissions and
- * boot answer null, and a STANDING route on a machine that is not onboarded
+ * first-run step is in progress — so the FTE family, permissions and boot
+ * answer null, and a STANDING route on a machine that is not onboarded
  * answers null too (the old page let a requested update render mid-FTE; wave
- * 2 renders it full-window, without the rail).
+ * 2 renders it full-window, without the rail). Reset's CONFIRMATION rides
+ * the rail since the same day's layout ruling (final word): the sidebar
+ * stays, reset active; the frame-replacing room is the RUNNING chain, which
+ * the host enforces off `busy || running`, not a railFor case.
  */
 describe("railFor", () => {
-  it("answers null for every FTE family route, reset, permissions and boot", () => {
-    for (const kind of ["welcome", "tmux", "setup", "handoff", "reset", "permissions", "boot"] as const) {
+  it("answers null for every FTE family route, permissions and boot", () => {
+    // Reset LEFT this list (operator ruling 2026-09-22, final word on the
+    // reset layout): its confirmation rides the rail, reset active; the
+    // frame-replacing room is the running chain.
+    for (const kind of ["welcome", "tmux", "setup", "handoff", "permissions", "boot"] as const) {
       expect(railFor({ kind }, true), kind).toBeNull();
       expect(railFor({ kind }, false), kind).toBeNull();
     }
+  });
+
+  it("gives the reset confirmation the five sections, reset active", () => {
+    const sections = railFor({ kind: "reset" }, true);
+    expect(sections?.map((s) => s.id)).toEqual(["status", "update", "supervision", "settings", "reset"]);
+    expect(sections?.find((s) => s.id === "reset")?.danger).toBe(true);
+    expect(railFor({ kind: "reset" }, false)).toBeNull();
   });
 
   it("answers null for a standing route on a machine mid-first-run", () => {
@@ -200,8 +213,7 @@ describe("railFor", () => {
 
   it("answers the five standing sections for a standing route on an onboarded machine", () => {
     // The fifth is Reset (operator ruling 2026-09-22): the DOOR in the rail,
-    // marked destructive. The reset ROUTE still answers null — the screen is
-    // frame-replacing — so the door's own room has no rail.
+    // marked destructive.
     const sections = railFor({ kind: "status" }, true);
     expect(sections?.map((s) => s.id)).toEqual(["status", "update", "supervision", "settings", "reset"]);
     expect(sections?.map((s) => s.label)).toEqual(["Status", "Update", "Service", "Addresses", "Reset"]);
@@ -222,8 +234,10 @@ describe("railFor", () => {
     expect(railActive({ kind: "update" })).toBe("update");
     expect(railActive({ kind: "supervision" })).toBe("supervision");
     expect(railActive({ kind: "addresses" })).toBe("settings");
-    // A route that gets no rail gets no active state either.
+    // A route that gets no rail gets no active state either. Reset rides
+    // the rail now (2026-09-22 layout ruling): its confirmation is a
+    // standing render, reset active.
     expect(railActive({ kind: "handoff" })).toBeNull();
-    expect(railActive({ kind: "reset" })).toBeNull();
+    expect(railActive({ kind: "reset" })).toBe("reset");
   });
 });
