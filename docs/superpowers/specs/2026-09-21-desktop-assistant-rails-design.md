@@ -64,12 +64,12 @@ Five sections (the fifth by operator ruling 2026-09-22, live screenshot):
 | --- | --- |
 | **Status** | running state (the handoff view) or the recovery diagnosis, with the server facts and log tail rendered INLINE — operator ruling 2026-09-22: what was the Show Details disclosure is part of the Status section, not a disclosure |
 | **Update** | the one update act, both phases |
-| **How it runs** | supervision: service or app child |
+| **Service** | supervision: service or app child |
 | **Addresses** | the four address values and their restart |
 | **Reset** | the destructive door, styled in the destructive token. The DOOR is in the rail (`onSelect` is the paired screen-set-and-open); the SCREEN stays full-window — its "only thing happening" premise is the safety design that leaves no way out from under the chain, so no rail renders while it is up |
 
 The rail is also the navigation once it is present (operator ruling
-2026-09-22): the standing screens' own leave buttons — Back on How it runs,
+2026-09-22): the standing screens' own leave buttons — Back on Service,
 Back on Addresses, Close on Update — render only where the rail does not. A
 requested screen rendered over a mid-first-run machine has no rail, and
 there the leave button is still the only way out. Leaving via a rail select

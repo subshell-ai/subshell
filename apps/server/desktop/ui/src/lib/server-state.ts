@@ -162,7 +162,7 @@ export function nextPollDelay(s: { busy: boolean; running: boolean; hidden: bool
 export const RAIL_SECTIONS: RailSection[] = [
   { id: "status", label: "Status" },
   { id: "update", label: "Update" },
-  { id: "supervision", label: "How it runs" },
+  { id: "supervision", label: "Service" },
   { id: "settings", label: "Addresses" },
   // The fifth section is the DESTRUCTIVE one (operator ruling 2026-09-22,
   // live screenshot): the DOOR moves into the rail, styled in the destructive

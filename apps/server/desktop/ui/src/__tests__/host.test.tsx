@@ -293,7 +293,7 @@ describe("the rail", () => {
   it("marks the active section on each requested standing screen", async () => {
     for (const [request, active] of [
       ["update", "Update"],
-      ["supervision", "How it runs"],
+      ["supervision", "Service"],
       ["settings", "Addresses"],
     ] as const) {
       fake = installFakeIpc({
@@ -495,7 +495,7 @@ describe("the rail", () => {
     port().value = "5000";
     port().dispatchEvent(new window.Event("input", { bubbles: true }));
     expect(port().value).toBe("5000");
-    screen.getByRole("button", { name: "How it runs" }).click();
+    screen.getByRole("button", { name: "Service" }).click();
     await waitFor(() => expect(routeOf()).toBe("supervision"));
     screen.getByRole("button", { name: "Addresses" }).click();
     await waitFor(() => expect(routeOf()).toBe("addresses"));
