@@ -1,5 +1,11 @@
 # @internal/node
 
+## 0.14.3
+
+### Patch Changes
+
+- [#128](https://github.com/subshell-ai/subshell/pull/128) [`72be530`](https://github.com/subshell-ai/subshell/commit/72be53097f2628eb1d2e20a575826108ddac5e0f) Thanks [@theogravity](https://github.com/theogravity)! - A refused download now reports the control plane's own message, so the remedy it names reaches the node's log instead of only the HTTP status.
+
 ## 0.14.2
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @internal/server
 
+## 0.15.6
+
+### Patch Changes
+
+- [#126](https://github.com/subshell-ai/subshell/pull/126) [`17e9314`](https://github.com/subshell-ai/subshell/commit/17e93145516d45c83f34c51b7e462524b180b898) Thanks [@theogravity](https://github.com/theogravity)! - The node-update guard's refusal now names the remedy a browser operator can actually perform: delete the stale copy from the server's node-artifacts directory. The repo's publish script is documentation, not UI copy.
+
+- [#128](https://github.com/subshell-ai/subshell/pull/128) [`72be530`](https://github.com/subshell-ai/subshell/commit/72be53097f2628eb1d2e20a575826108ddac5e0f) Thanks [@theogravity](https://github.com/theogravity)! - A node update now serves the verified release bytes even when this server's artifact cache holds an older binary, and the refusal remains only for a plane that cannot fetch. The update token carries the digest the update command named, so the download is measured against that release rather than against whatever the disk holds.
+
 ## 0.15.5
 
 ### Patch Changes
