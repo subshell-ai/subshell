@@ -69,6 +69,14 @@ SRVPID=$!
 for i in $(seq 1 90); do curl -sf "$BASE/api/setup/status" >/dev/null 2>&1 && break; sleep 0.5; done
 curl -sf "$BASE/api/setup/status" >/dev/null || { tail -20 "$W/server.log"; fail "server never answered"; }
 ok "answering on $PORT"
+# The handoff line lands ~400 ms after the listening line (measured on the
+# published 0.15.6: listening at 28.682, the line at 29.078) — a one-shot
+# grep right after the readiness poll reads the log too early and fails a
+# working server. Poll for it, the way headless-server-and-node.sh does.
+for i in $(seq 1 20); do
+  grep -q "No account yet" "$W/server.log" && break
+  sleep 0.5
+done
 grep -q "No account yet" "$W/server.log" || fail "boot log did not name /setup"
 ok "boot log named /setup"
 curl -sf "$BASE/" -o /dev/null || fail "embedded SPA not served"
