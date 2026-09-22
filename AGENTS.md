@@ -353,6 +353,14 @@ fix landed seven minutes after the installed binary was compiled, the desktop
 reset kept failing with the exact error the fix removes, and the fix looked
 wrong for an afternoon.
 
+**The launcher also builds the workspace dists the bundled page's Vite build
+consumes** (turbo, filtered to the app being launched, always — turbo is
+incremental, so a warm run is near-free, and "dist present but stale" is the
+same broken page as "dist absent"). The dev path is otherwise the one thing
+in the repo that never builds workspace packages, which cost a real checkout
+a resolver error mid-`vite` on 2026-09-22; a failure aborts the launch with
+the remedies named.
+
 ### Building
 
 ```bash
