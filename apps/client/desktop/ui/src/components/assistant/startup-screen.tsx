@@ -35,9 +35,6 @@ export function StartupScreen(props: {
   busy: boolean;
 }) {
   const { shell, startAtLogin, onChange, onContinue, onBack, busy } = props;
-  // The manager's name goes in the SENTENCE, where it explains something,
-  // rather than in a title as a parenthetical that explains nothing — the
-  // supervision card's rule, and a genuine platform fact rather than voice.
 
   return (
     <Frame
@@ -67,7 +64,7 @@ export function StartupScreen(props: {
       }
     >
       <p className="text-muted-foreground text-sm leading-relaxed">
-        The Subshell Node Service will run in the background and come back if it stops.
+        The Subshell Node Service runs in the background and comes back if it stops.
       </p>
       <div className="mt-6 flex items-start gap-3">
         <Switch

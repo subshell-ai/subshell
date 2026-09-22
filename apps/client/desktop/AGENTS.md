@@ -823,17 +823,17 @@ plane-coherence notice leads with the conflict now (review, 2026-09-22):
 **Service joins the server's layout, and the badge joins the header** (the
 same day's follow-up, rails addendum: "consistency in offering and UI").
 The Service section now offers what Subshell Server's Service offers, adapted
-to a node: the arrangement stated as one card — **In the background** with the
-server's own platform sentence — the run-at-login switch nested under it
+to a node: the arrangement stated as one card — **In the background**, naming
+no manager — the run-at-login switch nested under it
 ("Start automatically on startup"). The named thing is the **Subshell
 Node Service** (the server app: the **Subshell Server Service**), and the
 card STATES THE CURRENT CONDITION ("Currently the Subshell Node Service
 runs in the background, but does not automatically start on startup.")
 while the switch help says what flipping it changes. The first-run
-question keeps its shorter "Start at login": the walk's own wording stands) for an
-installed service, the lifecycle verbs (Start when it is down, Stop and
-Restart when it is up with the pane-safety force flow unchanged, Uninstall
-confirmed in its own words), and the install-service door for a machine whose
+question keeps its shorter "Start at login": the walk's own wording stands).
+For an installed service come the lifecycle verbs (Start when it is down,
+Stop and Restart when it is up with the pane-safety force flow unchanged,
+Uninstall confirmed in its own words), and the install-service door for a machine whose
 node CLI is installed but whose service is not — driven by the definition,
 not only the step word, so no enrolled "nothing installed" answer can miss it.
 Node-specific differences stay: there is no app-managed-child supervision
@@ -850,10 +850,15 @@ switch is only honest because the node CLI gained the verb behind it — see
 `apps/node/agent/AGENTS.md`, "service autostart" — and it is gated on that
 verb: an agent older than `0.15.0` can READ the state (it has answered
 `enabled` forever) but cannot WRITE it, so the switch shows the answer
-greyed with "Update your node to 0.15.0 to control this."
-(`lib/autostart-gate.ts`, the server's `MIN_AUTOSTART_SERVER_VERSION`
-pattern); where neither `autostart` nor `enabled` answered, the switch
-greys showing no guessed value and says the update would add the answer.
+greyed with "Currently the installed version cannot change this. Updating
+to version 0.15.0 lets you." (`lib/autostart-gate.ts`, the server's
+`MIN_AUTOSTART_SERVER_VERSION` pattern; the server app keeps its own shorter
+sentence for its gate). Where neither `autostart` nor `enabled` answered,
+the switch greys showing no guessed value, the help line stays empty, and
+the card itself carries the fact: "Whether it starts on startup is not
+reported." The switch's help states the CURRENT condition in every state it
+can speak — armed, disarmed, too-old — operator ruling 2026-09-22: the card
+says what is, the toggle says what flipping it changes.
 
 Three screen ids went with it, and their absence is the design.
 **`connected`**, **`service`** and **`install-agent`** were the probe-derived

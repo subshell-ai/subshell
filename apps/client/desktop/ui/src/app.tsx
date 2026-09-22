@@ -47,7 +47,7 @@ import { Button } from "@/components/ui/button";
 import { useActionRunner } from "@/hooks/use-action-runner";
 import { useEnrollForm } from "@/hooks/use-enroll-form";
 import { useNodeCommands } from "@/hooks/use-node-commands";
-import { useNodeState } from "@/hooks/use-node-state";
+import { PROBE_KEY, useNodeState } from "@/hooks/use-node-state";
 import {
   clientScreen,
   configured,
@@ -257,7 +257,7 @@ export function App() {
     const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
       if (
         event.type === "updated" &&
-        event.query.queryKey[0] === "node-probe" &&
+        event.query.queryKey[0] === PROBE_KEY[0] &&
         (event.action as { type?: string } | undefined)?.type === "success"
       ) {
         pull();

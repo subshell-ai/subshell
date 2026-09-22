@@ -98,13 +98,25 @@ export function SupervisionScreen(props: {
         </Button>
       }
     >
+      {/* The live state, said ONCE, above the choice it describes (operator
+          ruling 2026-09-22, the delta review): "Currently" keys on the
+          machine, never on the draft. This screen gates its choice behind
+          Apply, and a sentence that followed the draft would call an
+          unapplied pick the present tense. The option rows below answer a
+          different question — what picking this one DOES — so they stay in
+          option voice. */}
+      <p className="hint">
+        {!current.background
+          ? "Currently the Subshell Server Service runs with this app."
+          : current.autostart
+            ? "Currently the Subshell Server Service runs in the background, and starts automatically on startup."
+            : "Currently the Subshell Server Service runs in the background, but does not automatically start on startup."}
+      </p>
       {option({
         id: "sup-service",
         on: chosen.background,
         title: "In the background",
-        body: chosen.autostart
-          ? "Currently the Subshell Server Service runs in the background, and starts automatically on startup."
-          : "Currently the Subshell Server Service runs in the background, but does not automatically start on startup.",
+        body: "Runs as a service the machine starts, and brings back when it stops.",
         onPick: () => props.onChoice(applySupervisionChoice(chosen, { background: true })),
       })}
       {/* Nested under the option it belongs to, and only live while that option is

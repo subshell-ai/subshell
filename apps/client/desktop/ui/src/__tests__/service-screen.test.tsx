@@ -181,8 +181,31 @@ describe("the run-at-login switch", () => {
     const sw = switchOrNull();
     if (sw === null) throw new Error("the switch is missing from an installed service");
     expect(sw.getAttribute("aria-checked")).toBe("true");
+    // The card's exact current-condition sentence and the exact help the
+    // armed switch owes (copy wave review, item 5: the pattern's variants
+    // must be pinned, not sampled).
+    expect(
+      screen.getByText(
+        "Currently the Subshell Node Service runs in the background, and starts automatically on startup.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Turning this off leaves it running in the background, but it will not start again after a startup.",
+      ),
+    ).toBeTruthy();
     fireEvent.click(sw);
     expect(calls).toEqual([{ name: "autostart", args: [false] }]);
+  });
+
+  it("states the disarmed condition, and what the press arms", () => {
+    mount({ probe: makeProbe({ service: service({ autostart: false }) }) });
+    expect(
+      screen.getByText(
+        "Currently the Subshell Node Service runs in the background, but does not automatically start on startup.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Turning this on starts it automatically every time the machine starts.")).toBeTruthy();
   });
 
   it("falls back to `enabled` for an agent too old to answer autostart", async () => {
@@ -205,7 +228,14 @@ describe("the run-at-login switch", () => {
     const sw = switchOrNull();
     expect(sw?.getAttribute("aria-checked")).toBe("false");
     expect(sw?.hasAttribute("data-disabled")).toBe(true);
-    expect(screen.getByText(/is not reported/i)).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Currently the Subshell Node Service runs in the background. Whether it starts on startup is not reported.",
+      ),
+    ).toBeTruthy();
+    // Unknown speaks through the card alone: the switch's help line is EMPTY
+    // rather than a guess about what flipping would change.
+    expect(screen.queryByText(/Turning this/i)).toBeNull();
   });
 
   it("disables while an action is in flight", () => {

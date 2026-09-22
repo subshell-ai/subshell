@@ -825,6 +825,9 @@ describe("rewriting the service definition", () => {
 
     await waitFor(() => expect(screen.getByText(/restarts the Subshell Node Service/)).toBeTruthy());
     expect(fake.callsTo("node_service").length).toBe(0);
+    // The panel's FIRST message, exact (copy wave review, item 5): what the
+    // press costs, said before the consequence it repairs.
+    expect(confirmPanel().getByText("All running subshells on this machine will stop while it restarts.")).toBeTruthy();
     expect(screen.getByText(/It is the last time that happens/)).toBeTruthy();
 
     fireEvent.click(confirmPanel().getByRole("button", { name: "Rewrite the definition" }));

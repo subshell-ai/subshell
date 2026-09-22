@@ -255,10 +255,12 @@ render (the screen the press happened on), and an always-on second copy would
 contradict it. The run-at-login switch also gained the server's version
 gate: an agent older than `0.15.0` reads the state (it
 always answered `enabled`) but has no verb to write with, so the switch
-shows the answer greyed under "Update your node to 0.15.0 to control this."
-And when neither fact arrives there is no hiding and no guessing: the switch
-the card itself says so ("Whether it starts on startup is not reported.")
-while the disabled affordance stays, never an absent one.
+shows the answer greyed with "Currently the installed version cannot change
+this. Updating to version 0.15.0 lets you." (the server keeps its own
+shorter sentence for the same gate). And when neither fact arrives there is
+no hiding and no guessing: the card itself says so ("Whether it starts on
+startup is not reported.") while the disabled affordance stays, never an
+absent one, and the switch's own help line goes empty.
 The switch's help states the CURRENT condition in every state (armed,
 disarmed, unknown, too-old), operator ruling 2026-09-22: the card says what
 is, the toggle says what flipping it changes.
