@@ -899,6 +899,22 @@ describe("handoffView", () => {
     expect(view.subtitle).toBe("Opening your dashboard…");
   });
 
+  // A rail-selected Status that lands a ready machine's window here is a
+  // person DRIVING the window, not an arrival: the auto-continue rule was
+  // written for windows reopened over a running server, which owe no result
+  // to a reader. The held arm waits for the press AND says so — the held
+  // surface promising "Opening your dashboard…" while the open is withheld
+  // was the exact lie the hold would have created.
+  it("holds a rail-selected Status with words that promise nothing", () => {
+    const view = handoffView({ onboarded: true, ranSetupHere: false, continued: false, held: true });
+    expect(view.wait).toBe(true);
+    expect(view.title).toBe("Your Server Is Running");
+    expect(view.subtitle).toBe("Your dashboard opens when you press Continue. Nothing opens by itself.");
+    // The copy rules: two sentences, no em dash (operator ruling 2026-09-21).
+    expect(view.subtitle.includes("—")).toBe(false);
+    expect(view.subtitle.split(". ").length).toBeLessThanOrEqual(2);
+  });
+
   it("keeps the first-run wording for a machine that never onboarded", () => {
     const view = handoffView({ onboarded: false, ranSetupHere: false, continued: false });
     expect(view.title).toBe("Setting Up Subshell…");

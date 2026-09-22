@@ -50,6 +50,13 @@
   --button-primary-hover-from: oklch(0.4 0.11 322);
   --button-primary-hover-to: oklch(0.46 0.11 340);
   --button-primary-foreground: oklch(0.9 0.05 320);
+  /* The rail's active item gradient (spec 2026-09-22, wave 2) — the SPA
+     sidebar's own tokens, value for value (`apps/server/web/src/styles.css`),
+     which is what makes the assistant's rail read as the same navigation the
+     dashboard has. Consumed by the shared `Rail`, the way the kit's default
+     variant consumes `--button-primary-*`. */
+  --nav-active-from: oklch(0.3 0.1 322);
+  --nav-active-to: oklch(0.38 0.11 340);
   /* Type roles (spec § 3.1, web column). Plain custom properties — this page
      has no Tailwind — consumed as `font-size: var(--text-label)`. Two weights. */
   --text-display: 30px;
@@ -289,15 +296,6 @@
      the meter itself is not optional: "Resetting…" on a dead button reads
      identically to a hang. */
 
-  /* The setup assistant's frame (spec 2026-09-11 § 3.1). One fixed 1024x720
-     window: a centered 560px column, and a 72px bar pinned to the bottom. */
-  .recovery-links {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-    margin-top: 20px;
-  }
   /* Two columns now that the dot row is gone (spec 2026-09-17 § 4.1): the
      wide left track pushes `#bar-right` to the frame edge whether or not
      `#bar-left` holds anything, which the three-track row used the middle
@@ -667,15 +665,18 @@
     font-size: var(--text-detail);
     line-height: var(--text-detail--line-height);
   }
-  @media (prefers-reduced-motion: no-preference) {
-    animation: screen-in 220ms ease-out;
-  }
   /* The React host's entrance: `Frame`'s scroll region is KEYED on the
        host's screen epoch, so a screen change remounts it and this class
        plays on insertion — the same restart the forced-reflow above gave the
-       old page's persistent `<main>`. */
-  .screen-enter {
-    animation: screen-in 220ms ease-out;
+       old page's persistent `<main>`. The media guard was written at HEAD
+       once as a stray `@media` holding a bare declaration beside the rule —
+       lightningcss dropped it with "Unexpected end of input" and the
+       animation played unconditionally, losing the reduced-motion respect
+       this guard exists for. The file's own flat shape restores it. */
+  @media (prefers-reduced-motion: no-preference) {
+    .screen-enter {
+      animation: screen-in 220ms ease-out;
+    }
   }
   .checklist li[data-state="active"] .glyph,
   .tmux-checking .glyph {

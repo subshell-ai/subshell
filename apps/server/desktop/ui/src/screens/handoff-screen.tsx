@@ -28,6 +28,8 @@ import type { SupervisionChoice } from "../lib/wizard-state";
 import { Checklist } from "./setup-screen";
 
 export function HandoffScreen(props: {
+  /** The rail node the host computed for this route, or undefined when the route is full-window. */
+  rail?: ReactElement;
   strings: AssistantStrings;
   /** The host's screen-change epoch, for the entrance animation. */
   entranceKey?: number;
@@ -45,6 +47,7 @@ export function HandoffScreen(props: {
   if (props.openFailed) {
     return (
       <Frame
+        rail={props.rail}
         strings={props.strings}
         entranceKey={props.entranceKey}
         barRight={
@@ -58,10 +61,11 @@ export function HandoffScreen(props: {
   if (!props.waiting) {
     // The auto path: the title says where the window is going, and the host's
     // effect opens the dashboard. Nothing else to draw.
-    return <Frame strings={props.strings} entranceKey={props.entranceKey} />;
+    return <Frame rail={props.rail} strings={props.strings} entranceKey={props.entranceKey} />;
   }
   return (
     <Frame
+      rail={props.rail}
       strings={props.strings}
       entranceKey={props.entranceKey}
       barRight={

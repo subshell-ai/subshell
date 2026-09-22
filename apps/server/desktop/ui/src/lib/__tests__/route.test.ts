@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import type { ActionResult, Probe } from "../ipc";
-import { nextPollDelay, resolveJourney, route } from "../server-state";
+import { nextPollDelay, railActive, railFor, resolveJourney, route } from "../server-state";
 
 /** A minimal probe, shaped up per test with only what the routing reads. */
 function probe(over: Partial<Probe>): Probe {
@@ -170,5 +170,50 @@ describe("nextPollDelay", () => {
   it("holds the poll off while the window is hidden — unless the chain runs", () => {
     expect(nextPollDelay({ busy: false, running: false, hidden: true })).toBeNull();
     expect(nextPollDelay({ busy: false, running: true, hidden: true })).toBe(1500);
+  });
+});
+
+/**
+ * The rail's exclusion, as data (spec 2026-09-21; plan Task 10, with the
+ * operator's 2026-09-22 ruling that the FTE never gets it). The rule is the
+ * spec's sentence: the rail appears when the machine is onboarded and no
+ * first-run step is in progress — so the FTE family, reset, permissions and
+ * boot answer null, and a STANDING route on a machine that is not onboarded
+ * answers null too (the old page let a requested update render mid-FTE; wave
+ * 2 renders it full-window, without the rail).
+ */
+describe("railFor", () => {
+  it("answers null for every FTE family route, reset, permissions and boot", () => {
+    for (const kind of ["welcome", "tmux", "setup", "handoff", "reset", "permissions", "boot"] as const) {
+      expect(railFor({ kind }, true), kind).toBeNull();
+      expect(railFor({ kind }, false), kind).toBeNull();
+    }
+  });
+
+  it("answers null for a standing route on a machine mid-first-run", () => {
+    // The old page allowed a requested screen over any machine; wave 2 keeps
+    // the render but takes away the rail — the exclusion stays absolute.
+    for (const kind of ["status", "update", "supervision", "addresses"] as const) {
+      expect(railFor({ kind }, false), kind).toBeNull();
+    }
+  });
+
+  it("answers the four standing sections for a standing route on an onboarded machine", () => {
+    const sections = railFor({ kind: "status" }, true);
+    expect(sections?.map((s) => s.id)).toEqual(["status", "update", "supervision", "settings"]);
+    expect(sections?.map((s) => s.label)).toEqual(["Status", "Update", "How it runs", "Addresses"]);
+    for (const kind of ["update", "supervision", "addresses"] as const) {
+      expect(railFor({ kind }, true)?.map((s) => s.id)).toEqual(["status", "update", "supervision", "settings"]);
+    }
+  });
+
+  it("marks the active section by the route, through railActive", () => {
+    expect(railActive({ kind: "status" })).toBe("status");
+    expect(railActive({ kind: "update" })).toBe("update");
+    expect(railActive({ kind: "supervision" })).toBe("supervision");
+    expect(railActive({ kind: "addresses" })).toBe("settings");
+    // A route that gets no rail gets no active state either.
+    expect(railActive({ kind: "handoff" })).toBeNull();
+    expect(railActive({ kind: "reset" })).toBeNull();
   });
 });

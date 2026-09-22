@@ -25,6 +25,8 @@ export function Wordmark(): ReactElement {
 }
 
 export function WelcomeScreen(props: {
+  /** The rail node the host computed for this route, or undefined when the route is full-window. */
+  rail?: ReactElement;
   strings: AssistantStrings;
   /** The Continue press. The host computes the step from the CURRENT probe. */
   onContinue: () => void;
@@ -35,6 +37,7 @@ export function WelcomeScreen(props: {
 }): ReactElement {
   return (
     <Frame
+      rail={props.rail}
       strings={props.strings}
       entranceKey={props.entranceKey}
       art={<Wordmark />}

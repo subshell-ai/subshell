@@ -11,6 +11,7 @@
  * and a branch that was dropped is a behavior regression the tests beside it
  * pin.
  */
+import type { RailSection } from "@internal/assistant";
 import type { ActionResult, Probe } from "./ipc";
 import { isRequestedScreen, type ScreenId, screensFor } from "./wizard-state";
 
@@ -148,4 +149,64 @@ export function resolveJourney(probe: Probe, screen: ScreenId | null): ScreenId 
 export function nextPollDelay(s: { busy: boolean; running: boolean; hidden: boolean }): number | null {
   if ((s.busy || s.hidden) && !s.running) return null;
   return POLL_MS;
+}
+
+/**
+ * The rail's standing sections, in display order (spec 2026-09-21; plan Task
+ * 10). Four, and the labels are the section's own copy — the Rail primitive
+ * renders no strings of its own. The ids are the wire words they route to,
+ * with Status the one exception: the recovery screen has no requested id, so
+ * its section routes to `recovery`, which the journey resolves back onto the
+ * diagnosis.
+ */
+export const RAIL_SECTIONS: RailSection[] = [
+  { id: "status", label: "Status" },
+  { id: "update", label: "Update" },
+  { id: "supervision", label: "How it runs" },
+  { id: "settings", label: "Addresses" },
+];
+
+/**
+ * Whether THIS route gets the rail, and which sections it shows.
+ *
+ * The rule is the spec's sentence (2026-09-21, with the operator's 2026-09-22
+ * ruling on the FTE): **the rail appears when the machine is onboarded and no
+ * first-run step is in progress.** So the FTE family (welcome, tmux, setup,
+ * handoff), the two frame-replacing screens (reset, permissions) and boot
+ * answer null — full-window, no rail — and a STANDING route on a machine that
+ * is not onboarded answers null too: the old page let a requested update
+ * render mid-first-run, and wave 2 keeps the render but takes away the rail,
+ * because the exclusion is about the machine's journey, not about who asked.
+ *
+ * The active section is not folded in here — a `RailSection` is `{id, label}`
+ * by design, and the active state is the Rail primitive's prop — so
+ * {@link railActive} answers it, keyed on the same route.
+ */
+export function railFor(r: Route, onboarded: boolean): RailSection[] | null {
+  if (!onboarded) return null;
+  switch (r.kind) {
+    case "status":
+    case "update":
+    case "supervision":
+    case "addresses":
+      return RAIL_SECTIONS;
+    default:
+      return null;
+  }
+}
+
+/** The rail section THIS standing route has active, or null when there is no rail. */
+export function railActive(r: Route): string | null {
+  switch (r.kind) {
+    case "status":
+      return "status";
+    case "update":
+      return "update";
+    case "supervision":
+      return "supervision";
+    case "addresses":
+      return "settings";
+    default:
+      return null;
+  }
 }

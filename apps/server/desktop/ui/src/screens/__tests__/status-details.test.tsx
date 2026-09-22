@@ -12,7 +12,6 @@ function renderDetails(over: {
   lastTail?: LogTail | null;
   about?: Parameters<typeof StatusDetails>[0]["about"];
   onReveal?: (target: string) => void;
-  onOpenChange?: (open: boolean) => void;
 }) {
   return render(
     <StatusDetails
@@ -20,8 +19,9 @@ function renderDetails(over: {
       lastResult={over.lastResult ?? null}
       lastTail={over.lastTail ?? null}
       about={over.about ?? null}
-      open={false}
-      onOpenChange={over.onOpenChange ?? (() => {})}
+      // No `open` to pass: wave 2's ruling made the block the Status
+      // section's inline content, and a test that "opens" it would test a
+      // control that no longer exists.
       onReveal={(target) => over.onReveal?.(target)}
     />,
   );
@@ -95,8 +95,6 @@ describe("the tail's stick", () => {
         lastResult={null}
         lastTail={{ text: "line 1\nline 2", source: "server", note: null }}
         about={null}
-        open
-        onOpenChange={() => {}}
         onReveal={() => {}}
       />,
     );
@@ -114,8 +112,6 @@ describe("the tail's stick", () => {
         lastResult={null}
         lastTail={{ text: "line 1\nline 2\nline 3", source: "server", note: null }}
         about={null}
-        open
-        onOpenChange={() => {}}
         onReveal={() => {}}
       />,
     );
@@ -153,5 +149,19 @@ describe("the panes", () => {
     view.unmount();
     renderDetails({ about: null });
     expect(screen.queryByText(/This app:/)).toBeNull();
+  });
+});
+
+describe("the inline rule (wave 2)", () => {
+  it("renders as the section's content, with no disclosure around it", () => {
+    // The operator's ruling, 2026-09-22: the Show Details disclosure is
+    // gone — a sidebar section that hides its own facts behind a second
+    // control is two navigations for one answer. The block is always on
+    // screen, and nothing about it collapses.
+    renderDetails({ lastTail: { text: "log line", source: "server", note: null } });
+    expect(document.querySelector("details")).toBeNull();
+    expect(document.querySelector("summary")).toBeNull();
+    expect(screen.getByText("Server log")).toBeDefined();
+    expect(screen.getByText("log line")).toBeDefined();
   });
 });

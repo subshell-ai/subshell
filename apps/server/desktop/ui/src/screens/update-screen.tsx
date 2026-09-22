@@ -45,6 +45,8 @@ function outputOf(result: ActionResult | null): { text: string; failed: boolean 
 }
 
 export function UpdateScreen(props: {
+  /** The rail node the host computed for this route, or undefined when the route is full-window. */
+  rail?: ReactElement;
   /** Title and problem; the screen adds the subtitle from the view. */
   strings: AssistantStrings;
   entranceKey?: number;
@@ -102,6 +104,7 @@ export function UpdateScreen(props: {
 
   return (
     <Frame
+      rail={props.rail}
       strings={{ ...props.strings, subtitle: view.subtitle }}
       entranceKey={props.entranceKey}
       barRight={

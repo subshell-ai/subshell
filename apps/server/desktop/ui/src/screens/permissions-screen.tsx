@@ -33,6 +33,8 @@ import { permissionRows } from "../lib/permissions-model";
 import { leaveLabel } from "../lib/wizard-state";
 
 export function PermissionsScreen(props: {
+  /** The rail node the host computed for this route, or undefined when the route is full-window. */
+  rail?: ReactElement;
   strings: AssistantStrings;
   entranceKey?: number;
   probe: Probe;
@@ -114,6 +116,7 @@ export function PermissionsScreen(props: {
 
   return (
     <Frame
+      rail={props.rail}
       strings={props.strings}
       entranceKey={props.entranceKey}
       barLeft={

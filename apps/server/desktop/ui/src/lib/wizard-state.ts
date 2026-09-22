@@ -668,8 +668,10 @@ export function tmuxInstallFailure(result: ActionResult | null, tmuxFound: boole
 export interface HandoffView {
   /**
    * Whether the screen waits for a Continue instead of opening the
-   * dashboard itself. True only for the handoff of a chain that ran in
-   * THIS window, before the person has pressed (see {@link handoffView}).
+   * dashboard itself. True for the handoff of a chain that ran in THIS
+   * window before the person has pressed, and for a HELD handoff — a
+   * rail-selected Status on a ready machine, where a person is driving the
+   * window (see {@link handoffView}).
    */
   wait: boolean;
   title: string;
@@ -707,7 +709,15 @@ export interface HandoffView {
  * anything up — telling it so would be the app narrating its own state
  * machine.
  */
-export function handoffView(opts: { onboarded: boolean; ranSetupHere: boolean; continued: boolean }): HandoffView {
+export function handoffView(opts: {
+  onboarded: boolean;
+  ranSetupHere: boolean;
+  continued: boolean;
+  /** The hold: this handoff exists because a person SELECTED Status in the
+      rail, not because the machine arrived. Optional so every existing call
+      site keeps its shape. */
+  held?: boolean;
+}): HandoffView {
   if (opts.ranSetupHere && !opts.continued) {
     return {
       wait: true,
@@ -715,6 +725,16 @@ export function handoffView(opts: { onboarded: boolean; ranSetupHere: boolean; c
       // States the fact the checklist below shows and nothing this screen
       // cannot know — see the subtitle note above.
       subtitle: "Everything below is set up and running.",
+    };
+  }
+  if (opts.held) {
+    // A rail-selected Status is a person driving this window, not an
+    // arrival, so nothing opens by itself — and the words must say THAT
+    // rather than promise the open the hold withholds.
+    return {
+      wait: true,
+      title: "Your Server Is Running",
+      subtitle: "Your dashboard opens when you press Continue. Nothing opens by itself.",
     };
   }
   return {

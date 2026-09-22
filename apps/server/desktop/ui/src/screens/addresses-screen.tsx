@@ -52,6 +52,8 @@ function outputOf(result: ActionResult | null): { text: string; failed: boolean 
 }
 
 export function AddressesScreen(props: {
+  /** The rail node the host computed for this route, or undefined when the route is full-window. */
+  rail?: ReactElement;
   strings: AssistantStrings;
   entranceKey?: number;
   probe: Probe;
@@ -105,6 +107,7 @@ export function AddressesScreen(props: {
     const unreadable = why !== null && probe.error !== null;
     return (
       <Frame
+        rail={props.rail}
         strings={props.strings}
         entranceKey={props.entranceKey}
         barLeft={
@@ -150,6 +153,7 @@ export function AddressesScreen(props: {
   const out = outputOf(props.settingsResult);
   return (
     <Frame
+      rail={props.rail}
       strings={props.strings}
       entranceKey={props.entranceKey}
       barLeft={

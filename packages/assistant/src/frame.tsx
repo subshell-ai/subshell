@@ -15,7 +15,13 @@
  * together).
  *
  * This package is a leaf: it imports nothing of ours, and a screen that needs
- * more than this shell composes it in its own app. `Rail` joins in wave 2.
+ * more than this shell composes it in its own app.
+ *
+ * `rail` is the one structural slot (wave 2): when given, the rail node sits
+ * at the window's left at full height and the scroll region plus bottom bar
+ * move into the remaining column — the SPA's own sidebar arrangement, so the
+ * bar reads as belonging to the content it serves. Absent, the frame is
+ * exactly what it was: one column, full width.
  */
 import type { ReactElement, ReactNode } from "react";
 
@@ -58,56 +64,62 @@ export function Frame(props: {
    * this.
    */
   entranceKey?: number;
+  /** The rail node, when this screen's machine has one. Presentational slot:
+      the Rail primitive is rendered by the caller and positioned here. */
+  rail?: ReactNode;
 }): ReactElement {
-  const { strings, art, children, barLeft, barRight, entranceKey } = props;
+  const { strings, art, children, barLeft, barRight, entranceKey, rail } = props;
   return (
-    <div className="flex h-screen flex-col">
-      {/* The class rides the key: both arrive together on the first replay,
+    <div className="flex h-screen">
+      {rail}
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* The class rides the key: both arrive together on the first replay,
           so the animation plays on insertion exactly as the old forced-reflow
           restart made it, and never on the boot frame's first paint. */}
-      <div
-        key={entranceKey}
-        className={
-          entranceKey !== undefined
-            ? "screen-enter flex-1 overflow-y-auto px-8 py-8"
-            : "flex-1 overflow-y-auto px-8 py-8"
-        }
-      >
-        <div className="mx-auto flex min-h-full w-full max-w-[560px] flex-col justify-center">
-          {art && (
-            <div aria-hidden className="flex justify-center">
-              {art}
-            </div>
-          )}
-          <h1 className="mt-6 text-center font-strong text-display leading-tight tracking-[-0.01em]">
-            {strings.title}
-          </h1>
-          {strings.subtitle !== "" && (
-            <p className="mt-2 text-center text-body text-muted-foreground leading-normal">{strings.subtitle}</p>
-          )}
-          {/*
-           * Above the content rather than below it: the problem is why the
-           * screen still looks like this, so it has to be read before the
-           * button that failed is pressed again.
-           */}
-          {strings.problem !== "" && (
-            <p role="status" className="mt-4 text-center text-warning text-detail leading-relaxed">
-              {strings.problem}
-            </p>
-          )}
-          {children && <div className="mt-9 w-full">{children}</div>}
+        <div
+          key={entranceKey}
+          className={
+            entranceKey !== undefined
+              ? "screen-enter flex-1 overflow-y-auto px-8 py-8"
+              : "flex-1 overflow-y-auto px-8 py-8"
+          }
+        >
+          <div className="mx-auto flex min-h-full w-full max-w-[560px] flex-col justify-center">
+            {art && (
+              <div aria-hidden className="flex justify-center">
+                {art}
+              </div>
+            )}
+            <h1 className="mt-6 text-center font-strong text-display leading-tight tracking-[-0.01em]">
+              {strings.title}
+            </h1>
+            {strings.subtitle !== "" && (
+              <p className="mt-2 text-center text-body text-muted-foreground leading-normal">{strings.subtitle}</p>
+            )}
+            {/*
+             * Above the content rather than below it: the problem is why the
+             * screen still looks like this, so it has to be read before the
+             * button that failed is pressed again.
+             */}
+            {strings.problem !== "" && (
+              <p role="status" className="mt-4 text-center text-warning text-detail leading-relaxed">
+                {strings.problem}
+              </p>
+            )}
+            {children && <div className="mt-9 w-full">{children}</div>}
+          </div>
         </div>
-      </div>
-      <div className="flex h-[72px] shrink-0 items-center justify-between border-border border-t px-8">
-        <div className="flex items-center gap-2">{barLeft}</div>
-        {/*
-         * `data-slot` is how a page's global keys find this half of the bar
-         * without reaching into class names: the server assistant's
-         * Enter-presses-the-primary handler queries
-         * `[data-slot="bar-right"] button.primary`.
-         */}
-        <div data-slot="bar-right" className="flex items-center gap-2">
-          {barRight}
+        <div className="flex h-[72px] shrink-0 items-center justify-between border-border border-t px-8">
+          <div className="flex items-center gap-2">{barLeft}</div>
+          {/*
+           * `data-slot` is how a page's global keys find this half of the bar
+           * without reaching into class names: the server assistant's
+           * Enter-presses-the-primary handler queries
+           * `[data-slot="bar-right"] button.primary`.
+           */}
+          <div data-slot="bar-right" className="flex items-center gap-2">
+            {barRight}
+          </div>
         </div>
       </div>
     </div>

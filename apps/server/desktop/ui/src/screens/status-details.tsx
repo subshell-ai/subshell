@@ -1,12 +1,17 @@
 /**
- * The Show Details disclosure (spec 2026-09-21; plan Task 4) — the port of
+ * The Status section's own details (spec 2026-09-21; plan Task 4, made
+ * inline by the operator's 2026-09-22 wave-2 ruling) — the port of
  * `detailsDisclosure` and `refreshTail`'s render half.
  *
- * The pre-boot facts, the server's log and the last action's own words,
- * behind one disclosure. All three were separate surfaces in the console — a
- * Details list, a Logs section, an output pane — reachable only by navigating
- * away from the thing that was wrong. They are one collapsed block under the
- * diagnosis now, which is the whole argument for a single recovery screen.
+ * The pre-boot facts, the server's log and the last action's own words.
+ * All three were separate surfaces in the console — a Details list, a Logs
+ * section, an output pane — reachable only by navigating away from the thing
+ * that was wrong; they became one block under the diagnosis, and wave 2 made
+ * that block the Status SECTION'S content: no disclosure to open, because a
+ * sidebar section that hides its own facts behind a second control is two
+ * navigations for one answer. The tail is fed while the section is up
+ * (`host.tsx`'s `statusUp` rule), which is the open-disclosure rule carried
+ * over under a new name.
  */
 import type { ReactElement } from "react";
 import { Fragment, useEffect, useRef } from "react";
@@ -72,14 +77,10 @@ export function StatusDetails(props: {
   lastResult: ActionResult | null;
   lastTail: LogTail | null;
   about: About | null;
-  open: boolean;
-  /** The host's toggle: it also pulls a tail the moment the pane is asked for. */
-  onOpenChange: (open: boolean) => void;
   onReveal: (target: OpenTarget) => void;
 }): ReactElement {
   return (
-    <details open={props.open} onToggle={(e) => props.onOpenChange(e.currentTarget.open)}>
-      <summary>Show Details</summary>
+    <>
       {/* `.facts` is `display:grid; grid-template-columns:132px 1fr` and reads
           its dt/dd as DIRECT children (the old code appended dt, dd); a keyed
           wrapper div would make each row one grid item and collapse the
@@ -119,6 +120,6 @@ export function StatusDetails(props: {
           machine whose server is down. The string is Rust's copy of the legal
           constants (`desktop_about`); the page stores none of them. */}
       {props.about !== null && <p className="detail">{`This app: ${props.about.appName} ${props.about.appVersion}`}</p>}
-    </details>
+    </>
   );
 }
