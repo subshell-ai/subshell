@@ -122,11 +122,21 @@ the defect the removal closed.
 **The rail is for the standing screens, and only for an onboarded machine**
 (wave 2; the operator's ruling: "i do not want a sidebar applied to the FTE").
 `railFor(route, onboarded)` in `lib/server-state.ts` is the rule as data: the
-four sections — **Status**, **Update**, **How it runs**, **Addresses** —
-appear only when the machine is onboarded and the route is one of the standing
-kinds, and they answer `null` for the FTE family (welcome, tmux, setup,
-handoff), for the two frame-replacing screens (reset, permissions), for boot,
-and for ANY standing route on a machine mid-first-run. That last case is the
+five sections — **Status**, **Update**, **How it runs**, **Addresses**,
+**Reset** — appear only when the machine is onboarded and the route is one of
+the standing kinds, and they answer `null` for the FTE family (welcome, tmux,
+setup, handoff), for the two frame-replacing screens (reset, permissions),
+for boot, and for ANY standing route on a machine mid-first-run. Reset is the
+fifth section and the DESTRUCTIVE one (operator ruling 2026-09-22, live
+screenshot): the DOOR moves into the rail — `onSelect("reset")` is
+`openReset`, the paired screen-set-and-open — styled in the destructive
+token, while the SCREEN stays frame-replacing, because its "only thing
+happening" premise is the safety design that leaves no way out from under
+the chain. With the sidebar present the rail is also the navigation: the
+standing screens' own leave buttons (Back on How it runs, Back on
+Addresses, Close on Update) render only where the rail does not — a
+requested screen over a mid-first-run machine has none, and there the leave
+button is still the only way out. That last case is the
 old page's allowance — a requested update could render over a first run — and
 wave 2 keeps the render but takes away the rail: the exclusion is about the
 machine's journey, not about who asked. The rail is the shared
@@ -193,11 +203,12 @@ is part of the Status section, not a disclosure — a sidebar section that hides
 its own facts behind a second control is two navigations for one answer), and
 the log tail is pulled while the Status section is up, not while it is not —
 the open-disclosure rule carried over under a new name.
-A footer link reaches Reset — the one door the rail cannot carry, because
-reset is full-window and never a section. The other three doors the old
-screen stacked under its diagnosis (**Update Subshell Server**, **How Your
-Server Runs**, **Server Addresses**) are the rail's sections now, which is
-what those links existed to be a stand-in for.
+The other three doors the old screen stacked under its diagnosis (**Update
+Subshell Server**, **How Your Server Runs**, **Server Addresses**) are the
+rail's sections now, which is what those links existed to be a stand-in
+for — and Reset is a rail section too (operator ruling 2026-09-22): the
+door is the sidebar's destructive item, while the screen it opens stays
+frame-replacing.
 
 **A requested screen is routed off `REQUESTED_SCREENS`, never a literal.**
 `screenForRequest` (in `lib/wizard-state.ts`) maps the payload, and the reason

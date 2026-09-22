@@ -24,7 +24,6 @@ function renderStatus(over: {
   busy?: boolean;
   title?: string;
   onAction?: (kind: string) => void;
-  onOpenReset?: () => void;
   onInstallTmux?: () => void;
 }) {
   return render(
@@ -49,7 +48,6 @@ function renderStatus(over: {
       about={null}
       onAction={(kind) => over.onAction?.(kind)}
       onInstallTmux={over.onInstallTmux ?? (() => {})}
-      onOpenReset={over.onOpenReset ?? (() => {})}
       onReveal={() => {}}
       onFail={() => {}}
     />,
@@ -140,12 +138,11 @@ describe("the primary action's disabled states", () => {
 });
 
 describe("the doors", () => {
-  it("deep-links reset from the bar, through the screen-set the old openReset made", () => {
-    const onOpenReset = vi.fn();
-    renderStatus({ onOpenReset });
-    screen.getByRole("button", { name: "Reset this server…" }).click();
-    expect(onOpenReset).toHaveBeenCalledTimes(1);
-  });
+  // The Reset DOOR moved into the rail (operator ruling 2026-09-22): the
+  // bar's ghost is gone, and the select-renders-the-room pin lives in
+  // host.test.tsx, where the whole page — the rail, the paired open, the
+  // frame-replacing room — is under test. The deep-link test is DELETED, not
+  // weakened.
 });
 
 describe("the tmux install's own verdict", () => {

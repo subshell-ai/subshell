@@ -153,17 +153,24 @@ export function nextPollDelay(s: { busy: boolean; running: boolean; hidden: bool
 
 /**
  * The rail's standing sections, in display order (spec 2026-09-21; plan Task
- * 10). Four, and the labels are the section's own copy — the Rail primitive
- * renders no strings of its own. The ids are the wire words they route to,
- * with Status the one exception: the recovery screen has no requested id, so
- * its section routes to `recovery`, which the journey resolves back onto the
- * diagnosis.
+ * 10, Reset joined by the operator's 2026-09-22 ruling). Five, and the labels
+ * are the section's own copy — the Rail primitive renders no strings of its
+ * own. The ids are the wire words they route to, with Status the one
+ * exception: the recovery screen has no requested id, so its section routes
+ * to `recovery`, which the journey resolves back onto the diagnosis.
  */
 export const RAIL_SECTIONS: RailSection[] = [
   { id: "status", label: "Status" },
   { id: "update", label: "Update" },
   { id: "supervision", label: "How it runs" },
   { id: "settings", label: "Addresses" },
+  // The fifth section is the DESTRUCTIVE one (operator ruling 2026-09-22,
+  // live screenshot): the DOOR moves into the rail, styled in the destructive
+  // token. The SCREEN does not — it stays frame-replacing, because its "only
+  // thing happening" premise is the safety design that leaves no way out
+  // from under the chain. `railFor` answers null for the reset ROUTE, so no
+  // rail renders while the screen is up; the section is the door to it.
+  { id: "reset", label: "Reset", danger: true },
 ];
 
 /**
@@ -172,8 +179,10 @@ export const RAIL_SECTIONS: RailSection[] = [
  * The rule is the spec's sentence (2026-09-21, with the operator's 2026-09-22
  * ruling on the FTE): **the rail appears when the machine is onboarded and no
  * first-run step is in progress.** So the FTE family (welcome, tmux, setup,
- * handoff), the two frame-replacing screens (reset, permissions) and boot
- * answer null — full-window, no rail — and a STANDING route on a machine that
+ * handoff), the two frame-replacing SCREENS (reset, permissions) and boot
+ * answer null — full-window, no rail, the reset screen's frame-replacing
+ * premise being the safety design that leaves no way out from under the
+ * chain — and a STANDING route on a machine that
  * is not onboarded answers null too: the old page let a requested update
  * render mid-first-run, and wave 2 keeps the render but takes away the rail,
  * because the exclusion is about the machine's journey, not about who asked.

@@ -198,12 +198,22 @@ describe("railFor", () => {
     }
   });
 
-  it("answers the four standing sections for a standing route on an onboarded machine", () => {
+  it("answers the five standing sections for a standing route on an onboarded machine", () => {
+    // The fifth is Reset (operator ruling 2026-09-22): the DOOR in the rail,
+    // marked destructive. The reset ROUTE still answers null — the screen is
+    // frame-replacing — so the door's own room has no rail.
     const sections = railFor({ kind: "status" }, true);
-    expect(sections?.map((s) => s.id)).toEqual(["status", "update", "supervision", "settings"]);
-    expect(sections?.map((s) => s.label)).toEqual(["Status", "Update", "How it runs", "Addresses"]);
+    expect(sections?.map((s) => s.id)).toEqual(["status", "update", "supervision", "settings", "reset"]);
+    expect(sections?.map((s) => s.label)).toEqual(["Status", "Update", "How it runs", "Addresses", "Reset"]);
+    expect(sections?.find((s) => s.id === "reset")?.danger).toBe(true);
     for (const kind of ["update", "supervision", "addresses"] as const) {
-      expect(railFor({ kind }, true)?.map((s) => s.id)).toEqual(["status", "update", "supervision", "settings"]);
+      expect(railFor({ kind }, true)?.map((s) => s.id)).toEqual([
+        "status",
+        "update",
+        "supervision",
+        "settings",
+        "reset",
+      ]);
     }
   });
 

@@ -58,7 +58,7 @@ renderer is not a renegotiation of the machine's contracts.**
 
 ### The rail, server app
 
-Four sections:
+Five sections (the fifth by operator ruling 2026-09-22, live screenshot):
 
 | section | content |
 | --- | --- |
@@ -66,10 +66,19 @@ Four sections:
 | **Update** | the one update act, both phases |
 | **How it runs** | supervision: service or app child |
 | **Addresses** | the four address values and their restart |
+| **Reset** | the destructive door, styled in the destructive token. The DOOR is in the rail (`onSelect` is the paired screen-set-and-open); the SCREEN stays full-window — its "only thing happening" premise is the safety design that leaves no way out from under the chain, so no rail renders while it is up |
 
-Rendered full-window WITHOUT the rail: **Reset** (its premise is that it is
-the only thing happening), **Permissions** (a handoff moment with its own
-Back/Continue), and every first-run screen (below).
+The rail is also the navigation once it is present (operator ruling
+2026-09-22): the standing screens' own leave buttons — Back on How it runs,
+Back on Addresses, Close on Update — render only where the rail does not. A
+requested screen rendered over a mid-first-run machine has no rail, and
+there the leave button is still the only way out. Leaving via a rail select
+discards, exactly as Back did. Permissions keeps its Back/Continue
+untouched (full-window, no rail).
+
+Rendered full-window WITHOUT the rail: **Reset's screen** (its premise is
+that it is the only thing happening), **Permissions** (a handoff moment with
+its own Back/Continue), and every first-run screen (below).
 
 ### The FTE rule
 

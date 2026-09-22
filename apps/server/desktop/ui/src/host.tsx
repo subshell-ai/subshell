@@ -483,17 +483,33 @@ export function Host(): React.JSX.Element {
    * box (whose fields are PREFILLED from the machine, so a stale draft would
    * read as the configuration), and its result.
    */
-  const close = useCallback((): void => {
-    // The old `resetView.hide()`: the screen steps aside; the meter and the
-    // typed name are the next open's business (`openReset` clears them).
-    setResetOpen(false);
+  /**
+   * The one-visit drafts die here: the supervision screen's pending selection
+   * and Server Addresses' whole form state. Its fields are SEEDED from the
+   * machine, so a draft surviving into the next visit would be showing a
+   * configuration the machine may no longer have — the comments that used to
+   * sit beside these setters in `close()` and `applyScreen()` name the exact
+   * defect. Leaving is leaving, whichever door: this helper is what `close()`
+   * and `applyScreen()` call, and — since the rail became the navigation —
+   * what a section select calls too, which is why it is one function rather
+   * than three copies. `seeded` is deliberately NOT here: it is the SETUP
+   * form's seeded-once flag, cleared only by that form's reset.
+   */
+  const forgetOneVisitDrafts = useCallback((): void => {
     setSupervisionForm(null);
     setSettingsForm(null);
     setSettingsBlind(false);
     setSettingsForceChecked(null);
     setSettingsResult(null);
-    setScreen(null);
   }, []);
+
+  const close = useCallback((): void => {
+    // The old `resetView.hide()`: the screen steps aside; the meter and the
+    // typed name are the next open's business (`openReset` clears them).
+    setResetOpen(false);
+    forgetOneVisitDrafts();
+    setScreen(null);
+  }, [forgetOneVisitDrafts]);
 
   /**
    * Forget the page-scoped one-shot flags a wipe invalidates: the fired-this-
@@ -634,20 +650,9 @@ export function Host(): React.JSX.Element {
         return;
       }
       setResetOpen(false); // the old `resetView.hide()`
-      // A pending selection belongs to one visit of the supervision screen, and
-      // this is its other exit: the sidebar pill, an Update request or a Reset
-      // request all land here while that screen may be showing.
-      setSupervisionForm(null);
-      // Server Addresses has the same two exits and the same rule: its fields
-      // are seeded from the machine, so a draft surviving into the next visit
-      // would be showing a configuration the machine may no longer have.
-      setSettingsForm(null);
-      setSettingsBlind(false);
-      setSettingsForceChecked(null);
-      setSettingsResult(null);
-      // `seeded` is deliberately NOT here: it is the SETUP form's seeded-once
-      // flag, cleared only by that form's reset, and the old `applyScreen`
-      // never touched it.
+      // The sidebar pill, an Update request or a Reset request all land here
+      // while a form screen may be showing: one visit's drafts, gone.
+      forgetOneVisitDrafts();
       // Same rule for the update act: its result and its fired-once latch
       // belong to ONE visit. Without this a window that finished an update and
       // came back would render "up to date" from a page fact rather than from
@@ -672,7 +677,7 @@ export function Host(): React.JSX.Element {
       // The old `applyScreen` replayed the entrance on its way out.
       setScreenEpoch((e) => e + 1);
     },
-    [openReset],
+    [forgetOneVisitDrafts, openReset],
   );
 
   /**
@@ -985,6 +990,20 @@ export function Host(): React.JSX.Element {
         onSelect={(id) => {
           if (id === "status") setSelectHeldHandoff(true);
           else setSelectHeldHandoff(false);
+          // The destructive section is a DOOR, not a route: selecting Reset
+          // is `openReset`, the paired screen-set-and-open the dashboard's
+          // deep link uses — SHOW first, then the plan arms. `go` would set
+          // the screen without the view, and the reset screen's own gate
+          // reads the view.
+          if (id === "reset") {
+            openReset();
+            return;
+          }
+          // Leaving through the rail is LEAVING: the one-visit drafts die here
+          // exactly as they die in `close()` and `applyScreen()` — with Back
+          // gone from the rail-bearing screens, a select is the only exit, and
+          // a draft that survived it would read as the machine's configuration.
+          forgetOneVisitDrafts();
           go((id === "status" ? "recovery" : id) as ScreenId);
         }}
       />
@@ -1396,7 +1415,6 @@ export function Host(): React.JSX.Element {
             about={about}
             onAction={runRecovery}
             onInstallTmux={() => startTmuxInstall()}
-            onOpenReset={openReset}
             onReveal={(target) => {
               void ipc.openPath(target).catch(fail);
             }}

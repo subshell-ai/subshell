@@ -128,9 +128,17 @@ export function UpdateScreen(props: {
               `openWhenReady` → `open_main`, which DESTROYS this window, so
               the progress, the failure line and the phase-2 screen all go
               with it. */}
-          <Button type="button" disabled={leaveHeld({ busy, state: props.state })} onClick={props.onClose}>
-            Close
-          </Button>
+          {/* The rail is the navigation now (operator ruling 2026-09-22): Close
+              beside a rail answers a question the rail already answers, and its
+              leave reaches open_main, which DESTROYS this window. It stays ONLY
+              where the rail is not — a requested update over a mid-first-run
+              machine has no rail, and there this is still the only way out.
+              Check Again stays regardless: it is a refresh, not a leave. */}
+          {props.rail === undefined && (
+            <Button type="button" disabled={leaveHeld({ busy, state: props.state })} onClick={props.onClose}>
+              Close
+            </Button>
+          )}
         </>
       }
     >

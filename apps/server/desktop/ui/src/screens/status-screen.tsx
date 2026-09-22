@@ -21,7 +21,6 @@ import { tmuxInstallPlan } from "../lib/installers";
 import type { About, ActionResult, LogTail, OpenTarget, Probe } from "../lib/ipc";
 import * as ipc from "../lib/ipc";
 import {
-  RESET_LABEL,
   type RecoveryActionKind,
   recoveryAction,
   type SupervisionChoice,
@@ -120,7 +119,6 @@ export function StatusScreen(props: {
   about: About | null;
   onAction: (kind: RecoveryActionKind) => void;
   onInstallTmux: () => void;
-  onOpenReset: () => void;
   onReveal: (target: OpenTarget) => void;
   onFail: (err: unknown) => void;
 }): ReactElement {
@@ -166,17 +164,7 @@ export function StatusScreen(props: {
   const shownProblem =
     tmuxMissing && failedHere !== null ? problemUnderTmuxFailure(props.problem, props.tmuxResult) : props.problem;
   return (
-    <Frame
-      rail={props.rail}
-      strings={{ ...props.strings, problem: shownProblem }}
-      entranceKey={props.entranceKey}
-      barLeft={
-        /* The ellipsis stays: it correctly says a screen follows rather than an act. */
-        <Button type="button" variant="ghost" disabled={busy || running} onClick={props.onOpenReset}>
-          {`${RESET_LABEL}…`}
-        </Button>
-      }
-    >
+    <Frame rail={props.rail} strings={{ ...props.strings, problem: shownProblem }} entranceKey={props.entranceKey}>
       {action && (
         /* The old `button()` helper OR'd `busy || running` into every disabled
            state, and this one keeps it: a press during an act is a no-op, and

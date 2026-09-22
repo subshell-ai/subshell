@@ -56,6 +56,8 @@ function renderAddresses(over: {
   onBlindChange?: (blind: boolean) => void;
   onRunSettings?: (fn: () => Promise<ActionResult>) => void;
   onSettingsEdit?: (values: AddressForm["values"], explicit: AddressForm["explicit"]) => void;
+  /** The rail node, when the host computed one — which decides the leave button. */
+  rail?: Parameters<typeof AddressesScreen>[0]["rail"];
 }) {
   return render(
     <AddressesScreen
@@ -73,9 +75,25 @@ function renderAddresses(over: {
       onSettingsEdit={over.onSettingsEdit ?? (() => {})}
       onRunSettings={over.onRunSettings ?? (() => {})}
       onClose={() => {}}
+      rail={over.rail}
     />,
   );
 }
+
+describe("the leave button", () => {
+  it("renders only where the rail is not (operator ruling 2026-09-22)", () => {
+    // Rail-less: the leave button is the only way out, as it always was. Its
+    // WORD is `leaveLabel`'s — this probe's journey is non-empty, so it
+    // reads Back.
+    renderAddresses({ settingsForm: null });
+    expect(screen.queryByRole("button", { name: "Back" })).not.toBeNull();
+    cleanup();
+    // With the rail, the leave answers a question the rail already answers: a
+    // select leaves, discarding exactly as the leave did.
+    renderAddresses({ settingsForm: null, rail: <div /> });
+    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
+  });
+});
 
 describe("the hold", () => {
   it("shows the reading line and no form until a machine that can be read is in", () => {

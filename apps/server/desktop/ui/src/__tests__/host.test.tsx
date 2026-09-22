@@ -416,6 +416,93 @@ describe("the rail", () => {
     expect(screen.getByRole("button", { name: "Status" }).getAttribute("aria-current")).toBe("true");
   });
 
+  it("carries the Reset door in the rail, and its room stays frame-replacing", async () => {
+    // Operator ruling 2026-09-22: the DOOR moves into the rail; the SCREEN
+    // keeps its "only thing happening" premise — no rail, no bar — because
+    // that is the design that leaves no way out from under the chain.
+    fake = installFakeIpc({
+      probe: makeProbe({ onboarded: true, next: "start" }),
+      handlers: { desktop_pending_screen: () => null, desktop_arm_reset: () => true },
+    });
+    render(<Host />);
+    await waitFor(() => expect(routeOf()).toBe("status"));
+    expect(screen.queryByRole("button", { name: "Reset" })).not.toBeNull();
+    // The bar's ghost is gone — the rail carries the door now.
+    expect(screen.queryByRole("button", { name: "Reset this server…" })).toBeNull();
+    screen.getByRole("button", { name: "Reset" }).click();
+    await waitFor(() => expect(routeOf()).toBe("reset"));
+    // The room replaces the frame: no navigation, and the hostname gate is there.
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    expect(document.getElementById("reset-confirm")).not.toBeNull();
+  });
+
+  it("renders the leave buttons only where the rail is not", async () => {
+    // With the rail, Back/Close answer a question the rail already answers.
+    // Without it — a requested screen over a mid-first-run machine — they are
+    // still the only way out.
+    // With rail: the requested update on a ready machine has NO Close, and
+    // nobody is stranded — Status is the way back, held for a human press.
+    fake = installFakeIpc({
+      probe: makeProbe({ next: "ready", onboarded: true }),
+      handlers: {
+        desktop_pending_screen: () => "update",
+        desktop_check_app_update: () => ({ current: "0.12.1", latest: null, notes: null, reason: null }),
+        desktop_open_main: () => undefined,
+      },
+    });
+    render(<Host />);
+    await waitFor(() => expect(routeOf()).toBe("update"));
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+    screen.getByRole("button", { name: "Status" }).click();
+    await waitFor(() => expect(routeOf()).toBe("handoff"));
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDefined();
+    screen.getByRole("button", { name: "Continue" }).click();
+    await waitFor(() => expect(fake?.callsTo("desktop_open_main")).toHaveLength(1));
+    cleanup();
+    fake?.restore();
+
+    // Without rail: the exclusion case keeps its leave button.
+    fake = installFakeIpc({
+      probe: makeProbe({ onboarded: false, next: "setup", tmux: "/opt/homebrew/bin/tmux" }),
+      handlers: {
+        desktop_pending_screen: () => "update",
+        desktop_check_app_update: () => ({ current: "0.12.1", latest: null, notes: null, reason: null }),
+        desktop_open_main: () => undefined,
+      },
+    });
+    render(<Host />);
+    await waitFor(() => expect(routeOf()).toBe("update"));
+    expect(screen.queryByRole("button", { name: "Close" })).not.toBeNull();
+  });
+
+  it("discards a screen's draft when the person leaves through the rail", async () => {
+    // With Back gone from the rail-bearing screens, a select is the only
+    // exit — and a draft that survived it would read as the machine's
+    // configuration. The form re-seeds from the machine on the next visit.
+    fake = installFakeIpc({
+      probe: makeProbe({
+        next: "start",
+        onboarded: true,
+        status: { settings: { SERVER_PORT: { value: "4000", source: "configured" } } },
+      }),
+      handlers: { desktop_pending_screen: () => "settings" },
+    });
+    render(<Host />);
+    await waitFor(() => expect(routeOf()).toBe("addresses"));
+    const port = () => document.getElementById("field-port") as HTMLInputElement;
+    expect(port().value).toBe("4000");
+    port().focus();
+    port().value = "5000";
+    port().dispatchEvent(new window.Event("input", { bubbles: true }));
+    expect(port().value).toBe("5000");
+    screen.getByRole("button", { name: "How it runs" }).click();
+    await waitFor(() => expect(routeOf()).toBe("supervision"));
+    screen.getByRole("button", { name: "Addresses" }).click();
+    await waitFor(() => expect(routeOf()).toBe("addresses"));
+    // Re-seeded from the machine: the typed 5000 is gone.
+    expect(port().value).toBe("4000");
+  });
+
   it("HOLDS the handoff a Status select lands on, on a ready machine", async () => {
     // A deliberate rail select is not an arrival: the auto-continue rule was
     // written for windows reopened over a running server, which owe no result
