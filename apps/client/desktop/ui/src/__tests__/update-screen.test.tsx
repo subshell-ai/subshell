@@ -73,7 +73,7 @@ describe("the rail's Update section is the door (§ 7.4)", () => {
     await boot({
       // No plane address and no node config: `configured` reads both rungs,
       // and the machine is genuinely unsettled.
-      settings: makeSettings({ planeUrl: null }),
+      settings: makeSettings({ planes: [] }),
       probe: makeProbe({ status: null }),
       handlers: {
         node_pending_screen: () => "update",
@@ -124,7 +124,7 @@ describe("the rail's Update section is the door (§ 7.4)", () => {
     await boot({
       // No plane address and no node config: `configured` reads both rungs,
       // and the machine is genuinely unsettled.
-      settings: makeSettings({ planeUrl: null }),
+      settings: makeSettings({ planes: [] }),
       probe: makeProbe({ status: null }),
       handlers: {
         node_pending_screen: () => "update",

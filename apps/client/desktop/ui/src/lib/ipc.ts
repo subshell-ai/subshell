@@ -292,14 +292,13 @@ export interface NodeSettings {
    */
   nodeBinPath: string | null;
   /**
-   * The control plane this client shows, once one is known — the stored
-   * address, else the enrolled node's own `serverUrl`.
-   *
-   * Resolved on the Rust side rather than assembled here, so what this page
-   * offers to open and what {@link nodeOpenPlane} actually opens cannot be two
-   * different addresses.
+   * The saved control-plane addresses, canonical as stored (operator ruling
+   * 2026-09-22, the plane list): what this app can connect to, with NO
+   * "current" entry. The address the node reports to is a probe fact the page
+   * renders as its pinned row, deliberately not folded in here — one truth,
+   * one source.
    */
-  planeUrl: string | null;
+  planes: string[];
 }
 
 /**
@@ -484,37 +483,45 @@ export function nodeLogs(): Promise<LogTail> {
  * joins it onto that window's own pinned origin — see
  * `src-tauri/src/windows.rs`. Everything privileged stays on this page.
  */
-export function nodeOpenPlane(args: { url: string | null }): Promise<string> {
+export function nodeOpenPlane(args: { url: string }): Promise<string> {
   return invoke<string>("node_open_plane", args);
 }
 
 /**
- * Remember a control plane WITHOUT opening its window.
+ * Add a control plane to the app's saved list WITHOUT opening anything.
  *
- * The counterpart to {@link nodeOpenPlane}, and the difference is the whole
- * reason it exists: that one persists AND opens, so a first run that used it
- * to record the address the user just typed would throw the dashboard on
- * screen in the middle of setup. This one only persists, and the flow decides
- * when the plane's window is what the person asked for.
- *
- * Returns the canonicalized address — the same normalization `nodeOpenPlane`
- * applies, so the two cannot store two spellings of one plane. Rejects with a
- * string for anything that is not an http(s) URL.
+ * The persisting half the first run always needed (a named address has more
+ * to do before a dashboard is what the person asked for), now that storing
+ * and opening are fully separate commands. Returns the whole resulting list,
+ * canonically spelled: the refetched settings ARE the dedupe/validation
+ * feedback. Rejects with a string for a non-http(s) URL, and refuses the
+ * address the enrolled node already reports to — that one is always the
+ * pinned row.
  */
-export function nodeSetPlane(args: { url: string }): Promise<string> {
-  return invoke<string>("node_set_plane", args);
+export function nodePlaneAdd(args: { url: string }): Promise<string[]> {
+  return invoke<string[]>("node_plane_add", args);
 }
 
 /**
- * Open the settled control-plane address in the SYSTEM browser.
+ * Forget one saved control plane. Rejects when the list holds no such
+ * address — the page can only name a row it renders, so a miss means the
+ * list moved underneath it and deserves an error, not a silent success.
+ */
+export function nodePlaneRemove(args: { url: string }): Promise<string[]> {
+  return invoke<string[]>("node_plane_remove", args);
+}
+
+/**
+ * Open one control plane's address in the SYSTEM browser.
  *
- * No URL argument: the Rust side re-reads the same ladder `nodeOpenPlane`
- * points a window at, so the browser can only be sent to the address this
- * page is already showing. For the sessions the in-app window is wrong for —
+ * The page names the address (the plane list ruling, 2026-09-22): every row
+ * it can name is one the person stored or the probe read, the value is
+ * http(s)-validated Rust-side, and the only window holding this command is
+ * the bundled node page. For the sessions the in-app window is wrong for —
  * a different profile, a share, passkeys the webview has no.
  */
-export function nodeOpenPlaneUrl(): Promise<void> {
-  return invoke<void>("node_open_plane_url");
+export function nodeOpenPlaneUrl(args: { url: string }): Promise<void> {
+  return invoke<void>("node_open_plane_url", args);
 }
 
 /**

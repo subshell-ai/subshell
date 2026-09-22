@@ -73,20 +73,20 @@ export interface FlowInput {
  * Whether this client is set up — the one fact that decides whether a person
  * is shown a first run at all.
  *
- * Two rungs, and the second is the one worth explaining. Rust's
- * `plane_url_from` already folds an enrolled node's own `serverUrl` into
- * `planeUrl`, so the stored address answers for a watcher and for a node
- * alike — but it VALIDATES both rungs and skips what will not parse, so a
- * machine enrolled against an address this build cannot re-validate has a node
- * config and no `planeUrl`. That machine is still not one to walk through a
- * first run: the walk ends at Register, and Register on an enrolled machine
- * mints a second node row and discards the only copy of its node key.
+ * Two rungs, since the plane list (operator ruling 2026-09-22): a saved list
+ * of at least one address means someone has connected this app somewhere, and
+ * an enrolled node means this machine belongs to a plane whatever the list
+ * holds — a machine enrolled from the CLI has no stored rows yet, and it is
+ * still not one to walk through a first run. The second rung matters on its
+ * own now that Rust folds nothing: walking such a machine ends at Register,
+ * and Register on an enrolled machine mints a second node row and discards
+ * the only copy of its node key.
  *
  * @param settings - this app's settings, `undefined` before the first read
  * @param probe - the machine's own state, `undefined` before the first read
  */
 export function configured(settings: NodeSettings | undefined, probe: Probe | undefined): boolean {
-  if (settings?.planeUrl) return true;
+  if ((settings?.planes.length ?? 0) > 0) return true;
   return probe?.status?.nodeId != null;
 }
 

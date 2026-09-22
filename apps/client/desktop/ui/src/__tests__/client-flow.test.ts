@@ -10,7 +10,10 @@ import {
 } from "@/lib/client-flow";
 import type { NodeSettings, Probe, ProbeStep } from "@/lib/ipc";
 
-const settings = (planeUrl: string | null): NodeSettings => ({ planeUrl, nodeBinPath: null }) as NodeSettings;
+const settings = (planeUrl: string | null): NodeSettings => ({
+  nodeBinPath: null,
+  planes: planeUrl === null ? [] : [planeUrl],
+});
 
 /** A machine with tmux and nothing else — the true first run, unless told otherwise. */
 const probe = (over: Partial<Probe> = {}): Probe => ({ step: "no-node", tmux: "/usr/bin/tmux", ...over }) as Probe;

@@ -429,39 +429,23 @@ pub fn focus_any(app: &AppHandle) {
     focus_node(app);
 }
 
-/// Whether a launch lands on this app's own window (spec 2026-09-18 § 2).
+/// Put the app on screen at startup.
 ///
-/// **Always true**, whether or not this client already knows a plane address.
-/// The rule it encodes: a client never opens the control plane's dashboard BY
-/// ITSELF. A configured client lands on its own client-status screen and the
-/// dashboard opens from the button there — so registering this machine is
-/// never interrupted by a window belonging to the other half of the app, and a
-/// person relaunching a configured client meets the page that can change it
-/// rather than the one that cannot.
+/// The node window comes up and ONLY the node window, whatever this client's
+/// saved plane list holds (spec 2026-09-18 § 2; operator ruling 2026-09-22
+/// kept it through the plane list, where the ladder that once fed this call
+/// retired with it): **a client never opens the control plane's dashboard by
+/// itself.** A configured client lands on its own node page — the Control
+/// Plane list is where an address gets opened, one press per open — so
+/// registering this machine is never interrupted by a window belonging to the
+/// other half of the app, and a person relaunching a configured client meets
+/// the page that can change it rather than the one that cannot.
 ///
-/// So the address is not read, and the parameter is here anyway: it is the
-/// fact the rule is ABOUT ("this client is already pointed somewhere"), and a
-/// decision that could not see it would need a new signature before the rule
-/// could be reversed at all. That reversal is meant to be this body plus its
-/// test going red, which is the whole reason a constant answer is written as a
-/// function.
-///
-/// A predicate rather than an enum, deliberately: the enum this replaced
-/// carried a `Plane` variant nothing constructed, which needed the only
-/// UNCONDITIONAL `#[allow(dead_code)]` in any of the three desktop crates (the
-/// two that remain are `cfg_attr(not(target_os = "macos"), …)` on code a
-/// platform really does not compile, which is a different thing) and read as a
-/// live branch no test could reach. The old shape is in git if it is wanted.
-pub fn startup_leads_with_node(_plane: Option<&str>) -> bool {
-    true
-}
-
-/// Put the app on screen at startup, given the plane address it has (if any).
-///
-/// The node window comes up FIRST and unconditionally — see
-/// [`startup_leads_with_node`] for the rule and why it replaced the
-/// plane-first shape this had until 2026-09-18, in which a settled address
-/// meant the dashboard led and the setup carried on in the window behind it.
+/// Reversing the rule is meant to be this body going red in review, not a
+/// hunt through the window code. It used to be a named predicate with its own
+/// test, because the old shape took the plane address as an input; with the
+/// ladder gone there is no input left to carry, which is the rule saying
+/// itself out loud.
 ///
 /// Opening it unconditionally SUBSUMES the two guards that shape needed, which
 /// is why neither survives here rather than sitting as a branch nothing takes:
@@ -471,8 +455,7 @@ pub fn startup_leads_with_node(_plane: Option<&str>) -> bool {
 /// the fall back to it when a plane failed to open (no startup path can leave
 /// this app with no window any more). `focus_any` still asks the tray
 /// question, because that is the path where a node window may be GONE.
-pub fn open_at_startup(app: &AppHandle, plane: Option<&str>) -> Result<(), String> {
-    debug_assert!(startup_leads_with_node(plane));
+pub fn open_at_startup(app: &AppHandle) -> Result<(), String> {
     open_node(app)?;
     Ok(())
 }
@@ -744,20 +727,9 @@ mod tests {
         assert_eq!((ASSISTANT_WIDTH, ASSISTANT_HEIGHT), (720.0, 620.0));
     }
 
-    // The product rule, and the only place it is written down (spec
-    // 2026-09-18 § 2): **a client never opens the control plane's dashboard by
-    // itself.** A configured client lands on the node window's client-status
-    // screen and presses a button to get the dashboard; an unconfigured one
-    // always landed there. So a KNOWN address changes nothing, which is
-    // exactly what this app did the opposite of until 2026-09-18 — it led with
-    // the dashboard and left the setup running in the window behind it.
-    //
-    // A constant answer is worth a function and a test because the reversal is
-    // a product decision someone will make again: it has to be this body plus
-    // this assertion going red, not a hunt through the window code.
-    #[test]
-    fn startup_lands_on_the_node_window_whether_or_not_a_plane_is_known() {
-        assert!(startup_leads_with_node(Some("https://plane.example.com")));
-        assert!(startup_leads_with_node(None));
-    }
+    // The product rule lives where it is exercised (spec 2026-09-18 § 2, the
+    // plane list's addition): `open_at_startup` takes NO plane argument any
+    // more — there is no address a startup path could aim at, and a signature
+    // that cannot accept one is the assertion the old
+    // `startup_leads_with_node` function used to carry.
 }

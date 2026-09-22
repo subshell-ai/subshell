@@ -30,9 +30,10 @@ import {
   nodeOpenPath,
   nodeOpenPlane,
   nodeOpenPlaneUrl,
+  nodePlaneAdd,
+  nodePlaneRemove,
   nodeProbe,
   nodeService,
-  nodeSetPlane,
   type OpenTarget,
   type Probe,
   type ServiceVerb,
@@ -77,10 +78,10 @@ export interface NodeCommands {
   repoint: (server: string) => void;
   /** Reveal one of the app's own directories or files (the Status fact rows). */
   openPath: (target: OpenTarget) => void;
-  /** Show a control plane's UI. `null` opens the address already settled. */
-  openPlane: (url: string | null) => void;
-  /** Open the settled control-plane address in the SYSTEM browser. */
-  openPlaneUrl: () => void;
+  /** Show one control plane's UI, at the row's address. Opens are one-off. */
+  openPlane: (url: string) => void;
+  /** Open one saved address in the SYSTEM browser, same one-off rule. */
+  openPlaneUrl: (url: string) => void;
   /**
    * Install tmux on this machine.
    *
@@ -93,12 +94,18 @@ export interface NodeCommands {
   /**
    * Remember a control plane WITHOUT opening its window.
    *
-   * {@link NodeCommands.openPlane} persists AND opens, which is right for a
-   * button labelled "open the dashboard" and wrong for the first run: the
-   * whole point of the new flow is that the dashboard does not appear until
-   * the machine is set up and someone asks for it.
+   * Storing and opening are fully separate since the plane list (operator
+   * ruling 2026-09-22): this writes the app's saved list and opens nothing,
+   * so the first run can record the address it just learned about without
+   * the dashboard appearing over the questions it is still asking.
    */
-  connectOnly: (url: string) => void;
+  addPlane: (url: string) => void;
+  /**
+   * Forget one saved control plane, behind a confirmation. The app's own
+   * bookmarks are the whole reach of this: no node, no key, no service and
+   * nothing on the control plane is touched — those acts live on Service.
+   */
+  removePlane: (url: string) => void;
   /**
    * The first run's one press: install the node if there is none, enroll this
    * machine, then install and start its service.
@@ -382,12 +389,16 @@ export function useNodeCommands(args: {
       }),
 
     /**
-     * Persist only. The runner still re-probes, because nothing about this
-     * machine changed but the screen it should be on has.
+     * Save only. The runner still re-probes and refetches settings, because
+     * nothing about this machine changed but the screen it should be on has
+     * (the walk's `configured` watch reads the list). A rejection — a
+     * non-http(s) URL, or the node's own address, which is always the pinned
+     * row — comes back on the message line with Rust's canonicalization
+     * refusing on the page's behalf.
      */
-    connectOnly: (url) =>
+    addPlane: (url) =>
       runner.run(async () => {
-        await nodeSetPlane({ url });
+        await nodePlaneAdd({ url });
         // An instantaneous save records nothing (operator ruling 2026-09-22):
         // the runner's settings refetch is what moves the address on screen,
         // and a receipt line for a save nobody watched is the same
@@ -396,14 +407,36 @@ export function useNodeCommands(args: {
       }),
 
     /**
+     * Remove behind a confirmed press — deleting a row someone might mean is
+     * never a single click — and the confirmation says the whole reach of
+     * the act: the list is this app's bookmarks, and detaching the MACHINE is
+     * Service's business.
+     */
+    removePlane: (url) =>
+      runner.run(async () =>
+        asks({
+          title: "Remove this control plane?",
+          messages: ["This removes the address from this app's list only. Nothing on the control plane changes."],
+          acceptLabel: "Remove",
+          run: async () => {
+            await nodePlaneRemove({ url });
+            // No receipt: the row vanishing through the settings refetch IS
+            // the feedback, one press one visible result.
+            return finished(null);
+          },
+        }),
+      ),
+
+    /**
      * Three acts, one press, no confirmation.
      *
      * The press IS the consent: a person typed a single-use key into a field
      * labelled as one and pressed Register, so `confirm: true` goes straight
-     * out rather than raising the panel {@link NodeCommands.enroll} raises.
-     * That is scoped to the FIRST run — re-enrolling from the status screen
-     * still asks, because there it overwrites a working `config.json`, mints a
-     * second node row and discards the only copy of a live node key.
+     * out. It is the ONLY key-spending path since the destructive re-enrol
+     * screen retired (operator ruling 2026-09-22); its chain still runs the
+     * two-call `confirm: false` first, because Rust's already-enrolled guard
+     * can still fire on a machine that holds a config the probe cannot see,
+     * and the panel it raises is the honest answer.
      */
     register: ({ startAtLogin, onPhase, onFailed }) =>
       runner.run(async () => {
@@ -526,10 +559,10 @@ export function useNodeCommands(args: {
       }),
 
     /** As {@link openPlane}: the browser is not this machine's state either. */
-    openPlaneUrl: () =>
+    openPlaneUrl: (url) =>
       runner.run(
         async () => {
-          await nodeOpenPlaneUrl();
+          await nodeOpenPlaneUrl({ url });
           return finished(null);
         },
         { reprobe: false },

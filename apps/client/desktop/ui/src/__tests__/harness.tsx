@@ -70,13 +70,13 @@ export function makeProbe(overrides: Partial<Probe> = {}): Probe {
 }
 
 /**
- * Default settings for a machine that has a control plane address.
+ * Default settings for a machine with one saved control plane.
  *
- * `planeUrl` defaults to the SAME address {@link makeProbe}'s node reports to,
- * for two reasons: without one the assistant shows Connect and no probe-driven
- * screen is reachable at all, and a different one would put every case behind
- * a plane-divergence notice. Pass `planeUrl: null` for the Connect screen and a
- * different address for the divergence cases.
+ * The list defaults to the SAME address {@link makeProbe}'s node reports to,
+ * for the same two reasons the single address had them: an empty list with no
+ * node shows the first run, and a different one would put every case behind
+ * divergence furniture. Pass `planes: []` for the Connect screen and other
+ * lists for the list's own cases.
  *
  * Two fields, since the tray preference became a tray menu item and
  * `node_settings` stopped carrying anything a switch would read.
@@ -84,7 +84,7 @@ export function makeProbe(overrides: Partial<Probe> = {}): Probe {
 export function makeSettings(overrides: Partial<NodeSettings> = {}): NodeSettings {
   return {
     nodeBinPath: null,
-    planeUrl: "https://subshell.example.com",
+    planes: ["https://subshell.example.com"],
     ...overrides,
   };
 }
@@ -108,7 +108,11 @@ export function installFakeIpc(
   init: { probe?: Probe; settings?: NodeSettings; handlers?: Record<string, Handler> } = {},
 ): FakeIpc {
   let probe = init.probe ?? makeProbe();
-  const settings = init.settings ?? makeSettings();
+  // MUTABLE BY DESIGN for the plane list: `node_plane_add`/`node_plane_remove`
+  // answer with the whole resulting list AND move it, because the page's
+  // feedback for a save is the settings refetch (the ruling that killed the
+  // save receipt), and a fake whose list never moved would pin nothing real.
+  let settings = { ...(init.settings ?? makeSettings()) };
   const handlers = init.handlers ?? {};
   const calls: IpcCall[] = [];
   const host = window as unknown as Record<string, unknown>;
@@ -129,6 +133,21 @@ export function installFakeIpc(
       if (handler) return handler(args);
       if (cmd === "node_probe") return probe;
       if (cmd === "node_settings") return settings;
+      // The plane list's own edits, answered against the held settings the
+      // same way Rust does: canonical match, add is a no-op when equal,
+      // remove of a stranger REJECTS (the page can only name a row it
+      // renders; a miss is a stale list, said as an error).
+      if (cmd === "node_plane_add") {
+        const url = String((args as { url?: unknown }).url ?? "");
+        if (!settings.planes.includes(url)) settings = { ...settings, planes: [...settings.planes, url] };
+        return settings.planes;
+      }
+      if (cmd === "node_plane_remove") {
+        const url = String((args as { url?: unknown }).url ?? "");
+        if (!settings.planes.includes(url)) throw new Error(`no saved control plane at ${url}`);
+        settings = { ...settings, planes: settings.planes.filter((p) => p !== url) };
+        return settings.planes;
+      }
       // The Status section's log tail. An empty-but-read answer is the honest
       // default for a machine whose test never thought about its log — the
       // pane renders the note, which is what Rust says of an untouched file.

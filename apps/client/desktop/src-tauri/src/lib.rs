@@ -168,7 +168,8 @@ pub fn run() {
             control::node_open_path,
             control::node_logs,
             control::node_settings,
-            control::node_set_plane,
+            control::node_plane_add,
+            control::node_plane_remove,
             control::node_open_plane,
             control::node_open_plane_url,
             control::desktop_open_in_browser,
@@ -227,17 +228,13 @@ pub fn run() {
             // § 14 — automatic updates are explicitly not this design). After
             // the tray, so the item it labels exists.
             app_update::check_on_launch(&handle);
-            // A launch lands on the NODE window, settled address or not: a
+            // A launch lands on the NODE window, settled addresses or not: a
             // client never opens a control plane's dashboard by itself (spec
-            // 2026-09-18 § 2). This used to be the branch that chose — an
-            // address already settled meant the dashboard led, which put a
-            // window belonging to the other half of the app in front of a
-            // person who had just launched it to set this machine up. The
-            // choice now lives in `windows::startup_leads_with_node`, where it is
-            // one pure function with a test; the address is resolved here
-            // because that function is the thing it is an input to.
-            let plane = control::resolve_plane_url(&app.state::<SettingsState>());
-            windows::open_at_startup(&handle, plane.as_deref())?;
+            // 2026-09-18 § 2; the rule and its history live in
+            // `windows::open_at_startup`). Nothing about the saved plane list
+            // is read at startup — the list is a place to go, not a thing to
+            // go there unasked.
+            windows::open_at_startup(&handle)?;
             Ok(())
         })
         .build(tauri::generate_context!())

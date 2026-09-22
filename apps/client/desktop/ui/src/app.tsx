@@ -129,7 +129,7 @@ export function App() {
   /**
    * Leave the watch walk once the address has actually landed.
    *
-   * `connectOnly` persists and the runner refetches the settings, so the walk
+   * `addPlane` saves and the runner refetches the settings, so the walk
    * ends on the FACT rather than on the press: clearing the step optimistically
    * would route a not-yet-configured machine straight back to Welcome for one
    * frame, and the walk deliberately outranks `configured`, so it cannot end
@@ -390,7 +390,7 @@ export function App() {
             // Seed the enrol form's server field from the plane this app
             // already knows, so a watcher who decides to register does not
             // retype an address they have already given once.
-            if (choice === "node") form.seedServer(settings?.planeUrl ?? "");
+            if (choice === "node") form.seedServer(settings?.planes[0] ?? "");
             setStep(choice);
           }}
         />
@@ -531,7 +531,7 @@ export function App() {
           busy={runner.busy}
           onRegister={() => {
             if (runner.busy) return;
-            form.seedServer(probe?.status?.serverUrl ?? settings?.planeUrl ?? "");
+            form.seedServer(probe?.status?.serverUrl ?? settings?.planes[0] ?? "");
             // The walk outranks nothing the person asked for, but it DOES
             // replace the section they are reading: Service is an override
             // now (every rail select is), and leaving it set would swallow
@@ -552,6 +552,9 @@ export function App() {
           settings={settings}
           commands={commands}
           busy={runner.busy}
+          // The pinned row's note sends a detaching person to the node's
+          // acts; a rail select is how every section is reached now.
+          onGoToService={() => setOverride("service")}
           output={ownedOutput}
         />
       );

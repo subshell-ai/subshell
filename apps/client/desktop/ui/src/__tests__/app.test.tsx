@@ -116,6 +116,8 @@ async function boot(init: Parameters<typeof installFakeIpc>[0] = {}) {
  */
 const button = (name: string | RegExp) => screen.getByRole("button", { name }) as HTMLButtonElement;
 const buttonOrNull = (name: string | RegExp) => screen.queryByRole("button", { name }) as HTMLButtonElement | null;
+const menuItem = (name: string) => screen.getByRole("menuitem", { name }) as HTMLButtonElement;
+const menuItemOrNull = (name: string) => screen.queryByRole("menuitem", { name }) as HTMLButtonElement | null;
 
 /**
  * The confirmation panel, which is a labelled region.
@@ -195,10 +197,10 @@ describe("the assistant frame", () => {
   // on the watch path, as one of two answers to a question that is now put
   // first.
   it("asks what you came to do before it asks for anything else", async () => {
-    await boot({ settings: makeSettings({ planeUrl: null }), probe: FRESH });
+    await boot({ settings: makeSettings({ planes: [] }), probe: FRESH });
     expect(screen.getByRole("heading", { name: "Welcome to Subshell Client" })).toBeTruthy();
     // Nothing on it but a step forward: no field, and no command.
-    expect(ipc?.callsTo("node_set_plane").length).toBe(0);
+    expect(ipc?.callsTo("node_plane_add").length).toBe(0);
 
     fireEvent.click(button("Continue"));
     await waitFor(() => expect(screen.getByRole("heading", { name: "What Would You Like to Do?" })).toBeTruthy());
@@ -215,7 +217,7 @@ describe("the assistant frame", () => {
   // starts ends at Register, which mints a SECOND node row on the control
   // plane and discards the node key whose only copy is `config.json`.
   it("never walks an enrolled machine through a first run, address or no address", async () => {
-    await boot({ settings: makeSettings({ planeUrl: null }) });
+    await boot({ settings: makeSettings({ planes: [] }) });
     // The landing is Control Plane now (operator ruling 2026-09-22, second
     // addendum), and it is a standing screen, never a walk.
     expect(screen.getByRole("heading", { name: "Control Plane" })).toBeTruthy();
@@ -228,10 +230,10 @@ describe("the assistant frame", () => {
     // (operator rulings, 2026-09-22): the node's machinery lives on Service,
     // the plane addresses on Control Plane, and the rail is the navigation —
     // so "More…" is gone rather than moved.
-    // Diverged on purpose: Re-enroll… is the door at the END of this case,
-    // and since the Control Plane collapse it exists only where the node
-    // reports elsewhere (final addendum, operator ruling 2026-09-22).
-    await boot({ settings: makeSettings({ planeUrl: "https://elsewhere.example" }) });
+    // A machine holding a plane address other than its node's: the list
+    // shows both, and Re-enroll… — the door at the END of this case — is
+    // gated by being a node and nothing else (plane-list ruling).
+    await boot({ settings: makeSettings({ planes: ["https://elsewhere.example"] }) });
     // The landing is Control Plane (operator ruling 2026-09-22, second
     // addendum); the rail reads Control Plane first, and it is active.
     expect(screen.getByRole("heading", { name: "Control Plane" })).toBeTruthy();
@@ -257,9 +259,9 @@ describe("the assistant frame", () => {
       "About",
       "Reset",
     ]);
-    // Back to the landing section, where the relationship act lives: on this
-    // diverged machine the card carries Re-enroll…, which IS the repoint.
-    await openSection("Control Plane");
+    // Over to Service, where the node's own acts live (plane-list ruling):
+    // the Control plane card carries Re-enroll…, which IS the repoint.
+    await openSection("Service");
     expect(buttonOrNull("Re-enroll…")).not.toBeNull();
   });
 
@@ -902,11 +904,13 @@ describe("what the page never asks for", () => {
   it("drives no command outside the set it declares", async () => {
     const fake = await boot({
       probe: STOPPED,
-      settings: makeSettings({ planeUrl: "https://elsewhere.example" }),
+      settings: makeSettings({ planes: ["https://elsewhere.example"] }),
       handlers: {
         node_service: () => ({ ok: true, stdout: "", stderr: "" }),
         node_open_plane: (args) => String(args.url),
         node_open_plane_url: () => null,
+        node_plane_add: () => ["https://added.example"],
+        node_plane_remove: () => [],
         node_configure: () => ({ ok: true, stdout: "node repointed", stderr: "" }),
         node_check_app_update: () => ({ current: "0.6.1", latest: null, notes: null, reason: null }),
       },
@@ -917,21 +921,37 @@ describe("what the page never asks for", () => {
     fireEvent.click(button("Start"));
     await waitFor(() => expect(fake.callsTo("node_service").length).toBe(1));
 
-    // Control Plane: both doors, and the repoint press. Each act waits out
-    // the runner (Start's settle included) before the next press, because a
-    // press refused on `busy` is a silent no-op and this pin must not pass by
-    // luck.
+    // Control Plane: the row's own press, the disclosure's browser door,
+    // Remove through its confirm, and the add form. Then the repoint press,
+    // where it lives now: Service. Each act waits out the runner (Start's
+    // settle included) before the next press, because a press refused on
+    // `busy` is a silent no-op and this pin must not pass by luck.
     await openSection("Control Plane");
-    await waitFor(() => expect(button("Open in app").disabled).toBe(false), {
+    await waitFor(() => expect(button("https://elsewhere.example").disabled).toBe(false), {
       timeout: SETTLE_DELAY_MS * (SETTLE_ATTEMPTS + 2),
     });
-    fireEvent.click(button("Open in app"));
+    fireEvent.click(button("https://elsewhere.example"));
     await waitFor(() => expect(fake.callsTo("node_open_plane").length).toBe(1));
-    await waitFor(() => expect(button("Open in browser").disabled).toBe(false));
-    fireEvent.click(button("Open in browser"));
+    fireEvent.click(button("Actions for https://elsewhere.example"));
+    fireEvent.click(menuItem("Open in browser"));
     await waitFor(() => expect(fake.callsTo("node_open_plane_url").length).toBe(1));
-    await waitFor(() => expect(button("Re-enroll…").disabled).toBe(false));
+    fireEvent.click(button("Actions for https://elsewhere.example"));
+    fireEvent.click(menuItem("Remove"));
+    await screen.findByText("Remove this control plane?");
+    fireEvent.click(button("Remove"));
+    await waitFor(() => expect(fake.callsTo("node_plane_remove").length).toBe(1), {
+      timeout: SETTLE_DELAY_MS * (SETTLE_ATTEMPTS + 2),
+    });
+    await waitFor(() => expect(button("Add a control plane…").disabled).toBe(false));
+    fireEvent.click(button("Add a control plane…"));
+    typeInto("Control plane URL", "https://added.example");
+    fireEvent.click(button("Add"));
+    await waitFor(() => expect(fake.callsTo("node_plane_add").length).toBe(1));
+
+    await openSection("Service");
+    await waitFor(() => expect(buttonOrNull("Re-enroll…")).not.toBeNull());
     fireEvent.click(button("Re-enroll…"));
+    fireEvent.click(button("Re-enroll"));
     await waitFor(() => expect(fake.callsTo("node_configure").length).toBe(1));
 
     // Update: the check runs on mount, and Check Again re-asks it.
@@ -943,16 +963,18 @@ describe("what the page never asks for", () => {
     const allowed = new Set([
       "node_probe",
       "node_settings",
-      // The standing sections' commands: the service verb, the plane doors,
-      // the repoint, the app-update check.
+      // The standing sections' commands: the service verb, the list's doors
+      // and writes, the repoint, the app-update check.
       "node_service",
       "node_open_plane",
       "node_open_plane_url",
+      "node_plane_add",
+      "node_plane_remove",
       "node_configure",
       "node_check_app_update",
       // The FTE walk's screens (pinned in the test below): the connect
-      // screen's persist, the tmux gate's install.
-      "node_set_plane",
+      // screen's save into the list, the tmux gate's install.
+      "node_plane_add",
       "node_install_tmux",
       // The enroll flow's commands, reached from the rail.
       "node_install_cli",
@@ -974,15 +996,15 @@ describe("what the page never asks for", () => {
   });
 
   // The FTE walk's screens, walked the same way the standing sections are
-  // (review I1, 2026-09-22): Connect presses `node_set_plane`, the tmux gate
+  // (review I1, 2026-09-22): Connect presses `node_plane_add`, the tmux gate
   // presses `node_install_tmux`. Anything else either screen drives is this
   // test's failure.
   it("drives no command outside the set on the first-run walk", async () => {
     const fake = await boot({
-      settings: makeSettings({ planeUrl: null }),
+      settings: makeSettings({ planes: [] }),
       probe: FRESH,
       handlers: {
-        node_set_plane: (args) => String(args.url),
+        node_plane_add: () => ["https://plane.example"],
         node_install_tmux: () => ({ ok: true, stdout: "installed tmux", stderr: "" }),
       },
     });
@@ -993,17 +1015,17 @@ describe("what the page never asks for", () => {
     await screen.findByRole("heading", { name: "Connect to a Server" });
     typeInto("Server URL", "https://plane.example");
     fireEvent.click(button("Connect"));
-    await waitFor(() => expect(fake.callsTo("node_set_plane").length).toBe(1));
+    await waitFor(() => expect(fake.callsTo("node_plane_add").length).toBe(1));
 
     cleanup();
     ipc?.restore();
 
     // The node path on a machine without tmux: the gate installs it.
     const gate = await boot({
-      settings: makeSettings({ planeUrl: null }),
+      settings: makeSettings({ planes: [] }),
       probe: makeProbe({ tmux: null, status: null, service: null }),
       handlers: {
-        node_set_plane: (args) => String(args.url),
+        node_plane_add: () => ["https://plane.example"],
         node_install_tmux: () => ({ ok: true, stdout: "installed tmux", stderr: "" }),
       },
     });
@@ -1016,7 +1038,7 @@ describe("what the page never asks for", () => {
     const allowed = new Set([
       "node_probe",
       "node_settings",
-      "node_set_plane",
+      "node_plane_add",
       "node_install_tmux",
       "node_pending_screen",
       "plugin:event|listen",
@@ -1086,7 +1108,7 @@ describe("the first run", () => {
   // no way past it — it leaves on its own when the probe finds one.
   it("routes the node path to tmux, with no way past it, until tmux exists", async () => {
     const fake = await boot({
-      settings: makeSettings({ planeUrl: null }),
+      settings: makeSettings({ planes: [] }),
       probe: untouched({ tmux: null }),
       handlers: { node_install_tmux: () => ({ ok: true, stdout: "installed tmux", stderr: "" }) },
     });
@@ -1148,7 +1170,7 @@ describe("the first run", () => {
   // here — not a `confirm: true` that would also skip the guard below.
   it("registers in one press: install, enrol, then the service", async () => {
     const fake = await boot({
-      settings: makeSettings({ planeUrl: null }),
+      settings: makeSettings({ planes: [] }),
       probe: untouched(),
       handlers: {
         node_install_cli: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
@@ -1204,7 +1226,7 @@ describe("the first run", () => {
   it("stops the chain rather than enrol over a machine that is already registered", async () => {
     const ALREADY = "This machine is already enrolled as node node-abc on https://old.example.";
     const fake = await boot({
-      settings: makeSettings({ planeUrl: null }),
+      settings: makeSettings({ planes: [] }),
       probe: untouched(),
       handlers: {
         node_install_cli: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
@@ -1257,7 +1279,7 @@ describe("the first run", () => {
   // confirmation.
   it("does not stop for a loopback address, which the field already warned about", async () => {
     const fake = await boot({
-      settings: makeSettings({ planeUrl: null }),
+      settings: makeSettings({ planes: [] }),
       probe: untouched(),
       handlers: {
         node_install_cli: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
@@ -1303,7 +1325,7 @@ describe("the first run", () => {
   // no row moving and NO button at all, since `barRight` appears only on
   // `failed` or `done`. The screen that owns the fields validates them.
   it("refuses a malformed URL or key on the screen that owns the fields", async () => {
-    const fake = await boot({ settings: makeSettings({ planeUrl: null }), probe: untouched() });
+    const fake = await boot({ settings: makeSettings({ planes: [] }), probe: untouched() });
     chooseNode();
     await screen.findByRole("heading", { name: "Register This Machine" });
     typeInto("Server URL", "https//typo");
@@ -1335,7 +1357,7 @@ describe("the first run", () => {
   it("offers a way back to the details after a failed enrolment, key cleared", async () => {
     const TAKEN = "subshell: that node name is already taken on this server — mint a new key and try again";
     await boot({
-      settings: makeSettings({ planeUrl: null }),
+      settings: makeSettings({ planes: [] }),
       probe: untouched(),
       handlers: {
         node_install_cli: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
@@ -1374,7 +1396,7 @@ describe("the first run", () => {
   // the whole remedy here, and it is enough — the service act is repeatable.
   it("offers no way back to the details once the enrolment has landed", async () => {
     await boot({
-      settings: makeSettings({ planeUrl: null }),
+      settings: makeSettings({ planes: [] }),
       probe: untouched(),
       handlers: {
         node_install_cli: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
@@ -1400,7 +1422,7 @@ describe("the first run", () => {
   // the raw output. This pins the sentence, which is the gated half.)
   it("tags a first-attempt failure to the progress screen the chain runs on", async () => {
     await boot({
-      settings: makeSettings({ planeUrl: null }),
+      settings: makeSettings({ planes: [] }),
       probe: untouched(),
       handlers: {
         node_install_cli: () => ({ ok: false, stdout: "", stderr: "brew refused to run" }),
@@ -1429,7 +1451,7 @@ describe("the first run", () => {
     let fake!: FakeIpc;
     let starts = 0;
     fake = await boot({
-      settings: makeSettings({ planeUrl: null }),
+      settings: makeSettings({ planes: [] }),
       probe: untouched(),
       handlers: {
         node_install_cli: () => ({ ok: true, stdout: "Installed subshell 1.9.0.", stderr: "" }),
@@ -1469,7 +1491,7 @@ describe("the first run", () => {
   // screen's own promise false — "whichever you pick, the other is still
   // available afterwards" (subtitles.ts) — from the moment you picked.
   it("lets a fresh machine back out of the node path to the choice", async () => {
-    const fake = await boot({ settings: makeSettings({ planeUrl: null }), probe: untouched() });
+    const fake = await boot({ settings: makeSettings({ planes: [] }), probe: untouched() });
     chooseNode();
     await screen.findByRole("heading", { name: "Register This Machine" });
 
@@ -1482,7 +1504,7 @@ describe("the first run", () => {
     expect(fake.callsTo("node_install_cli")).toEqual([]);
     expect(fake.callsTo("node_enroll")).toEqual([]);
     expect(fake.callsTo("node_service")).toEqual([]);
-    expect(fake.callsTo("node_set_plane")).toEqual([]);
+    expect(fake.callsTo("node_plane_add")).toEqual([]);
   });
 
   // THE one-way door, and the case a person actually hits.
@@ -1504,8 +1526,8 @@ describe("the first run", () => {
     fireEvent.click(button("Back"));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Control Plane" })).toBeTruthy());
     // The door they came for is back, which is the whole of the defect: the
-    // landing, now Control Plane, whose Dashboard card carries the doors.
-    expect(buttonOrNull("Open in app")).not.toBeNull();
+    // landing is Control Plane, and the list stands there with its rows.
+    expect(buttonOrNull("https://subshell.example.com")).not.toBeNull();
     // And NOT the fresh machine's answer: this person never chose anything.
     expect(screen.queryByRole("heading", { name: "What Would You Like to Do?" })).toBeNull();
     // The invitation is still there to accept a second time, on the Service
@@ -1518,7 +1540,7 @@ describe("the first run", () => {
   // The last screen before a single-use key is spent, so the way back to the
   // address that key is for matters most here.
   it("goes back from the start-up question to the details, still filled in", async () => {
-    await boot({ settings: makeSettings({ planeUrl: null }), probe: untouched() });
+    await boot({ settings: makeSettings({ planes: [] }), probe: untouched() });
     chooseNode();
     await screen.findByRole("heading", { name: "Register This Machine" });
     typeInto("Server URL", "https://subshell.example.com");
@@ -1543,7 +1565,7 @@ describe("the first run", () => {
   // this machine, not now", which is a different sentence from "register me
   // without tmux" — so it leaves the walk and changes nothing.
   it("lets a fresh machine leave the tmux gate for the choice", async () => {
-    const fake = await boot({ settings: makeSettings({ planeUrl: null }), probe: untouched({ tmux: null }) });
+    const fake = await boot({ settings: makeSettings({ planes: [] }), probe: untouched({ tmux: null }) });
     chooseNode();
     await screen.findByRole("heading", { name: "Install tmux" });
 
@@ -1564,7 +1586,7 @@ describe("the first run", () => {
 
     fireEvent.click(button("Back"));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Control Plane" })).toBeTruthy());
-    expect(buttonOrNull("Open in app")).not.toBeNull();
+    expect(buttonOrNull("https://subshell.example.com")).not.toBeNull();
     expect(screen.queryByRole("heading", { name: "What Would You Like to Do?" })).toBeNull();
   });
 
@@ -1585,7 +1607,7 @@ describe("the first run", () => {
   it("lets a person leave while the install is still running", async () => {
     const gate = deferred<{ ok: boolean; stdout: string; stderr: string }>();
     const fake = await boot({
-      settings: makeSettings({ planeUrl: null }),
+      settings: makeSettings({ planes: [] }),
       probe: untouched({ tmux: null }),
       handlers: { node_install_tmux: () => gate.promise },
     });
@@ -1621,7 +1643,7 @@ describe("the first run", () => {
    */
   it("re-reads the machine before installing, and installs nothing when tmux turned up", async () => {
     const fake = await boot({
-      settings: makeSettings({ planeUrl: null }),
+      settings: makeSettings({ planes: [] }),
       probe: untouched({ tmux: null }),
     });
     chooseNode();
@@ -1641,9 +1663,9 @@ describe("the first run", () => {
   // touches nothing on this machine and opens no dashboard.
   it("takes the watch path without installing, enrolling or opening anything", async () => {
     const fake = await boot({
-      settings: makeSettings({ planeUrl: null }),
+      settings: makeSettings({ planes: [] }),
       probe: untouched(),
-      handlers: { node_set_plane: (args) => String(args.url) },
+      handlers: { node_plane_add: () => ["https://watch.example"] },
     });
     fireEvent.click(button("Continue"));
     fireEvent.click(button(/^connect to a server/i));
@@ -1651,7 +1673,7 @@ describe("the first run", () => {
     typeInto("Server URL", "https://watch.example");
     fireEvent.click(button("Connect"));
 
-    await waitFor(() => expect(fake.callsTo("node_set_plane")).toEqual([{ url: "https://watch.example" }]));
+    await waitFor(() => expect(fake.callsTo("node_plane_add")).toEqual([{ url: "https://watch.example" }]));
     // Nothing else was asked for. Every one of these is unstubbed, so a call
     // would have rejected loudly; the assertions say which absences matter.
     expect(fake.callsTo("node_install_cli")).toEqual([]);
@@ -1903,7 +1925,7 @@ describe("tmux is a hard stop, not a hint", () => {
   // to the tmux screen, which the first-run block below pins.)
   it("gates enrolment too — enroll preflights tmux before spending the key", async () => {
     await boot({
-      settings: makeSettings({ planeUrl: null }),
+      settings: makeSettings({ planes: [] }),
       probe: makeProbe({
         step: "not-enrolled",
         tmux: null,
@@ -1936,80 +1958,100 @@ describe("tmux is a hard stop, not a hint", () => {
   });
 });
 
-describe("the plane's two doors", () => {
-  // Both doors for the plane live here (operator ruling 2026-09-22). The
-  // in-app window was the status screen's "Open Dashboard"; the system
-  // browser was "Open in browser instead". Each opens the SAME settled
-  // address, and neither takes a URL argument by design.
-  it("opens the settled plane URL in the system browser", async () => {
-    const fake = await boot({ handlers: { node_open_plane_url: () => null } });
+describe("the plane list and its doors", () => {
+  // Where the doors went (operator ruling 2026-09-22, the plane-list turn):
+  // the ROW is the dashboard door, the row's disclosure adds the system-
+  // browser door and Remove, and every press names its own address. Nothing
+  // opens what the person did not press, and the node's own row points at
+  // Service instead of offering a Remove.
+
+  /** A machine with one stored plane beside its node's own address. */
+  const withStored = () => makeSettings({ planes: ["https://work.example"] });
+
+  it("opens a stored row's address in the system browser", async () => {
+    const fake = await boot({ settings: withStored(), handlers: { node_open_plane_url: () => null } });
     await openSection("Control Plane");
-    fireEvent.click(button("Open in browser"));
-    await waitFor(() => expect(fake.callsTo("node_open_plane_url")).toEqual([{}]));
-    // And it asked for NOTHING but the intent — no URL crossed the boundary.
-    expect(fake.callsTo("node_open_plane_url")[0]).toEqual({});
-    // No receipt either (operator ruling 2026-09-22): the browser opening
-    // is the feedback.
+    fireEvent.click(button("Actions for https://work.example"));
+    fireEvent.click(menuItem("Open in browser"));
+    // The page names WHICH plane, and Rust trusts it no further than that.
+    await waitFor(() => expect(fake.callsTo("node_open_plane_url")).toEqual([{ url: "https://work.example" }]));
+    // No receipt (operator ruling 2026-09-22): the browser opening is the
+    // feedback.
     expect(screen.queryByText(/Opened\b|Using\b/)).toBeNull();
   });
 
-  it("rejection reaches the problem line, like every command", async () => {
+  it("lands a browser refusal on the problem line, like every command", async () => {
     await boot({
+      settings: withStored(),
       handlers: {
         node_open_plane_url: () => {
-          throw "no control plane yet — enter its URL, or enrol this machine first";
+          throw "cannot open that address in a browser";
         },
       },
     });
     await openSection("Control Plane");
-    fireEvent.click(button("Open in browser"));
-    await waitFor(() =>
-      expect(screen.getByText("no control plane yet — enter its URL, or enrol this machine first")).toBeTruthy(),
-    );
+    fireEvent.click(button("Actions for https://work.example"));
+    fireEvent.click(menuItem("Open in browser"));
+    await waitFor(() => expect(screen.getByText("cannot open that address in a browser")).toBeTruthy());
   });
 
-  it("lands the in-app door's refusal on the problem line, like the browser door", async () => {
-    // Mirror of the browser door's pin below: "Open in app" with nothing
-    // configured is refused BY the Rust side, and its sentence is the
-    // problem line (delta review m-2).
-    await boot({
-      handlers: {
-        node_open_plane: () => {
-          throw "no control plane yet — enter its URL, or enrol this machine first";
-        },
-      },
-    });
+  it("presses the row itself open in the app window, at its own address", async () => {
+    // "Clicking on the line item directly would open in dashboard" is the
+    // ruling verbatim; `node_open_plane` takes the url now because the list
+    // has more than one.
+    const fake = await boot({ settings: withStored(), handlers: { node_open_plane: (args) => String(args.url) } });
     await openSection("Control Plane");
-    fireEvent.click(button("Open in app"));
-    await waitFor(() =>
-      expect(screen.getByText("no control plane yet — enter its URL, or enrol this machine first")).toBeTruthy(),
-    );
-  });
-
-  it("opens the app window at the settled address, the door the Dashboard card carries", async () => {
-    // The in-app window door IS `node_open_plane` with no URL: the Rust side
-    // re-reads its own ladder, which is how "Open Dashboard" always worked.
-    // "Open in app" is its name under the Dashboard card (operator ruling
-    // 2026-09-22, second addendum).
-    const fake = await boot({ handlers: { node_open_plane: (args) => String(args.url) } });
-    await openSection("Control Plane");
-    fireEvent.click(button("Open in app"));
-    await waitFor(() => expect(fake.callsTo("node_open_plane")).toEqual([{ url: null }]));
-    // An OPEN records NO receipt (operator ruling 2026-09-22): the window
-    // opening is the feedback, so no "Opened <url>" line renders anywhere.
+    fireEvent.click(button("https://work.example"));
+    await waitFor(() => expect(fake.callsTo("node_open_plane")).toEqual([{ url: "https://work.example" }]));
     expect(screen.queryByText(/Opened\b|Using\b/)).toBeNull();
   });
 
-  // Was "opens the app window at the address the connect screen was given",
-  // and the connect screen deliberately no longer does that (spec § 1): its
-  // one button called `node_open_plane`, which persists AND opens, so pressing
-  // it on a fresh install threw the server's dashboard in front of the setup
-  // still running behind it. `connectOnly` is the persisting half alone.
+  it("lands the dashboard door's refusal on the problem line, like the browser door", async () => {
+    await boot({
+      settings: withStored(),
+      handlers: {
+        node_open_plane: () => {
+          throw "could not open the control plane";
+        },
+      },
+    });
+    await openSection("Control Plane");
+    fireEvent.click(button("https://work.example"));
+    await waitFor(() => expect(screen.getByText("could not open the control plane")).toBeTruthy());
+  });
+
+  it("points the node's own row at Service instead of removing it", async () => {
+    // The pinned row has no Remove (plane-screen.test.tsx pins its menu);
+    // this pins the app half: the pointer lands the person on Service.
+    await boot();
+    await openSection("Control Plane");
+    fireEvent.click(button("Actions for https://subshell.example.com"));
+    await screen.findByText(/go to Service and un-enroll/i);
+    expect(buttonOrNull("Remove")).toBeNull();
+    fireEvent.click(menuItem("Go to Service"));
+    await screen.findByRole("heading", { name: "Service" });
+  });
+
+  it("removes a stored row only through its confirm", async () => {
+    const fake = await boot({ settings: withStored(), handlers: { node_plane_remove: () => [] } });
+    await openSection("Control Plane");
+    fireEvent.click(button("Actions for https://work.example"));
+    fireEvent.click(menuItem("Remove"));
+    await screen.findByText("Remove this control plane?");
+    fireEvent.click(button("Remove"));
+    await waitFor(() => expect(fake.callsTo("node_plane_remove")).toEqual([{ url: "https://work.example" }]));
+    // A removal is not an open, whatever else the row's menu offered.
+    expect(fake.callsTo("node_open_plane")).toEqual([]);
+  });
+
   it("remembers the address the connect screen was given, and opens nothing", async () => {
+    // Same pin as before the list, new command: the FTE's Connect SAVES into
+    // the list through `node_plane_add`, because that is what the list's add
+    // does, and it still opens nothing.
     const fake = await boot({
-      settings: makeSettings({ planeUrl: null }),
+      settings: makeSettings({ planes: [] }),
       probe: FRESH,
-      handlers: { node_set_plane: (args) => String(args.url) },
+      handlers: { node_plane_add: () => ["https://plane.example"] },
     });
     fireEvent.click(button("Continue"));
     fireEvent.click(button(/^connect to a server/i));
@@ -2017,60 +2059,45 @@ describe("the plane's two doors", () => {
     typeInto("Server URL", "https://plane.example");
     fireEvent.click(button("Connect"));
 
-    await waitFor(() => expect(fake.callsTo("node_set_plane")).toEqual([{ url: "https://plane.example" }]));
+    await waitFor(() => expect(fake.callsTo("node_plane_add")).toEqual([{ url: "https://plane.example" }]));
     // And no window opened. `node_open_plane` is deliberately unstubbed here,
     // so a call would have rejected loudly rather than passing unnoticed.
     expect(fake.callsTo("node_open_plane")).toEqual([]);
   });
 
-  // The `openPlane` door itself survives, on the screen of a client that is
-  // already set up: there, pressing it IS the request to see that dashboard.
-  it("saves the address WITHOUT opening anything, under the label Change", async () => {
-    // Operator ruling 2026-09-22, addendum 6: the submit persists the
-    // address and opens NOTHING — the Dashboard card's two doors are the
-    // explicit opens. The save rides node_set_plane (the persist-only
-    // command), so the boundary sees no open call from it, and the field
-    // label is the addendum-4 "Control plane URL".
+  it("saves an added address WITHOUT opening anything", async () => {
+    // The standing screen's half of the same rule: the add form SAVES, the
+    // refetched list is the validation feedback, and the plane a person wants
+    // is one more press away.
     const fake = await boot({
-      handlers: {
-        node_set_plane: (args) => String(args.url),
-        node_open_plane: (args) => String(args.url),
-        node_open_plane_url: () => null,
-      },
+      settings: withStored(),
+      handlers: { node_plane_add: () => ["https://work.example", "https://plane.example"] },
     });
     await openSection("Control Plane");
-    fireEvent.click(button("Change server…"));
+    fireEvent.click(button("Add a control plane…"));
     typeInto("Control plane URL", "https://plane.example");
-    fireEvent.click(button("Change"));
-    await waitFor(() => expect(fake.callsTo("node_set_plane")).toEqual([{ url: "https://plane.example" }]));
-    // The whole pin: no open crossed the boundary from the save.
+    fireEvent.click(button("Add"));
+    await waitFor(() => expect(fake.callsTo("node_plane_add")).toEqual([{ url: "https://plane.example" }]));
     expect(fake.callsTo("node_open_plane")).toEqual([]);
     expect(fake.callsTo("node_open_plane_url")).toEqual([]);
   });
 
-  // Was "persists the typed address before opening a browser on it". That
-  // ORDER existed because the connect screen offered both doors and
-  // `node_open_plane_url` re-reads the SETTLED address, so an unsaved one had
-  // to be persisted first. The first run drops the browser door entirely
-  // (§ 5.3, operator: "we should NOT have an 'open in browser' link"), so the
-  // ordering has no path left to get wrong — what is pinned instead is that
-  // the door is absent there and present where the address is already saved.
-  it("keeps the browser door off the first run, and on the screen where the address is settled", async () => {
-    await boot({ settings: makeSettings({ planeUrl: null }), probe: FRESH });
+  it("keeps the browser door off the first run, and on the row that is stored", async () => {
+    await boot({ settings: makeSettings({ planes: [] }), probe: FRESH });
     fireEvent.click(button("Continue"));
     fireEvent.click(button(/^connect to a server/i));
     await screen.findByRole("heading", { name: "Connect to a Server" });
-    expect(buttonOrNull("Open in browser")).toBeNull();
+    expect(menuItemOrNull("Open in browser")).toBeNull();
     cleanup();
     ipc?.restore();
 
-    const fake = await boot({ handlers: { node_open_plane_url: () => null } });
-    // The settled address's browser door is the Control Plane section's now.
+    const fake = await boot({ settings: withStored(), handlers: { node_open_plane_url: () => null } });
+    // A stored row's browser door, naming its own address.
     await openSection("Control Plane");
-    expect(buttonOrNull("Open in browser")).not.toBeNull();
-    fireEvent.click(button("Open in browser"));
-    // Still no URL across the boundary: the command re-reads the ladder.
-    await waitFor(() => expect(fake.callsTo("node_open_plane_url")).toEqual([{}]));
+    fireEvent.click(button("Actions for https://work.example"));
+    expect(menuItemOrNull("Open in browser")).not.toBeNull();
+    fireEvent.click(menuItem("Open in browser"));
+    await waitFor(() => expect(fake.callsTo("node_open_plane_url")).toEqual([{ url: "https://work.example" }]));
   });
 });
 
@@ -2094,7 +2121,7 @@ describe("the rail", () => {
   it("is absent on the FTE walk, whatever step it is on", async () => {
     // An untouched machine: Welcome, then Choice after the press — both
     // full-window, no navigation.
-    await boot({ probe: FRESH, settings: makeSettings({ planeUrl: null }) });
+    await boot({ probe: FRESH, settings: makeSettings({ planes: [] }) });
     await waitFor(() =>
       expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Welcome to Subshell Client"),
     );

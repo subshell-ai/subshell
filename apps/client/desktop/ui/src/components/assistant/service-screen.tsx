@@ -40,11 +40,13 @@
  *   switch, the lifecycle verbs, and the manager's own detail when it said
  *   anything.
  */
-import type { ReactElement } from "react";
+import { TriangleAlert } from "lucide-react";
+import { type ReactElement, useState } from "react";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { ActionOutput } from "@/components/assistant/status-facts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import type { NodeCommands } from "@/hooks/use-node-commands";
@@ -52,7 +54,7 @@ import { autostartSupported, MIN_AUTOSTART_NODE_VERSION } from "@/lib/autostart-
 import { tmuxHint } from "@/lib/copy";
 import type { ActionResult, Probe, ProbeStep } from "@/lib/ipc";
 import { serviceAction } from "@/lib/node-assistant-state";
-import { PROBE_STEPS, paneRisk, stepLabel, stepTone } from "@/lib/steps";
+import { isLoopback, PROBE_STEPS, paneRisk, stepLabel, stepTone } from "@/lib/steps";
 
 /** A fact's value colour per tone — the badge palette, keyed by the step's own colour. */
 const TONE_BADGE: Record<string, "success" | "warning" | "destructive" | "muted"> = {
@@ -143,6 +145,11 @@ export function ServiceScreen(props: {
    * 2026-09-22).
    */
   const supported = autostartSupported(probe);
+  /** The address this machine's node REPORTS to — a node fact, and the
+   *  subject of this section's Control plane card (plane-list ruling). */
+  const nodeServerUrl = probe?.status?.serverUrl ?? null;
+  const [editingRepoint, setEditingRepoint] = useState(false);
+  const [repointTyped, setRepointTyped] = useState("");
   const action = probe ? serviceAction(probe.step) : null;
   const problem = probe ? serviceProblem(probe.step) : null;
   const detail = probe ? serviceDetail(probe.step) : null;
@@ -365,6 +372,96 @@ export function ServiceScreen(props: {
               Register this machine
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* The machine's BINDING to a plane (operator ruling 2026-09-22, the
+          list wave): the address the node reports to is a node fact, so it
+          states itself HERE, beside the act that changes it, while the
+          Control Plane section holds the planes this APP connects to — the
+          ruling's split, in the interface. Re-enroll… IS repointing: the
+          same `node_configure` act with identity kept and no setup key
+          spent, so it is a press and not a chain; the field stays open on
+          submit because the CLI's own refusal is the answer to a bad
+          address. The enroll-time loopback trap moved with the address it
+          describes: a node pointed at `localhost` dials a control plane on
+          ITS OWN machine, right when the plane runs here and wrong whenever
+          the address came from a browser elsewhere, and silent either way. */}
+      {enrolled && nodeServerUrl !== null && (
+        <div className="mt-6 rounded-md border border-border p-3">
+          <p className="font-strong text-detail">Enrolled to Control Plane</p>
+          <p className="mt-2 min-w-0 break-all font-mono text-sm">{nodeServerUrl}</p>
+          {isLoopback(nodeServerUrl) && (
+            <p role="status" aria-label="Loopback control plane" className="mt-2 flex items-start gap-2">
+              <TriangleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0 text-warning" />
+              <span className="text-detail text-muted-foreground">
+                This is a loopback address, so this node looks for a control plane on this machine. That is right if the
+                server runs here, and wrong if the address came from a browser somewhere else.
+              </span>
+            </p>
+          )}
+          {editingRepoint ? (
+            <form
+              className="mt-2 flex flex-col gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (busy || repointTyped.trim() === "") return;
+                commands.repoint(repointTyped);
+              }}
+            >
+              <Label htmlFor="repoint-url" className="text-detail text-muted-foreground">
+                Control plane this node reports to
+              </Label>
+              <p className="text-detail text-muted-foreground leading-relaxed">
+                Re-enrolling points the node at the address you enter; its identity is kept and no setup key is spent.
+                The node takes the new address when it restarts.
+              </p>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="repoint-url"
+                  value={repointTyped}
+                  onChange={(e) => setRepointTyped(e.target.value)}
+                  placeholder="https://subshell.example.com"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  disabled={busy}
+                />
+                <Button type="submit" size="sm" disabled={busy || repointTyped.trim() === ""}>
+                  Re-enroll
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => {
+                    setEditingRepoint(false);
+                    setRepointTyped("");
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <div className="mt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => {
+                  if (busy) return;
+                  // Seeded: a re-enroll is usually one character or one name
+                  // away from the address already there.
+                  setRepointTyped(nodeServerUrl);
+                  setEditingRepoint(true);
+                }}
+              >
+                Re-enroll…
+              </Button>
+            </div>
+          )}
         </div>
       )}
 

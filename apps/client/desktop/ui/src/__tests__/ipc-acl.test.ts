@@ -319,6 +319,20 @@ describe("the invocations that must stay unreachable", () => {
     expect(params.trim()).toBe("");
   });
 
+  // The plane-list ruling (2026-09-22): the page names WHICH plane it opens
+  // or drops, and Rust trusts the page no further than that name. There is
+  // no argument-less "open the current one" left to grow a default plane
+  // from, because nothing is current.
+  it("keeps the four plane commands to one argument: the address", () => {
+    const rust = readFileSync(join(TAURI_DIR, "src/control.rs"), "utf8");
+    for (const fn of ["node_open_plane", "node_open_plane_url", "node_plane_add", "node_plane_remove"]) {
+      const signature = rust.slice(rust.indexOf(`pub fn ${fn}(`));
+      expect(signature.startsWith(`pub fn ${fn}(`), `${fn} vanished from control.rs`).toBe(true);
+      const params = signature.slice(signature.indexOf("(") + 1, signature.indexOf(")"));
+      expect(params, fn).toContain("url: String");
+    }
+  });
+
   it("keeps the service verbs to the six the CLI accepts", () => {
     const union = /export type ServiceVerb =([^;]+);/.exec(ipcSource)?.[1] ?? "";
     expect(union).not.toBe("");

@@ -243,10 +243,10 @@ pub fn node_reset(app: AppHandle, settings: State<'_, SettingsState>, typed: Str
     if let Some(parent) = plan.config_file.parent() {
         let _ = std::fs::remove_dir(parent);
     }
-    // 5. This app's own choice of binary. `planeUrl` is deliberately KEPT: the
-    // control plane this person watches is not what they reset, and making
-    // them retype its address to get their own dashboard back would be the
-    // reset reaching past what it promised.
+    // 5. This app's own choice of binary. The saved control-plane LIST is
+    // deliberately KEPT: the planes this person connects to are not what they
+    // reset, and making them retype an address to get their dashboard back
+    // would be the reset reaching past what it promised.
     let _ = settings.update(|s| s.binary_path = None);
     *stash.plan.lock().unwrap() = None; // the consent has been spent
     Ok(ActionResult {

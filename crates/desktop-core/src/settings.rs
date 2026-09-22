@@ -100,17 +100,20 @@ pub struct Settings {
     pub close_to_tray: bool,
     /// Reserved for Phase 4; persisted now so the file shape does not change later.
     pub open_at_login: bool,
-    /// Subshell Client only: the control plane whose UI the app's main window shows.
+    /// Subshell Client only: the control planes this person has asked the app
+    /// to be able to connect to (operator ruling 2026-09-22, the plane list).
+    /// A LIST of saved addresses and nothing else — there is no "current"
+    /// entry: opens are one-off, and the address this machine's NODE reports
+    /// to is a probe fact, never stored here.
     ///
     /// Stored here rather than read from the node agent's `config.json` every
     /// time, because a client is not required to be a node — someone who only
-    /// watches subshells never enrolls, so there is no config to read. Where
-    /// both exist, this one wins: it is the address the user last chose.
+    /// watches subshells never enrolls, so there is no config to read.
     ///
     /// `apps/server/desktop` never sets it. It shares the struct because the
     /// two apps share the file FORMAT, not the file — each keys its own
     /// directory off its own [`SettingsPaths`].
-    pub plane_url: Option<String>,
+    pub planes: Vec<String>,
     /// Set once this app has watched a server on this machine reach `ready`.
     /// Decides whether boot opens the wizard or the status console (spec
     /// 2026-09-10 § 4); only `desktop_probe`'s marking writes it true and
@@ -171,7 +174,7 @@ pub struct Settings {
     /// bundle identifier, so the subject is implied by which app is reading —
     /// the server app's marker means its bundled server, the client's means
     /// its bundled agent. The two apps share this struct's FORMAT and never
-    /// the file, exactly as `plane_url` and `supervision` do in the other
+    /// the file, exactly as `planes` and `supervision` do in the other
     /// direction.
     pub pending_bundled_install: Option<PendingBundledInstall>,
     /// Who runs the server on this machine (Subshell Server only).
@@ -183,7 +186,7 @@ pub struct Settings {
     /// it owned the process, and stopping it on quit.
     ///
     /// `apps/client/desktop` never sets it; the two apps share this struct's
-    /// FORMAT and never the file, exactly as `plane_url` does in the other
+    /// FORMAT and never the file, exactly as `planes` does in the other
     /// direction.
     pub supervision: Supervision,
 }
@@ -218,7 +221,7 @@ impl Default for Settings {
             binary_path: None,
             close_to_tray: true,
             open_at_login: false,
-            plane_url: None,
+            planes: Vec::new(),
             onboarded: false,
             zoom: ZOOM_DEFAULT,
             last_update_check_at: None,
@@ -327,13 +330,25 @@ mod tests {
         assert!(Settings::default().close_to_tray);
     }
 
+    /// The plane list (operator ruling 2026-09-22) shipped with NO migration:
+    /// a pre-list file carries a `planeUrl` key, the container's unknown-key
+    /// tolerance drops it, and an absent list reads as empty. Nothing is
+    /// stranded by that — the app never opens a plane window by itself, so the
+    /// whole cost is one row to add again (and pre-release software).
+    #[test]
+    fn an_absent_planes_list_reads_as_empty_and_the_old_plane_url_key_is_ignored() {
+        let s: Settings = serde_json::from_str(r#"{"planeUrl":"https://old.example","closeToTray":true}"#).unwrap();
+        assert!(s.planes.is_empty());
+        assert!(s.close_to_tray);
+    }
+
     #[test]
     fn round_trips_through_json() {
         let s = Settings {
             binary_path: Some("/x/subshell-server".into()),
             close_to_tray: true,
             open_at_login: false,
-            plane_url: Some("https://subshell.example.com".into()),
+            planes: vec!["https://subshell.example.com".into()],
             onboarded: true,
             zoom: 1.25,
             last_update_check_at: Some("2026-09-15T10:00:00Z".into()),
@@ -349,7 +364,7 @@ mod tests {
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back.binary_path.as_deref(), Some("/x/subshell-server"));
         assert!(back.close_to_tray);
-        assert_eq!(back.plane_url.as_deref(), Some("https://subshell.example.com"));
+        assert_eq!(back.planes, ["https://subshell.example.com"]);
         assert!(back.onboarded);
         assert_eq!(back.zoom, 1.25);
         assert_eq!(back.last_update_check_at.as_deref(), Some("2026-09-15T10:00:00Z"));

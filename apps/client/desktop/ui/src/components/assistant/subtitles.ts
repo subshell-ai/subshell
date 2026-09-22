@@ -44,7 +44,7 @@ function hereCap(): string {
 export function subtitleFor(
   screen: NodeScreenId,
   probe: Probe | undefined,
-  settings: NodeSettings | undefined,
+  _settings: NodeSettings | undefined,
 ): string | undefined {
   const here = hereLower();
   switch (screen) {
@@ -72,15 +72,19 @@ export function subtitleFor(
       // thing that answers that, row by row, as the effects land.
       return "This takes a moment.";
     case "status": {
-      const where = settings?.planeUrl ?? probe?.status?.serverUrl ?? null;
       if (probe?.status?.nodeId) {
         // Deliberately silent about whether the node is UP. Every state a
         // configured node can be in lands here now, so a sentence claiming
         // one would be wrong in three of them; the screen's own badge and
         // problem line are what answer it.
+        const where = probe.status.serverUrl;
         return where ? `${hereCap()} is a node of ${where}.` : `${hereCap()} is a node.`;
       }
-      return where ? `Connected to ${where}.` : "Connected to a Subshell server.";
+      // Plane addresses belong to the LIST now (plane-list ruling): a watcher
+      // has many and none is "current", so the Status sentence states the
+      // machine. While the first probe is still in flight there is no answer
+      // to state, and no subtitle is truer than a guessed one.
+      return probe === undefined ? undefined : `${hereCap()} is not a node.`;
     }
     case "service":
       // The "what is a node" half the install explainer no longer carries
@@ -88,9 +92,10 @@ export function subtitleFor(
       // sentence says what the thing it installs IS.
       return "The node is the small program that connects this machine to the control plane and runs the sessions launched here.";
     case "plane":
-      // The address's home. It says what the screen answers without naming a
-      // value the screen itself shows.
-      return "The address this app and this node talk to.";
+      // The LIST's home (operator ruling 2026-09-22): what the screen is,
+      // and the one fact a glance cannot infer — that the node's own address
+      // is IN the list, marked, rather than elsewhere.
+      return "Planes this app can connect to. The address this machine's node reports to is marked.";
     case "connect":
       return "Enter the address of the Subshell server this app should show.";
     case "reset":

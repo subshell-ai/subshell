@@ -46,7 +46,8 @@ function makeCommands(calls: Call[]): NodeCommands {
     openPlane: rec("openPlane"),
     openPlaneUrl: rec("openPlaneUrl"),
     installTmux: rec("installTmux"),
-    connectOnly: rec("connectOnly"),
+    addPlane: rec("addPlane"),
+    removePlane: rec("removePlane"),
     register: rec("register"),
   };
 }

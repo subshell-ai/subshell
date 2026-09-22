@@ -1,40 +1,64 @@
 /**
- * Control Plane — the rail section that is the plane address's home (operator
- * ruling 2026-09-22: "where you can re/configure the control plane server").
- * What moved out of the status screen: the configured address and the way to
- * change it, and BOTH doors for the plane, under their own **Dashboard** card
- * ("Open in browser" for the system browser, "Open in app" for the in-app
- * window, the existing `node_open_plane` path) — the only place in the app
- * that opens the control plane. The status screen's "This app opens <url>"
- * sentence is DELETED per the ruling: the value is shown labeled, not
- * narrated, and the row carries the addresses-card form shape (labeled value
- * row, acts grouped below), because the one-line value with its buttons beside
- * it wrapped the URL character-broken and crowded it (screenshot 53). The
- * `bundled` and `tmux` fact rows are NOT here: they render only on the
- * Service section (same day, screenshot 52).
+ * Control Plane — the rail section holding the planes this app can connect to
+ * (operator ruling 2026-09-22: "the control plane section is for connecting
+ * to other control planes, not necessarily tied with the node"). Rows open
+ * with one press and nothing about a press is remembered: there is no
+ * "current" plane and no boot-open, because a client never opens a control
+ * plane's dashboard by itself (spec 2026-09-18 § 2). The list is bookmarks
+ * with doors.
  *
- * ONE address (operator ruling 2026-09-22, final addendum): the control plane
- * URL IS what the node reports to; the section shows one value, and the old
- * second block ("This node reports to… / Repoint this node…") and its edit
- * form are gone. **Re-enroll… now means REPOINTING** — the same
- * `node_configure` act the form performed, pressing the card's own address,
- * identity kept, no setup key spent. It appears only while the node actually
- * reports elsewhere (`planeCoherence` is what notices), and vanishes when the
- * pair agrees. The destructive re-enroll (overwrite `config.json`, mint a
- * second row) has no door on this screen anymore: moving to a genuinely
- * different plane means enrolling there.
+ * The rulings of the same day that shaped the frame: not a card, a bare
+ * table; the add lives in the frame's 72px bottom bar; and the `⋮` is an
+ * ACTION MENU, not an in-flow show/hide (third ruling, 2026-09-22). That one
+ * is worth the mechanic in the comment, because the first cut of this screen
+ * rejected menus on CSP grounds and was right about the grounds and wrong
+ * about the consequence: the bundle's CSP carries no `style-src
+ * 'unsafe-inline'`, which blocks STYLE ATTRIBUTES, so a positioning primitive
+ * that floats a panel by writing a `style` attribute renders unstyled in the
+ * wrong place (the `confirm-panel.tsx` note records the measurement). What it
+ * does not block is CLASS-BASED positioning, and a list row does not need a
+ * measuring popper: the panel is `absolute right-0 top-full` inside the row's
+ * own `relative` box. A real menu — `role=menu`, `menuitem`s, Escape and
+ * outside-press dismiss — out of nothing but tokens.
+ *
+ * Two kinds of row:
+ *
+ * - **The node's address.** `probe.status.serverUrl` renders as a PINNED
+ *   first row badged "this node". Its menu holds the SAME opens as any row
+ *   (operator note, 2026-09-22: "what about open in browser?" — the pinned
+ *   row is a plane like any other to CONNECT to); only the third item
+ *   differs, because the address belongs to the node's own configuration and
+ *   Rust refuses to store it as an entry (one row per plane). Where a stored
+ *   row offers Remove, the pinned row shows the note that points at the
+ *   Service section, where the node's acts (repoint, the lifecycle verbs,
+ *   and the un-enroll that follows) live. That is the ruling's split said in
+ *   the interface: connecting is this section's business; being a node is
+ *   Service's.
+ * - **A stored address.** Its menu: "Open in dashboard", "Open in browser",
+ *   "Remove" (confirmed, and confirmable nothing more: the app's bookmarks
+ *   are its whole reach).
+ *
+ * The add's grammar is the bar's own: opener primary-right when closed;
+ * open, the field sits at the foot of the table where the new row will
+ * appear, Add takes the primary spot, and Cancel goes ghost-left.
+ *
+ * The list is the app's own settings, canonical spellings, deduped by the
+ * Rust side that validates every add. The add form SAVES only — the refetched
+ * list is the entire validation and dedupe feedback — and the section's doors
+ * are the rows themselves: no affordance repeats what the list can already
+ * open. The `bundled` and `tmux` fact rows are NOT here (screenshot 52): they
+ * render on Service and Status.
  */
-import { ExternalLink, TriangleAlert } from "lucide-react";
-import { type ReactElement, useState } from "react";
+import { MoreVertical } from "lucide-react";
+import { type ReactElement, useEffect, useState } from "react";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { ActionOutput } from "@/components/assistant/status-facts";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { NodeCommands } from "@/hooks/use-node-commands";
 import type { ActionResult, NodeSettings, Probe } from "@/lib/ipc";
-import { planeCoherence } from "@/lib/plane-coherence";
-import { isLoopback } from "@/lib/steps";
 
 export function PlaneScreen(props: {
   shell: FrameShell;
@@ -44,168 +68,209 @@ export function PlaneScreen(props: {
   settings: NodeSettings | undefined;
   commands: NodeCommands;
   busy: boolean;
-  /** The CLI's last words — the address acts' answers, rendered inline below. */
+  /** Open the Service section — where the pinned row's note sends a detaching person. */
+  onGoToService: () => void;
+  /** The acts' own words — refusals included, as the section's output block. */
   output: ActionResult | null;
 }): ReactElement {
-  const { shell, probe, settings, commands, busy, output } = props;
-  const planeUrl = settings?.planeUrl ?? null;
-  const nodeServerUrl = probe?.status?.serverUrl ?? null;
-  /** Re-enroll… rewrites a live `config.json`, so it exists only where there is one. */
-  const enrolled = Boolean(probe?.status?.nodeId);
-  const divergence = planeCoherence(planeUrl, nodeServerUrl);
-  const [editingPlane, setEditingPlane] = useState(false);
-  const [planeTyped, setPlaneTyped] = useState("");
+  const { shell, probe, settings, commands, busy, onGoToService, output } = props;
+  const nodeUrl = probe?.status?.serverUrl ?? null;
+  // Display guard against a stored row spelling the node's own address in a
+  // way Rust's canonical compare never saw (a CLI re-point can leave two
+  // spellings behind): the pinned row renders it, the list does not repeat it.
+  const planes = (settings?.planes ?? []).filter((p) => p !== nodeUrl);
+  const [adding, setAdding] = useState(false);
+  const [typed, setTyped] = useState("");
+  // Which row's menu is open. One at a time: two open menus over a list is a
+  // maze, and opening a menu is always deliberate.
+  const [menuUrl, setMenuUrl] = useState<string | null>(null);
+
+  // The menu's own dismissal protocol. Each listener is mounted only while a
+  // menu is open, and the trigger plus its panel are marked as one island
+  // (`data-plane-menu` on the row) so the press that opened the menu is not
+  // also the outside press that closes it.
+  useEffect(() => {
+    if (menuUrl === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuUrl(null);
+    };
+    const onDown = (e: Event) => {
+      if (e.target instanceof Element && e.target.closest("[data-plane-menu]")) return;
+      setMenuUrl(null);
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onDown, true);
+    };
+  }, [menuUrl]);
+
+  const open = (url: string) => {
+    setMenuUrl(null);
+    commands.openPlane(url);
+  };
+
+  // The save, from either door: the bar's Add press and Enter in the field
+  // (whose implicit submission the form's own onSubmit answers). Closed
+  // unconditionally: a rejection (a bad URL, the node's own address)
+  // surfaces as the runner's own message, and leaving the form open on
+  // success would look like nothing happened.
+  const submitAdd = () => {
+    if (busy || typed.trim() === "") return;
+    setAdding(false);
+    commands.addPlane(typed);
+  };
+
+  const item = (label: string, act: () => void): ReactElement => (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      role="menuitem"
+      className="w-full justify-start"
+      disabled={busy}
+      onClick={act}
+    >
+      {label}
+    </Button>
+  );
+
+  const row = (url: string, pinned: boolean): ReactElement => (
+    <div className="relative border-border border-b py-2 last:border-b-0" key={url} data-plane-menu="">
+      <div className="flex items-center gap-2">
+        {/* The row itself IS the door: clicking opens the dashboard
+            (operator's shape, 2026-09-22), so the address reads as a button
+            rather than needing a menu item to say the obvious. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="min-w-0 flex-1 justify-start px-0 font-mono text-sm hover:underline"
+          disabled={busy}
+          onClick={() => open(url)}
+        >
+          <span className="min-w-0 break-all text-left">{url}</span>
+        </Button>
+        {pinned && <Badge variant="secondary">this node</Badge>}
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={busy}
+          aria-label={`Actions for ${url}`}
+          aria-haspopup="menu"
+          aria-expanded={menuUrl === url}
+          onClick={() => setMenuUrl(menuUrl === url ? null : url)}
+        >
+          <MoreVertical aria-hidden />
+        </Button>
+      </div>
+      {menuUrl === url && (
+        <div
+          role="menu"
+          aria-label={`Actions for ${url}`}
+          className="absolute right-0 top-full z-50 mt-1 min-w-56 rounded-md border border-border bg-card p-1 shadow-lg"
+        >
+          {item("Open in dashboard", () => open(url))}
+          {item("Open in browser", () => {
+            setMenuUrl(null);
+            commands.openPlaneUrl(url);
+          })}
+          {pinned ? (
+            <>
+              <p className="px-2 py-1.5 text-detail text-muted-foreground leading-relaxed">
+                This is the control plane this machine&rsquo;s node reports to. To detach this machine, go to Service
+                and un-enroll or uninstall the node.
+              </p>
+              {item("Go to Service", () => {
+                setMenuUrl(null);
+                onGoToService();
+              })}
+            </>
+          ) : (
+            item("Remove", () => {
+              setMenuUrl(null);
+              commands.removePlane(url);
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
 
   return (
-    <Frame {...shell} rail={props.rail} tightContent>
-      {/* THE address (ruling: the plane URL is what the node reports to) —
-          the addresses-card form shape (operator
-          ruling 2026-09-22, screenshot 53: the one-line value with its buttons
-          beside it wrapped the URL character-broken and crowded it), since
-          addendum 4 as its own bordered CARD, matching the Dashboard card
-          below it. The label is the operator's exact words (addendum 4), a
-          noun rather than the deleted "This app opens <url>" narration, and
-          rendered like every other card title in the app (addendum 5:
-          `font-strong text-detail`, foreground; the Dashboard rendering is
-          the reference, the muted label style was the odd one out). */}
-      <div className="rounded-md border border-border p-3">
-        <div className="space-y-1.5">
-          {/* The title is a Label ONLY while the labeled input exists (delta
-              review m-3): a htmlFor with no control in the tree is dead
-              pointing. The rendering classes are the same either way. */}
-          {editingPlane ? (
-            <Label htmlFor="plane-url" className="font-strong text-detail">
+    <Frame
+      {...shell}
+      rail={props.rail}
+      barLeft={
+        adding ? (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setAdding(false);
+              setTyped("");
+            }}
+          >
+            Cancel
+          </Button>
+        ) : undefined
+      }
+      barRight={
+        adding ? (
+          // The bar's primary calls the form's save directly; the field's
+          // Enter reaches the same handler through the form's onSubmit.
+          <Button type="button" onClick={submitAdd} disabled={busy || typed.trim() === ""}>
+            Add
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            disabled={busy}
+            onClick={() => {
+              setTyped("");
+              setAdding(true);
+            }}
+          >
+            Add a control plane…
+          </Button>
+        )
+      }
+    >
+      <div>
+        {nodeUrl === null && planes.length === 0 && (
+          <p className="text-detail text-muted-foreground">No control planes yet. Add an address to connect to one.</p>
+        )}
+        {nodeUrl !== null && row(nodeUrl, true)}
+        {planes.map((p) => row(p, false))}
+        {adding && (
+          <form
+            className="flex flex-col gap-2 py-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitAdd();
+            }}
+          >
+            {/* The Label is a Label only while its input exists (delta
+                review m-3): a htmlFor with no control in the tree is dead
+                pointing. */}
+            <Label htmlFor="plane-add-url" className="font-strong text-detail">
               Control plane URL
             </Label>
-          ) : (
-            <p className="font-strong text-detail">Control plane URL</p>
-          )}
-          {editingPlane ? (
-            <form
-              className="flex flex-col gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (busy || planeTyped.trim() === "") return;
-                // Closed unconditionally: the runner surfaces a rejected URL
-                // as its own message, and leaving the form open on success
-                // would look like nothing happened.
-                setEditingPlane(false);
-                // SAVES ONLY (operator ruling 2026-09-22, addendum 6): the
-                // Dashboard card's two doors are the explicit opens; the
-                // submit persists the address and nothing else. An
-                // instantaneous save also records no receipt (the opens
-                // record none either), so the form's feedback is the
-                // refetched address itself.
-                commands.connectOnly(planeTyped);
-              }}
-            >
-              <div className="flex items-center gap-2">
-                <Input
-                  id="plane-url"
-                  value={planeTyped}
-                  onChange={(e) => setPlaneTyped(e.target.value)}
-                  placeholder="https://subshell.example.com"
-                  spellCheck={false}
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                  disabled={busy}
-                />
-                <Button type="submit" size="sm" disabled={busy || planeTyped.trim() === ""}>
-                  Change
-                </Button>
-                <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setEditingPlane(false)}>
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          ) : (
-            <p className="min-w-0 break-all font-mono text-sm">{planeUrl ?? nodeServerUrl ?? "nothing yet"}</p>
-          )}
-        </div>
-        {!editingPlane && (
-          // The acts, grouped on their own row inside the card (ruling 4,
-          // same screenshot): the edit and, for a machine that is a node, the
-          // relationship act. Re-enroll… stays where the 0aeb7709 ruling put
-          // it; the confirm gate is the enroll screen's, unchanged.
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
+            <Input
+              id="plane-add-url"
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder="https://subshell.example.com"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
               disabled={busy}
-              onClick={() => {
-                if (busy) return;
-                // Seeded: a change is usually an edit of this address,
-                // and an empty field makes someone retype a hostname to
-                // correct one character of it.
-                setPlaneTyped(planeUrl ?? "");
-                setEditingPlane(true);
-              }}
-            >
-              Change server…
-            </Button>
-            {enrolled && divergence !== null && planeUrl && (
-              <Button variant="outline" size="sm" disabled={busy} onClick={() => commands.repoint(planeUrl)}>
-                Re-enroll…
-              </Button>
-            )}
-          </div>
-        )}
-        {/* The enroll-time loopback trap, at rest rather than at enrolment. A
-            node pointed at `localhost` dials a control plane on ITS OWN
-            machine: correct when the plane runs here, wrong whenever the
-            address was copied out of a browser on another box — and silent
-            either way, because the node comes up "online" against nothing. */}
-        {nodeServerUrl !== null && isLoopback(nodeServerUrl) && (
-          <p role="status" aria-label="Loopback control plane" className="mt-2 flex items-start gap-2">
-            <TriangleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0 text-warning" />
-            <span className="text-detail text-muted-foreground">
-              This is a loopback address, so this node looks for a control plane on this machine. That is right if the
-              server runs here, and wrong if the address came from a browser somewhere else.
-            </span>
-          </p>
-        )}
-        {/* Where the ONE address and the node's dialing diverge, the card says
-            so plainly and the Re-enroll press closes the gap. (Operator ruling
-            2026-09-22: one address; Re-enroll means repointing.) The card
-            states what IS; the help states what the press changes, in two
-            sentences, including the restart and the different-plane refusal
-            the old form said in full. */}
-        {enrolled && divergence !== null && nodeServerUrl && (
-          <div className="mt-2 flex flex-col gap-1.5">
-            <p className="min-w-0 break-all text-detail text-muted-foreground">
-              Currently the node reports to <span className="font-mono">{nodeServerUrl}</span>.
-            </p>
-            <p className="text-detail text-muted-foreground">
-              Re-enroll points the node at the address above, and the node takes it when it restarts; its identity is
-              kept and no setup key is spent. A different control plane will refuse the node until it enrolls there.
-            </p>
-          </div>
+            />
+          </form>
         )}
       </div>
 
-      {/* The Dashboard card (operator ruling 2026-09-22, second addendum,
-          superseding the same day's "Open the control plane" on the acts
-          row): BOTH doors for the plane, under one name — the system browser
-          and the in-app window — and the ONLY place in the app that opens
-          the control plane. The in-app door is the existing `node_open_plane`
-          path, re-reading the settled address; the browser door is
-          `node_open_plane_url`. Neither takes a URL argument by design. */}
-      <div className="mt-6 rounded-md border border-border p-3">
-        <p className="font-strong text-detail">Dashboard</p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" disabled={busy} onClick={commands.openPlaneUrl}>
-            <ExternalLink aria-hidden />
-            Open in browser
-          </Button>
-          <Button variant="outline" size="sm" disabled={busy} onClick={() => commands.openPlane(null)}>
-            Open in app
-          </Button>
-        </div>
-      </div>
-
-      {/* The repoint and save acts' own words, INLINE — this section's
-          actions' answers, as the output block alone (operator ruling
-          2026-09-22, screenshot 60: the facts list is Status's alone). */}
+      {/* The acts' own words, INLINE — refusals from the opens and the saves
+          included (the facts list is Status's alone, ruling screenshot 60). */}
       <ActionOutput output={output} />
     </Frame>
   );

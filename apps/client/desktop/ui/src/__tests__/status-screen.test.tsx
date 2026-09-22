@@ -163,24 +163,23 @@ describe("an enrolled, online machine", () => {
   });
 });
 
-describe("the address the doors will open", () => {
+describe("the status subtitle", () => {
   /**
-   * The doors say only "Open in browser", so which server that is has to be
-   * on the face of the screen — and it is, in the SUBTITLE, in both branches.
-   * The screen used to repeat it in a "Dashboard <url>" line under the badge,
-   * which is the redundancy this replaced. `mount` supplies its own fixed
-   * shell subtitle, so this asks the function `app.tsx` builds the real one
-   * with rather than the rendered screen.
+   * The plane list took the doors off this screen, so the subtitle states
+   * the MACHINE: a node names the plane it reports to, and a watcher names
+   * no address at all, because the list holds many and none is current.
+   * `mount` supplies its own fixed shell subtitle, so this asks the function
+   * `app.tsx` builds the real one with rather than the rendered screen.
    */
-  it("is named by the subtitle whether or not this machine is a node", () => {
-    const settings = makeSettings({ planeUrl: "https://plane.example" });
-    expect(subtitleFor("status", makeProbe(), settings)).toContain("https://plane.example");
-    expect(subtitleFor("status", watcherProbe(), settings)).toContain("https://plane.example");
-    // And with no stored preference, the node's own address is what the
-    // button's ladder falls back to — so that is what the sentence names.
-    expect(subtitleFor("status", makeProbe(), makeSettings({ planeUrl: null }))).toContain(
-      "https://subshell.example.com",
-    );
+  it("names the node's own address, and no address for a watcher", () => {
+    const settings = makeSettings({ planes: ["https://plane.example"] });
+    // An app bookmark cannot outrank where this machine's node reports.
+    const nodeLine = subtitleFor("status", makeProbe(), settings);
+    expect(nodeLine).toContain("https://subshell.example.com");
+    expect(nodeLine).not.toContain("https://plane.example");
+    expect(subtitleFor("status", watcherProbe(), settings)).toBe("This machine is not a node.");
+    // First probe still in flight: nothing is claimed yet.
+    expect(subtitleFor("status", undefined, settings)).toBeUndefined();
   });
 });
 
@@ -205,7 +204,7 @@ describe("a client that is not a node", () => {
     // The status screen keeps machine state (operator ruling 2026-09-22);
     // the plane address is the Control Plane section's, shown labeled there,
     // and the "This app opens <url>" narration is gone.
-    mount({ probe: watcherProbe(), settings: makeSettings({ planeUrl: "https://watch.example" }) });
+    mount({ probe: watcherProbe(), settings: makeSettings({ planes: ["https://watch.example"] }) });
     expect(screen.queryByText(/this app opens/i)).toBeNull();
   });
 });
