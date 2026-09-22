@@ -30,7 +30,6 @@ import { useEffect, useRef, useState } from "react";
 import { AboutScreen } from "@/components/assistant/about-screen";
 import { ChoiceScreen } from "@/components/assistant/choice-screen";
 import { ConnectScreen } from "@/components/assistant/connect-screen";
-import { EnrollScreen } from "@/components/assistant/enroll-screen";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { PlaneScreen } from "@/components/assistant/plane-screen";
 import { ProgressScreen } from "@/components/assistant/progress-screen";
@@ -553,31 +552,7 @@ export function App() {
           settings={settings}
           commands={commands}
           busy={runner.busy}
-          onReenroll={() => {
-            if (runner.busy) return;
-            form.seedServer(probe?.status?.serverUrl ?? settings?.planeUrl ?? "");
-            setOverride("enroll");
-          }}
           output={ownedOutput}
-        />
-      );
-    case "enroll":
-      return (
-        <EnrollScreen
-          shell={shell}
-          {...facts}
-          form={form}
-          commands={commands}
-          busy={runner.busy}
-          onCancel={
-            override === "enroll"
-              ? () => {
-                  if (runner.busy) return;
-                  form.clearErrors();
-                  setOverride(null);
-                }
-              : undefined
-          }
         />
       );
     case "about":

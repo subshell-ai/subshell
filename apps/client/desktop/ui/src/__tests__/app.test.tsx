@@ -75,6 +75,19 @@ const STOPPED = makeProbe({
 /** A machine with no node CLI at all — nothing to stop, overwrite or downgrade. */
 const FRESH = makeProbe({ step: "no-node", nodeBinary: null, status: null, service: null });
 
+/**
+ * A CONFIGURED client that is not a node: it has an address it watches and
+ * no `config.json`. The Service section offers it "Register this machine",
+ * which is the door the one-way-door case and the enrol-form cases drive.
+ */
+const watcher = (over: Partial<ReturnType<typeof makeProbe>> = {}) =>
+  makeProbe({
+    step: "not-enrolled",
+    status: { nodeId: null, serverUrl: null, online: false, agentVersion: "1.9.0" },
+    service: { installed: false, definitionPath: null, state: "not-installed", paneSafety: null },
+    ...over,
+  });
+
 let ipc: FakeIpc | undefined;
 
 afterEach(() => {
@@ -120,24 +133,36 @@ const typeInto = (label: string, value: string) => {
 };
 
 /**
- * Open the enrol form the way a person reaches it: **Re-enroll…**, on the
- * Control Plane section of a machine that already IS a node (operator ruling
- * 2026-09-22 — the act moved there from the status screen, which keeps
- * machine state only).
+ * Open the enrol form the way a person reaches it now: **Register this
+ * machine**, the card on the Service section of a configured client that is
+ * not a node yet (operator ruling 2026-09-22, screenshot 60 — the node's
+ * machinery home).
  *
- * The probe-derived `enroll` landing is gone (spec 2026-09-18 § 5.4). An
- * unconfigured machine walks to **Register**, whose press is the consent and
- * which therefore does not confirm; the two-phase flow every case in that
- * block is about belongs to re-enrolment — the act that overwrites a working
- * `config.json`, mints a SECOND node row and discards the only copy of a live
- * node key. Same screen, same form, same commands; a different door.
+ * The destructive re-enrolment is GONE with the Control Plane collapse (same
+ * day, final addendum): Re-enroll… now means REPOINTING (`node_configure`,
+ * identity kept, no key spent — `repoint.test.tsx`), and the screen that
+ * overwrote a working `config.json` with a second node row has no door in
+ * this app. What remains of its form lives here: the same three answers,
+ * asked once, the press itself the consent (§ 6.2).
  */
-async function openReenroll(init: Parameters<typeof installFakeIpc>[0] = {}) {
-  const fake = await boot(init);
-  await openSection("Control Plane");
-  fireEvent.click(button("Re-enroll…"));
-  await screen.findByRole("heading", { name: "Enroll This Machine" });
+async function openRegisterForm(init: Parameters<typeof installFakeIpc>[0] = {}) {
+  const fake = await boot({ probe: watcher(), ...init });
+  await openSection("Service");
+  fireEvent.click(button("Register this machine"));
+  await screen.findByRole("heading", { name: "Register This Machine" });
   return fake;
+}
+
+/**
+ * Walk the register door to the act: Continue checks the three answers and
+ * asks the one remaining question (start-up), and that screen's **Register**
+ * press runs the chain. The old EnrollScreen spent its key on one button;
+ * the walk asks what the service should do at login FIRST, because the
+ * answer parameterizes the chain's own `service install`.
+ */
+function pressRegisterChain() {
+  fireEvent.click(button("Continue"));
+  fireEvent.click(button("Register"));
 }
 
 // ---------------------------------------------------------------------------
@@ -203,7 +228,10 @@ describe("the assistant frame", () => {
     // (operator rulings, 2026-09-22): the node's machinery lives on Service,
     // the plane addresses on Control Plane, and the rail is the navigation —
     // so "More…" is gone rather than moved.
-    await boot();
+    // Diverged on purpose: Re-enroll… is the door at the END of this case,
+    // and since the Control Plane collapse it exists only where the node
+    // reports elsewhere (final addendum, operator ruling 2026-09-22).
+    await boot({ settings: makeSettings({ planeUrl: "https://elsewhere.example" }) });
     // The landing is Control Plane (operator ruling 2026-09-22, second
     // addendum); the rail reads Control Plane first, and it is active.
     expect(screen.getByRole("heading", { name: "Control Plane" })).toBeTruthy();
@@ -229,7 +257,8 @@ describe("the assistant frame", () => {
       "About",
       "Reset",
     ]);
-    // Back to the landing section, where the relationship act lives.
+    // Back to the landing section, where the relationship act lives: on this
+    // diverged machine the card carries Re-enroll…, which IS the repoint.
     await openSection("Control Plane");
     expect(buttonOrNull("Re-enroll…")).not.toBeNull();
   });
@@ -498,109 +527,63 @@ describe("the node log tail", () => {
 // ---------------------------------------------------------------------------
 
 /**
- * Two-phase enrolment, which is now RE-enrolment's property.
- *
- * Every case here is unchanged in what it asserts; what changed is the door.
- * `openReenroll` reaches the same screen, the same form and the same
- * `node_enroll` two-call flow from a machine that already is a node — which
- * is the act the confirmation was always FOR (it overwrites `config.json`,
- * mints a second node row and discards the only copy of a live node key). The
- * first run's Register press is the consent for the OTHER case and skips the
- * panel by design (§ 6.2); that path has its own block below, which pins that
- * it sends `confirm: true` and raises nothing.
+ * The enrol form, asked ONCE. The two-phase confirmation retired with the
+ * destructive re-enrolment door (operator ruling 2026-09-22, final addendum:
+ * Re-enroll… means repointing now, and the act that overwrote a working
+ * `config.json` has no screen in this app). What survives is the walk's
+ * Register: the press itself is the consent (§ 6.2), so it sends
+ * `confirm: true` and raises no panel — that shape has its own pins in the
+ * first-run block. These cases own the FORM: its validation refusals, its
+ * explanations, its seeding, and what actually reaches the wire.
  */
-describe("enrolment is two-phase", () => {
-  it("asks first, spawns nothing, and only re-sends on an explicit accept", async () => {
-    const fake = await openReenroll({
-      handlers: {
-        node_enroll: (args) =>
-          args.confirm === true
-            ? {
-                ok: true,
-                stdout: "enrolled",
-                stderr: "",
-                node: { nodeId: "abc", name: "workstation" },
-                requiresConfirmation: false,
-                confirmations: [],
-              }
-            : {
-                ok: false,
-                stdout: "",
-                stderr: "",
-                node: null,
-                requiresConfirmation: true,
-                confirmations: [
-                  { kind: "loopback-server", message: "http://localhost:3080 is a loopback address, so this node…" },
-                ],
-              },
-      },
-    });
-
-    typeInto("Server URL", "http://localhost:3080");
-    typeInto("Setup key", GOOD_KEY);
-    typeInto("Node name", "workstation");
-    fireEvent.click(button("Enroll"));
-
-    // Phase one: every message rendered, and exactly ONE call so far — nothing
-    // was spawned and no setup key was spent.
-    await waitFor(() => expect(screen.getByText(/is a loopback address, so this node…/)).toBeTruthy());
-    expect(fake.callsTo("node_enroll").length).toBe(1);
-    expect(fake.callsTo("node_enroll")[0]?.confirm).toBe(false);
-
-    // Phase two: the IDENTICAL arguments plus confirm: true, from the
-    // confirmation's own accept button.
-    fireEvent.click(confirmPanel().getByRole("button", { name: "Enroll this machine" }));
-    await waitFor(() => expect(fake.callsTo("node_enroll").length).toBe(2));
-    const [first, second] = fake.callsTo("node_enroll");
-    expect(second).toEqual({ ...first, confirm: true });
-    // Named, in the payload — not defaulted by the CLI behind the form's back.
-    // (The line above already pins that phase two carries the SAME name: the form
-    // is not re-read between the confirm and the spawn.)
-    expect(first).toMatchObject({ server: "http://localhost:3080", key: GOOD_KEY, name: "workstation" });
-    // And never a third: an accepted key cannot be redeemed twice.
-    expect(fake.callsTo("node_enroll").length).toBe(2);
-  });
+describe("the register form asks the three answers once", () => {
+  const enrolledOk = {
+    handlers: {
+      node_enroll: () => ({
+        ok: true,
+        stdout: "enrolled",
+        stderr: "",
+        node: { nodeId: "abc", name: "workstation" },
+        requiresConfirmation: false,
+        confirmations: [],
+      }),
+      node_service: () => ({ ok: true, stdout: "installed the service", stderr: "" }),
+    },
+  };
 
   it("sends the NORMALIZED name, never the text that was typed", async () => {
-    // The gap this closes is one the test above cannot see: it types "workstation",
-    // and for a clean name the raw field and `normalizeNodeName`'s output are the SAME
-    // string, so asserting on either passes. The claim the whole revamp rests on — one
-    // rule, applied once, so a name cannot be clean here and collapsed later — is only
-    // pinned by a name that NEEDS normalizing: this asserts the argv Rust receives, and
-    // therefore the POST body and the row on the Nodes page, is the normalized value.
-    const fake = await openReenroll({
-      handlers: {
-        node_enroll: () => ({
-          ok: true,
-          stdout: "enrolled",
-          stderr: "",
-          node: { nodeId: "abc", name: "mac mini two" },
-          requiresConfirmation: false,
-          confirmations: [],
-        }),
-      },
-    });
+    // The gap this closes is one the happy path cannot see: it types
+    // "workstation", and for a clean name the raw field and
+    // `normalizeNodeName`'s output are the SAME string, so asserting on
+    // either passes. The claim the whole revamp rests on — one rule, applied
+    // once, so a name cannot be clean here and collapsed later — is only
+    // pinned by a name that NEEDS normalizing: this asserts the argv Rust
+    // receives, and therefore the POST body and the row on the Nodes page,
+    // is the normalized value.
+    const fake = await openRegisterForm(enrolledOk);
 
     typeInto("Server URL", "https://subshell.example.com");
     typeInto("Setup key", GOOD_KEY);
     typeInto("Node name", "  mac\u000emini\ttwo  ");
-    // The guard against a vacuous pass: if the DOM had swallowed the control character
-    // on the way in, the assertion below would only prove that a clean name round-trips.
-    // So first prove the FIELD holds the dirty value, and only then that the WIRE does not.
+    // The guard against a vacuous pass: if the DOM had swallowed the control
+    // character on the way in, the assertion below would only prove that a
+    // clean name round-trips. So first prove the FIELD holds the dirty value,
+    // and only then that the WIRE does not.
     expect((screen.getByLabelText("Node name") as HTMLInputElement).value).toContain("\u000e");
-    fireEvent.click(button("Enroll"));
+    pressRegisterChain();
 
     await waitFor(() => expect(fake.callsTo("node_enroll").length).toBe(1));
     const sent = fake.callsTo("node_enroll")[0];
     expect(sent).toMatchObject({ name: "mac mini two" });
-    // Pinned the other way too: had the raw field been sent, the control character and
-    // the tab would still be in it, and this is the assertion that says so.
+    // Pinned the other way too: had the raw field been sent, the control
+    // character and the tab would still be in it, and this is the assertion
+    // that says so.
     expect(sent.name).not.toInclude("\u000e");
     expect(sent.name).not.toContain("\t");
   });
 
   it("never auto-retries a failed enrolment", async () => {
-    const fake = await openReenroll({
+    const fake = await openRegisterForm({
       handlers: {
         node_enroll: () => ({
           ok: false,
@@ -616,113 +599,64 @@ describe("enrolment is two-phase", () => {
     typeInto("Server URL", "https://subshell.example.com");
     typeInto("Setup key", GOOD_KEY);
     typeInto("Node name", "workstation");
-    fireEvent.click(button("Enroll"));
+    pressRegisterChain();
 
     // The CLI's own sentence, verbatim, and exactly one attempt.
     await waitFor(() => expect(screen.getByText(/mint a new key and try again/)).toBeTruthy());
     expect(fake.callsTo("node_enroll").length).toBe(1);
   });
 
-  it("clears the spent key from the form after a success", async () => {
-    const fake = await openReenroll({
-      handlers: {
-        node_enroll: () => ({
-          ok: true,
-          stdout: "enrolled",
-          stderr: "",
-          node: { nodeId: "abc", name: "workstation" },
-          requiresConfirmation: false,
-          confirmations: [],
-        }),
-      },
-    });
-
-    typeInto("Server URL", "https://subshell.example.com");
-    typeInto("Setup key", GOOD_KEY);
-    typeInto("Node name", "workstation");
-    fireEvent.click(button("Enroll"));
-
-    // A successful enrolment closes the screen it was asked for, so the form
-    // is re-opened to read it. That is not a workaround: the values live in
-    // the page rather than in the DOM, which is the whole reason they survive
-    // a screen change at all.
-    await waitFor(() => expect(fake.callsTo("node_enroll").length).toBe(1));
-    await openSection("Control Plane");
-    await waitFor(() => expect(buttonOrNull("Re-enroll…")).not.toBeNull());
-    fireEvent.click(button("Re-enroll…"));
-    await screen.findByRole("heading", { name: "Enroll This Machine" });
-
-    expect((screen.getByLabelText("Setup key") as HTMLInputElement).value).toBe("");
-    // The server URL survives: the common re-enroll is the same server.
-    expect((screen.getByLabelText("Server URL") as HTMLInputElement).value).toBe("https://subshell.example.com");
-    // And so does the NAME, which the operator typed rather than pasted. It is
-    // required now, and a retry costs a fresh key rather than a retyped machine
-    // name — the field that failed is the one that clears.
-    expect((screen.getByLabelText("Node name") as HTMLInputElement).value).toBe("workstation");
-  });
-
   it("refuses an invalid form before any spawn", async () => {
-    const fake = await openReenroll();
+    const fake = await openRegisterForm();
 
+    // The name is gated on the BUTTON itself (RegisterScreen's `filled`): a
+    // name that normalizes to empty never leaves the screen, so the press
+    // here owes only the server and key refusals — the ones a filled field
+    // can still hide.
+    expect(button("Continue").disabled).toBe(true);
     typeInto("Server URL", "subshell.example.com");
     typeInto("Setup key", "nsk_short");
-    fireEvent.click(button("Enroll"));
+    typeInto("Node name", "workstation");
+    expect(button("Continue").disabled).toBe(false);
+    fireEvent.click(button("Continue"));
 
     await waitFor(() => expect(screen.getByText(/Include the scheme/)).toBeTruthy());
     expect(screen.getByText(/partial paste/)).toBeTruthy();
-    // The third refusal is the field that became required: nothing is spawned
-    // with a nameless `enroll`, because the CLI would refuse the argv anyway.
-    expect(screen.getByText(/the Nodes page lists it by this name/)).toBeTruthy();
+    // Still refused before anything spawned: the press stays on the form.
+    expect(screen.getByRole("heading", { name: "Register This Machine" })).toBeTruthy();
     expect(fake.callsTo("node_enroll").length).toBe(0);
   });
 
-  it("explains what a setup key is, and what a taken name costs", async () => {
-    await openReenroll();
-    expect(screen.getByText(/Mint a setup key in the browser first/)).toBeTruthy();
-    expect(screen.getByText(/single-use and expires after 24 hours/)).toBeTruthy();
-    expect(screen.getByText(/fails after the control plane has accepted it/)).toBeTruthy();
-    // The third note is the naming one, and it says WHY the field is here rather
-    // than being an optional courtesy: the control plane's guess went away.
-    expect(screen.getByText(/the row on the Nodes page/)).toBeTruthy();
+  it("says where the key comes from, in one line", async () => {
+    // The register screen carries the ONE sentence (the old re-enroll
+    // screen's notes column retired with its door): where to obtain a key.
+    await openRegisterForm();
+    expect(screen.getByText(/Obtain a key from the Control Plane via Nodes/)).toBeTruthy();
   });
 
   // A warning, never a block.
   it("warns about a loopback URL without disabling anything", async () => {
-    const fake = await openReenroll({
-      handlers: {
-        node_enroll: () => ({
-          ok: true,
-          stdout: "",
-          stderr: "",
-          node: null,
-          requiresConfirmation: false,
-          confirmations: [],
-        }),
-      },
-    });
+    const fake = await openRegisterForm(enrolledOk);
 
     typeInto("Server URL", "http://127.0.0.1:3080");
     typeInto("Setup key", GOOD_KEY);
     typeInto("Node name", "workstation");
 
     await waitFor(() => expect(screen.getByText(/This is a loopback address/)).toBeTruthy());
-    expect(button("Enroll").disabled).toBe(false);
-    fireEvent.click(button("Enroll"));
+    expect(button("Continue").disabled).toBe(false);
+    pressRegisterChain();
     await waitFor(() => expect(fake.callsTo("node_enroll").length).toBe(1));
   });
 
-  it("seeds the re-enroll form from the server this machine already answers to", async () => {
-    await boot();
-    await openSection("Control Plane");
-    fireEvent.click(button("Re-enroll…"));
+  it("seeds the form from the address this app is showing", async () => {
+    await openRegisterForm();
     await waitFor(() =>
       expect((screen.getByLabelText("Server URL") as HTMLInputElement).value).toBe("https://subshell.example.com"),
     );
-    expect(screen.getByText(/registers a SECOND node on the control plane/)).toBeTruthy();
-    // Asked for, so it can be taken back — and the machine's own screen is
-    // what it goes back to.
-    fireEvent.click(button("Cancel"));
-    // The machine's own screen is the landing, Control Plane now.
+    // Asked for, so it can be taken back — and the configured client's own
+    // screen is what Back returns to (the one-way-door case below pins that
+    // at length; this is the door opening and closing once).
+    fireEvent.click(button("Back"));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Control Plane" })).toBeTruthy());
   });
 });
@@ -936,16 +870,17 @@ describe("replacing the installed node CLI", () => {
     await waitFor(() => expect(fake.callsTo("node_install_cli").length).toBe(1));
   });
 
-  it("does not put the upgrade offer on the re-enroll screen", async () => {
+  it("does not put the upgrade offer on the register form", async () => {
     // The node-behind door the status screen carried is GONE (operator
     // ruling 2026-09-22): the Update section is the door, and the update
     // screen's own table is where the node row's numbers live.
-    await boot({ probe: makeProbe({ nodeChoice: "upgrade-available", bundledVersion: "1.10.0" }) });
+    await boot({ probe: watcher({ nodeChoice: "upgrade-available", bundledVersion: "1.10.0" }) });
     expect(buttonOrNull("Update the node to 1.10.0")).toBeNull();
-    await openSection("Control Plane");
-    fireEvent.click(button("Re-enroll…"));
-    // That screen ends in a destructive button; an unrelated one beside it is
-    // how the wrong one gets clicked.
+    await openSection("Service");
+    fireEvent.click(button("Register this machine"));
+    await screen.findByRole("heading", { name: "Register This Machine" });
+    // That screen ends in the button that spends a setup key; an unrelated
+    // one beside it is how the wrong one gets clicked.
     await waitFor(() => expect(buttonOrNull("Update the node to 1.10.0")).toBeNull());
     expect(buttonOrNull("Install the Subshell Node CLI (1.10.0)")).toBeNull();
   });
@@ -964,6 +899,7 @@ describe("what the page never asks for", () => {
   it("drives no command outside the set it declares", async () => {
     const fake = await boot({
       probe: STOPPED,
+      settings: makeSettings({ planeUrl: "https://elsewhere.example" }),
       handlers: {
         node_service: () => ({ ok: true, stdout: "", stderr: "" }),
         node_open_plane: (args) => String(args.url),
@@ -978,9 +914,10 @@ describe("what the page never asks for", () => {
     fireEvent.click(button("Start"));
     await waitFor(() => expect(fake.callsTo("node_service").length).toBe(1));
 
-    // Control Plane: both doors, and the repoint form. Each act waits out the
-    // runner (Start's settle included) before the next press, because a press
-    // refused on `busy` is a silent no-op and this pin must not pass by luck.
+    // Control Plane: both doors, and the repoint press. Each act waits out
+    // the runner (Start's settle included) before the next press, because a
+    // press refused on `busy` is a silent no-op and this pin must not pass by
+    // luck.
     await openSection("Control Plane");
     await waitFor(() => expect(button("Open in app").disabled).toBe(false), {
       timeout: SETTLE_DELAY_MS * (SETTLE_ATTEMPTS + 2),
@@ -990,11 +927,8 @@ describe("what the page never asks for", () => {
     await waitFor(() => expect(button("Open in browser").disabled).toBe(false));
     fireEvent.click(button("Open in browser"));
     await waitFor(() => expect(fake.callsTo("node_open_plane_url").length).toBe(1));
-    await waitFor(() => expect(button("Repoint this node…").disabled).toBe(false));
-    fireEvent.click(button("Repoint this node…"));
-    const field = await screen.findByLabelText("Control plane this node reports to");
-    fireEvent.change(field, { target: { value: "https://elsewhere.example" } });
-    fireEvent.click(button("Repoint"));
+    await waitFor(() => expect(button("Re-enroll…").disabled).toBe(false));
+    fireEvent.click(button("Re-enroll…"));
     await waitFor(() => expect(fake.callsTo("node_configure").length).toBe(1));
 
     // Update: the check runs on mount, and Check Again re-asks it.
@@ -1136,18 +1070,6 @@ describe("the first run", () => {
   /** Untouched: nothing stored, no node, no node config. */
   const untouched = (over: Partial<ReturnType<typeof makeProbe>> = {}) =>
     makeProbe({ step: "no-node", nodeBinary: null, status: null, service: null, ...over });
-
-  /**
-   * A CONFIGURED client that is not a node: it has an address it watches and
-   * no `config.json`. The status screen offers it "Register this machine",
-   * which is the door the one-way-door case below is about.
-   */
-  const watcher = () =>
-    makeProbe({
-      step: "not-enrolled",
-      status: { nodeId: null, serverUrl: null, online: false, agentVersion: "1.9.0" },
-      service: { installed: false, definitionPath: null, state: "not-installed", paneSafety: null },
-    });
 
   /** Walk Welcome -> Choice -> "Run subshells on this machine". */
   const chooseNode = () => {
@@ -1871,21 +1793,38 @@ describe("the facts", () => {
   });
 
   it("shows the node name only when this session chose it", async () => {
-    // Reached through Re-enroll… rather than through the probe's own enroll
-    // landing, which is gone. The property is untouched: the name is a fact
-    // only when THIS session's `enroll --json` returned it for the node the
-    // probe is reporting, because `status --json` names no node and
+    // Reached through the Register door (the re-enrolment screen is gone with
+    // the Control Plane collapse). The property is untouched: the name is a
+    // fact only when THIS session's `enroll --json` returned it for the node
+    // the probe is reporting, because `status --json` names no node and
     // `config.json`'s name is not among the facts Rust hands out.
-    const fake = await openReenroll({
+    const fake = await openRegisterForm({
       handlers: {
-        node_enroll: () => ({
-          ok: true,
-          stdout: "enrolled",
-          stderr: "",
-          node: { nodeId: "11111111-2222-3333-4444-555555555555", name: "workstation" },
-          requiresConfirmation: false,
-          confirmations: [],
-        }),
+        node_enroll: () => {
+          // The run's own re-probe delivers the enrolled machine — which is
+          // the fact the greeting's identity check reads: the name shows only
+          // for `enrolledNode.nodeId === probe.status.nodeId`, so a probe
+          // that never learned about the node proves nothing.
+          fake.setProbe(
+            makeProbe({
+              status: {
+                nodeId: "11111111-2222-3333-4444-555555555555",
+                serverUrl: "https://subshell.example.com",
+                online: true,
+                agentVersion: "1.9.0",
+              },
+            }),
+          );
+          return {
+            ok: true,
+            stdout: "enrolled",
+            stderr: "",
+            node: { nodeId: "11111111-2222-3333-4444-555555555555", name: "workstation" },
+            requiresConfirmation: false,
+            confirmations: [],
+          };
+        },
+        node_service: () => ({ ok: true, stdout: "installed the service", stderr: "" }),
       },
     });
     // Before: a machine whose name this session did not choose says nothing
@@ -1895,14 +1834,23 @@ describe("the facts", () => {
     typeInto("Server URL", "https://subshell.example.com");
     typeInto("Setup key", GOOD_KEY);
     typeInto("Node name", "workstation");
-    fireEvent.click(button("Enroll"));
+    pressRegisterChain();
     await waitFor(() => expect(fake.callsTo("node_enroll").length).toBe(1));
+
+    // The register CHAIN runs to its checklist now, where the old single-call
+    // enroll did not; the checklist's own Continue leaves the walk. The
+    // settle inside the service act bounds how long "Setting Up…" can hold:
+    // wait it out rather than the default second.
+    await waitFor(() => expect(buttonOrNull("Continue")).not.toBeNull(), {
+      timeout: SETTLE_DELAY_MS * (SETTLE_ATTEMPTS + 2),
+    });
+    fireEvent.click(button("Continue"));
 
     // Twice over, and both are the same fact: the status screen greets the
     // machine by name, and the facts list carries it beside the node id. The
-    // enroll success closes the override onto the landing, Control Plane,
-    // whose facts carry no name (enrolledNode is the status screen's to
-    // show), so the greeting is read on Status, raised by its own select.
+    // walk lands on Control Plane, whose facts carry no name (enrolledNode
+    // is the status screen's to show), so the greeting is read on Status,
+    // raised by its own select.
     await openSection("Status");
     await waitFor(() => expect(screen.getAllByText(/workstation/).length).toBeGreaterThan(0));
     expect(screen.getByText(/Enrolled as/)).toBeTruthy();
@@ -1942,14 +1890,14 @@ describe("tmux is a hard stop, not a hint", () => {
     await waitFor(() => expect(button("Start").disabled).toBe(false));
   });
 
-  // There are two doors to the act that spends a key now, so the gate is
-  // asserted on both. The Register screen is where a half-built machine
-  // resumes (spec § 5.5) and the re-enrol screen is what a working node asks
-  // for; neither may offer a live button, because `subshell enroll` refuses
-  // before its network call and a button that only ever produces that refusal
-  // teaches people to click through warnings. (The first-run walk never even
-  // reaches Register without tmux — it routes to the tmux screen, which the
-  // first-run block below pins.)
+  // The key-spending form is reached two ways now, so the gate is asserted on
+  // both. The Register screen is where a half-built machine resumes (spec
+  // § 5.5) and where a configured client that is not yet a node starts
+  // (Service's Register card); neither may offer a live button, because
+  // `subshell enroll` refuses before its network call and a button that only
+  // ever produces that refusal teaches people to click through warnings.
+  // (The first-run walk never even reaches Register without tmux — it routes
+  // to the tmux screen, which the first-run block below pins.)
   it("gates enrolment too — enroll preflights tmux before spending the key", async () => {
     await boot({
       settings: makeSettings({ planeUrl: null }),
@@ -1965,12 +1913,15 @@ describe("tmux is a hard stop, not a hint", () => {
     cleanup();
     ipc?.restore();
 
-    await boot({ probe: makeProbe({ tmux: null }) });
-    await openSection("Control Plane");
-    fireEvent.click(button("Re-enroll…"));
-    await screen.findByRole("heading", { name: "Enroll This Machine" });
-    expect(button("Enroll").disabled).toBe(true);
-    expect(screen.getByText(/so enrolling is disabled/)).toBeTruthy();
+    // And the DOOR itself: a configured client pressing Register on Service
+    // without tmux never reaches the fields at all — the walk's tmux gate
+    // routes it to the tmux screen, which asks for the install instead. No
+    // key can be walked into a box that would refuse it.
+    await boot({ probe: watcher({ tmux: null }) });
+    await openSection("Service");
+    fireEvent.click(button("Register this machine"));
+    await screen.findByRole("heading", { name: "Install tmux" });
+    expect(screen.queryByText("Setup key")).toBeNull();
   });
 
   it("the install button says it also starts, because the CLI's install does", async () => {

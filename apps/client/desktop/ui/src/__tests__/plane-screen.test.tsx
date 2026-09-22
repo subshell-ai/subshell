@@ -1,13 +1,15 @@
 /**
- * The Control Plane section, as component tests — the plane address's home,
- * moved out of the status screen by operator ruling 2026-09-22. What the
- * tests cover: the two addresses and their coherence (the app's stored
- * `planeUrl` against the node's own `serverUrl`), the loopback notice, and
- * the repoint form's shape. The repoint command's flow is pinned at the app
+ * The Control Plane section, as component tests — the plane address's home.
+ * ONE address now (operator ruling 2026-09-22, final addendum): the control
+ * plane URL IS what the node reports to, the second block and its repoint
+ * form are gone, and Re-enroll… presses the card's own address through
+ * `node_configure`. What the tests cover: the one value and its fallback, the
+ * divergence line and the Re-enroll door it opens, the loopback notice, and
+ * the address form's shape. The repoint command's flow is pinned at the app
  * level (`repoint.test.tsx`), where the whole page is under test.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { PlaneScreen } from "@/components/assistant/plane-screen";
 import type { NodeCommands } from "@/hooks/use-node-commands";
 import type { ActionResult } from "@/lib/ipc";
@@ -38,7 +40,6 @@ function makeCommands(calls: Call[]): NodeCommands {
     uninstall: rec("uninstall"),
     autostart: rec("autostart"),
     rewrite: rec("rewrite"),
-    enroll: rec("enroll"),
     repoint: rec("repoint"),
     openPath: rec("openPath"),
     openPlane: rec("openPlane"),
@@ -53,7 +54,6 @@ const shell = { title: "Control Plane", subtitle: "The address this app and this
 
 function mount(init: { probe?: ReturnType<typeof makeProbe>; settings?: ReturnType<typeof makeSettings> } = {}) {
   const calls: Call[] = [];
-  const pressed: string[] = [];
   renderApp(
     <PlaneScreen
       shell={shell}
@@ -61,31 +61,58 @@ function mount(init: { probe?: ReturnType<typeof makeProbe>; settings?: ReturnTy
       settings={init.settings ?? makeSettings()}
       commands={makeCommands(calls)}
       busy={false}
-      onReenroll={() => pressed.push("reenroll")}
       output={null as ActionResult | null}
     />,
   );
-  return { calls, pressed };
+  return { calls };
 }
 
 const button = (name: string | RegExp) => screen.getByRole("button", { name }) as HTMLButtonElement;
 
-describe("the two control-plane addresses", () => {
-  /** Enrolled against one plane, with the app pointed at another. */
-  const diverged = { probe: makeProbe(), settings: makeSettings({ planeUrl: "https://elsewhere.example" }) };
+/** The two addresses the ruling collapsed into one, as states of one card. */
+describe("the ONE address", () => {
+  it("shows the configured address and says nothing else when the node agrees", () => {
+    mount();
+    expect(screen.getAllByText("https://subshell.example.com").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/reports to/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /re-enroll/i })).toBeNull();
+  });
 
-  it("names both when they disagree, and offers the reconciliation", () => {
-    const { calls } = mount(diverged);
-    const notice = screen.getByRole("status", { name: /mismatch/i });
-    expect(notice.textContent).toContain("https://elsewhere.example");
-    expect(notice.textContent).toContain("https://subshell.example.com");
-    fireEvent.click(within(notice).getByRole("button", { name: /use https:\/\/elsewhere\.example/i }));
+  it("falls back to the node's own address when the app has stored none", () => {
+    // The CLI-enrolled machine: no `planeUrl` until it opens one. The one
+    // address shown IS the node's, and there is nothing to repoint TO.
+    mount({ settings: makeSettings({ planeUrl: null }) });
+    expect(screen.getAllByText("https://subshell.example.com").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /re-enroll/i })).toBeNull();
+  });
+
+  it("names both addresses when they disagree, and Re-enroll points the node at the card's", () => {
+    // Enrolled against one plane, with the app pointed at another (the only
+    // case the button now exists for).
+    const { calls } = mount({ settings: makeSettings({ planeUrl: "https://elsewhere.example" }) });
+    expect(screen.getByText("Control plane URL").closest("div")?.textContent).toContain("https://elsewhere.example");
+    expect(screen.getByText(/currently the node reports to/i).textContent).toContain("https://subshell.example.com");
+    fireEvent.click(button(/re-enroll/i));
     expect(calls).toEqual([{ name: "repoint", args: ["https://elsewhere.example"] }]);
   });
 
-  it("says nothing when the two agree", () => {
-    mount();
-    expect(screen.queryByRole("status", { name: /mismatch/i })).toBeNull();
+  it("explains what the Re-enroll press does, in the card", () => {
+    mount({ settings: makeSettings({ planeUrl: "https://elsewhere.example" }) });
+    const help = screen.getByText(/re-enroll points the node/i);
+    expect(help.textContent).toMatch(/restarts?/i);
+    expect(help.textContent).toMatch(/no setup key/i);
+    // The one thing this app cannot check: a repoint keeps the node key, so
+    // it works only for ONE plane under two names.
+    expect(help.textContent).toMatch(/different control plane/i);
+  });
+
+  it("offers no Re-enroll on a machine that is not a node — there is nothing to repoint", () => {
+    mount({
+      probe: makeProbe({ status: { nodeId: null, serverUrl: "https://subshell.example.com", online: false } }),
+      settings: makeSettings({ planeUrl: "https://elsewhere.example" }),
+    });
+    expect(screen.queryByRole("button", { name: /re-enroll/i })).toBeNull();
+    expect(screen.queryByText(/reports to/i)).toBeNull();
   });
 
   it("flags a loopback node address without refusing anything", () => {
@@ -95,7 +122,7 @@ describe("the two control-plane addresses", () => {
       }),
     });
     expect(screen.getByRole("status", { name: /loopback/i }).textContent).toMatch(/this machine/i);
-    expect(button(/repoint this node/i)).toBeTruthy();
+    expect(button(/re-enroll/i)).toBeTruthy();
   });
 });
 
@@ -123,22 +150,11 @@ describe("the address, as the ruling shows it", () => {
     expect(screen.getByText("Dashboard")).toBeTruthy();
     expect(button(/change server…/i)).toBeTruthy();
   });
-});
 
-/**
- * The coherence notice's deixis, pinned WHOLE with both URLs interpolated
- * (delta review I-2, 2026-09-22): the node's address is named FIRST, so the
- * consequence sentence must read as pointing THERE — the nearest name, the
- * node's. "The second one" read as the plane's, the exact opposite of the
- * truth.
- */
-describe("the coherence notice's deixis", () => {
-  it("names the node's address first, and points there", () => {
-    mount({ probe: makeProbe(), settings: makeSettings({ planeUrl: "https://elsewhere.example" }) });
-    expect(screen.getByRole("status", { name: /mismatch/i }).textContent).toContain(
-      "This machine's node reports to https://subshell.example.com, not https://elsewhere.example. " +
-        "Subshells started here will appear there.",
-    );
+  it("seeds the edit form with the address the card shows", () => {
+    mount();
+    fireEvent.click(button(/change server…/i));
+    expect((screen.getByLabelText("Control plane URL") as HTMLInputElement).value).toBe("https://subshell.example.com");
   });
 });
 
@@ -154,23 +170,5 @@ describe("the card titles, one style", () => {
       expect(classes).toContain("text-detail");
       expect(classes).not.toContain("text-muted-foreground");
     }
-  });
-});
-
-/** Re-enroll… moved here from the status screen (operator ruling 2026-09-22): the act is on this machine's relationship to the plane. */
-describe("re-enroll, beside the plane address acts", () => {
-  it("is offered on a machine that is a node, and opens the enroll flow", () => {
-    const { pressed } = mount();
-    expect(button(/re-enroll/i)).toBeTruthy();
-    fireEvent.click(button(/re-enroll/i));
-    expect(pressed).toEqual(["reenroll"]);
-  });
-
-  it("is not offered on a machine that is not a node — that act is Register", () => {
-    const { pressed } = mount({
-      probe: makeProbe({ status: { nodeId: null, online: false, reason: "no config" } }),
-    });
-    expect(screen.queryByRole("button", { name: /re-enroll/i })).toBeNull();
-    expect(pressed).toEqual([]);
   });
 });

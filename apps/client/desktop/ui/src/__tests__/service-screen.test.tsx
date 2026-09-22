@@ -41,7 +41,6 @@ function makeCommands(calls: Call[]): NodeCommands {
     uninstall: rec("uninstall"),
     autostart: rec("autostart"),
     rewrite: rec("rewrite"),
-    enroll: rec("enroll"),
     repoint: rec("repoint"),
     openPath: rec("openPath"),
     openPlane: rec("openPlane"),

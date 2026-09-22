@@ -93,10 +93,6 @@ export function subtitleFor(
       return "The address this app and this node talk to.";
     case "connect":
       return "Enter the address of the Subshell server this app should show.";
-    case "enroll":
-      return probe?.status?.nodeId
-        ? `Register ${here} again, with a different control plane or as a new node.`
-        : `${probe?.nodeBinary ? "This machine has a node CLI but is" : "This machine is"} not registered with a control plane yet.`;
     case "reset":
       // The operator's one sentence (ruling batch, 2026-09-22, screenshot
       // 59), replacing the pair: what is removed, and that is all it says.

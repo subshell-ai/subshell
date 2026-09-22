@@ -73,8 +73,6 @@ export interface NodeCommands {
   autostart: (on: boolean) => void;
   /** Rewrite the service definition, confirmed where the rewrite itself costs panes. */
   rewrite: () => void;
-  /** Register this machine. Two-phase, always. */
-  enroll: () => void;
   /** Repoint this machine's node at another control plane. Non-destructive, so one click. */
   repoint: (server: string) => void;
   /** Reveal one of the app's own directories or files (the Status fact rows). */
@@ -309,49 +307,11 @@ export function useNodeCommands(args: {
       }),
 
     /**
-     * The two-call flow the Rust side defines: `confirm: false` first, and when
-     * it comes back asking, NOTHING was spawned and no key was spent — so the
-     * reasons are shown and the IDENTICAL arguments are re-sent only on an
-     * explicit acceptance. There is no auto-retry anywhere in here: once the
-     * control plane has accepted a key, a second attempt with it cannot
-     * succeed, and the CLI's own stderr already says to mint a new one where
-     * that is the answer.
-     */
-    enroll: () =>
-      runner.run(async () => {
-        const enrollArgs = form.validate();
-        // Refused here means refused BEFORE a spawn: nothing ran, no key spent.
-        if (enrollArgs === null) return finished(null);
-        const outcome = await nodeEnroll({ ...enrollArgs, confirm: false });
-        if (!outcome.requiresConfirmation) {
-          if (outcome.ok) {
-            onEnrolled(outcome.node);
-            form.clearSpentKey();
-          }
-          return finished(outcome);
-        }
-        return asks({
-          title: "Confirm before this setup key is spent",
-          messages: outcome.confirmations.map((c) => c.message),
-          acceptLabel: "Enroll this machine",
-          run: async () => {
-            const confirmed = await nodeEnroll({ ...enrollArgs, confirm: true });
-            if (confirmed.ok) {
-              onEnrolled(confirmed.node);
-              form.clearSpentKey();
-            }
-            return finished(confirmed);
-          },
-        });
-      }),
-
-    /**
-     * Repointing is the ONE address change that costs nothing, and that is why
-     * it is a single click where {@link NodeCommands.enroll} is two.
-     * `configure` spends no setup key, mints no second node row and keeps the
-     * node key — so there is nothing here to confirm, and asking would teach
-     * the user that this is as dangerous as re-enrolling, which is the
-     * confusion the separate command exists to remove.
+     * Repointing is the ONE address change that costs nothing: `configure`
+     * spends no setup key, mints no second node row and keeps the node key,
+     * so there is nothing to confirm. Since the Control Plane collapse
+     * (operator ruling 2026-09-22) it is also what the plane card's Re-enroll…
+     * press IS: one address, and repointing the node to it.
      *
      * It DOES re-probe: `serverUrl` is a probe fact, and the divergence notice
      * is computed from it.

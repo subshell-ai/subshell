@@ -38,12 +38,12 @@ describe("screenTitle", () => {
   });
 
   it("keeps the two registration words apart", () => {
-    // "Register" is the first run's one press; "Enroll" is what the CLI calls
-    // the same act and what this window still calls the DIFFERENT one — the
-    // re-enrolment that mints a second node row and discards the node key. A
-    // shared word on those two screens is how a person confirms the wrong one.
+    // "Register" is this window's word; "Enroll" is the CLI's. The window's
+    // second use of "Enroll" — the destructive re-enrolment screen — retired
+    // with the Control Plane collapse (operator ruling 2026-09-22), so the
+    // one word per act is now the whole rule: no title here says "Enroll".
     expect(screenTitle("register")).not.toContain("Enroll");
-    expect(screenTitle("enroll")).not.toContain("Register");
+    for (const id of NODE_SCREEN_IDS) expect(screenTitle(id)).not.toContain("Enroll");
   });
 
   // The three service-state titles this used to pin went with the service
@@ -52,7 +52,6 @@ describe("screenTitle", () => {
   // it is looking at (`status-screen.test.tsx`).
   it("speaks the assistant's voice on the screens a person asks for", () => {
     expect(screenTitle("connect")).toBe("Connect to a Server");
-    expect(screenTitle("enroll")).toBe("Enroll This Machine");
     expect(screenTitle("about")).toBe("About Subshell Client");
     expect(screenTitle("update")).toBe("Update Subshell Client");
   });

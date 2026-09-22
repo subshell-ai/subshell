@@ -149,7 +149,6 @@ describe("clientScreen", () => {
     expect(clientScreen({ probe: probe(), settings: settings(null), step: "choice", override: "update" })).toBe(
       "update",
     );
-    expect(clientScreen({ probe: probe(), settings: s, step: null, override: "enroll" })).toBe("enroll");
     // …but not over "nothing has been read yet": there is no screen to show.
     expect(clientScreen({ step: null, override: "about" })).toBeNull();
   });
@@ -239,16 +238,7 @@ describe("railFor", () => {
     // layout): its confirmation rides the rail, reset active; the
     // frame-replacing room is the RUNNING chain, which reset-screen.tsx
     // enforces off the runner's busy, not a railFor case.
-    for (const screen of [
-      "welcome",
-      "choice",
-      "tmux",
-      "register",
-      "startup",
-      "progress",
-      "connect",
-      "enroll",
-    ] as const) {
+    for (const screen of ["welcome", "choice", "tmux", "register", "startup", "progress", "connect"] as const) {
       expect(railFor(screen, true), screen).toBeNull();
     }
     expect(railFor(null, true)).toBeNull();
