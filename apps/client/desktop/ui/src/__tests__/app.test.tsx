@@ -2070,3 +2070,64 @@ describe("the rail", () => {
     expect(screen.getByRole("button", { name: "Reset" }).getAttribute("aria-current")).toBe("true");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 10. Output ownership, on the two screens the ruling first missed
+// ---------------------------------------------------------------------------
+
+/**
+ * Service and Control Plane passed the RAW runner output while every other
+ * screen gated it — so Service's Start answer followed a person onto the
+ * plane cards, and the explaining failure line stayed honestly gated while
+ * the words beneath it were not. The reset screen's own pin ("renders no
+ * other action's output", reset-screen.test) covers the direction the two
+ * leaked INTO; these cover the direction they now refuse: what is recorded
+ * renders only on the screen the action was pressed on. That each screen
+ * still shows its OWN words is pinned beside the gate — Service's by
+ * reset-screen.test's setup walk, Control Plane's by repoint.test's verbatim
+ * refusal — so these cases are free to assert only the absence.
+ *
+ * A SUCCESSFUL enroll records no receipt by ruling (its screen unmounts, the
+ * status facts are the proof — precedent: opens record nothing), so no
+ * handoff mechanism exists and none of these cases mints one.
+ */
+describe("output ownership on Service and Control Plane", () => {
+  /**
+   * Run a reset to completion from the landing, leaving its words on Reset.
+   *
+   * The reset chain is the cheap cross-screen press to borrow: one command,
+   * no settle budget, and the output line is the chain's own. Waiting for
+   * the words on their own screen doubles as the completion signal.
+   */
+  async function runOneReset() {
+    const fake = await boot({
+      handlers: {
+        node_arm_reset: () => true,
+        node_reset: () => ({ ok: true, stdout: "reset complete", stderr: "" }),
+      },
+    });
+    fireEvent.click(button("Reset"));
+    await screen.findByRole("heading", { name: "Reset this client" });
+    // The label is `Type <mono>devbox</mono> to confirm`, three nodes, so it
+    // is matched the way the reset file matches it: by its stem.
+    fireEvent.change(screen.getByLabelText(/Type/), { target: { value: "devbox" } });
+    fireEvent.click(button("Reset Everything"));
+    await waitFor(() => expect(screen.getByText("reset complete")).toBeTruthy());
+    return fake;
+  }
+
+  it("keeps another screen's words off Control Plane", async () => {
+    const fake = await runOneReset();
+    await openSection("Control Plane");
+    expect(screen.queryByText("reset complete")).toBeNull();
+    // Sanity: the press was the chain's own, on Reset — nothing else could
+    // have produced these words to begin with.
+    expect(fake.callsTo("node_reset")).toEqual([{ typed: "devbox" }]);
+  });
+
+  it("keeps another screen's words off Service", async () => {
+    await runOneReset();
+    await openSection("Service");
+    expect(screen.queryByText("reset complete")).toBeNull();
+  });
+});

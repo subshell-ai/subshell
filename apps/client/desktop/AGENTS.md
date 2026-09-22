@@ -773,7 +773,14 @@ on the screen the action was pressed on: `App` tags each outcome with its
 screen at press (`useActionRunner`'s `onRun`) and gates the render, so the
 reset screen never shows another action's line. The Update screen's own
 watch-verdict reads the raw runner output, which is why the rule gates the
-render rather than the record.
+render rather than the record. **Every screen that renders the block is
+gated** — the fix wave (2026-09-22) found Service and Control Plane still
+handing it the raw `runner.output`, a half-gated state where Service's Start
+answer followed the person onto the plane cards while the explaining failure
+line stayed honest. And a SUCCESSFUL enroll records no visible receipt under
+the same ruling: the enroll screen unmounts on success, its words render
+nowhere, and the status facts ARE the proof — the opens-record-nothing
+precedent, not an oversight; no handoff mechanism exists or is wanted.
 
 **The doors rearranged the same day, twice** (operator rulings 2026-09-22,
 screenshots 52/53 and a superseding addendum). The FINAL state: the status

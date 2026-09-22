@@ -460,7 +460,7 @@ export function App() {
             setOverride(null);
             setStep("node");
           }}
-          output={runner.output}
+          output={ownedOutput}
         />
       );
     case "plane":
@@ -477,7 +477,7 @@ export function App() {
             form.seedServer(probe?.status?.serverUrl ?? settings?.planeUrl ?? "");
             setOverride("enroll");
           }}
-          output={runner.output}
+          output={ownedOutput}
         />
       );
     case "enroll":
