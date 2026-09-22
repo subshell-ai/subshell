@@ -497,21 +497,21 @@ export function ServiceScreen(props: {
               </span>
             </p>
           )}
-          <div className="mt-2">
+          {/* Both binding acts stand side by side on one row — the operator's
+              card shape, ruling 2026-09-22 ("can we move unenroll next to
+              re-enroll and remove that divider"). The divider had made the
+              destructive act read as a separate concern of the card; it is
+              the same concern, and the danger styling is the whole of its
+              emphasis — the chain's honesty lives in the confirm it opens.
+              The gate keeps the press away from a CLI that would half-run
+              it: an agent below 0.15.0 stops the service, uninstalls the
+              definition, and THEN answers `unenroll` with a usage error,
+              which is how a machine ends up unmanaged but still enrolled.
+              The card says so in the sentence below. */}
+          <div className="mt-2 flex flex-wrap gap-2">
             <Button variant="outline" size="sm" disabled={busy} onClick={onRegister}>
               Re-enroll…
             </Button>
-          </div>
-          {/* Un-enroll rides the same card because it closes the same
-              relationship: this machine stops being a node of this plane.
-              The danger styling is the whole of its emphasis — the chain's
-              honesty lives in the confirm it opens — and the gate keeps the
-              press away from a CLI that would half-run it: an agent below
-              0.15.0 stops the service, uninstalls the definition, and THEN
-              answers `unenroll` with a usage error, which is how a machine
-              ends up unmanaged but still enrolled. The card says so in the
-              plan's sentence. */}
-          <div className="mt-3 border-t border-border pt-3">
             <Button
               variant="destructive"
               size="sm"
@@ -520,12 +520,12 @@ export function ServiceScreen(props: {
             >
               {pressed("unenroll", "Un-enrolling", "Un-enroll…")}
             </Button>
-            {!unenrollSupported(probe) && (
-              <p className="mt-2 text-detail text-muted-foreground">
-                Un-enrolling needs node version {MIN_UNENROLL_NODE_VERSION} or newer. Update the node first.
-              </p>
-            )}
           </div>
+          {!unenrollSupported(probe) && (
+            <p className="mt-2 text-detail text-muted-foreground">
+              Un-enrolling needs node version {MIN_UNENROLL_NODE_VERSION} or newer. Update the node first.
+            </p>
+          )}
         </div>
       )}
 
@@ -534,7 +534,14 @@ export function ServiceScreen(props: {
           2026-09-22, screenshot 60: the FACTS list is Status's alone; a
           fact this section needs to explain a state is its card's own
           sentence). */}
-      <ActionOutput output={output} />
+      {/* A SUCCESS records nothing here (operator ruling 2026-09-22, on the
+          "subshell restarted." line: "why do we even have this message
+          here? just remove it, the user won't notice it anyways") — the
+          spinner, the chip and the re-probed card ARE the feedback. The
+          runner still records the line, because the Update screen's verdict
+          watch reads it; this section just declines to show it. A REFUSAL
+          still answers verbatim: the CLI owns every failure sentence. */}
+      {output?.ok === false && <ActionOutput output={output} />}
     </Frame>
   );
 }

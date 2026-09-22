@@ -972,7 +972,16 @@ the act. What survives is written as the screen's WARNING band (same-day
 ruling: "if this is something we want to inform the user of, it should
 probably be written as a yellow warning"), on a probe that is no longer
 anyone's in-flight press. No timer of ours narrates the hush's end: the
-probe's own poll re-renders the quiet away.
+probe's own poll re-renders the quiet away. And a SUCCESS on this section
+leaves no receipt line (same hour's ruling, on the "subshell restarted."
+block: "just remove it, the user won't notice it anyways"): the card
+rendering `ActionOutput` gates on `output?.ok === false`, so refusals still
+answer verbatim in the monospace block and successes say nothing — the
+runner still RECORDS the success, because the Update screen's verdict watch
+reads that record; the Service section just declines to show it. (This is
+also why the confirm wait refetches BEFORE its first cache read: the cached
+probe is the pre-kick machine, and checking it first returned the wait
+instantly — the live window called that out as the old bug back.)
 
 **Confirmations answer in a dialog now** (operator ruling 2026-09-22: "use a
 dialog when it comes to user confirmation … rather than rendering another

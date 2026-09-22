@@ -25,7 +25,8 @@ its owner deletes it there. A press now owns its wait: the button keeps its
 spinner and the state chip reads "Restarting…" until the node is confirmed
 back up, or the thirty-second window says it is not, and the momentary
 problem notes stay quiet while the machine is coming back from a press. What
-remains after that is said as a warning.
+remains after that is said as a warning; a step that went fine leaves no
+receipt line.
 
 The node CLI gains `subshell unenroll [--yes] [--json]` for the same act
 from the terminal. It deletes only the daemon lock and the configuration —

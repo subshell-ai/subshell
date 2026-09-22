@@ -369,24 +369,21 @@ describe("a failure message always reaches the screen", () => {
 
 describe("the CLI's own words", () => {
   it("renders stdout and stderr verbatim, in a monospace block", async () => {
-    const stdout = "Installed subshell 1.9.0.";
-    const stderr = "warning: this unit does not spare live panes — mint a new key if enroll fails";
-    await boot({ probe: FRESH, handlers: { node_install_cli: () => ({ ok: true, stdout, stderr }) } });
+    const stdout = "Failed to stop subshell.service.";
+    const stderr = "warning: 3 subshells are still attached";
+    await boot({ handlers: { node_service: () => ({ ok: false, stdout, stderr }) } });
 
-    // The install screen's one button is the status screen's no-node card
-    // now. Same command, same unconfirmed offer, same reason it is safe: on a
-    // machine where nothing answered there is nothing to stop, overwrite or
-    // downgrade.
-    // The install offer is the Service section's now (operator ruling 2026-09-22).
+    // A REFUSAL is the class of words this block still carries since the
+    // receipt ruling (2026-09-22: a SUCCESS leaves none on Service), and
+    // Stop is the section's own verb. Verbatim means exact bytes on both
+    // halves, in the order the CLI printed them.
     await openSection("Service");
-    fireEvent.click(button("Install the Subshell Node CLI"));
+    fireEvent.click(button("Stop"));
 
-    await waitFor(() => expect(screen.getByText(/Installed subshell 1\.9\.0\./)).toBeTruthy());
-    const block = screen.getByText(/Installed subshell 1\.9\.0\./);
+    await waitFor(() => expect(screen.getByText(/Failed to stop subshell\.service\./)).toBeTruthy());
+    const block = screen.getByText(/Failed to stop subshell\.service\./);
     expect(block.tagName).toBe("PRE");
     expect(block.className).toContain("font-mono");
-    // Verbatim, not re-worded and not normalized: the exact bytes the CLI
-    // printed, in the order it printed them.
     expect(block.textContent).toBe(`${stdout}\n\n${stderr}`);
   });
 });
@@ -1839,13 +1836,24 @@ describe("the screens", () => {
     });
     await openSection("Service");
     fireEvent.click(button("Start"));
-    // The verb has returned; the machine has not confirmed. The pressed
-    // button still wears the wait.
     await waitFor(() => expect(fake.callsTo("node_service").length).toBe(1));
+    // The verb has returned; the machine has not confirmed (the confirm
+    // loop is between reads), so the pressed button still wears the wait.
+    // Asserted after a flushed beat rather than through a waitFor with a
+    // doomed first check — the Linux-CI escape class (c983c1ea's recipe).
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 300));
+    });
     expect(button(/Starting…/).disabled).toBe(true);
-    // Then the daemon actually arrives, and the wait ends on that fact.
-    fake.setProbe(makeProbe());
-    await waitFor(() => expect(buttonOrNull(/Starting…/)).toBeNull(), { timeout: SETTLE_DELAY_MS * 3 + 2_000 });
+    // Then the daemon actually arrives, and the wait ends on that fact:
+    // the loop's next read (≤ one settle interval) comes back online, the
+    // act settles inside its own awaited re-probe.
+    await act(async () => {
+      fake.setProbe(makeProbe());
+      await new Promise((r) => setTimeout(r, SETTLE_DELAY_MS * 2 + 1_000));
+    });
+    expect(buttonOrNull(/Starting…/)).toBeNull();
+    expect(fake.callsTo("node_service")).toEqual([{ verb: "start", force: false }]);
   });
 
   // A step this build predates lands on the screen that shows the facts and
@@ -2285,19 +2293,22 @@ describe("the rail", () => {
  */
 describe("output ownership on Service and Control Plane", () => {
   /**
-   * Run a reset to completion FROM A SECTION, leaving its words there.
+   * Run a reset to its REFUSAL FROM A SECTION, leaving its words there.
    *
    * The reset chain is the cheap cross-screen press to borrow: one command,
-   * and the output line is the chain's own. Since the dialog ruling there is
-   * no reset SCREEN to own the words — the section the press happened on
-   * does, exactly like every other action. Waiting for the words doubles as
-   * the completion signal; the dialog closing is the chain's end.
+   * and the output line is the chain's own. Since the receipt ruling
+   * (2026-09-22) a SUCCESS leaves no words on this pair of sections at all,
+   * so the ownership travels on a refusal — which ownership must survive
+   * anyway, because refusals are the words that still land here. Since the
+   * dialog ruling there is no reset SCREEN to own the words: the section the
+   * press happened on does, exactly like every other action. Waiting for the
+   * words doubles as the completion signal; the dialog closing is the end.
    */
   async function runOneReset(from: "Control Plane" | "Service") {
     const fake = await boot({
       handlers: {
         node_arm_reset: () => true,
-        node_reset: () => ({ ok: true, stdout: "reset complete", stderr: "" }),
+        node_reset: () => ({ ok: false, stdout: "", stderr: "the hostname did not match" }),
       },
     });
     await openSection(from);
@@ -2307,7 +2318,7 @@ describe("output ownership on Service and Control Plane", () => {
     // is matched the way the reset file matches it: by its stem.
     fireEvent.change(screen.getByLabelText(/Type/), { target: { value: "devbox" } });
     fireEvent.click(button("Reset Everything"));
-    await waitFor(() => expect(screen.getByText("reset complete")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("the hostname did not match")).toBeTruthy());
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     return fake;
   }
@@ -2315,18 +2326,18 @@ describe("output ownership on Service and Control Plane", () => {
   it("keeps a reset's words on the section it was pressed from, and off the others", async () => {
     const fake = await runOneReset("Control Plane");
     // The press happened on Control Plane, so its words STAY there…
-    expect(screen.getByText("reset complete")).toBeTruthy();
+    expect(screen.getByText("the hostname did not match")).toBeTruthy();
     // …and do not follow the person to Service.
     await openSection("Service");
-    expect(screen.queryByText("reset complete")).toBeNull();
+    expect(screen.queryByText("the hostname did not match")).toBeNull();
     // Sanity: the press was the chain's own — nothing else produced them.
     expect(fake.callsTo("node_reset")).toEqual([{ typed: "devbox" }]);
   });
 
   it("presses from Service and leaves the words there, off Control Plane", async () => {
     await runOneReset("Service");
-    expect(screen.getByText("reset complete")).toBeTruthy();
+    expect(screen.getByText("the hostname did not match")).toBeTruthy();
     await openSection("Control Plane");
-    expect(screen.queryByText("reset complete")).toBeNull();
+    expect(screen.queryByText("the hostname did not match")).toBeNull();
   });
 });

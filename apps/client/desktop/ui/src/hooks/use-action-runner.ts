@@ -216,15 +216,21 @@ export function useActionRunner(args: { onRun?: () => void } = {}): ActionRunner
    * until the step says online, or until the deadline says it is not coming
    * within the window. A spinner that stops while the machine is still
    * mid-restart reads as "finished", which is the lie this closes.
+   *
+   * The FIRST move is a REFETCH, not a read of the cache: the cached probe
+   * is the pre-kick machine, which for a restart says ONLINE — checking it
+   * first returned this wait instantly, the exact old behavior it exists to
+   * replace (caught from the live window: the button spun for a frame and
+   * came back while the badge still read offline).
    */
   async function confirmStarted(): Promise<void> {
     const deadline = Date.now() + START_CONFIRM_MS;
     for (;;) {
+      await queryClient.refetchQueries({ queryKey: PROBE_KEY });
       if (queryClient.getQueryData<Probe>(PROBE_KEY)?.step === "online") return;
       const left = deadline - Date.now();
       if (left <= 0) return;
       await sleep(Math.min(SETTLE_DELAY_MS, left));
-      await queryClient.refetchQueries({ queryKey: PROBE_KEY });
     }
   }
 

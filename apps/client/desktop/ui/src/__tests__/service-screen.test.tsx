@@ -57,7 +57,14 @@ function makeCommands(calls: Call[]): NodeCommands {
 
 const shell = { title: "Service", subtitle: "The node is the small program.", problem: "" };
 
-function mount(init: { probe?: ReturnType<typeof makeProbe>; busy?: boolean; active?: string | null } = {}) {
+function mount(
+  init: {
+    probe?: ReturnType<typeof makeProbe>;
+    busy?: boolean;
+    active?: string | null;
+    output?: ActionResult | null;
+  } = {},
+) {
   const calls: Call[] = [];
   const pressed: string[] = [];
   renderApp(
@@ -68,7 +75,7 @@ function mount(init: { probe?: ReturnType<typeof makeProbe>; busy?: boolean; act
       busy={init.busy ?? false}
       active={init.active ?? null}
       onRegister={() => pressed.push("register")}
-      output={null as ActionResult | null}
+      output={init.output ?? null}
     />,
   );
   return { calls, pressed };
@@ -376,6 +383,33 @@ describe("Un-enroll", () => {
     });
     expect(button("Un-enroll…").disabled).toBe(true);
     expect(screen.getByText(/needs node version 0\.15\.0 or newer\. Update the node first\./i)).toBeTruthy();
+  });
+
+  // The card's final shape (ruling 2026-09-22: "can we move unenroll next
+  // to re-enroll and remove that divider"): one row for both binding acts,
+  // the gate sentence under it, and no rule splitting the card in two.
+  it("a success leaves no receipt here; a refusal still answers verbatim", () => {
+    // Ruling 2026-09-22, on the "subshell restarted." line: "just remove
+    // it, the user won't notice it anyways". The card already moved; the
+    // spinner and the chip said their piece.
+    mount({ output: { ok: true, stdout: "subshell restarted.", stderr: "" } });
+    expect(screen.queryByText(/subshell restarted/)).toBeNull();
+    cleanup();
+    mount({ output: { ok: false, stdout: "", stderr: "Failed to restart: Unit is masked." } });
+    expect(screen.getByText(/Unit is masked/)).toBeTruthy();
+  });
+
+  it("stands the two binding acts on one row with no divider", () => {
+    mount();
+    const re = button("Re-enroll…");
+    const un = button("Un-enroll…");
+    expect(re.parentElement).toBe(un.parentElement);
+    expect(re.parentElement?.className).toContain("flex");
+    // No rule inside the card (the frame's own bar may keep its border;
+    // this asserts the card, not the page).
+    const card = re.closest('[class*="rounded-md"]');
+    expect(card).not.toBeNull();
+    expect(card?.querySelectorAll('[class*="border-t"]').length).toBe(0);
   });
 });
 
