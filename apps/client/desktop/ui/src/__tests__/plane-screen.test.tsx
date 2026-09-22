@@ -124,6 +124,21 @@ describe("the address, as the ruling shows it", () => {
   });
 });
 
+/** Addendum 5 (operator ruling 2026-09-22): one card-title style across the section, the Dashboard rendering the reference. */
+describe("the card titles, one style", () => {
+  it("renders both card titles foreground strong at detail size", () => {
+    mount();
+    // The muted label style was the odd one out; both titles now read the
+    // same: `font-strong text-detail`, foreground.
+    for (const title of ["Control plane URL", "Dashboard"]) {
+      const classes = screen.getByText(title).className;
+      expect(classes).toContain("font-strong");
+      expect(classes).toContain("text-detail");
+      expect(classes).not.toContain("text-muted-foreground");
+    }
+  });
+});
+
 /** Re-enroll… moved here from the status screen (operator ruling 2026-09-22): the act is on this machine's relationship to the plane. */
 describe("re-enroll, beside the plane address acts", () => {
   it("is offered on a machine that is a node, and opens the enroll flow", () => {

@@ -73,10 +73,13 @@ export function PlaneScreen(props: {
           beside it wrapped the URL character-broken and crowded it), since
           addendum 4 as its own bordered CARD, matching the Dashboard card
           below it. The label is the operator's exact words (addendum 4), a
-          noun rather than the deleted "This app opens <url>" narration. */}
+          noun rather than the deleted "This app opens <url>" narration, and
+          rendered like every other card title in the app (addendum 5:
+          `font-strong text-detail`, foreground; the Dashboard rendering is
+          the reference, the muted label style was the odd one out). */}
       <div className="rounded-md border border-border p-3">
         <div className="space-y-1.5">
-          <Label htmlFor="plane-url" className="text-muted-foreground text-detail">
+          <Label htmlFor="plane-url" className="font-strong text-detail">
             Control plane URL
           </Label>
           {editingPlane ? (

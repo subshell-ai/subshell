@@ -186,7 +186,7 @@ export interface RegisterRow {
  * sentence "this is the act that failed".
  */
 const REGISTER_ACTS: readonly { id: RegisterRow["id"]; label: string }[] = [
-  { id: "install", label: "Install the node" },
+  { id: "install", label: "Install the Subshell Node CLI" },
   { id: "enroll", label: "Enroll this machine" },
   { id: "start", label: "Start the node service" },
 ];

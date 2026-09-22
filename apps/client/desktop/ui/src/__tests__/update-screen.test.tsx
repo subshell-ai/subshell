@@ -375,7 +375,7 @@ describe("the act is a selection (§ 13)", () => {
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Update Subshell Client App" }));
     await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Update Subshell Node CLI" })).not.toBeNull());
-    expect(button(/Install the node \(1\.10\.0\)/)).toBeTruthy();
+    expect(button(/Install the Subshell Node CLI \(1\.10\.0\)/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Update Subshell Node CLI" }));
     await waitFor(() => expect(button("Nothing selected").disabled).toBe(true));

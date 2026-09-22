@@ -97,7 +97,7 @@ describe("what the screen states (§ 4.1)", () => {
       }),
     ]);
     expect(a.press).toBe("node");
-    expect(a.pressLabel).toBe("Install the node (1.10.0)");
+    expect(a.pressLabel).toBe("Install the Subshell Node CLI (1.10.0)");
     expect(a.phase).toBe("idle");
   });
 
@@ -417,7 +417,7 @@ describe("the act is a selection, not always both halves (§ 13)", () => {
       }),
     );
     expect(appOff.press).toBe("node");
-    expect(appOff.pressLabel).toBe("Install the node (1.10.0)");
+    expect(appOff.pressLabel).toBe("Install the Subshell Node CLI (1.10.0)");
     expect(appOff.pressInstallsNodeCli).toBe(false);
   });
 

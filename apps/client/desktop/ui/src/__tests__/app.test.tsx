@@ -842,8 +842,8 @@ describe("replacing the installed node CLI", () => {
     // The door is the rail's Update section now (operator ruling 2026-09-22);
     // the doors the status screen carried are gone.
     await openSection("Update");
-    await waitFor(() => expect(buttonOrNull("Install the node (1.10.0)")).not.toBeNull());
-    fireEvent.click(button("Install the node (1.10.0)"));
+    await waitFor(() => expect(buttonOrNull("Install the Subshell Node CLI (1.10.0)")).not.toBeNull());
+    fireEvent.click(button("Install the Subshell Node CLI (1.10.0)"));
 
     await waitFor(() => expect(confirmPanelOrNull()).not.toBeNull());
     expect(fake.callsTo("node_install_cli").length).toBe(0);
@@ -872,7 +872,7 @@ describe("replacing the installed node CLI", () => {
     // That screen ends in a destructive button; an unrelated one beside it is
     // how the wrong one gets clicked.
     await waitFor(() => expect(buttonOrNull("Update the node to 1.10.0")).toBeNull());
-    expect(buttonOrNull("Install the node (1.10.0)")).toBeNull();
+    expect(buttonOrNull("Install the Subshell Node CLI (1.10.0)")).toBeNull();
   });
 });
 
@@ -1665,7 +1665,7 @@ describe("the screens", () => {
     // would overwrite a live config and discard its node key.
     await boot({ probe: makeProbe({ step: "no-node", status: null }) });
     await openSection("Service");
-    expect(buttonOrNull("Install the node")).toBeNull();
+    expect(buttonOrNull("Install the Subshell Node CLI")).toBeNull();
     expect(buttonOrNull("Register this machine")).toBeNull();
     expect(buttonOrNull("Enroll")).toBeNull();
     // There is no re-read button on this state (operator ruling 2026-09-22):

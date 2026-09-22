@@ -479,7 +479,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
     press === "app"
       ? `Download and Install ${check?.latest ?? ""}`.trim()
       : press === "node"
-        ? `Install the node${bundled ? ` (${bundled})` : ""}`
+        ? `Install the Subshell Node CLI${bundled ? ` (${bundled})` : ""}`
         : // Dead rather than absent (§ 13.1), and lettered with the reason it is
           // dead: a button that still named an act nobody selected would be
           // making the same claim the table just stopped making.
