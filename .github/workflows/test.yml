@@ -209,8 +209,13 @@ jobs:
       - name: Cache Turbo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          # Turbo v2 writes its local cache here.
-          path: node_modules/.cache/turbo
+          # Turbo v2's local cache is .turbo/cache at the repo root
+          # (measured 2026-09-22 against turbo 2.10.11: `bunx turbo run build`
+          # writes .turbo/cache). This previously named the turbo 1.x path,
+          # which v2 never writes — every job restored nothing and rebuilt the
+          # graph from scratch, the defect the shared restore-key prefix was
+          # supposed to prevent.
+          path: .turbo
           key: ${{ runner.os }}-turbo-${{ github.sha }}
           restore-keys: ${{ runner.os }}-turbo-
 
@@ -270,8 +275,13 @@ jobs:
       - name: Cache Turbo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          # Turbo v2 writes its local cache here.
-          path: node_modules/.cache/turbo
+          # Turbo v2's local cache is .turbo/cache at the repo root
+          # (measured 2026-09-22 against turbo 2.10.11: `bunx turbo run build`
+          # writes .turbo/cache). This previously named the turbo 1.x path,
+          # which v2 never writes — every job restored nothing and rebuilt the
+          # graph from scratch, the defect the shared restore-key prefix was
+          # supposed to prevent.
+          path: .turbo
           key: ${{ runner.os }}-turbo-${{ github.sha }}
           restore-keys: ${{ runner.os }}-turbo-
 
@@ -331,8 +341,13 @@ jobs:
       - name: Cache Turbo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          # Turbo v2 writes its local cache here.
-          path: node_modules/.cache/turbo
+          # Turbo v2's local cache is .turbo/cache at the repo root
+          # (measured 2026-09-22 against turbo 2.10.11: `bunx turbo run build`
+          # writes .turbo/cache). This previously named the turbo 1.x path,
+          # which v2 never writes — every job restored nothing and rebuilt the
+          # graph from scratch, the defect the shared restore-key prefix was
+          # supposed to prevent.
+          path: .turbo
           key: ${{ runner.os }}-turbo-${{ github.sha }}
           restore-keys: ${{ runner.os }}-turbo-
 
@@ -414,8 +429,13 @@ jobs:
       - name: Cache Turbo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          # Turbo v2 writes its local cache here.
-          path: node_modules/.cache/turbo
+          # Turbo v2's local cache is .turbo/cache at the repo root
+          # (measured 2026-09-22 against turbo 2.10.11: `bunx turbo run build`
+          # writes .turbo/cache). This previously named the turbo 1.x path,
+          # which v2 never writes — every job restored nothing and rebuilt the
+          # graph from scratch, the defect the shared restore-key prefix was
+          # supposed to prevent.
+          path: .turbo
           key: ${{ runner.os }}-turbo-${{ github.sha }}
           restore-keys: ${{ runner.os }}-turbo-
 
@@ -475,8 +495,13 @@ jobs:
       - name: Cache Turbo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          # Turbo v2 writes its local cache here.
-          path: node_modules/.cache/turbo
+          # Turbo v2's local cache is .turbo/cache at the repo root
+          # (measured 2026-09-22 against turbo 2.10.11: `bunx turbo run build`
+          # writes .turbo/cache). This previously named the turbo 1.x path,
+          # which v2 never writes — every job restored nothing and rebuilt the
+          # graph from scratch, the defect the shared restore-key prefix was
+          # supposed to prevent.
+          path: .turbo
           key: ${{ runner.os }}-turbo-${{ github.sha }}
           restore-keys: ${{ runner.os }}-turbo-
 
@@ -552,8 +577,13 @@ jobs:
       - name: Cache Turbo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          # Turbo v2 writes its local cache here.
-          path: node_modules/.cache/turbo
+          # Turbo v2's local cache is .turbo/cache at the repo root
+          # (measured 2026-09-22 against turbo 2.10.11: `bunx turbo run build`
+          # writes .turbo/cache). This previously named the turbo 1.x path,
+          # which v2 never writes — every job restored nothing and rebuilt the
+          # graph from scratch, the defect the shared restore-key prefix was
+          # supposed to prevent.
+          path: .turbo
           key: ${{ runner.os }}-turbo-${{ github.sha }}
           restore-keys: ${{ runner.os }}-turbo-
 
@@ -626,8 +656,13 @@ jobs:
       - name: Cache Turbo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          # Turbo v2 writes its local cache here.
-          path: node_modules/.cache/turbo
+          # Turbo v2's local cache is .turbo/cache at the repo root
+          # (measured 2026-09-22 against turbo 2.10.11: `bunx turbo run build`
+          # writes .turbo/cache). This previously named the turbo 1.x path,
+          # which v2 never writes — every job restored nothing and rebuilt the
+          # graph from scratch, the defect the shared restore-key prefix was
+          # supposed to prevent.
+          path: .turbo
           key: ${{ runner.os }}-turbo-${{ github.sha }}
           restore-keys: ${{ runner.os }}-turbo-
 
@@ -886,8 +921,13 @@ jobs:
       - name: Cache Turbo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          # Turbo v2 writes its local cache here.
-          path: node_modules/.cache/turbo
+          # Turbo v2's local cache is .turbo/cache at the repo root
+          # (measured 2026-09-22 against turbo 2.10.11: `bunx turbo run build`
+          # writes .turbo/cache). This previously named the turbo 1.x path,
+          # which v2 never writes — every job restored nothing and rebuilt the
+          # graph from scratch, the defect the shared restore-key prefix was
+          # supposed to prevent.
+          path: .turbo
           key: ${{ runner.os }}-turbo-${{ github.sha }}
           restore-keys: ${{ runner.os }}-turbo-
 
