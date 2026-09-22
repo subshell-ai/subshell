@@ -198,6 +198,11 @@ Port `reset-view.ts` (frame-replacing; the hostname gate, the `desktop-reset-ste
 
 ## Wave 2 — the rail, server app
 
+> **Operator ruling, 2026-09-22:** the Status section renders the facts and
+> log tail INLINE — what was the Show Details disclosure becomes part of the
+> section's content. Wave 1 ships the disclosure as today's transcription;
+> wave 2 folds it into the Status section and moves its tests.
+
 ### Task 9: Rail in the package
 
 **Files:**
