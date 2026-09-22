@@ -58,15 +58,11 @@ import type { Probe } from "@/lib/ipc";
 const FORM_ID = "register-form";
 
 /**
- * Said before the press, because there is no confirmation after it.
- *
- * One `detail` line: what it costs, and what the answer is when it is gone.
- * `ENROLL_NOTES` says the same thing at length for the screen that has room
- * for it.
+ * The operator's exact sentence (addendum, 2026-09-22), replacing the
+ * spends-single-use retry lecture: where a key comes from, and that is all
+ * it says.
  */
-const KEY_IS_SPENT =
-  "Registering spends the setup key. It is single-use, so anything that fails after the control plane has accepted " +
-  "it needs a new key from Nodes → Add node, never a retry.";
+const KEY_IS_SPENT = "Obtain a key from the Control Plane via Nodes → Add node.";
 
 export function RegisterScreen(props: {
   shell: FrameShell;

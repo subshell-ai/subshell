@@ -61,7 +61,9 @@ export function subtitleFor(
       // before it can run a subshell at all.
       return `Every subshell runs in a tmux pane, so ${here} needs it before it can run one.`;
     case "register":
-      return `The server's address, a name for ${here}, and a setup key.`;
+      // The field-labels recap is DELETED (operator addendum, 2026-09-22):
+      // the labeled fields already say all three, and the line repeated them.
+      return "";
     case "startup":
       return `Choose how the node runs on ${here}.`;
     case "progress":

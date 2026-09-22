@@ -191,7 +191,10 @@ describe("the Register screen", () => {
         }}
       />,
     );
-    expect(screen.getByText(/Registering spends the setup key/)).toBeTruthy();
+    // The operator's sentence (addendum, 2026-09-22), and the retry lecture
+    // is gone with it.
+    expect(screen.getByText("Obtain a key from the Control Plane via Nodes → Add node.")).toBeTruthy();
+    expect(screen.queryByText(/Registering spends the setup key/)).toBeNull();
 
     fill();
     fireEvent.click(button());
