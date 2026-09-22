@@ -231,13 +231,14 @@ export function ServiceScreen(props: {
           and NOT on the no-node cases, where the install above comes first
           (Register's chain enrolls with `confirm: true`, so it may not be
           offered over a state this app cannot read). The walk entry and its
-          override-clearing wiring are the handler App supplies, unchanged. */}
+          override-clearing wiring are the handler App supplies, unchanged.
+          The supplement (same day): the blurb is DELETED — the button speaks
+          for itself, as the install card's already does — and the card
+          carries the operator's exact-words title, in the one card-title
+          style. */}
       {probe !== undefined && !enrolled && known && probe.step !== "no-node" && (
         <div className="mt-6 rounded-md border border-border p-3">
-          <p className="text-detail leading-relaxed">
-            Registering installs the node, enrolls this machine with a setup key from that server, and runs it in the
-            background so subshells can be launched here.
-          </p>
+          <p className="font-strong text-detail">Enroll this machine as a node</p>
           <div className="mt-2">
             <Button variant="outline" size="sm" disabled={busy} onClick={onRegister}>
               Register this machine

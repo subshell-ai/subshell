@@ -132,6 +132,45 @@ describe("the reveals", () => {
     expect(buttonOrNull_(/reveal configuration/i)).toBeNull();
   });
 
+  // Register this machine lives HERE now (operator ruling 2026-09-22,
+  // screenshot 60): the act left the status screen, which keeps machine state
+  // only, and joined the install offer on the node's machinery home.
+  it("offers Register to a machine that is not a node, and starts the walk", () => {
+    const { pressed } = mount({
+      probe: makeProbe({ step: "not-enrolled", status: null, service: { installed: false } }),
+    });
+    // The supplement (operator ruling 2026-09-22): the card carries the
+    // operator's exact-words title in the one card-title style, and the long
+    // blurb is DELETED — the button speaks for itself.
+    const title = screen.getByText("Enroll this machine as a node");
+    expect(title.className).toContain("font-strong");
+    expect(title.className).toContain("text-detail");
+    expect(screen.queryByText(/Registering installs the node/)).toBeNull();
+    expect(button(/^register this machine$/i)).toBeTruthy();
+    fireEvent.click(button(/^register this machine$/i));
+    expect(pressed).toEqual(["register"]);
+    cleanup();
+  });
+
+  it("offers no Register to a machine that is one, or one this build cannot read", () => {
+    mount();
+    expect(buttonOrNull_(/^register this machine$/i)).toBeNull();
+    cleanup();
+    // The no-node mute case: installing comes first (the gate excludes it).
+    mount({ probe: makeProbe({ step: "no-node", status: null, service: null }) });
+    expect(buttonOrNull_(/^register this machine$/i)).toBeNull();
+    cleanup();
+  });
+
+  // The facts list is Status's ALONE (operator ruling 2026-09-22, screenshot
+  // 60); this section's actions' words render as the output block.
+  it("renders the output block and none of the facts list", () => {
+    mount();
+    expect(screen.queryByText("node binary")).toBeNull();
+    expect(screen.queryByText("/usr/bin/tmux")).toBeNull();
+    cleanup();
+  });
+
   it("titles the install card 'Register as a node', with the button below it", () => {
     // Operator ruling 2026-09-22, addendum 3: the card's title is the
     // operator's exact words, and the explainer is gone (the button speaks

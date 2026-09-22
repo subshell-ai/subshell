@@ -744,8 +744,10 @@ is an act on this machine's relationship to the plane, not on the machine
 itself, and the enroll screen's confirm gate is unchanged. **Register this
 machine** moved to the Service section beside the install offer (later the
 same day, screenshot 60, the node's machinery home) — same handler, same
-walk entry, its override-clearing wiring re-traced to the new screen — so
-the status screen offers NO act at all. The node-behind
+walk entry, its override-clearing wiring re-traced to the new screen, the
+card titled **Enroll this machine as a node** (the operator's exact words,
+the one card-title style) with its long blurb deleted — so the status
+screen offers NO act at all. The node-behind
 doors the status screen carried ("Update the
 node to X…", "Check for updates…") are GONE: the Update section is the door,
 and the update screen's own table is where the node row's numbers live. The
