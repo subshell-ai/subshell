@@ -75,7 +75,9 @@ describe("every recovery variant's diagnosis and action", () => {
       expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(recoveryTitle(c.next));
       const action = recoveryAction(c.next);
       expect(action).not.toBeNull();
-      expect(screen.getByRole("button", { name: action!.label })).toBeDefined();
+      const label = action?.label;
+      expect(label).toBeDefined();
+      expect(screen.getByRole("button", { name: label })).toBeDefined();
     });
   }
 
@@ -83,9 +85,8 @@ describe("every recovery variant's diagnosis and action", () => {
     for (const next of ["init", "install-service"] as const) {
       const probe = makeProbe({ next, tmux: null });
       const view = renderStatus({ probe });
-      expect((screen.getByRole("button", { name: recoveryAction(next)!.label }) as HTMLButtonElement).disabled).toBe(
-        true,
-      );
+      const label = recoveryAction(next)?.label;
+      expect((screen.getByRole("button", { name: label }) as HTMLButtonElement).disabled).toBe(true);
       // The warning names the WHOLE gate, and offers the run-the-installer fix.
       expect(screen.getByText(/tmux was not found on the login PATH\./)).toBeDefined();
       expect(screen.getByRole("button", { name: "Install tmux" })).toBeDefined();
@@ -97,9 +98,8 @@ describe("every recovery variant's diagnosis and action", () => {
     for (const next of ["no-server", "unreachable"] as const) {
       const probe = makeProbe({ next, tmux: null });
       const view = renderStatus({ probe });
-      expect((screen.getByRole("button", { name: recoveryAction(next)!.label }) as HTMLButtonElement).disabled).toBe(
-        false,
-      );
+      const label = recoveryAction(next)?.label;
+      expect((screen.getByRole("button", { name: label }) as HTMLButtonElement).disabled).toBe(false);
       view.unmount();
     }
   });

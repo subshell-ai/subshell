@@ -132,7 +132,7 @@ describe("the build wiring", () => {
     // nothing inline.
     expect(wizard).not.toMatch(/<script(?![^>]*\bsrc=)/);
     expect(wizard).not.toMatch(/style=/);
-    expect(wizard).toContain('src="/src/wizard.ts"');
+    expect(wizard).toContain('src="/src/main.tsx"');
   });
 
   it("drives the app's own scripts", () => {

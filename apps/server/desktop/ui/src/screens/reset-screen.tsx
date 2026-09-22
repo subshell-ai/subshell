@@ -22,6 +22,7 @@ import type { ReactElement } from "react";
 import { useEffect, useRef } from "react";
 import type { Probe } from "../lib/ipc";
 import { armed, RESET_STEPS, refusal, resetRows, resetStarted, type StepKey, type StepState } from "../lib/reset";
+import { RESET_LABEL } from "../lib/wizard-state";
 
 /** What the run left behind: its own words, and whether they are bad news. */
 export interface ResetLog {
@@ -80,7 +81,7 @@ export function ResetScreen(props: {
           window is how far it has got. A press does not extend the
           confirmation, it REPLACES it. */}
       <div hidden={started}>
-        <p className="reset-title">Reset this server</p>
+        <p className="reset-title">{RESET_LABEL}</p>
         <p className="hint mb-2.5">{refusalLine}</p>
         {why === null && st !== undefined && st !== null && (
           <ul className="wizard-copy list-disc pl-5">

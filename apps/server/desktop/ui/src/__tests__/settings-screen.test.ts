@@ -5,7 +5,7 @@
  * and the value that caused it lived only on the dashboard that had just
  * stopped accepting a sign-in.
  *
- * `ui/src/__tests__/` has no DOM harness — nothing here can mount `wizard.ts` —
+ * `ui/src/__tests__/` has no DOM harness — nothing here can mount the host —
  * so every judgment the screen makes lives in `lib/settings-screen.ts` and is
  * pinned here. Three of these tests are not about this screen alone but about
  * two surfaces AGREEING: the https sentence against the dashboard's own words,
