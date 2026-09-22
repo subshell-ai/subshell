@@ -33,6 +33,23 @@ describe("Rail", () => {
     }
   });
 
+  it("styles a danger section in the destructive token, and never marks it active", () => {
+    render(
+      <Rail
+        sections={[
+          { id: "status", label: "Status" },
+          { id: "reset", label: "Reset", danger: true },
+        ]}
+        active={null}
+        onSelect={() => {}}
+      />,
+    );
+    const reset = screen.getByRole("button", { name: "Reset" });
+    expect(reset.className).toContain("text-destructive");
+    expect(reset.className).not.toContain("linear-gradient");
+    expect(screen.getByRole("button", { name: "Status" }).className).toContain("text-muted-foreground");
+  });
+
   it("selects with the section's id", () => {
     const picked: string[] = [];
     render(<Rail sections={SECTIONS} active="status" onSelect={(id) => picked.push(id)} />);

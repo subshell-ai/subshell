@@ -80,10 +80,17 @@ export function SupervisionScreen(props: {
       rail={props.rail}
       strings={props.strings}
       entranceKey={props.entranceKey}
+      // The rail is the navigation now (operator ruling 2026-09-22): selecting
+      // another section leaves, so a leave button beside it is chrome answering
+      // a question the rail already answers. It stays ONLY where the rail is
+      // not — a requested screen rendered over a mid-first-run machine has no
+      // rail, and there this is still the only way out.
       barLeft={
-        <Button type="button" variant="ghost" disabled={busy || running} onClick={props.onClose}>
-          {leaveLabel(probe, probe.onboarded)}
-        </Button>
+        props.rail === undefined && (
+          <Button type="button" variant="ghost" disabled={busy || running} onClick={props.onClose}>
+            {leaveLabel(probe, probe.onboarded)}
+          </Button>
+        )
       }
       barRight={
         <Button type="button" disabled={unchanged || busy || running} onClick={() => props.onApply(chosen)}>

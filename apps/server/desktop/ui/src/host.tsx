@@ -985,6 +985,15 @@ export function Host(): React.JSX.Element {
         onSelect={(id) => {
           if (id === "status") setSelectHeldHandoff(true);
           else setSelectHeldHandoff(false);
+          // The destructive section is a DOOR, not a route: selecting Reset
+          // is `openReset`, the paired screen-set-and-open the dashboard's
+          // deep link uses — SHOW first, then the plan arms. `go` would set
+          // the screen without the view, and the reset screen's own gate
+          // reads the view.
+          if (id === "reset") {
+            openReset();
+            return;
+          }
           go((id === "status" ? "recovery" : id) as ScreenId);
         }}
       />
@@ -1396,7 +1405,6 @@ export function Host(): React.JSX.Element {
             about={about}
             onAction={runRecovery}
             onInstallTmux={() => startTmuxInstall()}
-            onOpenReset={openReset}
             onReveal={(target) => {
               void ipc.openPath(target).catch(fail);
             }}

@@ -110,10 +110,15 @@ export function AddressesScreen(props: {
         rail={props.rail}
         strings={props.strings}
         entranceKey={props.entranceKey}
+        // The leave button renders only where the rail does not (operator
+        // ruling 2026-09-22): the rail is the navigation, and a requested
+        // screen over a mid-first-run machine has none.
         barLeft={
-          <Button type="button" variant="ghost" disabled={locked} onClick={props.onClose}>
-            {leaveLabel(probe, probe.onboarded)}
-          </Button>
+          props.rail === undefined && (
+            <Button type="button" variant="ghost" disabled={locked} onClick={props.onClose}>
+              {leaveLabel(probe, probe.onboarded)}
+            </Button>
+          )
         }
         barRight={
           <>
@@ -157,9 +162,11 @@ export function AddressesScreen(props: {
       strings={props.strings}
       entranceKey={props.entranceKey}
       barLeft={
-        <Button type="button" variant="ghost" disabled={locked} onClick={props.onClose}>
-          {leaveLabel(probe, probe.onboarded)}
-        </Button>
+        props.rail === undefined && (
+          <Button type="button" variant="ghost" disabled={locked} onClick={props.onClose}>
+            {leaveLabel(probe, probe.onboarded)}
+          </Button>
+        )
       }
       barRight={
         <>
