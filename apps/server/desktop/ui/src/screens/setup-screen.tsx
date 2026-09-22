@@ -253,6 +253,8 @@ export function dashboardUrlValue(form: FormValues, seeded: boolean, probe: Prob
 }
 
 export function SetupScreen(props: {
+  /** The rail node the host computed for this route, or undefined when the route is full-window. */
+  rail?: ReactElement;
   strings: AssistantStrings;
   /** The host's screen-change epoch, for the entrance animation. */
   entranceKey?: number;
@@ -314,7 +316,7 @@ export function SetupScreen(props: {
 
   if (running) {
     return (
-      <Frame strings={props.strings} entranceKey={props.entranceKey}>
+      <Frame rail={props.rail} strings={props.strings} entranceKey={props.entranceKey}>
         <ProgressView probe={probe} form={props.form} supervision={props.supervision} />
       </Frame>
     );
@@ -322,6 +324,7 @@ export function SetupScreen(props: {
   if (failure) {
     return (
       <Frame
+        rail={props.rail}
         strings={props.strings}
         entranceKey={props.entranceKey}
         barRight={
@@ -346,6 +349,7 @@ export function SetupScreen(props: {
   const gate = canSetup(probe, busy, conflict);
   return (
     <Frame
+      rail={props.rail}
       strings={props.strings}
       entranceKey={props.entranceKey}
       barRight={

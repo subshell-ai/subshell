@@ -183,6 +183,8 @@ export function ManualRouteSteps(props: { route: ManualRoute; onFail: (err: unkn
 }
 
 export function TmuxScreen(props: {
+  /** The rail node the host computed for this route, or undefined when the route is full-window. */
+  rail?: ReactElement;
   strings: AssistantStrings;
   probe: Probe;
   busy: boolean;
@@ -317,6 +319,7 @@ export function TmuxScreen(props: {
 
   return (
     <Frame
+      rail={props.rail}
       strings={strings}
       entranceKey={props.entranceKey}
       // NO bar, and that is structural rather than spare: there is nowhere to go

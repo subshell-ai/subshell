@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import { Frame } from "../frame";
+import { Rail, type RailSection } from "../rail";
 
 describe("Frame", () => {
   it("renders the title as the heading", () => {
@@ -34,5 +35,41 @@ describe("Frame", () => {
     expect(screen.getByText("The service is installed but not running.")).toBeDefined();
     const status = screen.getByRole("status");
     expect(status.textContent).toBe("launchctl: 5: Operation not permitted");
+  });
+});
+
+describe("Frame's rail slot", () => {
+  const SECTIONS: RailSection[] = [
+    { id: "status", label: "Status" },
+    { id: "update", label: "Update" },
+  ];
+
+  it("places the rail node before the content column, full height", () => {
+    render(
+      <Frame
+        strings={{ title: "Your Server Is Stopped", subtitle: "", problem: "" }}
+        rail={<Rail sections={SECTIONS} active="status" onSelect={() => {}} />}
+      >
+        <p>content</p>
+      </Frame>,
+    );
+    // The rail is the frame's FIRST child and the column (scroll region plus
+    // bar) is the second — the SPA sidebar's arrangement, so the 72px bar
+    // belongs to the content it serves.
+    const row = document.querySelector("div.flex.h-screen") as HTMLElement;
+    expect(row.children[0].tagName).toBe("NAV");
+    expect(row.children[1].className).toContain("min-w-0 flex-1");
+    expect(screen.getByRole("navigation", { name: "Main" })).toBeDefined();
+    expect(screen.getByText("content")).toBeDefined();
+  });
+
+  it("renders the same single-column structure without a rail", () => {
+    render(
+      <Frame strings={{ title: "Welcome to Subshell", subtitle: "", problem: "" }}>
+        <p>content</p>
+      </Frame>,
+    );
+    const row = document.querySelector("div.flex.h-screen") as HTMLElement;
+    expect(row.children).toHaveLength(1);
   });
 });

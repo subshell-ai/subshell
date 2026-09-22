@@ -94,6 +94,8 @@ export function TmuxWarning(props: {
 }
 
 export function StatusScreen(props: {
+  /** The rail node the host computed for this route, or undefined when the route is full-window. */
+  rail?: ReactElement;
   strings: AssistantStrings;
   entranceKey?: number;
   probe: Probe;
@@ -111,7 +113,6 @@ export function StatusScreen(props: {
   problem: string;
   detailsOpen: boolean;
   onDetailsOpenChange: (open: boolean) => void;
-  onDetailsToggle: (open: boolean) => void;
   lastResult: ActionResult | null;
   lastTail: LogTail | null;
   about: About | null;
@@ -125,7 +126,7 @@ export function StatusScreen(props: {
   const { probe, busy, running, failure } = props;
   if (running) {
     return (
-      <Frame strings={props.strings} entranceKey={props.entranceKey}>
+      <Frame rail={props.rail} strings={props.strings} entranceKey={props.entranceKey}>
         <ProgressView probe={probe} form={props.form} supervision={props.supervision} />
       </Frame>
     );
@@ -133,6 +134,7 @@ export function StatusScreen(props: {
   if (failure) {
     return (
       <Frame
+        rail={props.rail}
         strings={props.strings}
         entranceKey={props.entranceKey}
         barRight={
@@ -164,6 +166,7 @@ export function StatusScreen(props: {
     tmuxMissing && failedHere !== null ? problemUnderTmuxFailure(props.problem, props.tmuxResult) : props.problem;
   return (
     <Frame
+      rail={props.rail}
       strings={{ ...props.strings, problem: shownProblem }}
       entranceKey={props.entranceKey}
       barLeft={
@@ -266,8 +269,6 @@ export function StatusScreen(props: {
         lastResult={props.lastResult}
         lastTail={props.lastTail}
         about={props.about}
-        open={props.detailsOpen}
-        onOpenChange={props.onDetailsToggle}
         onReveal={props.onReveal}
       />
     </Frame>

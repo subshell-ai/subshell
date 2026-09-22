@@ -42,7 +42,6 @@ function renderStatus(over: {
       problem={over.problem ?? ""}
       detailsOpen={false}
       onDetailsOpenChange={() => {}}
-      onDetailsToggle={() => {}}
       lastResult={null}
       lastTail={null}
       about={null}

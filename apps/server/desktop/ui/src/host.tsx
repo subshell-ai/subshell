@@ -47,7 +47,7 @@
  * form) exists.
  */
 
-import { type AssistantStrings, Frame } from "@internal/assistant";
+import { type AssistantStrings, Frame, Rail } from "@internal/assistant";
 import { listen } from "@tauri-apps/api/event";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { usePortCheck } from "./hooks/use-port-check";
@@ -63,7 +63,7 @@ import type { About, ActionResult, AppUpdateCheck, LogTail, Probe } from "./lib/
 import * as ipc from "./lib/ipc";
 import { recoverySubtitle } from "./lib/recovery-model";
 import { armed, emptySteps, knownStep, refusal, type StepKey, type StepState } from "./lib/reset";
-import { nextPollDelay, type Route, resolveJourney, route } from "./lib/server-state";
+import { nextPollDelay, type Route, railActive, railFor, resolveJourney, route } from "./lib/server-state";
 import { SETTINGS_LABEL, SETTINGS_SUBTITLE } from "./lib/settings-screen";
 import { type ActState, NO_SELECTION, UPDATE_TITLE, type UpdateActSelection } from "./lib/update-act";
 import {
@@ -954,6 +954,46 @@ export function Host(): React.JSX.Element {
   const r: Route = booted ? route(probe, screen, { running, failure }) : { kind: "boot" };
 
   /**
+   * The rail, or its absence. `railFor` answers null for the FTE family, the
+   * frame-replacing screens, boot — and for any standing route on a machine
+   * that is not onboarded, which is the case the old page allowed through: a
+   * requested update over a first run still renders, full-window, no rail.
+   * Selecting Status goes to `recovery`, the journey id the route resolves
+   * back onto the diagnosis with; on a ready machine that resolution is the
+   * handoff, whose job is opening the dashboard — the running state's home is
+   * the SPA, and this window steps aside.
+   */
+  const railSections = railFor(r, probe?.onboarded ?? false);
+  const rail =
+    railSections === null ? undefined : (
+      <Rail
+        sections={railSections}
+        active={railActive(r)}
+        onSelect={(id) => go((id === "status" ? "recovery" : id) as ScreenId)}
+      />
+    );
+
+  /**
+   * Whether the Status section is on screen — the tail's feed gate. The old
+   * rule was "while the disclosure is open"; wave 2's ruling renders the
+   * details inline in the section, so the rule becomes the section itself.
+   */
+  const statusUp = r.kind === "status";
+  const tailPulledForVisit = useRef(false);
+  useEffect(() => {
+    if (!statusUp) {
+      tailPulledForVisit.current = false;
+      return;
+    }
+    // Pulled on ARRIVAL too, not first at the next tick: an empty pane for a
+    // second and a half reads as "there are no logs", the old onOpenChange's
+    // whole reason.
+    if (tailPulledForVisit.current) return;
+    tailPulledForVisit.current = true;
+    void refreshTail();
+  }, [statusUp, refreshTail]);
+
+  /**
    * The correction ratchet: the old `render()` OVERWROTE `screen` with its
    * resolution, so a screen the probe no longer offers was corrected once
    * and stayed corrected. This effect is that overwrite. Without it, a
@@ -1040,14 +1080,17 @@ export function Host(): React.JSX.Element {
     } catch {
       return;
     }
-    if (detailsOpen) {
+    // The tail belongs to the Status section now (wave 2's inline ruling):
+    // pulled while the section is up, not while a disclosure is open — the
+    // disclosure is gone, and a pane that is always visible is always fed.
+    if (statusUp) {
       try {
         setLastTail(await ipc.logs());
       } catch {
         /* the pane keeps its last content */
       }
     }
-  }, [refresh, detailsOpen]);
+  }, [refresh, statusUp]);
 
   useEffect(() => {
     if (!booted) return;
@@ -1198,6 +1241,7 @@ export function Host(): React.JSX.Element {
       case "welcome":
         content = (
           <WelcomeScreen
+            rail={rail}
             strings={shell("welcome")}
             entranceKey={entranceKey}
             disabled={busy || running}
@@ -1213,6 +1257,7 @@ export function Host(): React.JSX.Element {
       case "tmux":
         content = (
           <TmuxScreen
+            rail={rail}
             strings={shell("tmux")}
             entranceKey={entranceKey}
             probe={p}
@@ -1234,6 +1279,7 @@ export function Host(): React.JSX.Element {
       case "setup":
         content = (
           <SetupScreen
+            rail={rail}
             strings={shell("setup")}
             entranceKey={entranceKey}
             probe={p}
@@ -1271,6 +1317,7 @@ export function Host(): React.JSX.Element {
       case "handoff":
         content = (
           <HandoffScreen
+            rail={rail}
             strings={shell("handoff")}
             entranceKey={entranceKey}
             probe={p}
@@ -1287,6 +1334,7 @@ export function Host(): React.JSX.Element {
       case "status":
         content = (
           <StatusScreen
+            rail={rail}
             strings={shell("status")}
             entranceKey={entranceKey}
             probe={p}
@@ -1301,14 +1349,13 @@ export function Host(): React.JSX.Element {
             outputScroll={tmuxOutputScroll}
             onOutputScroll={setTmuxOutputScroll}
             problem={problem}
+            // `detailsOpen` is the tmux failure's disclosure state, shared with
+            // the setup screen's failure view. StatusDetails' own disclosure is
+            // GONE (wave 2's inline ruling): its facts, tail and output render
+            // in the Status section, and the tail is fed while the section is
+            // up.
             detailsOpen={detailsOpen}
             onDetailsOpenChange={setDetailsOpen}
-            onDetailsToggle={(open) => {
-              // Pull a tail the moment it is asked for rather than waiting out
-              // the poll: an empty pane on open reads as "there are no logs".
-              setDetailsOpen(open);
-              if (open) void refreshTail();
-            }}
             lastResult={lastResult}
             lastTail={lastTail}
             about={about}
@@ -1326,6 +1373,7 @@ export function Host(): React.JSX.Element {
       case "update":
         content = (
           <UpdateScreen
+            rail={rail}
             strings={{ title: UPDATE_TITLE, subtitle: "", problem }}
             entranceKey={entranceKey}
             probe={p}
@@ -1365,6 +1413,7 @@ export function Host(): React.JSX.Element {
       case "supervision":
         content = (
           <SupervisionScreen
+            rail={rail}
             strings={shell("supervision")}
             entranceKey={entranceKey}
             probe={p}
@@ -1381,6 +1430,7 @@ export function Host(): React.JSX.Element {
       case "addresses":
         content = (
           <AddressesScreen
+            rail={rail}
             strings={shell("addresses")}
             entranceKey={entranceKey}
             probe={p}
@@ -1402,6 +1452,7 @@ export function Host(): React.JSX.Element {
       case "permissions":
         content = (
           <PermissionsScreen
+            rail={rail}
             strings={shell("permissions")}
             entranceKey={entranceKey}
             probe={p}

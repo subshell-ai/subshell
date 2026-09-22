@@ -21,6 +21,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { Host } from "../host";
+import type { Probe } from "../lib/ipc";
 import { deferred, type FakeIpc, installFakeIpc, makeProbe } from "./harness";
 
 // One document per bun test process: a file that renders without unmounting
@@ -267,5 +268,151 @@ describe("the acting arms under StrictMode", () => {
     await waitFor(() => expect(fake?.callsTo("desktop_setup")).toHaveLength(1));
     await new Promise((r) => setTimeout(r, 100));
     expect(fake?.callsTo("desktop_setup")).toHaveLength(1);
+  });
+});
+
+/**
+ * The rail's wiring (spec 2026-09-21; plan Task 10): present on the four
+ * standing sections of an onboarded machine, absent everywhere the FTE rule
+ * and the two frame-replacing screens say full-window, routing on select.
+ */
+describe("the rail", () => {
+  it("shows the Status section active on the recovery screen", async () => {
+    fake = installFakeIpc({
+      probe: makeProbe({ onboarded: true, next: "start" }),
+      handlers: { desktop_pending_screen: () => null },
+    });
+    render(<Host />);
+    await waitFor(() => expect(routeOf()).toBe("status"));
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(nav).toBeDefined();
+    expect(screen.getByRole("button", { name: "Update" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Status" }).getAttribute("aria-current")).toBe("true");
+  });
+
+  it("marks the active section on each requested standing screen", async () => {
+    for (const [request, active] of [
+      ["update", "Update"],
+      ["supervision", "How it runs"],
+      ["settings", "Addresses"],
+    ] as const) {
+      fake = installFakeIpc({
+        probe: makeProbe({ next: "ready", onboarded: true }),
+        handlers: {
+          desktop_pending_screen: () => request,
+          desktop_check_app_update: () => ({ current: "0.12.1", latest: null, notes: null, reason: null }),
+        },
+      });
+      render(<Host />);
+      // The `settings` wire word routes to the `addresses` kind — Server
+      // Addresses keeps its name off the route kind, as it always has.
+      await waitFor(() => expect(routeOf()).toBe(request === "settings" ? "addresses" : request));
+      expect(screen.getByRole("button", { name: active }).getAttribute("aria-current")).toBe("true");
+      cleanup();
+      fake?.restore();
+      fake = undefined;
+    }
+  });
+
+  it("is absent on every full-window screen", async () => {
+    const cases: [Probe, () => Promise<void>][] = [
+      // welcome: a machine mid-first-run, no request
+      [makeProbe({ onboarded: false, next: "setup" }), async () => waitFor(() => expect(routeOf()).toBe("welcome"))],
+      // the progress checklist: the chain runs over a ready machine
+      [
+        makeProbe({ next: "ready", onboarded: true }),
+        async () => {
+          // the running flag is host state, not probe — the route test pins the
+          // kind; here the ready handoff stands in for the family
+          await waitFor(() => expect(routeOf()).toBe("handoff"));
+        },
+      ],
+      // reset and permissions: frame-replacing
+      [makeProbe({ next: "ready", onboarded: true }), async () => {}],
+      // boot: the probe is still landing
+      [makeProbe({ next: "ready", onboarded: true }), async () => {}],
+    ];
+    // welcome
+    fake = installFakeIpc({ probe: cases[0][0], handlers: { desktop_pending_screen: () => null } });
+    render(<Host />);
+    await cases[0][1]();
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    cleanup();
+    fake?.restore();
+    // handoff
+    fake = installFakeIpc({
+      probe: cases[1][0],
+      handlers: { desktop_pending_screen: () => null, desktop_open_main: () => undefined },
+    });
+    render(<Host />);
+    await cases[1][1]();
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    cleanup();
+    fake?.restore();
+    // reset
+    fake = installFakeIpc({
+      probe: cases[2][0],
+      handlers: {
+        desktop_pending_screen: () => "reset",
+        desktop_arm_reset: () => true,
+        desktop_open_main: () => undefined,
+      },
+    });
+    render(<Host />);
+    await waitFor(() => expect(routeOf()).toBe("reset"));
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    cleanup();
+    fake?.restore();
+    // permissions
+    fake = installFakeIpc({
+      probe: cases[2][0],
+      handlers: { desktop_pending_screen: () => "permissions", desktop_open_main: () => undefined },
+    });
+    render(<Host />);
+    await waitFor(() => expect(routeOf()).toBe("permissions"));
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    cleanup();
+    fake?.restore();
+    // boot: hold the pending-screen pull, as the boot-gate test does
+    const pending = deferred<string | null>();
+    fake = installFakeIpc({
+      probe: cases[3][0],
+      handlers: { desktop_pending_screen: () => pending.promise, desktop_open_main: () => undefined },
+    });
+    render(<Host />);
+    await waitFor(() => expect(routeOf()).toBe("boot"));
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    pending.resolve(null);
+  });
+
+  it("is absent for a requested screen over a machine mid-first-run", async () => {
+    // The old page let a requested update render over a first run; wave 2
+    // keeps the render and takes away the rail — the exclusion keys on the
+    // machine's journey, not on who asked.
+    fake = installFakeIpc({
+      probe: makeProbe({ onboarded: false, next: "setup", tmux: "/opt/homebrew/bin/tmux" }),
+      handlers: {
+        desktop_pending_screen: () => "update",
+        desktop_check_app_update: () => ({ current: "0.12.1", latest: null, notes: null, reason: null }),
+      },
+    });
+    render(<Host />);
+    await waitFor(() => expect(routeOf()).toBe("update"));
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+  });
+
+  it("routes on section select, and Status resolves to the machine's state", async () => {
+    fake = installFakeIpc({
+      probe: makeProbe({ onboarded: true, next: "start" }),
+      handlers: { desktop_pending_screen: () => null },
+    });
+    render(<Host />);
+    await waitFor(() => expect(routeOf()).toBe("status"));
+    screen.getByRole("button", { name: "Update" }).click();
+    await waitFor(() => expect(routeOf()).toBe("update"));
+    expect(screen.getByRole("button", { name: "Update" }).getAttribute("aria-current")).toBe("true");
+    screen.getByRole("button", { name: "Status" }).click();
+    await waitFor(() => expect(routeOf()).toBe("status"));
+    expect(screen.getByRole("button", { name: "Status" }).getAttribute("aria-current")).toBe("true");
   });
 });
