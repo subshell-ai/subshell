@@ -1,5 +1,11 @@
 # @internal/server
 
+## 0.15.7
+
+### Patch Changes
+
+- [#141](https://github.com/subshell-ai/subshell/pull/141) [`b5f9813`](https://github.com/subshell-ai/subshell/commit/b5f9813821a48dcb15059273c110817317062dd1) Thanks [@theogravity](https://github.com/theogravity)! - Keystrokes to a pane no longer wedge the queue when the plane-to-node write fails. A failed input write is held per browser session and re-fired in order the moment the node's connection is live again; a reconnect during the outage is retried instead of treated as terminal, and remounting the page no longer drops the stranded bytes.
+
 ## 0.15.6
 
 ### Patch Changes
