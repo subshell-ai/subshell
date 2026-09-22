@@ -21,10 +21,10 @@ time — and its two-phase confirmation is what guards overwriting a live
 configuration; and Un-enroll… stops the service, removes its definition and
 deletes the node's configuration and key. Running subshells keep running, and
 the card says so before it asks; the control plane keeps its node row until
-its owner deletes it there. An act in progress now shows on the button that
-started it, a spinner and "Restarting…"; the momentary problem notes stay
-quiet while the machine is coming back from a press, and what remains after
-it is said as a warning.
+its owner deletes it there. A press now owns its wait: the button keeps its
+spinner until the node is confirmed back up, or the thirty-second window
+says it is not, and the momentary problem notes stay quiet while the machine
+is coming back from a press. What remains after that is said as a warning.
 
 The node CLI gains `subshell unenroll [--yes] [--json]` for the same act
 from the terminal. It deletes only the daemon lock and the configuration —

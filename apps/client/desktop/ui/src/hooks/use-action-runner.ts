@@ -32,6 +32,18 @@ export const SETTLE_DELAY_MS = 1_500;
  */
 export const SETTLE_ATTEMPTS = 2;
 
+/**
+ * How long a STARTING act waits for the daemon to confirm itself before the
+ * runner calls it done and lets the card say what it sees. The wait is the
+ * ruling (operator, 2026-09-22: "keep it spinning / disabled until it's
+ * confirmed started or unable to start") — `launchctl kickstart` and
+ * `systemctl restart` both return long before the daemon has a socket open,
+ * and a throttled launchd restart is measurably 10–30 s here. This is a
+ * deadline, not a promise: after it the answer shown is the probe's, which
+ * is as close to "unable to start" as a poll can honestly get.
+ */
+export const START_CONFIRM_MS = 30_000;
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** One submission to the runner. */
@@ -84,10 +96,19 @@ export interface ActionRunner {
   /** Dismiss the confirmation, leaving whatever output it was raised over. */
   cancel: () => void;
   /**
-   * Wait for the daemon to take the lock after `service start`/`restart`
-   * returns. Called from inside an action body.
+   * Wait for the daemon to take the lock after a verb that does not start
+   * it. Called from inside an action body.
    */
   settle: () => Promise<void>;
+  /**
+   * Wait for the machine to come UP: re-probes until the step says online,
+   * or until {@link START_CONFIRM_MS} has passed. The starting verbs —
+   * start, restart (both phases), service install — end their action inside
+   * this, so the pressed button keeps its spinner and the card keeps its
+   * hush until the daemon is confirmed started or the wait has said it is
+   * not coming.
+   */
+  confirmStarted: () => Promise<void>;
 }
 
 export function useActionRunner(args: { onRun?: () => void } = {}): ActionRunner {
@@ -174,10 +195,10 @@ export function useActionRunner(args: { onRun?: () => void } = {}): ActionRunner
   }
 
   /**
-   * `service start` returns as soon as systemd/launchd has spawned the
-   * process; the daemon writes `daemon.lock` a beat later. Without this,
-   * starting a stopped node lands on "Offline" — which looks like a failure
-   * and invites a restart that was never needed.
+   * The bounded beat: a couple of re-reads for a verb whose machine moved
+   * just now (the register chain's own service start, whose checklist row
+   * waits; `stop`, whose answer is the absence). Two attempts, two probes —
+   * the waiting-for-online-with-a-deadline case is {@link confirmStarted}.
    */
   async function settle(): Promise<void> {
     for (let i = 0; i < SETTLE_ATTEMPTS; i += 1) {
@@ -187,5 +208,25 @@ export function useActionRunner(args: { onRun?: () => void } = {}): ActionRunner
     }
   }
 
-  return { busy, active, activeEnded, output, failure, pending, run, accept, cancel, settle };
+  /**
+   * `service start`/`restart` return as soon as the manager has ACCEPTED the
+   * kick; the daemon writes `daemon.lock` and connects a beat later, and a
+   * throttled launchd restart waits up to its minimum runtime first (10–30 s
+   * measured on the dev host). So a starting act ends inside this: re-reads
+   * until the step says online, or until the deadline says it is not coming
+   * within the window. A spinner that stops while the machine is still
+   * mid-restart reads as "finished", which is the lie this closes.
+   */
+  async function confirmStarted(): Promise<void> {
+    const deadline = Date.now() + START_CONFIRM_MS;
+    for (;;) {
+      if (queryClient.getQueryData<Probe>(PROBE_KEY)?.step === "online") return;
+      const left = deadline - Date.now();
+      if (left <= 0) return;
+      await sleep(Math.min(SETTLE_DELAY_MS, left));
+      await queryClient.refetchQueries({ queryKey: PROBE_KEY });
+    }
+  }
+
+  return { busy, active, activeEnded, output, failure, pending, run, accept, cancel, settle, confirmStarted };
 }

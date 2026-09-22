@@ -950,19 +950,23 @@ wearing that label shows a spinner and the progressive word; the row's other
 buttons keep their plain words even while disabled, so what is waiting is
 never ambiguous. `accept()` carries the label through a confirmation, so the
 confirmed chains (Uninstall, Un-enroll, the forced restart) spin from the
-dialog's Accept to the answer rather than only from the first press. The
-same act holds the card's problem and detail sentences quiet: while it runs,
-and for `PROBLEM_GRACE_MS` (three probe cycles) after any act that STARTS
-the node — the runner's `activeEnded` carries which act finished and when —
-because "the service manager reports the node as running, but no local
-daemon is heartbeating" mid-restart is the person's own press narrated at
-the wrong moment, and the manager takes a few cycles after a deliberate kick
-to actually have a daemon. A stop keeps no grace: its sentence is the point
-of the act. What survives the hush is written as the screen's WARNING band
-(same-day ruling: "if this is something we want to inform the user of, it
-should probably be written as a yellow warning"), on a probe that is no
-longer anyone's in-flight press. No timer of ours ends any of this: the
-probe's own 5 s poll re-renders the quiet away.
+dialog's Accept to the answer rather than only from the first press. And a
+starting act (start, restart's two phases, service install, the rewrite)
+does not END when the CLI returns: the runner's `confirmStarted` re-reads
+the probe until the node is ONLINE, or until `START_CONFIRM_MS` (30 s) says
+it is not coming within the window, so the spinner means exactly "confirmed
+started or unable to start" (ruling, same window: "keep it spinning /
+disabled until it's confirmed started or unable to start" — measured, a
+throttled launchd kick takes 10–30 s and the CLI returns instantly).
+`stop` keeps the bounded settle; its answer is the absence and it arrives
+fast. The card's problem sentences stay quiet while any of this runs, plus
+`PROBLEM_GRACE_MS` (one residual probe cycle; the confirmation lives inside
+the act now), and a stop keeps no grace at all: its sentence is the point of
+the act. What survives is written as the screen's WARNING band (same-day
+ruling: "if this is something we want to inform the user of, it should
+probably be written as a yellow warning"), on a probe that is no longer
+anyone's in-flight press. No timer of ours narrates the hush's end: the
+probe's own poll re-renders the quiet away.
 
 **Confirmations answer in a dialog now** (operator ruling 2026-09-22: "use a
 dialog when it comes to user confirmation … rather than rendering another

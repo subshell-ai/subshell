@@ -164,10 +164,20 @@ export function useNodeCommands(args: {
    * One `service` verb. `force` is never passed here — the CLI accepts it only
    * on `restart`, and that one path goes through {@link restart} so its refusal
    * is read out loud before the override is offered.
+   *
+   * A verb that STARTS the daemon (`start`, and `install`, which runs or
+   * restarts the service) does not end until the machine confirms itself:
+   * the press keeps spinning until the node is online or the 30 s deadline
+   * says it is not coming (operator ruling 2026-09-22: "keep it spinning /
+   * disabled until it's confirmed started or unable to start"). `stop` keeps
+   * the bounded settle — its answer is the absence, and it arrives fast.
    */
   async function runService(verb: ServiceVerb, opts?: { settle?: boolean }) {
     const result = await nodeService({ verb, force: false });
-    if (result.ok && opts?.settle) await runner.settle();
+    if (result.ok && opts?.settle) {
+      if (verb === "start" || verb === "install") await runner.confirmStarted();
+      else await runner.settle();
+    }
     return result;
   }
 
@@ -246,7 +256,7 @@ export function useNodeCommands(args: {
         async () => {
           const first = await nodeService({ verb: "restart", force: false });
           if (first.ok) {
-            await runner.settle();
+            await runner.confirmStarted();
             return finished(first);
           }
           if (!first.stderr.includes("refusing to restart")) return finished(first);
@@ -265,7 +275,7 @@ export function useNodeCommands(args: {
               acceptLabel: "Restart anyway (--force)",
               run: async () => {
                 const forced = await nodeService({ verb: "restart", force: true });
-                if (forced.ok) await runner.settle();
+                if (forced.ok) await runner.confirmStarted();
                 return finished(forced);
               },
             },

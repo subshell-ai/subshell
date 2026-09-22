@@ -368,18 +368,22 @@ corrections made from the running dev window as it went:
   autostart gate's twin). Plane-coherence and its notices died with the
   two-address state — the pinned row IS the notice — and the Status
   subtitle states the machine, not a plane.
-- **The press narrates its own button.** A lifecycle or chain press turns
-  the PRESSED button into a spinner and the progressive word ("Restarting…")
-  while its act runs: the runner carries the submission's label through a
-  confirmation, so a confirmed chain spins from the dialog's Accept to the
-  answer. And the card's problem sentences go quiet while the section's own
-  act is in flight — and for a three-cycle grace after any act that STARTS
-  the node, since the manager takes a few probe cycles after a deliberate
-  kick to have a daemon — and what survives the hush renders as the
-  screen's yellow warning band (live-window rulings: "there should be a
-  spinner saying restarting. same with the stop / start button"; "when
-  restarting this additional message occurs, can we remove it"; "it should
-  probably be written as a yellow warning").
+- **The press narrates its own button, and the wait belongs to it.** A
+  lifecycle or chain press turns the PRESSED button into a spinner and the
+  progressive word ("Restarting…"): the runner carries the submission's
+  label through a confirmation, so a confirmed chain spins from the dialog's
+  Accept to the answer. A STARTING act then does not end on the CLI's
+  return — the manager accepts a kick long before the daemon is up (a
+  throttled launchd restart measured 10–30 s) — it re-probes until ONLINE
+  or a 30 s deadline, which is as close to "confirmed started or unable to
+  start" as a poll honestly gets. The card's problem sentences go quiet for
+  the act's whole life (plus one residual cycle), a stop keeping no grace,
+  and what survives the hush renders as the screen's yellow warning band.
+  Four live-window rulings: "there should be a spinner saying restarting.
+  same with the stop / start button"; "when restarting this additional
+  message occurs, can we remove it"; "keep it spinning / disabled until
+  it's confirmed started or unable to start"; "it should probably be written
+  as a yellow warning".
 - **Confirmations are dialogs** (the audit ruling, same hour): every
   confirmation flows through `ConfirmPanel`, and `ConfirmPanel` is now the
   app's own class-positioned `Dialog` — Escape and backdrop are the cancel,

@@ -57,14 +57,15 @@ import { isLoopback, PROBE_STEPS, paneRisk, stepLabel, stepTone } from "@/lib/st
 import { MIN_UNENROLL_NODE_VERSION, unenrollSupported } from "@/lib/unenroll-gate";
 
 /**
- * The acts that bring the daemon UP. Their first `offline` read is the
- * restart in progress, not the crash the sentence explains: `service
- * restart` returns when the manager has been kicked, and launchd's throttle
- * plus the daemon's own boot run several 5 s probe cycles before anything
- * heartbeats. So the hush outlives the spinner by this grace. Three cycles,
- * named; the poll's own re-render ends it, no timer of ours.
+ * The acts that bring the daemon UP. Their confirmation now lives INSIDE
+ * the act (the runner's `confirmStarted` keeps the press spinning until the
+ * probe says online or the 30 s deadline says it is not coming), so this
+ * grace is only the residue: one probe cycle to cover the re-render between
+ * the deadline and the next read. It exists at all because the hush must
+ * not flip on the same tick the spinner leaves. The poll's own re-render
+ * ends it; no timer of ours.
  */
-export const PROBLEM_GRACE_MS = 15_000;
+export const PROBLEM_GRACE_MS = 5_000;
 const STARTING_ACTS = new Set(["restart", "start", "rewrite", "install"]);
 
 /** A fact's value colour per tone — the badge palette, keyed by the step's own colour. */

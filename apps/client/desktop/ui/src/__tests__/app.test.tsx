@@ -698,10 +698,16 @@ describe("a restart refused for pane safety", () => {
     const fake = await boot({
       probe: risky,
       handlers: {
-        node_service: (args) =>
-          args.force === true
-            ? { ok: true, stdout: "subshell restarted.", stderr: "" }
-            : { ok: false, stdout: "", stderr: REFUSAL },
+        node_service: (args) => {
+          if (args.force === true) {
+            // The forced restart LANDS: a successful restart act now waits
+            // for the probe to confirm the node is back (the runner's
+            // `confirmStarted`), so the fake's machine has to come back too.
+            ipc?.setProbe(makeProbe());
+            return { ok: true, stdout: "subshell restarted.", stderr: "" };
+          }
+          return { ok: false, stdout: "", stderr: REFUSAL };
+        },
       },
     });
 
@@ -815,7 +821,14 @@ describe("rewriting the service definition", () => {
   it("runs straight through where the rewrite is free", async () => {
     const fake = await boot({
       probe: makeProbe({ ...STOPPED, service: riskyService, rewriteTearsDown: false }),
-      handlers: { node_service: () => ({ ok: true, stdout: "wrote the unit", stderr: "" }) },
+      // `install` is a starting verb: the rewrite act waits for the machine
+      // to come back online, so the fake comes back.
+      handlers: {
+        node_service: () => {
+          ipc?.setProbe(makeProbe());
+          return { ok: true, stdout: "wrote the unit", stderr: "" };
+        },
+      },
     });
     await openSection("Service");
     fireEvent.click(button("Rewrite the service definition"));
@@ -826,7 +839,13 @@ describe("rewriting the service definition", () => {
   it("asks first where the rewrite itself costs the panes it is repairing", async () => {
     const fake = await boot({
       probe: makeProbe({ ...STOPPED, service: riskyService, rewriteTearsDown: true }),
-      handlers: { node_service: () => ({ ok: true, stdout: "wrote the plist", stderr: "" }) },
+      handlers: {
+        // The accepted install is a starting verb; the fake comes back with it.
+        node_service: () => {
+          ipc?.setProbe(makeProbe());
+          return { ok: true, stdout: "wrote the plist", stderr: "" };
+        },
+      },
     });
 
     await openSection("Service");
@@ -913,7 +932,13 @@ describe("what the page never asks for", () => {
       probe: STOPPED,
       settings: makeSettings({ planes: ["https://elsewhere.example"] }),
       handlers: {
-        node_service: () => ({ ok: true, stdout: "", stderr: "" }),
+        // The walk's Start press SUCCEEDS, and a successful starting act now
+        // waits for the probe to confirm the node came up — so the fake
+        // machine comes back online when the verb lands.
+        node_service: () => {
+          ipc?.setProbe(makeProbe());
+          return { ok: true, stdout: "", stderr: "" };
+        },
         node_open_plane: (args) => String(args.url),
         node_open_plane_url: () => null,
         node_plane_add: () => ["https://added.example"],
@@ -1798,6 +1823,29 @@ describe("the screens", () => {
     });
     expect(buttonOrNull("Start")).toBeNull();
     expect(fake.callsTo("node_service")).toEqual([{ verb: "start", force: false }]);
+  });
+
+  // The ruling of the same live window: the wait belongs to the press. The
+  // manager accepts a start or restart long before the daemon has a socket
+  // open (a throttled launchd kick is 10–30 s), so the verb RETURNING is not
+  // the machine being up, and a spinner that stops there reads as finished.
+  // The act now ends on a confirmation or on the deadline — not on the CLI's
+  // return. (The deadline itself is 30 s and lives in `START_CONFIRM_MS`;
+  // this pins the confirmation half, which is the path that runs.)
+  it("keeps the Start press waiting until the node confirms it came up", async () => {
+    const fake = await boot({
+      probe: STOPPED,
+      handlers: { node_service: () => ({ ok: true, stdout: "subshell started.", stderr: "" }) },
+    });
+    await openSection("Service");
+    fireEvent.click(button("Start"));
+    // The verb has returned; the machine has not confirmed. The pressed
+    // button still wears the wait.
+    await waitFor(() => expect(fake.callsTo("node_service").length).toBe(1));
+    expect(button(/Starting…/).disabled).toBe(true);
+    // Then the daemon actually arrives, and the wait ends on that fact.
+    fake.setProbe(makeProbe());
+    await waitFor(() => expect(buttonOrNull(/Starting…/)).toBeNull(), { timeout: SETTLE_DELAY_MS * 3 + 2_000 });
   });
 
   // A step this build predates lands on the screen that shows the facts and
