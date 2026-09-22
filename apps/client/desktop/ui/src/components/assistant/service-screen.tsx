@@ -68,6 +68,21 @@ import { MIN_UNENROLL_NODE_VERSION, unenrollSupported } from "@/lib/unenroll-gat
 export const PROBLEM_GRACE_MS = 5_000;
 const STARTING_ACTS = new Set(["restart", "start", "rewrite", "install"]);
 
+/**
+ * The header chip while a starting act runs, keyed by the runner's label.
+ * The probe's own verdict is not sayable mid-kick: the last read can still
+ * be Online seconds into a restart (heartbeat freshness survives the
+ * signal, and the manager's exit timeout outlives the click), which is the
+ * "why does it say online while it's restarting" of the live window. While
+ * the press is the machine's whole story, the chip tells it.
+ */
+const ACT_CHIP: Record<string, string> = {
+  restart: "Restarting",
+  start: "Starting",
+  install: "Installing",
+  rewrite: "Rewriting",
+};
+
 /** A fact's value colour per tone — the badge palette, keyed by the step's own colour. */
 const TONE_BADGE: Record<string, "success" | "warning" | "destructive" | "muted"> = {
   ok: "success",
@@ -202,7 +217,9 @@ export function ServiceScreen(props: {
    * takes a few 5 s probe cycles after a deliberate kick to actually HAVE a
    * daemon, so after an act that STARTS the node the hush outlives the
    * spinner by {@link PROBLEM_GRACE_MS} after any act that STARTS the node
-   * (the runner's `activeEnded` carries which act just finished and when).
+   * (the runner's `activeEnded` carries which act just finished and when) —
+   * one residual cycle, because the real waiting for the daemon now happens
+   * INSIDE the act, in the runner's `confirmStarted`.
    * A machine still offline when the grace ends says so then, once, on a
    * probe that is no longer anyone's in-flight press, and in the WARNING
    * dress below. No timer of ours: the probe's own poll is what re-renders
@@ -224,8 +241,17 @@ export function ServiceScreen(props: {
       rail={props.rail}
       tightContent
       // The state chip reads in the header, as the status screen's does
-      // (operator ruling 2026-09-22): title, state, then the section.
-      badge={<Badge variant={TONE_BADGE[stepTone(probe?.step)]}>{stepLabel(probe?.step)}</Badge>}
+      // (operator ruling 2026-09-22): title, state, then the section. While
+      // a starting act runs, the act IS the state — the chip says so in the
+      // same word the pressed button wears, rather than repeating a read
+      // that predates the kick.
+      badge={
+        busy && active !== null && active !== undefined && STARTING_ACTS.has(active) ? (
+          <Badge variant="muted">{ACT_CHIP[active]}…</Badge>
+        ) : (
+          <Badge variant={TONE_BADGE[stepTone(probe?.step)]}>{stepLabel(probe?.step)}</Badge>
+        )
+      }
       // The two reveals are GONE (operator ruling 2026-09-22): Status's facts
       // already carry the paths, and they "feel out of place" here. The bar
       // is empty, as the status screen's is.

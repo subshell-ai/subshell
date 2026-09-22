@@ -959,7 +959,13 @@ started or unable to start" (ruling, same window: "keep it spinning /
 disabled until it's confirmed started or unable to start" — measured, a
 throttled launchd kick takes 10–30 s and the CLI returns instantly).
 `stop` keeps the bounded settle; its answer is the absence and it arrives
-fast. The card's problem sentences stay quiet while any of this runs, plus
+fast. While a starting act runs, the header state chip wears the act's word
+too ("why does it say online while it's restarting?") — the probe's last
+read is stale for seconds on purpose (its online verdict is heartbeat
+freshness, which outlives the kill signal, and the manager's exit timeout
+outlives the click), so repeating it mid-restart reads as a lie; the chip
+returns to the machine's verdict when the act ends. The card's problem
+sentences stay quiet while any of this runs, plus
 `PROBLEM_GRACE_MS` (one residual probe cycle; the confirmation lives inside
 the act now), and a stop keeps no grace at all: its sentence is the point of
 the act. What survives is written as the screen's WARNING band (same-day

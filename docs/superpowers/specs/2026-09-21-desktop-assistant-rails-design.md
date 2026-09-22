@@ -376,7 +376,10 @@ corrections made from the running dev window as it went:
   return — the manager accepts a kick long before the daemon is up (a
   throttled launchd restart measured 10–30 s) — it re-probes until ONLINE
   or a 30 s deadline, which is as close to "confirmed started or unable to
-  start" as a poll honestly gets. The card's problem sentences go quiet for
+  start" as a poll honestly gets. The header state chip wears the act's word
+  while it runs — the last read is stale by design for seconds and "Online"
+  over a restart in flight reads as a lie ("why does it say online while
+  it's restarting"). The card's problem sentences go quiet for
   the act's whole life (plus one residual cycle), a stop keeping no grace,
   and what survives the hush renders as the screen's yellow warning band.
   Four live-window rulings: "there should be a spinner saying restarting.

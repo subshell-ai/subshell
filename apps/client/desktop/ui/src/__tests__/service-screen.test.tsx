@@ -396,6 +396,23 @@ describe("while the section's own act is in flight", () => {
     expect(button("Stop").textContent).toBe("Stop");
   });
 
+  // "why does it say online while it's restarting" — the header chip used to
+  // repeat the last read, which is stale for seconds on purpose (the probe's
+  // online verdict is heartbeat freshness, and it survives the signal).
+  // While a starting act runs, the chip tells the act's story instead.
+  it("the header chip says Restarting, not the pre-kick Online", () => {
+    mount({ busy: true, active: "restart" });
+    // Two wear the word now — the chip and the button — so the chip is
+    // picked by its own dress (the muted chip class), not by uniqueness.
+    const chips = screen.getAllByText("Restarting…");
+    expect(chips.some((el) => el.className.includes("bg-muted"))).toBe(true);
+    expect(screen.queryByText("Online")).toBeNull();
+    cleanup();
+    // And the act's end hands the chip back to the machine's own verdict.
+    mount({ probe: makeProbe() });
+    expect(screen.getByText("Online")).toBeTruthy();
+  });
+
   it("the starting verb wears Starting…", () => {
     mount({
       busy: true,
