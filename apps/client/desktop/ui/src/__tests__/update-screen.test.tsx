@@ -11,7 +11,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { App } from "@/app";
-import { type FakeIpc, installFakeIpc, makeProbe, renderApp } from "./harness";
+import { type FakeIpc, installFakeIpc, makeProbe, makeSettings, renderApp } from "./harness";
 
 let ipc: FakeIpc | undefined;
 
@@ -61,12 +61,45 @@ describe("the status screen's button is a door (§ 7.4)", () => {
     expect((screen.getByRole("checkbox", { name: "Update Subshell Node CLI" }) as HTMLInputElement).checked).toBe(true);
   });
 
-  it("leaves by its own Back, because an override is a screen and not a verdict", async () => {
+  it("leaves by its own Back where the rail is not, because an override is a screen and not a verdict", async () => {
+    // A machine that is NOT settled — this one has no control plane address,
+    // the mid-first-run exclusion — gets no rail, so Back is still the only
+    // way out (operator ruling 2026-09-22). On a settled machine the rail
+    // carries the doors; see the pin below.
+    // The tray raises the screen over a machine mid-first-run — no plane
+    // address, no node config — which is the exclusion case: no rail, so Back
+    // is still the only way out (operator ruling 2026-09-22). Leaving lands
+    // on the machine's own screen, which for an untouched machine is Welcome.
+    await boot({
+      // No plane address and no node config: `configured` reads both rungs,
+      // and the machine is genuinely unsettled.
+      settings: makeSettings({ planeUrl: null }),
+      probe: makeProbe({ status: null }),
+      handlers: {
+        node_pending_screen: () => "update",
+        node_check_app_update: () => APP_CURRENT,
+      },
+    });
+    await waitFor(() => expect(screen.getByText("Update Subshell Client")).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Back" })).toBeTruthy();
+    fireEvent.click(button("Back"));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Welcome to Subshell Client"),
+    );
+  });
+
+  it("renders the rail on a settled machine, with Status as the way back", async () => {
+    // A settled machine (configured, no walk): the rail is up, and the leave
+    // button is not — a select leaves. Status is the way back.
     await boot({ probe: BEHIND, handlers: { node_check_app_update: () => APP_CURRENT } });
     fireEvent.click(button("Update the node to 1.10.0"));
     await waitFor(() => expect(screen.getByText("Update Subshell Client")).toBeTruthy());
-    fireEvent.click(button("Back"));
-    await waitFor(() => expect(buttonOrNull("Update the node to 1.10.0")).not.toBeNull());
+    expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy();
+    expect(buttonOrNull("Back")).toBeNull();
+    fireEvent.click(button("Status"));
+    // The machine's landing — the status screen's title names the app, which
+    // is the one screen that asks nothing.
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Subshell Client"));
   });
 
   /**
@@ -82,8 +115,20 @@ describe("the status screen's button is a door (§ 7.4)", () => {
    * because `host.close()` really does end that window.
    */
   it("ends on a filled leave at the bottom right, with Check Again beside it", async () => {
-    await boot({ probe: BEHIND, handlers: { node_check_app_update: () => APP_CURRENT } });
-    fireEvent.click(button("Update the node to 1.10.0"));
+    // Rail-less (the machine is not settled): the bar still carries the way
+    // out, and its shape is pinned here.
+    // The same tray-raised, rail-less boot as the Back test above: the bar
+    // still carries the way out, and its shape is pinned here.
+    await boot({
+      // No plane address and no node config: `configured` reads both rungs,
+      // and the machine is genuinely unsettled.
+      settings: makeSettings({ planeUrl: null }),
+      probe: makeProbe({ status: null }),
+      handlers: {
+        node_pending_screen: () => "update",
+        node_check_app_update: () => APP_CURRENT,
+      },
+    });
     await waitFor(() => expect(screen.getByText("Update Subshell Client")).toBeTruthy());
 
     const leave = button("Back");

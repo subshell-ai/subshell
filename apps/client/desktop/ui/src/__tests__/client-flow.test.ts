@@ -1,5 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import { clientScreen, configured, type FteStep, type RegisterPhase, registerSteps } from "@/lib/client-flow";
+import {
+  clientScreen,
+  configured,
+  type FteStep,
+  type RegisterPhase,
+  railActive,
+  railFor,
+  registerSteps,
+} from "@/lib/client-flow";
 import type { NodeSettings, Probe, ProbeStep } from "@/lib/ipc";
 
 const settings = (planeUrl: string | null): NodeSettings => ({ planeUrl, nodeBinPath: null }) as NodeSettings;
@@ -192,5 +200,67 @@ describe("registerSteps", () => {
 
   it("answers for a phase this build predates without crashing", () => {
     expect(states("what-even" as RegisterPhase)).toEqual(["pending", "pending", "pending"]);
+  });
+});
+
+/**
+ * The rail's exclusion, as data (wave 3; the same rule the server's
+ * `railFor` carries, operator ruling 2026-09-22: the FTE never gets it).
+ * The screen is the discriminator — `clientScreen` has already folded the
+ * walk, the overrides and the configured landing into one id — and the
+ * second argument is the part the screen cannot see: the machine is SETTLED
+ * (configured, no walk in progress), because the exclusion is about the
+ * machine's journey, not about who asked.
+ */
+describe("railFor", () => {
+  it("answers the four standing sections for a settled machine on a standing screen", () => {
+    for (const screen of ["status", "update", "about"] as const) {
+      const sections = railFor(screen, true);
+      expect(
+        sections?.map((s) => s.id),
+        screen,
+      ).toEqual(["status", "update", "about", "reset"]);
+      expect(
+        sections?.map((s) => s.label),
+        screen,
+      ).toEqual(["Status", "Update", "About", "Reset"]);
+    }
+    expect(railFor("status", true)?.find((s) => s.id === "reset")?.danger).toBe(true);
+  });
+
+  it("answers null for every FTE walk screen, reset, enroll and the unread state", () => {
+    for (const screen of [
+      "welcome",
+      "choice",
+      "tmux",
+      "register",
+      "startup",
+      "progress",
+      "connect",
+      "enroll",
+      "reset",
+    ] as const) {
+      expect(railFor(screen, true), screen).toBeNull();
+    }
+    expect(railFor(null, true)).toBeNull();
+  });
+
+  it("answers null for a standing screen on a machine mid-first-run", () => {
+    // The tray can raise About mid-walk, and the router honours it; wave 2's
+    // ruling keeps the render and takes away the rail — the exclusion is
+    // about the machine's journey, not about who asked.
+    for (const screen of ["status", "update", "about"] as const) {
+      expect(railFor(screen, false), screen).toBeNull();
+    }
+  });
+
+  it("marks the active section by the screen, through railActive", () => {
+    expect(railActive("status")).toBe("status");
+    expect(railActive("update")).toBe("update");
+    expect(railActive("about")).toBe("about");
+    // A screen that gets no rail gets no active state either.
+    expect(railActive("reset")).toBeNull();
+    expect(railActive("welcome")).toBeNull();
+    expect(railActive(null)).toBeNull();
   });
 });

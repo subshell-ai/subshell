@@ -1716,3 +1716,56 @@ describe("the plane's two doors", () => {
     await waitFor(() => expect(fake.callsTo("node_open_plane_url")).toEqual([{}]));
   });
 });
+
+/**
+ * The rail (wave 3, the same rulings the server wave carried): present on a
+ * settled machine's standing screens, absent everywhere else, the tray's
+ * request selecting its section, and Reset a door to a frame-replacing room.
+ */
+describe("the rail", () => {
+  it("shows the four sections on a settled machine, Status active", async () => {
+    await boot();
+    await waitFor(() => expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Status" }).getAttribute("aria-current")).toBe("true");
+    for (const section of ["Update", "About", "Reset"]) {
+      expect(screen.getByRole("button", { name: section })).toBeTruthy();
+    }
+  });
+
+  it("is absent on the FTE walk, whatever step it is on", async () => {
+    // An untouched machine: Welcome, then Choice after the press — both
+    // full-window, no navigation.
+    await boot({ probe: FRESH, settings: makeSettings({ planeUrl: null }) });
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Welcome to Subshell Client"),
+    );
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    fireEvent.click(button("Continue"));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("What Would You Like to Do?"),
+    );
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+  });
+
+  it("selects About, and the tray's request lands on its section", async () => {
+    // `node_pending_screen` is the tray's ASK — the same answer the event
+    // delivers — so this pins the section-selection semantics the events
+    // ride: the override state becomes the rail's active id.
+    await boot({ handlers: { node_pending_screen: () => "about" } });
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("About Subshell Client"));
+    expect(screen.getByRole("button", { name: "About" }).getAttribute("aria-current")).toBe("true");
+    // The leave button is gone where the rail is; a select leaves.
+    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
+    fireEvent.click(button("Status"));
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Subshell Client"));
+  });
+
+  it("carries the Reset door, and its room stays frame-replacing", async () => {
+    await boot();
+    await waitFor(() => expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy());
+    fireEvent.click(button("Reset"));
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Reset this client"));
+    // No navigation in the room: the screen replaces the frame.
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+  });
+});

@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { ReactElement } from "react";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { Button } from "@/components/ui/button";
 import { type About, nodeAbout, nodeOpenWeb, type Probe, type WebTarget } from "@/lib/ipc";
@@ -45,7 +46,13 @@ function AboutLink(props: { label: string; target: WebTarget }) {
  * names the released artifacts carry, so the distinction is one a person
  * learns once rather than per app.
  */
-export function AboutScreen(props: { shell: FrameShell; probe: Probe | undefined; onClose: () => void }) {
+export function AboutScreen(props: {
+  shell: FrameShell;
+  probe: Probe | undefined;
+  /** The rail node the app computed for this screen, or undefined when the screen is full-window. */
+  rail?: ReactElement;
+  onClose: () => void;
+}) {
   const { data } = useQuery<About>({
     queryKey: ABOUT_KEY,
     queryFn: nodeAbout,
@@ -62,10 +69,17 @@ export function AboutScreen(props: { shell: FrameShell; probe: Probe | undefined
   return (
     <Frame
       {...props.shell}
+      rail={props.rail}
+      // The rail is the navigation now (operator ruling 2026-09-22): Back
+      // beside it answers a question the rail already answers — a select
+      // leaves. It stays ONLY where the rail is not: the tray can raise About
+      // mid-walk, and there Back is still the only way out.
       barLeft={
-        <Button variant="ghost" onClick={props.onClose}>
-          Back
-        </Button>
+        props.rail === undefined && (
+          <Button variant="ghost" onClick={props.onClose}>
+            Back
+          </Button>
+        )
       }
     >
       {data ? (

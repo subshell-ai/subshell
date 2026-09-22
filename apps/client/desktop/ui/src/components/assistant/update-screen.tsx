@@ -38,9 +38,11 @@
  * queries, the progress subscription, and the page state that says what THIS
  * window has already done.
  */
+
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { Download } from "lucide-react";
+import type { ReactElement } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { Button } from "@/components/ui/button";
@@ -59,6 +61,8 @@ const mb = (n: number): string => (n / 1_000_000).toFixed(1);
 export function UpdateScreen(props: {
   shell: FrameShell;
   probe: Probe | undefined;
+  /** The rail node the app computed for this screen, or undefined when the screen is full-window. */
+  rail?: ReactElement;
   commands: NodeCommands;
   runner: ActionRunner;
   onClose: () => void;
@@ -229,6 +233,7 @@ export function UpdateScreen(props: {
   return (
     <Frame
       {...props.shell}
+      rail={props.rail}
       problem={problem || props.shell.problem}
       icon={<Download />}
       // **The way out is this screen's PRIMARY, in the filled right seat**
@@ -258,9 +263,17 @@ export function UpdateScreen(props: {
               Check Again
             </Button>
           )}
-          <Button disabled={installApp.isPending} onClick={onClose}>
-            Back
-          </Button>
+          {/* The rail is the navigation now (operator ruling 2026-09-22): Back
+              beside it answers a question the rail already answers — a select
+              leaves, and the rail's Status is the way back. It stays ONLY where
+              the rail is not: a mid-first-run machine raised here has none, and
+              there Back is still the only way out. Check Again stays
+              regardless: it is a refresh, not a leave. */}
+          {props.rail === undefined && (
+            <Button disabled={installApp.isPending} onClick={onClose}>
+              Back
+            </Button>
+          )}
         </>
       }
     >

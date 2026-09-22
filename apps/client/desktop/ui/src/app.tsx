@@ -22,6 +22,8 @@
  * decision lives in `lib/client-flow.ts`, where it is testable without a
  * webview.
  */
+
+import { Rail } from "@internal/assistant";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 import { AboutScreen } from "@/components/assistant/about-screen";
@@ -50,6 +52,8 @@ import {
   type FteStep,
   type RegisterPhase,
   type RegisterRow,
+  railActive,
+  railFor,
   registerSteps,
 } from "@/lib/client-flow";
 import type { ActionResult, EnrolledNodeBody } from "@/lib/ipc";
@@ -177,6 +181,38 @@ export function App() {
   });
 
   const screen = clientScreen({ probe, settings, step, override });
+
+  /**
+   * The rail, or its absence (wave 3). `railFor` answers null for every step
+   * of the FTE walk, the two focused acts and the not-read state — and for
+   * any standing screen while the machine is NOT settled (configured, no
+   * walk in progress), because the exclusion is about the machine's journey,
+   * not about who asked: the tray can raise About mid-walk, and the render
+   * keeps its Back. The select semantics are the override model's own:
+   * Status clears the override (the machine's screen is the landing),
+   * Update and About set theirs, and Reset is the destructive DOOR — its
+   * screen is frame-replacing, exactly the server's ruling.
+   *
+   * Nothing needs forgetting here: the one-visit draft state this page holds
+   * (the enroll form) is edited only on the register and enroll screens,
+   * which the rail never renders on, so a select cannot leave one behind —
+   * the enroll Cancel keeps its clearErrors.
+   */
+  const railSections = railFor(screen, configured(settings, probe) && step === null);
+  const rail =
+    railSections === null ? undefined : (
+      <Rail
+        sections={railSections}
+        active={railActive(screen)}
+        onSelect={(id) => {
+          if (id === "reset") {
+            setOverride("reset");
+            return;
+          }
+          setOverride(id === "status" ? null : (id as NodeUserScreen));
+        }}
+      />
+    );
 
   /** Start (or retry) the register chain from the start-up screen's press. */
   const runRegister = () => {
@@ -369,6 +405,7 @@ export function App() {
     case "status":
       return (
         <StatusScreen
+          rail={rail}
           shell={shell}
           {...facts}
           commands={commands}
@@ -407,10 +444,11 @@ export function App() {
         />
       );
     case "about":
-      return <AboutScreen shell={shell} probe={probe} onClose={() => setOverride(null)} />;
+      return <AboutScreen shell={shell} probe={probe} rail={rail} onClose={() => setOverride(null)} />;
     case "update":
       return (
         <UpdateScreen
+          rail={rail}
           shell={shell}
           probe={probe}
           commands={commands}

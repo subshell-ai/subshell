@@ -68,3 +68,29 @@ describe("the About screen", () => {
     }
   });
 });
+
+describe("the leave button", () => {
+  it("renders only where the rail is not (operator ruling 2026-09-22)", () => {
+    // Rail-less — the tray raised About mid-walk: Back is the only way out.
+    renderApp(
+      <AboutScreen
+        shell={{ title: "About Subshell Client", subtitle: undefined, problem: "" }}
+        probe={undefined}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Back" })).not.toBeNull();
+    cleanup();
+    // With the rail, a select leaves; Back would answer a question the rail
+    // already answers.
+    renderApp(
+      <AboutScreen
+        shell={{ title: "About Subshell Client", subtitle: undefined, problem: "" }}
+        probe={undefined}
+        rail={<div />}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
+  });
+});

@@ -1,11 +1,14 @@
-/* Explicit sources rather than Tailwind v4's automatic detection: this CSS file
-   sits inside a monorepo whose git root is five directories up, and the class
-   names this page can ever use are all in `ui/`. `source(none)` turns the scan
-   from "guess the project root" into the two lines below. */
+/* The shared Rail (`@internal/assistant`, wave 3) renders with Tailwind
+   utilities but lives OUTSIDE this app's Vite root, so it joins the explicit
+   sources below — the measured defect the server app hit in wave 2 and fixed
+   the same way. Five levels up, not four: from `ui/src/` the repo root is
+   five directories up, and a source that resolves one short silently scans
+   nothing. */
 @import "tailwindcss" source(none);
 @import "tw-animate-css";
 @source "./";
 @source "../index.html";
+@source "../../../../../packages/assistant/src";
 
 @custom-variant dark (&:is(.dark *));
 
