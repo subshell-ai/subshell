@@ -78,6 +78,7 @@ export function UpdateScreen(props: {
   // poll's fresh identities do not re-fire it and the phase-2-to-done
   // transition (which CLEARS the marker) re-arms it.
   const pendingAbsent = probe.pendingInstall === null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: onCheck is guarded by runUpdateCheck
   useEffect(() => {
     // Keyed on the marker's absence ALONE — the array says so and means it.
     // `onCheck` is an inline arrow with a fresh identity every render, and
@@ -85,8 +86,7 @@ export function UpdateScreen(props: {
     // `runUpdateCheck` guards. The guard is real, but the keying should not
     // lean on it.
     if (pendingAbsent) props.onCheck(false);
-    // biome-ignore lint/correctness/useExhaustiveDependencies: onCheck is guarded by runUpdateCheck
-  }, [pendingAbsent, props.onCheck]);
+  }, [pendingAbsent]);
 
   // The automatic half of phase 2 — the second half of a press already made,
   // carrying the consent the marker recorded. Once per visit; the host clears
