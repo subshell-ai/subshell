@@ -115,7 +115,7 @@ own client-status screen and the dashboard opens from the button there.
 is remote content whose one grant opens a browser, so it cannot offer a way
 back into this app, and a tray
 icon is silently invisible wherever no StatusNotifier host is registered. So:
-macOS gets **Window → This machine…** in the menu bar (always drawn, which also
+macOS gets **Window → Open Client App** in the menu bar (always drawn, which also
 covers the notched-display hazard in `tray.rs`); everywhere else,
 `node_window_has_a_route_home()` asks `desktop-core`'s tray probe and, when the
 answer is no, `focus_any` RE-CREATES the node window — so relaunching, which is
@@ -1257,6 +1257,37 @@ window-close handler reads, so a desktop with no StatusNotifier host cannot
 hide a window into an icon nothing draws. The item shows the CLAMPED value,
 because a check mark claiming behaviour the app will not honour is a check mark
 that lies.
+
+## The tray's Control Plane submenu
+
+The plane-list ruling (operator, 2026-09-22) reached the tray the same day: the
+flat "Open Subshell Client / Open in Browser" pair stopped being honest the
+moment the list could hold more than one plane, because neither item said
+WHICH. The tray now mirrors the Control Plane section:
+
+- **Control Plane ▸ Open Last / — / `<address>` ▸ Open in App | Open in
+  Browser** — one submenu per address, the node's own connected address FIRST
+  (the page's pinned-row rule, same live read: `config.json`, never a probe),
+  the stored list behind it, deduped by exact canonical match.
+- **The ids carry the canonical URL as data** (`tray:plane-app:<url>`), so a
+  click acts on exactly the address the person read, and both arms
+  RE-VALIDATE before acting — an id string is data, never a trusted URL.
+- **"Open Last" replays the last deliberate open, URL AND door** (app window
+  or system browser), remembered in settings (`lastPlaneOpen`) by every
+  opener's success path — `windows::open_plane` for the app door, both
+  browser arms for the other. Greyed until the first open; reset clears it
+  with the list.
+- **The menu is rebuilt from live state** (`tray_menu`), and `tray::refresh`
+  re-runs exactly that and swaps it in. It is called on every mutation the
+  submenu reflects — plane add/remove, enroll, un-enroll, reset — and NOT
+  from inside the tray's own menu handler (replacing a menu from within its
+  event handler is a re-entrancy question this app does not answer; opens
+  FROM the tray record but do not repaint).
+- The tray drives no CLI, and nothing here changed that: the two plane arms
+  open a window and hand a URL to the opener, that is all.
+
+`Open Client App` (was "This machine…", same ruling: the label is the verb) is
+the one window item and reaches the bundled node page, which no plane row can.
 
 ## Reset — returning this machine to un-enrolled
 

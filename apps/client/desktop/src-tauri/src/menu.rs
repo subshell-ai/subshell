@@ -4,7 +4,8 @@
 //! bar, and a Tauri app on Linux with a menu is a strip inside its own window
 //! that nobody looks at.
 //!
-//! **"This machine…" is the exception to that rule, and it is load-bearing.**
+//! **"Open Client App" is the exception to that rule, and it is
+//! load-bearing.**
 //! Every other item here is a predefined system action, but this app's node
 //! window can otherwise be reached only from the tray — the plane window is
 //! remote content whose one grant opens a browser, so it cannot offer a route
@@ -13,7 +14,9 @@
 //! has wedged (see `tray.rs`). A menu bar is always drawn, so this is the route
 //! that cannot disappear. Linux has no menu bar at all, which is why
 //! `windows::open_at_startup` puts that window on screen outright where the
-//! tray probe says nothing would render it.
+//! tray probe says nothing would render it. The label is the tray item's verb
+//! (operator ruling 2026-09-22): the tray's old "This machine…" said which
+//! window, not what the press does, and the menu bar item is the same press.
 //!
 //! **The predefined Edit items are not decoration.** Without
 //! `PredefinedMenuItem::{cut,copy,paste,select_all}` in a submenu, ⌘C and ⌘V do
@@ -33,7 +36,7 @@ const NODE_ID: &str = "menu:node";
 
 /// Build the application menu.
 pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
-    let node = MenuItem::with_id(app, NODE_ID, "This machine…", true, None::<&str>)?;
+    let node = MenuItem::with_id(app, NODE_ID, "Open Client App", true, None::<&str>)?;
     let app_menu = Submenu::with_items(
         app,
         "Subshell Client",

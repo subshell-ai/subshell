@@ -399,3 +399,25 @@ corrections made from the running dev window as it went:
   section stands, typing the hostname inside it; running, the dialog cannot
   be dismissed, which is the old frame-replacing room's rule expressed
   harder. Uninstall and Un-enroll… stay separate commands by ruling.
+- **The tray follows the section, and reset reaches the app's own memory**
+  (the last two live-window rulings, same night). "I think we need to update
+  the tray menu items because open subshell client / browser - doesn't inform
+  which" rebuilt the tray as the Control Plane section's mirror: one submenu
+  per saved address — connected one first, the pinned row's rule read from
+  the same live sources — each offering Open in App | Open in Browser, and
+  the ids carry the canonical URL so a click acts on the address the person
+  read. "This machine" became **Open Client App** in both the tray and the
+  macOS menu bar: the label is the verb. "Have Control Plane have a Open Last
+  option which would open the last used url with the opening method used
+  (browser / app)" put one record in settings — the address AND the door —
+  written by every opener's success path and replayed by the submenu's first
+  item; it greys until the first open and reset clears it with the list. The
+  tray repaints on every mutation its submenu reads (plane add/remove,
+  enroll, un-enroll, reset) — and never from inside its own menu handler,
+  which is a re-entrancy question this app does not answer. And "the reset
+  everything didn't seem to reset. the app didn't restart to the FTE"
+  reversed the reset's one kept artifact: with the plane list feeding
+  `configured()`, keeping it made the first run unreachable forever, so
+  reset now clears `settings.planes` and the open-last memory along with
+  everything else it names — cosmetic preferences stay — and the dialog
+  says the list goes.

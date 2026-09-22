@@ -1187,7 +1187,7 @@ pub(crate) fn service_now(
 /// daemon, running panes — reach the screen verbatim, `--yes` notwithstanding
 /// for the panes only.
 #[tauri::command(async)]
-pub fn node_unenroll(settings: State<'_, SettingsState>) -> ActionResult {
+pub fn node_unenroll(app: AppHandle, settings: State<'_, SettingsState>) -> ActionResult {
     let mut log = String::new();
     let stop = service_now(&settings, ServiceCommand::Stop, false, true);
     if let Some(stderr) = crate::reset::push_step(&mut log, &stop, &["nothing installed"]) {
@@ -1210,6 +1210,11 @@ pub fn node_unenroll(settings: State<'_, SettingsState>) -> ActionResult {
         return ActionResult::refused(NO_NODE);
     };
     let out = ActionResult::from(out);
+    if out.ok {
+        // The machine stopped being a node: the tray's pinned first row was
+        // this address, and a live read now finds no config to name one.
+        crate::tray::refresh(&app);
+    }
     ActionResult {
         ok: out.ok,
         stdout: format!("{log}{}", out.stdout),
@@ -1456,6 +1461,7 @@ pub fn confirmations_for(server: &str, existing: &ExistingNode) -> Vec<Confirmat
 /// "mint a new key", never "retry".
 #[tauri::command(async)]
 pub fn node_enroll(
+    app: AppHandle,
     settings: State<'_, SettingsState>,
     server: String,
     key: String,
@@ -1498,14 +1504,21 @@ pub fn node_enroll(
     } else {
         out.detail()
     };
-    EnrollOutcome {
+    let outcome = EnrollOutcome {
         ok: out.ok(),
         stdout: out.stdout,
         stderr,
         node,
         requires_confirmation: false,
         confirmations: Vec::new(),
+    };
+    // A completed enroll moves the tray's pinned first row: the address this
+    // machine reports to just changed, and the Control Plane submenu leads
+    // with that address (read live, never remembered — tray.rs).
+    if outcome.ok {
+        crate::tray::refresh(&app);
     }
+    outcome
 }
 
 // ---------------------------------------------------------------------------
@@ -1617,10 +1630,12 @@ fn plane_list_remove(list: &[String], raw: &str) -> Result<Vec<String>, String> 
 /// Returns the whole resulting list, canonically spelled, so the page's
 /// refetched settings ARE the dedupe/validation feedback.
 #[tauri::command(async)]
-pub fn node_plane_add(settings: State<'_, SettingsState>, url: String) -> Result<Vec<String>, String> {
+pub fn node_plane_add(app: AppHandle, settings: State<'_, SettingsState>, url: String) -> Result<Vec<String>, String> {
     let own = read_node_config().server_url.and_then(|u| validate_server_url(&u).ok());
     let next = plane_list_add(&settings.get().planes, &url, own.as_deref())?;
     settings.update(|s| s.planes = next.clone())?;
+    // The tray mirrors this list, so the stored change repaints it (tray.rs).
+    crate::tray::refresh(&app);
     Ok(next)
 }
 
@@ -1629,9 +1644,14 @@ pub fn node_plane_add(settings: State<'_, SettingsState>, url: String) -> Result
 /// the node's acts (Service's un-enroll and the lifecycle verbs), never an
 /// edit of this list.
 #[tauri::command(async)]
-pub fn node_plane_remove(settings: State<'_, SettingsState>, url: String) -> Result<Vec<String>, String> {
+pub fn node_plane_remove(
+    app: AppHandle,
+    settings: State<'_, SettingsState>,
+    url: String,
+) -> Result<Vec<String>, String> {
     let next = plane_list_remove(&settings.get().planes, &url)?;
     settings.update(|s| s.planes = next.clone())?;
+    crate::tray::refresh(&app);
     Ok(next)
 }
 
@@ -1652,7 +1672,11 @@ pub fn node_plane_remove(settings: State<'_, SettingsState>, url: String) -> Res
 #[tauri::command(async)]
 pub fn node_open_plane(app: AppHandle, url: String) -> Result<String, String> {
     let resolved = validate_server_url(&url)?;
+    // `open_plane` records the open for the tray's "Open Last"; the repaint
+    // is done HERE rather than inside the recorder because this caller is
+    // the page, not the tray's own menu handler (see `record_plane_open`).
     crate::windows::open_plane(&app, &resolved)?;
+    crate::tray::refresh(&app);
     Ok(resolved)
 }
 
@@ -1672,7 +1696,63 @@ pub fn node_open_plane_url(app: AppHandle, url: String) -> Result<(), String> {
     let resolved = validate_server_url(&url)?;
     app.opener()
         .open_url(&resolved, None::<&str>)
-        .map_err(|e| format!("could not open {resolved}: {e}"))
+        .map_err(|e| format!("could not open {resolved}: {e}"))?;
+    // A page-side open can repaint safely (it is not the tray's own handler),
+    // so "Open Last" lights up the first time it is used from either door.
+    record_plane_open(&app, &resolved, true);
+    crate::tray::refresh(&app);
+    Ok(())
+}
+
+/// The address the tray puts at the TOP of its Control Plane list.
+///
+/// The same fact the page renders as its pinned row, read the same way:
+/// this machine's own `config.json`, canonicalized, absent when unreadable
+/// or malformed — so the tray and the page cannot disagree about which
+/// plane this machine reports to. Never `status --probe` for this: that
+/// command supersedes-kicks the daemon (`node_status` docs).
+pub fn tray_connected_url() -> Option<String> {
+    read_node_config().server_url.and_then(|u| validate_server_url(&u).ok())
+}
+
+/// Open a tray-named control plane in the SYSTEM browser.
+///
+/// A menu id carries its URL as DATA, so it is re-validated HERE with the
+/// same rule `node_open_plane_url` runs — http(s) by component, canonical
+/// origin — before the opener plugin ever sees it. The tray drives no CLI;
+/// this is a URL and `open`, nothing more.
+pub fn tray_open_in_browser(app: &AppHandle, url: &str) {
+    if let Ok(resolved) = validate_server_url(url) {
+        if app.opener().open_url(&resolved, None::<&str>).is_ok() {
+            record_plane_open(app, &resolved, true);
+        }
+    }
+}
+
+/// Remember a plane open for the tray's "Open Last" (operator ruling
+/// 2026-09-22): the address AND the door it went through, one record,
+/// overwritten by every deliberate open. Both openers call it on their
+/// success path only — `windows::open_plane` (the app window, from any
+/// surface) and the browser arms here — so the memory is exactly the last
+/// open that happened, whatever screen it was asked from.
+///
+/// Deliberately does NOT repaint the tray: its caller can be the tray's own
+/// menu handler, and swapping a menu out from inside its event handler is a
+/// re-entrancy question this app does not need to answer. The item's label
+/// and enabled state change only between "never opened" and "opened", and
+/// the sites that flip THAT (first open of the session, list mutations) are
+/// never inside a tray handler — `node_open_plane` and
+/// `node_open_plane_url` refresh for opens from the page, and
+/// `node_plane_add`/`node_plane_remove`/`node_enroll`/`node_unenroll`
+/// refresh for the list itself.
+pub fn record_plane_open(app: &AppHandle, url: &str, browser: bool) {
+    let record = subshell_desktop_core::settings::LastPlaneOpen {
+        url: url.to_string(),
+        browser,
+    };
+    let _ = app
+        .state::<SettingsState>()
+        .update(|s| s.last_plane_open = Some(record));
 }
 
 /// The MENU BAR's "Open in Browser" id.
@@ -3425,6 +3505,8 @@ mod path_tests {
             close_to_tray,
             open_at_login: false,
             planes: Vec::new(),
+            // Read by the tray submenu's "Open Last", never by the page.
+            last_plane_open: None,
             // The server app's wizard flag. Client ignores it; it shares the
             // struct, not the semantics.
             onboarded: false,

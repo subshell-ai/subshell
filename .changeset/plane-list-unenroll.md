@@ -32,3 +32,11 @@ The node CLI gains `subshell unenroll [--yes] [--json]` for the same act
 from the terminal. It deletes only the daemon lock and the configuration —
 the data directory, the installed binary and every live pane stay — and it
 refuses a running daemon or running subshells, listing them, unless --yes.
+
+The tray menu now mirrors the section: a **Control Plane** submenu lists every
+saved address - the one this machine's node reports to first - and each opens
+**Open in App** or **Open in Browser**. **Open Last** replays the most recent
+plane open through the door it used. "This machine..." reads Open Client App,
+and the submenu repaints itself whenever the list or the node's binding
+changes. Reset Everything now clears the app's saved control planes too, so
+the app lands at the beginning again after a reset, as the ruling asked.

@@ -80,6 +80,21 @@ pub struct PendingBundledInstall {
     pub forced: bool,
 }
 
+/// The tray's "Open Last" memory: one address, and which door it last went
+/// through. Deliberately two flat facts rather than an enum — a URL the
+/// person has seen opened, and a boolean because there are exactly two
+/// opening methods. A default value is meaningless (the empty url opens
+/// nothing, and every opener re-validates anyway); the Option around it is
+/// what carries "never opened".
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LastPlaneOpen {
+    /// The canonical address that was opened.
+    pub url: String,
+    /// True = the SYSTEM browser; false = the app's own plane window.
+    pub browser: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
@@ -114,6 +129,18 @@ pub struct Settings {
     /// two apps share the file FORMAT, not the file — each keys its own
     /// directory off its own [`SettingsPaths`].
     pub planes: Vec<String>,
+    /// Subshell Client only: the LAST deliberate plane open, and through
+    /// which door (operator ruling 2026-09-22, the tray's "Open Last").
+    /// Written by every plane open — app window or system browser — and read
+    /// by the tray submenu's first item. Reset clears it with the list: an
+    /// open-memory of a plane whose everything-else was just wiped is the
+    /// record a reset promised to forget.
+    ///
+    /// The address is stored even when it is no longer in
+    /// [`Settings::planes`]: removing a bookmark does not un-happen the
+    /// visit, and "Open Last" opens an address the person reads on press,
+    /// re-validated by the same rule every opener runs.
+    pub last_plane_open: Option<LastPlaneOpen>,
     /// Set once this app has watched a server on this machine reach `ready`.
     /// Decides whether boot opens the wizard or the status console (spec
     /// 2026-09-10 § 4); only `desktop_probe`'s marking writes it true and
@@ -222,6 +249,7 @@ impl Default for Settings {
             close_to_tray: true,
             open_at_login: false,
             planes: Vec::new(),
+            last_plane_open: None,
             onboarded: false,
             zoom: ZOOM_DEFAULT,
             last_update_check_at: None,
@@ -349,6 +377,10 @@ mod tests {
             close_to_tray: true,
             open_at_login: false,
             planes: vec!["https://subshell.example.com".into()],
+            last_plane_open: Some(LastPlaneOpen {
+                url: "https://subshell.example.com".into(),
+                browser: true,
+            }),
             onboarded: true,
             zoom: 1.25,
             last_update_check_at: Some("2026-09-15T10:00:00Z".into()),
@@ -365,6 +397,9 @@ mod tests {
         assert_eq!(back.binary_path.as_deref(), Some("/x/subshell-server"));
         assert!(back.close_to_tray);
         assert_eq!(back.planes, ["https://subshell.example.com"]);
+        let last = back.last_plane_open.expect("the open-last memory round-trips");
+        assert_eq!(last.url, "https://subshell.example.com");
+        assert!(last.browser, "the door survives too");
         assert!(back.onboarded);
         assert_eq!(back.zoom, 1.25);
         assert_eq!(back.last_update_check_at.as_deref(), Some("2026-09-15T10:00:00Z"));
@@ -377,6 +412,16 @@ mod tests {
         assert_eq!(pending.from_app_version, "0.8.0");
         assert_eq!(pending.attempts, 1);
         assert!(pending.forced);
+    }
+
+    // A settings file written before the open-last memory existed reads as
+    // "never opened" — the tray renders that item disabled, and every plane
+    // open from now on fills it in.
+    #[test]
+    fn an_absent_open_last_reads_as_never_opened() {
+        let s: Settings = serde_json::from_str(r#"{"closeToTray":true,"planes":["https://a.example"]}"#).unwrap();
+        assert!(s.last_plane_open.is_none());
+        assert_eq!(s.planes.len(), 1);
     }
 
     // Every settings file written before this existed has no marker, and must

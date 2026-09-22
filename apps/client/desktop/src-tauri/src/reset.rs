@@ -243,11 +243,26 @@ pub fn node_reset(app: AppHandle, settings: State<'_, SettingsState>, typed: Str
     if let Some(parent) = plan.config_file.parent() {
         let _ = std::fs::remove_dir(parent);
     }
-    // 5. This app's own choice of binary. The saved control-plane LIST is
-    // deliberately KEPT: the planes this person connects to are not what they
-    // reset, and making them retype an address to get their dashboard back
-    // would be the reset reaching past what it promised.
-    let _ = settings.update(|s| s.binary_path = None);
+    // 5. This app's own state, which since the plane list includes what
+    // `configured()` reads. The saved control-plane LIST and the open-last
+    // memory go with everything else (operator ruling, 2026-09-22, on the
+    // live window: "the reset everything didn't seem to reset. the app
+    // didn't restart to the FTE"): the list is this app's memory of the
+    // planes it connects to, keeping it left `configured()` true and the
+    // first run unreachable — an address kept past the reset was the whole
+    // difference between "wiped" and "still set up". Cosmetic preferences
+    // (text size, the tray habit, the update-check timestamps) stay; they
+    // are not part of the setup this screen resets, and whoever reset the
+    // node still likes their font.
+    let _ = settings.update(|s| {
+        s.binary_path = None;
+        s.planes.clear();
+        s.last_plane_open = None;
+    });
+    // The tray mirrors both the list and the node's binding, and both just
+    // emptied; its Control Plane submenu rebuilds from the live reads and
+    // lands on "No control planes yet".
+    crate::tray::refresh(&app);
     *stash.plan.lock().unwrap() = None; // the consent has been spent
     Ok(ActionResult {
         ok: true,

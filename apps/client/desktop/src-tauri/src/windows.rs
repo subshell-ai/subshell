@@ -278,7 +278,20 @@ pub fn open_node(app: &AppHandle) -> Result<WebviewWindow, String> {
 ///   an href in rendered content cannot walk this window somewhere else. The
 ///   pin follows a deliberate plane switch rather than being fixed at build
 ///   time — see [`PlanePin`].
+///
+/// The one route an in-app plane window ever opens (operator ruling
+/// 2026-09-22, "Open Last"): on success, the address and the DOOR are
+/// recorded — the tray's Control Plane submenu replays exactly this pair.
+/// Every surface that shows a plane in the app comes through here, so the
+/// memory cannot drift from the thing that happened; failures record
+/// nothing, because an open that did not happen is not the last one.
 pub fn open_plane(app: &AppHandle, origin: &str) -> Result<WebviewWindow, String> {
+    let w = open_plane_window(app, origin)?;
+    crate::control::record_plane_open(app, origin, false);
+    Ok(w)
+}
+
+fn open_plane_window(app: &AppHandle, origin: &str) -> Result<WebviewWindow, String> {
     let url: tauri::Url = origin
         .parse()
         .map_err(|e| format!("'{origin}' is not a usable control-plane URL: {e}"))?;
@@ -389,7 +402,7 @@ pub fn focus_node(app: &AppHandle) {
 /// Whether the node window has any route back OTHER than the tray.
 ///
 /// macOS always does: the menu bar is a system bar, it is always drawn, and
-/// `menu.rs` puts "This machine…" on it. Linux has no menu bar (a GTK one is
+/// `menu.rs` puts "Open Client App" on it. Linux has no menu bar (a GTK one is
 /// per-window chrome inside the window you are trying to reach), and the plane
 /// window cannot offer a route either — it is remote content, and its one
 /// grant opens a browser rather than a window of this app.

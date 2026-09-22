@@ -33,6 +33,7 @@ const DISCLOSURES: readonly string[] = [
   "Any subshells that ran here are gone, and so are their pane logs.",
   "A Subshell Server on this same machine is not touched. Reset it from its own app.",
   "The installed subshell binary stays.",
+  "This app's saved control planes are cleared too, and it starts at the beginning again.",
   "Everything above is permanent.",
 ];
 

@@ -325,13 +325,21 @@ describe("the invocations that must stay unreachable", () => {
   // from, because nothing is current.
   // The un-enroll chain takes NOTHING from the page: not a path, not a
   // flag, not a "--keep-data" knob. The order is Rust's, the refusal words
-  // are the CLI's, and the consent is the dialog's.
+  // are the CLI's, and the consent is the dialog's. The two parameters it
+  // does name are INJECTED BY TAURI, never supplied by the caller — the
+  // app handle (added 2026-09-22 so a completed un-enroll repaints the
+  // tray's pinned row) and the settings state — and this pin's whole point
+  // is that the list holds nothing else.
   it("keeps un-enroll a page-blind chain", () => {
     const rust = readFileSync(join(TAURI_DIR, "src/control.rs"), "utf8");
     const signature = rust.slice(rust.indexOf("pub fn node_unenroll("));
     expect(signature.startsWith("pub fn node_unenroll("), "node_unenroll vanished from control.rs").toBe(true);
     const params = signature.slice(signature.indexOf("(") + 1, signature.indexOf(")"));
-    expect(params.trim()).toBe("settings: State<'_, SettingsState>");
+    let rest = params.trim();
+    for (const injected of ["app: AppHandle", "settings: State<'_, SettingsState>"]) {
+      rest = rest.replace(injected, "");
+    }
+    expect(rest.replace(/[,\s]/g, ""), "only tauri-injected parameters, nothing page-supplied").toBe("");
   });
 
   it("keeps the four plane commands to one argument: the address", () => {
