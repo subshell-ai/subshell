@@ -1302,10 +1302,12 @@ version reaches it through `tauri.conf.json` reading `../package.json`), and
 the copyright, licence summary and URLs from the same
 `crates/desktop-core/src/legal.rs` constants `scripts/license-fields.ts`
 holds equal to the TypeScript copy and the root `LICENSE`. A third copy in
-`ui/src` would still be the one the detector cannot see. Show Details keeps
-exactly ONE fact from the old block — `This app — Subshell Server {version}`
-— because the version belongs beside the log text a person is about to paste
-into a bug report, and `desktop_about` keeps that line as its last caller.
+`ui/src` would still be the one the detector cannot see. The Status section
+keeps exactly ONE fact from the old block — `This app — Subshell Server
+{version}` — because the version belongs beside the log text a person is
+about to paste into a bug report; wave 2 renders it INLINE in that section
+(the Show Details disclosure is gone), and `desktop_about` keeps that line
+as its last caller.
 Distinct from the SPA's own `AboutDialog` (user menu → About), which is about
 the product and the SERVER build: this panel is about the app binary, and it
 is the only surface that knows the app's version.
@@ -1320,9 +1322,11 @@ is precisely the machine this page exists for.
 
 The console's Logs section was one region with two tabs, a caption and a
 selection that had to survive navigation. None of that survives it: the
-assistant shows one screen at a time, and both panes live inside the recovery
-screen's Show Details, one under the other. A tab strip over two panes inside
-a disclosure inside a 560px column is chrome for its own sake.
+assistant shows one screen at a time, and both panes render INLINE in the
+Status section, one under the other — wave 2 removed the Show Details
+disclosure that used to hold them, because a sidebar section that hides its
+own facts behind a second control is two navigations for one answer. A tab
+strip over two panes inside a 560px column is chrome for its own sake.
 
 What DID survive is the behaviour that was load-bearing. The tail **sticks to
 the bottom only when it is already there** — re-tailing while someone has

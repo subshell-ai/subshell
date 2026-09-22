@@ -434,6 +434,10 @@ describe("the rail", () => {
     screen.getByRole("button", { name: "Status" }).click();
     await waitFor(() => expect(routeOf()).toBe("handoff"));
     // Held: the waiting arm renders its Continue, and nothing has opened.
+    // The words are pinned too — the held surface claiming an open that is
+    // being withheld was the reviewer's finding.
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Your Server Is Running");
+    expect(screen.getByText("Your dashboard opens when you press Continue. Nothing opens by itself.")).toBeDefined();
     expect(screen.getByRole("button", { name: "Continue" })).toBeDefined();
     expect(fake?.callsTo("desktop_open_main")).toHaveLength(0);
     // The press IS the human the hold was waiting for.

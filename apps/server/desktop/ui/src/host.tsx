@@ -997,7 +997,9 @@ export function Host(): React.JSX.Element {
    */
   /**
    * The hold, in effect: a rail-selected Status on a READY machine resolves
-   * to the handoff, and this is what turns its auto-continue off. Cleared
+   * to the handoff, and this flag rides into `handoffView` as `held`, whose
+   * arm answers wait:true with words that promise nothing — the
+   * auto-continue never fires because the view itself is waiting. Cleared
    * whenever the route is not the handoff — a probe that goes unhealthy, a
    * requested screen, anything — so a stale hold can never pin a later
    * arrival.
@@ -1077,10 +1079,10 @@ export function Host(): React.JSX.Element {
     // press (see `handoffView`). `openWhenReady` is the SAME call both arms
     // reach, so the dashboard opening is identical whichever door it opens
     // through.
-    if (handoffView({ onboarded: probe.onboarded, ranSetupHere, continued }).wait) return;
-    // A rail-selected Status is a person driving this window, not an arrival:
-    // the view renders held and waits for the press.
-    if (handoffHeld) return;
+    // `held` is the rail-select hold: a person driving this window, not an
+    // arrival. The view answers wait:true for it, so this effect simply
+    // never opens while the hold stands.
+    if (handoffView({ onboarded: probe.onboarded, ranSetupHere, continued, held: handoffHeld }).wait) return;
     if (opened || probe.next !== "ready") return;
     setOpened(true);
     void ipc.openMain().catch((err: unknown) => {
@@ -1206,7 +1208,7 @@ export function Host(): React.JSX.Element {
           return { title: "Subshell Is Running", subtitle: "The dashboard did not open by itself.", problem };
         }
         if (probe === null) return { title: "", subtitle: "", problem };
-        const view = handoffView({ onboarded: probe.onboarded, ranSetupHere, continued });
+        const view = handoffView({ onboarded: probe.onboarded, ranSetupHere, continued, held: handoffHeld });
         return { title: view.title, subtitle: view.subtitle, problem };
       }
       case "supervision":
@@ -1235,7 +1237,7 @@ export function Host(): React.JSX.Element {
 
   /** Whether the completed checklist waits for a Continue (see `handoffView`). */
   const handoffWaiting =
-    probe !== null && (handoffView({ onboarded: probe.onboarded, ranSetupHere, continued }).wait || handoffHeld);
+    probe !== null && handoffView({ onboarded: probe.onboarded, ranSetupHere, continued, held: handoffHeld }).wait;
 
   const entranceKey = screenEpoch > 0 ? screenEpoch : undefined;
 
