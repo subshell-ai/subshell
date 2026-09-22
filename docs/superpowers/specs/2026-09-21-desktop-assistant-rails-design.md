@@ -314,13 +314,13 @@ rewritten by the wave that changes the surface they describe.
   first-run screens first, then the standing screens, one branch, two
   commits.
 
-## Addendum 7 (2026-09-22, same day, plane-list wave + three live-window follow-ups)
+## Addendum 7 (2026-09-22, same day, plane-list wave + the live-window follow-ups)
 
 The operator's ruling that ended the day's evolution of the Control Plane
 section: "the Control Plane should be a list of control planes to connect
 to … that way it's clear the section is for connecting to other control
-planes, not necessarily tied with the node." What shipped, including three
-corrections made from the running dev window within the hour:
+planes, not necessarily tied with the node." What shipped, including the
+corrections made from the running dev window as it went:
 
 - **The list.** A bare table (not a card), rows canonicalized and deduped
   by Rust. The node's own address is a PINNED first row badged "this node" —
@@ -329,16 +329,22 @@ corrections made from the running dev window within the hour:
   nothing opens at boot: a client never opens a control plane by itself
   (§ 2 stands; the old plane ladder existed only to feed a `debug_assert`
   and was deleted).
-- **The row is the door; the `⋯` is a real action menu.** Pressing the
+- **The row is the door; the `⋮` is a real action menu.** Pressing the
   address opens the dashboard. The menu — Open in dashboard, Open in
   browser, Copy URL, Remove — is positioned BY CLASS inside the row's own `relative`
   box: the CSP outlaws style ATTRIBUTES (the `confirm-panel.tsx`
   measurement), which sinks measuring poppers but not `absolute right-0
-  top-full`, and a list row does not need a popper. Escape and outside
+  top-full`, and a list row does not need a popper. It is FIXED-width
+  (`w-48`) with dense items (`h-7`, `text-detail`): two rulings from the
+  window — the auto-width panel sized to the ROW rather than its labels
+  ("why is the action menu so wide"), and button-sized items made the whole
+  panel read oversized. Escape and outside
   press dismiss; one is open at a time. The pinned row's menu carries the
-  SAME opens plus Copy URL and NO Remove and no note explaining its absence
-  — the pointer sentence was deleted the same hour Un-enroll… stood up on
-  Service ("absence is the whole message"). Copy closes the menu on success
+  SAME opens plus Copy URL, NO Remove, and no explanatory sentence —
+  the pointer paragraph was deleted the same hour Un-enroll… stood up on
+  Service ("absence is the whole message") — but the ROUTE survived as a
+  plain **Go to Service** item, restored by a later same-day ruling ("what
+  happened to going to the Service section"). Copy closes the menu on success
   and, on a refused clipboard, stays open with the item renamed.
 - **The add is the frame's bottom bar; its form is a dialog.** The opener
   keeps the bar's primary-right slot; pressing it opens `Add a control
@@ -347,10 +353,14 @@ corrections made from the running dev window within the hour:
   rulings; § 3's bar grammar survives as the opener's home.)
 - **The node's binding lives on Service.** The "Enrolled to Control Plane"
   card states the address, carries the loopback notice with it, and offers
-  Re-enroll… (a dialog with a free-form field seeded with the current
-  address; `node_configure`; identity kept, no key spent, restart applies;
-  submit closes — a modal that stays open after the press is zero feedback,
-  the card under it is the answer) and
+  Re-enroll… — the ENROLLMENT WIZARD's door (the day's final ruling: "Re-enroll
+  should go through the enrollment wizard"): it opens the same walk the
+  Register card opens, seeded with the current address, and the bespoke
+  free-form repoint dialog it replaced went all the way down with its
+  `node_configure` command — re-enrolling spends a setup key and mints a
+  fresh node row, and the walk's two-phase confirm over a live config is the
+  guard. The close-on-submit grammar it taught stands for every dialog that
+  remains: a modal that stays open after the press is zero feedback. And
   Un-enroll… (confirmed; ONE `node_unenroll` call whose chain is stop →
   uninstall → `unenroll --yes --json`, definition before config because a
   kept definition respawns a daemon against a deleted config; panes are
@@ -358,6 +368,15 @@ corrections made from the running dev window within the hour:
   autostart gate's twin). Plane-coherence and its notices died with the
   two-address state — the pinned row IS the notice — and the Status
   subtitle states the machine, not a plane.
+- **The press narrates its own button.** A lifecycle or chain press turns
+  the PRESSED button into a spinner and the progressive word ("Restarting…")
+  while its act runs: the runner carries the submission's label through a
+  confirmation, so a confirmed chain spins from the dialog's Accept to the
+  answer. And the card's problem sentences go quiet while the section's own
+  act is in flight, returning once the settled re-probe has landed (both
+  halves are live-window rulings: "there should be a spinner saying
+  restarting. same with the stop / start button"; "when restarting this
+  additional message occurs, can we remove it").
 - **Confirmations are dialogs** (the audit ruling, same hour): every
   confirmation flows through `ConfirmPanel`, and `ConfirmPanel` is now the
   app's own class-positioned `Dialog` — Escape and backdrop are the cancel,

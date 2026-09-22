@@ -15,11 +15,15 @@ setup key — now answers in a dialog instead of a panel grown inside the
 section it belongs to.
 
 Service gained the node's own binding acts in an "Enrolled to Control Plane"
-card: Re-enroll… repoints the node to a new address keeping its identity and
-spending no setup key, and Un-enroll… stops the service, removes its
-definition and deletes the node's configuration and key. Running subshells
-keep running, and the card says so before it asks; the control plane keeps
-its node row until its owner deletes it there.
+card: Re-enroll… opens the enrollment wizard, seeded with the current
+address, so re-binding the machine is the same walk as binding it the first
+time — and its two-phase confirmation is what guards overwriting a live
+configuration; and Un-enroll… stops the service, removes its definition and
+deletes the node's configuration and key. Running subshells keep running, and
+the card says so before it asks; the control plane keeps its node row until
+its owner deletes it there. An act in progress now shows on the button that
+started it, a spinner and "Restarting…", while the card's momentary
+problem notes stay quiet until the machine has settled.
 
 The node CLI gains `subshell unenroll [--yes] [--json]` for the same act
 from the terminal. It deletes only the daemon lock and the configuration —

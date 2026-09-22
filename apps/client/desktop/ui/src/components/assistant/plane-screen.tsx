@@ -18,7 +18,11 @@
  * wrong place (the `confirm-panel.tsx` note records the measurement). What it
  * does not block is CLASS-BASED positioning, and a list row does not need a
  * measuring popper: the panel is `absolute right-0 top-full` inside the row's
- * own `relative` box. A real menu — `role=menu`, `menuitem`s, Escape and
+ * own `relative` box, at a FIXED width — shrink-to-fit there is not an option
+ * (live-window ruling 2026-09-22, "why is the action menu so wide"): the
+ * engine sized the auto-width panel against the row's full available width
+ * once its `w-full` items were counted in, so the menu read as a banner
+ * across the card. A real menu — `role=menu`, `menuitem`s, Escape and
  * outside-press dismiss — out of nothing but tokens.
  *
  * Two kinds of row:
@@ -73,10 +77,13 @@ export function PlaneScreen(props: {
   settings: NodeSettings | undefined;
   commands: NodeCommands;
   busy: boolean;
+  /** Open the Service section — the pinned row's menu offers the route as
+   *  an item (the explanatory sentence was deleted; the pointer stayed). */
+  onGoToService: () => void;
   /** The acts' own words — refusals included, as the section's output block. */
   output: ActionResult | null;
 }): ReactElement {
-  const { shell, probe, settings, commands, busy, output } = props;
+  const { shell, probe, settings, commands, busy, onGoToService, output } = props;
   const nodeUrl = probe?.status?.serverUrl ?? null;
   // Display guard against a stored row spelling the node's own address in a
   // way Rust's canonical compare never saw (a CLI re-point can leave two
@@ -143,13 +150,16 @@ export function PlaneScreen(props: {
     })();
   };
 
+  // Dense menu-item scale: shorter than the app's smallest BUTTON (h-8),
+  // detail-size text, left-aligned — a menu is read, not pressed like a
+  // toolbar (live-window ruling 2026-09-22: the first cut sized items like
+  // buttons and the whole panel read oversized).
   const item = (label: string, act: () => void): ReactElement => (
     <Button
       type="button"
       variant="ghost"
-      size="sm"
       role="menuitem"
-      className="w-full justify-start"
+      className="h-7 w-full justify-start rounded-sm px-2 font-regular text-detail"
       disabled={busy}
       onClick={act}
     >
@@ -192,7 +202,7 @@ export function PlaneScreen(props: {
         <div
           role="menu"
           aria-label={`Actions for ${url}`}
-          className="absolute right-0 top-full z-50 mt-1 min-w-56 rounded-md border border-border bg-card p-1 shadow-lg"
+          className="absolute top-full right-0 z-50 mt-1 w-48 rounded-md border border-border bg-card p-1 shadow-lg"
         >
           {item("Open in dashboard", () => open(url))}
           {item("Open in browser", () => {
@@ -200,11 +210,18 @@ export function PlaneScreen(props: {
             commands.openPlaneUrl(url);
           })}
           {item(copyFailed === url ? "Couldn't copy, try again" : "Copy URL", () => copyUrl(url))}
-          {!pinned &&
-            item("Remove", () => {
-              setMenuUrl(null);
-              commands.removePlane(url);
-            })}
+          {pinned
+            ? // The pointer, not a sentence: detaching lives on Service, and
+              // the menu says so in one item (the explanatory paragraph was
+              // deleted by ruling; the ROUTE stayed).
+              item("Go to Service", () => {
+                setMenuUrl(null);
+                onGoToService();
+              })
+            : item("Remove", () => {
+                setMenuUrl(null);
+                commands.removePlane(url);
+              })}
         </div>
       )}
     </div>

@@ -22,8 +22,8 @@
  * of them offered is a card or a bar button there. Three properties moved
  * rather than merely relocating:
  *
- * - **An address no longer comes first.** An enrolled machine with no stored
- *   `planeUrl` is configured, because the walk ends at Register and Register
+ * - **An address no longer comes first.** An enrolled machine with nothing
+ *   stored is configured, because the walk ends at Register and Register
  *   on a node mints a second node row.
  * - **Two-phase enrolment is the RE-enrolment's property.** The first run's
  *   Register press IS the consent (§ 6.2), so it sends `confirm: true`; the
@@ -143,11 +143,13 @@ const typeInto = (label: string, value: string) => {
  * not a node yet (operator ruling 2026-09-22, screenshot 60 — the node's
  * machinery home).
  *
- * The destructive re-enrolment is GONE with the Control Plane collapse (same
- * day, final addendum): Re-enroll… now means REPOINTING (`node_configure`,
- * identity kept, no key spent — `repoint.test.tsx`), and the screen that
- * overwrote a working `config.json` with a second node row has no door in
- * this app. What remains of its form lives here: the same three answers,
+ * Re-enroll… enters this wizard (operator ruling 2026-09-22, end of day:
+ * "Re-enroll should go through the enrollment wizard" — superseding the
+ * morning's repoint dialog). So the walk's two-phase guard IS the re-enroll's
+ * honesty: `node_enroll` refuses to spend a setup key over a live
+ * `config.json` until the named confirmation is accepted, because the act
+ * overwrites the file and mints a fresh node row. What the wizard asks:
+ * the same three answers,
  * asked once, the press itself the consent (§ 6.2).
  */
 async function openRegisterForm(init: Parameters<typeof installFakeIpc>[0] = {}) {
@@ -263,7 +265,7 @@ describe("the assistant frame", () => {
       "Reset",
     ]);
     // Over to Service, where the node's own acts live (plane-list ruling):
-    // the Control plane card carries Re-enroll…, which IS the repoint.
+    // the Control plane card carries Re-enroll…, the wizard's second door.
     await openSection("Service");
     expect(buttonOrNull("Re-enroll…")).not.toBeNull();
   });
@@ -532,11 +534,11 @@ describe("the node log tail", () => {
 // ---------------------------------------------------------------------------
 
 /**
- * The enrol form, asked ONCE. The two-phase confirmation retired with the
- * destructive re-enrolment door (operator ruling 2026-09-22, final addendum:
- * Re-enroll… means repointing now, and the act that overwrote a working
- * `config.json` has no screen in this app). What survives is the walk's
- * Register: the press itself is the consent (§ 6.2), so it sends
+ * The enrol form, asked ONCE — and it is ALSO the re-enrolment form now
+ * (wizard ruling, end of 2026-09-22): Re-enroll… walks here seeded with the
+ * node's own address, and the already-enrolled case gets Rust's named
+ * confirmation before any key is spent. For a machine that is not yet a
+ * node, the press itself is the consent (§ 6.2): it sends
  * `confirm: true` and raises no panel — that shape has its own pins in the
  * first-run block. These cases own the FORM: its validation refusals, its
  * explanations, its seeding, and what actually reaches the wire.
@@ -658,11 +660,13 @@ describe("the register form asks the three answers once", () => {
     await waitFor(() =>
       expect((screen.getByLabelText("Server URL") as HTMLInputElement).value).toBe("https://subshell.example.com"),
     );
-    // Asked for, so it can be taken back — and the configured client's own
-    // screen is what Back returns to (the one-way-door case below pins that
-    // at length; this is the door opening and closing once).
+    // Asked for, so it can be taken back — and Back returns to the SECTION
+    // the door stood on, not to the landing (ruling 2026-09-22; the
+    // one-way-door case below pins that at length; this is the door opening
+    // and closing once).
     fireEvent.click(button("Back"));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Control Plane" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Service" })).toBeTruthy());
+    expect(buttonOrNull("Register this machine")).not.toBeNull();
   });
 });
 
@@ -914,7 +918,6 @@ describe("what the page never asks for", () => {
         node_open_plane_url: () => null,
         node_plane_add: () => ["https://added.example"],
         node_plane_remove: () => [],
-        node_configure: () => ({ ok: true, stdout: "node repointed", stderr: "" }),
         node_check_app_update: () => ({ current: "0.6.1", latest: null, notes: null, reason: null }),
       },
     });
@@ -951,29 +954,33 @@ describe("what the page never asks for", () => {
     fireEvent.click(button("Add"));
     await waitFor(() => expect(fake.callsTo("node_plane_add").length).toBe(1));
 
-    await openSection("Service");
-    await waitFor(() => expect(buttonOrNull("Re-enroll…")).not.toBeNull());
-    fireEvent.click(button("Re-enroll…"));
-    fireEvent.click(button("Re-enroll"));
-    await waitFor(() => expect(fake.callsTo("node_configure").length).toBe(1));
-
     // Update: the check runs on mount, and Check Again re-asks it.
     await openSection("Update");
     await waitFor(() => expect(fake.callsTo("node_check_app_update").length).toBe(1));
     fireEvent.click(button("Check Again"));
     await waitFor(() => expect(fake.callsTo("node_check_app_update").length).toBe(2));
 
+    // Re-enroll… last, because the walk owns the window from the press on
+    // (ruling 2026-09-22: Re-enroll goes through the enrollment wizard). The
+    // press drives NO command — the wizard's screens, and at its end the
+    // two-phase enroll, carry the act.
+    await openSection("Service");
+    await waitFor(() => expect(buttonOrNull("Re-enroll…")).not.toBeNull());
+    fireEvent.click(button("Re-enroll…"));
+    await screen.findByRole("heading", { name: "Register This Machine" });
+
     const allowed = new Set([
       "node_probe",
       "node_settings",
       // The standing sections' commands: the service verb, the list's doors
-      // and writes, the repoint, the app-update check.
+      // and writes, the app-update check. (`node_configure` left the app with
+      // the wizard ruling: Re-enroll… enters the enrollment walk, whose
+      // enroll half is pinned by the first-run tests.)
       "node_service",
       "node_open_plane",
       "node_open_plane_url",
       "node_plane_add",
       "node_plane_remove",
-      "node_configure",
       "node_check_app_update",
       // The FTE walk's screens (pinned in the test below): the connect
       // screen's save into the list, the tmux gate's install.
@@ -1557,31 +1564,29 @@ describe("the first run", () => {
   // THE one-way door, and the case a person actually hits.
   //
   // A configured client — someone already watching a server — presses
-  // "Register this machine" on the status screen, which sets the walk's step.
-  // Back has to return them to the LANDING, not to Choice: Choice is a screen
-  // that person never saw, and before this the status screen's own button was
-  // a door out of the dashboard for the rest of the session.
-  it("returns a configured client to its landing screen, not to a choice it never saw", async () => {
+  // "Register this machine" on the Service section, which sets the walk's
+  // step. Back has to return them to the SECTION THE DOOR STANDS ON, not to
+  // Choice (a screen that person never saw) and — since the operator caught
+  // it on the Re-enroll door — not to the Control Plane landing either: the
+  // back button surfacing someone somewhere else reads as it having lost
+  // their place. (ruling 2026-09-22: "the back button in register this
+  // machine coming from re-enroll goes back to the control plane instead of
+  // the service")
+  it("returns a configured client to the section its door stood on, not to a choice it never saw", async () => {
     await boot({ probe: watcher() });
-    // Register lives on the Service section (operator ruling 2026-09-22,
-    // screenshot 60); the landing is Control Plane.
     await openSection("Service");
     expect(screen.getByRole("heading", { name: "Service" })).toBeTruthy();
     fireEvent.click(button("Register this machine"));
     await screen.findByRole("heading", { name: "Register This Machine" });
 
     fireEvent.click(button("Back"));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Control Plane" })).toBeTruthy());
-    // The door they came for is back, which is the whole of the defect: the
-    // landing is Control Plane, and the list stands there with its rows.
-    expect(buttonOrNull("https://subshell.example.com")).not.toBeNull();
-    // And NOT the fresh machine's answer: this person never chose anything.
-    expect(screen.queryByRole("heading", { name: "What Would You Like to Do?" })).toBeNull();
-    // The invitation is still there to accept a second time, on the Service
-    // section where it lives: a door that closes behind you is the thing
-    // being fixed.
-    await openSection("Service");
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Service" })).toBeTruthy());
+    // The door they came for, back under their hand — the whole of the
+    // defect, in both its shapes: no Choice they never saw, and no section
+    // they did not leave.
     expect(buttonOrNull("Register this machine")).not.toBeNull();
+    expect(screen.queryByRole("heading", { name: "What Would You Like to Do?" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Control Plane" })).toBeNull();
   });
 
   // The last screen before a single-use key is spent, so the way back to the
@@ -1624,16 +1629,16 @@ describe("the first run", () => {
 
   // Same asymmetry as the details screen's: a configured client reached the
   // gate from "Register this machine" and never saw Choice, so Back owes them
-  // the landing they came from — with the dashboard button on it.
-  it("returns a configured client from the tmux gate to its landing screen", async () => {
+  // the section they came from.
+  it("returns a configured client from the tmux gate to the section its door stood on", async () => {
     await boot({ probe: makeProbe({ ...watcher(), tmux: null }) });
     await openSection("Service");
     fireEvent.click(button("Register this machine"));
     await screen.findByRole("heading", { name: "Install tmux" });
 
     fireEvent.click(button("Back"));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Control Plane" })).toBeTruthy());
-    expect(buttonOrNull("https://subshell.example.com")).not.toBeNull();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Service" })).toBeTruthy());
+    expect(buttonOrNull("Register this machine")).not.toBeNull();
     expect(screen.queryByRole("heading", { name: "What Would You Like to Do?" })).toBeNull();
   });
 
@@ -2075,8 +2080,12 @@ describe("the plane list and its doors", () => {
     fireEvent.click(button("Actions for https://subshell.example.com"));
     await screen.findByRole("menu", { name: "Actions for https://subshell.example.com" });
     expect(screen.queryByRole("menuitem", { name: "Remove" })).toBeNull();
-    expect(screen.queryByText(/detach|go to service/i)).toBeNull();
+    expect(screen.queryByText(/detach/i)).toBeNull();
     expect(screen.getByRole("menuitem", { name: "Copy URL" })).toBeTruthy();
+    // The pointer is an ITEM, not a sentence: the route to the node's acts
+    // stayed when the paragraph went.
+    fireEvent.click(screen.getByRole("menuitem", { name: "Go to Service" }));
+    await screen.findByRole("heading", { name: "Service" });
   });
 
   it("removes a stored row only through its confirm", async () => {

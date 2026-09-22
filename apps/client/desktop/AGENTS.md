@@ -874,17 +874,24 @@ control plane section is for connecting to other control planes, not
 necessarily tied with the node"). The section is a BARE TABLE, not a card:
 the node's own address renders as a PINNED first row badged **this node**
 (`probe.status.serverUrl` — a probe fact Rust refuses to store as an entry),
-stored addresses below it. Pressing a row IS the dashboard door; the `⋯` opens
+stored addresses below it. Pressing a row IS the dashboard door; the `⋮` opens
 a real ACTION MENU — Open in dashboard, Open in browser, Copy URL, Remove — positioned
-BY CLASS (`absolute right-0 top-full` in the row's own `relative` box), which
-the CSP permits even though it outlaws the style attributes a measuring popper
-writes; Escape and an outside press dismiss it, one is open at a time, and
-`ipc-acl`'s argument pins keep every plane command to the one argument: the
-address. The pinned row's menu holds the SAME opens plus Copy URL ("what about
-open in browser?" — to connect, it is a plane like any other) and simply has
-no Remove — and no sentence explaining the absence either (the note that
-pointed at Service was deleted the same hour Un-enroll… stood up there: the
-detaching act has its own door, and absence is the whole message here). Copy
+BY CLASS (`absolute right-0 top-full` in the row's own `relative` box) at a
+FIXED width, which the CSP permits even though it outlaws the style attributes
+a measuring popper writes. Both rulings of constraint came from the live
+window the same hour: the auto-width panel sized itself to the ROW rather
+than its labels once the `w-full` items counted in ("why is the action menu
+so wide"), and button-sized items made the panel read oversized (items are
+the dense menu scale — `h-7`, `font-regular`, `text-detail` — shorter than
+the app's smallest button). Escape and an outside press dismiss it, one is
+open at a time, and `ipc-acl`'s argument pins keep every plane command to the
+one argument: the address. The pinned row's menu holds the SAME opens plus
+Copy URL ("what about open in browser?" — to connect, it is a plane like any
+other), no Remove, and no sentence explaining the absence either — but the
+ROUTE stayed as a plain **Go to Service** item ("what happened to going to
+the Service section": the explanatory note was deleted the same hour
+Un-enroll… stood up there; the pointer to it survived as one item, because
+the absence of Remove says nothing without a door). Copy
 is the `CopyButton` affordance in text form: the menu's dismiss is the
 success flash, and a refused clipboard keeps the menu open and renames the
 item rather than flashing nothing. The add is the frame's bottom bar in the bar's
@@ -905,12 +912,17 @@ only ever fed a `debug_assert`. FTE Connect retargeted to `addPlane`.
 
 **Service's Enrolled to Control Plane card holds the node's binding acts**:
 the address, the enroll-time loopback notice that moved with it, **Re-enroll…**
-(a DIALOG — see below — with a free-form field seeded with the current
-address, pressing `node_configure` — identity kept, no setup key spent,
-restart applies it; submit CLOSES it like every other save — the live
-window's first cut kept the inline form's stay-open habit and read as zero
-feedback behind a modal, since the card that answers sits underneath), and
-**Un-enroll…**, the destructive half. The two are deliberately SEPARATE commands (operator, same
+and **Un-enroll…**, the destructive half. Re-enroll… is the ENROLLMENT
+WIZARD's door (operator ruling 2026-09-22, an hour after the dialog wave:
+"Re-enroll should go through the enrollment wizard") — it opens the same walk
+the Register card opens, seeded with the current address — and the bespoke
+free-form repoint field it displaced went all the way down with its
+`node_configure` command, from `ipc.ts` to the capability file. Re-enrolling
+IS enrolling again: it spends a setup key and mints a fresh node row, and the
+guard against overwriting a live config is the walk's own two-phase confirm,
+not a second gentler surface that taught the cheap CLI act (`subshell
+configure --server`, still a CLI verb, now one this app never calls) is what
+the button does. The two are deliberately SEPARATE commands (operator, same
 day: "let's keep them as separate commands") — Uninstall on the background
 card keeps its narrower meaning even though the un-enroll chain happens to
 tolerate a machine with no service. Its confirm states the orphans ("Subshells that are still running keep
@@ -927,6 +939,22 @@ truth is read, not discovered. The card is gated on the verb existing
 autostart gate's twin over the shared `lib/semver.ts`): an older agent would
 have its service stopped, its definition uninstalled, and only THEN answer
 `unenroll` with a usage error — unmanaged and still enrolled.
+
+**The press narrates its own button** (two more live-window rulings of the
+same hour: "when clicking restart, there should be a spinner saying
+restarting. same with the stop / start button", and "when restarting this
+additional message occurs, can we remove it"). The runner carries the
+in-flight submission's `label` (`start`, `stop`, `restart`, `uninstall`,
+`unenroll`, `rewrite` — set at the `runner.run` call), and the button
+wearing that label shows a spinner and the progressive word; the row's other
+buttons keep their plain words even while disabled, so what is waiting is
+never ambiguous. `accept()` carries the label through a confirmation, so the
+confirmed chains (Uninstall, Un-enroll, the forced restart) spin from the
+dialog's Accept to the answer rather than only from the first press. The
+same act holds the card's problem and detail sentences quiet while it runs:
+the offline narration mid-restart was describing the person's own press at
+the wrong moment. They return when the awaited re-probe lands, so a machine
+that is genuinely still offline says so, once, when the wait is over.
 
 **Confirmations answer in a dialog now** (operator ruling 2026-09-22: "use a
 dialog when it comes to user confirmation … rather than rendering another
@@ -1274,28 +1302,26 @@ would take it), and a Subshell Server on the same machine is untouched.
 - **`enroll` has no already-enrolled guard.** It overwrites `config.json`, mints
   a SECOND node row on the server, and discards the old node key whose only home
   was that 0600 file. `node_enroll` therefore takes a `confirm` flag and spawns
-  nothing until it is true. **`node_configure` is the non-destructive one** —
-  `subshell configure --server` repoints an enrolled node, keeps its identity
-  and spends no setup key, so it is deliberately ONE click with no confirm
-  phase. Asking there would teach the user that a repoint costs what a
-  re-enrol costs, which is the confusion the separate command removes.
-- **This app holds TWO control-plane addresses.** Its own `planeUrl` (what the
-  plane window opens) and the node's `serverUrl` in `config.json` (what the
-  daemon dials). `plane_url_from` falls back to the second only when the first
-  is unset, so once a preference exists the two drift freely — and every
-  surface showed exactly one of them, which made a drift invisible: the app
-  would show a plane while this machine's subshells reported to another.
-  `node_configure` now writes BOTH, and `lib/plane-coherence.ts` names the pairs
-  that predate it (or that a CLI `subshell enroll` made behind the app's back).
-  One address known is not a drift — an un-enrolled client has no `serverUrl`, a
-  CLI-enrolled machine no stored `planeUrl` — so the notice stays silent there.
-- **Both addresses are shown in ONE place**, the STATUS screen's **More…**
-  (the connected screen's, until that screen was subsumed on 2026-09-18),
-  and deliberately not as `probe-facts` rows: they are the only addresses on
-  the page that can be CHANGED, so they live with the controls that change
-  them — and they sit adjacent because the whole point is that they can
-  disagree. The enroll-time loopback warning is there with them. A
-  `probe-facts` test pins the node address's absence from the facts list.
+  nothing until it is true — and since the plane-list wave that flag guards the
+  app's ONLY re-binding door too: Re-enroll… opens this same walk, so
+  overwriting a live config can only happen behind the two-phase confirm. The
+  cheap alternative the app once offered, `node_configure`
+  (`subshell configure --server`: repoints, keeps identity, spends no key), was
+  retired from the client with that ruling; it survives as a CLI verb.
+- **The app's addresses and the node's address are different things, and the
+  list's shape says so.** The app stores a LIST (`settings.planes`, bookmarks
+  it can connect to); what the daemon dials is the node's `serverUrl`, read
+  off the probe and rendered as the list's PINNED row. That replaced the
+  single `planeUrl` with its `plane_url_from` fallback ladder and
+  `plane-coherence.ts`, all three deleted by the plane-list wave: with the
+  node's address a row of the same list, "the app opens one plane while the
+  node dials another" has no rendering left — the rows ARE the notice.
+- **The node's address shows in two places, neither as a fact row**: the
+  Control Plane section's pinned row (its menu points at Service for the
+  detaching acts) and Service's Enrolled to Control Plane card, where the
+  enroll-time loopback warning sits with it and with the walk door. The
+  Status fact rows never carry a plane address — the subtitle states the
+  machine, and a test pins the address's absence from the facts list.
 - **A setup key is single-use and lasts 24 hours.** Everything checkable is
   checked before the server consumes it, but a 409 (name already taken) or a 500
   arrives AFTER — and spends it. Those say "mint a new key", never "retry".

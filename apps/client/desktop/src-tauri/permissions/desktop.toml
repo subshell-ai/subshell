@@ -46,11 +46,6 @@ description = "Register this machine as a node via `subshell enroll`. Destructiv
 commands.allow = ["node_enroll"]
 
 [[permission]]
-identifier = "allow-node-configure"
-description = "Repoint this machine's node at a different control plane via `subshell configure`. NON-destructive, which is what separates it from enroll: it spends no setup key, mints no second node row, and keeps the node key — so it only works when both addresses are one plane under two names; a different plane refuses the node key and the node goes offline until it is pointed back or enrolled afresh. It touches only this machine's node configuration: since the plane-list ruling (2026-09-22) the app's own saved list is separate, and the Control Plane section's pinned row follows the node by itself on the next probe. It does not rename: the plane owns a node's name."
-commands.allow = ["node_configure"]
-
-[[permission]]
 identifier = "allow-node-unenroll"
 description = "Stop being a node: this app's chain stops the service, uninstalls its definition, then runs `subshell unenroll --yes --json`, which deletes the node configuration and key. It keeps the data directory, the installed binary, and every running subshell — which is the point of the confirm the page shows — and the control plane keeps its node row until its owner deletes it there."
 commands.allow = ["node_unenroll"]

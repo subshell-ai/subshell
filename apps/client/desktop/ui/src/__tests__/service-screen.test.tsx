@@ -41,7 +41,6 @@ function makeCommands(calls: Call[]): NodeCommands {
     uninstall: rec("uninstall"),
     autostart: rec("autostart"),
     rewrite: rec("rewrite"),
-    repoint: rec("repoint"),
     unenroll: rec("unenroll"),
     openPath: rec("openPath"),
     openPlane: rec("openPlane"),
@@ -55,7 +54,7 @@ function makeCommands(calls: Call[]): NodeCommands {
 
 const shell = { title: "Service", subtitle: "The node is the small program.", problem: "" };
 
-function mount(init: { probe?: ReturnType<typeof makeProbe>; busy?: boolean } = {}) {
+function mount(init: { probe?: ReturnType<typeof makeProbe>; busy?: boolean; active?: string | null } = {}) {
   const calls: Call[] = [];
   const pressed: string[] = [];
   renderApp(
@@ -64,6 +63,7 @@ function mount(init: { probe?: ReturnType<typeof makeProbe>; busy?: boolean } = 
       probe={init.probe ?? makeProbe()}
       commands={makeCommands(calls)}
       busy={init.busy ?? false}
+      active={init.active ?? null}
       onRegister={() => pressed.push("register")}
       output={null as ActionResult | null}
     />,
@@ -373,5 +373,57 @@ describe("Un-enroll", () => {
     });
     expect(button("Un-enroll…").disabled).toBe(true);
     expect(screen.getByText(/needs node version 0\.15\.0 or newer\. Update the node first\./i)).toBeTruthy();
+  });
+});
+
+/**
+ * The press narrates the card (operator rulings 2026-09-22, from the live
+ * window: "when clicking restart, there should be a spinner saying
+ * restarting. same with the stop / start button", and "when restarting this
+ * additional message occurs, can we remove it"). The runner carries the
+ * pressed act as `active`; the button wearing it turns into a spinner and
+ * the progressive word, and the card's problem sentences hold their breath
+ * until the act has settled.
+ */
+describe("while the section's own act is in flight", () => {
+  it("the pressed button shows a spinner and the progressive word", () => {
+    mount({ busy: true, active: "restart" });
+    expect(button(/Restarting…/)).toBeTruthy();
+    expect(buttonOrNull(/^Restart$/)).toBeNull();
+    expect(button("Stop").textContent).toBe("Stop");
+  });
+
+  it("the starting verb wears Starting…", () => {
+    mount({
+      busy: true,
+      active: "start",
+      probe: makeProbe({ step: "stopped", service: service({ state: "stopped" }) }),
+    });
+    expect(button(/Starting…/)).toBeTruthy();
+    // Only the button whose act runs changes; its neighbours keep their words.
+    expect(button("Uninstall").textContent).toBe("Uninstall");
+  });
+
+  it("the confirmed chains spin from the dialog's Accept to the answer", () => {
+    // The label rides the runner through `accept()` (see `active` in
+    // `use-action-runner`): between Accept and the settled re-probe the
+    // button the person pressed is the one that says what it is doing.
+    mount({ busy: true, active: "uninstall" });
+    expect(button(/Uninstalling…/)).toBeTruthy();
+    cleanup();
+    mount({ busy: true, active: "unenroll" });
+    expect(button(/Un-enrolling…/)).toBeTruthy();
+  });
+
+  it("the offline sentences wait out the act, and say their piece after", () => {
+    const offline = makeProbe({ step: "offline" });
+    mount({ probe: offline, busy: true, active: "restart" });
+    expect(screen.queryByText(/service manager reports the node as running/i)).toBeNull();
+    expect(screen.queryByText(/A node that starts, fails/i)).toBeNull();
+    // The arrangement it always states is NOT part of the hush.
+    expect(screen.getByText(/runs in the background/i)).toBeTruthy();
+    cleanup();
+    mount({ probe: offline });
+    expect(screen.getByText(/service manager reports the node as running/i)).toBeTruthy();
   });
 });

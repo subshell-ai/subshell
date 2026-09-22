@@ -50,7 +50,6 @@ function makeCommands(calls: Call[]): NodeCommands {
     uninstall: rec("uninstall"),
     autostart: rec("autostart"),
     rewrite: rec("rewrite"),
-    repoint: rec("repoint"),
     unenroll: rec("unenroll"),
     openPath: rec("openPath"),
     openPlane: rec("openPlane"),
@@ -66,8 +65,10 @@ const shell = { title: "Control Plane", subtitle: "Planes this app can connect t
 
 function mount(init: { probe?: ReturnType<typeof makeProbe>; settings?: ReturnType<typeof makeSettings> } = {}): {
   calls: Call[];
+  pressed: string[];
 } {
   const calls: Call[] = [];
+  const pressed: string[] = [];
   renderApp(
     <PlaneScreen
       shell={shell}
@@ -75,10 +76,11 @@ function mount(init: { probe?: ReturnType<typeof makeProbe>; settings?: ReturnTy
       settings={init.settings ?? makeSettings()}
       commands={makeCommands(calls)}
       busy={false}
+      onGoToService={() => pressed.push("service")}
       output={null as ActionResult | null}
     />,
   );
-  return { calls };
+  return { calls, pressed };
 }
 
 /** Install a clipboard the tests can watch; `ok: false` plays the refusal. */
@@ -120,14 +122,12 @@ describe("the pinned row", () => {
     expect(screen.getAllByRole("button", { name: "https://subshell.example.com" }).length).toBe(1);
   });
 
-  it("its menu offers the two opens and no Remove, and says nothing", () => {
+  it("its menu offers the two opens, no Remove, and a one-item pointer", () => {
     // Operator rulings 2026-09-22, in order: "what about open in browser?"
-    // gave the pinned row its opens; the note that explained the missing
-    // Remove was deleted once Un-enroll… stood up on Service. Absence is the
-    // whole message — the detaching act has its own door, and a sentence in
-    // a connect-menu pointing at it is the pane-in-the-panel this wave is
-    // systematically deleting.
-    const { calls } = mount();
+    // gave the pinned row its opens; the explanatory NOTE was deleted, but
+    // the pointer to Service stayed as a plain item ("what happened to going
+    // to the Service section" — the sentence went, the route did not).
+    const { calls, pressed } = mount();
     const scope = openMenu("https://subshell.example.com");
     fireEvent.click(menuItem(scope, "Open in dashboard"));
     expect(calls).toEqual([{ name: "openPlane", args: ["https://subshell.example.com"] }]);
@@ -136,7 +136,9 @@ describe("the pinned row", () => {
     expect(calls[1]).toEqual({ name: "openPlaneUrl", args: ["https://subshell.example.com"] });
     const scope3 = openMenu("https://subshell.example.com");
     expect(within(scope3).queryByRole("menuitem", { name: "Remove" })).toBeNull();
-    expect(within(scope3).queryByText(/detach|reports to|go to service/i)).toBeNull();
+    expect(within(scope3).queryByText(/detach|reports to/i)).toBeNull();
+    fireEvent.click(menuItem(scope3, "Go to Service"));
+    expect(pressed).toEqual(["service"]);
   });
 
   it("disappears with the node — a watcher's list has no pinned row", () => {

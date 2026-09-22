@@ -43,11 +43,26 @@ interface ActionSpec {
    * spawns.
    */
   reprobe: boolean;
+  /** The press's own name, carried to the screen that shows it. See {@link ActionRunner.active}. */
+  label: string | null;
 }
 
 export interface ActionRunner {
   /** True while an action is in flight, including its re-probe. */
   busy: boolean;
+  /**
+   * What the in-flight submission was pressed as — the `label` its `run()`
+   * carried — or null. Meaningful only while {@link ActionRunner.busy}: a
+   * screen turns the PRESSED button into a spinner and a progressive word
+   * with it (operator ruling 2026-09-22: "when clicking restart, there
+   * should be a spinner saying restarting. same with the stop / start
+   * button"), because a whole row of disabled buttons all still saying their
+   * plain words reads as a press that never registered. The label survives a
+   * confirmation: `accept()` re-mutates without touching it, so an act whose
+   * chain runs after an accepted dialog — Uninstall, Un-enroll, the forced
+   * restart — keeps the word its button began with.
+   */
+  active: string | null;
   /** The CLI's own words from the last action, or null. */
   output: ActionResult | null;
   /** Why the last action failed, in the CLI's (or Rust's) words. "" when it did not. */
@@ -55,7 +70,7 @@ export interface ActionRunner {
   /** The confirmation awaiting an answer, or null. */
   pending: PendingConfirmation | null;
   /** Submit an action. Ignored while one is already running. */
-  run: (body: ActionRun, opts?: { reprobe?: boolean }) => void;
+  run: (body: ActionRun, opts?: { reprobe?: boolean; label?: string }) => void;
   /** Run {@link ActionRunner.pending}'s action. */
   accept: () => void;
   /** Dismiss the confirmation, leaving whatever output it was raised over. */
@@ -85,6 +100,10 @@ export function useActionRunner(args: { onRun?: () => void } = {}): ActionRunner
    * on the screen.
    */
   const [confirmDismissed, setConfirmDismissed] = useState(false);
+  // The in-flight press's label. Deliberately NOT cleared when a submission
+  // settles: the only reader gates on `busy`, and a confirm's `accept()` must
+  // still find the label the original press carried.
+  const [active, setActive] = useState<string | null>(null);
 
   const mutation = useMutation<ActionOutcome, unknown, ActionSpec>({
     mutationFn: (spec) => spec.run(),
@@ -119,10 +138,11 @@ export function useActionRunner(args: { onRun?: () => void } = {}): ActionRunner
         ? "That did not work. See the output below."
         : "";
 
-  function run(body: ActionRun, opts?: { reprobe?: boolean }): void {
+  function run(body: ActionRun, opts?: { reprobe?: boolean; label?: string }): void {
     if (mutation.isPending) return;
+    setActive(opts?.label ?? null);
     onRun?.();
-    mutation.mutate({ run: body, reprobe: opts?.reprobe ?? true });
+    mutation.mutate({ run: body, reprobe: opts?.reprobe ?? true, label: opts?.label ?? null });
   }
 
   function accept(): void {
@@ -130,8 +150,10 @@ export function useActionRunner(args: { onRun?: () => void } = {}): ActionRunner
     // confirmation this was read from.
     const confirmed = pending;
     if (confirmed === null || mutation.isPending) return;
+    // `active` untouched: the chain this accepts runs under the label the
+    // original press carried.
     onRun?.();
-    mutation.mutate({ run: confirmed.run, reprobe: true });
+    mutation.mutate({ run: confirmed.run, reprobe: true, label: active });
   }
 
   function cancel(): void {
@@ -153,5 +175,5 @@ export function useActionRunner(args: { onRun?: () => void } = {}): ActionRunner
     }
   }
 
-  return { busy, output, failure, pending, run, accept, cancel, settle };
+  return { busy, active, output, failure, pending, run, accept, cancel, settle };
 }

@@ -40,14 +40,12 @@
  *   switch, the lifecycle verbs, and the manager's own detail when it said
  *   anything.
  */
-import { TriangleAlert } from "lucide-react";
-import { type ReactElement, useState } from "react";
+import { LoaderCircle, TriangleAlert } from "lucide-react";
+import type { ReactElement } from "react";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { ActionOutput } from "@/components/assistant/status-facts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import type { NodeCommands } from "@/hooks/use-node-commands";
@@ -121,12 +119,35 @@ export function ServiceScreen(props: {
   probe: Probe | undefined;
   commands: NodeCommands;
   busy: boolean;
+  /** The in-flight press's label from the runner — what makes the PRESSED
+   *  button spin (see the `pressed` helper below). */
+  active?: string | null;
   /** Start the node registration flow — for a client that is not a node yet. */
   onRegister: () => void;
   /** The CLI's last words — the verbs' answers, rendered inline below. */
   output: ActionResult | null;
 }): ReactElement {
-  const { shell, probe, commands, busy, onRegister, output } = props;
+  const { shell, probe, commands, busy, active, onRegister, output } = props;
+
+  /**
+   * The pressed button becomes a spinner and the progressive word (operator
+   * ruling 2026-09-22: "when clicking restart, there should be a spinner
+   * saying restarting. same with the stop / start button"). A whole row of
+   * disabled buttons still saying "Restart" reads as a press that never
+   * registered; the one button that lies about being the cause of the wait
+   * should be the one honest about it. The label rides the runner through a
+   * confirmation, so Uninstall and Un-enroll spin from the dialog's Accept
+   * to the answer, not from the first press.
+   */
+  const pressed = (id: string, word: string, label: ReactElement | string): ReactElement | string =>
+    busy && active === id ? (
+      <>
+        <LoaderCircle aria-hidden className="motion-safe:animate-spin" />
+        {word}…
+      </>
+    ) : (
+      label
+    );
 
   const enrolled = Boolean(probe?.status?.nodeId);
   const installed = probe?.service?.installed === true;
@@ -150,14 +171,24 @@ export function ServiceScreen(props: {
   /** The address this machine's node REPORTS to — a node fact, and the
    *  subject of this section's Control plane card (plane-list ruling). */
   const nodeServerUrl = probe?.status?.serverUrl ?? null;
-  const [editingRepoint, setEditingRepoint] = useState(false);
-  const [repointTyped, setRepointTyped] = useState("");
   const action = probe ? serviceAction(probe.step) : null;
   const problem = probe ? serviceProblem(probe.step) : null;
   const detail = probe ? serviceDetail(probe.step) : null;
   /** tmux is a gate, not a caption: a service that starts without it 409s every launch. */
   const blocked = probe !== undefined && !probe.tmux;
 
+  /**
+   * The press narrates the card. While a verb this section raised is
+   * running, the problem and detail sentences would describe the machine
+   * MID-ACTION — "The service manager reports the node as running, but no
+   * local daemon is heartbeating." is a restart caught at the wrong moment
+   * (operator ruling 2026-09-22: "when restarting this additional message
+   * occurs, can we remove it"). The spinner on the pressed button is the
+   * message the wait gets; the sentences come back the moment the act has
+   * settled and the awaited re-probe has landed, so a node that IS offline
+   * when the wait ends still says so, once.
+   */
+  const quiet = busy;
   const known = probe === undefined || (PROBE_STEPS as readonly string[]).includes(probe.step);
   const mute = probe?.step === "no-node" && probe.nodeBinary != null;
   const noNode = probe?.step === "no-node" && probe.nodeBinary == null;
@@ -223,8 +254,8 @@ export function ServiceScreen(props: {
       {enrolled && !installed && action && (
         <div className="mt-6 rounded-md border border-warning/40 bg-warning/10 p-3">
           <p className="font-strong text-detail">In the background</p>
-          {problem && <p className="mt-2 text-detail leading-relaxed">{problem}</p>}
-          {detail && <p className="mt-2 text-detail text-muted-foreground leading-relaxed">{detail}</p>}
+          {!quiet && problem && <p className="mt-2 text-detail leading-relaxed">{problem}</p>}
+          {!quiet && detail && <p className="mt-2 text-detail text-muted-foreground leading-relaxed">{detail}</p>}
           <div className="mt-2">
             <Button
               variant="outline"
@@ -237,7 +268,7 @@ export function ServiceScreen(props: {
                 commands.service(action.verb, { settle: true });
               }}
             >
-              {action.label}
+              {pressed(action.verb, "Installing", action.label)}
             </Button>
           </div>
           {blocked && <p className="mt-2 text-detail text-warning">{tmuxHint(probe, "service")}</p>}
@@ -253,8 +284,8 @@ export function ServiceScreen(props: {
         <div className="mt-6 rounded-md border border-border p-3">
           <p className="font-strong text-detail">In the background</p>
           <p className="mt-2 text-detail leading-relaxed">{arrangementBody(atLogin)}</p>
-          {problem && <p className="mt-2 text-detail leading-relaxed">{problem}</p>}
-          {detail && <p className="mt-2 text-detail text-muted-foreground leading-relaxed">{detail}</p>}
+          {!quiet && problem && <p className="mt-2 text-detail leading-relaxed">{problem}</p>}
+          {!quiet && detail && <p className="mt-2 text-detail text-muted-foreground leading-relaxed">{detail}</p>}
 
           {/* The switch, nested under the arrangement it belongs to — arming
               login means nothing without a service, which is why this whole
@@ -297,7 +328,7 @@ export function ServiceScreen(props: {
                 disabled={busy || blocked}
                 onClick={() => commands.service("start", { settle: true })}
               >
-                Start
+                {pressed("start", "Starting", "Start")}
               </Button>
             )}
             {running && (
@@ -307,16 +338,16 @@ export function ServiceScreen(props: {
                 disabled={busy}
                 onClick={() => commands.service("stop", { settle: true })}
               >
-                Stop
+                {pressed("stop", "Stopping", "Stop")}
               </Button>
             )}
             {running && (
               <Button variant="outline" size="sm" disabled={busy || blocked} onClick={commands.restart}>
-                Restart
+                {pressed("restart", "Restarting", "Restart")}
               </Button>
             )}
             <Button variant="outline" size="sm" disabled={busy} onClick={commands.uninstall}>
-              Uninstall
+              {pressed("uninstall", "Uninstalling", "Uninstall")}
             </Button>
           </div>
           {blocked && <p className="mt-2 text-detail text-warning">{tmuxHint(probe, "service")}</p>}
@@ -347,7 +378,7 @@ export function ServiceScreen(props: {
           </p>
           <div className="mt-2">
             <Button variant="outline" size="sm" disabled={busy} onClick={commands.rewrite}>
-              Rewrite the service definition
+              {pressed("rewrite", "Rewriting", "Rewrite the service definition")}
             </Button>
           </div>
         </div>
@@ -379,16 +410,20 @@ export function ServiceScreen(props: {
 
       {/* The machine's BINDING to a plane (operator ruling 2026-09-22, the
           list wave): the address the node reports to is a node fact, so it
-          states itself HERE, beside the act that changes it, while the
+          states itself HERE, beside the acts that change it, while the
           Control Plane section holds the planes this APP connects to — the
-          ruling's split, in the interface. Re-enroll… IS repointing: the
-          same `node_configure` act with identity kept and no setup key
-          spent, so it is a press and not a chain; the field stays open on
-          submit because the CLI's own refusal is the answer to a bad
-          address. The enroll-time loopback trap moved with the address it
-          describes: a node pointed at `localhost` dials a control plane on
-          ITS OWN machine, right when the plane runs here and wrong whenever
-          the address came from a browser elsewhere, and silent either way. */}
+          ruling's split, in the interface. Re-enroll… goes through the
+          ENROLLMENT WIZARD (same-day supersession: "Re-enroll should go
+          through the enrollment wizard"): the press enters the walk the
+          Register card enters, seeded with this address, and the wizard's
+          own two-phase guard is what makes a press over a live `config.json`
+          honest — Rust refuses to spend a key over an existing enrollment
+          without the named confirmation, because it overwrites the file and
+          mints a fresh node row. The enroll-time loopback trap moved with
+          the address it describes: a node pointed at `localhost` dials a
+          control plane on ITS OWN machine, right when the plane runs here
+          and wrong whenever the address came from a browser elsewhere, and
+          silent either way. */}
       {enrolled && nodeServerUrl !== null && (
         <div className="mt-6 rounded-md border border-border p-3">
           <p className="font-strong text-detail">Enrolled to Control Plane</p>
@@ -402,84 +437,11 @@ export function ServiceScreen(props: {
               </span>
             </p>
           )}
-          {editingRepoint ? (
-            // A DIALOG, not a pane grown inside the card (operator ruling
-            // 2026-09-22), and it CLOSES on submit like every other save in
-            // this app (same-day report from the live window: the inline
-            // form's stay-open habit was invisible behind a modal — a
-            // successful repoint updated the card underneath while the
-            // dialog sat there saying nothing). The card is the feedback:
-            // the address line and the Control Plane list's pinned row
-            // follow the node on the next probe; a refusal lands on this
-            // section's output block in the CLI's verbatim words, and the
-            // retry is an open and an edit of the seeded current address.
-            <Dialog title="Re-enroll this machine" onClose={() => setEditingRepoint(false)}>
-              <form
-                className="flex flex-col gap-2"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (busy || repointTyped.trim() === "") return;
-                  const url = repointTyped;
-                  setEditingRepoint(false);
-                  setRepointTyped("");
-                  commands.repoint(url);
-                }}
-              >
-                <Label htmlFor="repoint-url" className="text-detail text-muted-foreground">
-                  Control plane this node reports to
-                </Label>
-                <p className="text-detail text-muted-foreground leading-relaxed">
-                  Re-enrolling points the node at the address you enter; its identity is kept and no setup key is spent.
-                  The node takes the new address when it restarts.
-                </p>
-                <Input
-                  id="repoint-url"
-                  value={repointTyped}
-                  onChange={(e) => setRepointTyped(e.target.value)}
-                  placeholder="https://subshell.example.com"
-                  spellCheck={false}
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                  disabled={busy}
-                  autoFocus
-                />
-                <div className="flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => {
-                      setEditingRepoint(false);
-                      setRepointTyped("");
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="submit" size="sm" disabled={busy || repointTyped.trim() === ""}>
-                    Re-enroll
-                  </Button>
-                </div>
-              </form>
-            </Dialog>
-          ) : (
-            <div className="mt-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={() => {
-                  if (busy) return;
-                  // Seeded: a re-enroll is usually one character or one name
-                  // away from the address already there.
-                  setRepointTyped(nodeServerUrl);
-                  setEditingRepoint(true);
-                }}
-              >
-                Re-enroll…
-              </Button>
-            </div>
-          )}
+          <div className="mt-2">
+            <Button variant="outline" size="sm" disabled={busy} onClick={onRegister}>
+              Re-enroll…
+            </Button>
+          </div>
           {/* Un-enroll rides the same card because it closes the same
               relationship: this machine stops being a node of this plane.
               The danger styling is the whole of its emphasis — the chain's
@@ -496,7 +458,7 @@ export function ServiceScreen(props: {
               disabled={busy || !unenrollSupported(probe)}
               onClick={() => commands.unenroll()}
             >
-              Un-enroll…
+              {pressed("unenroll", "Un-enrolling", "Un-enroll…")}
             </Button>
             {!unenrollSupported(probe) && (
               <p className="mt-2 text-detail text-muted-foreground">

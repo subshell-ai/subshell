@@ -98,6 +98,26 @@ export function App() {
   const [phase, setPhase] = useState<RegisterPhase>("form");
   /** Which act of that chain failed, if one did. */
   const [failedAct, setFailedAct] = useState<RegisterRow["id"] | null>(null);
+  /**
+   * The section a door press entered the walk FROM, if any (operator ruling
+   * 2026-09-22: "the back button in register this machine coming from
+   * re-enroll goes back to the control plane instead of the service"). The
+   * walk must clear the override on entry — an override outranks a step in
+   * `clientScreen`, so a standing Service override would swallow the walk's
+   * own screen — and that is exactly what made the walk's exits dump a
+   * configured client on the Control Plane landing they never asked to visit.
+   * Holding the origin for one exit restores it, and nothing else: a fresh
+   * machine's walk never sets it, so its Back still answers "choice", and
+   * Progress's Continue still lands a first-time setup on the landing.
+   */
+  const [walkFrom, setWalkFrom] = useState<NodeUserScreen | null>(null);
+  /** End a walk, landing where it was entered from — the landing itself
+   *  when no door opened it. One-shot: the origin is spent on the exit. */
+  const exitWalk = () => {
+    setStep(null);
+    setOverride(walkFrom);
+    setWalkFrom(null);
+  };
 
   // The tray's own route into this page. One event, one name, and an id this
   // build does not know is IGNORED rather than throwing — that is what lets a
@@ -430,7 +450,7 @@ export function App() {
             // one does. Leaving is safe: the install is Rust's and finishes
             // either way, the next probe sees the tmux it produced, and every
             // control on the screen this lands on is disabled by `busy` as usual.
-            onBack={() => setStep(configured(settings, probe) ? null : "choice")}
+            onBack={() => (configured(settings, probe) ? exitWalk() : setStep("choice"))}
           />
         );
       case "register":
@@ -445,15 +465,18 @@ export function App() {
             // parameterizes the chain's own `service install`.
             //
             // Where Back goes, and why it is not always the same place: a fresh
-            // machine came through Choice and returns there, while a client that
-            // was ALREADY configured reached this screen from the status screen's
-            // "Register this machine" — for that person Choice is a screen they
-            // never saw, and `setStep(null)` puts them back on the landing with
-            // their dashboard button. Without this the status-screen door was
+            // machine came through Choice and returns there, while a client
+            // that was ALREADY configured reached this screen from a Service
+            // card's door — for that person Choice is a screen they never saw,
+            // and `exitWalk()` puts them back on the section the door stood on
+            // (ruling 2026-09-22: the landing was the WRONG promise; coming
+            // from Re-enroll and surfacing on Control Plane read as the back
+            // button having lost their place). Without any of this the door was
             // one-way for the rest of the session.
             onBack={() => {
               if (runner.busy) return;
-              setStep(configured(settings, probe) ? null : "choice");
+              if (configured(settings, probe)) exitWalk();
+              else setStep("choice");
             }}
             // Validated HERE as well as inside the chain, because this is the
             // screen that OWNS the fields. The button is gated only on them
@@ -499,7 +522,7 @@ export function App() {
             // completed checklist is the answer to "what did that just do", and
             // a pane that navigates away the moment it becomes an answer is the
             // jarring thing the sibling app was reported for.
-            onContinue={() => setStep(null)}
+            onContinue={exitWalk}
             onRetry={runRegister}
             // Back to the details, unless the machine is already registered —
             // only the service act fails after enrolment has landed, and by then
@@ -534,6 +557,7 @@ export function App() {
             probe={probe}
             commands={commands}
             busy={runner.busy}
+            active={runner.active}
             onRegister={() => {
               if (runner.busy) return;
               form.seedServer(probe?.status?.serverUrl ?? settings?.planes[0] ?? "");
@@ -541,7 +565,9 @@ export function App() {
               // replace the section they are reading: Service is an override
               // now (every rail select is), and leaving it set would swallow
               // the walk's own screen behind it — the 11c0f14f fix, re-traced
-              // to its new home on Service.
+              // to its new home on Service. The origin is remembered so the
+              // walk's exits can hand the section back (`walkFrom`).
+              setWalkFrom("service");
               setOverride(null);
               setStep("node");
             }}
@@ -551,6 +577,7 @@ export function App() {
       case "plane":
         return (
           <PlaneScreen
+            onGoToService={() => setOverride("service")}
             shell={shell}
             rail={rail}
             probe={probe}

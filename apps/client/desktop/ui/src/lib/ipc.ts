@@ -411,24 +411,6 @@ export function nodeService(args: {
 }
 
 /**
- * Repoint this machine's node at a different control plane.
- *
- * The NON-destructive counterpart to {@link nodeEnroll}, and the distinction is
- * the whole reason it exists: no setup key is spent, no second node row is
- * minted, and the node key — whose only home is the 0600 `config.json` — is
- * kept. So there is no confirmation phase; nothing here is unrecoverable.
- *
- * It touches only the node's own configuration: since the plane-list ruling
- * (2026-09-22) the app's saved list is separate, and the Control Plane
- * section's pinned row follows the node by itself on the next probe. The node
- * reads its config at start, so a repoint takes effect on the next restart of
- * the daemon.
- */
-export function nodeConfigure(args: { server: string }): Promise<ActionResult> {
-  return invoke<ActionResult>("node_configure", args);
-}
-
-/**
  * Stop being a node. ONE call; the confirm lives on the screen, and what it
  * accepts is ORPHANING, never killing: running subshells keep running with
  * nothing reporting them.

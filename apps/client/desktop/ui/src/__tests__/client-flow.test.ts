@@ -133,7 +133,7 @@ describe("clientScreen", () => {
   });
 
   it("keeps the person in the walk they are mid-way through, even once a plane is settled", () => {
-    // Enrolling settles `planeUrl` while the chain is still starting the
+    // Connecting settles the plane list while a chain is still starting the
     // service. A configured-outranks-everything rule would replace the
     // progress the person is watching with Status mid-press; the walk ends
     // when the page clears the step, not when a side effect lands.

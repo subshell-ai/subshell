@@ -23,7 +23,6 @@ import {
   type ActionResult,
   type EnrolledNodeBody,
   type EnrollOutcome,
-  nodeConfigure,
   nodeEnroll,
   nodeInstallCli,
   nodeInstallTmux,
@@ -83,8 +82,6 @@ export interface NodeCommands {
   unenroll: () => void;
   /** Rewrite the service definition, confirmed where the rewrite itself costs panes. */
   rewrite: () => void;
-  /** Repoint this machine's node at another control plane. Non-destructive, so one click. */
-  repoint: (server: string) => void;
   /** Reveal one of the app's own directories or files (the Status fact rows). */
   openPath: (target: OpenTarget) => void;
   /** Show one control plane's UI, at the row's address. Opens are one-off. */
@@ -223,7 +220,7 @@ export function useNodeCommands(args: {
         });
       }),
 
-    service: (verb, opts) => runner.run(async () => finished(await runService(verb, opts))),
+    service: (verb, opts) => runner.run(async () => finished(await runService(verb, opts)), { label: verb }),
 
     /**
      * The run-at-login switch's press. No confirmation and no settle: the CLI
@@ -245,35 +242,38 @@ export function useNodeCommands(args: {
      * the verbatim refusal, never a silent retry.
      */
     restart: () =>
-      runner.run(async () => {
-        const first = await nodeService({ verb: "restart", force: false });
-        if (first.ok) {
-          await runner.settle();
-          return finished(first);
-        }
-        if (!first.stderr.includes("refusing to restart")) return finished(first);
-        return asks(
-          {
-            title: "This restart would kill every subshell running on this machine",
-            messages: [
-              first.stderr.trim(),
-              rewriteKillsPanes(probe)
-                ? "Rewriting the definition fixes this permanently, but it restarts the service once, so " +
-                  "sessions end either way. Forcing the restart ends them without fixing anything."
-                : 'The button labelled "Rewrite the service definition" is the CLI\'s own first suggestion: it ' +
-                  "fixes this for good and kills nothing. Forcing the restart loses every session running on this " +
-                  "machine right now.",
-            ],
-            acceptLabel: "Restart anyway (--force)",
-            run: async () => {
-              const forced = await nodeService({ verb: "restart", force: true });
-              if (forced.ok) await runner.settle();
-              return finished(forced);
+      runner.run(
+        async () => {
+          const first = await nodeService({ verb: "restart", force: false });
+          if (first.ok) {
+            await runner.settle();
+            return finished(first);
+          }
+          if (!first.stderr.includes("refusing to restart")) return finished(first);
+          return asks(
+            {
+              title: "This restart would kill every subshell running on this machine",
+              messages: [
+                first.stderr.trim(),
+                rewriteKillsPanes(probe)
+                  ? "Rewriting the definition fixes this permanently, but it restarts the service once, so " +
+                    "sessions end either way. Forcing the restart ends them without fixing anything."
+                  : 'The button labelled "Rewrite the service definition" is the CLI\'s own first suggestion: it ' +
+                    "fixes this for good and kills nothing. Forcing the restart loses every session running on this " +
+                    "machine right now.",
+              ],
+              acceptLabel: "Restart anyway (--force)",
+              run: async () => {
+                const forced = await nodeService({ verb: "restart", force: true });
+                if (forced.ok) await runner.settle();
+                return finished(forced);
+              },
             },
-          },
-          first,
-        );
-      }),
+            first,
+          );
+        },
+        { label: "restart" },
+      ),
 
     /**
      * Uninstalling gates on nothing in the CLI — deliberately, so a stranded
@@ -281,24 +281,27 @@ export function useNodeCommands(args: {
      * gets said out loud.
      */
     uninstall: () =>
-      runner.run(async () => {
-        const messages = [
-          "The node stops and will not come back at login. This machine stays registered, with its " +
-            "configuration and node key untouched, so running it in the background again brings it back.",
-        ];
-        if (paneRisk(probe)) {
-          messages.push(
-            "The installed definition does not spare live panes, so this kills every subshell running on this " +
-              "machine.",
-          );
-        }
-        return asks({
-          title: "Uninstall the background service",
-          messages,
-          acceptLabel: "Uninstall the service",
-          run: async () => finished(await nodeService({ verb: "uninstall", force: false })),
-        });
-      }),
+      runner.run(
+        async () => {
+          const messages = [
+            "The node stops and will not come back at login. This machine stays registered, with its " +
+              "configuration and node key untouched, so running it in the background again brings it back.",
+          ];
+          if (paneRisk(probe)) {
+            messages.push(
+              "The installed definition does not spare live panes, so this kills every subshell running on this " +
+                "machine.",
+            );
+          }
+          return asks({
+            title: "Uninstall the background service",
+            messages,
+            acceptLabel: "Uninstall the service",
+            run: async () => finished(await nodeService({ verb: "uninstall", force: false })),
+          });
+        },
+        { label: "uninstall" },
+      ),
 
     /**
      * The remedy for a definition that would SIGKILL every subshell on a
@@ -308,31 +311,22 @@ export function useNodeCommands(args: {
      * nothing" is not said on the platform where it does.
      */
     rewrite: () =>
-      runner.run(async () => {
-        if (!rewriteKillsPanes(probe)) return finished(await runService("install", { settle: true }));
-        return asks({
-          title: "Rewriting the definition restarts the Subshell Node Service",
-          messages: [
-            "All running subshells on this machine will stop while it restarts.",
-            "It is the last time that happens. The definition this writes spares panes, so every stop, restart " +
-              "and uninstall after it is free.",
-          ],
-          acceptLabel: "Rewrite the definition",
-          run: async () => finished(await runService("install", { settle: true })),
-        });
-      }),
-
-    /**
-     * Repointing is the ONE address change that costs nothing: `configure`
-     * spends no setup key, mints no second node row and keeps the node key,
-     * so there is nothing to confirm. Since the Control Plane collapse
-     * (operator ruling 2026-09-22) it is also what the plane card's Re-enroll…
-     * press IS: one address, and repointing the node to it.
-     *
-     * It DOES re-probe: `serverUrl` is a probe fact, and the divergence notice
-     * is computed from it.
-     */
-    repoint: (server) => runner.run(async () => finished(await nodeConfigure({ server }))),
+      runner.run(
+        async () => {
+          if (!rewriteKillsPanes(probe)) return finished(await runService("install", { settle: true }));
+          return asks({
+            title: "Rewriting the definition restarts the Subshell Node Service",
+            messages: [
+              "All running subshells on this machine will stop while it restarts.",
+              "It is the last time that happens. The definition this writes spares panes, so every stop, restart " +
+                "and uninstall after it is free.",
+            ],
+            acceptLabel: "Rewrite the definition",
+            run: async () => finished(await runService("install", { settle: true })),
+          });
+        },
+        { label: "rewrite" },
+      ),
 
     /**
      * The one press whose confirm exists for what it KEEPS rather than what
@@ -342,23 +336,25 @@ export function useNodeCommands(args: {
      * (`node_unenroll`); this is its consent and its settle.
      */
     unenroll: () =>
-      runner.run(async () =>
-        asks({
-          title: "Un-enroll this machine?",
-          messages: [
-            "This removes this machine's node configuration and key, and uninstalls the node service. Subshells " +
-              "that are still running keep running, but nothing will manage them.",
-            "The control plane keeps its node row until its owner deletes it there.",
-          ],
-          acceptLabel: "Un-enroll",
-          run: async () => {
-            const result = await nodeUnenroll();
-            // A different machine afterwards: the re-probe is what lands the
-            // section off a gone node, as for every lifecycle verb.
-            if (result.ok) await runner.settle();
-            return finished(result);
-          },
-        }),
+      runner.run(
+        async () =>
+          asks({
+            title: "Un-enroll this machine?",
+            messages: [
+              "This removes this machine's node configuration and key, and uninstalls the node service. Subshells " +
+                "that are still running keep running, but nothing will manage them.",
+              "The control plane keeps its node row until its owner deletes it there.",
+            ],
+            acceptLabel: "Un-enroll",
+            run: async () => {
+              const result = await nodeUnenroll();
+              // A different machine afterwards: the re-probe is what lands the
+              // section off a gone node, as for every lifecycle verb.
+              if (result.ok) await runner.settle();
+              return finished(result);
+            },
+          }),
+        { label: "unenroll" },
       ),
 
     openPath: (target) =>

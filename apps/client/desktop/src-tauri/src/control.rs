@@ -139,17 +139,6 @@ pub enum NodeCommand {
     /// nobody had chosen. The app asks, so this variant cannot represent a
     /// nameless enroll at all.
     Enroll { server: String, key: String, name: String },
-    /// `configure --json` — repoint an ALREADY-enrolled node.
-    ///
-    /// The non-destructive counterpart to [`NodeCommand::Enroll`], and the
-    /// reason it is a separate variant rather than a flag on that one: it
-    /// carries no setup key, keeps this node's id and node key, and mints no
-    /// second node row. "The control plane moved" had no other answer.
-    ///
-    /// Carries no name, because the CLI takes none: `config.json`'s name never
-    /// reaches the plane outside the enroll body, so a rename here would move
-    /// a local display string and leave the Nodes page unchanged.
-    Configure { server: String },
     /// `unenroll --yes --json` — stop being a node, from the node side.
     ///
     /// The flags are baked into the variant, not offered to the page, for
@@ -206,12 +195,6 @@ impl NodeCommand {
                 args.push("--json".into());
                 args
             }
-            NodeCommand::Configure { server } => {
-                // `--json` for the same reason enroll uses it: the node id and
-                // the stored address come back as data, never screen-scraped
-                // off a human line. The body omits the node key.
-                vec!["configure".into(), "--server".into(), server.clone(), "--json".into()]
-            }
             NodeCommand::Unenroll => vec!["unenroll".into(), "--yes".into(), "--json".into()],
         }
     }
@@ -221,10 +204,7 @@ impl NodeCommand {
     fn timeout(&self) -> Duration {
         match self {
             NodeCommand::Status | NodeCommand::ServiceStatus => QUERY_TIMEOUT,
-            NodeCommand::Service { .. }
-            | NodeCommand::Enroll { .. }
-            | NodeCommand::Configure { .. }
-            | NodeCommand::Unenroll => ACTION_TIMEOUT,
+            NodeCommand::Service { .. } | NodeCommand::Enroll { .. } | NodeCommand::Unenroll => ACTION_TIMEOUT,
         }
     }
 }
@@ -1187,22 +1167,6 @@ pub(crate) fn service_now(
     }
 }
 
-/// Repoint this machine's node at a different control plane.
-///
-/// The non-destructive sibling of [`node_enroll`], and the reason it needs no
-/// confirmation gate: it spends no setup key, mints no second node row, and
-/// keeps the node key whose only home is `config.json`. Nothing here is
-/// unrecoverable, so nothing here has to be asked about twice.
-///
-/// The app's OWN saved plane list is deliberately untouched: since the plane
-/// list ruling (2026-09-22) the list is what this person stores to connect
-/// to, and the address the node reports to is a probe fact the Control Plane
-/// section renders as its pinned row. The row moves by itself on the next
-/// probe; repointing rewrites the node's file and nothing else.
-///
-/// The URL is validated HERE, before anything spawns: the same
-/// [`validate_server_url`] the enroll form and the plane window use, so all
-/// three refuse the same strings with the same words.
 /// Stop being a node: stop, uninstall the definition, then delete the config.
 ///
 /// The narrow sibling of [`crate::reset::node_reset`]. That one is the broad
@@ -1211,15 +1175,15 @@ pub(crate) fn service_now(
 /// binary exactly where they are and spends only the identity. The chain
 /// deliberately carries the reset's proven first two steps and none of its
 /// tmux half: a running subshell outliving its node is this product's design
-/// (the client's confirm says so, in the plan's words the CLI itself keeps),
-/// so un-enroll orphans panes rather than killing them.
+/// (the client's confirm says so, in words the CLI itself keeps), so
+/// un-enroll orphans panes rather than killing them.
 ///
 /// Stop and uninstall run FIRST and tolerate "nothing installed", for the
 /// reset's own reason: a kept definition respawns a daemon against a deleted
 /// config, and a Retry after any later failure must not die on a step whose
 /// subject an earlier half-run already removed. Then the CLI's verb deletes
 /// `daemon.lock` before `config.json` (config LAST, the resumability rule it
-/// shares with the reset), and its refusal words — a live unsupervised
+/// shares with the reset); the CLI's own refusal words — a live unsupervised
 /// daemon, running panes — reach the screen verbatim, `--yes` notwithstanding
 /// for the panes only.
 #[tauri::command(async)]
@@ -1251,23 +1215,6 @@ pub fn node_unenroll(settings: State<'_, SettingsState>) -> ActionResult {
         stdout: format!("{log}{}", out.stdout),
         stderr: out.stderr,
     }
-}
-
-#[tauri::command(async)]
-pub fn node_configure(settings: State<'_, SettingsState>, server: Option<String>) -> ActionResult {
-    let server = match server.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
-        Some(raw) => match validate_server_url(&raw) {
-            Ok(url) => url,
-            Err(e) => return ActionResult::refused(e),
-        },
-        None => return ActionResult::refused("enter the control plane's URL to repoint this node"),
-    };
-    let node_binary = node_bin::resolve(settings.get().binary_path.as_deref());
-    let command = NodeCommand::Configure { server: server.clone() };
-    let Some(out) = run_node(node_binary.as_ref(), &command) else {
-        return ActionResult::refused(NO_NODE);
-    };
-    out.into()
 }
 
 // ---------------------------------------------------------------------------
@@ -2387,36 +2334,6 @@ mod command_set_tests {
                 "box",
                 "--json"
             ]
-        );
-    }
-
-    /// `configure` is the NON-destructive repoint, and its argv is what proves
-    /// it: no `--key` (it spends no setup key) and no `--data-dir` (the
-    /// identity directory belongs to the enrollment that made it). No `--name`
-    /// either — the plane owns a node's name, and the CLI rejects the flag.
-    #[test]
-    fn configure_repoints_without_a_setup_key_or_a_rename() {
-        let args = NodeCommand::Configure {
-            server: "https://subshell.example".into(),
-        }
-        .args();
-        assert_eq!(args, ["configure", "--server", "https://subshell.example", "--json"]);
-        for forbidden in ["--key", "--data-dir", "--name"] {
-            assert!(!args.iter().any(|a| a == forbidden), "{forbidden} must not appear");
-        }
-    }
-
-    /// A repoint dials no control plane — it rewrites one local file — but it
-    /// does go through the same spawn machinery as an enroll, and the CLI does
-    /// its own fs work. The action deadline, not the query one.
-    #[test]
-    fn a_repoint_gets_the_action_deadline() {
-        assert_eq!(
-            NodeCommand::Configure {
-                server: "https://subshell.example".into(),
-            }
-            .timeout(),
-            ACTION_TIMEOUT
         );
     }
 

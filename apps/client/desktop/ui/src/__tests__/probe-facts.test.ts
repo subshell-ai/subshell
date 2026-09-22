@@ -43,7 +43,7 @@ describe("probeFacts", () => {
   /**
    * The node's control-plane address belongs to `node-plane-card`, which is the
    * only surface that can change it — and which carries the loopback warning
-   * now (`__tests__/repoint.test.tsx` pins that). Restating it here would be a
+   * now (`__tests__/reenroll-wizard.test.tsx` pins the door). Restating it here would be a
    * second copy of one address on one page.
    */
   it("does NOT restate the node's control-plane address", () => {

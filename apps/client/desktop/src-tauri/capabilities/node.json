@@ -13,7 +13,6 @@
     "allow-node-install-agent",
     "allow-node-install-tmux",
     "allow-node-enroll",
-    "allow-node-configure",
     "allow-node-unenroll",
     "allow-node-service",
     "allow-node-open-path",
