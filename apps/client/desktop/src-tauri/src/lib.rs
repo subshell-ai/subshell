@@ -166,6 +166,7 @@ pub fn run() {
             control::node_open_web,
             control::node_pending_screen,
             control::node_open_path,
+            control::node_logs,
             control::node_settings,
             control::node_set_plane,
             control::node_open_plane,

@@ -302,8 +302,30 @@ export interface NodeSettings {
   planeUrl: string | null;
 }
 
-/** The directories and files the window may ask to reveal. `OpenTarget`, kebab-case. */
+/**
+ * The directories and files the window may ask to reveal. `OpenTarget`,
+ * kebab-case.
+ *
+ * BACK since the rails final addendum (2026-09-22): the affordance left the
+ * Service bottom bar because of WHERE it sat, not WHAT it did, and it lives
+ * on the Status fact rows whose value is the path — the server's pattern,
+ * which kept this closed set and its safety rule intact: the page names a
+ * member, never a path.
+ */
 export type OpenTarget = "config-dir" | "data-dir" | "node-log";
+
+/**
+ * The tail of the node's own log, for the Status section's log pane
+ * (rails final addendum: the server console's `desktop_logs`, same shape).
+ */
+export interface LogTail {
+  /** The rendered lines, joined with `\n`; empty when nothing was readable. */
+  text: string;
+  /** The file's path, or a name for where the lines came from. */
+  source: string;
+  /** Why the text is empty: a hint, a refusal, or nothing when there was a log. */
+  note: string | null;
+}
 
 // ---------------------------------------------------------------------------
 // The commands
@@ -434,6 +456,18 @@ export function nodeEnroll(args: {
  */
 export function nodeOpenPath(args: { target: OpenTarget }): Promise<void> {
   return invoke<void>("node_open_path", args);
+}
+
+/**
+ * The last lines of the node's own log, for the Status section's log pane
+ * (rails final addendum: the server console's `desktop_logs`, same shape).
+ *
+ * Takes NO argument. Rust locates the file from its own read of the machine
+ * — the page cannot name a file, which is what keeps a bounded read of one
+ * known log from becoming an arbitrary file read.
+ */
+export function nodeLogs(): Promise<LogTail> {
+  return invoke<LogTail>("node_logs");
 }
 
 /**

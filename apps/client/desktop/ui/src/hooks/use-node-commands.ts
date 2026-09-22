@@ -55,20 +55,29 @@ export interface NodeCommands {
   /**
    * Uninstall the background service. Always confirmed.
    *
-   * Currently screen-less (review M6, 2026-09-22): no rendered screen invokes
-   * it, because the rail's Reset section is the door for leaving and
-   * uninstalling the service while keeping the node is an act nothing offers
-   * yet. It stays on the command surface rather than being deleted: the verb
-   * is the CLI's, and a screen for it is a ruling away, not a rebuild.
+   * Offered on the Service section since the rails addendum (2026-09-22) put
+   * the full lifecycle verbs there for server parity — "uninstall the service
+   * while keeping the node" is the act review M6 said was a ruling away, and
+   * that is the ruling.
    */
   uninstall: () => void;
+  /**
+   * Arm or disarm login start for the installed service — the run-at-login
+   * switch, and the day-2 form of what the first run's start-up screen asks
+   * once.
+   *
+   * The CLI's `service autostart on|off` changes the NEXT login and nothing
+   * running: no restart, no stop. That is what lets it be a switch rather
+   * than a confirmed act — reversing it reverses everything.
+   */
+  autostart: (on: boolean) => void;
   /** Rewrite the service definition, confirmed where the rewrite itself costs panes. */
   rewrite: () => void;
   /** Register this machine. Two-phase, always. */
   enroll: () => void;
   /** Repoint this machine's node at another control plane. Non-destructive, so one click. */
   repoint: (server: string) => void;
-  /** Reveal one of the app's own directories or files. */
+  /** Reveal one of the app's own directories or files (the Status fact rows). */
   openPath: (target: OpenTarget) => void;
   /** Show a control plane's UI. `null` opens the address already settled. */
   openPlane: (url: string | null) => void;

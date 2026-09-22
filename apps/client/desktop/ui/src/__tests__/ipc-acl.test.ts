@@ -307,6 +307,18 @@ describe("the invocations that must stay unreachable", () => {
   // `subshell run` never resolves and competes with the installed service for
   // one node (both restart on exit, so the pair flaps); `subshell mcp` is
   // per-pane plumbing only a launch's environment can configure.
+  it("keeps the node log tail an argument-less read", () => {
+    // Same shape as the server's `desktop_logs` and for the same reason: the
+    // page cannot name a file. Rust locates the log from its OWN read of the
+    // machine (`node_paths(&read_node_config())`), so a compromised page can
+    // tail the node's log or nothing at all — never an arbitrary path.
+    const rust = readFileSync(join(TAURI_DIR, "src/control.rs"), "utf8");
+    const signature = rust.slice(rust.indexOf("pub fn node_logs("));
+    expect(signature.startsWith("pub fn node_logs("), "node_logs vanished from control.rs").toBe(true);
+    const params = signature.slice(signature.indexOf("(") + 1, signature.indexOf(")"));
+    expect(params.trim()).toBe("");
+  });
+
   it("keeps the service verbs to the six the CLI accepts", () => {
     const union = /export type ServiceVerb =([^;]+);/.exec(ipcSource)?.[1] ?? "";
     expect(union).not.toBe("");

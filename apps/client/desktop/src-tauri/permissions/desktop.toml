@@ -61,6 +61,11 @@ description = "Reveal one of a fixed set of the app's own directories or log fil
 commands.allow = ["node_open_path"]
 
 [[permission]]
+identifier = "allow-node-logs"
+description = "Read a bounded tail of the node's own log file, for the Status section's log pane. Takes no argument: Rust locates the file from its own read of the machine, so the page can name no file."
+commands.allow = ["node_logs"]
+
+[[permission]]
 identifier = "allow-node-arm-reset"
 description = "Read this machine now and stash the reset's delete plan, taken from the agent's own `status --json` rather than derived here. Changes nothing; answers only whether a plan parsed, which is how the screen knows to render its refusal on a machine that is not enrolled."
 commands.allow = ["node_arm_reset"]

@@ -33,7 +33,7 @@
  *   the defect the whole flow exists to remove.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { App } from "@/app";
 import { SETTLE_ATTEMPTS, SETTLE_DELAY_MS } from "@/hooks/use-action-runner";
 import { PROBE_KEY, PROBE_POLL_MS } from "@/hooks/use-node-state";
@@ -263,14 +263,15 @@ describe("the assistant frame", () => {
 describe("a failure message always reaches the screen", () => {
   // THE regression. `node_probe` cannot reject; every other command can, and
   // its rejection is a plain string. The old code re-probed after an action and
-  // overwrote the message the action had set — so `node_open_path`'s rejection,
-  // which on Linux IS the journalctl command to run and is the only place a
-  // user learns it, rendered as nothing at all.
+  // overwrote the message the action had set — so the rejection rendered as
+  // nothing at all. The trigger is the Service verb now (the reveals that used
+  // to carry this case retired on 2026-09-22); the regression is the runner's,
+  // not any one command's.
   it("survives the re-probe that follows the action", async () => {
     const fake = await boot({
       probe: STOPPED,
       handlers: {
-        node_open_path: () => {
+        node_service: () => {
           throw JOURNALCTL;
         },
       },
@@ -398,23 +399,97 @@ describe("actions serialize", () => {
 describe("after every action, re-probe", () => {
   it("re-reads the machine after a success, a failure and a rejection", async () => {
     const fake = await boot({
-      probe: STOPPED,
       handlers: {
-        node_service: () => ({ ok: false, stdout: "", stderr: "nope" }),
-        node_open_path: () => {
-          throw "no such file";
+        node_service: (args) => {
+          // The three outcomes, spread over the section's own controls: the
+          // stop fails, the restart-command's first call rejects, and the
+          // run-at-login switch succeeds. (The reveals that used to carry the
+          // rejection are gone; the runner's rejection path is theirs no more.)
+          if (args.verb === "restart") throw "manager refused";
+          if (args.verb === "stop") return { ok: false, stdout: "", stderr: "nope" };
+          return { ok: true, stdout: "subshell will start at login.\n", stderr: "" };
         },
       },
     });
 
-    // All three are the Service section's controls now.
+    // The Service section's controls over a RUNNING node: Stop, Restart (which
+    // asks nothing here — the rejection lands before any confirmation), and
+    // the switch.
     await openSection("Service");
     let seen = fake.callsTo("node_probe").length;
-    for (const label of ["Start", "Open the node log", "Reveal configuration"]) {
-      fireEvent.click(button(label));
+    for (const control of [button("Stop"), button("Restart"), screen.getByRole("switch")]) {
+      fireEvent.click(control);
       await waitFor(() => expect(fake.callsTo("node_probe").length).toBeGreaterThan(seen));
       seen = fake.callsTo("node_probe").length;
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4b. The Status log tail and the fact-row Reveals (rails final addendum)
+// ---------------------------------------------------------------------------
+
+describe("the node log tail", () => {
+  it("is read while Status is the shown section, and never while another is", async () => {
+    // The server host's `statusUp` rule, mirrored: no read on the landing,
+    // one on arrival, and the pane shows what the host fed.
+    const fake = await boot({ probe: STOPPED });
+    expect(fake.callsTo("node_logs").length).toBe(0);
+    await openSection("Status");
+    await waitFor(() => expect(screen.getByText("nothing has been written yet")).toBeTruthy());
+    expect(fake.callsTo("node_logs").length).toBe(1);
+  });
+
+  it("is re-read by the poll while Status is up, and stopping showing it stops the feed", async () => {
+    // The five-second poll IS the refresh (operator ruling 2026-09-22), and
+    // the tail rides it — so a tick that lands while Status is up asks again,
+    // and a tick anywhere else asks nothing. The effect rides the probe
+    // query's `success` event, which fires per read whether or not the data
+    // changed — structural sharing makes the data undetectable and a fast
+    // refetch makes even the timestamp undetectable (both measured). `act`
+    // around the tick so the event, the tail read it triggers, and that
+    // read's resolution all flush inside the window.
+    const fake = await boot({ probe: STOPPED });
+    await openSection("Status");
+    await waitFor(() => expect(screen.getByText("nothing has been written yet")).toBeTruthy());
+    expect(fake.callsTo("node_logs").length).toBe(1);
+    await act(async () => {
+      await fake.client.refetchQueries({ queryKey: PROBE_KEY });
+    });
+    expect(fake.callsTo("node_logs").length).toBe(2);
+    // And leaving the section unsubscribes: the same tick asks nothing.
+    await openSection("Service");
+    await act(async () => {
+      await fake.client.refetchQueries({ queryKey: PROBE_KEY });
+    });
+    expect(fake.callsTo("node_logs").length).toBe(2);
+  });
+
+  it("reveals by intent: the row press names a target and can name no path", async () => {
+    // The affordance is back where the server's has always been — on the
+    // Status row whose VALUE is the path (rails final addendum). macOS shape:
+    // the log is a FILE here, so both path rows carry their own Reveal, and
+    // each opens only the fact it is showing.
+    const fake = await boot({
+      probe: makeProbe({
+        ...STOPPED,
+        paths: {
+          configDir: "/home/u/.config/subshell",
+          configFile: "/home/u/.config/subshell/config.json",
+          dataDir: "/home/u/.config/subshell/data",
+          nodeLog: "/home/u/Library/Logs/subshell.log",
+          nodeLogHint: null,
+        },
+      }),
+      handlers: { node_open_path: () => null },
+    });
+    await openSection("Status");
+    const reveals = screen.getAllByRole("button", { name: "Reveal" });
+    expect(reveals).toHaveLength(2);
+    fireEvent.click(reveals[1]);
+    await waitFor(() => expect(fake.callsTo("node_open_path")).toEqual([{ target: "node-log" }]));
+    fireEvent.click(reveals[0]);
+    await waitFor(() => expect(fake.callsTo("node_open_path")[1]).toEqual({ target: "config-dir" }));
   });
 });
 
@@ -1837,15 +1912,19 @@ describe("the facts", () => {
 describe("tmux is a hard stop, not a hint", () => {
   // The CLI refuses (or degrades far from the cause), and a live button that
   // only produces that outcome trains the user to click through warnings. The
-  // buttons that DO work without tmux — the reveals — must stay live;
-  // disabling those strands the box.
+  // controls that WORK without tmux — Stop, Uninstall, the run-at-login
+  // switch: none starts anything — must stay live; disabling those strands
+  // the box. The reveals are live there too: since the rails final addendum
+  // they are Status fact rows, and a path opens whether or not tmux exists.
   it("disables what cannot work without tmux, and nothing else", async () => {
     await boot({ probe: makeProbe({ ...STOPPED, tmux: null }) });
-    // The verb and the reveals are the Service section's now.
+    // The verbs are the Service section's now.
     await openSection("Service");
     expect(button("Start").disabled).toBe(true);
-    expect(button("Open the node log").disabled).toBe(false);
-    expect(button("Reveal configuration").disabled).toBe(false);
+    expect(button("Uninstall").disabled).toBe(false);
+    // Base UI's span switch carries `data-disabled`, not a DOM property; an
+    // enabled one has no such attribute.
+    expect(screen.getByRole("switch").hasAttribute("data-disabled")).toBe(false);
     // The hint names the install command, so the refusal is one step from action.
     expect(screen.getByText(/brew install tmux|sudo apt-get install tmux/)).toBeTruthy();
   });

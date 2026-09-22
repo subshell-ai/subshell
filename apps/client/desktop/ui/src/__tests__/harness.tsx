@@ -129,6 +129,11 @@ export function installFakeIpc(
       if (handler) return handler(args);
       if (cmd === "node_probe") return probe;
       if (cmd === "node_settings") return settings;
+      // The Status section's log tail. An empty-but-read answer is the honest
+      // default for a machine whose test never thought about its log — the
+      // pane renders the note, which is what Rust says of an untouched file.
+      // Cases that want content pass their own handler.
+      if (cmd === "node_logs") return { text: "", source: "the node's log", note: "nothing has been written yet" };
       // Tauri's own event plugin, which the page subscribes to for the tray's
       // screen requests. Answered here rather than in every test's handler
       // map: it is plumbing the page always does, not a command any case is

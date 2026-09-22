@@ -6,7 +6,7 @@
  * mirror `src-tauri/src/control.rs` and `apps/node/agent`'s `status --json` /
  * `service status --json` bodies. Nothing here decides anything.
  */
-import type { EnrolledNodeBody, NodeChoice, NodeSettings, NodeSource, Probe } from "@/lib/ipc";
+import type { EnrolledNodeBody, NodeChoice, NodeSettings, NodeSource, OpenTarget, Probe } from "@/lib/ipc";
 import type { Tone } from "@/lib/steps";
 
 /** One `dt`/`dd` pair. */
@@ -14,6 +14,14 @@ export interface Fact {
   key: string;
   value: string;
   tone?: Tone;
+  /**
+   * The row's path can be revealed, by INTENT (rails addendum, 2026-09-22:
+   * the server's facts pattern). The value stays the fact; this says which
+   * member of the closed `OpenTarget` set names it, so the page can hand
+   * Rust an intent and never a path, and a row can only reveal the file or
+   * directory it is actually showing.
+   */
+  reveal?: OpenTarget;
 }
 
 /** How each rung of the node-binary ladder reads to someone who has never met the CLI. */
@@ -95,7 +103,9 @@ export function probeFacts(args: {
   // Named because the re-enroll warning refers to it: this 0600 file is the
   // node key's only home, and "discards the current node key" is abstract until
   // the user can see which file is about to be overwritten.
-  if (st?.nodeId && probe.paths?.configFile) out.push({ key: "config file", value: probe.paths.configFile });
+  if (st?.nodeId && probe.paths?.configFile) {
+    out.push({ key: "config file", value: probe.paths.configFile, reveal: "config-dir" });
+  }
   if (st?.nodeId) {
     const age = fmtAge(st.daemonAgeMs);
     out.push({
@@ -145,9 +155,11 @@ export function probeFacts(args: {
       out.push({ key: "teardown", value: "unknown: the definition could not be read", tone: "warn" });
     }
     // Where the node's own output goes. macOS: the file the plist names, and
-    // the "Open the node log" button reveals it. Linux: the journal, and the
-    // row says so — the hint sentence is the Rust side's, not a copy here.
-    if (probe.paths?.nodeLog) out.push({ key: "logs", value: probe.paths.nodeLog });
+    // the row's own Reveal opens it (rails addendum: the reveal moved from
+    // the Service bar to the fact it names). Linux: the journal, and the row
+    // says so — the hint sentence is the Rust side's, not a copy here, and a
+    // hint row reveals nothing because there is no file to reveal.
+    if (probe.paths?.nodeLog) out.push({ key: "logs", value: probe.paths.nodeLog, reveal: "node-log" });
     else if (probe.paths?.nodeLogHint) out.push({ key: "logs", value: probe.paths.nodeLogHint });
   }
 

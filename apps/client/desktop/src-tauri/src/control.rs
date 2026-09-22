@@ -1963,6 +1963,113 @@ pub fn node_open_path(app: AppHandle, target: OpenTarget) -> Result<(), String> 
         .map_err(|e| format!("could not reveal {path}: {e}"))
 }
 
+/// Longest log tail the assistant renders. The server console's number, kept
+/// identical so the two panes describe a log the same size: enough to cover a
+/// boot and a restart, small enough that the pane stays a pane rather than a
+/// transcript.
+const LOG_TAIL_LINES: usize = 200;
+
+/// A tail of the node's own log, for the Status section's log pane.
+///
+/// The server app's `LogTail`, same shape same meaning: an empty tail with a
+/// note is the ordinary state of a machine whose node has never run, not an
+/// error, and the pane renders it as its own caption.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogTail {
+    /// The lines, oldest first, ready to render.
+    pub text: String,
+    /// Where these came from, in words, for the pane to caption itself.
+    pub source: String,
+    /// Why the tail is empty, when it is. `None` when there is text.
+    pub note: Option<String>,
+}
+
+/// The last [`LOG_TAIL_LINES`] lines of the node's own capped log file.
+///
+/// **Takes no argument**, deliberately, exactly as `desktop_logs` and
+/// `node_open_path` do: a path parameter would be an arbitrary-file-read
+/// reachable from the page. This side decides what "the node's log" is — the
+/// same ladder `probe.paths` reports (`node_log_paths`: the agent's own
+/// bounded JSON-lines file first, on every platform), re-read from disk at
+/// call time so the pane follows the file the facts row names.
+///
+/// Never an `Err`: every outcome is a caption the pane can render, because a
+/// log that does not exist yet during a first run is normal, and an error
+/// banner for it would train the user to ignore the pane. The `journalctl`
+/// sentence the CLI owns (`node_log_hint`) is the note when there is no file
+/// to read at all.
+#[tauri::command(async)]
+pub fn node_logs() -> LogTail {
+    let paths = node_paths(&read_node_config());
+    let Some(path) = paths.node_log else {
+        return LogTail {
+            text: String::new(),
+            source: "the node's log".into(),
+            note: Some(paths.node_log_hint.unwrap_or_else(|| NO_LOG_FILE.to_string())),
+        };
+    };
+    match std::fs::read_to_string(&path) {
+        Ok(body) => log_tail_from(&body, path),
+        Err(e) => LogTail {
+            text: String::new(),
+            source: path,
+            note: Some(format!("could not be read: {e}")),
+        },
+    }
+}
+
+/// The last lines of a log body, each JSON-lines entry rendered for the pane.
+///
+/// Split from [`node_logs`] so the interesting half — the cap, the blank-line
+/// skip, the render — is tested without a filesystem in a particular state.
+fn log_tail_from(body: &str, source: String) -> LogTail {
+    let lines: Vec<&str> = body.lines().filter(|l| !l.trim().is_empty()).collect();
+    if lines.is_empty() {
+        return LogTail {
+            text: String::new(),
+            source,
+            note: Some("nothing has been written yet".into()),
+        };
+    }
+    LogTail {
+        text: lines[lines.len().saturating_sub(LOG_TAIL_LINES)..]
+            .iter()
+            .map(|line| render_log_line(line))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        source,
+        note: None,
+    }
+}
+
+/// One JSON-lines entry as `HH:MM:SS level message`.
+///
+/// The server console's `render_log_line`, copied because the two CLIs' capped
+/// writers emit the same shape (`timestamp`/`level`/`message` —
+/// `apps/node/agent/src/log-file.ts` is itself the documented copy). A line
+/// that will not parse is returned VERBATIM: the file is capped and replaced
+/// when full, so the first line after a replacement can be a partial write,
+/// and a half-written line is still the most recent thing the node said.
+fn render_log_line(line: &str) -> String {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+        return line.to_string();
+    };
+    let str_of = |key: &str| value.get(key).and_then(|v| v.as_str()).unwrap_or_default();
+    let time = str_of("timestamp")
+        .split_once('T')
+        .map(|(_, t)| t.get(..8).unwrap_or(t).to_string())
+        .unwrap_or_default();
+    let level = str_of("level");
+    let message = str_of("message");
+    [time.as_str(), level, message]
+        .iter()
+        .filter(|part| !part.is_empty())
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -2114,6 +2221,81 @@ mod command_set_tests {
             .args(),
             ["service", "install"]
         );
+    }
+
+    // The day-2 toggle is a two-word verb whose DIRECTION is its argument,
+    // because that is how the CLI parses it (`service autostart on|off`). The
+    // page's boolean and argv's word are one fact with two spellings; even a
+    // stray `force` never rides along — it is restart's.
+    #[test]
+    fn autostart_verb_spells_its_direction_in_the_argument() {
+        assert_eq!(
+            NodeCommand::Service {
+                verb: ServiceCommand::Autostart,
+                force: false,
+                autostart: true
+            }
+            .args(),
+            ["service", "autostart", "on"]
+        );
+        assert_eq!(
+            NodeCommand::Service {
+                verb: ServiceCommand::Autostart,
+                force: false,
+                autostart: false
+            }
+            .args(),
+            ["service", "autostart", "off"]
+        );
+        assert_eq!(
+            NodeCommand::Service {
+                verb: ServiceCommand::Autostart,
+                force: true,
+                autostart: true
+            }
+            .args(),
+            ["service", "autostart", "on"]
+        );
+        // The wire word is the verb's lowercase spelling, same as its siblings.
+        assert_eq!(
+            serde_json::from_str::<ServiceCommand>("\"autostart\"").unwrap(),
+            ServiceCommand::Autostart
+        );
+    }
+
+    // The log pane's whole contract is a bounded, rendered tail over a file
+    // this app re-locates itself; the pure half is testable without one.
+    #[test]
+    fn the_tail_caps_at_the_console_number_and_skips_blanks() {
+        let body = (0..(LOG_TAIL_LINES + 50))
+            .map(|i| format!("  \nline {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let tail = log_tail_from(&body, "/tmp/agent.log".into());
+        let shown: Vec<&str> = tail.text.lines().collect();
+        assert_eq!(shown.len(), LOG_TAIL_LINES);
+        assert_eq!(shown[0], "line 50");
+        assert_eq!(shown[shown.len() - 1], format!("line {}", LOG_TAIL_LINES + 49));
+        assert_eq!(tail.source, "/tmp/agent.log");
+        assert_eq!(tail.note, None);
+    }
+
+    #[test]
+    fn an_empty_log_is_a_note_not_an_error() {
+        let tail = log_tail_from("\n  \n\n", "/tmp/agent.log".into());
+        assert_eq!(tail.text, "");
+        assert_eq!(tail.note.as_deref(), Some("nothing has been written yet"));
+    }
+
+    #[test]
+    fn json_lines_render_short_and_partial_lines_survive() {
+        assert_eq!(
+            render_log_line(r#"{"timestamp":"2026-09-22T10:11:12.345Z","level":"info","message":"node up"}"#),
+            "10:11:12 info node up"
+        );
+        // The capped writer replaces the file when full, so a half-written
+        // first line is data, not a parse failure to hide.
+        assert_eq!(render_log_line(r#"{"timestamp":"2026-"#), r#"{"timestamp":"2026-"#);
     }
 
     #[test]
