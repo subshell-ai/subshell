@@ -182,7 +182,18 @@ Server, Nodes last — is the operator's 2026-09-17 call and is pinned by
 `updates-table.test.tsx`, since nothing else on the page would notice a swap.
 The old card descriptions ("X is available. Running Y.", "Nodes can be updated
 to X.") are gone on purpose: the two version cells state that per row, in one
-voice.
+voice. **A node update's last act lands AFTER its 202** (2026-09-23), which is
+why `node-rows.tsx` owns a bounded watcher the Server row's job-poll already
+set the precedent for: the POST answers ACCEPTANCE, the agent restarts seconds
+later, and the page's standing "no cadence" rule would otherwise leave the row
+stating the old version forever (operator: "the update did work but it didn't
+update the version or say that it was success"). While any row is installing,
+the rows ride a 2 s poll of `NODES_QUERY_KEY` (`enabled`-gated, self-stopping
+when every watch is terminal) and the row says accepted-installing, then
+"Updated to X." with the version cells invalidated, then — after two minutes
+without a return — says the machine has not come back rather than hold a
+green line forever. `nextPhase` is exported and pure for exactly that
+three-branch test.
 
 **Inside Subshell Server the app row and the Server row are ONE row** (spec
 2026-09-18 D4, `folded-server-row.tsx`). That app SHIPS the server it would

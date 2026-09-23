@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { nodeRow, nodeUpdates } from "@/components/__tests__/helpers/updates-view";
-import { NodeRows, rowState } from "@/components/updates/node-rows";
+import { NodeRows, nextPhase, rowState, WATCH_STALL_MS } from "@/components/updates/node-rows";
 import type { NodeUpdates } from "@/types/updates";
 
 afterEach(cleanup);
@@ -45,6 +45,25 @@ describe("rowState", () => {
     expect(rowState(nodeRow({ held: { reason: "protocol-mismatch" }, protocolVersion: 9 }), fleet)).toBe(
       "needs update: speaks protocol 9, this server speaks 10",
     );
+  });
+});
+
+describe("nextPhase", () => {
+  const watch = { to: "0.9.1", acceptedAt: 1_000, phase: "installing" as const };
+
+  it("says done the moment the machine reports the version it was sent", () => {
+    expect(nextPhase(watch, "0.9.1", 1_500)).toBe("done");
+  });
+
+  it("keeps installing while the machine is quiet, old, or briefly absent", () => {
+    expect(nextPhase(watch, "0.9.0", 1_500)).toBe("installing");
+    expect(nextPhase(watch, null, 1_500)).toBe("installing");
+    expect(nextPhase(watch, undefined, 1_500)).toBe("installing");
+  });
+
+  it("says stalled when the clock runs out, and a late return still outranks the stall", () => {
+    expect(nextPhase(watch, "0.9.0", 1_000 + WATCH_STALL_MS)).toBe("stalled");
+    expect(nextPhase(watch, "0.9.1", 1_000 + WATCH_STALL_MS)).toBe("done");
   });
 });
 
@@ -185,6 +204,62 @@ describe("NodeRows", () => {
   it("names the platform nothing is published for instead of leaving the row blank", () => {
     renderRows(nodeUpdates({ rows: [nodeRow({ target: null })] }));
     expect(screen.getByText(/no published platform/)).toBeTruthy();
+  });
+
+  it("says the update was accepted and is installing once the 202 lands", async () => {
+    // The gap this closes (operator report 2026-09-23): the POST answers the
+    // ACCEPTANCE, but the restart and the return on the new version happen
+    // after it, and with no poller the row used to say nothing at all.
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return new Response(JSON.stringify({ ok: true, from: "0.9.0", to: "0.9.1", url: "/d/linux-x64" }), {
+          status: 202,
+        });
+      }
+      // The watcher's read: still the OLD version, so the sentence stays
+      // "installing" and the `Updated to` line does not appear yet.
+      return new Response(JSON.stringify({ nodes: [{ id: "a", agentVersion: "0.9.0" }] }), { status: 200 });
+    }) as typeof globalThis.fetch;
+    try {
+      renderRows(
+        nodeUpdates({
+          release: { version: "0.9.1", tag: "cli-node-v0.9.1", publishedAt: null },
+          rows: [nodeRow({ id: "a", name: "alpha", agentVersion: "0.9.0", canUpdate: { ok: true, reason: null } })],
+        }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Update" }));
+      expect(
+        await screen.findByText(/Update accepted. alpha is installing 0.9.1 and will reconnect by itself/),
+      ).toBeTruthy();
+      expect(screen.queryByText(/Updated to/)).toBeNull();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("says Updated to once the polled list reports the machine back on the new version", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return new Response(JSON.stringify({ ok: true, from: "0.9.0", to: "0.9.1", url: "/d/linux-x64" }), {
+          status: 202,
+        });
+      }
+      return new Response(JSON.stringify({ nodes: [{ id: "a", agentVersion: "0.9.1" }] }), { status: 200 });
+    }) as typeof globalThis.fetch;
+    try {
+      renderRows(
+        nodeUpdates({
+          release: { version: "0.9.1", tag: "cli-node-v0.9.1", publishedAt: null },
+          rows: [nodeRow({ id: "a", name: "alpha", agentVersion: "0.9.0", canUpdate: { ok: true, reason: null } })],
+        }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Update" }));
+      expect(await screen.findByText("Updated to 0.9.1.")).toBeTruthy();
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 
   it("says a failed 'Update all' ONCE, on the row it stopped at", async () => {
