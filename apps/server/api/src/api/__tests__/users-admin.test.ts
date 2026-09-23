@@ -311,7 +311,18 @@ describe("users-admin + audit routes", () => {
     // behind the cursor. Freeze a boundary two pages in, insert a new head,
     // and re-read that page — byte-identical. OFFSET would have skipped one.
     const p2 = await page(`limit=2&beforeCreatedAt=${encodeURIComponent(all[1].createdAt)}&beforeId=${all[1].id}`);
-    await auditRepo.create(mk(99, "p-late")); // newer than everything
+    // "Newer than everything" means NEWER THAN THE LIVE ROWS, not just newer
+    // than the fixtures: the shared dev-DB ledger also holds now-stamped
+    // events written earlier in the run, and a fixture-base+n-minutes stamp
+    // from 2026-09-20 sorts BELOW all of them. Whether such a row landed
+    // inside the frozen page window — red, deterministically — depended on
+    // how many real events sat above the cursor when the file ran; that
+    // count varied across CI runs, and the keyset property test blamed the
+    // route (three reds on branches touching no server code, 2026-09-22).
+    // A now+60s stamp is a true head whatever the ledger already holds, so
+    // the insert can only land ABOVE the frozen cursor — which is the whole
+    // property: a new head shifts nothing behind a keyset boundary.
+    await auditRepo.create({ ...mk(99, "p-late"), createdAt: new Date(Date.now() + 60_000).toISOString() });
     const p2again = await page(`limit=2&beforeCreatedAt=${encodeURIComponent(all[1].createdAt)}&beforeId=${all[1].id}`);
     expect(p2again.map((r) => r.id)).toEqual(p2.map((r) => r.id));
 
