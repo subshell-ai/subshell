@@ -1905,9 +1905,12 @@ Three consequences, all load-bearing:
   the window easier to reach.
 - **The tray no longer has a disabled item.** "Open Dashboard" was disabled
   until a probe said the server was ready, so on a broken machine the one
-  thing on the tray could not be pressed. It is "Open Subshell Server" now and
-  always enabled, because `open_home` answers for both states of the machine —
-  which also retired `set_server_ready` and the `DashboardItem` it held.
+  thing on the tray could not be pressed. It is "Open Control Plane In App" now
+  and always enabled, because `open_home` answers for both states of the machine
+  — which also retired `set_server_ready` and the `DashboardItem` it held. A
+  second in-app door, "Open Server App", sits beside it: it calls
+  `windows::open_assistant` and raises the bundled window directly, no probe and
+  no server question — the client tray's "Open Client App" carried to this side.
 - The window-close handler **re-probes**, and that is the check that actually
   protects the user: a host that has gone away since the setting was made means
   the window closes normally instead of vanishing. The probe is therefore
