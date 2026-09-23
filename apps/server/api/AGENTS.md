@@ -352,12 +352,18 @@ attach, both under `journalctl --user -u subshell-server.service | grep "ws atta
   server.
 - `painted repainted=<bool> nudged=<bool> replay=<n>B dump=<dir|off>` — what
   the pane did before the capture.
-  `repainted=false nudged=true` means the pane refused to repaint even for a
-  forced SIGWINCH, so a bad replay is the pane's own state; `repainted=true`
-  means a freshly painted frame was shipped and anything still wrong is
-  downstream of the capture; `repainted=false nudged=false` with a live log
-  means the booting fast path — the pane had no bytes at the join, so it was
-  fitted and deliberately left alone.
+  `repainted=false nudged=true` means the geometry CHANGED and the pane
+  refused to repaint even for a forced SIGWINCH, so a bad replay is the
+  pane's own state; `repainted=true` means a freshly painted frame was
+  shipped and anything still wrong is downstream of the capture;
+  `repainted=false nudged=false` means the attach provoked NOTHING on
+  purpose — a same-size reopen (nothing re-wrapped, nothing to correct), or
+  the booting fast path (no settled frame at the join), or a pane-poll
+  attach, which has no log to read a repaint burst from and is therefore
+  never nudged blind. A winch-redrawing prompt
+  (powerlevel10k, ble.sh) writes an orphan prompt line into its own history
+  for every geometry event AFTER its first paint, so provocation is now
+  reserved for resizes that actually change the grid.
 
 `SUBSHELL_ATTACH_DEBUG=1` additionally dumps
 `/tmp/subshell-attach-debug/<subshell>/<timestamp>/{pre-resize,replay}.txt` — the

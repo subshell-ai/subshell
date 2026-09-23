@@ -379,8 +379,10 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     expect([...new Set(sim.cmdTypes())].join(",")).toBe("probe,log_read,tail_start,pane_size,resize,capture");
     // The scripted log never grows, so the pane reads as "never repainted"
     // and the relay nudges it (±1 col) to force a SIGWINCH — the local twin's
-    // rule, and the cure for a no-op resize leaving a half-painted frame on
-    // screen. It ends at the client's real geometry.
+    // rule for a resize that changed the grid but got no repaint burst. (The
+    // sim never answers `pane_size`, so this also pins the unreadable-size
+    // degrade: resize-and-wait, never a guess.) It ends at the client's real
+    // geometry.
     expect(sim.cmdsOf("resize")).toEqual([
       { type: "resize", subshellId: SID, cols: 132, rows: 43 },
       { type: "resize", subshellId: SID, cols: 133, rows: 43 },

@@ -100,11 +100,14 @@ export interface AttachPaintFacts {
  * everything about an attach in one place.
  *
  * The `repainted=`/`nudged=` pair is what makes the next "still garbled"
- * report diagnosable without guessing: `repainted=false nudged=true` means
- * the pane refused to repaint even for a forced SIGWINCH (so a garbled replay
- * is the pane's own state, not ours), while `repainted=true` means the client
- * was sent a freshly painted frame — and if it still looks wrong, the fault is
- * downstream of the capture.
+ * report diagnosable without guessing: `repainted=false nudged=true` means the
+ * geometry CHANGED and the pane refused to repaint even for a forced SIGWINCH
+ * (so a garbled replay is the pane's own state, not ours), while
+ * `repainted=true` means the client was sent a freshly painted frame — and if
+ * it still looks wrong, the fault is downstream of the capture.
+ * `repainted=false nudged=false` means the attach provoked NOTHING: a
+ * same-size reopen (nothing re-wrapped, nothing to correct), the booting fast
+ * path, or a pane-poll attach that must not nudge blind.
  */
 export function recordAttachPaint(facts: AttachPaintFacts): void {
   const dir = writeAttachForensics(facts.subshellId, facts.preResize, facts.replay);

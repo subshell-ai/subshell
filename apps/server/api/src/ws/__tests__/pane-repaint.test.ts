@@ -83,10 +83,14 @@ describe("paneReadsAsBooting", () => {
 
 describe("fitPaneAndRepaint", () => {
   it("an animating pane: sees the repaint and returns without waiting for a quiet that never comes", async () => {
+    // A size CHANGE — the animating case is about detecting the repaint burst
+    // a real resize provokes. (A same-size open of any pane now returns at
+    // once, animated or not; the reopen case below pins that.)
     const p = await seed("anim-same", SPINNER);
     try {
       const t0 = performance.now();
-      const r = await fitPaneAndRepaint(launcher, p.socket, p.id, p.size, p.sizeOf, {
+      const fit = { cols: p.size.cols - 3, rows: p.size.rows };
+      const r = await fitPaneAndRepaint(launcher, p.socket, p.id, fit, p.sizeOf, {
         baseline: await p.sizeOf(),
         canNudge: true,
       });
@@ -97,19 +101,24 @@ describe("fitPaneAndRepaint", () => {
     }
   });
 
-  it("a same-size reopen skips the no-op resize wait: the pane cannot repaint for a resize that changes nothing", async () => {
+  it("a same-size reopen does nothing at all: no geometry changed, so nothing can be stale and every provocation is pure damage", async () => {
     const p = await seed("idle-same", "cat");
     try {
       const t0 = performance.now();
+      const before = await p.sizeOf();
       const r = await fitPaneAndRepaint(launcher, p.socket, p.id, p.size, p.sizeOf, {
-        baseline: await p.sizeOf(),
+        baseline: before,
         canNudge: true,
       });
-      // A pane that never repaints (cat) still ends nudged — that behaviour is
-      // kept — but no longer after 450ms spent waiting on a no-op resize first.
-      expect(performance.now() - t0).toBeLessThan(600);
-      expect(r.nudged).toBe(true);
-      expect(r.repainted).toBe(false);
+      // Used to skip only the no-op resize WAIT and still nudge — but a
+      // same-size reopen re-wraps nothing, so the nudge corrects no stale
+      // frame, and a SIGWINCH-redrawing prompt pays for it with an orphan
+      // prompt line in its OWN history on every reopen (2026-09-23).
+      expect(performance.now() - t0).toBeLessThan(300);
+      expect(r).toEqual({ repainted: false, nudged: false });
+      // Untouched: no winch bytes, and the pane is where it was.
+      expect(await p.sizeOf()).toBe(before);
+      expect(await launcher.paneSize(p.socket, p.id)).toEqual(p.size);
     } finally {
       await p.dispose();
     }
@@ -162,14 +171,23 @@ describe("fitPaneAndRepaint", () => {
     }
   });
 
-  it("canNudge:false never nudges (a pane-poll attach has no log to read a burst from)", async () => {
+  it("canNudge:false resizes but never provokes (a REAL change waited on and got nothing)", async () => {
+    // Must be a size CHANGE: a same-size fit now returns before the wait, and
+    // the same-size version of this test passed through the new early return
+    // without ever touching the guard (mutation-verified). This is the live
+    // route to the flag — a viewer that detached (or has no readable log)
+    // during the post-resize wait must not leave a ±1 storm behind.
     const p = await seed("nonudge", "cat");
     try {
-      const r = await fitPaneAndRepaint(launcher, p.socket, p.id, p.size, p.sizeOf, {
+      const fit = { cols: p.size.cols - 3, rows: p.size.rows };
+      const r = await fitPaneAndRepaint(launcher, p.socket, p.id, fit, p.sizeOf, {
         baseline: await p.sizeOf(),
         canNudge: false,
       });
       expect(r).toEqual({ repainted: false, nudged: false });
+      // The fit itself still applied — refusing to provoke never means refusing
+      // to resize.
+      expect(await launcher.paneSize(p.socket, p.id)).toEqual(fit);
     } finally {
       await p.dispose();
     }
