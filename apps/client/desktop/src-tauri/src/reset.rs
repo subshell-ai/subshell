@@ -285,9 +285,7 @@ pub fn node_reset(app: AppHandle, settings: State<'_, SettingsState>, typed: Str
             s.last_plane_open = None;
         })
         .err()
-        .map(|e| {
-            format!("the node is reset, but this app could not write its own settings: {e}\n")
-        })
+        .map(|e| format!("the node is reset, but this app could not write its own settings: {e}\n"))
         .unwrap_or_default();
     // The tray mirrors both the list and the node's binding, and both just
     // emptied; its Control Plane submenu rebuilds from the live reads and
@@ -314,8 +312,7 @@ fn live_daemon_pid(lock_file: &Path) -> Option<u32> {
     let body = std::fs::read_to_string(lock_file).ok()?;
     let pid = serde_json::from_str::<Value>(&body).ok()?.get("pid")?.as_u64()?;
     let pid = u32::try_from(pid).ok()?;
-    (pid > 0 && run(&["kill".to_string(), "-0".to_string(), pid.to_string()], ACTION_TIMEOUT).ok())
-        .then_some(pid)
+    (pid > 0 && run(&["kill".to_string(), "-0".to_string(), pid.to_string()], ACTION_TIMEOUT).ok()).then_some(pid)
 }
 
 /// Phrases that mean a service step's GOAL is already true, in the words the
