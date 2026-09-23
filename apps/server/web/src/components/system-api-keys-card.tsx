@@ -147,7 +147,15 @@ export function SystemApiKeysCard() {
                 <DialogDescription>Copy it now. This is the only time the full key is shown.</DialogDescription>
               </DialogHeader>
               <div className="flex items-center gap-2">
-                <code className="flex-1 overflow-x-auto rounded-md bg-muted p-3 font-mono text-sm">{created.key}</code>
+                {/* `min-w-0` is the fix, not decoration: a flex item's default
+                    min-width is its content width, so the one-word key pushed
+                    the dialog past itself and a scrollbar appeared at the
+                    dialog's foot. `break-all` then wraps the secret where it
+                    lives — a key shown once should be readable whole, not
+                    scrolled. */}
+                <code className="min-w-0 flex-1 break-all rounded-md bg-muted p-3 font-mono text-sm">
+                  {created.key}
+                </code>
                 {/* The copy ICON, not the word (Patterns, `docs/design-system.md`) — and
                     the sentence above still says "Copy it now", so the verb is on the
                     screen even though the button no longer repeats it. */}

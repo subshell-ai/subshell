@@ -1,5 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { CHUNK_MAX_BYTES, createInputQueue, FRAME_OVERHEAD_BYTES, type InputSender } from "@/lib/input-queue";
+import {
+  CHUNK_MAX_BYTES,
+  createInputQueue,
+  FRAME_OVERHEAD_BYTES,
+  INFLIGHT_MAX,
+  type InputQueueOptions,
+  type InputSender,
+} from "@/lib/input-queue";
 
 /** A clock the tests advance by hand, so ages and RTTs are exact. */
 let nowMs = 10_000;
@@ -126,6 +133,121 @@ describe("createInputQueue", () => {
     ]);
     q.ack(2);
     expect(q.stats).toEqual({ depth: 0, unackedOldestMs: null, inFlight: 0, backlog: 0 });
+  });
+
+  it("the coalesce window ships the backlog WITHOUT waiting for the ack", () => {
+    // The WAN fix (measured 2026-09-22): ack-serialized flushing turns every
+    // keystroke burst on a slow link into one frame per full round trip
+    // (~350 ms on the AI PC node), which reads as laggy, dropped typing.
+    // The window replaces the ack as the flush trigger for fresh input;
+    // the ack still flushes, just no longer as the ONLY trigger.
+    const { sends, sender } = recordingSender();
+    const timers: (() => void)[] = [];
+    const opts: InputQueueOptions = { scheduleFlush: (cb) => void timers.push(cb) };
+    const q = createInputQueue(sender, now, opts);
+    q.engage();
+    q.enqueue("a"); // fast path: id 1 on the wire, unacked
+    q.enqueue("b"); // backpressure: joins the unsent tail (id 2)
+    q.enqueue("c"); // joins the same tail
+    expect(sends).toEqual([["a", 1]]);
+    // One window expiry, no ack in sight: the burst leaves as ONE frame.
+    timers.splice(0).forEach((fire) => {
+      fire();
+    });
+    expect(sends).toEqual([
+      ["a", 1],
+      ["bc", 2],
+    ]);
+  });
+
+  it("keystrokes typed inside one window still coalesce into one frame", () => {
+    // The batching addendum's point survives the window: three keys typed
+    // within it are one frame, not three, and order is preserved.
+    const { sends, sender } = recordingSender();
+    const timers: (() => void)[] = [];
+    const q = createInputQueue(sender, now, { scheduleFlush: (cb) => void timers.push(cb) });
+    q.engage();
+    q.enqueue("a"); // id 1 sent
+    for (const key of ["b", "c", "d"]) {
+      advance(10);
+      q.enqueue(key);
+    }
+    timers.splice(0).forEach((fire) => {
+      fire();
+    });
+    expect(sends).toEqual([
+      ["a", 1],
+      ["bcd", 2],
+    ]);
+    // And a second window schedules itself only when new backlog appears.
+    expect(timers.length).toBe(0);
+    advance(10);
+    q.enqueue("e");
+    expect(timers.length).toBe(1);
+  });
+
+  it("in flight frames are pipelined up to INFLIGHT_MAX, then the backlog waits again", () => {
+    // The depth cap is the paste guard: 512 spilled 32 KB chunks must not
+    // all hit the wire at once when a window fires. Typing never comes close
+    // (one frame per window), so the cap only shapes multi-chunk flushes.
+    const { sends, sender } = recordingSender();
+    const timers: (() => void)[] = [];
+    const q = createInputQueue(sender, now, { scheduleFlush: (cb) => void timers.push(cb) });
+    q.engage();
+    // Each enqueue is one byte over the chunk budget: every one spills into
+    // its own unsent frame (the tail is always full). Nothing is acked.
+    const overCap = "x".repeat(CHUNK_MAX_BYTES + 1);
+    for (let i = 0; i < 20; i++) {
+      advance(5);
+      q.enqueue(overCap);
+    }
+    // The first enqueue took the fast path with its own two chunks; the
+    // other 38 frames are unsent backlog.
+    expect(sends.length).toBe(2);
+    timers.splice(0).forEach((fire) => {
+      fire();
+    });
+    // Two were already in flight, so the window adds INFLIGHT_MAX - 2 more.
+    expect(sends.length).toBe(INFLIGHT_MAX);
+    // The ack of id 1 frees a slot: one more leaves, and the wire is back
+    // at the cap (the window firing again finds nothing new to add).
+    q.ack(1);
+    expect(sends.length).toBe(INFLIGHT_MAX + 1);
+    timers.splice(0).forEach((fire) => {
+      fire();
+    });
+    expect(sends.length).toBe(INFLIGHT_MAX + 1);
+  });
+
+  it("resend re-ships every previously-sent frame uncapped, backlog fills only the freed slots", () => {
+    // The reconnect split is the subtlest new path: re-sends are the LOSS
+    // mechanism (the server's window absorbs the landed ones) so they never
+    // wait for a slot; fresh backlog does, or a reconnect onto a slow link
+    // would firehose the whole queue at once.
+    const { sends, sender } = recordingSender();
+    const timers: (() => void)[] = [];
+    const q = createInputQueue(sender, now, { scheduleFlush: (cb) => void timers.push(cb) });
+    q.engage();
+    // Exactly one frame per enqueue: each piece fills its chunk budget to
+    // the byte, so coalescing can append nothing.
+    const piece = "x".repeat(CHUNK_MAX_BYTES - FRAME_OVERHEAD_BYTES);
+    q.enqueue(piece); // id 1, fast path, sent
+    for (let i = 0; i < 20; i++) {
+      advance(5);
+      q.enqueue(piece); // ids 2..21, unsent frames
+    }
+    timers.splice(0).forEach((fire) => {
+      fire();
+    }); // the window fills the wire to the cap: ids 2..8
+    expect(sends.length).toBe(INFLIGHT_MAX);
+    sends.length = 0;
+    q.resendPending(); // the reconnect
+    expect(sends.map(([, id]) => id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]); // uncapped re-sends, id order
+    expect(q.stats.inFlight).toBe(INFLIGHT_MAX); // backlog took no slot past the cap
+    expect(q.stats.backlog).toBe(13); // ids 9..21 wait
+    q.ack(1); // a freed slot is taken immediately
+    expect(sends.length).toBe(INFLIGHT_MAX + 1);
+    expect(sends.at(-1)?.[1]).toBe(9);
   });
 
   it("COALESCE: the burst fills the tail to the chunk cap and spills the residue", () => {
@@ -379,6 +501,29 @@ describe("createInputQueue", () => {
     expect(sends.map(([, id]) => id)).toEqual([1, 2]);
   });
 
+  it("disengage drops the armed window so a re-engaged queue arms afresh", () => {
+    // The flag is per-generation: with a scheduler that defers (as tests do
+    // — production's 30 ms never defers past a re-engage), a window armed
+    // before the disengage must not absorb the next arm, or the fresh
+    // backlog would wait on a flush that already spent itself.
+    const { sends, sender } = recordingSender();
+    const timers: (() => void)[] = [];
+    const q = createInputQueue(sender, now, { scheduleFlush: (cb) => void timers.push(cb) });
+    q.engage();
+    q.enqueue("a"); // id 1 sent
+    q.enqueue("b"); // backlog id 2, arms the window
+    expect(timers.length).toBe(1);
+    q.disengage(); // pending and its generation are gone
+    q.engage();
+    q.enqueue("c"); // id 3: the queue starts empty, so this is the fast path
+    q.enqueue("d"); // id 4 backlog — MUST arm a new window, not lean on the spent one
+    expect(timers.length).toBe(2);
+    timers.splice(0).forEach((fire) => {
+      fire();
+    });
+    expect(sends.at(-1)).toEqual(["d", 4]); // whichever pass ships it, it ships
+  });
+
   it("the pre-engage buffer is capped like the queue: the oldest pieces go, the newest stay", () => {
     const { state, sends, sender } = recordingSender(false);
     const q = createInputQueue(sender, now);
@@ -392,7 +537,11 @@ describe("createInputQueue", () => {
     // 513 pieces entered, MAX_PENDING survived: the first-typed piece is
     // gone, exactly as an evicted pending frame is.
     expect(sends.length).toBe(1); // the first surviving piece on the wire
-    q.ack(1); // the drain ships the remaining backlog in order
+    // The drain is capped, not a firehose: one ack opens one slot, and every
+    // later ack opens the next. The full backlog still ships, in order.
+    q.ack(1);
+    expect(sends.length).toBe(INFLIGHT_MAX + 1);
+    for (let id = 2; id <= 512; id++) q.ack(id);
     expect(sends.length).toBe(512);
     expect(sends.map(([data]) => data).join("")).toBe(piece.repeat(512));
   });

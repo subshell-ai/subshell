@@ -36,9 +36,9 @@
  *   retry timer: the re-fire triggers are the node's `ready` moment (the
  *   node-ws-handler, which calls {@link refireInputHoldsForNode}) and a
  *   new-write arrival (which appends and kicks the drain). The memory bound
- *   is the client's own: once a write goes unacked the client coalesces into
- *   its unsent tail and stops shipping (input-queue.ts `flushBacklog`), and a
- *   reconnecting client re-sends at most its 512-frame backlog — a
+ *   is the client's own: a client never holds more than its 512-frame
+ *   pending queue (MAX_PENDING in input-queue.ts — 2026-09-22's window +
+ *   INFLIGHT_MAX cap moved WHEN frames ship, not how many can wait), and a
  *   re-arriving id never duplicates a hold, so the hold can never exceed
  *   what the client itself is holding.
  * - **A re-fire failure re-enters the hold.** The drain stops at the first
@@ -46,12 +46,23 @@
  *   the next trigger re-enters. No clock anywhere in this module.
  *
  * Ordering: holds re-fire in id order, and because an arrival while holds
- * exist JOINS the queue instead of dispatching past them, nothing newer can
- * be written ahead of a held id. The one accepted residual is the frame that
- * was ALREADY in flight on the node's serialized input chain when its
- * neighbor failed: it can land before the re-fire (same at-least-once family
- * as Wave A's in-flight duplicate — the node's input chain is serial, so the
- * window for it is the sub-millisecond gap between two pipelined writes).
+ * exist JOINS the queue instead of dispatching past them, no ARRIVING frame
+ * is written ahead of a held id. The accepted residual, restated 2026-09-22
+ * when the client began pipelining up to INFLIGHT_MAX (8) sent-unacked
+ * frames: those frames are dispatched to the node as they arrive, so when
+ * one write of an in-flight burst FAILS mid-chain, the siblings the node
+ * already queued land before the re-fired head — keystrokes can reorder
+ * within one burst on a partial plane→node failure. (The ack-serialized
+ * client could already reach this — a multi-chunk fast-path paste or a
+ * reconnect resend put several unacked writes on the node's chain — but
+ * TYPING could not, because typing kept its whole backlog in the browser;
+ * pipelining widened the residual from those two paths to every burst.)
+ * Closing it
+ * properly means carrying the client id to the node's chain — a protocol
+ * change; against this module's own posture (at-least-once, never zero) and
+ * the trigger's rarity — a transient per-write failure on a live node's
+ * serial chain — reordering-within-a-burst is accepted and stated, not
+ * papered over.
  */
 
 import { logger } from "@/utils/logger.js";
