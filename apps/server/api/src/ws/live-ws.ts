@@ -4,7 +4,7 @@ import type { SubshellsService } from "@/services/subshells.service.js";
 import { logger } from "@/utils/logger.js";
 import { registerLiveSocket, unregisterLiveSocket } from "@/ws/live-registry.js";
 import { topicsForViewer } from "@/ws/live-topics.js";
-import { consumeWsToken } from "@/ws/ws-token.js";
+import { consumeWsToken, type WsTokenIdentity } from "@/ws/ws-token.js";
 
 /**
  * Exactly what the sharing-aware list answers with, derived from the method
@@ -63,7 +63,7 @@ export interface LiveWsSocket {
 /** Everything the handler touches, injectable so the tests need no server. */
 export interface LiveWsDeps {
   /** Redeems the single-use attach token; null when absent, stale or already spent. */
-  consumeToken(token: string): string | null;
+  consumeToken(token: string): WsTokenIdentity | null;
   /**
    * The viewer's visible subshells — the SHARING-AWARE list, never the
    * owner-only one. Called WITHOUT previews: see {@link previewsFor}.
@@ -93,9 +93,13 @@ export interface LiveWsDeps {
  * Auth is unchanged from the stream it replaces: the browser cannot send its
  * HttpOnly cookie on a WS upgrade (and the Vite dev proxy does not forward
  * Cookie headers there), so the client redeems a single-use 30 s token minted
- * by the cookie-only `POST /api/auth/ws-token`. That mint being cookie-only is
- * what keeps a bearer credential — a subshell's own key included — off this
- * socket; nothing here re-decides it.
+ * by `POST /api/auth/ws-token`. The mint is no longer cookie-only — Bearer
+ * keys may mint SCOPED attach tokens for one pane — and this socket is exactly
+ * where that distinction is enforced: a token carrying a `subshellId` binding
+ * is refused here, so the whole-user feed stays reachable only by the human
+ * (unscoped) tokens it was always open to. The refusal lives at REDEMPTION,
+ * paired with the bind check in `attach-resolve`: both redemption sites read
+ * the binding, and minting cannot bypass either.
  *
  * **There is no cadence.** One snapshot at connect — built by the same
  * sharing-aware `SubshellsService.listSubshells` that `GET /api/subshells`
@@ -108,11 +112,16 @@ export interface LiveWsDeps {
  */
 export async function handleLiveOpen(ws: LiveWsSocket, deps: LiveWsDeps): Promise<void> {
   const token = ws.data.query?.token;
-  const userId = token ? deps.consumeToken(token) : null;
-  if (!userId) {
+  const identity = token ? deps.consumeToken(token) : null;
+  // A SCOPED token (any Bearer-key mint names one subshell) is refused on
+  // this socket outright: this feed carries the caller's WHOLE visible list,
+  // which is far wider than the one pane a machine credential was allowed to
+  // name. Only unscoped human (cookie-minted) tokens reach it, as always.
+  if (!identity || identity.subshellId !== null) {
     ws.close(4001, "unauthorized");
     return;
   }
+  const userId = identity.userId;
 
   let stopped = false;
   const stop = (): void => {
