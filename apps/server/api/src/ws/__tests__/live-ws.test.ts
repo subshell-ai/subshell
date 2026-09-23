@@ -61,7 +61,7 @@ function fakeSocket(query: Record<string, string> = {}) {
 
 function deps(over: Partial<LiveWsDeps> = {}): LiveWsDeps {
   return {
-    consumeToken: (t) => (t === "good" ? "u1" : null),
+    consumeToken: (t) => (t === "good" ? { userId: "u1", subshellId: null } : null),
     listSubshells: async () => [{ id: "s1" }] as never,
     isAdmin: async () => false,
     previewsFor: async () => new Map(),
@@ -82,6 +82,17 @@ describe("/ws/live", () => {
     const { ws, sent, closed } = fakeSocket({ token: "stale" });
     await handleLiveOpen(ws, deps());
     expect(sent).toEqual([]);
+    expect(closed).toEqual([{ code: 4001, reason: "unauthorized" }]);
+  });
+
+  it("refuses a SCOPED token — a Bearer-key mint never reaches the whole-user feed", async () => {
+    // The mint route binds every machine token to one subshell id; this
+    // socket is the second half of that contract. The refusal is the SAME
+    // close a bad token gets — a scoped token tells a stranger nothing new.
+    const { ws, sent, closed, subscribed } = fakeSocket({ token: "scoped" });
+    await handleLiveOpen(ws, deps({ consumeToken: () => ({ userId: "u1", subshellId: "s1" }) }));
+    expect(sent).toEqual([]);
+    expect(subscribed).toEqual([]);
     expect(closed).toEqual([{ code: 4001, reason: "unauthorized" }]);
   });
 

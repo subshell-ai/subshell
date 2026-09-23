@@ -133,7 +133,10 @@ values so a field added later cannot regress that. Treat an admin's screen as
 quotable — it is the thing that gets screenshotted into an issue.
 
 WS attach requires a short-lived (30 s) single-use token minted through an authenticated
-REST call — replay-resistant.
+REST call — replay-resistant. A Bearer key may mint one only **bound to a single
+subshell** (a system key names any pane; a subshell's own key may name only its own,
+by `sess:` equality), the bind is enforced at redemption before access is resolved, and
+`/ws/live` refuses scoped tokens — machine credentials stay off the whole-user feed.
 
 **One anonymous read exists** (spec 2026-09-08): `GET /api/settings/instance`
 returns `{ instanceName }` — the operator-chosen name for this control plane,

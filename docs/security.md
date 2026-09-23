@@ -52,7 +52,7 @@ Everything below assumes that perimeter holds.
 | One user reading or driving another user's subshells | Ownership checks returning **404, never 403**, so ids cannot be probed |
 | A harness pane escalating beyond its own subshell | Per-subshell tokens scoped by permission map, bound to their row, and rejected on every admin surface |
 | A compromised harness enumerating the operator's disk | `/api/files/explore` refuses machine credentials outright (403) |
-| A stolen WS attach token being replayed | 30 s TTL, single-use, minted only over an authenticated REST call |
+| A stolen WS attach token being replayed | 30 s TTL, single-use, minted only over an authenticated REST call; a machine-minted token is additionally bound to one subshell and refused anywhere else, including `/ws/live` |
 | Password guessing | Per-email exponential backoff on sign-in |
 | The server (or its backups) reading channel messages | End-to-end encryption — the server stores only opaque JWE ciphertext |
 | A compromised relay forging work for a node | Every command is a JWS bound to one node, short-lived and single-use |
@@ -84,12 +84,21 @@ principals; the fourth is a websocket credential and nothing else.
 | `actor` | `cookie` | `system-key` | `subshell-key` | — (rejected on REST) |
 | `principal` | `user:<id>` | `user:<systemUserId>` | `sess:<subshellId>` | — |
 | Minted by | sign-up / sign-in / passkey | admin, Server Settings → API keys | the server at subshell start | `POST /api/nodes/enroll` |
-| Scope | the user's own data; **the only actor admin surfaces accept** | full access, no permission map | permission grant map (`channels`, `subshells` × `read`/`write`) | open `/ws/node` as that node |
+| Scope | the user's own data; **the only actor admin surfaces accept**; the only actor that may mint an UNBOUND WS attach token | full access, no permission map; may mint a WS attach token bound to ANY single subshell | permission grant map (`channels`, `subshells` × `read`/`write`); may mint a WS attach token only for its OWN subshell | open `/ws/node` as that node |
 | Lifetime | better-auth session | until disabled or deleted | 7 days, self-extending while the MCP child runs | long-lived |
 | Revocation | sign-out / password change | instant | **instant** on terminate/delete; rotated on auto-restart | delete the node |
 | Stored as | session row | hash only | hash only | hash only |
 
 Plaintext keys are shown exactly once, at creation, and never again.
+
+Bearer credentials may therefore reach `/ws` — but only through a mint that
+narrows them. Every Bearer-minted attach token names ONE subshell at issue
+time, and both redemption sites read the binding: the pane attach refuses it
+on any other subshell (with the same refusal a bad token gets, and the
+attempt burns it), and `/ws/live` — the whole-user feed — refuses scoped
+tokens outright. A subshell's own key may mint only for its own pane; the
+sibling-injection this route was cookie-only to prevent is still refused, and
+it is refused by an equality check now, not by the whole door being shut.
 
 ### The anonymous surface
 
@@ -196,6 +205,13 @@ Two hard rules on top:
   route, a bearer actor runs with the admin boost and shared grants switched
   **off**. A subshell's own token can therefore act only on its owner's
   subshells — never a foreign one, never one merely shared with its owner.
+  The WS attach path is the one place a machine credential resolves access
+  through the FULL human gate — as the subshell's OWNER — and it is contained
+  structurally instead of by the permission map: the token is bound to one
+  subshell at mint, the bind is checked at redemption BEFORE access is ever
+  resolved, and the token can name no second pane (see §2). The rule still
+  holds of every REST surface; do not read the WS carve-out as licence to
+  resolve a bearer actor with the boost on a route.
 
 **The roster READ is not admin-gated, and it carries display names.** Writes to
 `/api/users` are cookie-admin; `GET /api/users` is deliberately instance-wide —
@@ -1569,12 +1585,14 @@ Recorded so they are decisions rather than surprises:
      suspect credential (or a suspected compromise needs more than a password
      change).
    - **Live WebSockets.** `/ws` authenticates once at connect (cookie, or a
-     30 s single-use token) and is never re-checked, so an already-attached
-     terminal keeps streaming until it disconnects. **`/ws/live`, the
-     dashboard's feed (spec 2026-09-19), has the same property**: it redeems
-     the same single-use token at connect and never re-authenticates, so a
-     socket opened before the reset keeps receiving that viewer's subshell
-     list until it drops. Same posture, not a new one.
+     30 s single-use token — cookie-minted and unscoped, or Bearer-minted and
+     bound to one subshell; see §2) and is never re-checked, so an
+     already-attached terminal keeps streaming until it disconnects.
+     **`/ws/live`, the dashboard's feed (spec 2026-09-19), has the same
+     property**: it redeems the same single-use token at connect — refusing
+     every scoped (machine) token, so the feed stays human-only — and never
+     re-authenticates, so a socket opened before the reset keeps receiving
+     that viewer's subshell list until it drops. Same posture, not a new one.
 
      What that socket then RECEIVES is § 11.14's business, and the sentence
      that stood here described a design that was reverted before it shipped:

@@ -86,6 +86,34 @@ describe("resolveAttach", () => {
     });
   });
 
+  it("admits a SCOPED (Bearer-minted) token on the pane it names, as the owner", async () => {
+    // The identity a scoped token carries is the SUBSHELL'S OWNER, and its
+    // access must resolve `owner` — if the mint had stored the actor (the
+    // system service user, no admin role, no shares), this is the case that
+    // would catch it: every machine attach would land on the 4005 below.
+    const row = await seedRow();
+    const scoped = issueWsToken(row.userId, row.id);
+    const out = await resolveAttach(request(`subshell=${row.id}&token=${scoped}`));
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.access).toBe("owner");
+  });
+
+  it("refuses a SCOPED token on any other subshell, identically to a bad token", async () => {
+    // The binding is the containment for machine mints: an owner identity on
+    // a token bound to another pane must buy nothing. The refusal is the
+    // SAME pair a bad token gets (toEqual, not merely both-4001, so the two
+    // cannot drift), and it burns the token — one guess per captured token,
+    // never a binding oracle.
+    const mine = await seedRow();
+    const other = await seedRow();
+    const scoped = issueWsToken(mine.userId, mine.id);
+    const wrong = await resolveAttach(request(`subshell=${other.id}&token=${scoped}`));
+    expect(wrong).toEqual({ ok: false, code: 4001, reason: "unauthorized" });
+    expect(await resolveAttach(request(`subshell=${mine.id}&token=not-a-token`))).toEqual(wrong);
+    // ...and the burned token no longer attaches even to ITS OWN pane.
+    expect(await resolveAttach(request(`subshell=${mine.id}&token=${scoped}`))).toEqual(wrong);
+  });
+
   it("tells a stranger nothing: an unshared subshell answers exactly like a missing one", async () => {
     // Absent, unshared and forbidden must be indistinguishable on the wire,
     // or ids can be probed. Asserting the two are EQUAL is the only way to

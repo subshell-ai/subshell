@@ -18,7 +18,7 @@ import { resolveCookieSession } from "@/lib/session-cookie.js";
 import { type Access, accessAtLeast, loadSubshellAccess } from "@/lib/subshell-access.js";
 import { logger } from "@/utils/logger.js";
 import { type AttachParams, parseAttachParams } from "@/ws/attach-params.js";
-import { consumeWsToken } from "@/ws/ws-token.js";
+import { consumeWsToken, type WsTokenIdentity } from "@/ws/ws-token.js";
 
 /** What the attach handler reads about the caller; no socket required. */
 export interface AttachRequest {
@@ -71,24 +71,38 @@ export async function resolveAttach(input: AttachRequest): Promise<AttachResolve
   // reaches us directly (same-host WS without a proxy).
   const tokenParam = input.url.searchParams.get("token");
 
-  let userId: string | null = null;
+  let identity: WsTokenIdentity | null = null;
   if (tokenParam) {
-    userId = consumeWsToken(tokenParam);
+    identity = consumeWsToken(tokenParam);
+    // A SCOPED token (any Bearer-key mint — the route binds one at issue
+    // time) can attach ONLY to the pane it names. Checked AFTER consumption,
+    // so a wrong-subshell attempt burns the token: one guess per captured
+    // token, never a free binding oracle. The refusal is the SAME pair a bad
+    // token gets, so a scoped token cannot probe which ids exist either.
+    if (identity && identity.subshellId !== null && identity.subshellId !== subshellId) {
+      return { ok: false, code: 4001, reason: "unauthorized" };
+    }
   } else {
     // Same shared extraction as the REST guard — accepts the https
-    // `__Secure-` spelling and re-presents it under both names.
+    // `__Secure-` spelling and re-presents it under both names. A cookie
+    // identity is unscoped by definition.
     const session = await resolveCookieSession(input.cookieHeader);
-    userId = session?.user.id ?? null;
+    identity = session ? { userId: session.user.id, subshellId: null } : null;
   }
-  if (!userId) return { ok: false, code: 4001, reason: "unauthorized" };
+  if (!identity) return { ok: false, code: 4001, reason: "unauthorized" };
 
   const { repos } = getRequestlessContext();
-  // Resolve the caller's access to THIS subshell (a human browser path: admin
-  // and shared grants both count). Invisible (absent or unshared) closes with
-  // the same 4005 an owner-mismatch used to, so a stranger learns nothing.
+  // Resolve the identity's access to THIS subshell with the FULL human gate
+  // (admin boost and shared grants count) — true for a cookie session, and
+  // correct for a scoped bearer token too because a scoped token records the
+  // subshell's OWNER (see ws-token.ts): the scope check above already
+  // confined it to that one pane, so resolving as its owner grants nothing
+  // beyond the pane it can only ever reach. Invisible (absent or unshared)
+  // closes with the same 4005 an owner-mismatch used to, so a stranger
+  // learns nothing.
   const { row, access } = await loadSubshellAccess(
     { subshells: repos.subshells, shares: repos.subshellShares, userMeta: repos.userMeta },
-    userId,
+    identity.userId,
     subshellId,
   );
   // Invisible and refused look identical on the wire, so a stranger cannot
