@@ -79,14 +79,37 @@ export function SetupKeysSection() {
   // row id because that is exactly what the dialog needs and nothing else does.
   const [setupFor, setSetupFor] = useState<string | null>(null);
 
-  async function revoke(id: string, key: string) {
+  // The verb follows the row's state (operator, 2026-09-22, on the live
+  // window: "If the key is consumed, does the revoke label make sense here?"
+  // — no). An UNUSED row's key still opens a door, and deleting it REVOKES
+  // that door. A USED or EXPIRED row's key is inert — revoking is not a
+  // thing that can happen to it anymore — so the button and the dialog say
+  // REMOVE and the description says plainly that only the record goes.
+  // The title never carries the key itself (same ruling: "Can we not have
+  // the key in the title? It looks really awful"): it is 43 characters of
+  // random string, the row just displayed it in mono, and a wrapped blob of
+  // base62 where a question should be reads as an error, not a prompt. The
+  // description quotes it in mono instead — which key is named, in one line
+  // of the body where a long token belongs.
+  async function dismiss(id: string, key: string, state: "unused" | "used" | "expired") {
     setRowError((prev) => ({ ...prev, [id]: "" }));
-    const ok = await confirmAction({ title: `Revoke setup key "${key}"?`, confirmLabel: "Revoke", danger: true });
+    const unused = state === "unused";
+    const ok = await confirmAction({
+      title: unused ? "Revoke this setup key?" : "Remove this setup key?",
+      description: unused
+        ? `${key} will no longer enroll a node. It is deleted here and refused at enrollment.`
+        : `${key} is ${state}, so there is nothing to revoke. This only deletes its record from this list.`,
+      confirmLabel: unused ? "Revoke" : "Remove",
+      danger: unused,
+    });
     if (!ok) return;
     try {
       await remove.mutateAsync(id);
     } catch (err) {
-      setRowError((prev) => ({ ...prev, [id]: errMessage(err, "Could not revoke the key.") }));
+      setRowError((prev) => ({
+        ...prev,
+        [id]: errMessage(err, unused ? "Could not revoke the key." : "Could not remove the key."),
+      }));
     }
   }
 
@@ -110,8 +133,13 @@ export function SetupKeysSection() {
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
                   {/* The key is the row's identity now, so it gets the affordance a
-                      person needs with it: shown in full, and one press to take it. */}
-                  <p className="font-mono font-strong">
+                      person needs with it: shown in full, and one press to take it.
+                      `label` over `detail` is the line-item rule (design-system): the
+                      key carries the row's weight at the label size — it had no role
+                      class and inherited the 16 px body, which on a 43-character
+                      token reads as a shout (operator, 2026-09-22). Mono was already
+                      on the parent span; the role keeps it legible, not bigger. */}
+                  <p className="font-mono font-strong text-label">
                     <CopyableValue value={k.key} label="Setup key" />
                   </p>
                   <p className="text-detail text-muted-foreground">
@@ -134,8 +162,18 @@ export function SetupKeysSection() {
                     Setup
                   </Button>
                 )}
-                <Button variant="ghost" size="sm" onClick={() => void revoke(k.id, k.key)} disabled={remove.isPending}>
-                  Revoke
+                {/* Revoke while the key can still open a door; Remove once it
+                    cannot (operator, 2026-09-22). The inert row's button is not
+                    danger-styled either — deleting a spent record is list
+                    tidying, the destructive style is reserved for closing a
+                    live enrollment door. */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void dismiss(k.id, k.key, state)}
+                  disabled={remove.isPending}
+                >
+                  {state === "unused" ? "Revoke" : "Remove"}
                 </Button>
               </div>
               {rowError[k.id] && <p className="text-destructive text-detail">{rowError[k.id]}</p>}

@@ -23,7 +23,12 @@ const PAST = new Date(Date.now() - 60 * 1000).toISOString();
  */
 function mockKeys(rows: Row[]) {
   const deletes: string[] = [];
-  const confirmations: string[] = [];
+  const confirmations: {
+    title: string;
+    description?: string;
+    confirmLabel?: string;
+    danger?: boolean;
+  }[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
@@ -34,7 +39,7 @@ function mockKeys(rows: Row[]) {
     return Promise.resolve(new Response(JSON.stringify({ keys: rows }), { status: 200 }));
   }) as typeof fetch;
   const previous = setConfirmHandler((options) => {
-    confirmations.push(options.title);
+    confirmations.push(options);
     return Promise.resolve(true);
   });
   return {
@@ -110,16 +115,49 @@ describe("SetupKeysSection", () => {
     }
   });
 
-  it("revoking confirms with the KEY and deletes that row", async () => {
+  it("revoking names the act in the title and the key in the body", async () => {
     const { restore, deletes, confirmations } = mockKeys([row()]);
     try {
       renderCard([row()]);
       await screen.findByText("nsk_alpha_alpha_alpha_alpha_1");
       fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
       await waitFor(() => expect(deletes).toEqual(["/api/nodes/setup-keys/k1"]));
-      // The prompt names what is about to stop working by the same text the row
-      // shows — there is no label to name it by any more.
-      expect(confirmations[0]).toContain("nsk_alpha_alpha_alpha_alpha_1");
+      // Operator, 2026-09-22, on the live window: "Can we not have the key in
+      // the title? It looks really awful." The question names the act; the
+      // forty-three-character token it refers to is quoted in the
+      // description, which is where a long mono value reads as a detail
+      // rather than a wrapped blob where a question should be.
+      expect(confirmations[0].title).toBe("Revoke this setup key?");
+      expect(confirmations[0].description).toContain("nsk_alpha_alpha_alpha_alpha_1");
+      expect(confirmations[0].confirmLabel).toBe("Revoke");
+      expect(confirmations[0].danger).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  it("says REMOVE on a settled row, because a spent key has nothing to revoke", async () => {
+    // Same ruling's second screenshot: the USED row's button read "Revoke",
+    // naming an act that can no longer happen. The verb follows the state;
+    // the dialog says plainly that only the record goes; the destructive
+    // styling belongs to closing a live door, not to list tidying.
+    const { restore, deletes, confirmations } = mockKeys([
+      row({
+        id: "b",
+        key: "nsk_used_used_used_used_used_1x",
+        usedAt: "2026-09-17T11:00:00.000Z",
+        consumedNodeId: "n7",
+      }),
+    ]);
+    try {
+      renderCard([]);
+      await screen.findByText("nsk_used_used_used_used_used_1x");
+      fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+      await waitFor(() => expect(deletes).toEqual(["/api/nodes/setup-keys/b"]));
+      expect(confirmations[0].title).toBe("Remove this setup key?");
+      expect(confirmations[0].description).toContain("used, so there is nothing to revoke");
+      expect(confirmations[0].confirmLabel).toBe("Remove");
+      expect(confirmations[0].danger).toBe(false);
     } finally {
       restore();
     }
