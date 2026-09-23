@@ -268,16 +268,24 @@ export interface FitRepaintOutcome {
  * @param opts.canNudge - evaluated AFTER the first wait: false when there is
  *   no log to read a burst from (a blind nudge would thrash every pane-poll
  *   attach) or the viewer has already gone
- * @param opts.booting - the pane has produced ZERO log bytes since launch
- *   (the joiner sampled it before its shell printed anything). Then this
- *   reduces to the one fit resize and returns: there is no frame that could
- *   be stale, so the repaint wait has nothing to watch and the nudge is
- *   strictly harmful — a slow-booting shell (ble.sh, powerlevel10k: prompts
- *   redrawn by every SIGWINCH during init) takes the ±1 storm as duplicated
- *   prompts written INTO the pane's own history, the stray prompt-at-top the
- *   operator sees on every fresh terminal (2026-09-23 report). The single fit
- *   resize stays: it lands before the first frame exists, so the shell boots
- *   at the fit geometry rather than being winched mid-prompt later.
+ * @param opts.booting - no readable log bytes at the join sample: a FIRST-LIFE
+ *   pane whose shell has printed nothing yet, or (locally) a pane with no log
+ *   to read at all — a state whose nudge `canNudge` already refused and whose
+ *   wait could never observe growth. Then this reduces to the one fit resize
+ *   and returns: there is no frame that could be stale, so the repaint wait
+ *   has nothing to watch and the nudge is strictly harmful — a slow-booting
+ *   shell (ble.sh, powerlevel10k: prompts redrawn by every SIGWINCH during
+ *   init) takes the ±1 storm as duplicated prompts written INTO the pane's own
+ *   history, the stray prompt-at-top the operator sees on every fresh terminal
+ *   (2026-09-23 report). The single fit resize stays: it lands before the
+ *   first frame exists, so the shell boots at the fit geometry rather than
+ *   being winched mid-prompt later. Two honest edges: a RESTARTED row keeps its
+ *   pre-restart log bytes, so its second boot reads as not-booting and keeps
+ *   today's dance (a launch-time size epoch would close it — known residual,
+ *   not a regression); and bytes landing between the caller's sample and this
+ *   call make `booting` stale-TRUE, which skips the provocation — the safe
+ *   direction, since a seconds-old frame is not the stale one the nudge
+ *   exists for.
  * @throws whatever `launcher.resize` throws — callers keep their fallback
  */
 export async function fitPaneAndRepaint(

@@ -254,10 +254,12 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
       const outcome = await fitPaneAndRepaint(launcher, socket, row.id, fit, sizeOf, {
         baseline: logStart,
         canNudge: () => hasLog && !detached,
-        // Zero log bytes ⇒ the shell has not printed anything yet ⇒ nothing
-        // to repaint and everything to lose: the nudge's winch storm makes a
-        // slow-booting prompt redraw itself into duplicates (the stray
-        // prompt-at-top on fresh terminals, operator report 2026-09-23).
+        // No readable log bytes at the join — a fresh pane whose shell has
+        // printed nothing yet, or no log to read from at all (the state
+        // `canNudge` already refuses to nudge in). The wait could observe
+        // neither, and the winch storm duplicates a still-booting prompt
+        // (the stray prompt-at-top on fresh terminals, operator report
+        // 2026-09-23).
         booting: logStart === 0,
       });
       repainted = outcome.repainted;

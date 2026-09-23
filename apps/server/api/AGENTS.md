@@ -355,7 +355,9 @@ attach, both under `journalctl --user -u subshell-server.service | grep "ws atta
   `repainted=false nudged=true` means the pane refused to repaint even for a
   forced SIGWINCH, so a bad replay is the pane's own state; `repainted=true`
   means a freshly painted frame was shipped and anything still wrong is
-  downstream of the capture.
+  downstream of the capture; `repainted=false nudged=false` with a live log
+  means the booting fast path — the pane had no bytes at the join, so it was
+  fitted and deliberately left alone.
 
 `SUBSHELL_ATTACH_DEBUG=1` additionally dumps
 `/tmp/subshell-attach-debug/<subshell>/<timestamp>/{pre-resize,replay}.txt` — the

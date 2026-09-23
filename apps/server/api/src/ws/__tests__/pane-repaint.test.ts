@@ -124,8 +124,11 @@ describe("fitPaneAndRepaint", () => {
       });
       expect(r).toEqual({ repainted: false, nudged: false });
       // The same call without `booting` spends ≥200ms waiting for a burst a
-      // silent pane cannot send, then nudges; this path is one resize RPC.
-      expect(performance.now() - t0).toBeLessThan(150);
+      // silent pane cannot send, then nudges (~520ms floor); this path is one
+      // resize RPC. 300ms keeps a wide margin over the fast path's two tmux
+      // round trips while still discriminating against the broken floor —
+      // CI-load-spare on the bound is the convention here.
+      expect(performance.now() - t0).toBeLessThan(300);
       expect(await launcher.paneSize(p.socket, p.id)).toEqual(fit);
       // And the pane stayed untouched: no winch-provoked bytes.
       expect(await p.sizeOf()).toBe(0);
