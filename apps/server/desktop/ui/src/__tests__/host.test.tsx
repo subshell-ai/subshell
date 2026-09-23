@@ -633,9 +633,10 @@ describe("the rail", () => {
     // The running view's words — a standing title, not a handoff's promise.
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Your Server Is Running");
     expect(screen.getByText("Everything the server reports is below.")).toBeDefined();
-    // The section's own content: the facts, the Server log, the app's version.
+    // The section's own content: the facts (app + CLI versions first), the log.
     expect(screen.getByText("Server log")).toBeDefined();
-    expect(screen.getByText("This app: Subshell Server 0.12.1")).toBeDefined();
+    expect(screen.getByText("This app")).toBeDefined();
+    expect(screen.getByText("Subshell Server 0.12.1")).toBeDefined();
     // One button, and NOTHING opened by itself: no Continue, no auto-open.
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
     expect(fake?.callsTo("desktop_open_main")).toHaveLength(0);
