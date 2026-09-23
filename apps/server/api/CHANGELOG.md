@@ -1,5 +1,20 @@
 # @internal/server
 
+## 0.16.0
+
+### Minor Changes
+
+- [#150](https://github.com/subshell-ai/subshell/pull/150) [`366112d`](https://github.com/subshell-ai/subshell/commit/366112d1c25f1346e9abb573b30f34b8071138ae) Thanks [@theogravity](https://github.com/theogravity)! - Rotated keys have a way home. `subshell configure` takes `--key`: it stores the rotated node key the node's page shows once in that machine's own config, keeping the node's identity and spending no setup key, and it refuses an `nsk_` setup key by name so the two credentials cannot be confused at a terminal. On the node page, Rotate key is now a dedicated card that ends with the two copyable commands which install the new key and bring the node back, plus a Client App tab saying plainly that Subshell Client takes a setup key and registers a new node, so a node key belongs on the command line. The rotate response's guidance line names the real command at last; the `subshell config` verb it used to name has never existed.
+
+### Patch Changes
+
+- [#149](https://github.com/subshell-ai/subshell/pull/149) [`25b3353`](https://github.com/subshell-ai/subshell/commit/25b335351398c66a7a19afe1cf272321807b4da0) Thanks [@theogravity](https://github.com/theogravity)! - The Setup keys card asks its questions in plain English now. The revoke
+  confirmation no longer puts the 43-character key in the title — the title
+  names the act and the description quotes the key where a long value reads as
+  a detail. And a used or expired row's button says Remove, not Revoke: a
+  settled key has nothing left to revoke, and the dialog says so. The key row
+  itself now renders at the label size in mono, not the inherited body size.
+
 ## 0.15.7
 
 ### Patch Changes
