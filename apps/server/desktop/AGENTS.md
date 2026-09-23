@@ -1270,7 +1270,7 @@ ui/
 │   │   ├── logs.ts     #   renderTail() and renderOutput(), for the Show Details panes
 │   │   ├── copy-button.ts   # the one Copy affordance; its flash lives in lib/copy-flash.ts
 │   │   ├── tmux-warning.ts  # the amber gate explanation — a FACTORY
-│   │   └── reset-view.ts    # the Reset dialog (the 2026-09-23 wave: a modal over the standing section, no longer a frame replacement)
+│   │   └── screens/reset-dialog.tsx # the Reset dialog (the 2026-09-23 wave: a modal over the standing section, no longer a frame replacement)
 │   ├── styles.css      # @theme tokens + component classes; Tailwind in markup
 │   ├── lib/
 │   │   ├── ipc.ts            # one typed function per `desktop_*` command this page invokes
@@ -1283,7 +1283,7 @@ ui/
 │   │   ├── settings-screen.ts # Server Addresses: the https warning, what Save sends, its refusals
 │   │   ├── permissions-model.ts # the four macOS rows: glyph, suffix, action, pane
 │   │   ├── copy-flash.ts     # the Copy button's copied/failed state, by key and by clock
-│   │   └── reset.ts          # the reset screen's pure decisions: rows, refusal, arming
+│   │   └── reset.ts          # the reset dialog's pure decisions: rows, refusal, arming
 │   └── __tests__/      # pure pins: config-form, installers, wizard-state, recovery-model,
 │                       # update-act, settings-screen, permissions-model, copy-flash,
 │                       # reset, wire-names, ipc-acl, tauri-config
