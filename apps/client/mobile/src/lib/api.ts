@@ -36,10 +36,11 @@ export interface SubshellClientOptions {
  * Authenticated REST client for one subshell instance.
  *
  * Authenticates as the **better-auth cookie actor** — not a bearer key. That is
- * a design constraint, not a preference: `api/ws-token.route.ts:26` and
- * `api/notifications.route.ts:41` reject non-cookie actors deliberately, so a
- * key cannot attach a terminal or enroll a device, and a human holding a phone
- * is exactly the principal those gates mean to accept.
+ * a design constraint, not a preference: `api/notifications.route.ts:41`
+ * rejects non-cookie actors, and `api/ws-token.route.ts` accepts machine keys
+ * only as SUBSHELL-BOUNDED mints — the phone needs the unscoped human token
+ * (it switches panes freely), so a cookie actor remains the only right
+ * principal here, and a key could never enroll a device anyway.
  *
  * Every request after sign-in replays the token as a `Cookie` header under both
  * spellings (see `src/lib/cookie.ts`), and picks up better-auth's rotation from

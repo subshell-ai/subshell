@@ -116,6 +116,24 @@ describe("ws-token route (unscoped cookie mints, scoped bearer mints)", () => {
     expect(consumeWsToken(token)).toEqual({ userId, subshellId: null });
   });
 
+  it("web SPA shape — content-type json, EMPTY body — still 200", async () => {
+    // `apiFetch` in @internal/node-admin always sets content-type:
+    // application/json even when it sends no body, which is how every browser
+    // attach has minted its token. Elysia's behavior on a declared-but-
+    // optional body with a JSON content-type and no payload is an Elysia
+    // version detail, not our intent — so the exact wire shape is pinned
+    // here: a future bump that 422s this would otherwise brick every browser
+    // attach with a green suite.
+    const res = await app.fetch(
+      new Request("http://localhost:3080/api/auth/ws-token", {
+        method: "POST",
+        headers: new Headers({ cookie: `better-auth.session_token=${cookie}`, "content-type": "application/json" }),
+      }),
+    );
+    const token = await mintedToken(res);
+    expect(consumeWsToken(token)).toEqual({ userId, subshellId: null });
+  });
+
   it("cookie session ignores subshellId (scoping only narrows a human)", async () => {
     const res = await app.fetch(
       authedRequest("/api/auth/ws-token", cookie, {

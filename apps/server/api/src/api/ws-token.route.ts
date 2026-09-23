@@ -47,6 +47,9 @@ const WsTokenResponseSchema = t.Object({
  *   what keeps the original reason this route was cookie-only true of
  *   siblings: the guard resolves a subshell key as its OWNER, and without
  *   the equality check one pane's key could drive any pane the owner has.
+ *   The equality check runs BEFORE the row lookup on purpose: a subshell key
+ *   naming a foreign id gets the same 403 whether that id exists or not, so
+ *   the route enumerates nothing. Do not tidy the lookup above the check.
  * - A SYSTEM key may name ANY subshell. That is a stated widening, not an
  *   oversight: the system key is already the instance-wide bearer credential
  *   (docs/security.md §2), and containment sits in the SCOPED token — one
