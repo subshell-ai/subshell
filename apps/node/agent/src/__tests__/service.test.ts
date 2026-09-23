@@ -541,6 +541,48 @@ describe("uninstallService — macOS (launchd agent)", () => {
     expect(s.removed.sort()).toEqual([PLIST, SESSION_PLIST].sort());
     expect(s.files.size).toBe(0);
   });
+
+  // The chain's ordinary second bootout: STOP unloads the job, UNINSTALL
+  // boots out the same label, and launchd answers "Boot-out failed: 3: No
+  // such process". The job not being loaded IS the step's goal — reporting
+  // failure here stalled every macOS reset and un-enroll between stop and
+  // delete (measured 2026-09-22: the client's chain refused on this text and
+  // the config survived a "completed" reset).
+  test('bootout answering "No such process" is UNINSTALLED, exit 0', async () => {
+    const s = stub({
+      platform: "darwin",
+      respond: (cmd) =>
+        cmd[0] === "launchctl"
+          ? { code: 3, out: "", err: "Boot-out failed: 3: No such process\n" }
+          : { code: 0, out: "", err: "" },
+    });
+    s.files.set(PLIST, "<plist>old</plist>");
+
+    const res = await uninstallService(s.deps);
+    expect(res.code).toBe(0);
+    expect(s.removed).toEqual([PLIST]);
+    expect(res.out).toInclude("nothing to boot out");
+    expect(res.err).toBe("");
+  });
+
+  // Any OTHER bootout failure still ends exit 1 with the plist removal
+  // stated: an unreadable launchd is not "uninstalled", and the chain must
+  // stop rather than delete files under a possibly-loaded definition.
+  test("any other bootout failure still reports exit 1", async () => {
+    const s = stub({
+      platform: "darwin",
+      respond: (cmd) =>
+        cmd[0] === "launchctl"
+          ? { code: 5, out: "", err: "Could not disconnect bootstrap" }
+          : { code: 0, out: "", err: "" },
+    });
+    s.files.set(PLIST, "<plist>old</plist>");
+
+    const res = await uninstallService(s.deps);
+    expect(res.code).toBe(1);
+    expect(s.removed).toEqual([PLIST]);
+    expect(res.err).toInclude("removed anyway");
+  });
 });
 
 describe("uninstallService — guards", () => {

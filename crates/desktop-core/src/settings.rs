@@ -131,10 +131,13 @@ pub struct Settings {
     pub planes: Vec<String>,
     /// Subshell Client only: the LAST deliberate plane open, and through
     /// which door (operator ruling 2026-09-22, the tray's "Open Last").
-    /// Written by every plane open — app window or system browser — and read
-    /// by the tray submenu's first item. Reset clears it with the list: an
-    /// open-memory of a plane whose everything-else was just wiped is the
-    /// record a reset promised to forget.
+    /// Written by every deliberate open THIS APP drives — app window or
+    /// system browser; the plane page's own "Open in browser" button rides
+    /// the remote window's single granted command and records nothing, so a
+    /// page cannot stamp this app's memory per click — and read by the tray
+    /// submenu's first item. Reset clears it with the list: an open-memory
+    /// of a plane whose everything-else was just wiped is the record a reset
+    /// promised to forget.
     ///
     /// The address is stored even when it is no longer in
     /// [`Settings::planes`]: removing a bookmark does not un-happen the

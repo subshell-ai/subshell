@@ -87,7 +87,9 @@ export function defaultUnenrollDeps(dataDir: string): UnenrollDeps {
  *
  * @param cfg - the loaded {@link NodeConfig} (the deletion subject, and the
  *   source of the ids the success text names)
- * @param opts - `yes` overrides both refusals; `json` switches the view
+ * @param opts - `yes` waives the PANES refusal only — a live daemon is
+ *   refused whatever flags carry, because deleting a config out from under a
+ *   dialing daemon is not a consentable act; `json` switches the view
  * @param deps - the injectable effects
  */
 export async function runUnenroll(
@@ -95,18 +97,26 @@ export async function runUnenroll(
   opts: { yes: boolean; json: boolean },
   deps: UnenrollDeps,
 ): Promise<CliResult> {
-  // A live daemon holds the plane connection and the config in memory; it
-  // keeps announcing itself until it exits, so deleting the file under it is
-  // an unenroll the running process has not agreed to. The refusal names the
-  // act that stops it — the CLI verb, never a signal from here.
+  // A live daemon holds the plane connection and its config IN MEMORY, keeps
+  // announcing itself until it exits, and rewrites the lock file every
+  // heartbeat: deleting the files under it produces a machine the plane
+  // still sees as an online node and an app that reported "removed". So this
+  // refusal is UNCONDITIONAL — `--yes` cannot buy it. (It was skippable
+  // until the merged-wave review measured exactly that outcome: a node with
+  // a live unsupervised daemon and no definition walked the client's chain
+  // past both absence-tolerant steps, and `--yes` deleted the config out
+  // from under a dialing daemon.) What `--yes` accepts is pane ORPHANING —
+  // a real product property — never this half-truth. The refusal names both
+  // remedies: the service verb where there is a definition, and plain
+  // quitting of the terminal where a person runs `subshell run` by hand.
   const lock = deps.readLock();
-  if (lock !== null && deps.isPidAlive(lock.pid) && !opts.yes) {
+  if (lock !== null && deps.isPidAlive(lock.pid)) {
     return {
       code: 1,
       out: "",
       err:
-        `subshell: refusing: the node's daemon is running (pid ${lock.pid}); ` +
-        "stop it first with `subshell service stop`, or pass --yes\n",
+        `subshell: refusing: the node's daemon is running (pid ${lock.pid}) and will not unenroll itself; ` +
+        "stop it first (`subshell service stop`, or exit the terminal running `subshell run`)\n",
     };
   }
 
@@ -137,13 +147,20 @@ export async function runUnenroll(
   // file pointing at a daemon whose home is gone.
   const lockFile = lockPath();
   const configFile = configPath();
-  const hadLock = await deps.fileExists(lockFile);
+  // `status`'s rule for the same file: a lock naming ANOTHER node in this
+  // config home is never trusted and never deleted (cli.ts). A dead lock
+  // this daemon wrote is deleted first; a foreign one stays — its owner's
+  // daemon, whatever state it is in, is not this call's to unlink.
+  const ownLock = lock === null || lock.nodeId === cfg.nodeId;
+  const hadLock = ownLock && (await deps.fileExists(lockFile));
   if (hadLock) await deps.removeFile(lockFile);
   await deps.removeFile(configFile);
 
   if (opts.json) {
     // `configFile` is "removed" unconditionally because loadConfig read it
-    // this run: it cannot be absent here. The lock can, and says so.
+    // this run: it cannot be absent here. The lock can be absent, removed —
+    // or KEPT, naming that a foreign node's lock stands in this home, which
+    // is that lock's owner's file to clear.
     return {
       code: 0,
       out: `${JSON.stringify(
@@ -152,7 +169,7 @@ export async function runUnenroll(
           nodeId: cfg.nodeId,
           name: cfg.name,
           configFile: "removed",
-          lockFile: hadLock ? "removed" : "absent",
+          lockFile: hadLock ? "removed" : ownLock ? "absent" : "kept",
           dataDir: cfg.dataDir,
         },
         null,

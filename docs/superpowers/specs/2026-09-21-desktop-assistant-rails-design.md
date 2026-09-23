@@ -421,3 +421,20 @@ corrections made from the running dev window as it went:
   reset now clears `settings.planes` and the open-last memory along with
   everything else it names — cosmetic preferences stay — and the dialog
   says the list goes.
+- **Reset finished, and reset starts over** (the same night, twice more). The
+  operator pressed Reset on the live window and got a half-run: "the reset
+  everything didn't seem to reset", then, after the list-clearing landed,
+  "it doesnt restart the client in FTE — Reset should mean EVERYTHING
+  resets". The first was a chain defect the merged-wave review confirmed
+  independently: `service stop` IS a launchd bootout, uninstall booted out
+  the same label again, launchd answered "No such process", the CLI reported
+  the ordinary second call as a failure, and the chain stopped before any
+  delete — every macOS reset was half-running this way. Uninstall now calls
+  that answer what it is (goal reached, exit 0), the client chain tolerates
+  the phrase for older installed CLIs, and the chain REFUSES outright while
+  a daemon still answers its lock file — a running daemon holds the deleted
+  config in memory and keeps the plane seeing an online node, so it is the
+  one thing `--yes` cannot accept anywhere in this wave. The second was
+  semantics: a completed reset now sends the app itself to the beginning of
+  the walk (the walk is the receipt — no stdout line survives it), which is
+  what "EVERYTHING resets" reads as from the chair.

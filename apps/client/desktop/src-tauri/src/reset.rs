@@ -193,7 +193,7 @@ pub fn node_reset(app: AppHandle, settings: State<'_, SettingsState>, typed: Str
     // without it a Retry after any later failure dies here forever, because
     // the uninstall in a half-run already removed what this step refuses on.
     let stop = crate::control::service_now(&settings, ServiceCommand::Stop, false, true);
-    if let Some(stderr) = push_step(&mut log, &stop, &["nothing installed"]) {
+    if let Some(stderr) = push_step(&mut log, &stop, SERVICE_TOLERATED) {
         return Ok(ActionResult {
             ok: false,
             stdout: log,
@@ -212,11 +212,27 @@ pub fn node_reset(app: AppHandle, settings: State<'_, SettingsState>, typed: Str
     // 3. Uninstall the service, while the binary and the config it names still
     // exist — the CLI reads both to know what it is removing.
     let un = crate::control::service_now(&settings, ServiceCommand::Uninstall, false, true);
-    if let Some(stderr) = push_step(&mut log, &un, &["nothing installed"]) {
+    if let Some(stderr) = push_step(&mut log, &un, SERVICE_TOLERATED) {
         return Ok(ActionResult {
             ok: false,
             stdout: log,
             stderr,
+        });
+    }
+    // 3b. A daemon that outran both service steps — a hand-run `subshell run`
+    // has no definition to stop — is refused BEFORE any delete. Deleting the
+    // files under a dialing daemon makes this screen's success a lie: the
+    // plane keeps seeing an online node until the process dies on its own,
+    // and the lock file comes back under the deleted one. Same reading the
+    // node CLI's own un-enroll refusal makes (`--yes` cannot buy that one
+    // either). Plan stays stashed: stop the daemon, press Retry, converge.
+    if let Some(pid) = live_daemon_pid(&plan.lock_file) {
+        return Ok(ActionResult {
+            ok: false,
+            stdout: log,
+            stderr: format!(
+                "a node daemon is still running (pid {pid}); stop it (`subshell service stop`, or exit the terminal running `subshell run`) and press Retry"
+            ),
         });
     }
     // 4. Delete, absence = done, config.json last. Every deletion's failure
@@ -254,11 +270,25 @@ pub fn node_reset(app: AppHandle, settings: State<'_, SettingsState>, typed: Str
     // (text size, the tray habit, the update-check timestamps) stay; they
     // are not part of the setup this screen resets, and whoever reset the
     // node still likes their font.
-    let _ = settings.update(|s| {
-        s.binary_path = None;
-        s.planes.clear();
-        s.last_plane_open = None;
-    });
+    // A persist failure here must be SAID: the machine's consented bytes are
+    // all gone (ok stays true — the reset of THE NODE is complete), but the
+    // app's own memory only cleared in this process, and the next launch
+    // would read the stale file and be "configured" again — the exact
+    // "reset didn't seem to reset" this step exists to kill, resurrected
+    // silently. The in-memory clear still stands (SettingsState edits before
+    // saving), so THIS session routes to the walk; the sentence names what
+    // the next launch will need.
+    let settings_note = settings
+        .update(|s| {
+            s.binary_path = None;
+            s.planes.clear();
+            s.last_plane_open = None;
+        })
+        .err()
+        .map(|e| {
+            format!("the node is reset, but this app could not write its own settings: {e}\n")
+        })
+        .unwrap_or_default();
     // The tray mirrors both the list and the node's binding, and both just
     // emptied; its Control Plane submenu rebuilds from the live reads and
     // lands on "No control planes yet".
@@ -267,9 +297,39 @@ pub fn node_reset(app: AppHandle, settings: State<'_, SettingsState>, typed: Str
     Ok(ActionResult {
         ok: true,
         stdout: log,
-        stderr: String::new(),
+        stderr: settings_note,
     })
 }
+
+/// The pid of a daemon the lock file says is STILL RUNNING, if any.
+///
+/// The same reading `subshell status` makes (lock pid + `kill -0`) and the
+/// same honesty limit: a recycled pid answers alive. That error direction is
+/// the safe one — a false "alive" refuses a reset and names the remedy,
+/// while the opposite would delete files under a dialing daemon, which is
+/// the half-truth the node CLI's own un-enroll refusal exists to reject.
+/// No lock, no parse, or a dead pid is `None`: the absence answers are the
+/// reset continuing, exactly as every later delete treats absence as done.
+fn live_daemon_pid(lock_file: &Path) -> Option<u32> {
+    let body = std::fs::read_to_string(lock_file).ok()?;
+    let pid = serde_json::from_str::<Value>(&body).ok()?.get("pid")?.as_u64()?;
+    let pid = u32::try_from(pid).ok()?;
+    (pid > 0 && run(&["kill".to_string(), "-0".to_string(), pid.to_string()], ACTION_TIMEOUT).ok())
+        .then_some(pid)
+}
+
+/// Phrases that mean a service step's GOAL is already true, in the words the
+/// CLI answers with. "nothing installed" is the absent definition; "No such
+/// process" is launchd's answer to booting out an already-unloaded job —
+/// the ORDINARY outcome of an uninstall that follows a stop, since stop IS
+/// a bootout on macOS. A released node CLI reports that second bootout as a
+/// failure; until the CLI itself stopped doing so (2026-09-22), a chain that
+/// refused the phrase stalled every macOS reset and un-enroll between stop
+/// and delete — which is how "reset everything" left a configured machine
+/// twice on the operator's own host. The job not being loaded IS both
+/// steps' goal; systemd answers neither phrase. Both chains read this one
+/// list (`node_unenroll` in `control.rs`).
+pub(crate) const SERVICE_TOLERATED: &[&str] = &["nothing installed", "No such process"];
 
 /// Append one verb's verbatim words; return `Some(stderr)` when it failed.
 ///
@@ -498,5 +558,61 @@ mod tests {
         assert!(delete_outcome(Err(missing), Path::new("/x")).is_none());
         let denied = std::io::Error::new(ErrorKind::PermissionDenied, "nope");
         assert!(delete_outcome(Err(denied), Path::new("/x")).is_some());
+    }
+
+    // The chain's tolerance list, pinned by name: launchd's answer to the
+    // SECOND bootout (uninstall's, after stop already unloaded the job) must
+    // read as the step's goal on both chains, or every macOS reset and
+    // un-enroll against a released node CLI stalls between stop and delete
+    // — the exact half-run measured twice on the operator's host.
+    #[test]
+    fn the_double_bootout_answer_is_tolerated_by_both_service_steps() {
+        let mut log = String::new();
+        let booted_out = ActionResult {
+            ok: false,
+            stdout: String::new(),
+            stderr: "launchctl bootout reported (exit 3): Boot-out failed: 3: No such process; the plist was removed anyway\n".into(),
+        };
+        assert!(push_step(&mut log, &booted_out, SERVICE_TOLERATED).is_none());
+        assert!(log.contains("No such process"));
+        // The other phrase the list exists beside: an absent definition.
+        let absent = ActionResult {
+            ok: false,
+            stdout: String::new(),
+            stderr: "nothing installed: no launchd plist at /x\n".into(),
+        };
+        assert!(push_step(&mut log, &absent, SERVICE_TOLERATED).is_none());
+    }
+
+    // The guard's reading is `status`'s: a parseable lock naming a LIVE pid
+    // answers Some (whatever process actually holds that pid — recycling is
+    // the accepted over-refusal), and every absence answer is None so the
+    // chain keeps treating absence as "nothing to stop", exactly as the
+    // deletes treat absence as done.
+    #[test]
+    fn the_live_daemon_guard_reads_the_lock_like_status_does() {
+        let dir = std::env::temp_dir().join(format!("subshell-reset-guard-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lock = dir.join("daemon.lock");
+
+        // No file at all, and a file that is not JSON, are both "no answer".
+        assert_eq!(live_daemon_pid(&lock), None);
+        std::fs::write(&lock, "not json").unwrap();
+        assert_eq!(live_daemon_pid(&lock), None);
+
+        // A pid this machine cannot hold alive: far above any pid_max.
+        std::fs::write(&lock, r#"{"pid": 268435455, "nodeId": "n"}"#).unwrap();
+        assert_eq!(live_daemon_pid(&lock), None);
+
+        // This test process IS alive; its own pid is the cheapest live one.
+        let mine = std::process::id();
+        std::fs::write(&lock, format!(r#"{{"pid": {mine}, "nodeId": "n"}}"#)).unwrap();
+        assert_eq!(live_daemon_pid(&lock), Some(mine));
+
+        // A pid zero is not a process, whatever `kill -0` might answer.
+        std::fs::write(&lock, r#"{"pid": 0}"#).unwrap();
+        assert_eq!(live_daemon_pid(&lock), None);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

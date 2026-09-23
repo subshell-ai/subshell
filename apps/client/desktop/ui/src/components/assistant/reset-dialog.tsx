@@ -41,7 +41,11 @@ export function ResetDialog(props: {
   probe: Probe | undefined;
   runner: ActionRunner;
   busy: boolean;
-  onClose: () => void;
+  /** Called on the chain's end with whether it SUCCEEDED — the parent sends
+   *  a completed reset to the first-run walk (operator ruling, 2026-09-22:
+   *  "reset should mean EVERYTHING resets", and a wiped client that stays
+   *  on its sections reads as a reset that did nothing). */
+  onClose: (ok: boolean) => void;
 }): ReactElement {
   const { probe, runner, busy, onClose } = props;
   /** null while arming; true once a plan is staged; false on a machine with nothing to reset. */
@@ -72,8 +76,8 @@ export function ResetDialog(props: {
   useEffect(() => {
     const was = wasBusy.current;
     wasBusy.current = busy;
-    if (was && !busy) onClose();
-  }, [busy, onClose]);
+    if (was && !busy) onClose(runner.output?.ok === true);
+  }, [busy, onClose, runner.output?.ok]);
 
   /** The name the Rust side will compare against — shown so the box can be
    *  typed without guessing. The gate is deliberate consent, not a memory test. */
@@ -93,7 +97,7 @@ export function ResetDialog(props: {
       title="Reset everything?"
       // While the chain runs the dismissal is inert: a running reset keeps
       // its old room's one rule, that nothing ends it but its own end.
-      onClose={busy ? () => undefined : onClose}
+      onClose={busy ? () => undefined : () => onClose(false)}
     >
       {armed === false ? (
         // The operator's exact words (ruling batch, 2026-09-22, screenshot
@@ -104,7 +108,7 @@ export function ResetDialog(props: {
             This machine is not registered with a control plane.
           </p>
           <div className="mt-4 flex justify-end">
-            <Button variant="outline" size="sm" onClick={onClose}>
+            <Button variant="outline" size="sm" onClick={() => onClose(false)}>
               Close
             </Button>
           </div>
@@ -167,7 +171,7 @@ export function ResetDialog(props: {
               </p>
             )}
             <div className="mt-2 flex justify-end gap-2">
-              <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onClose}>
+              <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => onClose(false)}>
                 Cancel
               </Button>
               <Button

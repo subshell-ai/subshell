@@ -31,7 +31,17 @@ receipt line.
 The node CLI gains `subshell unenroll [--yes] [--json]` for the same act
 from the terminal. It deletes only the daemon lock and the configuration —
 the data directory, the installed binary and every live pane stay — and it
-refuses a running daemon or running subshells, listing them, unless --yes.
+refuses a running daemon UNCONDITIONALLY (it holds the config in memory and
+would keep the plane seeing an online node), and refuses running subshells,
+listing them, unless --yes.
+
+The same wave finished the reset chain's first real runs: `subshell service
+uninstall` now treats launchd's "No such process" as the goal reached (a stop
+already booted the job out — reporting the second bootout as failure stalled
+every macOS reset between stop and delete), and the client's chain carries the
+same tolerance for older installed CLIs, refuses outright while a daemon still
+answers its lock file, and sends the app to the beginning of the walk when the
+chain completes.
 
 The tray menu now mirrors the section: a **Control Plane** submenu lists every
 saved address - the one this machine's node reports to first - and each opens

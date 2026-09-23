@@ -358,9 +358,12 @@ export function useNodeCommands(args: {
             acceptLabel: "Un-enroll",
             run: async () => {
               const result = await nodeUnenroll();
-              // A different machine afterwards: the re-probe is what lands the
-              // section off a gone node, as for every lifecycle verb.
-              if (result.ok) await runner.settle();
+              // No settle here, deliberately (merged-wave review): settle's
+              // early exit is the probe going ONLINE, which a just-un-enrolled
+              // machine can never do, so every successful un-enroll would
+              // spend settle's full budget on spinner for nothing. The
+              // runner's own end-of-run reprobe (default true) is what lands
+              // the section off a gone node, as for every lifecycle verb.
               return finished(result);
             },
           }),

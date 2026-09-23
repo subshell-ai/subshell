@@ -59,13 +59,27 @@ function fake(over: Partial<UnenrollDeps> = {}): { deps: UnenrollDeps; removed: 
 }
 
 describe("refusals", () => {
-  it("refuses a live daemon, names the stop, and deletes nothing", async () => {
+  it("refuses a live daemon, names both stop routes, and deletes nothing", async () => {
     const { deps, removed } = fake({ readLock: () => LOCK, isPidAlive: () => true });
     const r = await runUnenroll(cfg(), { yes: false, json: false }, deps);
     expect(r.code).toBe(1);
     expect(r.err).toContain("daemon is running (pid 4242)");
     expect(r.err).toContain("subshell service stop");
-    expect(r.err).toContain("--yes");
+    expect(r.err).toContain("subshell run");
+    expect(removed).toEqual([]);
+  });
+
+  // The merged-wave review measured what `--yes` used to buy here: a live
+  // daemon with no service definition walked the client's absence-tolerant
+  // chain to this verb, the flag skipped the refusal, and the "removed"
+  // report covered a machine whose daemon was still dialing the plane with
+  // the deleted config in memory. A daemon that has not stopped is not a
+  // consentable orphan — the flag waives PANES, never this.
+  it("refuses a live daemon EVEN WITH --yes", async () => {
+    const { deps, removed } = fake({ readLock: () => LOCK, isPidAlive: () => true });
+    const r = await runUnenroll(cfg(), { yes: true, json: false }, deps);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("will not unenroll itself");
     expect(removed).toEqual([]);
   });
 
@@ -107,6 +121,19 @@ describe("refusals", () => {
     const r = await runUnenroll(cfg(), { yes: false, json: false }, deps);
     expect(r.code).toBe(0);
     expect(removed).toEqual([lockPath(), configPath()]);
+  });
+
+  // `status`'s rule for the same file: a lock naming ANOTHER node in this
+  // config home is never trusted and never deleted — that daemon, dead or
+  // alive, belongs to someone else's un-enroll. The JSON says `kept` rather
+  // than the softer `absent`, because the file IS there.
+  it("leaves another node's lock standing and says kept", async () => {
+    const foreign = { ...LOCK, nodeId: "node-other" };
+    const { deps, removed } = fake({ readLock: () => foreign, isPidAlive: () => false });
+    const r = await runUnenroll(cfg(), { yes: false, json: true }, deps);
+    expect(r.code).toBe(0);
+    expect(removed).toEqual([configPath()]);
+    expect(JSON.parse(r.out).lockFile).toBe("kept");
   });
 });
 
