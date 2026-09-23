@@ -1,5 +1,17 @@
 # @internal/server
 
+## 0.17.0
+
+### Minor Changes
+
+- [#159](https://github.com/subshell-ai/subshell/pull/159) [`82d04a5`](https://github.com/subshell-ai/subshell/commit/82d04a53f21d5960bc93718effaacd93a73dea5b) Thanks [@theogravity](https://github.com/theogravity)! - `POST /api/auth/ws-token` accepts Bearer API keys. A system key may mint a terminal attach token for any single subshell it names; a subshell's own key may mint only for its own pane, so the sibling-keystroke-injection the route was cookie-only to prevent stays refused — by an equality check now, not by the whole door being shut. Every machine-minted token is bound to its one subshell at issue time, the bind is enforced at redemption (a wrong-subshell attach gets the bad-token refusal and burns the token), and `/ws/live` refuses scoped tokens outright, so the whole-user feed stays human-only. A script holding an API key can now drive and measure a real pane end to end: mint, attach `/ws?subshell=…`, type, watch acks.
+
+### Patch Changes
+
+- [#157](https://github.com/subshell-ai/subshell/pull/157) [`579f987`](https://github.com/subshell-ai/subshell/commit/579f987a983ecff805b53e2307a51bc1b61301a2) Thanks [@theogravity](https://github.com/theogravity)! - The pane diagnostics HUD's Output row was lying on attached agent panes: it read the row's `lastOutputAt`, which travels only with live-feed broadcasts (domain events), so it could say "3m ago" while echo landed with every keystroke. It now leads with when the last pane byte arrived on THIS socket — `live`, then a real age — falling back to the server's stamp only with no socket, and reading `waiting…` when the socket is up but silent. The plate is also a fixed width with steady digits, so rows appearing and value strings changing length no longer resize and jitter it under the reader's eye.
+
+- [#160](https://github.com/subshell-ai/subshell/pull/160) [`f0e71d2`](https://github.com/subshell-ai/subshell/commit/f0e71d20862705ebaf50d74939d4b7f9688e06ba) Thanks [@theogravity](https://github.com/theogravity)! - Fix terminal input lag on nodes: keystrokes now echo as fast as they are typed instead of appearing only on a later key (Enter). The pane's live view is fed by `tmux pipe-pane`, whose child was `cat >> <log>`. On hosts where `/usr/bin/cat` is **uutils coreutils**, `cat` buffers a partial write to a regular file, so a keystroke echo — a tiny, newline-less write — never reached the log until an Enter-sized burst flushed it; the browser froze on the last flushed chunk. The capture child is now the binaries' own `pane-log --file <path>` verb, an unbuffered `readSync`→`writeSync` copy that flushes every read and creates the log 0600, identical on macOS and Linux and immune to which `cat` is installed. `subshell` and `subshell-server` both gain the verb; `cat >>` stays only as a no-child fallback. The earlier proxy/LAN-latency explanation was wrong — the keystrokes were arriving instantly; only the capture stalled.
+
 ## 0.16.2
 
 ### Patch Changes
