@@ -53,6 +53,21 @@
  * verb, never a kill — the manager would respawn one), a decline or a
  * non-interactive run aborts with the remedies named, and a holder that is NOT
  * the service is never touched.
+ *
+ * **The CLIENT app has the same shadowing hazard with a different shape, and a
+ * softer verdict.** `refreshManagedCopy` swaps `~/.local/bin/subshell` by
+ * digest, but a RUNNING node daemon keeps the OLD binary in memory — an atomic
+ * rename replaces the file, not the process. So a fresh dev launch of the
+ * client still exercises the stale daemon until something restarts it. The
+ * preflight asks the node CLI what its manager reports, and offers
+ * `subshell service stop` for a running service (again the CLI verb, never a
+ * kill — KeepAlive respawns one, and `service stop`'s own pane-safety handling
+ * is what protects live panes); a foreground `subshell run` outside the
+ * manager is NAMED and never touched. A decline here does NOT abort, unlike
+ * the server path: the client launch is not doomed — the app opens and can
+ * Stop/Start the node from its own Service screen — so the run warns and
+ * continues. A non-interactive run stops the service only with
+ * `--stop-existing-service`, and otherwise also warns and continues.
  */
 // Everything below the node: imports is reached by RELATIVE path rather than by
 // package specifier, because `scripts/` is not a workspace and a bare
@@ -585,7 +600,7 @@ export function parseServiceStatus(output: string): ServiceStatus | null {
   }
 }
 
-/** Ask the installed CLI what its manager reports. `binary` is non-null from {@link resolveInstalledServer}. */
+/** Ask the installed CLI what its manager reports. `binary` is non-null from {@link resolveInstalledCli}. */
 async function readServiceStatus(binary: string): Promise<ServiceStatus | null> {
   const proc = Bun.spawn([binary, "service", "status", "--json"], { stdout: "pipe", stderr: "ignore" });
   const out = await new Response(proc.stdout).text();
@@ -614,7 +629,11 @@ export function classifyPortConflict(listeners: readonly PortListener[], service
 }
 
 /**
- * The installed `subshell-server` the preflight would ask and stop, or `null`.
+ * The installed CLI the preflight would ask and stop, or `null` — generic over
+ * the app because each one wraps its own binary: `subshell-server` for the
+ * server, `subshell` for the client. Both questions below read
+ * {@link DesktopApp.installed}, which is the name the managed copy carries, so
+ * neither can ask the wrong product about the other's service.
  *
  * The service definition's binary FIRST — the manager runs THAT file, so its
  * `service status` is the honest answer; a PATH binary of a different vintage
@@ -622,14 +641,14 @@ export function classifyPortConflict(listeners: readonly PortListener[], service
  * false `foreign`. Then PATH (the operator may keep the CLI somewhere else),
  * then the managed copy the desktop app installs at `~/.local/bin`.
  */
-function resolveInstalledServer(app: DesktopApp): string | null {
+function resolveInstalledCli(app: DesktopApp): string | null {
   try {
     const fromDefinition = definitionFirstCommand(readFileSync(serviceDefinitionPath(app), "utf8"));
     if (fromDefinition !== null) return fromDefinition;
   } catch {
     /* no definition on disk — nothing installed, fall through */
   }
-  const which = Bun.spawnSync(["which", "subshell-server"], { stdout: "pipe", stderr: "ignore" });
+  const which = Bun.spawnSync(["which", app.installed], { stdout: "pipe", stderr: "ignore" });
   if (which.exitCode === 0) {
     const onPath = which.stdout.toString().trim();
     if (onPath !== "") return onPath;
@@ -719,7 +738,7 @@ export async function preflightDevPort(
     return;
   }
 
-  const binary = resolveInstalledServer(app);
+  const binary = resolveInstalledCli(app);
   const service = binary === null ? null : await readServiceStatus(binary);
   const verdict = classifyPortConflict(listeners, service);
   const held = `Port ${port} is held by ${holderLine(listeners)}.`;
@@ -788,6 +807,176 @@ export async function preflightDevPort(
     );
   }
   process.exit(1);
+}
+
+/**
+ * PIDs from a `ps -eo pid=,command=` dump whose command is `<binary> run …`.
+ *
+ * **The supervised daemon IS one of these** — the unit's ExecStart/
+ * ProgramArguments is exactly `<self> run` (`execLine` in
+ * `apps/node/agent/src/service.ts`) — so this names every live daemon, and the
+ * CALLER subtracts the manager-reported pid to find the unsupervised ones.
+ * Matching is by token: argv[0]'s basename equals `binaryName` exactly (so
+ * `subshell-server run` is not `subshell run`) and the next token is exactly
+ * `run` (so `subshell service status` and a `grep 'subshell run'` are not). An
+ * argv[0] containing whitespace tokenizes wrong and is MISSED — acceptable
+ * because a miss only withholds a note, while acting on a false match never
+ * happens: this list names processes and nothing else. Pure, so it is tested
+ * against fixed text.
+ */
+export function parseRunDaemonPids(psOutput: string, binaryName: string): number[] {
+  const pids: number[] = [];
+  for (const line of psOutput.split("\n")) {
+    const match = /^\s*(\d+)\s+(.*\S)\s*$/.exec(line);
+    if (!match) continue;
+    const [argv0, next] = match[2].split(/\s+/);
+    if (argv0 === undefined || next !== "run") continue;
+    const base = argv0.slice(argv0.lastIndexOf("/") + 1);
+    if (base === binaryName) pids.push(Number(match[1]));
+  }
+  return pids;
+}
+
+/** Live `subshell run` processes, or `null` when `ps` itself could not run. */
+async function probeRunDaemons(binaryName: string): Promise<number[] | null> {
+  try {
+    const proc = Bun.spawn(["ps", "-eo", "pid=,command="], { stdout: "pipe", stderr: "ignore" });
+    const out = await new Response(proc.stdout).text();
+    await proc.exited;
+    return parseRunDaemonPids(out, binaryName);
+  } catch {
+    // Same rule as probePortListeners: a machine this script cannot fully
+    // interrogate still launches its app — the caller notes the blind spot.
+    return null;
+  }
+}
+
+/** What the client preflight makes of the manager's answer plus the live daemons. */
+export interface ClientDaemonPlan {
+  /** The managed node service is installed AND running — it gets the offer. */
+  serviceRunning: boolean;
+  /** The service's main pid when the manager reports one; excluded below. */
+  servicePid: number | null;
+  /**
+   * Live `<binary> run` processes the manager did NOT report starting —
+   * foreground `subshell run` daemons. Named to the operator, never stopped:
+   * their terminal owns them, and a stranger pid is not this launch's to kill.
+   */
+  unsupervisedPids: number[];
+}
+
+/**
+ * Decide the client preflight from the two facts. Pure, so the decision — not
+ * just the parsing — is tested without a live service or daemon.
+ *
+ * `unsupervisedPids` subtracts the manager's pid whenever it has one, even in a
+ * non-running state: a pid the manager named is the manager's process, and
+ * wrongly STOPPING is impossible here while wrongly NAMING is harmless — still,
+ * call the service's own pid the service's, not a stranger's. A running
+ * service whose pid is `null` (a manager that answered state but not pid)
+ * leaves every live daemon named alongside the offer, which is the honest
+ * reading: nobody can say which of them the manager started.
+ */
+export function planClientDaemonPreflight(service: ServiceStatus | null, runPids: readonly number[]): ClientDaemonPlan {
+  const servicePid = service?.pid ?? null;
+  return {
+    serviceRunning: service?.installed === true && service.state === "running",
+    servicePid,
+    unsupervisedPids: runPids.filter((pid) => pid !== servicePid),
+  };
+}
+
+/**
+ * The node-daemon preflight for the CLIENT app, the analog of
+ * {@link preflightDevPort} (see this file's header for the hazard): a running
+ * daemon keeps its OLD binary in memory no matter what the digest swap just
+ * wrote to disk, so dev would exercise THAT. A running managed service is
+ * offered the CLI verb `subshell service stop` — never a kill, which KeepAlive
+ * would undo, and whose pane-safety handling is what protects live panes. A
+ * foreground `subshell run` is named and left alone.
+ *
+ * **Decline warns and continues — the deliberate difference from the server
+ * path.** A held :3080 dooms the server launch; a stale daemon does not doom
+ * this one — the app opens and its own Service screen can Stop and Start the
+ * node, so aborting here would refuse a session the developer can fix in two
+ * clicks. Same consent shape for a non-interactive run:
+ * `--stop-existing-service` stops, nothing stops without it, and the launch
+ * proceeds with the shadowing stated plainly.
+ */
+export async function preflightClientDaemon(
+  app: DesktopApp,
+  opts: { checkOnly: boolean; stopRequested: boolean },
+): Promise<void> {
+  const binary = resolveInstalledCli(app);
+  if (binary === null) {
+    if (opts.checkOnly) console.log(`No installed \`${app.installed}\` CLI found — no node service to ask.`);
+    return;
+  }
+  const service = await readServiceStatus(binary);
+  const runPids = await probeRunDaemons(app.installed);
+  if (runPids === null) {
+    console.warn(
+      `NOTE: could not check for a foreground \`${app.installed} run\` daemon (ps unavailable); ` +
+        "the service manager was still asked.",
+    );
+  }
+  if (service === null) {
+    console.warn(`NOTE: \`${binary} service status --json\` did not answer a readable status.`);
+  }
+  const plan = planClientDaemonPreflight(service, runPids ?? []);
+
+  if (plan.unsupervisedPids.length > 0) {
+    console.warn(
+      `NOTE: \`${app.installed} run\` daemons are running OUTSIDE the service manager ` +
+        `(pid ${plan.unsupervisedPids.join(", ")}). ` +
+        "Each holds whatever binary it started with; this launcher never stops processes it did not start. " +
+        "End one with Ctrl-C in the terminal running it.",
+    );
+  }
+
+  if (!plan.serviceRunning) {
+    if (opts.checkOnly)
+      console.log("The node service is not running; a dev launch starts fresh against the new binary.");
+    return;
+  }
+
+  const pidNote = plan.servicePid === null ? "" : ` (pid ${plan.servicePid})`;
+  const running = `The installed node service${pidNote} is running, and a running daemon keeps its binary in memory.`;
+  if (opts.checkOnly) {
+    console.log(
+      `${running} A real run would offer to stop it so dev exercises the freshly built agent ` +
+        "(or pass --stop-existing-service). --check never stops anything.",
+    );
+    return;
+  }
+  const proceed = opts.stopRequested
+    ? true
+    : process.stdin.isTTY
+      ? await confirm(
+          `${running}\nA dev launch would otherwise exercise THAT daemon's binary, not the one just built. ` +
+            "Stop the node service so the app starts the new one? [Y/n] ",
+        )
+      : false;
+  if (!proceed) {
+    console.warn(running);
+    if (!process.stdin.isTTY && !opts.stopRequested) {
+      console.warn("Non-interactive run: nothing is stopped without consent (--stop-existing-service consents).");
+    }
+    console.warn(
+      `Continuing anyway — the app can Stop and Start the node from its own Service screen, ` +
+        `or re-run after \`${binary} service stop\`.`,
+    );
+    return;
+  }
+  console.log(`Stopping the node service (${binary} service stop)…`);
+  await stopService(binary);
+  console.log("The service will not come back until `subshell service start`.");
+  const after = await readServiceStatus(binary);
+  if (after?.installed && after.state === "running") {
+    console.warn(
+      `The node service STILL reports running after \`service stop\` — re-check with \`${binary} service status\`.`,
+    );
+  }
 }
 
 /**
@@ -994,7 +1183,8 @@ function usage(): never {
   console.error("  --force  rebuild the CLI even when nothing under its workspaces has changed");
   console.error("  --check  build, stage and refresh as usual, then stop instead of launching the app");
   console.error(
-    "  --stop-existing-service  when the installed subshell-server service holds the dev port, stop it without asking",
+    "  --stop-existing-service  stop a running installed service without asking (the server holding the dev" +
+      " port; the node daemon shadowing the freshly built binary)",
   );
   process.exit(2);
 }
@@ -1034,12 +1224,15 @@ if (import.meta.main) {
   });
   if (toolchain.exitCode !== 0) process.exit(toolchain.exitCode ?? 1);
 
-  // Before anything is staged: if the installed service holds the dev port,
-  // the launch is doomed to run against the old build (see this file's header).
-  // Aborting here also spares the minutes a rebuild would spend on a launch
-  // that will be refused.
+  // Before anything is staged. The server's launch is DOOMED while the
+  // installed service holds the dev port (see this file's header), so that
+  // preflight aborts — here, not after a rebuild nobody will use. The client's
+  // hazard is a running daemon shadowing the swapped binary in memory, which
+  // the app itself can fix, so that preflight offers and continues.
   if (app.id === "server") {
     await preflightDevPort(app, { checkOnly, stopRequested: stopExistingService });
+  } else {
+    await preflightClientDaemon(app, { checkOnly, stopRequested: stopExistingService });
   }
 
   const staged = join(REPO_ROOT, "apps", app.dir, "src-tauri", "binaries", desktopSidecarFileName(app.sidecar, target));
