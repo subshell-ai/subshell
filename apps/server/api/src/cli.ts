@@ -295,11 +295,18 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
     // blocks until stdin reaches EOF (the pane died or the pipe was re-armed),
     // so a retired capture never leaks a child.
     case "pane-log": {
+      // Exact argv, parsed by position rather than searched: pipePane emits
+      // exactly `pane-log --file <absolute path>`, so anything else — a bare
+      // positional, a stray flag, `--file --force` (indexOf would happily take
+      // the flag as the path) — is a usage error, not a file to open. A
+      // RELATIVE path is refused too: the caller always names an absolute path
+      // under the data dir, so a relative one means argv was assembled wrong,
+      // and appending to a cwd-dependent guess is worse than refusing. (The
+      // node CLI's `pane-log` applies the same rule through its flag parser.)
       const rest = argv.slice(1);
-      const fi = rest.indexOf("--file");
-      const file = fi === -1 ? undefined : rest[fi + 1];
-      if (file === undefined || rest.length !== 2) {
-        error("subshell-server: pane-log requires --file <path>");
+      const file = rest.length === 2 && rest[0] === "--file" ? rest[1] : undefined;
+      if (file === undefined || file === "" || !file.startsWith("/")) {
+        error("subshell-server: pane-log requires --file <absolute path>");
         exit(1);
         return true;
       }

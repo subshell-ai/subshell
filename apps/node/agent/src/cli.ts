@@ -519,10 +519,14 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         // flushing every read. A pre-boot verb like `report`: no config, no
         // lock, no daemon, no SQLite. It BLOCKS until stdin reaches EOF (the pane
         // died or the pipe was re-armed) so it never leaks a child, then exits 0.
-        // A missing path is a usage error before a single byte is read.
+        // A missing path is a usage error before a single byte is read — and so
+        // is a RELATIVE one: the caller is always pipePane, which names an
+        // absolute path under the data dir; a relative path means argv was
+        // assembled wrong (or is a swallowed flag), and appending the child's
+        // cwd-dependent guess to a pane log is worse than refusing.
         const file = parsed.flags.file;
-        if (file === undefined || file === "") {
-          return fail(2, new Error("pane-log requires --file <path>"));
+        if (file === undefined || file === "" || !file.startsWith("/")) {
+          return fail(2, new Error("pane-log requires --file <absolute path>"));
         }
         try {
           appendStdinToLogFile(file);

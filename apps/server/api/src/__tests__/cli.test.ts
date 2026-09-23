@@ -69,6 +69,31 @@ describe("dispatchCli — boot-path passthrough", () => {
   });
 });
 
+describe("dispatchCli — pane-log (the pipe-pane capture child)", () => {
+  // The argv contract TmuxRunner.pipePane builds against. Only NON-BLOCKING
+  // paths run in-process: a well-formed absolute path would make the verb read
+  // this test process's stdin for a pane that never writes (the streaming and
+  // success paths live in pane-runtime's pane-log.test.ts and the node CLI's
+  // cli-panlog.test.ts, which spawn a child).
+  test("missing --file, a flag-as-path, a bare positional, and a relative path all refuse with exit 1", async () => {
+    const { deps, err, exits } = collectingDeps();
+    expect(await dispatchCli(["pane-log"], deps)).toBe(true);
+    // The old indexOf-based parse would have taken `--force` as the path.
+    expect(await dispatchCli(["pane-log", "--file", "--force"], deps)).toBe(true);
+    expect(await dispatchCli(["pane-log", "rel.log"], deps)).toBe(true);
+    expect(await dispatchCli(["pane-log", "--file", "rel.log"], deps)).toBe(true);
+    expect(exits).toEqual([1, 1, 1, 1]);
+    expect(err.join("\n")).toMatch(/pane-log requires --file <absolute path>/);
+  });
+
+  test("an absolute path whose open fails exits 1 with the errno, without reading stdin", async () => {
+    const { deps, err, exits } = collectingDeps();
+    expect(await dispatchCli(["pane-log", "--file", "/nonexistent-dir-panlog-test/pane.log"], deps)).toBe(true);
+    expect(exits).toEqual([1]);
+    expect(err.join("\n")).toMatch(/pane-log: .*(ENOENT|no such file)/i);
+  });
+});
+
 describe("dispatchCli — version", () => {
   // The server binary ships bare too (a GitHub Release asset, or a file
   // copied onto a host), so `license` is its accompanying licence file.
