@@ -144,7 +144,8 @@ setup, handoff), for the permissions screen, for boot, and for ANY standing
 route on a machine mid-first-run. Reset is the
 fifth section and the DESTRUCTIVE one (operator ruling 2026-09-22, live
 screenshot): the DOOR moves into the rail — `onSelect("reset")` is
-`openReset`, the paired screen-set-and-open — styled in the destructive
+`openReset`, the paired open-and-arm (it sets NO route; the dialog renders
+outside the routed frame) — styled in the destructive
 token. The same day's LAYOUT ruling put the reset
 CONFIRMATION on the standing section itself (rail-highlighted, the sidebar
 present); the 2026-09-23 wave superseded that, mirroring the now-proven
@@ -155,10 +156,10 @@ removed the last frame-replacing screen. The dialog is MODAL (a fixed overlay
 across the window, positioned by class because the CSP has no
 `unsafe-inline`), so it covers the rail and no navigation is reachable beside
 it; the safety property that used to live in "withhold the rail while running"
-now lives in the dialog being **inert to its own dismissal** — Escape, the
-backdrop and Cancel all route through one `onClose` the dialog turns into a
-no-op while `busy || running`, so nothing dismisses a chain that is deleting
-this server. A half-run keeps the dialog open with its step log and a **Retry
+now lives in the dialog being **inert to its own dismissal** — while `busy ||
+running` Escape and the backdrop route through an `onClose` the dialog makes a
+no-op, and the Cancel button is `disabled`, so nothing dismisses a chain that
+is deleting this server. A half-run keeps the dialog open with its step log and a **Retry
 reset**; a success closes it and returns to the standing journey. A
 deep-linked reset arms the dialog show-first, and the handoff auto-open is
 guarded so a ready machine cannot bury its own confirmation under the
@@ -233,11 +234,11 @@ verbatim output, and what this app itself is render INLINE under the diagnosis
 is part of the Status section, not a disclosure — a sidebar section that hides
 its own facts behind a second control is two navigations for one answer), and
 the log tail is pulled while the Status section is up, not while it is not —
-the open-disclosure rule carried over under a new name. **A standing Status on
+the open-disclosure rule carried over under a new name. A standing Status on
 a READY machine is this screen, with one primary **Open dashboard** action
 (the 2026-09-23 wave): it no longer routes to the handoff and auto-opens, so
 selecting Status to LOOK at the server never bounces the window into the
-dashboard.** Only ARRIVAL (a window opened with no screen chosen) hands off and
+dashboard. Only ARRIVAL (a window opened with no screen chosen) hands off and
 auto-opens; the old `held`-handoff arm and `selectHeldHandoff` are gone. On a
 NOT-ready machine the same rail item shows this screen in its diagnosis role,
 exactly as before.
@@ -1269,7 +1270,7 @@ ui/
 │   │   ├── logs.ts     #   renderTail() and renderOutput(), for the Show Details panes
 │   │   ├── copy-button.ts   # the one Copy affordance; its flash lives in lib/copy-flash.ts
 │   │   ├── tmux-warning.ts  # the amber gate explanation — a FACTORY
-│   │   └── reset-view.ts    # the Reset screen, which replaces the frame
+│   │   └── reset-view.ts    # the Reset dialog (the 2026-09-23 wave: a modal over the standing section, no longer a frame replacement)
 │   ├── styles.css      # @theme tokens + component classes; Tailwind in markup
 │   ├── lib/
 │   │   ├── ipc.ts            # one typed function per `desktop_*` command this page invokes
@@ -1434,7 +1435,7 @@ With it, the split is enforced, and the split is window KIND:
 
 | Window | Gets |
 | --- | --- |
-| `wizard` | the twenty-two its page invokes — probe, port in use, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, request Photos, open a System Settings pane, check for an app update, install one — plus `dialog:allow-open`, `opener:allow-reveal-item-in-dir`, and its core grant: `core:default` ALONE. `core:window:allow-close` was granted for spec 2026-09-17's **Later** button and went with it when that screen's two dismissals became one **Close** (2026-09-18) — a leave rather than a window close, so no page call to a core window verb remains. `ipc-acl.test.ts` pins the narrowed list, pins that nothing under `ui/src` imports `@tauri-apps/api/window` (the route the grant would come back through), and pins that `main` holds neither close nor the update verbs |
+| `wizard` | the twenty-four its page invokes — probe, port in use, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, request Photos, open a System Settings pane, read the launch window, set the launch window, check for an app update, install one — plus `dialog:allow-open`, `opener:allow-reveal-item-in-dir`, and its core grant: `core:default` ALONE. `core:window:allow-close` was granted for spec 2026-09-17's **Later** button and went with it when that screen's two dismissals became one **Close** (2026-09-18) — a leave rather than a window close, so no page call to a core window verb remains. `ipc-acl.test.ts` pins the narrowed list, pins that nothing under `ui/src` imports `@tauri-apps/api/window` (the route the grant would come back through), and pins that `main` holds neither close nor the update verbs |
 | `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, window dragging — and `desktop_set_supervision` (below) — on a TRUSTED origin only (loopback, or the instance's configured `APP_BASE_URL`; see below) |
 
 Six of `main`'s seven commands are chosen for what they cannot do: raise a

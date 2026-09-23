@@ -188,8 +188,15 @@ describe("the host's reset chain", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     // The chain's own trailing refresh can land before the test's `setProbe`
     // (the fake answers immediately), so the welcome underneath arrives on
-    // the page's own 1500 ms poll — the same clock the operator watches.
-    await waitFor(() => expect(routeOf()).toBe("welcome"), { timeout: 3000 });
+    // the page's own 1500 ms poll — the same clock the operator watches. Drive
+    // that poll to term INSIDE act rather than `waitFor` it: a `waitFor` whose
+    // first check fails and whose mutation comes from a later out-of-act timer
+    // is the shape that escapes happy-dom's retry on Linux CI. A 1600 ms flush
+    // lets the 1500 ms poll fire under act, then the assertion is direct.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 1600));
+    });
+    expect(routeOf()).toBe("welcome");
   });
 
   it("promotes the run label to Retry and renders the half-run log as a failure", async () => {

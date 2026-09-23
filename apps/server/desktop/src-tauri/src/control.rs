@@ -969,6 +969,13 @@ pub enum WindowChoice {
 /// purpose, and each already has its own answer (the tray's second item raises
 /// the assistant by name). One preference quietly re-pointing every door would
 /// make "Open Control Plane In App" a lie.
+///
+/// **The caller MUST gate this behind [`boot_resume`] first** (`lib.rs`): an
+/// unfinished desktop-server update opens the assistant to show its install,
+/// whatever `launch` says, because the update screen lives on that page. Read
+/// alone, this returns `Main` for a ready machine mid-update — which is exactly
+/// why the ordering lives in the caller and not here, so `boot_resume`'s side
+/// effect (stashing the `update` screen) runs before the window is chosen.
 pub fn boot_window(launch: LaunchWindow, p: &Probe) -> WindowChoice {
     if p.next != ProbeStep::Ready {
         return WindowChoice::Wizard;

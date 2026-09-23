@@ -489,6 +489,12 @@ mod tests {
         for other in [BROWSER_ID, SETTINGS_ID, UPDATE_ID, "tray:keep", crate::zoom::IN_ID] {
             assert_ne!(SERVER_APP_ID, other);
         }
+        // Unlike the update and settings items, the open door has NO screen
+        // word to pin through `parse_screen`: its arm calls `open_home`
+        // directly, which the probe resolves to the dashboard or the assistant.
+        // So the honest invariant is that `open_home` is wordless — `None`
+        // parses to `Home`, the "decide from the probe" case.
+        assert_eq!(crate::reset::parse_screen(None), crate::reset::Screen::Home);
     }
 
     #[test]
