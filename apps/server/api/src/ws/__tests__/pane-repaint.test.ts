@@ -106,6 +106,34 @@ describe("fitPaneAndRepaint", () => {
     }
   });
 
+  it("a booting pane (zero log bytes) gets the fit resize and NO winch storm", async () => {
+    // The fresh-terminal duplicate-prompt report (2026-09-23): attach fires
+    // while the shell is still booting, and the nudge's ±1 geometry steps make
+    // slow-init prompts (ble.sh, powerlevel10k) redraw THEMSELVES INTO HISTORY
+    // — the stray prompt at the top of an empty pane. With `booting`, the one
+    // fit resize happens (before any frame exists, so the shell boots AT the
+    // fit geometry) and nothing else.
+    const p = await seed("boot-quiet", "sh -c 'sleep 30'");
+    try {
+      const fit = { cols: p.size.cols - 3, rows: p.size.rows };
+      const t0 = performance.now();
+      const r = await fitPaneAndRepaint(launcher, p.socket, p.id, fit, p.sizeOf, {
+        baseline: 0,
+        canNudge: true,
+        booting: true,
+      });
+      expect(r).toEqual({ repainted: false, nudged: false });
+      // The same call without `booting` spends ≥200ms waiting for a burst a
+      // silent pane cannot send, then nudges; this path is one resize RPC.
+      expect(performance.now() - t0).toBeLessThan(150);
+      expect(await launcher.paneSize(p.socket, p.id)).toEqual(fit);
+      // And the pane stayed untouched: no winch-provoked bytes.
+      expect(await p.sizeOf()).toBe(0);
+    } finally {
+      await p.dispose();
+    }
+  });
+
   it("canNudge:false never nudges (a pane-poll attach has no log to read a burst from)", async () => {
     const p = await seed("nonudge", "cat");
     try {
