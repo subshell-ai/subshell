@@ -50,7 +50,7 @@ pub enum Screen {
     /// Whatever the probe implies: first run, or the one recovery screen.
     Home,
     /// The assistant's own **Status** overview — the standing facts screen with
-    /// one "Open dashboard" action. This is the word the tray's "Open Server
+    /// one "Open control plane" action. This is the word the tray's "Open Server
     /// App" arms: a deliberately-opened assistant must land on a STANDING
     /// screen, because `Home` on a ready machine resolves to the handoff, opens
     /// the dashboard, and the shell then closes the assistant window it just
@@ -83,11 +83,14 @@ pub enum Screen {
     /// addresses browsers may use, with Save and Restart (spec 2026-09-18
     /// § 14).
     ///
-    /// Reached from the TRAY and from the recovery screen, and the tray is the
-    /// load-bearing door: the screen exists for a machine whose dashboard
-    /// cannot be reached, and the dashboard is the only other place these four
-    /// values can be changed. The assistant needs no session because it drives
-    /// the CLI. (Its original case — an `https://` base URL marking the session
+    /// Reached from the assistant's RAIL (the **Addresses** section), which is
+    /// the door that matters: the screen exists for a machine whose dashboard
+    /// cannot be reached, the dashboard is the only other place these four
+    /// values change, and the assistant needs no session because it drives the
+    /// CLI. It was a TRAY door too until the 2026-09-22 wave removed it — the
+    /// rail already carries it, so the tray item was a second route to a section
+    /// the assistant shows anyway. (Its original case — an `https://` base URL
+    /// marking the session
     /// cookie `Secure` while the window opened on loopback http — was fixed on
     /// 2026-09-19 by `Probe::window_origin`; what remains is a configured
     /// address this machine cannot actually reach.)

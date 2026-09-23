@@ -563,8 +563,8 @@ describe("the rail", () => {
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
     screen.getByRole("button", { name: "Status" }).click();
     await waitFor(() => expect(routeOf()).toBe("status"));
-    expect(screen.getByRole("button", { name: "Open dashboard" })).toBeDefined();
-    screen.getByRole("button", { name: "Open dashboard" }).click();
+    expect(screen.getByRole("button", { name: "Open control plane" })).toBeDefined();
+    screen.getByRole("button", { name: "Open control plane" }).click();
     await waitFor(() => expect(fake?.callsTo("desktop_open_main")).toHaveLength(1));
     cleanup();
     fake?.restore();

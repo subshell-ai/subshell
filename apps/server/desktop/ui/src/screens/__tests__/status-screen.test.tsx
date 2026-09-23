@@ -192,7 +192,7 @@ describe("the running machine's status screen", () => {
     // One button, pressed by the human. `recoveryAction("ready")` answers
     // null, so there was never a diagnosis button here either — but the
     // tmux warning must not appear on a running machine either.
-    screen.getByRole("button", { name: "Open dashboard" }).click();
+    screen.getByRole("button", { name: "Open control plane" }).click();
     expect(onOpenDashboard).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/tmux was not found on the login PATH\./)).toBeNull();
   });
@@ -210,7 +210,7 @@ describe("the running machine's status screen", () => {
     // press rule the handoff shares with the setup screen): it does not become
     // a status screen. The failure case has its own test below.
     const view = renderStatus({ probe: makeProbe({ next: "ready", onboarded: true }) });
-    expect(screen.getByRole("button", { name: "Open dashboard" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Open control plane" })).toBeDefined();
     view.unmount();
     // `running` reaches the screen through the ProgressView branch: render a
     // ready probe with running true and the checklist answers instead.
@@ -241,7 +241,7 @@ describe("the running machine's status screen", () => {
         onFail={() => {}}
       />,
     );
-    expect(screen.queryByRole("button", { name: "Open dashboard" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open control plane" })).toBeNull();
   });
 
   it("keeps a failed recovery action ahead of the running view", () => {
@@ -252,6 +252,6 @@ describe("the running machine's status screen", () => {
       probe: makeProbe({ next: "ready", onboarded: true }),
       failure: { ok: false, stdout: "", stderr: "start refused" },
     });
-    expect(screen.queryByRole("button", { name: "Open dashboard" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open control plane" })).toBeNull();
   });
 });

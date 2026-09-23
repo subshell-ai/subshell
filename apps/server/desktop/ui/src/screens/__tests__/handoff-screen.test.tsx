@@ -55,7 +55,7 @@ describe("HandoffScreen", () => {
     render(
       <HandoffScreen
         // The strings are the host's per-arm shell; the screen's own job is the branch.
-        strings={{ title: "Subshell Is Running", subtitle: "The dashboard did not open by itself.", problem: "" }}
+        strings={{ title: "Subshell Is Running", subtitle: "The control plane did not open by itself.", problem: "" }}
         probe={READY}
         busy={false}
         form={{ port: "", host: "", baseUrl: "", trustedOrigins: "" }}
@@ -67,7 +67,7 @@ describe("HandoffScreen", () => {
       />,
     );
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Subshell Is Running");
-    screen.getByRole("button", { name: "Open Dashboard" }).click();
+    screen.getByRole("button", { name: "Open control plane" }).click();
     expect(onRetryOpen).toHaveBeenCalledTimes(1);
   });
 });

@@ -248,11 +248,11 @@ describe("the launch row", () => {
   it("offers both windows by name, under its own heading", () => {
     const ipc = renderSupervision();
     expect(screen.getByText("Open on launch")).toBeDefined();
-    expect(radio(/^The dashboard/).checked).toBe(true);
+    expect(radio(/^The control plane/).checked).toBe(true);
     expect(radio(/^The assistant/).checked).toBe(false);
     // A separate radio group: a pick here must not move the supervision modes,
     // whose choice is still a draft until Apply.
-    expect(radio(/^The dashboard/).name).toBe("launch-window");
+    expect(radio(/^The control plane/).name).toBe("launch-window");
     expect(radio(/^In the background/).name).toBe("supervision-mode");
     expect(ipc.callsTo("desktop_set_launch_window")).toEqual([]);
   });
@@ -261,7 +261,7 @@ describe("the launch row", () => {
     renderSupervision({ launchWindow: "assistant" });
     await settled();
     expect(radio(/^The assistant/).checked).toBe(true);
-    expect(radio(/^The dashboard/).checked).toBe(false);
+    expect(radio(/^The control plane/).checked).toBe(false);
   });
 
   it("saves the moment the other window is picked, with no Apply", async () => {
@@ -285,7 +285,7 @@ describe("the launch row", () => {
     expect(ipc.callsTo("desktop_set_launch_window")).toEqual([{ window: "assistant" }]);
     // And it comes back when the write says it did not land.
     expect(radio(/^The assistant/).checked).toBe(false);
-    expect(radio(/^The dashboard/).checked).toBe(true);
+    expect(radio(/^The control plane/).checked).toBe(true);
     expect(
       screen.getByText("That choice could not be saved. The next launch opens what was saved before."),
     ).toBeTruthy();
@@ -296,7 +296,7 @@ describe("the launch row", () => {
     // behavior the machine actually has, and says which of the two it is.
     renderSupervision({ readLaunchFails: true });
     await settled();
-    expect(radio(/^The dashboard/).checked).toBe(true);
-    expect(screen.getByText("This app could not read the saved choice. The row shows the dashboard.")).toBeTruthy();
+    expect(radio(/^The control plane/).checked).toBe(true);
+    expect(screen.getByText("This app could not read the saved choice. The row shows the control plane.")).toBeTruthy();
   });
 });

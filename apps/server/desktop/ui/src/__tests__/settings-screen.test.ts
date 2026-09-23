@@ -9,8 +9,8 @@
  * so every judgment the screen makes lives in `lib/settings-screen.ts` and is
  * pinned here. Three of these tests are not about this screen alone but about
  * two surfaces AGREEING: the https sentence against the dashboard's own words,
- * the screen id against the closed Rust enum, and the label against the tray
- * item that opens it.
+ * the screen id against the closed Rust enum, and the label against the View
+ * menu's different word.
  */
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { seedAddressForm } from "../lib/config-form";
 import type { Probe } from "../lib/ipc";
 import { PANE_WARNING } from "../lib/pane-force";
+import { RAIL_SECTIONS } from "../lib/server-state";
 import {
   HTTPS_RESTART_NOTE,
   httpsBaseUrl,
@@ -245,15 +246,19 @@ describe("the screen id, across the three places that spell it", () => {
     }
   });
 
-  it("is opened by a tray item, which is the door a signed-out machine still has", () => {
-    // § 14.1: the recovery screen's link only renders when the server is not
-    // answering, and this screen's whole reason is a server that answers and
-    // refuses every sign-in. So the tray press must name the screen, and must
-    // reach `arm_and_raise` — which opens the BUNDLED page and asks the server
-    // nothing.
-    const tray = readFileSync(TRAY_RS, "utf8");
-    expect(tray).toContain('const SETTINGS_SCREEN: &str = "settings";');
-    expect(tray).toContain("arm_and_raise(app, Some(SETTINGS_SCREEN.into()))");
+  it("is a rail section, which is the door a signed-out machine still has", () => {
+    // The tray carried a dedicated door to this screen until the 2026-09-22
+    // wave dropped it: the assistant's own rail already names the screen, so a
+    // tray item that opened a rail section was chrome answering a question the
+    // rail asks. Selecting the rail section is a pure in-window screen change
+    // that asks the server nothing — the door a machine signed OUT of its own
+    // dashboard still has. (The recovery screen's old link to it became a rail
+    // section in wave 2, so this one section is the whole route.)
+    const section = RAIL_SECTIONS.find((s) => s.id === "settings");
+    expect(section?.label).toBe("Addresses");
+    // And the door it replaced stays gone: the tray must not quietly re-add a
+    // second way in that this test's whole point is NOT to need.
+    expect(readFileSync(TRAY_RS, "utf8")).not.toContain("SETTINGS_SCREEN");
   });
 
   it("is NOT called what the View menu already calls the dashboard's settings", () => {

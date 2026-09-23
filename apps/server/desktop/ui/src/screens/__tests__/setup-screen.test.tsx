@@ -156,7 +156,7 @@ describe("the form", () => {
 
   it("shows the four address fields when Customize is open, with the dashboard row", () => {
     renderSetup({ customizeOpen: true, seeded: true });
-    expect(screen.getByText("Dashboard URL")).toBeDefined();
+    expect(screen.getByText("Control plane URL")).toBeDefined();
     expect(screen.getByLabelText("Port")).toBeDefined();
     expect(screen.getByLabelText("Bind address")).toBeDefined();
     expect(screen.getByLabelText("Public base URL")).toBeDefined();

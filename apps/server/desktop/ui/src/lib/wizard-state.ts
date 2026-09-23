@@ -322,7 +322,7 @@ export function recoveryTitle(step: ProbeStep): string {
       // the macOS voice belongs.
       return SETUP_TITLE;
     case "ready":
-      return "Opening Your Dashboard…";
+      return "Opening Your Control Plane…";
   }
 }
 
@@ -725,7 +725,7 @@ export function handoffView(opts: { onboarded: boolean; ranSetupHere: boolean; c
   return {
     wait: false,
     title: opts.onboarded ? "Your Server Is Running" : "Setting Up Subshell…",
-    subtitle: "Opening your dashboard…",
+    subtitle: "Opening your control plane…",
   };
 }
 

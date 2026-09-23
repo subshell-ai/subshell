@@ -156,7 +156,7 @@ export function ProgressView(props: { probe: Probe; form: FormValues; supervisio
 export function DashboardLine(props: { value: string }): ReactElement {
   return (
     <div className="dashboard-url">
-      <span className="label">Dashboard URL</span>
+      <span className="label">Control plane URL</span>
       <span className="detail">{props.value}</span>
     </div>
   );

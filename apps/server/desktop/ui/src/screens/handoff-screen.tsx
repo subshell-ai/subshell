@@ -52,7 +52,7 @@ export function HandoffScreen(props: {
         entranceKey={props.entranceKey}
         barRight={
           <Button type="button" disabled={props.busy} onClick={props.onRetryOpen}>
-            Open Dashboard
+            Open control plane
           </Button>
         }
       />

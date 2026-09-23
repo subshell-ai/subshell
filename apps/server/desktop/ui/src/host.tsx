@@ -1219,7 +1219,7 @@ export function Host(): React.JSX.Element {
         return { title: SETUP_TITLE, subtitle: `Choose how the server runs on ${here()}.`, problem };
       case "handoff": {
         if (openFailed) {
-          return { title: "Subshell Is Running", subtitle: "The dashboard did not open by itself.", problem };
+          return { title: "Subshell Is Running", subtitle: "The control plane did not open by itself.", problem };
         }
         if (probe === null) return { title: "", subtitle: "", problem };
         const view = handoffView({ onboarded: probe.onboarded, ranSetupHere, continued });

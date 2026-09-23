@@ -235,7 +235,7 @@ is part of the Status section, not a disclosure — a sidebar section that hides
 its own facts behind a second control is two navigations for one answer), and
 the log tail is pulled while the Status section is up, not while it is not —
 the open-disclosure rule carried over under a new name. A standing Status on
-a READY machine is this screen, with one primary **Open dashboard** action
+a READY machine is this screen, with one primary **Open control plane** action
 (the 2026-09-23 wave): it no longer routes to the handoff and auto-opens, so
 selecting Status to LOOK at the server never bounces the window into the
 dashboard. Only ARRIVAL (a window opened with no screen chosen) hands off and
@@ -335,14 +335,16 @@ Four things hold it up:
   the second screen needed it: same sentence, same fail-closed `paneRisk`, same
   unticked default. This restart IS that restart.
 
-Its doors are the TRAY (**Server Addresses…**, which raises the bundled page
-through `arm_and_raise` and so works with the server down, stopped, or running
-and refusing every sign-in) and the recovery screen's link. Not the dashboard,
-which is the point. `SETTINGS_LABEL` is one string across both doors and the
-screen's own title, and the tray's Rust copy is pinned to it by an
-`include_str!` containment test; it is deliberately NOT "Server Settings",
-which is the View menu's ⌘4 into the SPA's settings routes — the pages that
-need the session this screen exists to get back.
+Its door is the RAIL (**Addresses**, the section this screen selects). That is
+the whole route now: the recovery screen's old stacked links to it became rail
+sections in wave 2, and the tray item was removed in 2026-09-22, so a single rail
+section is the one way in. It lives inside the assistant, which needs no session
+because it drives the CLI, so the screen shows with the server down, stopped, or
+running and refusing every sign-in. Not the dashboard, which is the point: the
+machine it exists for is one whose dashboard cannot be REACHED. **Server Addresses** is the screen's own title
+(`SETTINGS_LABEL` in `lib/settings-screen.ts`), deliberately NOT "Server
+Settings", which is the View menu's ⌘4 into the SPA's settings routes — the pages
+that need the session this screen exists to get back.
 
 **Show Details keeps its openness in PAGE state**, not the element's.
 `#content` is rebuilt on every render and the poll renders every 1500 ms, so a
@@ -1963,18 +1965,16 @@ every string says "none was detected" rather than "there is none". And every
 tray action also exists in the window UI or the menu bar regardless — the tray
 is a shortcut, never the only route.
 
-**One item is a near-exception, and it is worth stating rather than
-discovering.** **Server Addresses…** (spec 2026-09-18 § 14) exists in the
-window UI too — the recovery screen's link — but that screen renders only while
-the server is not answering, and the case this item was added for is a server
-that answers and refuses every sign-in. So on a Linux desktop with no
-StatusNotifier host, and on that particular machine, the tray really is the
-only route: the remaining doors are `subshell-server configure` at a terminal
-and hand-editing config.env, which are the CLI acts this screen wraps. macOS
-keeps the menu bar, where the item is not duplicated for a different reason —
-the View menu's ⌘4 already reads "Server Settings" and points at the SPA, and
-two items a word apart leading to two places would cost more than the
-shortcut buys.
+**Server Addresses is no longer a tray item** (2026-09-22 wave). It was a
+near-exception to the rule above — a tray door whose only window route was the
+recovery screen, which renders only while the server is not answering — so a
+server that answers yet refuses every sign-in left the tray as the way in. That
+reason is gone: the assistant's rail carries it as **Addresses**, and the tray's
+"Open Server App" raises the assistant to that same rail on any onboarded
+machine, answers-but-refuses included. The screen is still deliberately NOT
+"Server Settings",
+which is the View menu's ⌘4 into the SPA's session-gated routes (see the Addresses
+screen above).
 
 ### Notifications
 
