@@ -1,17 +1,27 @@
 /**
- * The ONE screen a machine that has been set up sees while its server is not
- * answering (spec 2026-09-21; plan Task 4) — the port of `renderRecovery`,
- * with the tmux warning as a keyed component and the gated primary action.
- * The four linkish doors the old screen stacked under its diagnosis are GONE
- * in wave 2: the rail's Update / Service / Addresses sections are what
- * they were the stand-in for. Reset stays a door — it is full-window, never
- * a section.
+ * The Status section, in both of the states that reach it (spec 2026-09-21;
+ * plan Task 4; the running view by the operator's ruling of 2026-09-23).
  *
- * The title IS the diagnosis, there is one primary action, and everything a
- * person repairing an install would otherwise have opened a console for sits
- * behind Show Details. The screen's progress and failure variants render
- * through the setup screen's exports — the old `renderRecovery` called the
- * same `renderProgress`/`renderFailure` it did.
+ * A machine whose server is NOT answering sees the diagnosis — the port of
+ * `renderRecovery`, with the tmux warning as a keyed component and the gated
+ * primary action. The four linkish doors the old screen stacked under its
+ * diagnosis are GONE in wave 2: the rail's Update / Service / Addresses
+ * sections are what they were the stand-in for, and Reset is the rail's
+ * danger door, which opens a dialog over this section rather than a screen.
+ *
+ * A machine that IS answering, reached because a person selected Status in
+ * the rail, sees the same section's running view: its facts, its log tail,
+ * and one **Open dashboard** button. The old behavior — resolving the select
+ * onto the handoff, which auto-opens the dashboard and closes this window —
+ * was the setup-pane bounce the operator objected to. An ARRIVAL on a ready
+ * machine still hands off by itself (that is `handoff`, a different route
+ * kind); a select is not an arrival.
+ *
+ * The title IS the diagnosis (or the running fact), there is one primary
+ * action, and everything a person repairing an install would otherwise have
+ * opened a console for renders inline below it. The screen's progress and
+ * failure variants render through the setup screen's exports — the old
+ * `renderRecovery` called the same `renderProgress`/`renderFailure` it did.
  */
 import { type AssistantStrings, Frame } from "@internal/assistant";
 import type { ReactElement } from "react";
@@ -119,10 +129,33 @@ export function StatusScreen(props: {
   about: About | null;
   onAction: (kind: RecoveryActionKind) => void;
   onInstallTmux: () => void;
+  /** The running view's one button: `ipc.openMain()`, wired by the host. */
+  onOpenDashboard: () => void;
   onReveal: (target: OpenTarget) => void;
   onFail: (err: unknown) => void;
 }): ReactElement {
   const { probe, busy, running, failure } = props;
+  if (probe.next === "ready" && !running && !failure) {
+    // The RUNNING machine's status screen (operator ruling 2026-09-23): what
+    // a rail-selected Status shows instead of bouncing through the handoff.
+    // The machine's facts, its log tail and the app's version, with ONE
+    // door — nothing opens by itself here, because a person is driving this
+    // window and the button is the press that says otherwise.
+    return (
+      <Frame rail={props.rail} strings={props.strings} entranceKey={props.entranceKey}>
+        <Button type="button" className="w-full" disabled={busy} onClick={props.onOpenDashboard}>
+          Open dashboard
+        </Button>
+        <StatusDetails
+          probe={probe}
+          lastResult={props.lastResult}
+          lastTail={props.lastTail}
+          about={props.about}
+          onReveal={props.onReveal}
+        />
+      </Frame>
+    );
+  }
   if (running) {
     return (
       <Frame rail={props.rail} strings={props.strings} entranceKey={props.entranceKey}>

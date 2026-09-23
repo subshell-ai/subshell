@@ -43,11 +43,26 @@ so serving the SPA ourselves would mean an auth rework, not a build change.
 ## Boot looks before it leaps
 
 `setup()` runs one `boot_probe` and THEN chooses the window, from the fresh
-probe rather than the stored flag: `boot_window(&Probe)` answers
+probe rather than the stored flag: `boot_window(pref, &Probe)` answers
 `WindowChoice::Main` on a `ready` probe and `WindowChoice::Wizard` on anything
 else. So a machine whose server is already running opens the **dashboard** —
 including one provisioned entirely from the CLI, on its first app launch,
 because the boot probe answers `ready` before the branch runs.
+
+**The launch preference moves that ready arm, and only that arm** (operator
+ruling 2026-09-23). `settings.json`'s `openOnLaunch` is `dashboard` (the default,
+and what every file written before it means) or `assistant`. A machine that is
+NOT ready has no dashboard to open, so it comes up on the assistant whichever
+way the preference is set — the preference answers the question "which of two
+working windows?", not "is there one?". It is set from a row inside **How Your
+Server Runs**, and that row saves on the press rather than waiting for the
+screen's Apply: one settings field whose effect is the NEXT launch stops no
+service and uninstalls no definition, which is what Apply exists for. The two
+commands are `desktop_launch_window` and `desktop_set_launch_window`, both
+`wizard`-only. **`open_home` ignores the preference**: the tray's two doors, the
+Dock reopen, the single-instance relaunch and the SPA's pill each answer for the
+machine, and a stored choice quietly re-pointing "Open Control Plane In App"
+would make that label a lie.
 
 **One thing outranks that choice**: `control::boot_resume` finding an update
 whose second half never ran, which opens the assistant at `update` instead
@@ -129,18 +144,26 @@ setup, handoff), for the permissions screen, for boot, and for ANY standing
 route on a machine mid-first-run. Reset is the
 fifth section and the DESTRUCTIVE one (operator ruling 2026-09-22, live
 screenshot): the DOOR moves into the rail — `onSelect("reset")` is
-`openReset`, the paired screen-set-and-open — styled in the destructive
-token. Since the same day's LAYOUT ruling (final word) the reset
-CONFIRMATION rides the rail too, reset active: the sidebar was being lost
-on it and that is not wanted. The frame-replacing premise moved to the
-RUNNING chain — host.tsx withholds the rail from the render for
-`busy || running`, so no navigation sits beside a chain that is deleting
-this server; that is where the safety property lives now. There is NO CANCEL
-where the rail is present (operator ruling 2026-09-22, screenshot 59) — the
-rail is the way out of the confirmation — and the room keeps no Cancel
-regardless, superseding the half-run Cancel beside Retry. The reset's
-half-run log is its own slot and the other screens keep theirs, so no
-cross-screen output inheritance existed here to cut. With the sidebar
+`openReset`, the paired open-and-arm (it sets NO route; the dialog renders
+outside the routed frame) — styled in the destructive
+token. The same day's LAYOUT ruling put the reset
+CONFIRMATION on the standing section itself (rail-highlighted, the sidebar
+present); the 2026-09-23 wave superseded that, mirroring the now-proven
+client: `onSelect("reset")` opens a centered **DIALOG** over whatever section
+is up, so host.tsx's `data-route` keeps the section's kind and the Reset rail
+highlight while the confirmation sits on top, overriding nothing — this
+removed the last frame-replacing screen. The dialog is MODAL (a fixed overlay
+across the window, positioned by class because the CSP has no
+`unsafe-inline`), so it covers the rail and no navigation is reachable beside
+it; the safety property that used to live in "withhold the rail while running"
+now lives in the dialog being **inert to its own dismissal** — while `busy ||
+running` Escape and the backdrop route through an `onClose` the dialog makes a
+no-op, and the Cancel button is `disabled`, so nothing dismisses a chain that
+is deleting this server. A half-run keeps the dialog open with its step log and a **Retry
+reset**; a success closes it and returns to the standing journey. A
+deep-linked reset arms the dialog show-first, and the handoff auto-open is
+guarded so a ready machine cannot bury its own confirmation under the
+dashboard. With the sidebar
 present the rail is also the navigation: the
 standing screens' own leave buttons (Back on Service, Back on
 Addresses, Close on Update) render only where the rail does not — a
@@ -211,13 +234,22 @@ verbatim output, and what this app itself is render INLINE under the diagnosis
 is part of the Status section, not a disclosure — a sidebar section that hides
 its own facts behind a second control is two navigations for one answer), and
 the log tail is pulled while the Status section is up, not while it is not —
-the open-disclosure rule carried over under a new name.
+the open-disclosure rule carried over under a new name. A standing Status on
+a READY machine is this screen, with one primary **Open dashboard** action
+(the 2026-09-23 wave): it no longer routes to the handoff and auto-opens, so
+selecting Status to LOOK at the server never bounces the window into the
+dashboard. Only ARRIVAL (a window opened with no screen chosen) hands off and
+auto-opens; the old `held`-handoff arm and `selectHeldHandoff` are gone. On a
+NOT-ready machine the same rail item shows this screen in its diagnosis role,
+exactly as before.
 The other three doors the old screen stacked under its diagnosis (**Update
 Subshell Server**, **How Your Server Runs**, **Server Addresses**) are the
 rail's sections now, which is what those links existed to be a stand-in
 for — and Reset is a rail section too (operator ruling 2026-09-22): the
-door is the sidebar's destructive item, and since the same day's layout
-ruling the confirmation it opens renders under that rail, reset active.
+door is the sidebar's destructive item, and selecting it opens the
+confirmation DIALOG over the standing section (the 2026-09-23 wave; see the
+Reset paragraph above), not under the rail as the same day's earlier layout
+ruling had it.
 
 **A requested screen is routed off `REQUESTED_SCREENS`, never a literal.**
 `screenForRequest` (in `lib/wizard-state.ts`) maps the payload, and the reason
@@ -1238,7 +1270,7 @@ ui/
 │   │   ├── logs.ts     #   renderTail() and renderOutput(), for the Show Details panes
 │   │   ├── copy-button.ts   # the one Copy affordance; its flash lives in lib/copy-flash.ts
 │   │   ├── tmux-warning.ts  # the amber gate explanation — a FACTORY
-│   │   └── reset-view.ts    # the Reset screen, which replaces the frame
+│   │   └── screens/reset-dialog.tsx # the Reset dialog (the 2026-09-23 wave: a modal over the standing section, no longer a frame replacement)
 │   ├── styles.css      # @theme tokens + component classes; Tailwind in markup
 │   ├── lib/
 │   │   ├── ipc.ts            # one typed function per `desktop_*` command this page invokes
@@ -1251,7 +1283,7 @@ ui/
 │   │   ├── settings-screen.ts # Server Addresses: the https warning, what Save sends, its refusals
 │   │   ├── permissions-model.ts # the four macOS rows: glyph, suffix, action, pane
 │   │   ├── copy-flash.ts     # the Copy button's copied/failed state, by key and by clock
-│   │   └── reset.ts          # the reset screen's pure decisions: rows, refusal, arming
+│   │   └── reset.ts          # the reset dialog's pure decisions: rows, refusal, arming
 │   └── __tests__/      # pure pins: config-form, installers, wizard-state, recovery-model,
 │                       # update-act, settings-screen, permissions-model, copy-flash,
 │                       # reset, wire-names, ipc-acl, tauri-config
@@ -1403,7 +1435,7 @@ With it, the split is enforced, and the split is window KIND:
 
 | Window | Gets |
 | --- | --- |
-| `wizard` | the twenty-two its page invokes — probe, port in use, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, request Photos, open a System Settings pane, check for an app update, install one — plus `dialog:allow-open`, `opener:allow-reveal-item-in-dir`, and its core grant: `core:default` ALONE. `core:window:allow-close` was granted for spec 2026-09-17's **Later** button and went with it when that screen's two dismissals became one **Close** (2026-09-18) — a leave rather than a window close, so no page call to a core window verb remains. `ipc-acl.test.ts` pins the narrowed list, pins that nothing under `ui/src` imports `@tauri-apps/api/window` (the route the grant would come back through), and pins that `main` holds neither close nor the update verbs |
+| `wizard` | the twenty-four its page invokes — probe, port in use, setup, install tmux, install server, set the binary, set supervision, every service verb, logs, open path, arm reset, pending screen, reset, open main, open tmux docs, about, open web, request notifications, request Photos, open a System Settings pane, read the launch window, set the launch window, check for an app update, install one — plus `dialog:allow-open`, `opener:allow-reveal-item-in-dir`, and its core grant: `core:default` ALONE. `core:window:allow-close` was granted for spec 2026-09-17's **Later** button and went with it when that screen's two dismissals became one **Close** (2026-09-18) — a leave rather than a window close, so no page call to a core window verb remains. `ipc-acl.test.ts` pins the narrowed list, pins that nothing under `ui/src` imports `@tauri-apps/api/window` (the route the grant would come back through), and pins that `main` holds neither close nor the update verbs |
 | `main` | `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, window dragging — and `desktop_set_supervision` (below) — on a TRUSTED origin only (loopback, or the instance's configured `APP_BASE_URL`; see below) |
 
 Six of `main`'s seven commands are chosen for what they cannot do: raise a
@@ -1905,9 +1937,12 @@ Three consequences, all load-bearing:
   the window easier to reach.
 - **The tray no longer has a disabled item.** "Open Dashboard" was disabled
   until a probe said the server was ready, so on a broken machine the one
-  thing on the tray could not be pressed. It is "Open Subshell Server" now and
-  always enabled, because `open_home` answers for both states of the machine —
-  which also retired `set_server_ready` and the `DashboardItem` it held.
+  thing on the tray could not be pressed. It is "Open Control Plane In App" now
+  and always enabled, because `open_home` answers for both states of the machine
+  — which also retired `set_server_ready` and the `DashboardItem` it held. A
+  second in-app door, "Open Server App", sits beside it: it calls
+  `windows::open_assistant` and raises the bundled window directly, no probe and
+  no server question — the client tray's "Open Client App" carried to this side.
 - The window-close handler **re-probes**, and that is the check that actually
   protects the user: a host that has gone away since the setting was made means
   the window closes normally instead of vanishing. The probe is therefore

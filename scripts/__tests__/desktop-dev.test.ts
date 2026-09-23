@@ -7,11 +7,14 @@ import {
   devServerPort,
   distBuildRemedies,
   isConfirm,
+  type OwnedCommands,
   type PortListener,
   parseAppPids,
   parseDevServerPort,
   parseLsofListeners,
+  parseRunDaemonPids,
   parseServiceStatus,
+  planClientDaemonPreflight,
   workspaceBuildArgs,
 } from "../desktop-dev";
 
@@ -360,6 +363,137 @@ describe("workspaceBuildArgs", () => {
     // build the wrong graph. turbo filters are exact matches, and the pinned
     // strings make a change loud.
     expect(workspaceBuildArgs("server")[3]).not.toBe(workspaceBuildArgs("client")[3]);
+  });
+});
+
+/**
+ * The client dev-launch preflight: a running node daemon keeps its binary in
+ * memory no matter what the digest swap wrote to disk, so the launcher asks
+ * the manager about a running service (offered the CLI verb, never a kill)
+ * and NAMES foreground `subshell run` daemons it must not touch. The seams
+ * below are the parts that must not depend on a live service or a live ps.
+ */
+
+describe("parseServiceStatus against the node CLI's real output", () => {
+  test("the node `service status --json` body parses to the same slice", () => {
+    // Measured against `ServiceState` (apps/node/agent/src/service.ts): the
+    // node CLI stringifies the whole manager view — enabled, autostart,
+    // linger, paneSafety, definitionPath, detail and all. The three fields
+    // this file reads have identical spellings on both CLIs, so the one
+    // parser serves server and node; extra fields must not poison it.
+    const nodeBody = JSON.stringify({
+      installed: true,
+      definitionPath: "/Users/me/.config/subshell/dev.subshell.client.plist",
+      logPath: "/Users/me/.local/state/subshell/agent.log",
+      state: "running",
+      pid: 4112,
+      enabled: true,
+      autostart: true,
+      linger: null,
+      loaded: true,
+      paneSafety: "keeps",
+      detail: "launchd: running",
+    });
+    expect(parseServiceStatus(nodeBody)).toEqual({ installed: true, state: "running", pid: 4112 });
+  });
+});
+
+describe("parseRunDaemonPids", () => {
+  test("matches the bare command and the full path alike", () => {
+    // `subshell run` from a terminal carries whatever argv[0] was typed; the
+    // managed daemon and the app's child carry the installed path. All are
+    // live daemons; the caller subtracts the manager's pid afterwards.
+    const ps = ["  4112 /Users/me/.local/bin/subshell run", "  4113 subshell run"].join("\n");
+    expect(parseRunDaemonPids(ps, "subshell")).toEqual([4112, 4113]);
+  });
+
+  test("a basename merely ENDING in the binary's name is a different program", () => {
+    // `subshell-server run` is the control plane's own daemon. On a host
+    // running both, naming it here would tell the operator to stop a process
+    // that shadows nothing about the node.
+    const ps = "  501 /Users/me/.local/bin/subshell-server run";
+    expect(parseRunDaemonPids(ps, "subshell")).toEqual([]);
+  });
+
+  test("`run` must be the FIRST argument, not a word somewhere later", () => {
+    // `subshell service status`, and anything merely MENTIONING `run` — a
+    // tail, a grep, an editor with these very paths open — is not a daemon.
+    const ps = ["  601 subshell service status", "  602 tail -f subshell run.log", "  603 grep subshell run"].join(
+      "\n",
+    );
+    expect(parseRunDaemonPids(ps, "subshell")).toEqual([]);
+  });
+
+  test("flags after the verb still match", () => {
+    const ps = "  707 /opt/subshell run --foreground";
+    expect(parseRunDaemonPids(ps, "subshell")).toEqual([707]);
+  });
+
+  test("a whitespace-bearing path is MISSED, never misassigned", () => {
+    // Documented limitation of tokenizing a `ps` dump: argv is not
+    // whitespace-safe there. A miss withholds a NOTE only — this list names
+    // processes and nothing stops one — so it fails in the safe direction.
+    const ps = "  801 /Users/me/My Tools/subshell run";
+    expect(parseRunDaemonPids(ps, "subshell")).toEqual([]);
+  });
+
+  test("the binary name is a parameter, so each app asks about its own", () => {
+    const ps = "  901 subshell-server run";
+    expect(parseRunDaemonPids(ps, "subshell-server")).toEqual([901]);
+    expect(parseRunDaemonPids("", "subshell")).toEqual([]);
+  });
+});
+
+describe("planClientDaemonPreflight", () => {
+  const running = { installed: true, state: "running", pid: 4112 };
+  const stopped = { installed: true, state: "stopped", pid: null };
+
+  test("a running service gets the offer, and its OWN daemon is not named as a stranger", () => {
+    // The unit runs `<self> run`, so the supervised daemon appears in ps at
+    // the manager's pid. Subtracting it is what separates "ours, offer stop"
+    // from "someone's terminal, name it".
+    const plan = planClientDaemonPreflight(running, [4112, 9001]);
+    expect(plan.serviceRunning).toBe(true);
+    expect(plan.servicePid).toBe(4112);
+    expect(plan.unsupervisedPids).toEqual([9001]);
+  });
+
+  test("no running service means no offer; every live daemon is a stranger", () => {
+    expect(planClientDaemonPreflight(stopped, [9001]).serviceRunning).toBe(false);
+    expect(planClientDaemonPreflight(stopped, [9001]).unsupervisedPids).toEqual([9001]);
+    expect(planClientDaemonPreflight(null, [9001]).unsupervisedPids).toEqual([9001]);
+  });
+
+  test("an unreadable status never becomes an offer to stop", () => {
+    // `service status --json` answering garbage says nothing about a running
+    // service; offering to stop on that evidence would stop things the
+    // operator never had. The daemons still get named — they were seen.
+    const plan = planClientDaemonPreflight(null, [9001]);
+    expect(plan.serviceRunning).toBe(false);
+    expect(plan.servicePid).toBeNull();
+  });
+
+  test("a running service with no pid still gets the offer, with every daemon named", () => {
+    // A manager that answers state but not pid cannot say WHICH process it
+    // started, so nothing is subtracted — the honest reading is "the service
+    // is up, and these are live daemons nobody can attribute".
+    const plan = planClientDaemonPreflight({ installed: true, state: "running", pid: null }, [9001]);
+    expect(plan.serviceRunning).toBe(true);
+    expect(plan.unsupervisedPids).toEqual([9001]);
+  });
+
+  test("stopping is not running", () => {
+    expect(planClientDaemonPreflight({ installed: true, state: "stopping", pid: 4112 }, [4112]).serviceRunning).toBe(
+      false,
+    );
+  });
+
+  test("a quiet machine makes no noise", () => {
+    expect(planClientDaemonPreflight(stopped, [])).toEqual({
+      serviceRunning: false,
+      servicePid: null,
+      unsupervisedPids: [],
+    });
   });
 });
 

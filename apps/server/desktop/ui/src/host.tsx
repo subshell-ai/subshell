@@ -62,7 +62,7 @@ import {
 import type { About, ActionResult, AppUpdateCheck, LogTail, Probe } from "./lib/ipc";
 import * as ipc from "./lib/ipc";
 import { recoverySubtitle } from "./lib/recovery-model";
-import { armed, emptySteps, knownStep, refusal, resetStarted, type StepKey, type StepState } from "./lib/reset";
+import { armed, emptySteps, knownStep, refusal, type StepKey, type StepState } from "./lib/reset";
 import { nextPollDelay, type Route, railActive, railFor, resolveJourney, route } from "./lib/server-state";
 import { SETTINGS_LABEL, SETTINGS_SUBTITLE } from "./lib/settings-screen";
 import { type ActState, NO_SELECTION, UPDATE_TITLE, type UpdateActSelection } from "./lib/update-act";
@@ -71,7 +71,6 @@ import {
   handoffView,
   isRequestedScreen,
   permissionsAfterSetup,
-  RESET_LABEL,
   type RecoveryActionKind,
   recoveryTitle,
   type ScreenId,
@@ -84,7 +83,7 @@ import { useAssistantRunners } from "./runners";
 import { AddressesScreen } from "./screens/addresses-screen";
 import { HandoffScreen } from "./screens/handoff-screen";
 import { PermissionsScreen } from "./screens/permissions-screen";
-import { type ResetLog, ResetScreen } from "./screens/reset-screen";
+import { ResetDialog, type ResetLog } from "./screens/reset-dialog";
 import { SetupScreen } from "./screens/setup-screen";
 import { StatusScreen } from "./screens/status-screen";
 import { SupervisionScreen } from "./screens/supervision-screen";
@@ -127,7 +126,7 @@ export interface HostActions {
   refresh(): Promise<void>;
   /** Record a rejection's words as the page's problem line. */
   fail(err: unknown): void;
-  /** Leave a requested screen (reset, update) for whatever the probe implies. */
+  /** Leave a requested screen (update, supervision, addresses) for what the probe implies. */
   close(): void;
   /**
    * Forget the page-scoped one-shot flags a wipe invalidates: the fired-this-
@@ -245,16 +244,6 @@ export function Host(): React.JSX.Element {
    */
   const autoFireLatchRef = useRef(false);
   const resumeLatchRef = useRef(false);
-  /**
-   * Whether the window is ON the handoff because a person SELECTED Status in
-   * the rail, not because the machine arrived there. The handoff's
-   * auto-continue was written for arrival paths — a window reopened over a
-   * running server owes no result to a reader — and a deliberate select is
-   * the opposite of an arrival: the person is driving this window. So the
-   * ready view renders HELD (Continue available, pressed by a human), and
-   * the flag clears when the route leaves the handoff and on the press.
-   */
-  const [selectHeldHandoff, setSelectHeldHandoff] = useState(false);
   /**
    * Whether the failed install's output disclosure is expanded, and how far
    * down it the reader has scrolled.
@@ -406,13 +395,13 @@ export function Host(): React.JSX.Element {
    * is: the poll re-renders on its own clock, so a state the DOM held would
    * be erased mid-chain.
    *
-   * - `resetOpen` is the view's open flag, and the ROUTE gates on it: the
-   *   old render checked `resetView.isOpen()` before everything else, and
-   *   "gate the reset route on the view's open state, not on
-   *   `screen === "reset"` alone" is that gate kept. The pairing is
-   *   load-bearing — `openReset` sets the screen AND opens the view, because
-   *   the screen is what explains a refusal and shows whether or not a plan
-   *   staged.
+   * - `resetOpen` is the DIALOG's open flag (operator ruling 2026-09-23; the
+   *   screen that replaced the frame is a modal over the standing section
+   *   now, the Subshell Client's shape). It gates nothing in `route()`: the
+   *   dialog renders beside the routed content, overriding no section and no
+   *   rail highlight. `openReset` opens it and arms the plan, show-first —
+   *   the dialog is what explains a refusal, so it must appear whether or
+   *   not a plan stages.
    * - `resetSteps` is the meter, merged live from `desktop-reset-step`.
    * - `resetArmingProblem` is why the last arming attempt did not stage a
    *   plan; the screen must never present an armed-looking box over an empty
@@ -505,9 +494,6 @@ export function Host(): React.JSX.Element {
   }, []);
 
   const close = useCallback((): void => {
-    // The old `resetView.hide()`: the screen steps aside; the meter and the
-    // typed name are the next open's business (`openReset` clears them).
-    setResetOpen(false);
     forgetOneVisitDrafts();
     setScreen(null);
   }, [forgetOneVisitDrafts]);
@@ -552,13 +538,13 @@ export function Host(): React.JSX.Element {
   }, []);
 
   /**
-   * Arm a plan and raise the Reset screen — the old `openReset`, both halves
-   * PAIRED, and deliberately NO epoch bump: the old `openReset` did not replay
-   * the screen entrance, and the review note asked for that to be kept.
+   * Arm a plan and open the Reset DIALOG. No screen is set and no epoch
+   * bumps: since the 2026-09-23 dialog ruling the door opens a modal over the
+   * standing section, and the section keeps showing underneath it (the
+   * Subshell Client's rail semantics, ported).
    */
   const openReset = useCallback((): void => {
-    setScreen("reset");
-    // SHOW FIRST, then arm. The screen is open from the moment it was asked
+    // SHOW FIRST, then arm. The dialog is open from the moment it was asked
     // for, and the plan is content that arrives after. The old view `await`ed
     // arming before flipping its flag, and the boot render resolved inside
     // that window, saw a ready machine, and handed off — the dashboard opened
@@ -616,7 +602,17 @@ export function Host(): React.JSX.Element {
         if (result?.stdout?.trim()) parts.push(result.stdout.trim());
         if (result?.stderr?.trim()) parts.push(result.stderr.trim());
         setResetLog({ text: parts.join("\n\n"), bad: result?.ok === false });
-        if (result?.ok === false) setResetRunLabel("Retry reset");
+        if (result?.ok === false) {
+          // A half-run stays: the log and the promoted Retry are the chain's
+          // own receipt, and the dialog is where the human still is.
+          setResetRunLabel("Retry reset");
+        } else {
+          // A SUCCESS closes the dialog (the client's completed-reset rule,
+          // ported): the machine answers as a fresh first run underneath, and
+          // that is the receipt. In release this line is academic — the chain
+          // ends by restarting the app — but a dev build re-probes in place.
+          setResetOpen(false);
+        }
       } catch (err) {
         // Err is the pre-flight channel (hostname mismatch, no plan, refused
         // guard): one sentence, no partial log exists to show.
@@ -645,12 +641,15 @@ export function Host(): React.JSX.Element {
   const applyScreen = useCallback(
     (payload: string): void => {
       if (payload === "reset") {
-        // The old `openReset`, called as-is: the screen-set and the view's
-        // open() are one act, and no entrance replay rode it.
+        // The dashboard's danger card names the SCREEN, and the screen is a
+        // DIALOG now: open it over whatever the probe implies, exactly as the
+        // rail's door does. The handoff behind it must not open the dashboard
+        // out from under the confirmation — the auto-open effect gates on
+        // `resetOpen` for this case.
         openReset();
         return;
       }
-      setResetOpen(false); // the old `resetView.hide()`
+      setResetOpen(false); // a live reset dialog does not survive being replaced by another screen
       // The sidebar pill, an Update request or a Reset request all land here
       // while a form screen may be showing: one visit's drafts, gone.
       forgetOneVisitDrafts();
@@ -779,9 +778,6 @@ export function Host(): React.JSX.Element {
   const handoffContinue = useCallback((): void => {
     if (probe === null) return;
     setContinued(true);
-    // A held handoff's press is the human the hold was waiting for; the next
-    // arrival path auto-continues exactly as before.
-    setSelectHeldHandoff(false);
     // The one stop AFTER the chain (operator's call, 2026-09-18): on a Mac's
     // first run this press hands off to the permissions screen rather than to
     // the dashboard, and that screen's own Continue does what this one used
@@ -973,14 +969,14 @@ export function Host(): React.JSX.Element {
   const r: Route = booted ? route(probe, screen, { running, failure }) : { kind: "boot" };
 
   /**
-   * The rail, or its absence. `railFor` answers null for the FTE family, the
-   * frame-replacing screens, boot — and for any standing route on a machine
-   * that is not onboarded, which is the case the old page allowed through: a
-   * requested update over a first run still renders, full-window, no rail.
-   * Selecting Status goes to `recovery`, the journey id the route resolves
-   * back onto the diagnosis with; on a ready machine that resolution is the
-   * handoff, whose job is opening the dashboard — the running state's home is
-   * the SPA, and this window steps aside.
+   * The rail, or its absence. `railFor` answers null for the FTE family, boot
+   * — and for any standing route on a machine that is not onboarded, which is
+   * the case the old page allowed through: a requested update over a first
+   * run still renders, full-window, no rail. Selecting Status sets `recovery`,
+   * the standing marker for the Status section: on a broken machine the route
+   * resolves it onto the diagnosis, and on a running one it IS the status
+   * screen — facts, the log tail, one button (operator ruling 2026-09-23: no
+   * more bounce through the handoff for a deliberate select).
    */
   const railSections = railFor(r, probe?.onboarded ?? false);
   const rail =
@@ -989,13 +985,12 @@ export function Host(): React.JSX.Element {
         sections={railSections}
         active={railActive(r)}
         onSelect={(id) => {
-          if (id === "status") setSelectHeldHandoff(true);
-          else setSelectHeldHandoff(false);
           // The destructive section is a DOOR, not a route: selecting Reset
-          // is `openReset`, the paired screen-set-and-open the dashboard's
-          // deep link uses — SHOW first, then the plan arms. `go` would set
-          // the screen without the view, and the reset screen's own gate
-          // reads the view.
+          // opens the DIALOG over the standing section (`openReset`, the
+          // paired open-and-arm the dashboard's deep link uses too — SHOW
+          // first, then the plan arms). It sets no screen and clears no
+          // draft: the section underneath, its rail highlight included, stays
+          // exactly where it was until the dialog closes.
           if (id === "reset") {
             openReset();
             return;
@@ -1014,21 +1009,9 @@ export function Host(): React.JSX.Element {
    * Whether the Status section is on screen — the tail's feed gate. The old
    * rule was "while the disclosure is open"; wave 2's ruling renders the
    * details inline in the section, so the rule becomes the section itself.
+   * Since the 2026-09-23 Status ruling this covers the RUNNING machine's
+   * status screen too, which is why the tail feeds there as well.
    */
-  /**
-   * The hold, in effect: a rail-selected Status on a READY machine resolves
-   * to the handoff, and this flag rides into `handoffView` as `held`, whose
-   * arm answers wait:true with words that promise nothing — the
-   * auto-continue never fires because the view itself is waiting. Cleared
-   * whenever the route is not the handoff — a probe that goes unhealthy, a
-   * requested screen, anything — so a stale hold can never pin a later
-   * arrival.
-   */
-  const handoffHeld = r.kind === "handoff" && selectHeldHandoff;
-  useEffect(() => {
-    if (r.kind !== "handoff") setSelectHeldHandoff(false);
-  }, [r.kind]);
-
   const statusUp = r.kind === "status";
   const tailPulledForVisit = useRef(false);
   useEffect(() => {
@@ -1099,17 +1082,21 @@ export function Host(): React.JSX.Element {
     // press (see `handoffView`). `openWhenReady` is the SAME call both arms
     // reach, so the dashboard opening is identical whichever door it opens
     // through.
-    // `held` is the rail-select hold: a person driving this window, not an
-    // arrival. The view answers wait:true for it, so this effect simply
-    // never opens while the hold stands.
-    if (handoffView({ onboarded: probe.onboarded, ranSetupHere, continued, held: handoffHeld }).wait) return;
+    // An open reset dialog outranks the handoff behind it. The deep link
+    // raises this window onto a READY machine precisely to confirm a wipe;
+    // opening the dashboard there would bury the dialog under the thing it
+    // is about to delete. A rail-selected Status never reaches this effect
+    // at all — `route()` resolves that select onto the status screen (2026-
+    // 09-23), which opens nothing and carries one button for the press.
+    if (resetOpen) return;
+    if (handoffView({ onboarded: probe.onboarded, ranSetupHere, continued }).wait) return;
     if (opened || probe.next !== "ready") return;
     setOpened(true);
     void ipc.openMain().catch((err: unknown) => {
       setOpenFailed(true);
       setProblem(errText(err));
     });
-  }, [r.kind, probe, ranSetupHere, continued, opened, handoffHeld]);
+  }, [r.kind, probe, ranSetupHere, continued, opened, resetOpen]);
 
   // ---------------------------------------------------------------------------
   // The poll, on the `nextPollDelay` seam.
@@ -1228,7 +1215,7 @@ export function Host(): React.JSX.Element {
           return { title: "Subshell Is Running", subtitle: "The dashboard did not open by itself.", problem };
         }
         if (probe === null) return { title: "", subtitle: "", problem };
-        const view = handoffView({ onboarded: probe.onboarded, ranSetupHere, continued, held: handoffHeld });
+        const view = handoffView({ onboarded: probe.onboarded, ranSetupHere, continued });
         return { title: view.title, subtitle: view.subtitle, problem };
       }
       case "supervision":
@@ -1241,22 +1228,18 @@ export function Host(): React.JSX.Element {
         };
       case "addresses":
         return { title: SETTINGS_LABEL, subtitle: SETTINGS_SUBTITLE, problem };
-      case "reset":
-        // The title follows the PANE, not the room (operator ruling
-        // 2026-09-22, final word on the layout): the meter's own heading was
-        // "Resetting this server" while the confirmation's was the reset
-        // label, and the pane predicate is `started`, not `running` — a
-        // finished chain stays on the meter pane with its log. The ROOM is
-        // `running`: the rail hides for the chain's duration and no longer.
-        if (resetStarted(resetSteps))
-          return { title: "Resetting this server", subtitle: "This takes a moment.", problem };
-        return { title: RESET_LABEL, subtitle: "", problem };
       case "status": {
         if (probe === null) return { title: "", subtitle: "", problem };
         // The recovery screen rendered the progress and failure views through
         // the same functions the setup screen did, titles and all.
         if (running) return { title: "Setting Up Subshell…", subtitle: "This takes a moment.", problem };
         if (failure) return { title: "Setup Couldn't Finish", subtitle: "Nothing else was changed.", problem };
+        // A RUNNING machine's status screen (operator ruling 2026-09-23): the
+        // standing view a rail-selected Status shows, not a handoff's passing
+        // title. The old `reset` case left this switch with the screen — the
+        // dialog names itself.
+        if (probe.next === "ready")
+          return { title: "Your Server Is Running", subtitle: "Everything the server reports is below.", problem };
         return { title: recoveryTitle(probe.next), subtitle: recoverySubtitle(probe.next), problem };
       }
       // Task 7 lands these screens' strings with it.
@@ -1266,52 +1249,16 @@ export function Host(): React.JSX.Element {
   };
 
   /** Whether the completed checklist waits for a Continue (see `handoffView`). */
-  const handoffWaiting =
-    probe !== null && handoffView({ onboarded: probe.onboarded, ranSetupHere, continued, held: handoffHeld }).wait;
+  const handoffWaiting = probe !== null && handoffView({ onboarded: probe.onboarded, ranSetupHere, continued }).wait;
 
   const entranceKey = screenEpoch > 0 ? screenEpoch : undefined;
 
   // The route is dispatched one screen per kind. `boot` keeps its own Frame;
   // the Tasks 5–7 routes stay a marked placeholder until their screens land.
+  // The reset DIALOG is NOT part of this dispatch: it renders beside the
+  // routed content (see the return), so opening it overrides no section.
   let content: React.JSX.Element;
-  if (resetOpen) {
-    // The reset screen REPLACES the frame — the old `show()` hid `#screen`
-    // and `#bar`, and its premise is that it is the only thing happening.
-    // Checked before the boot gate, exactly where the old render's
-    // `resetView.isOpen()` check sat: the screen shows with or without a
-    // probe, because it is what explains a refusal.
-    content = (
-      <Frame
-        strings={shell("reset")}
-        // The confirmation rides the rail (operator ruling 2026-09-22, final
-        // word on the reset layout); the ROOM is the running chain — while it
-        // runs the rail is withheld and no navigation sits beside a chain
-        // that is deleting this server.
-        // From the confirm PRESS, not merely the chain's first step: the
-        // runner's busy comes up first (the re-arm), and `running` covers the
-        // chain itself. Same predicate the screen's own `busy` prop gets.
-        rail={busy || running ? undefined : rail}
-      >
-        <ResetScreen
-          probe={probe}
-          busy={busy || running}
-          railPresent={rail !== undefined}
-          steps={resetSteps}
-          armingProblem={resetArmingProblem}
-          runLabel={resetRunLabel}
-          log={resetLog}
-          typed={resetTyped}
-          onTypedChange={setResetTyped}
-          onRunReset={(typed) => void runReset(typed)}
-          onCancel={() => {
-            // The old `reset-cancel`: hide, then the page's own close — which
-            // drops the screen for whatever the probe implies.
-            close();
-          }}
-        />
-      </Frame>
-    );
-  } else if (probe === null || r.kind === "boot") {
+  if (probe === null || r.kind === "boot") {
     content = <Frame strings={shell("boot")} art={<Wordmark />} />;
   } else {
     const p = probe;
@@ -1439,6 +1386,15 @@ export function Host(): React.JSX.Element {
             about={about}
             onAction={runRecovery}
             onInstallTmux={() => startTmuxInstall()}
+            // The running view's one button (ruling 2026-09-23): the same
+            // command the handoff's arrival path reaches, so the dashboard
+            // opening is identical whichever door it opens through. A refusal
+            // lands on the problem line and the press can be repeated; the
+            // handoff's openFailed/retry latch is the arrival path's own
+            // affair and this button does not spend it.
+            onOpenDashboard={() => {
+              void ipc.openMain().catch(fail);
+            }}
             onReveal={(target) => {
               void ipc.openPath(target).catch(fail);
             }}
@@ -1548,9 +1504,6 @@ export function Host(): React.JSX.Element {
           />
         );
         break;
-      // The reset ROUTE kind with a closed view: the old routing blanked on a
-      // mismatch, and that blanking was the defence in depth behind `open()`
-      // showing before it arms. The view, not the screen, is the gate.
       default:
         content = (
           /* Task 5–7: the screens land here — this region is empty until then. */
@@ -1562,9 +1515,35 @@ export function Host(): React.JSX.Element {
   // `data-route` is the transition's one window into the routing: the tests
   // that pin the boot gate and the correction read it, and it is deleted with
   // the placeholder in Task 8.
+  //
+  // The reset dialog renders OUTSIDE the routed div on purpose (ruling
+  // 2026-09-23): it is an overlay, not a route. The section underneath keeps
+  // its `data-route` and its rail highlight while it is up, which is what
+  // "opens over the standing section, overriding nothing" means as DOM.
+  // `busy || running` is the chain's predicate, same as the old room's: the
+  // dialog turns its own dismissal inert while the chain runs.
   return (
     <HostActionsContext.Provider value={actions}>
       <div data-route={r.kind}>{content}</div>
+      {resetOpen && (
+        <ResetDialog
+          probe={probe}
+          busy={busy || running}
+          steps={resetSteps}
+          armingProblem={resetArmingProblem}
+          runLabel={resetRunLabel}
+          log={resetLog}
+          typed={resetTyped}
+          onTypedChange={setResetTyped}
+          onRunReset={(typed) => void runReset(typed)}
+          onCancel={() => {
+            // The dialog's own refusal: close it, and the section underneath
+            // is exactly where it was. No `close()` — that drops a requested
+            // screen for what the probe implies, and this never was a screen.
+            setResetOpen(false);
+          }}
+        />
+      )}
     </HostActionsContext.Provider>
   );
 }

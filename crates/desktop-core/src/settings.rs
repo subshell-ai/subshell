@@ -219,6 +219,37 @@ pub struct Settings {
     /// FORMAT and never the file, exactly as `planes` does in the other
     /// direction.
     pub supervision: Supervision,
+    /// Which window launching this app opens on a machine whose server is
+    /// already running (Subshell Server only; operator ruling 2026-09-23).
+    ///
+    /// It governs the READY arm and nothing else. A machine that is not ready
+    /// has no dashboard to open, so it comes up on the assistant whatever this
+    /// says, and the doors someone presses once the app is running (the tray,
+    /// the Dock, the SPA's pill) keep answering for the machine rather than
+    /// for this preference — see `control::open_home`.
+    ///
+    /// `apps/client/desktop` never sets it, exactly as [`Settings::supervision`]:
+    /// its window IS the control plane's page and it has no assistant window
+    /// of this kind to open.
+    pub open_on_launch: LaunchWindow,
+}
+
+/// Which window Subshell Server shows when this machine is already running a
+/// server: the dashboard, or this app's own assistant.
+///
+/// An explicit CHOICE rather than a boolean because the screen that sets it
+/// has to name both states. `openAssistant: false` says what ON means and
+/// nothing about what OFF does, and a person reading a switch mid-list
+/// deserves to learn what the other side is without guessing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum LaunchWindow {
+    /// The server's own page, in the dashboard window. The default, what an
+    /// absent field means, and what this app has always done.
+    #[default]
+    Dashboard,
+    /// This app's bundled assistant page.
+    Assistant,
 }
 
 /// Who starts and restarts the control-plane server on this machine.
@@ -259,6 +290,10 @@ impl Default for Settings {
             last_update_version: None,
             pending_bundled_install: None,
             supervision: Supervision::Service,
+            // Stated rather than left to the derive's variant order: this is
+            // the behavior every existing install has, and a reordered enum
+            // would otherwise silently change which window a launch opens.
+            open_on_launch: LaunchWindow::Dashboard,
         }
     }
 }
@@ -395,6 +430,7 @@ mod tests {
                 forced: true,
             }),
             supervision: Supervision::App,
+            open_on_launch: LaunchWindow::Assistant,
         };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back.binary_path.as_deref(), Some("/x/subshell-server"));
@@ -415,6 +451,7 @@ mod tests {
         assert_eq!(pending.from_app_version, "0.8.0");
         assert_eq!(pending.attempts, 1);
         assert!(pending.forced);
+        assert_eq!(back.open_on_launch, LaunchWindow::Assistant);
     }
 
     // A settings file written before the open-last memory existed reads as
@@ -552,5 +589,39 @@ mod tests {
         // An unknown value is a parse failure for the WHOLE file, which the
         // loader answers with defaults — the safe direction.
         assert!(serde_json::from_str::<Settings>(r#"{"supervision":"nonsense"}"#).is_err());
+    }
+
+    /// An absent `openOnLaunch` is the dashboard, which is the behavior every
+    /// settings file written before this preference exists describes. The wire
+    /// words are kebab-case for the same reason `supervision`'s are: the file
+    /// is one a person may read, and the assistant's page names the members.
+    #[test]
+    fn open_on_launch_defaults_to_the_dashboard_and_round_trips() {
+        let old: Settings = serde_json::from_str(r#"{"closeToTray":true,"onboarded":true}"#).unwrap();
+        assert_eq!(old.open_on_launch, LaunchWindow::Dashboard);
+        assert_eq!(Settings::default().open_on_launch, LaunchWindow::Dashboard);
+
+        let assistant: Settings = serde_json::from_str(r#"{"openOnLaunch":"assistant"}"#).unwrap();
+        assert_eq!(assistant.open_on_launch, LaunchWindow::Assistant);
+        let json = serde_json::to_string(&assistant).unwrap();
+        assert!(json.contains("\"openOnLaunch\":\"assistant\""), "{json}");
+
+        // And back to the dashboard, which is the word the row writes when
+        // someone changes their mind.
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.open_on_launch, LaunchWindow::Assistant);
+        let written = serde_json::to_string(&Settings {
+            open_on_launch: LaunchWindow::Dashboard,
+            ..Settings::default()
+        })
+        .unwrap();
+        assert!(written.contains("\"openOnLaunch\":\"dashboard\""), "{written}");
+        let dashboard: Settings = serde_json::from_str(&written).unwrap();
+        assert_eq!(dashboard.open_on_launch, LaunchWindow::Dashboard);
+
+        // A word neither app writes refuses the file, and the forgiving loader
+        // answers the whole file with defaults: the direction that fails
+        // toward today's behavior rather than toward a window nobody chose.
+        assert!(serde_json::from_str::<Settings>(r#"{"openOnLaunch":"terminal"}"#).is_err());
     }
 }

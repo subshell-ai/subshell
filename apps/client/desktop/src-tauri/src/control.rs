@@ -3550,6 +3550,9 @@ mod path_tests {
             // it shares the struct and ignores the field, exactly as the
             // server app ignores `planes`.
             supervision: subshell_desktop_core::settings::Supervision::Service,
+            // Also Subshell Server's own: which of its two windows a launch
+            // opens. This app has one window and no assistant of that kind.
+            open_on_launch: subshell_desktop_core::settings::LaunchWindow::Dashboard,
         }
     }
 

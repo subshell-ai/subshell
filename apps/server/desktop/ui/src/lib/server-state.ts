@@ -23,9 +23,12 @@ export const POLL_MS = 1500;
  * to components. The names are the screens' own, with three renames the
  * reference map fixed long before this port:
  *
- * - `status` is BOTH the recovery screen and the ready handoff's open-
- *   dashboard half — they render the same diagnosis-or-running surface and
- *   the reference map sends them to one component;
+ * - `status` is the machine-state screen, in both of the states that reach
+ *   it: a not-ready machine gets the diagnosis, and a machine a person SELECTED
+ *   Status on while it runs gets the running view — facts, the log tail, and
+ *   one button that opens the dashboard (operator ruling 2026-09-23: an
+ *   explicit select is not an arrival, so it no longer resolves onto the
+ *   handoff and bounces through it);
  * - `setup` covers the setup screen AND the progress checklist, which shows
  *   while `running` (the host does not need a second kind for a screen that
  *   is the first one, busy);
@@ -44,31 +47,33 @@ export type Route =
   | { kind: "supervision" }
   | { kind: "addresses" }
   | { kind: "permissions" }
-  | { kind: "reset" }
   | { kind: "boot" };
 
 /**
- * Which screen the window shows for THIS state, in the old render()'s exact
- * order:
+ * Which screen the window shows for THIS state, in the old render()'s order
+ * with two moves since (operator rulings 2026-09-23):
  *
- * 1. the reset screen — `openReset` sets `screen` before it arms the plan,
- *    and the old render's reset gate ran before everything below, because
- *    the screen is what explains a refusal and must show with or without a
- *    probe;
- * 2. `boot` while the probe is still landing — nothing that reads a probe
+ * 1. `boot` while the probe is still landing — nothing that reads a probe
  *    may render before the first one answers, which is what the old
  *    render's `probe === null` arm protected;
- * 3. a REQUESTED screen outranks both families — the SPA deep-links Update
- *    onto a running server and Reset onto its danger card, the tray opens
- *    the update screen, and the ready handoff below would otherwise send the
- *    window straight back to the dashboard it was just asked to leave;
- * 4. an empty `screensFor` list means ready: the progress checklist while
+ * 2. a REQUESTED screen outranks both families — the SPA deep-links Update
+ *    onto a running server, the tray opens the update screen, and the ready
+ *    handoff below would otherwise send the window straight back to the
+ *    dashboard it was just asked to leave. Reset left this list: its rail
+ *    door opens a DIALOG over whatever section stands (the client's shape),
+ *    so it routes nothing and the deep-link arm in `applyScreen` opens the
+ *    dialog instead of naming a screen;
+ * 3. an empty `screensFor` list means ready: the progress checklist while
  *    the chain runs (the poll ticks precisely because `running` is set — the
- *    port binds before the chain's finally records its end), otherwise the
- *    ready handoff. Which arm the handoff takes — wait for a Continue or
- *    open the dashboard — is `handoffView`'s answer, the screen's business,
- *    not the route's;
- * 5. otherwise resolve `screen` against the list, and correct one the probe
+ *    port binds before the chain's finally records its end); the ready
+ *    handoff when the machine ARRIVED, which opens the dashboard by itself;
+ *    or the Status screen whenever the window is STANDING on it —
+ *    `screen === "recovery"` is that standing marker, set by the rail's
+ *    select (and by the ratchet's correction onto recovery), and a window
+ *    standing on Status keeps showing it rather than bouncing (the old
+ *    resolution onto the handoff, held back by the `held` flag, is what the
+ *    operator objected to: the setup-pane bounce);
+ * 4. otherwise resolve `screen` against the list, and correct one the probe
  *    no longer offers: null resolves to the list's head, and a stale screen
  *    walks to `(list[0] === "welcome" ? list[1] : list[0])` — THE tmux
  *    advance, which skips the greeting the reader already pressed past, and
@@ -83,7 +88,6 @@ export function route(
   screen: ScreenId | null,
   s: { running: boolean; failure: ActionResult | null },
 ): Route {
-  if (screen === "reset") return { kind: "reset" };
   if (probe === null) return { kind: "boot" };
   if (isRequestedScreen(screen)) {
     if (screen === "update") return { kind: "update" };
@@ -94,6 +98,13 @@ export function route(
   const resolved = resolveJourney(probe, screen);
   if (resolved === null) {
     if (s.running) return { kind: "setup" };
+    // `screen === "recovery"` means the window is STANDING on the Status
+    // section — the rail's select sets it, and the ratchet's correction onto
+    // recovery lands there too. A window standing on Status stays on Status
+    // whatever brought it: the running view (facts, the log tail, one
+    // button), not a handoff that opens the dashboard out from under the
+    // reader. The arrival path keeps `screen` null and still bounces.
+    if (screen === "recovery") return { kind: "status" };
     return { kind: "handoff" };
   }
   // `resolved` is one of the four by construction — `list` only ever holds
@@ -166,10 +177,11 @@ export const RAIL_SECTIONS: RailSection[] = [
   { id: "settings", label: "Addresses" },
   // The fifth section is the DESTRUCTIVE one (operator ruling 2026-09-22,
   // live screenshot): the DOOR moves into the rail, styled in the destructive
-  // token. Since the same day's LAYOUT ruling (final word) the confirmation
-  // rides the rail too, reset active — the frame-replacing premise moved to
-  // the RUNNING chain, which host.tsx enforces by withholding the rail from
-  // the render for `busy || running`.
+  // token. Since the 2026-09-23 dialog ruling it is a DOOR and nothing more:
+  // selecting it opens the reset DIALOG over the standing section, routing
+  // nothing and overriding nothing — the section underneath keeps its route
+  // AND its share of the rail highlight, and the overlay itself is the room
+  // (no navigation is reachable beside a chain that is deleting this server).
   { id: "reset", label: "Reset", danger: true },
 ];
 
@@ -180,11 +192,10 @@ export const RAIL_SECTIONS: RailSection[] = [
  * ruling on the FTE): **the rail appears when the machine is onboarded and no
  * first-run step is in progress.** So the FTE family (welcome, tmux, setup,
  * handoff), the permissions screen and boot answer null — full-window, no
- * rail. Reset's CONFIRMATION rides the rail (the 2026-09-22 layout ruling
- * superseded its frame-replacing premise; the room is the running chain,
- * which host.tsx enforces off `busy || running`), and a STANDING route on a machine
- * that
- * is not onboarded answers null too: the old page let a requested update
+ * rail. Reset is not a route at all since the 2026-09-23 dialog ruling: its
+ * door opens the dialog over the standing section's render, and the rail this
+ * function answers for is that section's own. A STANDING route on a machine
+ * that is not onboarded answers null too: the old page let a requested update
  * render mid-first-run, and wave 2 keeps the render but takes away the rail,
  * because the exclusion is about the machine's journey, not about who asked.
  *
@@ -199,13 +210,6 @@ export function railFor(r: Route, onboarded: boolean): RailSection[] | null {
     case "update":
     case "supervision":
     case "addresses":
-    // The reset CONFIRMATION rides the rail now (operator ruling 2026-09-22,
-    // final word on the reset layout, superseding the frame-replacing
-    // premise for the confirmation): the sidebar stays, reset active and
-    // danger-styled. The room is the RUNNING chain — host.tsx withholds the
-    // rail from the render while the chain runs, which is where the safety
-    // property lives now.
-    case "reset":
       return RAIL_SECTIONS;
     default:
       return null;
@@ -223,9 +227,6 @@ export function railActive(r: Route): string | null {
       return "supervision";
     case "addresses":
       return "settings";
-    // The reset confirmation rides the rail (2026-09-22 layout ruling).
-    case "reset":
-      return "reset";
     default:
       return null;
   }

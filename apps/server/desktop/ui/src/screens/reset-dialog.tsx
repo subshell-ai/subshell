@@ -1,32 +1,36 @@
 /**
- * The Reset screen (spec 2026-09-21; plan Task 7) — the port of
- * `assistant/reset-view.ts` and its contract with `reset.rs`.
+ * The Reset confirmation as a DIALOG (operator ruling 2026-09-23; the Subshell
+ * Client assistant's proven shape, ported) — the re-home of the screen that
+ * used to replace the frame, and of `assistant/reset-view.ts` before it.
  *
- * Since the 2026-09-22 layout ruling (final word) the CONFIRMATION renders
- * inside the frame WITH the rail — the sidebar was being lost today and
- * that is not wanted — and the frame carries the pane's title
- * (`host.tsx`'s `shell("reset")`, keyed on the meter pane rather than on
- * the room). The ROOM is still this screen's while the chain runs: the
- * host withholds the rail for the chain's duration, because a Back button
- * live through a chain that stops a service and sweeps sockets is a way
- * out from under a screen that has none. The host renders this view
- * inside the frame's content region, which is what the old `show()` did
- * by hiding `#screen` and `#bar` for the chain.
+ * The rail's danger item opens it over whatever section stands; nothing about
+ * the section changes, no route moves, and the section keeps its share of the
+ * rail highlight. What the room ruled, the modal rules harder: "no navigation
+ * beside a chain that is deleting this server" — a modal IS that, and while
+ * the chain runs Escape and the backdrop are inert and Cancel is disabled, so
+ * the one running thing cannot be walked away from. The old ruling that the
+ * rail is the way out of the confirmation is superseded by this: under a modal
+ * the rail is unreachable on purpose, so Cancel lives here again, disabled
+ * only while the chain runs.
  *
- * The meter, the arming verdict, the half-run log AND the typed hostname are
- * HOST state — page state in the old module, for the same reason: the poll
- * re-renders on its own clock, so a state the DOM held would be erased
- * mid-chain. The hostname rides the host because the old input was static
- * markup and never unmounted: its value survived Cancel and a reopen, and
- * dropping this component would otherwise clear what the person had already
- * typed.
+ * What stays verbatim from the screen is the CONSENT, which is the whole
+ * reason the confirmation exists: the page supplies a HOSTNAME, never a path;
+ * the delete plan was armed the moment the dialog opened, and a refusal says
+ * so instead of offering a button that would refuse. The meter, the arming
+ * verdict, the half-run log AND the typed hostname are HOST state — page state
+ * in the old module, for the same reason: the poll re-renders on its own
+ * clock, so a state the DOM held would be erased mid-chain. The hostname rides
+ * the host because the old input survived Cancel and a reopen, and dropping
+ * this component would otherwise clear what the person had already typed.
  */
 import type { ReactElement } from "react";
 import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import type { Probe } from "../lib/ipc";
 import { armed, RESET_STEPS, refusal, resetRows, resetStarted, type StepKey, type StepState } from "../lib/reset";
+import { RESET_LABEL } from "../lib/wizard-state";
 
 /** What the run left behind: its own words, and whether they are bad news. */
 export interface ResetLog {
@@ -34,7 +38,7 @@ export interface ResetLog {
   bad: boolean;
 }
 
-export function ResetScreen(props: {
+export function ResetDialog(props: {
   probe: Probe | null;
   /** `busy || running` — the old `host.busy()`, which folded the chain in. */
   busy: boolean;
@@ -44,17 +48,12 @@ export function ResetScreen(props: {
   armingProblem: string | null;
   /** The run button's label at rest; a half-run promotes it to "Retry reset". */
   runLabel: string;
-  /**
-   * Whether the rail is beside this render. NO CANCEL where it is (operator
-   * ruling 2026-09-22, screenshot 59): the rail is the way out of the
-   * confirmation, and the running room keeps no Cancel regardless.
-   */
-  railPresent: boolean;
   log: ResetLog | null;
   /** The typed hostname — host state, so it survives Cancel and a reopen. */
   typed: string;
   onTypedChange: (typed: string) => void;
   onRunReset: (typed: string) => void;
+  /** Close the dialog. The section underneath is exactly where it was. */
   onCancel: () => void;
 }): ReactElement {
   const { probe, busy, steps, armingProblem, runLabel, log, typed } = props;
@@ -73,33 +72,39 @@ export function ResetScreen(props: {
   const rows = why === null && st ? resetRows(st) : [];
   const armedOk = armed(typed, hostname);
   const started = resetStarted(steps);
-  // Bring the half-run's log into view. It sits below the confirm row, under
-  // a long disclosure list — a chain that answered was answering off-screen,
-  // and the press read as a button that did nothing. The same mistake as the
-  // refusal line, one element further down: writing the truth somewhere the
-  // reader is not.
+  // Bring the half-run's log into view. It sits below the confirm row — a
+  // chain that answered was answering off-screen, and the press read as a
+  // button that did nothing. The same mistake as the refusal line, one
+  // element further down: writing the truth somewhere the reader is not.
   const logRef = useRef<HTMLPreElement | null>(null);
   useEffect(() => {
     if (log !== null && log.text !== "") logRef.current?.scrollIntoView({ block: "nearest" });
   }, [log]);
 
   return (
-    <div className="reset-view">
-      {/* Two panes, one at a time. Confirming and watching are different screens:
-          the promises are what you read BEFORE pressing, and once the chain is
-          stopping services and deleting directories the only thing worth the
-          window is how far it has got. A press does not extend the
+    <Dialog
+      // The pane's title, same predicate the frame's carried: the meter's own
+      // heading while the chain runs, RESET_LABEL otherwise. The rail's door
+      // is the short "Reset" (server-state.ts); the dialog titles itself the
+      // fuller "Reset this server" — two strings, one act.
+      title={started ? "Resetting this server" : RESET_LABEL}
+      // While the chain runs the dismissal is inert: a running reset keeps
+      // its old room's one rule, that nothing ends it but its own end.
+      onClose={busy ? () => undefined : props.onCancel}
+    >
+      {/* Two panes, one at a time. Confirming and watching are different
+          screens: the promises are what you read BEFORE pressing, and once the
+          chain is stopping services and deleting directories the only thing
+          worth the window is how far it has got. A press does not extend the
           confirmation, it REPLACES it. */}
       <div hidden={started}>
-        {/* The pane's title lives in the frame now (shell("reset")), keyed on
-            this pane — the ruling moved the confirmation under the rail, and
-            a second heading under the frame's own was the duplication that
-            came with it. */}
-        <p className="hint mb-2.5">{refusalLine}</p>
+        <p className="hint empty:hidden">{refusalLine}</p>
         {why === null && st !== undefined && st !== null && (
-          <ul className="wizard-copy list-disc pl-5">
+          <ul className="wizard-copy list-disc pl-5 max-h-[40vh] overflow-y-auto">
             {rows.map((row) => (
-              <li key={row.label}>{`${row.label}: ${row.path}`}</li>
+              <li key={row.label} className="break-all">
+                {`${row.label}: ${row.path}`}
+              </li>
             ))}
           </ul>
         )}
@@ -124,8 +129,6 @@ export function ResetScreen(props: {
         </div>
       </div>
       <div hidden={!started}>
-        {/* Titles live in the frame (shell("reset")); the meter is the pane's
-            own content. */}
         {/* The meter in the FIRST RUN's checklist, element for element —
             li[data-state] with a glyph column, which is what makes a done row's
             green tick, a running row's spinner and a failed row's cross
@@ -160,10 +163,11 @@ export function ResetScreen(props: {
       {/* ONE action row, below whichever pane is showing. It is a sibling of both
           rather than a copy in each, so Reset and Cancel keep one definition. */}
       <div className="mt-3 flex justify-end gap-2">
-        {/* `busy` belongs in this gate as much as the refusal does. Without it the
-            button stayed lit and lettered "Reset everything" through a chain that
-            stops a service and sweeps hundreds of sockets, so the one press that
-            matters looked like it had not registered and invited a second. */}
+        {/* `busy` belongs in this gate as much as the refusal does. Without it
+            the button stayed lit and lettered "Reset everything" through a
+            chain that stops a service and sweeps hundreds of sockets, so the
+            one press that matters looked like it had not registered and
+            invited a second. */}
         <Button
           type="button"
           disabled={busy || !(why === null && armedOk)}
@@ -172,25 +176,20 @@ export function ResetScreen(props: {
         >
           {busy ? "Resetting…" : runLabel}
         </Button>
-        {/* Cancel renders only in a rail-LESS render and never while the chain
-            runs (operator ruling 2026-09-22, screenshot 59, superseding the
-            half-run Cancel: the rail is the way out of the confirmation, and
-            the room keeps no exit at all — a press would leave the chain
-            stopping services and deleting directories in Rust with the
-            window that was reporting it gone). Beside the hostname box it
-            meant "never mind" — the only thing there to abandon was a
-            half-typed name. */}
-        {!props.railPresent && !busy && (
-          <Button type="button" variant="outline" onClick={props.onCancel}>
-            Cancel
-          </Button>
-        )}
+        {/* Cancel is the dialog's own refusal (the modal supersedes the
+            rail-is-the-exit ruling: under an overlay the rail cannot be
+            reached, so the way out lives here), disabled while the chain runs
+            — nothing on the progress pane may offer an act the chain cannot
+            honour. */}
+        <Button type="button" variant="outline" disabled={busy} onClick={props.onCancel}>
+          Cancel
+        </Button>
       </div>
       {/* The reason, beside the control it disables. Only for a REFUSAL: "you
           have not typed the hostname yet" is what the label above the box
           already says, and repeating it under the button would nag through
           every keystroke of a correct answer. */}
       <p className="hint warn-text empty:hidden">{why ?? ""}</p>
-    </div>
+    </Dialog>
   );
 }
