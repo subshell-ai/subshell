@@ -2290,6 +2290,14 @@ describe("the rail", () => {
     await screen.findByRole("dialog", { name: "Reset everything?" });
     fireEvent.change(screen.getByLabelText(/Type/), { target: { value: "devbox" } });
     fireEvent.click(button("Reset Everything"));
+    // Flush the chain's end under act before asserting the close: the dialog's
+    // busy-edge close and the walk's appear both land in microtasks after the
+    // press, and a `waitFor` whose FIRST check throws escapes happy-dom's retry
+    // on Linux CI — it hangs to the 10 s timeout (measured on #150). The
+    // macrotask flush is the same one reset-dialog.test.tsx uses for this.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await waitFor(() => expect(screen.getByRole("heading", { name: "Welcome to Subshell Client" })).toBeTruthy());
     expect(fake.callsTo("node_reset")).toEqual([{ typed: "devbox" }]);
