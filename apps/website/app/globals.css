@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/* The concept sets every mono element (kick, chips, curl row, fine print) in
+   JetBrains Mono, and layout.tsx loads it; without this the `font-mono`
+   utility falls back to the system stack (Menlo), a visible glyph change.
+   The stack mirrors `.mono` below so the two spellings cannot drift. */
+@theme {
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+
 :root {
   --void: #1d182a;
   --card: #241e33;
