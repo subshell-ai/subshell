@@ -902,6 +902,16 @@ counter budget (a relaunch resets it) — hardening design 2026-09-02 §1.
   dir itself), `mcp/<id>.json`
   per-subshell MCP configs, and the MCP children's `identities/sess-<id>.json` +
   `peers.json` (they run with `SUBSHELL_DATA_DIR` = the node's data dir).
+- **The `<id>.log` capture child is the agent's OWN `pane-log` verb**, not
+  `cat`: `launch.ts` calls `pipePane(…, selfInvocation("pane-log"))`, and
+  `cli.ts`'s pre-boot `pane-log --file <path>` runs
+  `@internal/pane-runtime`'s `appendStdinToLogFile` (an unbuffered
+  `readSync`→`writeSync` copy that opens 0600). A bare `cat >>` froze the
+  browser's live view on hosts whose `cat` is uutils coreutils — it buffers a
+  partial write to a regular file, so a keystroke echo never reached the log
+  until an Enter-sized burst flushed it (the exit-hook re-entry above uses the
+  same `selfInvocation` for `report`). Full accounting: `docs/security.md`,
+  "Pane logs".
 - **Enroll preflights `tmux`** on PATH (macOS hint: `brew install tmux`);
   `SUBSHELL_CLIENT_SKIP_TMUX_CHECK=1` is the test escape hatch.
 

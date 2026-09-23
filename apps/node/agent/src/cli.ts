@@ -1,4 +1,5 @@
 import { ATTENTION_KINDS, REPORT_VERBS, readMcpEnv, runReport } from "@internal/mcp-core";
+import { appendStdinToLogFile } from "@internal/pane-runtime";
 import { licenseNotice, NODE_PROTOCOL_VERSION, semverLt } from "@internal/subshell-protocol";
 import { configPath, loadConfig, type NodeConfig } from "./config.js";
 import { runConfigure } from "./configure.js";
@@ -128,6 +129,8 @@ usage:
   subshell report attention turn_complete|needs_attention
   subshell report session (a pane's state, run by harness hooks — not by hand)
   subshell report exit <status> (the pane died; run by tmux's own hook)
+  subshell pane-log --file <path> (append stdin to a pane log, flushing each
+                          read; run by tmux's own pipe-pane — not by hand)
 `;
 
 /** Malformed invocation → usage text, exit 2. */
@@ -140,6 +143,7 @@ const COMMANDS = new Set([
   "license",
   "maintenance",
   "mcp",
+  "pane-log",
   "report",
   "run",
   "service",
@@ -236,6 +240,10 @@ const FLAGS: Record<string, boolean> = {
   "--key": true,
   "--name": true,
   "--data-dir": true,
+  // The pane-log capture file (`subshell pane-log --file <path>`, run by
+  // tmux's pipe-pane, never typed). A value flag rather than a bare positional
+  // because every verb here is flag-based — the parser rejects a positional.
+  "--file": true,
   "--json": false,
   "--probe": false,
   "--force": false,
@@ -271,6 +279,9 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   // Derived, never hand-listed — see `service` below.
   maintenance: subcommandFlagUnion("maintenance"),
   mcp: [], // no flags — everything comes from the SUBSHELL_* pane env (the @internal/mcp-core env.ts contract)
+  // The tmux pipe-pane child: reads its stdin (the pane's output) and appends it
+  // to --file, flushing every read. Built by `pipePane`, never typed.
+  "pane-log": ["--file"],
   report: [], // same pane-env contract; a hook's command line is built by the control plane, never typed
   run: ["--dashboard-port"],
   // Derived, never hand-listed: the command-level check is the union and the
@@ -500,6 +511,28 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         // and this returns 0 either way — a lost report costs one
         // notification, never a turn.
         await runReport(parsed.sub ? [parsed.sub, ...(parsed.arg ? [parsed.arg] : [])] : []);
+        return { code: 0, out: "", err: "" };
+      }
+      case "pane-log": {
+        // The tmux pipe-pane capture child (built by TmuxRunner.pipePane, never
+        // typed): append our stdin — the pane's output stream — to the log file,
+        // flushing every read. A pre-boot verb like `report`: no config, no
+        // lock, no daemon, no SQLite. It BLOCKS until stdin reaches EOF (the pane
+        // died or the pipe was re-armed) so it never leaks a child, then exits 0.
+        // A missing path is a usage error before a single byte is read — and so
+        // is a RELATIVE one: the caller is always pipePane, which names an
+        // absolute path under the data dir; a relative path means argv was
+        // assembled wrong (or is a swallowed flag), and appending the child's
+        // cwd-dependent guess to a pane log is worse than refusing.
+        const file = parsed.flags.file;
+        if (file === undefined || file === "" || !file.startsWith("/")) {
+          return fail(2, new Error("pane-log requires --file <absolute path>"));
+        }
+        try {
+          appendStdinToLogFile(file);
+        } catch (err) {
+          return fail(1, err);
+        }
         return { code: 0, out: "", err: "" };
       }
       case "dashboard": {

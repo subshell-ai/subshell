@@ -2,6 +2,7 @@ import { readSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { confirm as clackConfirm, text as clackText, intro, isCancel, outro } from "@clack/prompts";
 import { runReport, runSubshellMcp } from "@internal/mcp-core";
+import { appendStdinToLogFile } from "@internal/pane-runtime";
 import { licenseNotice } from "@internal/subshell-protocol";
 import { runBackup } from "@/commands/backup.js";
 import { type ConfigureOpts, runConfigure } from "@/commands/configure.js";
@@ -179,6 +180,9 @@ usage:
   subshell-server mcp                serve the pane-spawned stdio MCP server (spawned by harnesses)
   subshell-server report attention turn_complete|needs_attention
   subshell-server report session     report a pane's state (run by harness hooks, not by hand)
+  subshell-server pane-log --file <path>
+                                     append stdin to a pane log, flushing each
+                                     read (run by tmux's own pipe-pane, not by hand)
 
 init/configure flags: --port <n> --host <h> --base-url <url> --db-path <path> --yes
                       --trusted-origins <origin,origin>   other addresses browsers will
@@ -281,6 +285,42 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
       }
       exit(0);
       return true;
+    // The tmux pipe-pane capture child for `local` panes (built by
+    // TmuxRunner.pipePane on this host, never typed): append our stdin — the
+    // pane's output — to --file, flushing EVERY read. It exists because `cat`
+    // on some hosts (uutils coreutils) buffers a partial write to a regular
+    // file and freezes the browser's live view until an Enter-sized burst
+    // flushes it; this is the unbuffered read/write copy that GNU/BSD cat
+    // already do. A pre-boot verb like `report`/`mcp`: no DB, no boot. It
+    // blocks until stdin reaches EOF (the pane died or the pipe was re-armed),
+    // so a retired capture never leaks a child.
+    case "pane-log": {
+      // Exact argv, parsed by position rather than searched: pipePane emits
+      // exactly `pane-log --file <absolute path>`, so anything else — a bare
+      // positional, a stray flag, `--file --force` (indexOf would happily take
+      // the flag as the path) — is a usage error, not a file to open. A
+      // RELATIVE path is refused too: the caller always names an absolute path
+      // under the data dir, so a relative one means argv was assembled wrong,
+      // and appending to a cwd-dependent guess is worse than refusing. (The
+      // node CLI's `pane-log` applies the same rule through its flag parser.)
+      const rest = argv.slice(1);
+      const file = rest.length === 2 && rest[0] === "--file" ? rest[1] : undefined;
+      if (file === undefined || file === "" || !file.startsWith("/")) {
+        error("subshell-server: pane-log requires --file <absolute path>");
+        exit(1);
+        return true;
+      }
+      try {
+        appendStdinToLogFile(file);
+      } catch (err: unknown) {
+        const detail = err instanceof Error ? err.message : String(err);
+        error(`subshell-server: pane-log: ${detail}`);
+        exit(1);
+        return true;
+      }
+      exit(0);
+      return true;
+    }
     // The pane-spawned MCP stdio server (spec 2026-09-03): the ONLY
     // long-running command — legal because the graph evaluates IO-free (lazy
     // getAuth) and `isCliEngaged()` (set above, synchronously) keeps the boot

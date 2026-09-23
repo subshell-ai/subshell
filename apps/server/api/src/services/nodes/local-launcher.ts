@@ -9,6 +9,7 @@ import {
   TmuxRunner,
   validateWorkingDir,
 } from "@internal/pane-runtime";
+import { probePaneLogLaunch } from "@/services/mcp-resolve.js";
 import { logger } from "@/utils/logger.js";
 import { readLogTailFrom, TAIL_POLL_MS } from "./log-tail.js";
 import type { LaunchPlan, NodeLauncher } from "./node-launcher.js";
@@ -81,6 +82,10 @@ export class LocalLauncher implements NodeLauncher {
     this.#tmux.newSubshell(plan.socket, plan.id, plan.cwd, cmd, exitHookFor(plan.reporter, hookEnv));
     // Stream all pane output to a per-subshell log file for attach replay.
     const logFile = subshellLogPath(plan.id);
+    // The capture child is this binary's `pane-log` verb (it flushes every read);
+    // `cat >>` would freeze the live view on a host whose `cat` is uutils.
+    // Unresolved → undefined → pipePane's `cat >>` fallback (fine on GNU/BSD).
+    const logChild = probePaneLogLaunch().spec ?? undefined;
     if (plan.bestEffortLog) {
       // Revive-only (see LaunchPlan.bestEffortLog): the pane is live and the
       // row must come back even when the replay log refuses to attach — and
@@ -90,7 +95,7 @@ export class LocalLauncher implements NodeLauncher {
       // buildHarnessCommand/newSubshell above stay strict by design.
       try {
         this.#ensureLogDir(logFile);
-        this.#tmux.pipePane(plan.socket, plan.id, logFile);
+        this.#tmux.pipePane(plan.socket, plan.id, logFile, logChild);
       } catch (err) {
         // The pre-seam revive swallowed this silently; one quiet debug line is
         // the improvement — loud enough to find, too soft to alarm a sweep.
@@ -98,7 +103,7 @@ export class LocalLauncher implements NodeLauncher {
       }
     } else {
       this.#ensureLogDir(logFile);
-      this.#tmux.pipePane(plan.socket, plan.id, logFile);
+      this.#tmux.pipePane(plan.socket, plan.id, logFile, logChild);
     }
   }
 

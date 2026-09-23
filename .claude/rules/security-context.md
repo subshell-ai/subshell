@@ -216,11 +216,18 @@ sensitive thing the app writes, and it is deliberately **not encrypted**: the
 key would sit on the same host under the same OS user that can already read the
 log, so permissions and retention are the real controls.
 
-- Files are **0600**, created that way by the `umask 077` inside the pipe-pane
-  command (`TmuxRunner.pipePane`) — tmux's shell creates the file, so there is
-  no mode argument and no chmod without a window. The directory is **0700**
-  (`LocalLauncher`). Boot repairs both for logs written before this
-  (`services/pane-log-hygiene.ts`).
+- The capture child is the **self-invoked `pane-log` verb** (`subshell`/
+  `subshell-server pane-log --file <path>`), not `cat`. `cat >>` froze the
+  browser's live view on hosts where `/usr/bin/cat` is **uutils coreutils**
+  (which buffers a partial write to a regular file until EOF/a big block — and a
+  keystroke echo is exactly a small, newline-less write). `appendStdinToLogFile`
+  is a plain `readSync`→`writeSync` loop that flushes every read, identical on
+  macOS and Linux. The bare `cat >>` stays only as pipePane's no-child fallback.
+- Files are **0600**: the `pane-log` verb opens them `O_CREAT` with mode `0600`
+  (umask can only clear bits, never widen), and the `umask 077` still wrapped
+  around the exec in `TmuxRunner.pipePane` is belt-and-suspenders for the
+  fallback. The directory is **0700** (`LocalLauncher`). Boot repairs both for
+  logs written before this (`services/pane-log-hygiene.ts`).
 - Logs of non-running subshells are swept after `SUBSHELL_LOG_RETENTION_DAYS`
   (default 30; `0` = keep forever) by an hourly pass. Deleting a subshell still
   unlinks its log at once. **A running subshell's log is never swept** — it is

@@ -214,6 +214,16 @@ it does not own; the node does its own in `reportDeath` (see
 A liveness read must ask `#{pane_dead}` rather than `has-session` for the same
 reason — a finished pane's session is still there.
 
+**The pane-log capture child is `pane-log`, not `cat`.** `LocalLauncher.launch`
+passes `probePaneLogLaunch().spec` (a `subshell-server`/`subshell` self-path +
+the `pane-log` verb) to `pipePane`, which runs `@internal/pane-runtime`'s
+`appendStdinToLogFile` — an unbuffered `readSync`→`writeSync` copy opening 0600.
+The reason is the node's lag showing up here too: a bare `cat >>` froze the
+live view on hosts whose `/usr/bin/cat` is uutils coreutils (it buffers a
+partial write to a regular file, so a keystroke echo reached the log only on an
+Enter-sized burst). `cat >>` remains only pipePane's no-child fallback for an
+unresolved self-path. Full accounting: `docs/security.md`, "Pane logs".
+
 **A node's reachability is an announcement too.** `nodeOffline` is a field of
 every broadcast row and it flips for every subshell on a machine the moment
 its socket drops — but no write touches those rows, so an event-driven feed

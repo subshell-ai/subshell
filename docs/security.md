@@ -304,10 +304,21 @@ a value read out of a `.env`.
   the attacker this model actually names: the key would live on the same host,
   readable by the same OS user that can already read the log (§1). The
   protections are permissions and retention, not cryptography.
-- **0600, in a 0700 directory.** The file is created by tmux's own shell
-  (`cat >>`), so there is no mode to pass and no post-hoc `chmod` without a
-  window — the `umask 077` inside the pipe-pane command is what guarantees it
-  (`TmuxRunner.pipePane`). Logs written before that fix are repaired at boot by
+- **Captured by the self-invoked `pane-log` verb, not `cat`.** The pipe-pane
+  child is `subshell`/`subshell-server pane-log --file <path>`, an unbuffered
+  `readSync`→`writeSync` copy (`@internal/pane-runtime` `pane-log.ts`). A plain
+  `cat >>` looked fine until the pane's live view stalled on hosts whose
+  `/usr/bin/cat` is **uutils coreutils** — which buffers a partial write to a
+  regular file until EOF or a large block, so a keystroke echo (small, with no
+  trailing newline) never reached the log until an Enter-sized burst flushed it.
+  GNU and BSD `cat` flush per block, which is why the same code streamed on the
+  control-plane host but froze on a node. `cat >>` survives only as
+  `TmuxRunner.pipePane`'s no-child fallback.
+- **0600, in a 0700 directory.** The `pane-log` verb opens the file `O_CREAT`
+  with mode `0600` — the mode cannot be widened by a umask, which only clears
+  bits — and the `umask 077` still wrapped around the exec in the pipe-pane
+  command is belt-and-suspenders for the fallback path (`TmuxRunner.pipePane`).
+  Logs written before this were repaired at boot by
   `services/pane-log-hygiene.ts`.
 - **Aged out after `SUBSHELL_LOG_RETENTION_DAYS` (default 30).** An hourly
   sweep unlinks the logs of subshells that are no longer running; `0` keeps
