@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { buildManifest, parseLsRemote, SCHEMA_VERSION } from "../site-releases";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { buildManifest, checkReleases, parseLsRemote, SCHEMA_VERSION, writeReleases } from "../site-releases";
 
 const SCRIPTS = { "cli-server": "install-server.sh", "desktop-client": "install-client.sh" } as const;
 
@@ -63,5 +66,23 @@ describe("buildManifest", () => {
       installScripts: {},
     });
     expect(m.components["cli-server"]?.version).toBe("0.9.9");
+  });
+});
+
+describe("ls-remote failure", () => {
+  test("a failing runner exits non-zero in BOTH modes and leaves the output file untouched", () => {
+    // Seam shape: each mode takes the git runner and its output path, so the
+    // failed-spawn path (the review's finding — empty stdout would otherwise
+    // mean "no tags" and clobber or falsely flag the manifest) is testable
+    // without network, and against a temp file rather than the real
+    // releases.json.
+    const dir = mkdtempSync(join(tmpdir(), "site-releases-"));
+    const out = join(dir, "releases.json");
+    writeFileSync(out, "SENTINEL\n");
+    const failing = () => ({ exitCode: 128, stdout: new Uint8Array() });
+    expect(writeReleases(failing, out)).toBe(1);
+    expect(checkReleases(failing, out)).toBe(1);
+    expect(readFileSync(out, "utf8")).toBe("SENTINEL\n");
+    rmSync(dir, { recursive: true });
   });
 });
