@@ -16,8 +16,9 @@ import { join } from "node:path";
 /**
  * `install-client.sh` installs the Subshell Client DESKTOP app (the app, not a
  * CLI binary — the vocabulary holds). These tests drive the real script
- * against a fake release host and PATH shims for hdiutil/dpkg; no GitHub
- * round trip, mirroring install-server-script.test.ts.
+ * against a fake release host and PATH shims for hdiutil/cp/sudo/apt-get/id
+ * (no dpkg shim — the .deb goes through the package manager, never dpkg); no
+ * GitHub round trip, mirroring install-server-script.test.ts.
  *
  * What is pinned, and why each one is a defect if it regresses:
  *
@@ -100,6 +101,8 @@ const state = {
   digestOverride: null as string | null,
   /** HTTP status to answer bundle downloads with (sidecars keep answering). */
   assetStatus: 200,
+  /** HTTP status to answer .sha256 sidecar fetches with. */
+  sidecarStatus: 200,
   /** Pathnames the fake host was asked for, in order, across one test. */
   requests: [] as string[],
 };
@@ -119,6 +122,7 @@ const server = Bun.serve({
     if (pathname.startsWith("/download/")) {
       const name = pathname.slice("/download/".length);
       if (name.endsWith(".sha256")) {
+        if (state.sidecarStatus !== 200) return new Response("no", { status: state.sidecarStatus });
         // A BARE 64-hex digest with no file name — the sidecar shape the
         // release pipeline publishes, and the reason the script pairs the
         // "<hash>  <file>" line itself.
@@ -143,6 +147,7 @@ beforeEach(() => {
   state.manifestBody = manifestFixture();
   state.digestOverride = null;
   state.assetStatus = 200;
+  state.sidecarStatus = 200;
   state.requests = [];
 });
 
@@ -237,6 +242,8 @@ interface RunOpts {
   preApp?: boolean;
   /** A `uname` shim so platform detection runs the same on any host. */
   unameShim?: { s: string; m: string };
+  /** HOME and the apps dir sit under a path CONTAINING SPACES (quoting proof). */
+  spaceyPaths?: boolean;
 }
 
 interface RunResult {
@@ -252,11 +259,16 @@ interface RunResult {
 }
 
 async function run(opts: RunOpts = {}): Promise<RunResult> {
-  const home = mkdtempSync(join(tmpdir(), "subshell-install-client-"));
-  homes.push(home);
+  const base = mkdtempSync(join(tmpdir(), "subshell-install-client-"));
+  homes.push(base);
+  // With spaceyPaths, HOME itself (and so the shim dir and the apps dir under
+  // it) sits inside a path with spaces — and the installed bundle is
+  // "Subshell Client.app", whose name adds a SECOND space the script must
+  // survive on every path it builds.
+  const home = opts.spaceyPaths ? join(base, "a home with spaces") : base;
   const shimDir = join(home, "shim");
   mkdirSync(shimDir, { recursive: true });
-  const apps = join(home, "Applications");
+  const apps = opts.spaceyPaths ? join(home, "Applications with spaces") : join(home, "Applications");
   mkdirSync(apps, { recursive: true });
   const appPath = join(apps, "Subshell Client.app");
   if (opts.preApp) {
@@ -472,6 +484,85 @@ describe("install-client.sh", () => {
     expect(r.stderr).toContain(dmgName("0.6.0"));
     expect(r.stderr).toContain("darwin-arm64 and linux-x64");
     expect(r.log).toEqual([]);
+  });
+
+  test("an empty or non-hex sidecar is refused by name, nothing mounts or copies", async () => {
+    // Both shapes hit the SAME guard (`*[!0-9a-fA-F]*|""`): a sidecar that is
+    // a bare whitespace line trims to empty just as one of junk fails the
+    // hex class. Either way the digest pairing would be meaningless, so
+    // NOTHING may run — the mutation shims must not have been invoked.
+    state.digestOverride = "";
+    const empty = await run({
+      env: { SUBSHELL_CLIENT_TARGET: "darwin-arm64" },
+      shims: { hdiutil: SHIM_HDIUTIL, cp: SHIM_CP },
+    });
+    expect(empty.code).not.toBe(0);
+    expect(empty.stderr).toContain("was not a hex digest");
+    expect(empty.log.filter((l) => APP_LOG_PREFIXES.some((p) => l.startsWith(`${p} `)))).toEqual([]);
+
+    state.digestOverride = "not-a-hex-digest";
+    const junk = await run({
+      env: { SUBSHELL_CLIENT_TARGET: "darwin-arm64" },
+      shims: { hdiutil: SHIM_HDIUTIL, cp: SHIM_CP },
+    });
+    expect(junk.code).not.toBe(0);
+    expect(junk.stderr).toContain("was not a hex digest");
+    expect(junk.log.filter((l) => APP_LOG_PREFIXES.some((p) => l.startsWith(`${p} `)))).toEqual([]);
+  });
+
+  test("a 404 sidecar is a fetch failure, not an empty digest", async () => {
+    // Distinct from the case above: `--fail` must turn the non-2xx into
+    // "could not fetch the checksum", so the reader learns the mirror is
+    // missing the sidecar rather than that it published junk.
+    state.sidecarStatus = 404;
+    const r = await run({
+      env: { SUBSHELL_CLIENT_TARGET: "darwin-arm64" },
+      shims: { hdiutil: SHIM_HDIUTIL, cp: SHIM_CP },
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.stderr).toContain("could not fetch the checksum");
+    expect(r.log.filter((l) => APP_LOG_PREFIXES.some((p) => l.startsWith(`${p} `)))).toEqual([]);
+  });
+
+  test("a manifest fetch failure names the manifest, before any download", async () => {
+    const r = await run({
+      env: {
+        SUBSHELL_CLIENT_TARGET: "darwin-arm64",
+        SUBSHELL_CLIENT_MANIFEST_URL: `${ORIGIN}/missing`,
+      },
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.stderr).toContain("could not fetch the release manifest");
+    expect(r.requests).toEqual(["/missing"]);
+  });
+
+  test("a 500 asset reports the HTTP code it got", async () => {
+    // The 404 case has its own message; every OTHER non-200 must surface its
+    // code rather than claim a missing bundle the release may well have.
+    state.assetStatus = 500;
+    const r = await run({
+      env: { SUBSHELL_CLIENT_TARGET: "darwin-arm64" },
+      shims: { hdiutil: SHIM_HDIUTIL, cp: SHIM_CP },
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.stderr).toContain("answered HTTP 500");
+    expect(r.stderr).toContain("nothing was installed");
+    expect(r.log).toEqual([]);
+  });
+
+  test("the darwin path survives a HOME and apps dir whose paths contain spaces", async () => {
+    // Precedent: install-server-script.test.ts's HOME-with-spaces case. Here
+    // it is doubly relevant — the bundle's real name is "Subshell Client.app"
+    // — so every mkdir/cp/detach path carries TWO space-bearing components.
+    const r = await run({
+      env: { SUBSHELL_CLIENT_TARGET: "darwin-arm64" },
+      shims: { hdiutil: SHIM_HDIUTIL, cp: SHIM_CP },
+      spaceyPaths: true,
+    });
+    expect(r.code).toBe(0);
+    expect(r.stderr).toBe("");
+    expect(r.stdout).toContain("installed Subshell Client");
+    expect(existsSync(join(r.apps, "Subshell Client.app", "Contents", "MacOS", "subshell-client"))).toBe(true);
   });
 
   test("resolves this machine's bundle from uname when no target is set", async () => {

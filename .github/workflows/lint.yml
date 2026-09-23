@@ -146,6 +146,8 @@ jobs:
   # job above for the same reason: bun and the checkout are the whole need.
   site-manifest-fresh:
     name: releases.json matches the tags
+    # Push-only: tags land at cut START, PRs must not go red for a cut in flight — drift is caught "on the next push".
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

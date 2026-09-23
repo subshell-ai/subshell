@@ -357,6 +357,11 @@ jobs:
             refresh) apps=""; refresh_manifest=true ;;
             *) echo "unknown app input: '$APP_INPUT'" >&2; exit 1 ;;
           esac
+          # `refresh` cuts nothing, so a `-f version=` riding with it names a
+          # version no tag will ever carry — say so rather than swallow it.
+          if [ "$refresh_manifest" = "true" ] && [ -n "$VERSION_INPUT" ]; then
+            echo "::notice::app=refresh cuts nothing — version input ignored"
+          fi
           # The publish job downloads with `<app>-*` and globs `dist/<app>-*/*`,
           # so an app ID that is a PREFIX of another absorbs that app's
           # assets into its own release. `fail_on_unmatched_files: true` cannot
@@ -1066,7 +1071,10 @@ jobs:
   site-manifest:
     name: Refresh releases.json for the website
     needs: [plan, publish]
-    if: needs.plan.outputs.refresh_manifest == 'true' || needs.publish.result == 'success'
+    # The main-ref guard: the commit below pushes to main, so this job may
+    # only run from a run ON main — a dispatch picked on a branch ref would
+    # otherwise write a branch's tag view onto main.
+    if: github.ref == 'refs/heads/main' && (needs.plan.outputs.refresh_manifest == 'true' || needs.publish.result == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -1102,17 +1110,16 @@ jobs:
             git pull --rebase origin main
             sleep "$((attempt * 5))"
           done
-          # Verify our own commit landed where visitors will read it. The raw
-          # endpoint caches briefly, so accept either the fresh or a very
-          # recent stale copy, but NEVER a parse failure or schema mismatch:
-          # generation already ran against the remote tags, so a refusal to
-          # serve HERE means the push did not land the bytes we built.
+          # Verify our own commit landed where visitors will read it, BYTE
+          # FOR BYTE: generation already ran against the remote tags, so a
+          # raw copy that is merely readable but not OURS means the push did
+          # not land what we built (or something else landed after us).
           for attempt in 1 2 3 4 5 6; do
             sleep 5
-            if curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/releases.json" | grep -q '"schemaVersion"'; then
-              echo "raw releases.json verified readable (attempt $attempt)"
+            if curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/releases.json" | cmp -s - releases.json; then
+              echo "raw releases.json byte-matches what we built (attempt $attempt)"
               exit 0
             fi
           done
-          echo "::error::releases.json was pushed but raw.githubusercontent still refuses to serve it — investigate before the site ships"
+          echo "::error::releases.json was pushed but raw.githubusercontent will not serve the bytes we built — investigate before the site ships; a red may also mean a newer refresh superseded this run (check git log releases.json)"
           exit 1

@@ -156,9 +156,15 @@ case "$HTTP" in
     fail "the release host answered HTTP $HTTP for $ASSET; nothing was installed."
     ;;
 esac
-if ! EXPECTED="$(curl $ASSET_PROTO --silent --show-error --location --fail "$BASE/$ASSET.sha256" | tr -d '[:space:]')"; then
+# Fetch and trim are TWO steps on purpose: without pipefail, `curl --fail |
+# tr` inside a command substitution reports tr's success no matter what the
+# release host answered, so a 404 sidecar would fall through to the hex check
+# and blame the mirror's content for its absence. The fetch names a missing
+# sidecar; only a DELIVERED one can then be judged not-a-digest.
+if ! curl $ASSET_PROTO --silent --show-error --location --fail "$BASE/$ASSET.sha256" -o "$TMPD/sidecar.sha256"; then
   fail "could not fetch the checksum for $ASSET; nothing was installed."
 fi
+EXPECTED="$(tr -d '[:space:]' < "$TMPD/sidecar.sha256")"
 case "$EXPECTED" in
   *[!0-9a-fA-F]*|"") fail "the checksum for $ASSET was not a hex digest; nothing was installed." ;;
 esac
@@ -202,7 +208,9 @@ if [ "$TARGET" = "darwin-arm64" ]; then
   echo "==> installing to $STAGED"
   rm -rf "$STAGED"
   cp -R "$MNT/Subshell Client.app" "$APPS_DIR/"
-  hdiutil detach -quiet "$MNT"
+  # A busy unmount AFTER a successful copy is not a failed install: the app
+  # is already in place, and macOS reclaims the mount on its own.
+  hdiutil detach -quiet "$MNT" || true
   trap 'rm -rf "$TMPD"' EXIT
   echo "==> installed Subshell Client — launch it from Applications."
 else

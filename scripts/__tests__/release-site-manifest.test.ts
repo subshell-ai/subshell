@@ -36,8 +36,11 @@ describe("release.yml site-manifest wiring", () => {
     expect(job).toContain("needs: [plan, publish]");
     expect(job).toContain("contents: write");
     expect(job).toContain("timeout-minutes");
-    // Runs after a real cut OR as the standalone refresh dispatch.
-    expect(job).toContain("if: needs.plan.outputs.refresh_manifest == 'true' || needs.publish.result == 'success'");
+    // Runs after a real cut OR as the standalone refresh dispatch — and ONLY
+    // from a run on main, since the job pushes to main.
+    expect(job).toContain(
+      "if: github.ref == 'refs/heads/main' && (needs.plan.outputs.refresh_manifest == 'true' || needs.publish.result == 'success')",
+    );
   });
 
   test("commit retry is bounded and never forced", () => {
@@ -49,15 +52,22 @@ describe("release.yml site-manifest wiring", () => {
 
   test("no force-push anywhere in the workflow", () => {
     // The plan job's `git tag -f` is local-only and its push stays
-    // non-forced; nothing in this file may rewrite upstream refs.
+    // non-forced; nothing in this file may rewrite upstream refs. The regex
+    // is anchored on the `git push` command (word boundary) and confined to
+    // one line (`[^\n]*`), so it reads the flag at its position in the
+    // command rather than anything that merely co-occurs in the file.
     expect(yml).not.toMatch(/git push --force/);
-    expect(yml).not.toMatch(/git push .*(^|\s)-f(\s|$)/);
+    expect(yml).not.toMatch(/git push\b[^\n]*\s-f(\s|$)/);
+    // The other way to skip the hooks the non-forced push still pays.
+    expect(yml).not.toContain("--no-verify");
   });
 
-  test("generation runs from remote tags and the push is self-verified", () => {
+  test("generation runs from remote tags and the push is self-verified byte-exactly", () => {
     expect(yml).toContain("bun scripts/site-releases.ts");
     expect(yml).toContain("raw.githubusercontent.com");
-    expect(yml).toContain("grep -q '\"schemaVersion\"'");
+    // NOT a schemaVersion grep: readable-but-not-ours would pass that, and
+    // the whole point of the verify loop is that raw serves THESE bytes.
+    expect(yml).toContain("cmp -s - releases.json");
   });
 });
 
@@ -68,5 +78,9 @@ describe("lint.yml drift gate", () => {
     expect(job).toContain("bun scripts/site-releases.ts --check");
     expect(job).toContain("runs-on: ubuntu-24.04");
     expect(job).toContain("timeout-minutes");
+    // Push-only: a cut in flight lands its tag at cut START, and a PR off an
+    // older main must not go red for it (the spec's words: drift is caught
+    // "on the next push").
+    expect(job).toContain("if: github.event_name == 'push'");
   });
 });
