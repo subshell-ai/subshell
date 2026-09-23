@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import type { ActionResult, Probe } from "../ipc";
-import { nextPollDelay, railActive, railFor, resolveJourney, route } from "../server-state";
+import { nextPollDelay, RAIL_SECTIONS, railActive, railFor, resolveJourney, route } from "../server-state";
 
 /** A minimal probe, shaped up per test with only what the routing reads. */
 function probe(over: Partial<Probe>): Probe {
@@ -46,13 +46,12 @@ describe("route", () => {
     expect(route(null, "update", IDLE)).toEqual({ kind: "boot" });
   });
 
-  it("routes the reset request to the reset screen, even before the probe", () => {
-    // `openReset` sets `screen` before it arms the plan, and the old render's
-    // reset gate ran before the probe check — the screen is what explains a
-    // refusal, so it shows with or without facts.
-    expect(route(probe({}), "reset", IDLE)).toEqual({ kind: "reset" });
-    expect(route(null, "reset", IDLE)).toEqual({ kind: "reset" });
-  });
+  // The reset request left the routing on 2026-09-23: the rail's door and the
+  // dashboard's deep link both open a DIALOG over the standing section
+  // (`resetOpen` host state), so `route()` never sees a reset and the section
+  // underneath keeps its kind. What the old gate protected — the dialog
+  // showing before the plan arms, and the ready handoff not opening the
+  // dashboard out from under it — is pinned in `host.test.tsx`.
 
   it("lets a requested screen outrank everything the probe implies", () => {
     // On a READY machine (screensFor answers empty) a requested screen is the
@@ -80,11 +79,19 @@ describe("route", () => {
     expect(route(probe({ next: "ready", onboarded: true }), "setup", RUNNING)).toEqual({ kind: "setup" });
   });
 
-  it("routes the ready handoff when the list is empty and nothing runs", () => {
+  it("routes the ready handoff when the list is empty, the screen is null, and nothing runs", () => {
+    // Arrival is the handoff's case: a window opened (or reopened) over a
+    // running machine owes no result to a reader and hands off.
     expect(route(probe({ next: "ready", onboarded: true }), null, IDLE)).toEqual({ kind: "handoff" });
-    // Onboarded and broken, then fixed: the recovery family's list is
-    // ["recovery"], and a machine whose server came back empties it.
-    expect(route(probe({ next: "ready" }), "recovery", IDLE)).toEqual({ kind: "handoff" });
+    // But a window STANDING on the Status section stays there (operator
+    // ruling 2026-09-23). The rail's Status select sets `recovery` — the
+    // standing marker, also what the ratchet's correction onto recovery
+    // writes — and on a running machine that is the status screen with its
+    // one button, not the handoff's bounce through the setup pane.
+    expect(route(probe({ next: "ready", onboarded: true }), "recovery", IDLE)).toEqual({ kind: "status" });
+    // A machine that was onboarded, broke, and had its screen corrected onto
+    // recovery by the ratchet keeps that standing view when it heals, too.
+    expect(route(probe({ next: "ready" }), "recovery", { running: true, failure: null })).toEqual({ kind: "setup" });
   });
 
   it("lands a fresh machine on the welcome screen", () => {
@@ -180,27 +187,27 @@ describe("nextPollDelay", () => {
  * first-run step is in progress — so the FTE family, permissions and boot
  * answer null, and a STANDING route on a machine that is not onboarded
  * answers null too (the old page let a requested update render mid-FTE; wave
- * 2 renders it full-window, without the rail). Reset's CONFIRMATION rides
- * the rail since the same day's layout ruling (final word): the sidebar
- * stays, reset active; the frame-replacing room is the RUNNING chain, which
- * the host enforces off `busy || running`, not a railFor case.
+ * 2 renders it full-window, without the rail). Reset left the routing on
+ * 2026-09-23: its rail door opens a dialog over the standing section, so
+ * there is no reset kind for these functions to answer for — the rail is
+ * always the section's own.
  */
 describe("railFor", () => {
   it("answers null for every FTE family route, permissions and boot", () => {
-    // Reset LEFT this list (operator ruling 2026-09-22, final word on the
-    // reset layout): its confirmation rides the rail, reset active; the
-    // frame-replacing room is the running chain.
     for (const kind of ["welcome", "tmux", "setup", "handoff", "permissions", "boot"] as const) {
       expect(railFor({ kind }, true), kind).toBeNull();
       expect(railFor({ kind }, false), kind).toBeNull();
     }
   });
 
-  it("gives the reset confirmation the five sections, reset active", () => {
-    const sections = railFor({ kind: "reset" }, true);
-    expect(sections?.map((s) => s.id)).toEqual(["status", "update", "supervision", "settings", "reset"]);
-    expect(sections?.find((s) => s.id === "reset")?.danger).toBe(true);
-    expect(railFor({ kind: "reset" }, false)).toBeNull();
+  it("keeps the Reset door in every standing rail, danger-styled, and routes nothing", () => {
+    // The door is still the rail's fifth section (ruling 2026-09-22); what
+    // the 2026-09-23 dialog ruling took away is its ROUTE. There is no
+    // `{ kind: "reset" }` for `railFor` or `railActive` to answer for: the
+    // select opens the dialog over whatever section's rail this is, and that
+    // section keeps the highlight while it is up.
+    expect(RAIL_SECTIONS.find((s) => s.id === "reset")?.danger).toBe(true);
+    expect(RAIL_SECTIONS.map((s) => s.id)).toEqual(["status", "update", "supervision", "settings", "reset"]);
   });
 
   it("answers null for a standing route on a machine mid-first-run", () => {
@@ -234,10 +241,13 @@ describe("railFor", () => {
     expect(railActive({ kind: "update" })).toBe("update");
     expect(railActive({ kind: "supervision" })).toBe("supervision");
     expect(railActive({ kind: "addresses" })).toBe("settings");
-    // A route that gets no rail gets no active state either. Reset rides
-    // the rail now (2026-09-22 layout ruling): its confirmation is a
-    // standing render, reset active.
+    // A route that gets no rail gets no active state either. The running
+    // machine's status screen highlights Status like the diagnosis does —
+    // same kind, one section. Reset is no longer a kind at all (the dialog
+    // ruling of 2026-09-23): it never holds the highlight, because it never
+    // leaves the section it opened over.
     expect(railActive({ kind: "handoff" })).toBeNull();
-    expect(railActive({ kind: "reset" })).toBe("reset");
+    expect(railActive({ kind: "welcome" })).toBeNull();
+    expect(railActive({ kind: "boot" })).toBeNull();
   });
 });

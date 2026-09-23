@@ -25,6 +25,7 @@ function renderStatus(over: {
   title?: string;
   onAction?: (kind: string) => void;
   onInstallTmux?: () => void;
+  onOpenDashboard?: () => void;
 }) {
   return render(
     <StatusScreen
@@ -48,6 +49,7 @@ function renderStatus(over: {
       about={null}
       onAction={(kind) => over.onAction?.(kind)}
       onInstallTmux={over.onInstallTmux ?? (() => {})}
+      onOpenDashboard={over.onOpenDashboard ?? (() => {})}
       onReveal={() => {}}
       onFail={() => {}}
     />,
@@ -170,5 +172,73 @@ describe("the tmux install's own verdict", () => {
   it("shows nothing about an install when no install has run here", () => {
     renderStatus({ probe: makeProbe({ next: "start", tmux: null }) });
     expect(screen.queryByText("The tmux install didn't finish.")).toBeNull();
+  });
+});
+
+/**
+ * The RUNNING machine's status screen (operator ruling 2026-09-23): what the
+ * section shows when a person selects Status on a machine that is answering,
+ * instead of resolving onto the handoff and bouncing through the setup pane.
+ * The route pins (`route()` returning `status` for a standing select, and
+ * `handoff` for an arrival) live in route.test.ts and host.test.tsx; this is
+ * the screen's own half.
+ */
+describe("the running machine's status screen", () => {
+  it("offers one Open dashboard button over the facts, and no recovery action", () => {
+    const onOpenDashboard = vi.fn();
+    renderStatus({ probe: makeProbe({ next: "ready", onboarded: true }), onOpenDashboard });
+    // One button, pressed by the human. `recoveryAction("ready")` answers
+    // null, so there was never a diagnosis button here either — but the
+    // tmux warning must not appear on a running machine either.
+    screen.getByRole("button", { name: "Open dashboard" }).click();
+    expect(onOpenDashboard).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/tmux was not found on the login PATH\./)).toBeNull();
+  });
+
+  it("renders the section's facts and the log tail inline", () => {
+    renderStatus({ probe: makeProbe({ next: "ready", onboarded: true }) });
+    // The same StatusDetails the diagnosis renders: facts grid, Server log,
+    // and the app's version line when the host read it.
+    expect(screen.getByText("Server log")).toBeDefined();
+    expect(document.querySelector("dl.facts")).not.toBeNull();
+  });
+
+  it("keeps the progress and failure views ahead of the running view", () => {
+    // A chain that just finished on a ready probe still owns the screen (the
+    // press rule the handoff shares with the setup screen), and so does the
+    // failure that stopped short — neither becomes a status screen.
+    const view = renderStatus({ probe: makeProbe({ next: "ready", onboarded: true }) });
+    expect(screen.getByRole("button", { name: "Open dashboard" })).toBeDefined();
+    view.unmount();
+    // `running` reaches the screen through the ProgressView branch: render a
+    // ready probe with running true and the checklist answers instead.
+    render(
+      <StatusScreen
+        strings={{ title: "Setting Up Subshell…", subtitle: "This takes a moment.", problem: "" }}
+        probe={makeProbe({ next: "ready", onboarded: true })}
+        busy={false}
+        running
+        failure={null}
+        form={{ port: "", host: "", baseUrl: "", trustedOrigins: "" }}
+        supervision={DEFAULT_SUPERVISION}
+        tmuxResult={null}
+        outputOpen={false}
+        onOutputOpenChange={() => {}}
+        outputScroll={0}
+        onOutputScroll={() => {}}
+        problem=""
+        detailsOpen={false}
+        onDetailsOpenChange={() => {}}
+        lastResult={null}
+        lastTail={null}
+        about={null}
+        onAction={() => {}}
+        onInstallTmux={() => {}}
+        onOpenDashboard={() => {}}
+        onReveal={() => {}}
+        onFail={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Open dashboard" })).toBeNull();
   });
 });

@@ -38,14 +38,18 @@ afterEach(() => {
 const routeOf = (): string | null => document.querySelector("[data-route]")?.getAttribute("data-route") ?? null;
 
 describe("the host's boot gate", () => {
-  it("does not route the handoff, or open the dashboard, before the pending-screen pull resolves", async () => {
+  it("opens the requested reset as a DIALOG, and never opens the dashboard", async () => {
     // The probe answers immediately (ready machine); the pull is HELD. This
     // is exactly the window the old comment describes: the probe is in, the
     // request is not yet.
     const pending = deferred<string | null>();
     fake = installFakeIpc({
       probe: makeProbe({ next: "ready", onboarded: true }),
-      handlers: { desktop_pending_screen: () => pending.promise, desktop_open_main: () => undefined },
+      handlers: {
+        desktop_pending_screen: () => pending.promise,
+        desktop_arm_reset: () => true,
+        desktop_open_main: () => undefined,
+      },
     });
     const { container } = render(<Host />);
 
@@ -57,9 +61,15 @@ describe("the host's boot gate", () => {
     expect(container).toBeDefined();
     pending.resolve("reset");
 
-    // The pull resolves to a reset request: the requested screen applies,
-    // and the handoff never happened.
-    await waitFor(() => expect(routeOf()).toBe("reset"));
+    // The pull resolves to a reset request. Since the 2026-09-23 dialog
+    // ruling the request opens a modal rather than naming a screen: the
+    // ready handoff renders UNDERNEATH it (the route resolves as if nothing
+    // had been asked for), and the auto-open effect's `resetOpen` gate is
+    // what keeps the dashboard from opening out from under the confirmation.
+    // `booted` and `resetOpen` flip in one batch (both writes land before
+    // the flush), so the guard is up for the handoff's first render.
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Reset this server" })).toBeTruthy());
+    expect(routeOf()).toBe("handoff");
     expect(fake.callsTo("desktop_open_main")).toHaveLength(0);
   });
 
@@ -118,53 +128,68 @@ describe("the host's reset chain", () => {
     fireEvent.change(document.getElementById("reset-confirm") as HTMLInputElement, { target: { value } });
   };
 
-  it("runs the chain: a fresh meter per press, a re-arm on the second press, and a fresh first run after the machine answers", async () => {
-    const armCalls: unknown[] = [];
+  it("runs the chain: a half-run keeps the dialog with its log and Retry, a success closes it to a fresh first run", async () => {
     const resetCalls: string[] = [];
+    let chainOk = false;
     fake = installFakeIpc({
       probe: RESETTABLE,
       handlers: {
         desktop_pending_screen: () => "reset",
-        desktop_arm_reset: (args) => {
-          armCalls.push(args);
-          return true;
-        },
+        desktop_arm_reset: () => true,
         desktop_reset: (args) => {
           resetCalls.push(args.typed as string);
-          return { ok: true, stdout: "", stderr: "" };
+          // Press one fails half-run; the Retry press succeeds.
+          return chainOk ? { ok: true, stdout: "", stderr: "" } : { ok: false, stdout: "", stderr: "bootout refused" };
         },
         desktop_open_main: () => undefined,
       },
     });
     render(<Host />);
-    // The screen is up from the request, before the plan arms (the old open()
-    // showed first for exactly this reason).
+    // The dialog is up from the request, before the plan arms (the old open()
+    // showed first for exactly this reason), over the recovery section the
+    // broken machine implies.
     await waitFor(() => expect(document.getElementById("reset-confirm")).not.toBeNull());
+    expect(routeOf()).toBe("status");
     expect(fake.callsTo("desktop_arm_reset")).toHaveLength(1);
 
     typeHostname("testhost");
     screen.getByRole("button", { name: "Reset everything" }).click();
     await waitFor(() => expect(resetCalls).toEqual(["testhost"]));
     // The press RE-ARMS before it resets — arm #2 is the run's own, on top of
-    // the screen's arming (#1): `plan` is the page's own first row, and the
+    // the dialog's arming (#1): `plan` is the page's own first row, and the
     // arming round trip is its content.
     expect(fake.callsTo("desktop_arm_reset")).toHaveLength(2);
 
-    // The machine answered: the page's fired-already latch and any pre-reset
-    // failure describe a machine that no longer exists, so a fresh first-run
-    // probe is met with a fresh welcome once the screen is dismissed — the
-    // observable half of `rearmFirstRun` (the latch it clears is the same
-    // call the welcome's auto-fire reads).
-    fake.setProbe(makeProbe({ next: "init", onboarded: false, tmux: "/usr/bin/tmux" }));
+    // A HALF-RUN stays open where the human is: the log and the promoted
+    // Retry are the chain's receipt, and the dialog is the room.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Retry reset" })).toBeTruthy());
+    expect(screen.getByRole("dialog", { name: "Resetting this server" })).toBeTruthy();
 
     // Re-arm on EVERY press: the plan is one-shot by design, and a second
     // press that skipped it would answer "no reset plan is staged".
-    screen.getByRole("button", { name: "Reset everything" }).click();
+    chainOk = true;
+    screen.getByRole("button", { name: "Retry reset" }).click();
     await waitFor(() => expect(resetCalls).toHaveLength(2));
     expect(fake.callsTo("desktop_arm_reset")).toHaveLength(3);
 
-    screen.getByRole("button", { name: "Cancel" }).click();
-    await waitFor(() => expect(routeOf()).toBe("welcome"));
+    // The machine answered: the page's fired-already latch and any pre-reset
+    // failure describe a machine that no longer exists, so the completed
+    // chain CLOSES the dialog (the client's completed-reset rule) and the
+    // fresh first-run probe underneath is the receipt — the observable half
+    // of `rearmFirstRun` (the latch it clears is the same call the welcome's
+    // auto-fire reads).
+    fake.setProbe(makeProbe({ next: "init", onboarded: false, tmux: "/usr/bin/tmux" }));
+    // Flush the chain's promise continuations under act before asserting the
+    // dialog closed: a `waitFor` whose first check throws escapes happy-dom's
+    // retry on Linux CI.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // The chain's own trailing refresh can land before the test's `setProbe`
+    // (the fake answers immediately), so the welcome underneath arrives on
+    // the page's own 1500 ms poll — the same clock the operator watches.
+    await waitFor(() => expect(routeOf()).toBe("welcome"), { timeout: 3000 });
   });
 
   it("promotes the run label to Retry and renders the half-run log as a failure", async () => {
@@ -349,10 +374,10 @@ describe("the rail", () => {
     expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
     cleanup();
     fake?.restore();
-    // reset: the CONFIRMATION rides the rail now (operator ruling
-    // 2026-09-22, final word on the reset layout), so it is NOT a
-    // full-window case any more; the room pin lives in the dedicated test
-    // below, off a hanging desktop_reset.
+    // reset: the deep link opens the DIALOG over the ready handoff (ruling
+    // 2026-09-23), and the handoff underneath is rail-less like every
+    // arrival. The dialog itself is the room; its own case is the dedicated
+    // test below, off a hanging desktop_reset.
     fake = installFakeIpc({
       probe: cases[2][0],
       handlers: {
@@ -362,9 +387,9 @@ describe("the rail", () => {
       },
     });
     render(<Host />);
-    await waitFor(() => expect(routeOf()).toBe("reset"));
-    expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Reset" }).getAttribute("aria-current")).toBe("true");
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Reset this server" })).toBeTruthy());
+    expect(routeOf()).toBe("handoff");
+    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
     cleanup();
     fake?.restore();
     // permissions
@@ -420,14 +445,16 @@ describe("the rail", () => {
     expect(screen.getByRole("button", { name: "Status" }).getAttribute("aria-current")).toBe("true");
   });
 
-  it("carries the Reset door in the rail, and the room is the running chain", async () => {
-    // Operator ruling 2026-09-22, final word on the layout: the DOOR is in
-    // the rail and the CONFIRMATION rides the rail too (the sidebar was
-    // being lost today). The frame-replacing premise moved to the RUNNING
-    // chain — that is where "no way out from under it" lives now.
+  it("carries the Reset door in the rail, and its dialog overrides nothing", async () => {
+    // Operator ruling 2026-09-23 (the client's shape, ported): the DOOR is in
+    // the rail, and selecting it opens a DIALOG over the standing section —
+    // no route moves, no highlight moves, and the overlay itself is the room
+    // the old frame-replacing screen was: while the chain runs, Escape and
+    // the backdrop are inert and Cancel is disabled, so there is no way out
+    // from under it.
     const gate = deferred<{ ok: boolean }>();
     // The plan needs a complete `paths` block (the same shape the chain
-    // test's RESETTABLE carries), or the screen refuses and the room has
+    // test's RESETTABLE carries), or the dialog refuses and the room has
     // nothing to run into.
     const resettable = makeProbe({
       next: "start",
@@ -458,29 +485,38 @@ describe("the rail", () => {
     // The bar's ghost is gone — the rail carries the door now.
     expect(screen.queryByRole("button", { name: "Reset this server…" })).toBeNull();
     screen.getByRole("button", { name: "Reset" }).click();
-    await waitFor(() => expect(routeOf()).toBe("reset"));
-    // The confirmation renders INSIDE the frame, reset active.
-    expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Reset" }).getAttribute("aria-current")).toBe("true");
-    expect(document.getElementById("reset-confirm")).not.toBeNull();
-    // And the ROOM is the running chain: while desktop_reset is in flight
-    // the rail is withheld, and it comes back when the chain ends.
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Reset this server" })).toBeTruthy());
+    // OVERRIDES NOTHING: the recovery section stands underneath, Status keeps
+    // the highlight, and the dialog arms on open.
+    expect(routeOf()).toBe("status");
+    expect(screen.getByRole("button", { name: "Status" }).getAttribute("aria-current")).toBe("true");
+    expect(fake.callsTo("desktop_arm_reset")).toHaveLength(1);
     // typeHostname is the chain test's local; the same act, spelled out here.
     fireEvent.change(document.getElementById("reset-confirm") as HTMLInputElement, {
       target: { value: "testhost" },
     });
-    // Both room transitions settle off promise continuations (the runner's
-    // busy flip, then the gate), where waitFor's observer retry escapes under
+    // The transitions settle off promise continuations (the runner's busy
+    // flip, then the gate), where waitFor's observer retry escapes under
     // happy-dom on Linux CI. Flush under act and assert the settled DOM.
     await act(async () => {
       screen.getByRole("button", { name: "Reset everything" }).click();
     });
-    expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
+    // The room is the chain: the pane retitled, the dismissal is inert, and
+    // a Cancel press cannot end it.
+    expect(screen.getByRole("dialog", { name: "Resetting this server" })).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByRole("dialog")).toBeTruthy();
     await act(async () => {
       gate.resolve({ ok: true });
       await new Promise((r) => setTimeout(r, 0));
     });
+    // A completed chain closes the dialog; the section underneath is where
+    // the person left it, and the rail answers again.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(routeOf()).toBe("status");
     expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Status" }).getAttribute("aria-current")).toBe("true");
   });
 
   it("renders the leave buttons only where the rail is not", async () => {
@@ -488,7 +524,9 @@ describe("the rail", () => {
     // Without it — a requested screen over a mid-first-run machine — they are
     // still the only way out.
     // With rail: the requested update on a ready machine has NO Close, and
-    // nobody is stranded — Status is the way back, held for a human press.
+    // nobody is stranded — Status is the way back, and since the 2026-09-23
+    // ruling it is a real screen whose one button opens the dashboard on the
+    // press (the old route resolved onto the handoff and its Continue).
     fake = installFakeIpc({
       probe: makeProbe({ next: "ready", onboarded: true }),
       handlers: {
@@ -501,9 +539,9 @@ describe("the rail", () => {
     await waitFor(() => expect(routeOf()).toBe("update"));
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
     screen.getByRole("button", { name: "Status" }).click();
-    await waitFor(() => expect(routeOf()).toBe("handoff"));
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDefined();
-    screen.getByRole("button", { name: "Continue" }).click();
+    await waitFor(() => expect(routeOf()).toBe("status"));
+    expect(screen.getByRole("button", { name: "Open dashboard" })).toBeDefined();
+    screen.getByRole("button", { name: "Open dashboard" }).click();
     await waitFor(() => expect(fake?.callsTo("desktop_open_main")).toHaveLength(1));
     cleanup();
     fake?.restore();
@@ -550,11 +588,13 @@ describe("the rail", () => {
     expect(port().value).toBe("4000");
   });
 
-  it("HOLDS the handoff a Status select lands on, on a ready machine", async () => {
-    // A deliberate rail select is not an arrival: the auto-continue rule was
-    // written for windows reopened over a running server, which owe no result
-    // to a reader. Selecting Status while driving this window must render the
-    // ready view HELD — Continue available, no dashboard opening by itself.
+  it("shows a REAL status screen when Status is selected on a running machine, and opens nothing by itself", async () => {
+    // Operator ruling 2026-09-23 (the bounce the setup pane was objected to):
+    // a deliberate rail select is not an arrival. The old route resolved the
+    // select onto the handoff on a ready machine — a screen titled "Opening
+    // Your Dashboard…" held back by a flag. Now the select stands the window
+    // on the Status section proper: the machine's facts, the log tail, the
+    // app's version, and ONE button.
     fake = installFakeIpc({
       probe: makeProbe({ next: "ready", onboarded: true }),
       handlers: {
@@ -566,16 +606,35 @@ describe("the rail", () => {
     render(<Host />);
     await waitFor(() => expect(routeOf()).toBe("update"));
     screen.getByRole("button", { name: "Status" }).click();
-    await waitFor(() => expect(routeOf()).toBe("handoff"));
-    // Held: the waiting arm renders its Continue, and nothing has opened.
-    // The words are pinned too — the held surface claiming an open that is
-    // being withheld was the reviewer's finding.
+    await waitFor(() => expect(routeOf()).toBe("status"));
+    // The running view's words — a standing title, not a handoff's promise.
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Your Server Is Running");
-    expect(screen.getByText("Your dashboard opens when you press Continue. Nothing opens by itself.")).toBeDefined();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDefined();
+    expect(screen.getByText("Everything the server reports is below.")).toBeDefined();
+    // The section's own content: the facts, the Server log, the app's version.
+    expect(screen.getByText("Server log")).toBeDefined();
+    expect(screen.getByText("This app: Subshell Server 0.12.1")).toBeDefined();
+    // One button, and NOTHING opened by itself: no Continue, no auto-open.
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
     expect(fake?.callsTo("desktop_open_main")).toHaveLength(0);
-    // The press IS the human the hold was waiting for.
-    screen.getByRole("button", { name: "Continue" }).click();
+    // Status holds the highlight while it stands.
+    expect(screen.getByRole("button", { name: "Status" }).getAttribute("aria-current")).toBe("true");
+  });
+
+  it("still hands off, and opens the dashboard, when the window ARRIVES on a running machine", async () => {
+    // The select stopped bouncing; the ARRIVAL still hands off — a window
+    // reopened over a running server owes no result to a reader. This is the
+    // same auto-open the boot-gate suite's positive control pins; here it is
+    // the pair that keeps the new status branch from swallowing arrival
+    // (screen null) along with the select (screen "recovery").
+    fake = installFakeIpc({
+      probe: makeProbe({ next: "ready", onboarded: true }),
+      handlers: {
+        desktop_pending_screen: () => null,
+        desktop_open_main: () => undefined,
+      },
+    });
+    render(<Host />);
+    await waitFor(() => expect(routeOf()).toBe("handoff"));
     await waitFor(() => expect(fake?.callsTo("desktop_open_main")).toHaveLength(1));
   });
 });

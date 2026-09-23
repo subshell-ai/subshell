@@ -315,14 +315,18 @@ describe("RESET_LABEL", () => {
     expect(RESET_LABEL).not.toContain("machine");
   });
 
-  it("is the Reset screen's own title too, so the door and the room agree", () => {
-    // The title moved to the frame (operator ruling 2026-09-22, final word
-    // on the reset layout: the confirmation rides the rail, so the frame
-    // carries the heading and the pane's own title lines are gone). The
-    // equality is still structural: host.tsx's shell names the confirmation
-    // with the SAME constant the rail's door labels.
+  it("is the Reset dialog's own title too, so the door and the dialog agree", () => {
+    // The confirmation became a dialog (operator ruling 2026-09-23), so the
+    // string is the Dialog's title rather than the frame's shell — same
+    // equality, one new home: the dialog names itself with the SAME constant
+    // the rail's door labels. While the chain runs the title follows the
+    // pane, which is what the meter's heading reads.
+    const dialog = readFileSync(join(import.meta.dir, "../screens/reset-dialog.tsx"), "utf8");
+    expect(dialog).toContain('title={started ? "Resetting this server" : RESET_LABEL}');
+    // And nothing claims the old frame home any more: `shell()` lost its
+    // reset case with the reset route kind.
     const host = readFileSync(join(import.meta.dir, "../host.tsx"), "utf8");
-    expect(host).toContain('return { title: RESET_LABEL, subtitle: "", problem };');
+    expect(host).not.toContain("title: RESET_LABEL");
   });
 });
 
@@ -899,21 +903,12 @@ describe("handoffView", () => {
     expect(view.subtitle).toBe("Opening your dashboard…");
   });
 
-  // A rail-selected Status that lands a ready machine's window here is a
-  // person DRIVING the window, not an arrival: the auto-continue rule was
-  // written for windows reopened over a running server, which owe no result
-  // to a reader. The held arm waits for the press AND says so — the held
-  // surface promising "Opening your dashboard…" while the open is withheld
-  // was the exact lie the hold would have created.
-  it("holds a rail-selected Status with words that promise nothing", () => {
-    const view = handoffView({ onboarded: true, ranSetupHere: false, continued: false, held: true });
-    expect(view.wait).toBe(true);
-    expect(view.title).toBe("Your Server Is Running");
-    expect(view.subtitle).toBe("Your dashboard opens when you press Continue. Nothing opens by itself.");
-    // The copy rules: two sentences, no em dash (operator ruling 2026-09-21).
-    expect(view.subtitle.includes("—")).toBe(false);
-    expect(view.subtitle.split(". ").length).toBeLessThanOrEqual(2);
-  });
+  // The `held` arm left on 2026-09-23, and the test went with it rather than
+  // being weakened: a rail-selected Status no longer resolves onto a held
+  // handoff at all, so there is no third arm to speak for. `route()` sends a
+  // standing Status to the status screen (pinned in route.test.tsx and
+  // host.test.tsx); this function answers only for arrivals and for a chain
+  // this window ran — the shapes the waiting arms above pin.
 
   it("keeps the first-run wording for a machine that never onboarded", () => {
     const view = handoffView({ onboarded: false, ranSetupHere: false, continued: false });

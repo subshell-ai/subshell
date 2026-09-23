@@ -266,25 +266,10 @@
     max-height: 220px;
     overflow: auto;
   }
-  /* In the Logs section the pane IS the section: it takes whatever height the
-     window has rather than stopping at the cap that kept it from pushing the
-     step actions off a 620px page. `min-height: 0` is what lets a flex child
-     scroll instead of growing its parent. */
-  .reset-view {
-    padding: 24px 32px 32px;
-    max-height: 100vh;
-    overflow: auto;
-  }
-  .reset-view[hidden] {
-    display: none;
-  }
-  .reset-title {
-    margin: 0 0 4px;
-    font-size: var(--text-heading);
-    line-height: var(--text-heading--line-height);
-    font-weight: var(--font-weight-strong);
-    letter-spacing: -0.01em;
-  }
+  /* `.reset-view` and `.reset-title` left with the frame-replacing reset screen
+     (operator ruling 2026-09-23): the confirmation is a DIALOG now, and the
+     Dialog primitive positions its card from utilities — the CSP forbids style
+     attributes, and a centered island needs no measuring either way. */
   /* The chain's live meter used to be a visual language of its own here
      (`.reset-steps` / `.reset-step`, spec 2026-09-13): a denser list with its
      own marks, colours and spinner, sitting between the disclosures and the

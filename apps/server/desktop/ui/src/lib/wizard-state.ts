@@ -669,9 +669,7 @@ export interface HandoffView {
   /**
    * Whether the screen waits for a Continue instead of opening the
    * dashboard itself. True for the handoff of a chain that ran in THIS
-   * window before the person has pressed, and for a HELD handoff — a
-   * rail-selected Status on a ready machine, where a person is driving the
-   * window (see {@link handoffView}).
+   * window before the person has pressed (see {@link handoffView}).
    */
   wait: boolean;
   title: string;
@@ -708,16 +706,13 @@ export interface HandoffView {
  * and an onboarded machine whose server just came back was never setting
  * anything up — telling it so would be the app narrating its own state
  * machine.
+ *
+ * The `held` arm left with the 2026-09-23 Status ruling: a rail-selected
+ * Status on a running machine is no longer a handoff held open — `route()`
+ * resolves the select onto the Status screen itself, so this function only
+ * ever answers for real arrivals and for a chain this window ran.
  */
-export function handoffView(opts: {
-  onboarded: boolean;
-  ranSetupHere: boolean;
-  continued: boolean;
-  /** The hold: this handoff exists because a person SELECTED Status in the
-      rail, not because the machine arrived. Optional so every existing call
-      site keeps its shape. */
-  held?: boolean;
-}): HandoffView {
+export function handoffView(opts: { onboarded: boolean; ranSetupHere: boolean; continued: boolean }): HandoffView {
   if (opts.ranSetupHere && !opts.continued) {
     return {
       wait: true,
@@ -725,16 +720,6 @@ export function handoffView(opts: {
       // States the fact the checklist below shows and nothing this screen
       // cannot know — see the subtitle note above.
       subtitle: "Everything below is set up and running.",
-    };
-  }
-  if (opts.held) {
-    // A rail-selected Status is a person driving this window, not an
-    // arrival, so nothing opens by itself — and the words must say THAT
-    // rather than promise the open the hold withholds.
-    return {
-      wait: true,
-      title: "Your Server Is Running",
-      subtitle: "Your dashboard opens when you press Continue. Nothing opens by itself.",
     };
   }
   return {

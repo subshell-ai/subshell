@@ -1,14 +1,19 @@
 /**
- * The Reset screen, as component tests: the refusal gate (an incomplete paths
- * block arms nothing), the hostname gate the page shares with Rust, the two
- * panes and their meter, and the action row's busy states.
+ * The Reset confirmation, as the DIALOG it became on 2026-09-23 (operator
+ * ruling; the Subshell Client's shape, ported): the refusal gate (an
+ * incomplete paths block arms nothing), the hostname gate the page shares
+ * with Rust, the two panes and their meter, and the action row's busy states.
+ * What the modal adds to what the screen ruled: the dismissal (Cancel,
+ * backdrop, Escape) is the way out until the chain runs, and INERT while it
+ * runs — a running reset keeps its old room's rule that nothing ends it but
+ * its own end.
  */
 import { afterEach, describe, expect, it, vi } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { makeProbe } from "../../__tests__/harness";
 import { emptySteps } from "../../lib/reset";
-import { ResetScreen } from "../reset-screen";
+import { ResetDialog } from "../reset-dialog";
 
 afterEach(cleanup);
 
@@ -31,7 +36,6 @@ const RESETTABLE = makeProbe({
 function renderReset(over: {
   probe?: typeof RESETTABLE | null;
   busy?: boolean;
-  railPresent?: boolean;
   steps?: ReturnType<typeof emptySteps>;
   armingProblem?: string | null;
   runLabel?: string;
@@ -42,17 +46,16 @@ function renderReset(over: {
 }) {
   // The typed hostname is HOST state now, so the helper holds it the way the
   // host does — the change handler feeds the state back.
-  return render(<ResetScreenHolder over={over} />);
+  return render(<ResetDialogHolder over={over} />);
 }
 
-function ResetScreenHolder(props: { over: Parameters<typeof renderReset>[0] }) {
+function ResetDialogHolder(props: { over: Parameters<typeof renderReset>[0] }) {
   const over = props.over;
   const [typed, setTyped] = useState(over.typed ?? "");
   return (
-    <ResetScreen
+    <ResetDialog
       probe={over.probe === undefined ? RESETTABLE : over.probe}
       busy={over.busy ?? false}
-      railPresent={over.railPresent ?? false}
       steps={over.steps ?? emptySteps()}
       armingProblem={over.armingProblem ?? null}
       runLabel={over.runLabel ?? "Reset everything"}
@@ -71,7 +74,23 @@ const typeHostname = (value: string): void => {
   fireEvent.change(document.getElementById("reset-confirm") as HTMLInputElement, { target: { value } });
 };
 
-describe("the refusal gate", () => {
+/** The confirm pane, found by its own question (the dialog hides panes, it
+ *  does not unmount them — the same flip the old screen made on `hidden`).
+ *  The LAST match is the deepest, the pane itself: every ancestor of it
+ *  contains the question too, and `querySelectorAll` walks in document
+ *  order. */
+const confirmPane = (): HTMLElement | undefined =>
+  [...document.querySelectorAll<HTMLElement>('[role="dialog"] div')].findLast((d) =>
+    d.textContent?.includes("Type this machine's hostname"),
+  );
+
+describe("the dialog and its gates", () => {
+  it("is one labelled modal named by the same string the rail's door uses", () => {
+    renderReset({});
+    expect(screen.getByRole("dialog", { name: "Reset this server" })).toBeDefined();
+    expect(screen.getByRole("dialog", { name: "Reset this server" }).getAttribute("aria-modal")).toBe("true");
+  });
+
   it("refuses to arm when the server does not report its data locations", () => {
     renderReset({ probe: makeProbe({ next: "start", hostname: "testhost", status: null }) });
     // No promises without the block to promise from.
@@ -83,7 +102,7 @@ describe("the refusal gate", () => {
   });
 
   it("lists the five promises once the paths are complete, and holds the button until the name matches", () => {
-    const _view = renderReset({});
+    renderReset({});
     const rows = document.querySelectorAll("ul.wizard-copy.list-disc li");
     expect(rows).toHaveLength(5);
     expect(rows[0].textContent).toContain("Database (users, sessions, API keys, the node signing keypair)");
@@ -103,7 +122,7 @@ describe("the refusal gate", () => {
   });
 
   it("shows the arming verdict where the refusal would be", () => {
-    const _view = renderReset({ armingProblem: "The reset could not be staged: command not found." });
+    renderReset({ armingProblem: "The reset could not be staged: command not found." });
     expect(screen.getAllByText(/The reset could not be staged/).length).toBeGreaterThan(0);
     expect((screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).disabled).toBe(true);
   });
@@ -112,7 +131,7 @@ describe("the refusal gate", () => {
 describe("the run press and its meter", () => {
   it("fires only when armed, with the typed string", () => {
     const onRunReset = vi.fn();
-    const _view = renderReset({ onRunReset });
+    renderReset({ onRunReset });
     screen.getByRole("button", { name: "Reset everything" }).click();
     expect(onRunReset).not.toHaveBeenCalled(); // disabled: empty box
     typeHostname("testhost");
@@ -120,20 +139,20 @@ describe("the run press and its meter", () => {
     expect(onRunReset).toHaveBeenCalledWith("testhost");
   });
 
-  it("replaces the confirmation with the meter once the chain has touched anything", () => {
+  it("replaces the confirmation with the meter once the chain has touched anything, and retitles the pane", () => {
     renderReset({ steps: { ...emptySteps(), plan: "running", stop: "done" } });
-    // The promises are gone; the meter is the screen. The confirm pane is
+    // The promises are gone; the meter is the pane. The confirm pane is
     // HIDDEN, not unmounted — the old screen flipped `hidden` on both panes.
-    const confirmPane = [...document.querySelectorAll(".reset-view > div")].find((d) =>
-      d.textContent?.includes("Type this machine's hostname"),
-    ) as HTMLElement | undefined;
-    expect(confirmPane?.hidden).toBe(true);
+    expect(confirmPane()?.hidden).toBe(true);
     const rows = document.querySelectorAll("ul.checklist li");
     expect(rows).toHaveLength(5);
     // "active" is the checklist's own vocabulary for a running row.
     expect(rows[0].getAttribute("data-state")).toBe("active");
     expect(rows[1].getAttribute("data-state")).toBe("done");
     expect(rows[2].getAttribute("data-state")).toBe("pending");
+    // The title follows the pane, as the frame's did: the meter's own heading
+    // while the chain runs.
+    expect(screen.getByRole("dialog", { name: "Resetting this server" })).toBeDefined();
   });
 
   it("marks a failed row with the checklist's cross, and promotes the run label to Retry", () => {
@@ -156,25 +175,47 @@ describe("the run press and its meter", () => {
     renderReset({ busy: true, log: { text: "", bad: false } });
     expect((document.querySelector("pre.pane-pre.mt-3") as HTMLPreElement | null)?.hidden ?? true).toBe(true);
     expect(screen.getByRole("button", { name: "Resetting…" })).toBeDefined();
-    // NO CANCEL in the room, regardless (operator ruling 2026-09-22,
-    // screenshot 59, superseding the half-run Cancel): nothing on the
-    // progress pane may offer an act the chain cannot honour.
-    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    // The Cancel survives into the dialog (the modal supersedes the
+    // rail-is-the-exit ruling — the rail is unreachable under an overlay),
+    // but nothing on the progress pane may offer an act the chain cannot
+    // honour, so it is DISABLED, not gone.
+    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
   });
+});
 
-  // The Cancel rule's other half: with the rail UP there is no Cancel either
-  // (the rail is the way out of the confirmation); a rail-less render keeps
-  // it, which is what "hands the cancel to the page's own close" pins below.
-  it("offers no Cancel while the rail is present", () => {
-    renderReset({ railPresent: true });
-    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Reset everything" })).toBeDefined();
-  });
-
-  it("hands the cancel to the page's own close", () => {
+describe("the modal's dismissal", () => {
+  // The dialog's own refusal, and the section underneath is untouched — the
+  // host owns that half (the close handler is this prop); here it is the press.
+  it("hands the cancel to the host's close", () => {
     const onCancel = vi.fn();
-    const _view = renderReset({ onCancel });
+    renderReset({ onCancel });
     screen.getByRole("button", { name: "Cancel" }).click();
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers Escape when nothing is running", () => {
+    const onCancel = vi.fn();
+    renderReset({ onCancel });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers the backdrop, but not a press on the card itself", () => {
+    const onCancel = vi.fn();
+    renderReset({ onCancel });
+    const card = screen.getByRole("dialog");
+    fireEvent.click(card); // the island stops the event before the dismissal
+    expect(onCancel).not.toHaveBeenCalled();
+    fireEvent.click(card.parentElement as HTMLElement);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("turns every dismissal inert while the chain runs", () => {
+    const onCancel = vi.fn();
+    renderReset({ busy: true, onCancel });
+    fireEvent.keyDown(window, { key: "Escape" });
+    const card = screen.getByRole("dialog").parentElement as HTMLElement;
+    fireEvent.click(card);
+    expect(onCancel).not.toHaveBeenCalled();
   });
 });
