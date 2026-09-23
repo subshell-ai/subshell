@@ -29,7 +29,9 @@
 #                 {app, dir, version, tag} entries (version blank = read from
 #                 apps/<dir>/package.json, tag = <app>-v<version>), SKIPS apps
 #                 whose tag already exists, and PUSHES the missing tags before
-#                 any build starts (spec §7.2: no tag race downstream).
+#                 any build starts (spec §7.2: no tag race downstream). The
+#                 `refresh` app choice cuts nothing: empty matrix, and the
+#                 `refresh_manifest=true` output that wakes site-manifest alone.
 #   build       — matrix over app×triple, pinned to hardware per triple:
 #                 linux-* → ubuntu-24.04 (pinned for the glibc-2.39 floor;
 #                 linux-arm64 is CROSS-BUILT — no native arm64 Linux runner
@@ -55,6 +57,14 @@
 #                 draft-then-publish pair; it predates the hosted move (the
 #                 fleet's runners had no gh CLI) and stays because the two-
 #                 invocation shape is what the no-half-release rule rides on.
+#   site-manifest — after every shard of a successful cut has published (or on
+#                 a bare `refresh` dispatch), regenerates the root
+#                 releases.json from the REMOTE tags and commits it to main,
+#                 so the marketing site's install column reads the same
+#                 releases the updaters do. Non-matrix because the commit must
+#                 happen once, after ALL shards — publish is a matrix, so the
+#                 write cannot live inside it (spec 2026-09-23 §5, placement
+#                 deviation noted there).
 #
 # An app has TWO names, and confusing them is the failure mode this workflow is
 # now shaped around:
@@ -94,11 +104,14 @@ on:
       app:
         description: "Which deployable to cut"
         type: choice
-        options: [cli-server, cli-node, desktop-server, desktop-client, all]
+        options: [cli-server, cli-node, desktop-server, desktop-client, all, refresh]
         # `all` is the default because every component is cuttable and each
         # desktop bundle SHIPS the CLI it wraps — so a CLI-only fix does not
         # reach desktop users until the matching desktop cut. Defaulting to the
         # whole set makes the safe cut the one you get by pressing Run.
+        # `refresh` cuts NOTHING: it is the repair dispatch for the website's
+        # releases.json (see the site-manifest job), riding this dropdown
+        # rather than a separate boolean so one input names the whole intent.
         default: all
       version:
         description: "Version override — blank = read apps/<dir>/package.json (applies to every app in `app`)"
@@ -309,6 +322,10 @@ jobs:
     outputs:
       matrix: ${{ steps.compute.outputs.matrix }}
       apps: ${{ steps.compute.outputs.apps }}
+      # 'true' ONLY for an `app=refresh` dispatch — no cut, and the
+      # site-manifest job runs alone. Every other path, push events included,
+      # emits 'false'.
+      refresh_manifest: ${{ steps.compute.outputs.refresh_manifest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -323,15 +340,21 @@ jobs:
           if [ "$EVENT" != "workflow_dispatch" ]; then
             echo 'matrix=[]' >> "$GITHUB_OUTPUT"
             echo 'apps=[]' >> "$GITHUB_OUTPUT"
+            echo 'refresh_manifest=false' >> "$GITHUB_OUTPUT"
             echo "::notice::$EVENT event — version PR only; cut releases via workflow_dispatch (see header comment)"
             exit 0
           fi
+          refresh_manifest=false
           case "$APP_INPUT" in
             cli-server) apps="cli-server" ;;
             cli-node)   apps="cli-node" ;;
             desktop-server) apps="desktop-server" ;;
             desktop-client) apps="desktop-client" ;;
             all)     apps="cli-server cli-node desktop-server desktop-client" ;;
+            # Cuts nothing: the loop below iterates zero apps, so matrix and
+            # apps come out EMPTY and the existing guards skip build and
+            # publish cleanly. Only site-manifest has work.
+            refresh) apps=""; refresh_manifest=true ;;
             *) echo "unknown app input: '$APP_INPUT'" >&2; exit 1 ;;
           esac
           # The publish job downloads with `<app>-*` and globs `dist/<app>-*/*`,
@@ -457,6 +480,7 @@ jobs:
           done
           echo "matrix=[${entries}]" >> "$GITHUB_OUTPUT"
           echo "apps=[$appsjson]" >> "$GITHUB_OUTPUT"
+          echo "refresh_manifest=$refresh_manifest" >> "$GITHUB_OUTPUT"
           {
             echo "### Release plan"
             echo '```json'
@@ -1033,3 +1057,62 @@ jobs:
           tag_name: ${{ matrix.tag }}
           name: ${{ matrix.tag }}
           body_path: ${{ steps.notes.outputs.path }}
+
+  # The website's install column reads the root releases.json (spec
+  # 2026-09-23 §3); this job is what keeps it true. It runs after EVERY shard
+  # of a real cut has published (publish is a matrix — this is the one place
+  # all components exist together), and on its own for an `app=refresh`
+  # repair dispatch.
+  site-manifest:
+    name: Refresh releases.json for the website
+    needs: [plan, publish]
+    if: needs.plan.outputs.refresh_manifest == 'true' || needs.publish.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+
+      # Generates from REMOTE tags (`git ls-remote`, never the API —
+      # site-releases.ts header). Commit with a bounded rebase retry: a cut
+      # runs for over an hour, and main moves under this checkout in that
+      # window (a merged PR, or another run's own refresh commit landing after
+      # this job's plan step read the tags). A third collision is not a
+      # real-world shape — two pushes interleaving twice inside one second —
+      # so a hard failure there is the honest outcome, not a force.
+      - name: Generate, commit, verify
+        run: |
+          set -euo pipefail
+          bun scripts/site-releases.ts
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add releases.json
+          git diff --cached --quiet && { echo "releases.json already current"; exit 0; }
+          git commit -m "chore: refresh releases.json [skip ci]"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then break; fi
+            [ "$attempt" = 3 ] && { echo "::error::releases.json push failed after 3 attempts"; exit 1; }
+            git pull --rebase origin main
+            sleep "$((attempt * 5))"
+          done
+          # Verify our own commit landed where visitors will read it. The raw
+          # endpoint caches briefly, so accept either the fresh or a very
+          # recent stale copy, but NEVER a parse failure or schema mismatch:
+          # generation already ran against the remote tags, so a refusal to
+          # serve HERE means the push did not land the bytes we built.
+          for attempt in 1 2 3 4 5 6; do
+            sleep 5
+            if curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/releases.json" | grep -q '"schemaVersion"'; then
+              echo "raw releases.json verified readable (attempt $attempt)"
+              exit 0
+            fi
+          done
+          echo "::error::releases.json was pushed but raw.githubusercontent still refuses to serve it — investigate before the site ships"
+          exit 1
