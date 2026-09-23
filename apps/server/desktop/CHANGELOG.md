@@ -1,5 +1,19 @@
 # @internal/desktop-server
 
+## 0.15.0
+
+### Minor Changes
+
+- [#151](https://github.com/subshell-ai/subshell/pull/151) [`9f56e80`](https://github.com/subshell-ai/subshell/commit/9f56e8078c80ab6d7848960d1d4fbb892ed62076) Thanks [@theogravity](https://github.com/theogravity)! - Reset in the Subshell Server assistant now opens as a dialog over the standing section instead of replacing the window. It keeps the delete plan, the disclosures and the typed-hostname gate, and turns its own dismissal inert while the chain runs. On a machine whose server is running, the rail's Status opens a real status screen, the server's facts and log tail with one Open dashboard button, instead of bouncing through the setup handoff.
+
+- [#151](https://github.com/subshell-ai/subshell/pull/151) [`9f56e80`](https://github.com/subshell-ai/subshell/commit/9f56e8078c80ab6d7848960d1d4fbb892ed62076) Thanks [@theogravity](https://github.com/theogravity)! - A new preference chooses what launching Subshell Server opens on a machine whose server is already running: the dashboard, or the app's own assistant window. The default is the dashboard, which is what every launch does today. It is set from the "Open on launch" row on the assistant's How Your Server Runs screen, and it saves as soon as you change it.
+
+- [#151](https://github.com/subshell-ai/subshell/pull/151) [`9f56e80`](https://github.com/subshell-ai/subshell/commit/9f56e8078c80ab6d7848960d1d4fbb892ed62076) Thanks [@theogravity](https://github.com/theogravity)! - The Subshell Server tray's first item is now "Open Control Plane In App"; it still asks the server which home this machine is owed. A new "Open Server App" sits beside it and raises the app's own window directly, no probe and no server question. That door existed before only through Check-for-Updates, which is not where someone looking for the window would think to press.
+
+### Patch Changes
+
+- [#153](https://github.com/subshell-ai/subshell/pull/153) [`9e8fa3b`](https://github.com/subshell-ai/subshell/commit/9e8fa3bb9d09c450448f4440b6c937bb6bee8e2c) Thanks [@theogravity](https://github.com/theogravity)! - The tray's "Open Server App" no longer flashes. On a running server it was opening the assistant, which handed off to the dashboard and closed itself; it now opens on the standing Status screen and stays. The tray also groups its doors: "Open Control Plane In App" and "Open in Browser" above a divider, "Open Server App" below it. On the Status screen the app's version moved to the top beside the other facts and is joined by the running server's CLI version, and the resolution-rung label under the binary path ("named by the installed service", and its siblings) is gone. The redundant "Server Addresses" tray item is gone too — the assistant's own rail already carries that screen. And the assistant now says "control plane" wherever it once said "dashboard": the Status button, the ready handoff, the Set Up address row, and the supervision launch option.
+
 ## 0.14.1
 
 ### Patch Changes
