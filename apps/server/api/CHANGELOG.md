@@ -1,5 +1,13 @@
 # @internal/server
 
+## 0.17.1
+
+### Patch Changes
+
+- [#164](https://github.com/subshell-ai/subshell/pull/164) [`5c456ae`](https://github.com/subshell-ai/subshell/commit/5c456ae112fcafc1e53e5e6d66d3bbc99986cef0) Thanks [@theogravity](https://github.com/theogravity)! - Stop fresh terminal panes from growing a duplicate prompt at the top of an empty screen. Attaching to a pane fits it to the viewer's grid and, when nothing repaints, forces a repaint with a SIGWINCH and a ±1-column nudge — right for a settled TUI holding a possibly-stale frame, wrong for a shell still booting: slow-init prompts (ble.sh, powerlevel10k) redraw on every SIGWINCH, and mid-boot redraws land as extra prompt lines written into the pane's OWN history — every viewer of the fresh terminal then sees the real prompt at the bottom and stray copies at the top. The attach now recognizes a pane with no settled frame: no readable log bytes at the join (a first boot, or no log to read at all), or bytes left over from the row's PREVIOUS life while the current boot is under five seconds old — a restart reuses the row and its log deliberately survives, so the row's own boot timestamp is the epoch. Such a pane still gets the one fit resize (before any frame exists, so the shell boots at the viewer's geometry), and then exactly nothing else — no wait, no winch, no nudge. Settled panes keep today's dance untouched.
+
+- [#163](https://github.com/subshell-ai/subshell/pull/163) [`5721e54`](https://github.com/subshell-ai/subshell/commit/5721e5461cd4887c394dcfdff9adf0ede1dfd403) Thanks [@theogravity](https://github.com/theogravity)! - Fix the Updates page going mute after a node update actually succeeded. The POST answers the ACCEPTANCE (202); the machine's restart and its return on the new version happen after it — and the page, which deliberately does not poll, had nothing to notice that return. Rows sat at `0.15.0 → 0.15.1` with no version change and no success said, an operator-report of an update that had in fact worked. A row now says "Update accepted. {name} is installing {version} and will reconnect by itself" on the 202, polls the (already-cached) nodes read every 2 s for exactly as long as a machine is mid-update, flips to "Updated to X." the moment the node reports back — invalidating the page's own read so the version cells move too — and says so plainly rather than spinning forever if the machine has not returned after two minutes.
+
 ## 0.17.0
 
 ### Minor Changes
