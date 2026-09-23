@@ -4,8 +4,10 @@
  * tmux re-wraps the OLD frame the instant a pane resizes, so a timer-based
  * settle captures a stable-looking grid of mid-word garbage. These helpers
  * detect the app's real SIGWINCH repaint as a burst of log bytes instead, and
- * force one when a no-op resize fires no SIGWINCH at all — the case that left
- * a half-painted frame on screen for every later viewer.
+ * force one when a resize that CHANGED the geometry stays unanswered — a
+ * same-size reopen re-wraps nothing and is now deliberately left alone (see
+ * {@link fitPaneAndRepaint}; provoking it only made winch-redrawing prompts
+ * write orphan prompt lines into their own history).
  *
  * Extracted from `subshell-ws.ts` unchanged: both attach paths need them, and
  * having the remote relay reach into the local attach module for them was
@@ -179,15 +181,15 @@ export function paneReadsAsBooting(
  * A diff-rendering TUI (ink and friends) repaints the WHOLE screen only on
  * SIGWINCH. Two ways that leaves a garbled pane no diff frame ever heals:
  *
- * - **The no-op resize (the reopen case).** `resize-window` to the size the
- *   pane ALREADY has changes nothing, so no SIGWINCH fires. Whatever
- *   half-repainted frame the pane was left holding — e.g. by an earlier
- *   viewer at another width — stays on screen, the capture faithfully ships
- *   it, and the app's later diffs paint onto a base the client never had.
- *   This is exactly the standing report: "close subshell, re-enter, garbled until
- *   I resize the window" (a real width change is the SIGWINCH that finally
- *   forces a full repaint) — and why reopening at the same size never helps
- *   while a manual resize fixes it for good.
+ * - **The unanswered real resize.** tmux re-wrapped and delivered the SIGWINCH,
+ *   but nothing answered within the wait — an app that ignores the signal, or
+ *   one that repaints only on a size change it deigns to notice. The captured
+ *   grid is tmux's re-wrap of the OLD frame, mid-word garbage, and the app's
+ *   later diffs paint onto a base the client never had. The ±1 step gives it a
+ *   geometry change it cannot ignore. (A reopen at the pane's own size is NOT
+ *   this case and no longer comes here: nothing re-wrapped, so there is
+ *   nothing to heal — and for p10k/ble.sh-class prompts the ±1 was a per-
+ *   reopen source of orphan prompt lines written into history.)
  * - **The late repaint.** Under load (a build running in that very pane) the
  *   app's SIGWINCH response can land after {@link waitForPaneRepaint}'s
  *   bound, so the capture catches tmux's instant re-wrap of the OLD frame: a
@@ -348,7 +350,10 @@ export async function fitPaneAndRepaint(
     // Same-size reopen — the common case for "click the terminal again".
     // Nothing changed geometry, so tmux re-wrapped nothing and the current
     // grid IS the current frame: there is no stale paint for the nudge to
-    // correct, and provoking one is strictly harmful. A SIGWINCH-redrawing
+    // correct — short of the rare case where the LAST real resize's repaint
+    // never landed (a viewer detaching mid-dance suppressed its nudge, or the
+    // app was wedged) — and provoking one is strictly harmful for the common
+    // pane. A SIGWINCH-redrawing
     // prompt (p10k, ble.sh) answers every geometry event by inserting a line
     // and repainting INTO history — one orphan prompt at the top per reopen,
     // growing on each one (2026-09-23 live log: a settled 67x25 pane reopened

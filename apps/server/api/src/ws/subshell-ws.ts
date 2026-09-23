@@ -225,11 +225,13 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // tmux re-wraps the OLD frame the instant the pane resizes, so a
   // timer-based settle captures a stable-looking grid of mid-word garbage;
   // {@link waitForPaneRepaint} instead detects the app's real SIGWINCH
-  // repaint as a byte burst in the log. No burst does NOT mean "idle": a
-  // reopen at the size the pane already has makes the resize a no-op, so no
-  // SIGWINCH fires and a half-repainted frame stays on screen for every
-  // later viewer — {@link nudgePaneForRepaint} forces the repaint here
-  // instead of leaving the user to do it by hand with a window resize.
+  // repaint as a byte burst in the log. No burst after a resize that CHANGED
+  // the geometry means the app ignored the signal, and {@link
+  // nudgePaneForRepaint} forces the repaint here instead of leaving the user
+  // to do it by hand with a window resize. A reopen at the size the pane
+  // already has is the opposite case: nothing re-wrapped, nothing stale, so
+  // it is left completely alone — provoking it only made winch-redrawing
+  // prompts duplicate lines into their own history on every reopen.
   let repainted = false;
   let nudged = false;
   /** The grid this attach actually asked the pane for, for the announcement below. */

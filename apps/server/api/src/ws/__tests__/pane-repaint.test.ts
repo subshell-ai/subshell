@@ -171,14 +171,23 @@ describe("fitPaneAndRepaint", () => {
     }
   });
 
-  it("canNudge:false never nudges (a pane-poll attach has no log to read a burst from)", async () => {
+  it("canNudge:false resizes but never provokes (a REAL change waited on and got nothing)", async () => {
+    // Must be a size CHANGE: a same-size fit now returns before the wait, and
+    // the same-size version of this test passed through the new early return
+    // without ever touching the guard (mutation-verified). This is the live
+    // route to the flag — a viewer that detached (or has no readable log)
+    // during the post-resize wait must not leave a ±1 storm behind.
     const p = await seed("nonudge", "cat");
     try {
-      const r = await fitPaneAndRepaint(launcher, p.socket, p.id, p.size, p.sizeOf, {
+      const fit = { cols: p.size.cols - 3, rows: p.size.rows };
+      const r = await fitPaneAndRepaint(launcher, p.socket, p.id, fit, p.sizeOf, {
         baseline: await p.sizeOf(),
         canNudge: false,
       });
       expect(r).toEqual({ repainted: false, nudged: false });
+      // The fit itself still applied — refusing to provoke never means refusing
+      // to resize.
+      expect(await launcher.paneSize(p.socket, p.id)).toEqual(fit);
     } finally {
       await p.dispose();
     }
