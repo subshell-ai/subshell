@@ -22,8 +22,11 @@ import type { ProbeStep } from "@/lib/ipc";
  * button there rather than something that happens to them.
  *
  * The rest are what a person asked for. `connect` is the WATCH path's one
- * screen (an address, and nothing about this machine); `enroll` is only the
- * re-enrolment a working node asks for.
+ * screen (an address, and nothing about this machine). `enroll` is GONE with
+ * the Control Plane collapse (operator ruling 2026-09-22): re-enrolling is now
+ * REPOINTING on the plane card, and the destructive enroll that overwrote a
+ * working `config.json` has no screen in this window; a machine moving to a
+ * genuinely different plane enrolls there with the CLI.
  *
  * Three ids are GONE with the first run, and their absence is the design
  * rather than an omission: `connected`, `service` and `install-agent` were the
@@ -45,8 +48,6 @@ export type NodeScreenId =
   | "service"
   | "plane"
   | "connect"
-  | "enroll"
-  | "reset"
   | "about"
   | "update";
 
@@ -66,8 +67,6 @@ export const NODE_SCREEN_IDS: readonly NodeScreenId[] = [
   "service",
   "plane",
   "connect",
-  "enroll",
-  "reset",
   "about",
   "update",
 ];
@@ -75,8 +74,8 @@ export const NODE_SCREEN_IDS: readonly NodeScreenId[] = [
 /**
  * A screen the USER chose rather than one the machine implies.
  *
- * Re-enrolling and resetting are things a person asks for from a machine that
- * is already working; no probe ever implies either. `service` and `plane`
+ * Resetting is something a person asks for from a machine that is already
+ * working; no probe ever implies it. `service` and `plane`
  * joined them in wave 3's follow-ups (operator ruling 2026-09-22): the rail's
  * Service and Control Plane sections are screens a person SELECTS, and the
  * override state is how a select persists. `about` joined them when
@@ -92,7 +91,7 @@ export const NODE_SCREEN_IDS: readonly NodeScreenId[] = [
  * consented act with a half still outstanding, and `app.tsx` opens this screen
  * once per launch when the probe reports one (spec 2026-09-18 § 4.2).
  */
-export type NodeUserScreen = "enroll" | "reset" | "about" | "update" | "service" | "plane" | "status";
+export type NodeUserScreen = "about" | "update" | "service" | "plane" | "status";
 
 /**
  * ONE word for where you are, on both platforms (operator's call, 2026-09-12).
@@ -138,9 +137,9 @@ export function screenTitle(screen: NodeScreenId): string {
       return "Install tmux";
     case "register":
       // "Register", not "Enroll": this is the press that makes the machine a
-      // node, and `enroll` is the CLI's word for the same act — which this
-      // window still uses for the DIFFERENT, destructive one (re-enrolling a
-      // working node). Two acts, two words.
+      // node, and `enroll` stays the CLI's word. What used to be the window's
+      // second use of it, the destructive re-enrolment of a working node, is
+      // gone with the Control Plane collapse; repointing is the word there.
       return `Register ${HERE}`;
     case "startup":
       return "How This Node Runs";
@@ -164,31 +163,6 @@ export function screenTitle(screen: NodeScreenId): string {
       return "Control Plane";
     case "connect":
       return "Connect to a Server";
-    case "enroll":
-      return `Enroll ${HERE}`;
-    case "reset":
-      // The one title that names no machine at all, on either platform
-      // (operator's call, 2026-09-12). It was "Reset This Mac", and that was
-      // wrong twice over.
-      //
-      // It OVERCLAIMED. This deletes Subshell's own state — the config, the
-      // node key, the data directory — and touches nothing else on the
-      // computer. A destructive label that reads as "erase this computer" is
-      // alarming about the wrong thing, which is worse than being alarming,
-      // because it teaches people not to trust what these labels say.
-      //
-      // And it read as TRUNCATED: "Mac" is a prefix of "Machine", the
-      // sibling string on Linux really is "This Machine", and the label ends
-      // there under the ellipsis a button that opens a screen carries. That
-      // is how it was reported — as a layout bug.
-      //
-      // Naming WHAT IS RESET fixes both and needs no platform word:
-      // everything this app does is on this machine, so saying so was only
-      // ever redundant (operator's call, 2026-09-12). The two apps do NOT
-      // share a string — Subshell Server's twin reads "Reset this server",
-      // because the two resets destroy different things and one label over
-      // both is the overloading the vocabulary rule exists to prevent.
-      return "Reset this client";
     case "about":
       return "About Subshell Client";
     case "update":

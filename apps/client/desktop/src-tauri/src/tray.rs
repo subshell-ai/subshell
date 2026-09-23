@@ -10,7 +10,8 @@
 //!
 //! - Every tray action also exists in the window UI or the menu bar. The tray
 //!   is a shortcut, never the only route to anything — which is why this menu
-//!   is two items and neither of them drives the CLI.
+//!   opens windows, names addresses and changes its own labels, and drives no
+//!   CLI.
 //! - `close_to_tray` DEFAULTS ON (2026-09-07), and both the setter and the
 //!   window-close handler gate on `subshell_desktop_core::tray`'s PROBE of that
 //!   bus rather than on the platform — so a KDE user gets the feature and a
@@ -41,7 +42,7 @@
 //! The only usable macOS check would compare `TrayIcon::rect()` against
 //! `auxiliaryTopRightArea`; there is none today, so this app cannot warn.
 
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
 
@@ -58,19 +59,104 @@ const TRAY_ID: &str = "subshell-node";
 
 /// The menu ids. Namespaced so they can never collide with a predefined
 /// item's id.
-const OPEN_ID: &str = "tray:open";
-/// "Open in Browser".
-///
-/// Distinct from the menu bar's (`control::MENU_BROWSER_ID`) for the reason
-/// the text-size items are absent from this handler: a Tauri menu event is
-/// GLOBAL, so an id handled here AND in `lib.rs`'s app-level handler fires
-/// twice per click — two browser tabs, in this item's case.
-const BROWSER_ID: &str = "tray:browser";
 const NODE_ID: &str = "tray:node";
 const KEEP_ID: &str = "tray:keep";
 const ABOUT_ID: &str = "tray:about";
 /// "Check for Updates…" — this APP, not the node agent it wraps.
 const UPDATE_ID: &str = "tray:update";
+
+/// The plane-list tray ruling (operator, 2026-09-22): the two flat items
+/// ("Open Subshell Client", "Open in Browser") did not say WHICH plane they
+/// opened, which stopped being acceptable the day the list grew past one.
+/// The tray now mirrors the Control Plane section: a **Control Plane**
+/// submenu of the saved addresses — the node's own connected one first, the
+/// same pinned-row rule as the page — each opening **Open in App | Open in
+/// Browser**. The ids carry the canonical URL, so a click acts on exactly
+/// the address the person read, even if the list was curated between the
+/// build and the click.
+const PLANE_APP_PREFIX: &str = "tray:plane-app:";
+const PLANE_BROWSER_PREFIX: &str = "tray:plane-browser:";
+const CONTROL_PLANE_TITLE: &str = "Control Plane";
+/// The empty-list child's id — a disabled label, never a press target.
+const PLANE_NONE_ID: &str = "tray:plane-none";
+/// "Open Last" — the address of the last deliberate plane open, through the
+/// DOOR that open used, app window or system browser (operator ruling,
+/// 2026-09-22: "have Control Plane have a Open Last option which would open
+/// the last used url with the opening method used"). The record lives in
+/// settings (`last_plane_open`), written by every opener on success and
+/// cleared by reset with the list.
+const PLANE_LAST_ID: &str = "tray:plane-last";
+
+/// The tray's plane list, pure (the pinned row's rule, in the page's shape):
+/// the connected address FIRST when this machine is a node, then the stored
+/// planes, defensively deduped. `connected` arrives canonicalized (or not at
+/// all — an unparseable stored config is nobody's pinned entry) and stored
+/// entries were canonicalized at add time, so equality here is the whole
+/// dedupe. Rust refuses to store the node's own address, so the dedupe arm
+/// is belt-and-braces against a CLI enrollment leaving two spellings, which
+/// is exactly the case the page's pinned row also guards.
+pub fn plane_entries(planes: &[String], connected: Option<&str>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if let Some(url) = connected {
+        out.push(url.to_string());
+    }
+    for url in planes {
+        if !out.iter().any(|seen| seen == url) {
+            out.push(url.clone());
+        }
+    }
+    out
+}
+
+/// The Control Plane submenu, read LIVE: the stored list from the app's own
+/// settings, the connected address from the node's config file — no probe,
+/// no window, nothing async. Refreshed by [`refresh`] on every change to
+/// either (plane add/remove, enroll, un-enroll).
+fn control_plane_submenu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
+    let settings = app.state::<SettingsState>().get();
+    let entries = plane_entries(&settings.planes, crate::control::tray_connected_url().as_deref());
+    // First child, above every address: one press replays the last open —
+    // its URL AND its door. Enabled exactly when an open has been recorded;
+    // disabled is honest ("you have not opened a plane yet this install"),
+    // and the record is live state, so reset greys it again with the list.
+    let open_last = MenuItem::with_id(
+        app,
+        PLANE_LAST_ID,
+        "Open Last",
+        settings.last_plane_open.is_some(),
+        None::<&str>,
+    )?;
+    if entries.is_empty() {
+        // Named rather than hidden: a tray that silently omits the section
+        // reads as a bug; a greyed line says what is true. Open Last can
+        // still stand above it — an address can leave the list without
+        // un-happening the visit — so the submenu is never wholly dead.
+        let none = MenuItem::with_id(app, PLANE_NONE_ID, "No control planes yet", false, None::<&str>)?;
+        return Submenu::with_items(app, CONTROL_PLANE_TITLE, true, &[&open_last, &none]);
+    }
+    let separator = PredefinedMenuItem::separator(app)?;
+    let mut submenus: Vec<Submenu<Wry>> = Vec::new();
+    for url in &entries {
+        let in_app = MenuItem::with_id(
+            app,
+            format!("{PLANE_APP_PREFIX}{url}"),
+            "Open in App",
+            true,
+            None::<&str>,
+        )?;
+        let in_browser = MenuItem::with_id(
+            app,
+            format!("{PLANE_BROWSER_PREFIX}{url}"),
+            "Open in Browser",
+            true,
+            None::<&str>,
+        )?;
+        submenus.push(Submenu::with_items(app, url.clone(), true, &[&in_app, &in_browser])?);
+    }
+    let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![&open_last, &separator];
+    items.extend(submenus.iter().map(|s| s as &dyn IsMenuItem<Wry>));
+    Submenu::with_items(app, CONTROL_PLANE_TITLE, true, &items)
+}
 
 /// The "Check for Updates…" item, held so the launch check can relabel it.
 ///
@@ -127,19 +213,19 @@ pub fn set_update_available(app: &AppHandle, version: Option<&str>) {
 /// screen and a preference is not a question.
 pub struct KeepItem(CheckMenuItem<Wry>);
 
-/// Build the tray icon. Failure is not fatal — an app without a tray still works.
-pub fn build(app: &AppHandle) -> tauri::Result<()> {
-    // Two items, one per window, because the two are genuinely different
-    // destinations: the plane's UI, and this machine's own node settings. The
-    // second is also the only way BACK to the node page once a client has
-    // settled on a plane and opens there every time.
-    let open = MenuItem::with_id(app, OPEN_ID, "Open Subshell Client", true, None::<&str>)?;
-    // Directly under it: the same plane, through the browser the person keeps
-    // their profiles and passwords in. Always enabled — the Rust side falls
-    // back to `/`, and the one state it cannot serve (no plane opened yet) is
-    // one the person can see for themselves.
-    let browser = MenuItem::with_id(app, BROWSER_ID, "Open in Browser", true, None::<&str>)?;
-    let node = MenuItem::with_id(app, NODE_ID, "This machine…", true, None::<&str>)?;
+/// The tray's full menu, built from the machine's live state: the plane
+/// submenu reads the stored list and the node's config right here, the
+/// update item seeds from the last check's stored notice, the keep item
+/// from the clamped preference. `refresh` re-runs exactly this and swaps
+/// it in, which is only honest because nothing here is remembered between.
+fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
+    // The two windows, told apart by what they OPEN (operator ruling
+    // 2026-09-22): the Control Plane submenu opens PLANES, by address; this
+    // opens the client's own window — this machine's bundled node page —
+    // which the plane submenu can never reach. The label is the verb the
+    // old "This machine…" lacked.
+    let node = MenuItem::with_id(app, NODE_ID, "Open Client App", true, None::<&str>)?;
+    let control_plane = control_plane_submenu(app)?;
     // The two names for one idea, each the one that platform's users read.
     let keep_label = if cfg!(target_os = "macos") {
         "Keep Running in Menu Bar"
@@ -170,17 +256,13 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     // Seeded from what the LAST check found, because the launch check runs
     // after this menu is built and may not run at all today — an item that
     // only ever said "Check for Updates…" until a check happened would hide a
-    // waiting update for up to a day.
+    // waiting update for up to a day. Filtered through `notice_for`: this
+    // seed paints STORED state with no source consulted, which is precisely
+    // where an installed-update lie survives (a hand-replaced bundle never
+    // clears the field).
     let update = MenuItem::with_id(
         app,
         UPDATE_ID,
-        // Seeded from what the LAST check found, because the launch check runs
-        // after this menu is built and may not run at all today — an item that
-        // only ever said "Check for Updates…" until a check happened would hide
-        // a waiting update for up to a day. Filtered through `notice_for`: this
-        // seed paints STORED state with no source consulted, which is precisely
-        // where an installed-update lie survives (a hand-replaced bundle never
-        // clears the field).
         update_label(
             subshell_desktop_core::version::notice_for(
                 &app.package_info().version.to_string(),
@@ -192,11 +274,10 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         None::<&str>,
     )?;
     app.manage(UpdateItem(update.clone()));
-    let menu = Menu::with_items(
+    Menu::with_items(
         app,
         &[
-            &open,
-            &browser,
+            &control_plane,
             &node,
             &PredefinedMenuItem::separator(app)?,
             &update,
@@ -208,8 +289,31 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::quit(app, None)?,
         ],
-    )?;
+    )
+}
 
+/// Rebuild the tray menu after the plane list or the node's connection
+/// changed — `node_plane_add`, `node_plane_remove`, `node_enroll` and
+/// `node_unenroll` all call this on their way out, because each is exactly
+/// one of those two facts moving.
+///
+/// Silent where there is no tray, the `set_update_available` rule: a menu
+/// nobody can see is worth neither an error nor a log line. The ids are
+/// re-derived from the same live reads, and the item handles behind
+/// `KeepItem`/`UpdateItem` are re-managed by `tray_menu`, so the labels
+/// survive a refresh honest.
+pub fn refresh(app: &AppHandle) {
+    let Ok(menu) = tray_menu(app) else {
+        return;
+    };
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let _ = tray.set_menu(Some(menu));
+    }
+}
+
+/// Build the tray icon. Failure is not fatal — an app without a tray still works.
+pub fn build(app: &AppHandle) -> tauri::Result<()> {
+    let menu = tray_menu(app)?;
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(app.default_window_icon().cloned().ok_or_else(|| {
             tauri::Error::InvalidIcon(std::io::Error::new(
@@ -242,12 +346,37 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         // 1.75. Everything else here is safe only because no other id is
         // shared between the two menus.
         .on_menu_event(|app, event| match event.id.as_ref() {
-            OPEN_ID => crate::windows::focus_any(app),
-            // Rust-side, no page involved: this app tells the plane's page
-            // nothing, so a menu item that needed the page to act could not
-            // exist here at all.
-            BROWSER_ID => crate::control::open_current_in_browser(app),
             NODE_ID => crate::windows::focus_node(app),
+            // The plane opens carry their address in the id, so the click
+            // acts on exactly the URL the person read. Both arms RE-VALIDATE
+            // (windows::open_plane parses and checks the scheme; the browser
+            // helper runs the same `validate_server_url` every opener uses):
+            // an id string is data, never a trusted URL. Rust-side, no page
+            // involved — this app tells the plane's page nothing, so a menu
+            // item that needed the page to act could not exist here at all.
+            id if id.starts_with(PLANE_APP_PREFIX) => {
+                if let Err(err) = crate::windows::open_plane(app, &id[PLANE_APP_PREFIX.len()..]) {
+                    eprintln!("tray: {err}");
+                }
+            }
+            id if id.starts_with(PLANE_BROWSER_PREFIX) => {
+                crate::control::tray_open_in_browser(app, &id[PLANE_BROWSER_PREFIX.len()..]);
+            }
+            // The replay: the stored address through the stored door, which
+            // means the same openers and the same re-validation — a stored
+            // string is data, exactly like an id. Re-opening re-records the
+            // same pair (every open does; harmless for a replay), and the
+            // replay must NOT repaint the tray: this is the tray's own
+            // handler (see `record_plane_open`).
+            PLANE_LAST_ID => {
+                if let Some(record) = app.state::<SettingsState>().get().last_plane_open {
+                    if record.browser {
+                        crate::control::tray_open_in_browser(app, &record.url);
+                    } else if let Err(err) = crate::windows::open_plane(app, &record.url) {
+                        eprintln!("tray: {err}");
+                    }
+                }
+            }
             ABOUT_ID => crate::windows::show_node_screen(app, "about"),
             // Raises the node window AT the screen through the same route
             // About takes, and performs no check itself: the screen's own
@@ -340,35 +469,76 @@ mod tests {
         assert_ne!(TRAY_ID, "subshell");
     }
 
-    // Namespaced so they cannot collide with a predefined item's id.
-    #[test]
-    fn the_about_id_is_its_own() {
-        assert_ne!(ABOUT_ID, OPEN_ID);
-    }
-
     #[test]
     fn the_menu_ids_are_namespaced() {
-        assert!(OPEN_ID.starts_with("tray:"));
-        assert!(NODE_ID.starts_with("tray:"));
-        assert!(KEEP_ID.starts_with("tray:"));
-        assert!(BROWSER_ID.starts_with("tray:"));
-        assert_ne!(OPEN_ID, NODE_ID);
-        assert_ne!(OPEN_ID, KEEP_ID);
-        assert_ne!(NODE_ID, KEEP_ID);
-        assert_ne!(BROWSER_ID, OPEN_ID);
-        assert_ne!(BROWSER_ID, NODE_ID);
+        for id in [NODE_ID, KEEP_ID, ABOUT_ID, UPDATE_ID, PLANE_NONE_ID, PLANE_LAST_ID] {
+            assert!(id.starts_with("tray:"), "{id}");
+        }
+        // The plane ids are prefixes: what follows is a URL, so the whole
+        // id can never equal any fixed id, and the two arms of the handler
+        // must not shadow each other — neither prefix may be a prefix of the
+        // other, or one arm would swallow the other's clicks.
+        for prefix in [PLANE_APP_PREFIX, PLANE_BROWSER_PREFIX] {
+            assert!(prefix.starts_with("tray:"), "{prefix}");
+        }
+        assert!(!PLANE_APP_PREFIX.starts_with(PLANE_BROWSER_PREFIX));
+        assert!(!PLANE_BROWSER_PREFIX.starts_with(PLANE_APP_PREFIX));
     }
 
-    /// The two menus' browser ids differ.
+    /// The plane ids belong to no other menu.
     ///
-    /// A Tauri menu event is global: this handler sees the menu bar's items
-    /// and the app-level handler sees this menu's. One id in both fires twice
-    /// per click — measured as two zoom steps for the text-size ladder, and
-    /// here it would be two browser tabs.
+    /// A Tauri menu event is GLOBAL: this handler sees the menu bar's items
+    /// and `lib.rs`'s app-level handler sees this menu's. One id in two menus
+    /// fires twice per click — measured as two zoom steps for the text-size
+    /// ladder, and here a shared browser id would be two tabs (or a window
+    /// AND a tab) per press.
     #[test]
-    fn the_browser_id_is_not_the_menu_bars() {
-        assert_ne!(BROWSER_ID, crate::control::MENU_BROWSER_ID);
-        assert_ne!(BROWSER_ID, crate::zoom::IN_ID);
+    fn the_plane_ids_are_not_the_menu_bars() {
+        let sample = "https://plane.example";
+        for prefix in [PLANE_APP_PREFIX, PLANE_BROWSER_PREFIX] {
+            let id = format!("{prefix}{sample}");
+            assert_ne!(id, crate::control::MENU_BROWSER_ID);
+            assert_ne!(id, crate::zoom::IN_ID);
+            assert_ne!(id, NODE_ID);
+        }
+        assert_ne!(PLANE_NONE_ID, crate::control::MENU_BROWSER_ID);
+    }
+
+    /// The pinned-row rule, pinned: the connected address FIRST, then the
+    /// stored list, each address once. The page renders the same shape, and
+    /// the tray must not lead a person to press the plane twice.
+    #[test]
+    fn the_connected_plane_leads_the_list() {
+        let stored = vec!["https://b.example".to_string(), "https://a.example".to_string()];
+        assert_eq!(
+            plane_entries(&stored, Some("https://c.example")),
+            vec!["https://c.example", "https://b.example", "https://a.example"]
+        );
+    }
+
+    #[test]
+    fn a_listed_plane_is_never_listed_twice() {
+        // The case Rust's add-refusal prevents and CLI enrollment does not:
+        // the stored list holding the node's own address.
+        let stored = vec!["https://a.example".to_string(), "https://b.example".to_string()];
+        assert_eq!(
+            plane_entries(&stored, Some("https://a.example")),
+            vec!["https://a.example", "https://b.example"]
+        );
+    }
+
+    #[test]
+    fn the_list_without_a_node_is_the_stored_order() {
+        let stored = vec!["https://b.example".to_string(), "https://a.example".to_string()];
+        assert_eq!(
+            plane_entries(&stored, None),
+            vec!["https://b.example", "https://a.example"]
+        );
+        assert!(plane_entries(&[], None).is_empty());
+        assert_eq!(
+            plane_entries(&[], Some("https://only.example")),
+            vec!["https://only.example"]
+        );
     }
 
     /// The label is the NOTICE, in the sibling app's grammar (2026-09-18).

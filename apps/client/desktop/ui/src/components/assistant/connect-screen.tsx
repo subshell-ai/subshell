@@ -36,7 +36,7 @@ export function ConnectScreen(props: { shell: FrameShell; commands: NodeCommands
   const empty = typed.trim() === "";
   const submit = () => {
     if (busy || empty) return;
-    commands.connectOnly(typed);
+    commands.addPlane(typed);
   };
 
   return (

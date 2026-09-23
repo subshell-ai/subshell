@@ -115,7 +115,7 @@ own client-status screen and the dashboard opens from the button there.
 is remote content whose one grant opens a browser, so it cannot offer a way
 back into this app, and a tray
 icon is silently invisible wherever no StatusNotifier host is registered. So:
-macOS gets **Window → This machine…** in the menu bar (always drawn, which also
+macOS gets **Window → Open Client App** in the menu bar (always drawn, which also
 covers the notched-display hazard in `tray.rs`); everywhere else,
 `node_window_has_a_route_home()` asks `desktop-core`'s tray probe and, when the
 answer is no, `focus_any` RE-CREATES the node window — so relaunching, which is
@@ -662,11 +662,16 @@ the `node` window alone:
   in flight, so someone who fixed the machine in a terminal is pressing that
   button to say "look again". A tmux found there returns without spawning, and
   the screen leaves by itself as it always did.
-- **`node_set_plane`** remembers a control plane WITHOUT opening its window.
+- **`node_plane_add`** remembers a control plane WITHOUT opening anything.
   It exists because `node_open_plane` does both, and the first run's connect
   step must do only the first — a dashboard that appears mid-setup is the
-  defect that whole flow removed. The dashboard opens from the status screen's
-  own button afterwards.
+  defect that whole flow removed. Its pair `node_plane_remove` Errs on a row
+  that is not stored (the page names only rows it renders; silence would
+  lie); both compute through pure `plane_list_*` helpers that canonicalize,
+  dedupe, and refuse the node's own address, because that address renders as
+  the pinned row and two rows for one plane is what the pinned row exists to
+  prevent. `node_set_plane` — the single-address ancestor — is GONE with the
+  plane-list ruling below.
 
 `node_service` also gained `autostart` beside `force`. It has two jobs and no
 others: on `install`, `false` spells `--no-autostart` — the flag that installs
@@ -715,7 +720,8 @@ is about the machine's journey, not about who asked: the tray can raise
 About mid-walk, and that render keeps its Back. A select is the navigation:
 every select sets its override now (see the landing ruling below). Reset's
 CONFIRMATION rides the rail (operator ruling 2026-09-22, final word on the
-reset layout, superseding the frame-replacing premise for the confirmation:
+reset layout, superseding the frame-replacing premise for the confirmation
+(now itself superseded — see the dialog addendum below):
 the sidebar was being lost today and that is not wanted) — the room is the
 RUNNING chain: from the confirm press to the chain's end, reset-screen.tsx
 hides the rail off the runner's busy and renders no exit, and no navigation
@@ -775,8 +781,9 @@ that owns the action, and the config fact's value is PLAIN LANGUAGE —
 "Not enrolled. Go to Service to enroll." for the enroll-pointing reason,
 "The node's configuration could not be read." for any other — the raw CLI
 words render only as an action's failure output. Unregister is not a link on the status
-screen — the rail's Reset section is its ONLY entry (one act, one door, one
-label). There is no Refresh button
+screen — the rail's Reset item is its ONLY entry (one act, one door, one
+label), and since the dialog ruling that item opens the confirmation over
+the standing section instead of selecting one. There is no Refresh button
 anywhere: the probe query re-reads the machine on its own five-second interval
 (operator ruling, 2026-09-22) — the poll is the refresh.
 
@@ -823,14 +830,17 @@ plane-coherence notice leads with the conflict now (review, 2026-09-22):
 **Service joins the server's layout, and the badge joins the header** (the
 same day's follow-up, rails addendum: "consistency in offering and UI").
 The Service section now offers what Subshell Server's Service offers, adapted
-to a node: the arrangement stated as one card — **In the background** with the
-server's own platform sentence — the run-at-login switch nested under it
-("Start it again at every login", the same words the server uses — the
-first-run question keeps its shorter "Start at login": day 2 mirrors the
-server, the walk's own wording stands) for an
-installed service, the lifecycle verbs (Start when it is down, Stop and
-Restart when it is up with the pane-safety force flow unchanged, Uninstall
-confirmed in its own words), and the install-service door for a machine whose
+to a node: the arrangement stated as one card — **In the background**, naming
+no manager — the run-at-login switch nested under it
+("Start automatically on startup"). The named thing is the **Subshell
+Node Service** (the server app: the **Subshell Server Service**), and the
+card STATES THE CURRENT CONDITION ("Currently the Subshell Node Service
+runs in the background, but does not automatically start on startup.")
+while the switch help says what flipping it changes. The first-run
+question keeps its shorter "Start at login": the walk's own wording stands).
+For an installed service come the lifecycle verbs (Start when it is down,
+Stop and Restart when it is up with the pane-safety force flow unchanged,
+Uninstall confirmed in its own words), and the install-service door for a machine whose
 node CLI is installed but whose service is not — driven by the definition,
 not only the step word, so no enrolled "nothing installed" answer can miss it.
 Node-specific differences stay: there is no app-managed-child supervision
@@ -847,10 +857,162 @@ switch is only honest because the node CLI gained the verb behind it — see
 `apps/node/agent/AGENTS.md`, "service autostart" — and it is gated on that
 verb: an agent older than `0.15.0` can READ the state (it has answered
 `enabled` forever) but cannot WRITE it, so the switch shows the answer
-greyed with "Update your node to 0.15.0 to control this."
-(`lib/autostart-gate.ts`, the server's `MIN_AUTOSTART_SERVER_VERSION`
-pattern); where neither `autostart` nor `enabled` answered, the switch
-greys showing no guessed value and says the update would add the answer.
+greyed with "Currently the installed version cannot change this. Updating
+to version 0.15.0 lets you." (`lib/autostart-gate.ts`, the server's
+`MIN_AUTOSTART_SERVER_VERSION` pattern; the server app keeps its own shorter
+sentence for its gate). Where neither `autostart` nor `enabled` answered,
+the switch greys showing no guessed value, the help line stays empty, and
+the card itself carries the fact: "Whether it starts on startup is not
+reported." The switch's help states the CURRENT condition in every state it
+can speak — armed, disarmed, too-old — operator ruling 2026-09-22: the card
+says what is, the toggle says what flipping it changes.
+
+**Control Plane became a list, and the node's binding moved to Service** (the
+same day's plane-list wave, superseding everything above about the plane
+cards, the Dashboard card's two doors and where Re-enroll… lives: "the
+control plane section is for connecting to other control planes, not
+necessarily tied with the node"). The section is a BARE TABLE, not a card:
+the node's own address renders as a PINNED first row badged **this node**
+(`probe.status.serverUrl` — a probe fact Rust refuses to store as an entry),
+stored addresses below it. Pressing a row IS the dashboard door; the `⋮` opens
+a real ACTION MENU — Open in dashboard, Open in browser, Copy URL, Remove — positioned
+BY CLASS (`absolute right-0 top-full` in the row's own `relative` box) at a
+FIXED width, which the CSP permits even though it outlaws the style attributes
+a measuring popper writes. Both rulings of constraint came from the live
+window the same hour: the auto-width panel sized itself to the ROW rather
+than its labels once the `w-full` items counted in ("why is the action menu
+so wide"), and button-sized items made the panel read oversized (items are
+the dense menu scale — `h-7`, `font-regular`, `text-detail` — shorter than
+the app's smallest button). Escape and an outside press dismiss it, one is
+open at a time, and `ipc-acl`'s argument pins keep every plane command to the
+one argument: the address. The pinned row's menu holds the SAME opens plus
+Copy URL ("what about open in browser?" — to connect, it is a plane like any
+other), no Remove, and no sentence explaining the absence either — but the
+ROUTE stayed as a plain **Go to Service** item ("what happened to going to
+the Service section": the explanatory note was deleted the same hour
+Un-enroll… stood up there; the pointer to it survived as one item, because
+the absence of Remove says nothing without a door). Copy
+is the `CopyButton` affordance in text form: the menu's dismiss is the
+success flash, and a refused clipboard keeps the menu open and renames the
+item rather than flashing nothing. The add is the frame's bottom bar in the bar's
+own grammar: opener primary-right. The FORM is a dialog (the audit's last
+inline pane), Add its primary, Cancel its ghost, Enter submits — and like
+every save after it the dialog CLOSES on submit, because the refetched list
+underneath is the entire validation and dedupe feedback and a modal that
+stays open says nothing. `plane-coherence.ts` was deleted with the
+two-address state it existed to detect — the pinned row IS the notice — and
+the Status subtitle now states the MACHINE ("This machine is a node of
+<url>." / "This machine is not a node."), because a watcher has many planes
+and none of them is current. `settings.plane_url` became `planes:
+Vec<String>` in `crates/desktop-core` with NO migration (there are no users;
+an old `planeUrl` key reads as nothing), and `node_set_plane`,
+`resolve_plane_url` and the boot-open ladder are deleted outright: spec
+2026-09-18 § 2 says a client never opens a plane by itself, and the ladder
+only ever fed a `debug_assert`. FTE Connect retargeted to `addPlane`.
+
+**Service's Enrolled to Control Plane card holds the node's binding acts**:
+the address, the enroll-time loopback notice that moved with it, **Re-enroll…**
+and **Un-enroll…**, the destructive half. Re-enroll… is the ENROLLMENT
+WIZARD's door (operator ruling 2026-09-22, an hour after the dialog wave:
+"Re-enroll should go through the enrollment wizard") — it opens the same walk
+the Register card opens, seeded with the current address — and the bespoke
+free-form repoint field it displaced went all the way down with its
+`node_configure` command, from `ipc.ts` to the capability file. Re-enrolling
+IS enrolling again: it spends a setup key and mints a fresh node row, and the
+guard against overwriting a live config is the walk's own two-phase confirm,
+not a second gentler surface that taught the cheap CLI act (`subshell
+configure --server`, still a CLI verb, now one this app never calls) is what
+the button does. The two are deliberately SEPARATE commands (operator, same
+day: "let's keep them as separate commands") — Uninstall on the background
+card keeps its narrower meaning even though the un-enroll chain happens to
+tolerate a machine with no service. Its confirm states the orphans ("Subshells that are still running keep
+running, but nothing will manage them." / "The control plane keeps its node
+row until its owner deletes it there."); accepting makes ONE `node_unenroll`
+call, whose chain is Rust's — stop, uninstall the definition (each tolerating
+"nothing installed" so a Retry converges), then the node CLI's new
+`unenroll --yes --json`. The order is the safety property: a kept definition
+respawns a daemon against a deleted config, so the definition goes first; the
+chain deliberately carries NO copy of the reset's tmux-kill half — panes
+outliving their node is this product's design, and the confirm is where that
+truth is read, not discovered. The card is gated on the verb existing
+(`lib/unenroll-gate.ts`, `MIN_UNENROLL_NODE_VERSION = "0.15.0"`, the
+autostart gate's twin over the shared `lib/semver.ts`): an older agent would
+have its service stopped, its definition uninstalled, and only THEN answer
+`unenroll` with a usage error — unmanaged and still enrolled.
+
+**The press narrates its own button** (two more live-window rulings of the
+same hour: "when clicking restart, there should be a spinner saying
+restarting. same with the stop / start button", and "when restarting this
+additional message occurs, can we remove it"). The runner carries the
+in-flight submission's `label` (`start`, `stop`, `restart`, `uninstall`,
+`unenroll`, `rewrite` — set at the `runner.run` call), and the button
+wearing that label shows a spinner and the progressive word; the row's other
+buttons keep their plain words even while disabled, so what is waiting is
+never ambiguous. `accept()` carries the label through a confirmation, so the
+confirmed chains (Uninstall, Un-enroll, the forced restart) spin from the
+dialog's Accept to the answer rather than only from the first press. And a
+starting act (start, restart's two phases, service install, the rewrite)
+does not END when the CLI returns: the runner's `confirmStarted` re-reads
+the probe until the node is ONLINE, or until `START_CONFIRM_MS` (30 s) says
+it is not coming within the window, so the spinner means exactly "confirmed
+started or unable to start" (ruling, same window: "keep it spinning /
+disabled until it's confirmed started or unable to start" — measured, a
+throttled launchd kick takes 10–30 s and the CLI returns instantly).
+`stop` keeps the bounded settle; its answer is the absence and it arrives
+fast. While a starting act runs, the header state chip wears the act's word
+too ("why does it say online while it's restarting?") — the probe's last
+read is stale for seconds on purpose (its online verdict is heartbeat
+freshness, which outlives the kill signal, and the manager's exit timeout
+outlives the click), so repeating it mid-restart reads as a lie; the chip
+returns to the machine's verdict when the act ends. The card's problem
+sentences stay quiet while any of this runs, plus
+`PROBLEM_GRACE_MS` (one residual probe cycle; the confirmation lives inside
+the act now), and a stop keeps no grace at all: its sentence is the point of
+the act. What survives is written as the screen's WARNING band (same-day
+ruling: "if this is something we want to inform the user of, it should
+probably be written as a yellow warning"), on a probe that is no longer
+anyone's in-flight press. No timer of ours narrates the hush's end: the
+probe's own poll re-renders the quiet away. STOPPED keeps no sentence at all
+(later ruling the same night: "just remove this, the badge already shows the
+status" — the chip reads "Service stopped" and the sentence said it twice);
+OFFLINE keeps its pair because it names a disagreement the chip cannot show,
+and NO-SERVICE's because the sentence stands beside the door that ends it.
+And a SUCCESS on this section
+leaves no receipt line (same hour's ruling, on the "subshell restarted."
+block: "just remove it, the user won't notice it anyways"): the card
+rendering `ActionOutput` gates on `output?.ok === false`, so refusals still
+answer verbatim in the monospace block and successes say nothing — the
+runner still RECORDS the success, because the Update screen's verdict watch
+reads that record; the Service section just declines to show it. (This is
+also why the confirm wait refetches BEFORE its first cache read: the cached
+probe is the pre-kick machine, and checking it first returned the wait
+instantly — the live window called that out as the old bug back.)
+
+**Confirmations answer in a dialog now** (operator ruling 2026-09-22: "use a
+dialog when it comes to user confirmation … rather than rendering another
+pane in the panel", then the audit ask). The audit's answer is ONE mount
+point, so the change is one component: every confirmation the app raises is a
+runner `asks()` outcome, every `asks()` outcome renders through
+`ConfirmPanel` at the single `shell.confirm` slot in `app.tsx`, and
+`ConfirmPanel` is now the app's own `Dialog` (`components/ui/dialog.tsx`) —
+a class-positioned fixed overlay with no measuring popper, so the CSP note
+in `confirm-panel.tsx` still holds (style ATTRIBUTES are outlawed; classes
+are not). Escape and a backdrop press ARE the cancel; the accept keeps its
+weight on the right. The dialog is labelled, which is what keeps an accept
+button that shares its words with the button behind it ("Enroll this
+machine") tellable apart by both a screen reader and a test —
+`confirmPanel()` scopes to `role=dialog` now. Reset followed within the
+hour: the rail keeps its **Reset** item and pressing it opens **Reset
+everything?** as a dialog over whatever section stands — paths, the five
+disclosures, and the typed-hostname gate all inside it — and it is a DOOR,
+not a section: it overrides nothing and activates nothing in the rail, so
+the standing screen keeps its highlight underneath. While the chain runs the
+dialog cannot be dismissed (Escape and backdrop inert, Cancel disabled, the
+press relabels "Resetting…"): the old frame-replacing room's no-way-out rule
+expressed harder. Completion closes it and the words land on the section the
+press happened on, like every other action (`reset-dialog.tsx`; the
+`reset` id is gone from `NodeScreenId`, `NodeUserScreen`, the titles and the
+subtitles; `CLIENT_RAIL_SECTIONS` keeps the danger entry as the door).
 
 Three screen ids went with it, and their absence is the design.
 **`connected`**, **`service`** and **`install-agent`** were the probe-derived
@@ -973,14 +1135,13 @@ by any of that:
   contradict it. That, the missing app-managed-child choice, and the switch
   gate naming 0.15.0 where the server's names its own floor, are the three
   honest places the two sections read differently, each on purpose.
-- **The plane's second door.** `node_open_plane_url` opens the settled control
-  plane in the SYSTEM browser — for what the in-app window is wrong for (a
-  different profile, a share, passkeys). The page passes NO URL: the command
-  re-reads the same ladder `node_open_plane` points a window at. On the Connect
-  screen it therefore has to PERSIST the typed address first and open the
-  browser once that lands, because an address never saved cannot be re-read —
-  and the action runner drops a concurrent submission, so the two cannot be
-  fired together.
+- **The plane's second door.** `node_open_plane_url` opens a row in the
+  SYSTEM browser — for what the in-app window is wrong for (a different
+  profile, a share, passkeys). Since the plane-list ruling both opens take
+  `url: String` from the page (the signature pin in `ipc-acl.test.ts` covers
+  all four plane commands) and persist NOTHING: the row the person pressed
+  names the address, and the persist-then-open ordering the old ladder
+  required died with it.
 - **tmux is a gate, not a caption.** Enroll and the service verbs that START
   things (Install, Start, Restart) are disabled while the probe cannot find
   tmux — `enroll` refuses CLI-side and a tmux-less node comes up online with
@@ -1097,6 +1258,37 @@ hide a window into an icon nothing draws. The item shows the CLAMPED value,
 because a check mark claiming behaviour the app will not honour is a check mark
 that lies.
 
+## The tray's Control Plane submenu
+
+The plane-list ruling (operator, 2026-09-22) reached the tray the same day: the
+flat "Open Subshell Client / Open in Browser" pair stopped being honest the
+moment the list could hold more than one plane, because neither item said
+WHICH. The tray now mirrors the Control Plane section:
+
+- **Control Plane ▸ Open Last / — / `<address>` ▸ Open in App | Open in
+  Browser** — one submenu per address, the node's own connected address FIRST
+  (the page's pinned-row rule, same live read: `config.json`, never a probe),
+  the stored list behind it, deduped by exact canonical match.
+- **The ids carry the canonical URL as data** (`tray:plane-app:<url>`), so a
+  click acts on exactly the address the person read, and both arms
+  RE-VALIDATE before acting — an id string is data, never a trusted URL.
+- **"Open Last" replays the last deliberate open, URL AND door** (app window
+  or system browser), remembered in settings (`lastPlaneOpen`) by every
+  opener's success path — `windows::open_plane` for the app door, both
+  browser arms for the other. Greyed until the first open; reset clears it
+  with the list.
+- **The menu is rebuilt from live state** (`tray_menu`), and `tray::refresh`
+  re-runs exactly that and swaps it in. It is called on every mutation the
+  submenu reflects — plane add/remove, enroll, un-enroll, reset — and NOT
+  from inside the tray's own menu handler (replacing a menu from within its
+  event handler is a re-entrancy question this app does not answer; opens
+  FROM the tray record but do not repaint).
+- The tray drives no CLI, and nothing here changed that: the two plane arms
+  open a window and hand a URL to the opener, that is all.
+
+`Open Client App` (was "This machine…", same ruling: the label is the verb) is
+the one window item and reaches the bundled node page, which no plane row can.
+
 ## Reset — returning this machine to un-enrolled
 
 `src-tauri/src/reset.rs`, and the shape is `apps/server/desktop`'s deliberately:
@@ -1173,28 +1365,26 @@ would take it), and a Subshell Server on the same machine is untouched.
 - **`enroll` has no already-enrolled guard.** It overwrites `config.json`, mints
   a SECOND node row on the server, and discards the old node key whose only home
   was that 0600 file. `node_enroll` therefore takes a `confirm` flag and spawns
-  nothing until it is true. **`node_configure` is the non-destructive one** —
-  `subshell configure --server` repoints an enrolled node, keeps its identity
-  and spends no setup key, so it is deliberately ONE click with no confirm
-  phase. Asking there would teach the user that a repoint costs what a
-  re-enrol costs, which is the confusion the separate command removes.
-- **This app holds TWO control-plane addresses.** Its own `planeUrl` (what the
-  plane window opens) and the node's `serverUrl` in `config.json` (what the
-  daemon dials). `plane_url_from` falls back to the second only when the first
-  is unset, so once a preference exists the two drift freely — and every
-  surface showed exactly one of them, which made a drift invisible: the app
-  would show a plane while this machine's subshells reported to another.
-  `node_configure` now writes BOTH, and `lib/plane-coherence.ts` names the pairs
-  that predate it (or that a CLI `subshell enroll` made behind the app's back).
-  One address known is not a drift — an un-enrolled client has no `serverUrl`, a
-  CLI-enrolled machine no stored `planeUrl` — so the notice stays silent there.
-- **Both addresses are shown in ONE place**, the STATUS screen's **More…**
-  (the connected screen's, until that screen was subsumed on 2026-09-18),
-  and deliberately not as `probe-facts` rows: they are the only addresses on
-  the page that can be CHANGED, so they live with the controls that change
-  them — and they sit adjacent because the whole point is that they can
-  disagree. The enroll-time loopback warning is there with them. A
-  `probe-facts` test pins the node address's absence from the facts list.
+  nothing until it is true — and since the plane-list wave that flag guards the
+  app's ONLY re-binding door too: Re-enroll… opens this same walk, so
+  overwriting a live config can only happen behind the two-phase confirm. The
+  cheap alternative the app once offered, `node_configure`
+  (`subshell configure --server`: repoints, keeps identity, spends no key), was
+  retired from the client with that ruling; it survives as a CLI verb.
+- **The app's addresses and the node's address are different things, and the
+  list's shape says so.** The app stores a LIST (`settings.planes`, bookmarks
+  it can connect to); what the daemon dials is the node's `serverUrl`, read
+  off the probe and rendered as the list's PINNED row. That replaced the
+  single `planeUrl` with its `plane_url_from` fallback ladder and
+  `plane-coherence.ts`, all three deleted by the plane-list wave: with the
+  node's address a row of the same list, "the app opens one plane while the
+  node dials another" has no rendering left — the rows ARE the notice.
+- **The node's address shows in two places, neither as a fact row**: the
+  Control Plane section's pinned row (its menu points at Service for the
+  detaching acts) and Service's Enrolled to Control Plane card, where the
+  enroll-time loopback warning sits with it and with the walk door. The
+  Status fact rows never carry a plane address — the subtitle states the
+  machine, and a test pins the address's absence from the facts list.
 - **A setup key is single-use and lasts 24 hours.** Everything checkable is
   checked before the server consumes it, but a 409 (name already taken) or a 500
   arrives AFTER — and spends it. Those say "mint a new key", never "retry".

@@ -98,14 +98,25 @@ export function SupervisionScreen(props: {
         </Button>
       }
     >
+      {/* The live state, said ONCE, above the choice it describes (operator
+          ruling 2026-09-22, the delta review): "Currently" keys on the
+          machine, never on the draft. This screen gates its choice behind
+          Apply, and a sentence that followed the draft would call an
+          unapplied pick the present tense. The option rows below answer a
+          different question — what picking this one DOES — so they stay in
+          option voice. */}
+      <p className="hint">
+        {!current.background
+          ? "Currently the Subshell Server Service runs with this app."
+          : current.autostart
+            ? "Currently the Subshell Server Service runs in the background, and starts automatically on startup."
+            : "Currently the Subshell Server Service runs in the background, but does not automatically start on startup."}
+      </p>
       {option({
         id: "sup-service",
         on: chosen.background,
         title: "In the background",
-        body:
-          probe.platform === "darwin"
-            ? "A launchd agent runs it, even when this app is closed."
-            : "A systemd user service runs it, even when this app is closed.",
+        body: "Runs as a service the machine starts, and brings back when it stops.",
         onPick: () => props.onChoice(applySupervisionChoice(chosen, { background: true })),
       })}
       {/* Nested under the option it belongs to, and only live while that option is
@@ -117,9 +128,13 @@ export function SupervisionScreen(props: {
           disabled={!chosen.background || !autostartSupported(probe) || busy || running}
           onCheckedChange={(checked) => props.onChoice(applySupervisionChoice(chosen, { autostart: checked }))}
         />
-        <Label htmlFor="sup-login">Start it again at every login</Label>
+        <Label htmlFor="sup-login">Start automatically on startup</Label>
         {chosen.background && autostartSupported(probe) && (
-          <span className="hint">Otherwise it stays stopped after you log out.</span>
+          <span className="hint">
+            {chosen.autostart
+              ? "Turning this off leaves it running in the background, but it will not start again after a startup."
+              : "Turning this on starts it automatically every time the machine starts."}
+          </span>
         )}
         {!autostartSupported(probe) && (
           <span className="hint">{`Update your server to ${MIN_AUTOSTART_SERVER_VERSION} to control this.`}</span>

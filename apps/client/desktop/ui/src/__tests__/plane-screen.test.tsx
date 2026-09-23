@@ -1,13 +1,25 @@
 /**
- * The Control Plane section, as component tests — the plane address's home,
- * moved out of the status screen by operator ruling 2026-09-22. What the
- * tests cover: the two addresses and their coherence (the app's stored
- * `planeUrl` against the node's own `serverUrl`), the loopback notice, and
- * the repoint form's shape. The repoint command's flow is pinned at the app
- * level (`repoint.test.tsx`), where the whole page is under test.
+ * The Control Plane LIST, as component tests (operator ruling 2026-09-22:
+ * "the control plane section is for connecting to other control planes, not
+ * necessarily tied with the node"). What the tests own, in order of the harm
+ * each prevents:
+ *
+ * 1. the pinned row: the node's address FIRST, badged, NOT removable — its
+ *    Remove affordance sends a detaching person to Service, because the
+ *    binding acts are not this section's;
+ * 2. the stored rows' ACTION MENU: open in dashboard, open in browser,
+ *    remove — one at a time, class-positioned so the CSP cannot touch it,
+ *    and dismissible the way every other menu in the world is;
+ * 3. the row itself opens the dashboard (the ruling's "clicking on the line
+ *    item directly");
+ * 4. the add form SAVES only, and closes on submit whatever Rust answers.
+ *
+ * The list's storage rules (canonicalize, dedupe, refuse the node's own
+ * address) are Rust's, pinned in `control.rs`; the app-level flows are in
+ * `app.test.tsx` and `repoint.test.tsx`.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { PlaneScreen } from "@/components/assistant/plane-screen";
 import type { NodeCommands } from "@/hooks/use-node-commands";
 import type { ActionResult } from "@/lib/ipc";
@@ -38,20 +50,23 @@ function makeCommands(calls: Call[]): NodeCommands {
     uninstall: rec("uninstall"),
     autostart: rec("autostart"),
     rewrite: rec("rewrite"),
-    enroll: rec("enroll"),
-    repoint: rec("repoint"),
+    unenroll: rec("unenroll"),
     openPath: rec("openPath"),
     openPlane: rec("openPlane"),
     openPlaneUrl: rec("openPlaneUrl"),
     installTmux: rec("installTmux"),
-    connectOnly: rec("connectOnly"),
+    addPlane: rec("addPlane"),
+    removePlane: rec("removePlane"),
     register: rec("register"),
   };
 }
 
-const shell = { title: "Control Plane", subtitle: "The address this app and this node talk to.", problem: "" };
+const shell = { title: "Control Plane", subtitle: "Planes this app can connect to.", problem: "" };
 
-function mount(init: { probe?: ReturnType<typeof makeProbe>; settings?: ReturnType<typeof makeSettings> } = {}) {
+function mount(init: { probe?: ReturnType<typeof makeProbe>; settings?: ReturnType<typeof makeSettings> } = {}): {
+  calls: Call[];
+  pressed: string[];
+} {
   const calls: Call[] = [];
   const pressed: string[] = [];
   renderApp(
@@ -61,116 +76,195 @@ function mount(init: { probe?: ReturnType<typeof makeProbe>; settings?: ReturnTy
       settings={init.settings ?? makeSettings()}
       commands={makeCommands(calls)}
       busy={false}
-      onReenroll={() => pressed.push("reenroll")}
+      onGoToService={() => pressed.push("service")}
       output={null as ActionResult | null}
     />,
   );
   return { calls, pressed };
 }
 
+/** Install a clipboard the tests can watch; `ok: false` plays the refusal. */
+function stubClipboard(ok = true): string[] {
+  const writes: string[] = [];
+  Object.defineProperty(window.navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async (text: string) => {
+        if (!ok) throw new Error("denied");
+        writes.push(text);
+      },
+    },
+  });
+  return writes;
+}
+
 const button = (name: string | RegExp) => screen.getByRole("button", { name }) as HTMLButtonElement;
+const _buttonOrNull = (name: string | RegExp) => screen.queryByRole("button", { name }) as HTMLButtonElement | null;
+const menuItem = (scope: HTMLElement, name: string) => within(scope).getByRole("menuitem", { name }) as HTMLElement;
 
-describe("the two control-plane addresses", () => {
-  /** Enrolled against one plane, with the app pointed at another. */
-  const diverged = { probe: makeProbe(), settings: makeSettings({ planeUrl: "https://elsewhere.example" }) };
+/** Open one row's `⋮` disclosure and return the group that holds its actions. */
+function openMenu(url: string): HTMLElement {
+  const row = screen.getByRole("button", { name: url }).closest(".border-b") as HTMLElement;
+  fireEvent.click(within(row).getByRole("button", { name: `Actions for ${url}` }));
+  return row;
+}
 
-  it("names both when they disagree, and offers the reconciliation", () => {
-    const { calls } = mount(diverged);
-    const notice = screen.getByRole("status", { name: /mismatch/i });
-    expect(notice.textContent).toContain("https://elsewhere.example");
-    expect(notice.textContent).toContain("https://subshell.example.com");
-    fireEvent.click(within(notice).getByRole("button", { name: /use https:\/\/elsewhere\.example/i }));
-    expect(calls).toEqual([{ name: "repoint", args: ["https://elsewhere.example"] }]);
+describe("the pinned row", () => {
+  it("puts the node's address first, badged, above the stored list", () => {
+    mount({ settings: makeSettings({ planes: ["https://work.example", "https://home.example"] }) });
+    const rows = screen.getAllByRole("button", { name: /^https:\/\// }).map((b) => b.textContent);
+    expect(rows).toEqual(["https://subshell.example.com", "https://work.example", "https://home.example"]);
+    expect(screen.getByText("this node")).toBeTruthy();
   });
 
-  it("says nothing when the two agree", () => {
-    mount();
-    expect(screen.queryByRole("status", { name: /mismatch/i })).toBeNull();
+  it("renders the node's address exactly once, even if a stored row spells it", () => {
+    mount({ settings: makeSettings({ planes: ["https://subshell.example.com", "https://other.example"] }) });
+    expect(screen.getAllByRole("button", { name: "https://subshell.example.com" }).length).toBe(1);
   });
 
-  it("flags a loopback node address without refusing anything", () => {
+  it("its menu offers the two opens, no Remove, and a one-item pointer", () => {
+    // Operator rulings 2026-09-22, in order: "what about open in browser?"
+    // gave the pinned row its opens; the explanatory NOTE was deleted, but
+    // the pointer to Service stayed as a plain item ("what happened to going
+    // to the Service section" — the sentence went, the route did not).
+    const { calls, pressed } = mount();
+    const scope = openMenu("https://subshell.example.com");
+    fireEvent.click(menuItem(scope, "Open in dashboard"));
+    expect(calls).toEqual([{ name: "openPlane", args: ["https://subshell.example.com"] }]);
+    const scope2 = openMenu("https://subshell.example.com");
+    fireEvent.click(menuItem(scope2, "Open in browser"));
+    expect(calls[1]).toEqual({ name: "openPlaneUrl", args: ["https://subshell.example.com"] });
+    const scope3 = openMenu("https://subshell.example.com");
+    expect(within(scope3).queryByRole("menuitem", { name: "Remove" })).toBeNull();
+    expect(within(scope3).queryByText(/detach|reports to/i)).toBeNull();
+    fireEvent.click(menuItem(scope3, "Go to Service"));
+    expect(pressed).toEqual(["service"]);
+  });
+
+  it("disappears with the node — a watcher's list has no pinned row", () => {
     mount({
-      probe: makeProbe({
-        status: { nodeId: "abc", serverUrl: "http://localhost:3080", online: true, agentVersion: "1.9.0" },
-      }),
+      probe: makeProbe({ status: { nodeId: null, serverUrl: null, online: false, agentVersion: "1.9.0" } }),
+      settings: makeSettings({ planes: ["https://watched.example"] }),
     });
-    expect(screen.getByRole("status", { name: /loopback/i }).textContent).toMatch(/this machine/i);
-    expect(button(/repoint this node/i)).toBeTruthy();
+    expect(screen.queryByText("this node")).toBeNull();
+    expect(screen.getAllByRole("button", { name: /^https:\/\// }).length).toBe(1);
   });
 });
 
-/** The ruling deleted the status screen's "This app opens <url>" narration; the value is shown labeled. */
-describe("the address, as the ruling shows it", () => {
-  it("shows the configured address labeled, with the acts grouped on their own row", () => {
-    // Screenshot 53 (operator ruling 2026-09-22): the one-line value with its
-    // buttons beside it wrapped the URL character-broken and crowded it, so
-    // the layout is the addresses-card shape — labeled value row, acts row
-    // below — and no narration.
-    const { calls } = mount();
-    // The URL block is its own bordered card (operator ruling 2026-09-22,
-    // addendum 4), labeled with the operator's exact words.
-    const label = screen.getByText("Control plane URL");
-    expect(label.closest(".rounded-md.border.border-border")).toBeTruthy();
-    expect(screen.getAllByText("https://subshell.example.com").length).toBeGreaterThan(0);
-    expect(screen.queryByText(/this app opens/i)).toBeNull();
-    // The two doors for the plane live under the Dashboard card (operator
-    // ruling 2026-09-22, second addendum) — the only place in the app that
-    // opens the plane.
-    fireEvent.click(button("Open in browser"));
-    expect(calls).toEqual([{ name: "openPlaneUrl", args: [] }]);
-    fireEvent.click(button("Open in app"));
-    expect(calls[1]).toEqual({ name: "openPlane", args: [null] });
-    expect(screen.getByText("Dashboard")).toBeTruthy();
-    expect(button(/change server…/i)).toBeTruthy();
+describe("a stored row's menu", () => {
+  it("opens the dashboard from the row itself", () => {
+    const { calls } = mount({ settings: makeSettings({ planes: ["https://work.example"] }) });
+    fireEvent.click(button("https://work.example"));
+    expect(calls).toEqual([{ name: "openPlane", args: ["https://work.example"] }]);
+  });
+
+  it("copies the row's address and closes the menu", async () => {
+    const writes = stubClipboard();
+    mount({ settings: makeSettings({ planes: ["https://work.example"] }) });
+    const scope = openMenu("https://work.example");
+    fireEvent.click(menuItem(scope, "Copy URL"));
+    await waitFor(() => expect(writes).toEqual(["https://work.example"]));
+    // The dismiss IS the success flash.
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("keeps the menu open and renames the item when the clipboard refuses", async () => {
+    stubClipboard(false);
+    mount({ settings: makeSettings({ planes: ["https://work.example"] }) });
+    const scope = openMenu("https://work.example");
+    fireEvent.click(menuItem(scope, "Copy URL"));
+    await waitFor(() => expect(menuItem(scope, "Couldn't copy, try again")).toBeTruthy());
+    // Reopening resets the honest label to the plain one.
+    fireEvent.click(button("Actions for https://work.example"));
+    fireEvent.click(button("Actions for https://work.example"));
+    expect(menuItem(scope, "Copy URL")).toBeTruthy();
+  });
+
+  it("offers dashboard, browser, copy and remove, each aimed at the row's own address", () => {
+    const { calls } = mount({ settings: makeSettings({ planes: ["https://work.example"] }) });
+    const scope = openMenu("https://work.example");
+    fireEvent.click(menuItem(scope, "Open in browser"));
+    expect(calls).toEqual([{ name: "openPlaneUrl", args: ["https://work.example"] }]);
+    const scopeC = openMenu("https://work.example");
+    expect(menuItem(scopeC, "Copy URL")).toBeTruthy();
+    fireEvent.click(menuItem(scopeC, "Open in dashboard"));
+    expect(calls[1]).toEqual({ name: "openPlane", args: ["https://work.example"] });
+    const scope3 = openMenu("https://work.example");
+    fireEvent.click(menuItem(scope3, "Remove"));
+    expect(calls[2]).toEqual({ name: "removePlane", args: ["https://work.example"] });
+  });
+
+  it("holds one open menu at a time, and dismisses on Escape and outside press", () => {
+    mount({ settings: makeSettings({ planes: ["https://one.example", "https://two.example"] }) });
+    const one = button("Actions for https://one.example");
+    expect(one.getAttribute("aria-haspopup")).toBe("menu");
+    fireEvent.click(one);
+    expect(one.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("menu", { name: "Actions for https://one.example" })).toBeTruthy();
+    fireEvent.click(button("Actions for https://two.example"));
+    // The first row's menu closed when the second opened: the items are
+    // asked for GLOBALLY here, and exactly one set exists.
+    expect(screen.getAllByRole("menuitem", { name: "Open in browser" }).length).toBe(1);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.click(button("Actions for https://two.example"));
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+});
+
+describe("the list and its add form", () => {
+  it("says so when there is nothing to open yet", () => {
+    mount({
+      probe: makeProbe({ status: { nodeId: null, serverUrl: null, online: false, agentVersion: "1.9.0" } }),
+      settings: makeSettings({ planes: [] }),
+    });
+    expect(screen.getByText(/No control planes yet/)).toBeTruthy();
+  });
+
+  it("adds through the save command and closes the form on submit", () => {
+    const { calls } = mount({ settings: makeSettings({ planes: [] }) });
+    fireEvent.click(button("Add a control plane…"));
+    const field = screen.getByLabelText("Control plane URL") as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "https://new.example" } });
+    fireEvent.click(button("Add"));
+    expect(calls).toEqual([{ name: "addPlane", args: ["https://new.example"] }]);
+    // Closed unconditionally: the refetched list is the feedback, including
+    // for the refusals, which arrive as the runner's message.
+    expect(screen.queryByLabelText("Control plane URL")).toBeNull();
+  });
+
+  it("keeps the empty field unpressable", () => {
+    mount({ settings: makeSettings({ planes: [] }) });
+    fireEvent.click(button("Add a control plane…"));
+    expect(button("Add").disabled).toBe(true);
   });
 });
 
 /**
- * The coherence notice's deixis, pinned WHOLE with both URLs interpolated
- * (delta review I-2, 2026-09-22): the node's address is named FIRST, so the
- * consequence sentence must read as pointing THERE — the nearest name, the
- * node's. "The second one" read as the plane's, the exact opposite of the
- * truth.
+ * The footer ruling (operator, 2026-09-22, an hour after the list shipped):
+ * not a card, a table, and the add on the frame's bottom bar right. The bar's
+ * own grammar then does the rest: open, the primary becomes the form's Add
+ * and Cancel sits ghost-left.
  */
-describe("the coherence notice's deixis", () => {
-  it("names the node's address first, and points there", () => {
-    mount({ probe: makeProbe(), settings: makeSettings({ planeUrl: "https://elsewhere.example" }) });
-    expect(screen.getByRole("status", { name: /mismatch/i }).textContent).toContain(
-      "This machine's node reports to https://subshell.example.com, not https://elsewhere.example. " +
-        "Subshells started here will appear there.",
-    );
-  });
-});
-
-/** Addendum 5 (operator ruling 2026-09-22): one card-title style across the section, the Dashboard rendering the reference. */
-describe("the card titles, one style", () => {
-  it("renders both card titles foreground strong at detail size", () => {
+describe("the table and its footer", () => {
+  it("is a bare table with the add on the frame's bottom bar", () => {
     mount();
-    // The muted label style was the odd one out; both titles now read the
-    // same: `font-strong text-detail`, foreground.
-    for (const title of ["Control plane URL", "Dashboard"]) {
-      const classes = screen.getByText(title).className;
-      expect(classes).toContain("font-strong");
-      expect(classes).toContain("text-detail");
-      expect(classes).not.toContain("text-muted-foreground");
-    }
-  });
-});
-
-/** Re-enroll… moved here from the status screen (operator ruling 2026-09-22): the act is on this machine's relationship to the plane. */
-describe("re-enroll, beside the plane address acts", () => {
-  it("is offered on a machine that is a node, and opens the enroll flow", () => {
-    const { pressed } = mount();
-    expect(button(/re-enroll/i)).toBeTruthy();
-    fireEvent.click(button(/re-enroll/i));
-    expect(pressed).toEqual(["reenroll"]);
+    expect(screen.queryByText("Control planes")).toBeNull();
+    expect(button("Add a control plane…").closest('[class*="border-t"]')).not.toBeNull();
   });
 
-  it("is not offered on a machine that is not a node — that act is Register", () => {
-    const { pressed } = mount({
-      probe: makeProbe({ status: { nodeId: null, online: false, reason: "no config" } }),
-    });
-    expect(screen.queryByRole("button", { name: /re-enroll/i })).toBeNull();
-    expect(pressed).toEqual([]);
+  it("opens the add as a dialog, and a submit closes it", () => {
+    // (ruling 2026-09-22, the dialog audit's last inline pane; and the
+    // close-on-submit grammar the re-enroll dialog learned from the live
+    // window the same hour).
+    const { calls } = mount({ settings: makeSettings({ planes: [] }) });
+    fireEvent.click(button("Add a control plane…"));
+    expect(screen.getByRole("dialog", { name: "Add a control plane" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Control plane URL"), { target: { value: "https://new.example" } });
+    fireEvent.click(button("Add"));
+    expect(calls).toEqual([{ name: "addPlane", args: ["https://new.example"] }]);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

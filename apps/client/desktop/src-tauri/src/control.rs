@@ -139,17 +139,15 @@ pub enum NodeCommand {
     /// nobody had chosen. The app asks, so this variant cannot represent a
     /// nameless enroll at all.
     Enroll { server: String, key: String, name: String },
-    /// `configure --json` — repoint an ALREADY-enrolled node.
+    /// `unenroll --yes --json` — stop being a node, from the node side.
     ///
-    /// The non-destructive counterpart to [`NodeCommand::Enroll`], and the
-    /// reason it is a separate variant rather than a flag on that one: it
-    /// carries no setup key, keeps this node's id and node key, and mints no
-    /// second node row. "The control plane moved" had no other answer.
-    ///
-    /// Carries no name, because the CLI takes none: `config.json`'s name never
-    /// reaches the plane outside the enroll body, so a rename here would move
-    /// a local display string and leave the Nodes page unchanged.
-    Configure { server: String },
+    /// The flags are baked into the variant, not offered to the page, for
+    /// two separate reasons that both point one way: `--yes` because the
+    /// press has ALREADY been confirmed on screen (and what it accepts is
+    /// ORPHANING live panes, never killing them — nothing in this verb
+    /// signals anything), and `--json` because the caller reads the result
+    /// rather than screen-scraping the human line.
+    Unenroll,
 }
 
 impl NodeCommand {
@@ -197,12 +195,7 @@ impl NodeCommand {
                 args.push("--json".into());
                 args
             }
-            NodeCommand::Configure { server } => {
-                // `--json` for the same reason enroll uses it: the node id and
-                // the stored address come back as data, never screen-scraped
-                // off a human line. The body omits the node key.
-                vec!["configure".into(), "--server".into(), server.clone(), "--json".into()]
-            }
+            NodeCommand::Unenroll => vec!["unenroll".into(), "--yes".into(), "--json".into()],
         }
     }
 
@@ -211,7 +204,7 @@ impl NodeCommand {
     fn timeout(&self) -> Duration {
         match self {
             NodeCommand::Status | NodeCommand::ServiceStatus => QUERY_TIMEOUT,
-            NodeCommand::Service { .. } | NodeCommand::Enroll { .. } | NodeCommand::Configure { .. } => ACTION_TIMEOUT,
+            NodeCommand::Service { .. } | NodeCommand::Enroll { .. } | NodeCommand::Unenroll => ACTION_TIMEOUT,
         }
     }
 }
@@ -1174,52 +1167,59 @@ pub(crate) fn service_now(
     }
 }
 
-/// Repoint this machine's node at a different control plane.
+/// Stop being a node: stop, uninstall the definition, then delete the config.
 ///
-/// The non-destructive sibling of [`node_enroll`], and the reason it needs no
-/// confirmation gate: it spends no setup key, mints no second node row, and
-/// keeps the node key whose only home is `config.json`. Nothing here is
-/// unrecoverable, so nothing here has to be asked about twice.
+/// The narrow sibling of [`crate::reset::node_reset`]. That one is the broad
+/// teardown — it closes every pane server, wipes the data directory and takes
+/// the config with it; this one leaves the work, the data and the installed
+/// binary exactly where they are and spends only the identity. The chain
+/// deliberately carries the reset's proven first two steps and none of its
+/// tmux half: a running subshell outliving its node is this product's design
+/// (the client's confirm says so, in words the CLI itself keeps), so
+/// un-enroll orphans panes rather than killing them.
 ///
-/// On success the app's own `planeUrl` is repointed TOO. Those are two
-/// independent values — `plane_url_from` falls back to the node's `serverUrl`
-/// only when no preference is stored — so leaving it alone would show a plane
-/// at one address while this machine's daemon talked to another, with no
-/// surface naming the difference. A repoint is a statement about which control
-/// plane this machine belongs to, and both halves of the app should hear it.
-///
-/// The URL is validated HERE, before anything spawns: the same
-/// [`validate_server_url`] the enroll form and the plane window use, so all
-/// three refuse the same strings with the same words.
+/// Stop and uninstall run FIRST and tolerate "nothing installed", for the
+/// reset's own reason: a kept definition respawns a daemon against a deleted
+/// config, and a Retry after any later failure must not die on a step whose
+/// subject an earlier half-run already removed. Then the CLI's verb deletes
+/// `daemon.lock` before `config.json` (config LAST, the resumability rule it
+/// shares with the reset); the CLI's own refusal words — a live unsupervised
+/// daemon, running panes — reach the screen verbatim, `--yes` notwithstanding
+/// for the panes only.
 #[tauri::command(async)]
-pub fn node_configure(settings: State<'_, SettingsState>, server: Option<String>) -> ActionResult {
-    let server = match server.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
-        Some(raw) => match validate_server_url(&raw) {
-            Ok(url) => url,
-            Err(e) => return ActionResult::refused(e),
-        },
-        None => return ActionResult::refused("enter the control plane's URL to repoint this node"),
-    };
+pub fn node_unenroll(app: AppHandle, settings: State<'_, SettingsState>) -> ActionResult {
+    let mut log = String::new();
+    let stop = service_now(&settings, ServiceCommand::Stop, false, true);
+    if let Some(stderr) = crate::reset::push_step(&mut log, &stop, &["nothing installed"]) {
+        return ActionResult {
+            ok: false,
+            stdout: log,
+            stderr,
+        };
+    }
+    let un = service_now(&settings, ServiceCommand::Uninstall, false, true);
+    if let Some(stderr) = crate::reset::push_step(&mut log, &un, &["nothing installed"]) {
+        return ActionResult {
+            ok: false,
+            stdout: log,
+            stderr,
+        };
+    }
     let node_binary = node_bin::resolve(settings.get().binary_path.as_deref());
-    let command = NodeCommand::Configure { server: server.clone() };
-    let Some(out) = run_node(node_binary.as_ref(), &command) else {
+    let Some(out) = run_node(node_binary.as_ref(), &NodeCommand::Unenroll) else {
         return ActionResult::refused(NO_NODE);
     };
-    // Only on success: a refused repoint must not move the app's own address
-    // to a plane this machine is not actually pointed at.
-    if out.ok() {
-        // A settings write that fails is worth saying so — the repoint itself
-        // landed, and the two values are now the divergence this exists to
-        // prevent, which the caller can only explain if it is told.
-        if let Err(e) = settings.update(|s| s.plane_url = Some(server.clone())) {
-            return ActionResult {
-                ok: true,
-                stdout: out.stdout,
-                stderr: format!("the node was repointed, but this app could not remember the address: {e}"),
-            };
-        }
+    let out = ActionResult::from(out);
+    if out.ok {
+        // The machine stopped being a node: the tray's pinned first row was
+        // this address, and a live read now finds no config to name one.
+        crate::tray::refresh(&app);
     }
-    out.into()
+    ActionResult {
+        ok: out.ok,
+        stdout: format!("{log}{}", out.stdout),
+        stderr: out.stderr,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1311,7 +1311,7 @@ pub fn validate_server_url(raw: &str) -> Result<String, String> {
     // already lower-cased, rather than returned raw.
     //
     // The raw form preserved a mixed-case scheme, and this string is what the
-    // page shows, what is persisted as `planeUrl`, and what is handed to
+    // page shows, what the saved plane list holds, and what is handed to
     // `subshell configure --server`. The agent's `wsUrlFor` derives its dial
     // URL by string-replacing the scheme, so `HTTP://host` became
     // `HTTP://host/ws/node` — not a WebSocket URL, and nothing said why. The
@@ -1461,6 +1461,7 @@ pub fn confirmations_for(server: &str, existing: &ExistingNode) -> Vec<Confirmat
 /// "mint a new key", never "retry".
 #[tauri::command(async)]
 pub fn node_enroll(
+    app: AppHandle,
     settings: State<'_, SettingsState>,
     server: String,
     key: String,
@@ -1503,14 +1504,21 @@ pub fn node_enroll(
     } else {
         out.detail()
     };
-    EnrollOutcome {
+    let outcome = EnrollOutcome {
         ok: out.ok(),
         stdout: out.stdout,
         stderr,
         node,
         requires_confirmation: false,
         confirmations: Vec::new(),
+    };
+    // A completed enroll moves the tray's pinned first row: the address this
+    // machine reports to just changed, and the Control Plane submenu leads
+    // with that address (read live, never remembered — tray.rs).
+    if outcome.ok {
+        crate::tray::refresh(&app);
     }
+    outcome
 }
 
 // ---------------------------------------------------------------------------
@@ -1544,19 +1552,20 @@ pub fn close_to_tray_now(settings: &SettingsState) -> bool {
 pub struct NodeSettings {
     /// The agent binary the user picked by hand, if any.
     pub node_bin_path: Option<String>,
-    /// The control plane the main window shows, once one has been resolved.
+    /// The saved control-plane addresses, as stored (canonical spellings —
+    /// every entry went through [`validate_server_url`] on the way in).
     ///
-    /// From the stored preference, else the enrolled node's own `serverUrl` —
-    /// the same ladder [`resolve_plane_url`] walks, so what the page offers to
-    /// open and what actually opens can never be two different addresses.
-    pub plane_url: Option<String>,
+    /// Raw, with no ladder: the address the NODE reports to is a probe fact
+    /// and the page renders it as its own pinned row, so folding it in here
+    /// would be two sources for one truth.
+    pub planes: Vec<String>,
 }
 
 /// Build the payload from the stored settings.
 fn settings_view(current: Settings) -> NodeSettings {
     NodeSettings {
         node_bin_path: current.binary_path,
-        plane_url: plane_url_from(current.plane_url),
+        planes: current.planes,
     }
 }
 
@@ -1570,55 +1579,90 @@ pub fn node_settings(settings: State<'_, SettingsState>) -> NodeSettings {
 // The control plane
 // ---------------------------------------------------------------------------
 
-/// Which control plane this client shows, given a stored preference.
-///
-/// Two rungs, in this order:
-///
-/// 1. the **stored** `planeUrl` — the address the user last chose, which is
-///    the only rung a client that is not a node ever has;
-/// 2. the enrolled node's **`serverUrl`** from `config.json`, so a machine
-///    enrolled from the CLI opens on its own plane without being told twice.
-///
-/// Each rung is validated rather than trusted: both are strings from a file,
-/// and the answer is what a window gets pointed at. An unusable value is
-/// skipped, not surfaced — the page's own URL field is where a bad address is
-/// reported, at the moment someone types one.
-pub fn plane_url_from(stored: Option<String>) -> Option<String> {
-    stored
-        .and_then(|u| validate_server_url(&u).ok())
-        .or_else(|| read_node_config().server_url.and_then(|u| validate_server_url(&u).ok()))
+/// Add one address to the saved plane list — pure, so the rules are unit-
+/// tested without a settings file: canonicalized by the same
+/// [`validate_server_url`] every opener uses; equal to an entry already
+/// stored (canonically, so a trailing slash or a shouty host is not a second
+/// plane) is not added twice; and EQUAL TO THE NODE'S OWN ADDRESS is refused
+/// outright — that one always renders as the pinned row, and two rows for one
+/// plane is exactly what the pinned row exists to prevent. Unparseable
+/// stored entries survive untouched: they are nobody's match, and dropping
+/// them here would let an `add` rewrite history it was not asked about.
+fn plane_list_add(list: &[String], raw: &str, own: Option<&str>) -> Result<Vec<String>, String> {
+    let canonical = validate_server_url(raw)?;
+    if own == Some(canonical.as_str()) {
+        return Err(format!(
+            "this machine's node already reports to {canonical}; it is always in the list"
+        ));
+    }
+    let mut next = list.to_vec();
+    if !next
+        .iter()
+        .any(|s| validate_server_url(s).as_deref() == Ok(canonical.as_str()))
+    {
+        next.push(canonical);
+    }
+    Ok(next)
 }
 
-/// The same ladder, against the live settings. What `lib.rs` asks at startup.
-pub fn resolve_plane_url(settings: &SettingsState) -> Option<String> {
-    plane_url_from(settings.get().plane_url)
+/// Remove one address, matched canonically. Absent is an ERROR, not a silent
+/// success: the page can only name a row it is rendering, so a miss means the
+/// list moved underneath it, and pretending otherwise would let a stale row
+/// report itself removed while it still renders.
+fn plane_list_remove(list: &[String], raw: &str) -> Result<Vec<String>, String> {
+    let canonical = validate_server_url(raw)?;
+    let next: Vec<String> = list
+        .iter()
+        .filter(|s| validate_server_url(s).as_deref() != Ok(canonical.as_str()))
+        .cloned()
+        .collect();
+    if next.len() == list.len() {
+        return Err(format!("no saved control plane at {canonical}"));
+    }
+    Ok(next)
 }
 
-/// Remember a control plane WITHOUT opening its window.
+/// Add a control plane to the saved list. Saves ONLY — the plane list ruling
+/// (operator, 2026-09-22) keeps storing and opening separate: first run names
+/// an address and then has more to do (enrol, install, start), and opening
+/// mid-walk threw the dashboard over the question still being asked.
 ///
-/// [`node_open_plane`] persists AND opens, which is right for the button that
-/// says "open the dashboard" and wrong for every other moment an address
-/// becomes known. First run is the one that matters: the step where a person
-/// names their control plane has more to do afterwards — enrol this machine,
-/// install the agent, start the service — and persisting through the opener
-/// threw the dashboard on screen in the middle of it, over the assistant that
-/// was still asking. This is the half of that command the flow actually wants
-/// there; the window is opened when the person asks for it.
-///
-/// Returns the canonicalized address, from the same [`validate_server_url`]
-/// the opener uses, so the two cannot store two spellings of one plane.
+/// Returns the whole resulting list, canonically spelled, so the page's
+/// refetched settings ARE the dedupe/validation feedback.
 #[tauri::command(async)]
-pub fn node_set_plane(settings: State<'_, SettingsState>, url: String) -> Result<String, String> {
-    let resolved = validate_server_url(&url)?;
-    settings.update(|s| s.plane_url = Some(resolved.clone()))?;
-    Ok(resolved)
+pub fn node_plane_add(app: AppHandle, settings: State<'_, SettingsState>, url: String) -> Result<Vec<String>, String> {
+    let own = read_node_config().server_url.and_then(|u| validate_server_url(&u).ok());
+    let next = plane_list_add(&settings.get().planes, &url, own.as_deref())?;
+    settings.update(|s| s.planes = next.clone())?;
+    // The tray mirrors this list, so the stored change repaints it (tray.rs).
+    crate::tray::refresh(&app);
+    Ok(next)
 }
 
-/// Show a control plane's own UI, and remember the address.
+/// Forget a saved control plane. Opens nothing and touches no plane — this
+/// list is the app's own bookmarks, and detaching the MACHINE from a plane is
+/// the node's acts (Service's un-enroll and the lifecycle verbs), never an
+/// edit of this list.
+#[tauri::command(async)]
+pub fn node_plane_remove(
+    app: AppHandle,
+    settings: State<'_, SettingsState>,
+    url: String,
+) -> Result<Vec<String>, String> {
+    let next = plane_list_remove(&settings.get().planes, &url)?;
+    settings.update(|s| s.planes = next.clone())?;
+    crate::tray::refresh(&app);
+    Ok(next)
+}
+
+/// Show a control plane's own UI, at the address the page names.
 ///
-/// `url` is what the user typed or what the page read off the probe; `None`
-/// means "open whatever [`resolve_plane_url`] already knows", which is what the
-/// header button does once an address is settled.
+/// Opens are ONE-OFF since the plane list ruling (operator, 2026-09-22):
+/// this stores nothing — the saved list is written by `node_plane_add` and
+/// by nothing else — so pressing a row navigates the plane window without
+/// rewriting anybody's bookmarks. `PlanePin` follows each deliberate open,
+/// which is what keeps `desktop_open_in_browser` aimed at the plane the row
+/// named rather than at whatever the page last was.
 ///
 /// The window this opens is granted exactly ONE command — see
 /// `windows::open_plane` — so this is nearly the whole of the plane's reach
@@ -1626,40 +1670,89 @@ pub fn node_set_plane(settings: State<'_, SettingsState>, url: String) -> Result
 /// which takes a path and joins it onto that same pin. Nothing that drives the
 /// CLI is reachable from it.
 #[tauri::command(async)]
-pub fn node_open_plane(
-    app: AppHandle,
-    settings: State<'_, SettingsState>,
-    url: Option<String>,
-) -> Result<String, String> {
-    let resolved = match url.map(|u| u.trim().to_string()).filter(|u| !u.is_empty()) {
-        Some(raw) => validate_server_url(&raw)?,
-        None => resolve_plane_url(&settings)
-            .ok_or_else(|| "no control plane yet; enter its URL, or enrol this machine first".to_string())?,
-    };
-    // Persisted BEFORE the window opens, so a plane that is merely unreachable
-    // today is still the one this client comes back to tomorrow.
-    settings.update(|s| s.plane_url = Some(resolved.clone()))?;
+pub fn node_open_plane(app: AppHandle, url: String) -> Result<String, String> {
+    let resolved = validate_server_url(&url)?;
+    // `open_plane` records the open for the tray's "Open Last"; the repaint
+    // is done HERE rather than inside the recorder because this caller is
+    // the page, not the tray's own menu handler (see `record_plane_open`).
     crate::windows::open_plane(&app, &resolved)?;
+    crate::tray::refresh(&app);
     Ok(resolved)
 }
 
-/// Open the control plane's address in the SYSTEM browser.
+/// Open one control plane's address in the SYSTEM browser.
 ///
-/// The in-app plane window stays the primary route; this is for taking the
-/// SAME address somewhere a shell cannot — a different browser, a share, a
-/// profile with passkeys the webview has no. Like the server app's twin, the
-/// page names the INTENT and no URL argument crosses the boundary: this
-/// re-reads the same ladder `node_open_plane` points a window at, so the
-/// browser can only ever be sent to the address the page is already showing
-/// (http(s)-validated by [`validate_server_url`], which the window also
-/// relies on).
+/// The in-app plane window stays the primary route; this is for taking a row
+/// somewhere a shell cannot — a different browser, a share, a profile with
+/// passkeys the webview has no. Since the plane list ruling (operator,
+/// 2026-09-22) the page names the ADDRESS: the only window holding this
+/// command is the BUNDLED node page, every address it can name is one the
+/// person stored or the probe read from this machine's own config, and the
+/// value is http(s)-validated HERE by the same rule the window opener uses.
+/// The REMOTE plane window remains granted nothing but
+/// `desktop_open_in_browser`, which still takes a path and names no host.
 #[tauri::command(async)]
-pub fn node_open_plane_url(app: AppHandle, settings: State<'_, SettingsState>) -> Result<(), String> {
-    let url = resolve_plane_url(&settings)
-        .ok_or_else(|| "no control plane yet; enter its URL, or enrol this machine first".to_string())?;
+pub fn node_open_plane_url(app: AppHandle, url: String) -> Result<(), String> {
+    let resolved = validate_server_url(&url)?;
     app.opener()
-        .open_url(&url, None::<&str>)
-        .map_err(|e| format!("could not open {url}: {e}"))
+        .open_url(&resolved, None::<&str>)
+        .map_err(|e| format!("could not open {resolved}: {e}"))?;
+    // A page-side open can repaint safely (it is not the tray's own handler),
+    // so "Open Last" lights up the first time it is used from either door.
+    record_plane_open(&app, &resolved, true);
+    crate::tray::refresh(&app);
+    Ok(())
+}
+
+/// The address the tray puts at the TOP of its Control Plane list.
+///
+/// The same fact the page renders as its pinned row, read the same way:
+/// this machine's own `config.json`, canonicalized, absent when unreadable
+/// or malformed — so the tray and the page cannot disagree about which
+/// plane this machine reports to. Never `status --probe` for this: that
+/// command supersedes-kicks the daemon (`node_status` docs).
+pub fn tray_connected_url() -> Option<String> {
+    read_node_config().server_url.and_then(|u| validate_server_url(&u).ok())
+}
+
+/// Open a tray-named control plane in the SYSTEM browser.
+///
+/// A menu id carries its URL as DATA, so it is re-validated HERE with the
+/// same rule `node_open_plane_url` runs — http(s) by component, canonical
+/// origin — before the opener plugin ever sees it. The tray drives no CLI;
+/// this is a URL and `open`, nothing more.
+pub fn tray_open_in_browser(app: &AppHandle, url: &str) {
+    if let Ok(resolved) = validate_server_url(url) {
+        if app.opener().open_url(&resolved, None::<&str>).is_ok() {
+            record_plane_open(app, &resolved, true);
+        }
+    }
+}
+
+/// Remember a plane open for the tray's "Open Last" (operator ruling
+/// 2026-09-22): the address AND the door it went through, one record,
+/// overwritten by every deliberate open. Both openers call it on their
+/// success path only — `windows::open_plane` (the app window, from any
+/// surface) and the browser arms here — so the memory is exactly the last
+/// open that happened, whatever screen it was asked from.
+///
+/// Deliberately does NOT repaint the tray: its caller can be the tray's own
+/// menu handler, and swapping a menu out from inside its event handler is a
+/// re-entrancy question this app does not need to answer. The item's label
+/// and enabled state change only between "never opened" and "opened", and
+/// the sites that flip THAT (first open of the session, list mutations) are
+/// never inside a tray handler — `node_open_plane` and
+/// `node_open_plane_url` refresh for opens from the page, and
+/// `node_plane_add`/`node_plane_remove`/`node_enroll`/`node_unenroll`
+/// refresh for the list itself.
+pub fn record_plane_open(app: &AppHandle, url: &str, browser: bool) {
+    let record = subshell_desktop_core::settings::LastPlaneOpen {
+        url: url.to_string(),
+        browser,
+    };
+    let _ = app
+        .state::<SettingsState>()
+        .update(|s| s.last_plane_open = Some(record));
 }
 
 /// The MENU BAR's "Open in Browser" id.
@@ -1731,9 +1824,14 @@ pub fn desktop_open_in_browser(app: AppHandle, path: String) -> Result<(), Strin
 
 /// Open whatever the plane window is showing, in the system browser.
 ///
-/// The tray's and the menu bar's entry point, and Rust-side on purpose: this
-/// app tells the plane's page nothing (no `eval` bridge, no `DesktopAction`),
-/// so a menu item that needed the page to act could not exist here at all.
+/// The MENU BAR's entry point, and Rust-side on purpose: this app tells the
+/// plane's page nothing (no `eval` bridge, no `DesktopAction`), so a menu
+/// item that needed the page to act could not exist here at all. The tray
+/// lost its use of this on 2026-09-22, when its flat "Open in Browser" item
+/// became the per-address submenu — those arms name the address and run
+/// through [`tray_open_in_browser`], and only macOS still has the bar whose
+/// item means "whatever is on screen". Hence the gate: uncapped, this reads
+/// as dead code on Linux CI, which is true there and false here.
 ///
 /// The CURRENT route when the window can report one, `/` otherwise — the plane
 /// is still a sensible page to offer, and a menu item disabled until a window
@@ -1743,6 +1841,7 @@ pub fn desktop_open_in_browser(app: AppHandle, path: String) -> Result<(), Strin
 /// Failure goes to stderr and nowhere else: a menu item has no place to render
 /// an error, and the one way this fails (no plane opened yet) is a state the
 /// person can see.
+#[cfg(target_os = "macos")]
 pub fn open_current_in_browser(app: &AppHandle) {
     let path = app
         .get_webview_window(crate::windows::PLANE_LABEL)
@@ -2324,36 +2423,6 @@ mod command_set_tests {
         );
     }
 
-    /// `configure` is the NON-destructive repoint, and its argv is what proves
-    /// it: no `--key` (it spends no setup key) and no `--data-dir` (the
-    /// identity directory belongs to the enrollment that made it). No `--name`
-    /// either — the plane owns a node's name, and the CLI rejects the flag.
-    #[test]
-    fn configure_repoints_without_a_setup_key_or_a_rename() {
-        let args = NodeCommand::Configure {
-            server: "https://subshell.example".into(),
-        }
-        .args();
-        assert_eq!(args, ["configure", "--server", "https://subshell.example", "--json"]);
-        for forbidden in ["--key", "--data-dir", "--name"] {
-            assert!(!args.iter().any(|a| a == forbidden), "{forbidden} must not appear");
-        }
-    }
-
-    /// A repoint dials no control plane — it rewrites one local file — but it
-    /// does go through the same spawn machinery as an enroll, and the CLI does
-    /// its own fs work. The action deadline, not the query one.
-    #[test]
-    fn a_repoint_gets_the_action_deadline() {
-        assert_eq!(
-            NodeCommand::Configure {
-                server: "https://subshell.example".into(),
-            }
-            .timeout(),
-            ACTION_TIMEOUT
-        );
-    }
-
     // A read must never wait 90 seconds, and an enroll must never be killed at
     // 15 — the CLI's own network deadline is 30.
     #[test]
@@ -2370,6 +2439,14 @@ mod command_set_tests {
             ACTION_TIMEOUT
         );
         assert!(ACTION_TIMEOUT > Duration::from_secs(30));
+    }
+
+    #[test]
+    fn unenroll_spells_its_flags_and_takes_the_action_deadline() {
+        // The page cannot soften either refusal: `--yes` (accept orphaning,
+        // never kill) and `--json` are in the variant, not arguments.
+        assert_eq!(NodeCommand::Unenroll.args(), ["unenroll", "--yes", "--json"]);
+        assert_eq!(NodeCommand::Unenroll.timeout(), ACTION_TIMEOUT);
     }
 
     #[test]
@@ -2996,7 +3073,7 @@ mod validation_tests {
     /// The scheme is lower-cased, matching `normalizeServer` in
     /// `apps/node/agent/src/enroll.ts`.
     ///
-    /// This value is what the page shows, what gets persisted as `planeUrl`,
+    /// This value is what the page shows, what the saved plane list holds,
     /// and what is handed to `subshell configure --server`. The agent's
     /// `wsUrlFor` builds its dial URL by string-replacing the scheme, so a
     /// mixed-case one produced `HTTP://host/ws/node` — not a WebSocket URL.
@@ -3433,7 +3510,9 @@ mod path_tests {
             binary_path: None,
             close_to_tray,
             open_at_login: false,
-            plane_url: None,
+            planes: Vec::new(),
+            // Read by the tray submenu's "Open Last", never by the page.
+            last_plane_open: None,
             // The server app's wizard flag. Client ignores it; it shares the
             // struct, not the semantics.
             onboarded: false,
@@ -3451,7 +3530,7 @@ mod path_tests {
             // Subshell Server's own: who runs the control plane there. This
             // app has a node agent with its own service and no such mode, so
             // it shares the struct and ignores the field, exactly as the
-            // server app ignores `plane_url`.
+            // server app ignores `planes`.
             supervision: subshell_desktop_core::settings::Supervision::Service,
         }
     }
@@ -3463,11 +3542,39 @@ mod path_tests {
     // the tray check item and the window-close handler both read, and
     // `effective_close_to_tray` carries its own tests in desktop-core.
     #[test]
+    fn plane_add_canonicalizes_and_dedupes() {
+        let list = vec!["https://one.example".to_string()];
+        let next = plane_list_add(&list, " HTTPS://Two.Example/ ", None).unwrap();
+        assert_eq!(next, ["https://one.example", "https://two.example"]);
+        // A stored spelling that canonicalizes equal is not a second plane.
+        assert_eq!(plane_list_add(&next, "https://two.example///", None).unwrap(), next);
+    }
+
+    #[test]
+    fn plane_add_refuses_the_nodes_own_address_and_reaches_without_a_node() {
+        let own = "https://plane.example";
+        let err = plane_list_add(&[], "https://plane.example/", Some(own)).unwrap_err();
+        assert!(err.contains("already reports to"), "{err}");
+        // No enrolled node, no own address to collide with — a plain watcher
+        // stores the plane it watches like any other.
+        assert_eq!(plane_list_add(&[], own, None).unwrap(), [own]);
+    }
+
+    #[test]
+    fn plane_remove_matches_canonically_refuses_a_stranger_and_keeps_the_unreadable() {
+        let list = vec!["https://one.example".to_string(), "nonsense".to_string()];
+        assert_eq!(plane_list_remove(&list, "HTTPS://One.Example").unwrap(), ["nonsense"]);
+        // The page can only name a row it renders; a miss is a stale list,
+        // said as an error rather than a success that leaves the row.
+        assert!(plane_list_remove(&list, "https://absent.example").is_err());
+    }
+
+    #[test]
     fn the_payload_is_the_two_fields_the_assistant_reads() {
         let json = serde_json::to_value(settings_view(stored(true))).unwrap();
         let mut keys: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();
         keys.sort_unstable();
-        assert_eq!(keys, ["nodeBinPath", "planeUrl"]);
+        assert_eq!(keys, ["nodeBinPath", "planes"]);
     }
 
     #[test]

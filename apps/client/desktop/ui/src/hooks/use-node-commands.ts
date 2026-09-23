@@ -23,16 +23,17 @@ import {
   type ActionResult,
   type EnrolledNodeBody,
   type EnrollOutcome,
-  nodeConfigure,
   nodeEnroll,
   nodeInstallCli,
   nodeInstallTmux,
   nodeOpenPath,
   nodeOpenPlane,
   nodeOpenPlaneUrl,
+  nodePlaneAdd,
+  nodePlaneRemove,
   nodeProbe,
   nodeService,
-  nodeSetPlane,
+  nodeUnenroll,
   type OpenTarget,
   type Probe,
   type ServiceVerb,
@@ -71,18 +72,22 @@ export interface NodeCommands {
    * than a confirmed act — reversing it reverses everything.
    */
   autostart: (on: boolean) => void;
+  /**
+   * Stop being a node: the confirmed chain (stop, uninstall, `unenroll
+   * --yes --json`) that deletes the configuration and key and keeps the
+   * data, the binary and — said plainly in the confirm — every running
+   * subshell. The narrow act beside {@link uninstall}, which stops the
+   * service but keeps this machine registered, and beside Reset.
+   */
+  unenroll: () => void;
   /** Rewrite the service definition, confirmed where the rewrite itself costs panes. */
   rewrite: () => void;
-  /** Register this machine. Two-phase, always. */
-  enroll: () => void;
-  /** Repoint this machine's node at another control plane. Non-destructive, so one click. */
-  repoint: (server: string) => void;
   /** Reveal one of the app's own directories or files (the Status fact rows). */
   openPath: (target: OpenTarget) => void;
-  /** Show a control plane's UI. `null` opens the address already settled. */
-  openPlane: (url: string | null) => void;
-  /** Open the settled control-plane address in the SYSTEM browser. */
-  openPlaneUrl: () => void;
+  /** Show one control plane's UI, at the row's address. Opens are one-off. */
+  openPlane: (url: string) => void;
+  /** Open one saved address in the SYSTEM browser, same one-off rule. */
+  openPlaneUrl: (url: string) => void;
   /**
    * Install tmux on this machine.
    *
@@ -95,12 +100,18 @@ export interface NodeCommands {
   /**
    * Remember a control plane WITHOUT opening its window.
    *
-   * {@link NodeCommands.openPlane} persists AND opens, which is right for a
-   * button labelled "open the dashboard" and wrong for the first run: the
-   * whole point of the new flow is that the dashboard does not appear until
-   * the machine is set up and someone asks for it.
+   * Storing and opening are fully separate since the plane list (operator
+   * ruling 2026-09-22): this writes the app's saved list and opens nothing,
+   * so the first run can record the address it just learned about without
+   * the dashboard appearing over the questions it is still asking.
    */
-  connectOnly: (url: string) => void;
+  addPlane: (url: string) => void;
+  /**
+   * Forget one saved control plane, behind a confirmation. The app's own
+   * bookmarks are the whole reach of this: no node, no key, no service and
+   * nothing on the control plane is touched — those acts live on Service.
+   */
+  removePlane: (url: string) => void;
   /**
    * The first run's one press: install the node if there is none, enroll this
    * machine, then install and start its service.
@@ -153,10 +164,20 @@ export function useNodeCommands(args: {
    * One `service` verb. `force` is never passed here — the CLI accepts it only
    * on `restart`, and that one path goes through {@link restart} so its refusal
    * is read out loud before the override is offered.
+   *
+   * A verb that STARTS the daemon (`start`, and `install`, which runs or
+   * restarts the service) does not end until the machine confirms itself:
+   * the press keeps spinning until the node is online or the 30 s deadline
+   * says it is not coming (operator ruling 2026-09-22: "keep it spinning /
+   * disabled until it's confirmed started or unable to start"). `stop` keeps
+   * the bounded settle — its answer is the absence, and it arrives fast.
    */
   async function runService(verb: ServiceVerb, opts?: { settle?: boolean }) {
     const result = await nodeService({ verb, force: false });
-    if (result.ok && opts?.settle) await runner.settle();
+    if (result.ok && opts?.settle) {
+      if (verb === "start" || verb === "install") await runner.confirmStarted();
+      else await runner.settle();
+    }
     return result;
   }
 
@@ -209,7 +230,7 @@ export function useNodeCommands(args: {
         });
       }),
 
-    service: (verb, opts) => runner.run(async () => finished(await runService(verb, opts))),
+    service: (verb, opts) => runner.run(async () => finished(await runService(verb, opts)), { label: verb }),
 
     /**
      * The run-at-login switch's press. No confirmation and no settle: the CLI
@@ -231,37 +252,38 @@ export function useNodeCommands(args: {
      * the verbatim refusal, never a silent retry.
      */
     restart: () =>
-      runner.run(async () => {
-        const first = await nodeService({ verb: "restart", force: false });
-        if (first.ok) {
-          await runner.settle();
-          return finished(first);
-        }
-        if (!first.stderr.includes("refusing to restart")) return finished(first);
-        return asks(
-          {
-            title: "This restart would kill every subshell running on this machine",
-            messages: [
-              first.stderr.trim(),
-              rewriteKillsPanes(probe)
-                ? 'The button labelled "Rewrite the service definition" is the CLI\'s own first suggestion and it ' +
-                  "fixes this for good, but launchd has no reload, so it boots the stale job out to load the new " +
-                  "one and costs the same sessions this restart would, once. Forcing the restart loses them and " +
-                  "repairs nothing."
-                : 'The button labelled "Rewrite the service definition" is the CLI\'s own first suggestion: it ' +
-                  "fixes this for good and kills nothing. Forcing the restart loses every session running on this " +
-                  "machine right now.",
-            ],
-            acceptLabel: "Restart anyway (--force)",
-            run: async () => {
-              const forced = await nodeService({ verb: "restart", force: true });
-              if (forced.ok) await runner.settle();
-              return finished(forced);
+      runner.run(
+        async () => {
+          const first = await nodeService({ verb: "restart", force: false });
+          if (first.ok) {
+            await runner.confirmStarted();
+            return finished(first);
+          }
+          if (!first.stderr.includes("refusing to restart")) return finished(first);
+          return asks(
+            {
+              title: "This restart would kill every subshell running on this machine",
+              messages: [
+                first.stderr.trim(),
+                rewriteKillsPanes(probe)
+                  ? "Rewriting the definition fixes this permanently, but it restarts the service once, so " +
+                    "sessions end either way. Forcing the restart ends them without fixing anything."
+                  : 'The button labelled "Rewrite the service definition" is the CLI\'s own first suggestion: it ' +
+                    "fixes this for good and kills nothing. Forcing the restart loses every session running on this " +
+                    "machine right now.",
+              ],
+              acceptLabel: "Restart anyway (--force)",
+              run: async () => {
+                const forced = await nodeService({ verb: "restart", force: true });
+                if (forced.ok) await runner.confirmStarted();
+                return finished(forced);
+              },
             },
-          },
-          first,
-        );
-      }),
+            first,
+          );
+        },
+        { label: "restart" },
+      ),
 
     /**
      * Uninstalling gates on nothing in the CLI — deliberately, so a stranded
@@ -269,24 +291,27 @@ export function useNodeCommands(args: {
      * gets said out loud.
      */
     uninstall: () =>
-      runner.run(async () => {
-        const messages = [
-          "The node stops and will not come back at login. This machine stays registered, with its " +
-            "configuration and node key untouched, so running it in the background again brings it back.",
-        ];
-        if (paneRisk(probe)) {
-          messages.push(
-            "The installed definition does not spare live panes, so this kills every subshell running on this " +
-              "machine.",
-          );
-        }
-        return asks({
-          title: "Uninstall the background service",
-          messages,
-          acceptLabel: "Uninstall the service",
-          run: async () => finished(await nodeService({ verb: "uninstall", force: false })),
-        });
-      }),
+      runner.run(
+        async () => {
+          const messages = [
+            "The node stops and will not come back at login. This machine stays registered, with its " +
+              "configuration and node key untouched, so running it in the background again brings it back.",
+          ];
+          if (paneRisk(probe)) {
+            messages.push(
+              "The installed definition does not spare live panes, so this kills every subshell running on this " +
+                "machine.",
+            );
+          }
+          return asks({
+            title: "Uninstall the background service",
+            messages,
+            acceptLabel: "Uninstall the service",
+            run: async () => finished(await nodeService({ verb: "uninstall", force: false })),
+          });
+        },
+        { label: "uninstall" },
+      ),
 
     /**
      * The remedy for a definition that would SIGKILL every subshell on a
@@ -296,71 +321,51 @@ export function useNodeCommands(args: {
      * nothing" is not said on the platform where it does.
      */
     rewrite: () =>
-      runner.run(async () => {
-        if (!rewriteKillsPanes(probe)) return finished(await runService("install", { settle: true }));
-        return asks({
-          title: "Rewriting the definition restarts the node",
-          messages: [
-            "A launchd job cannot be reloaded in place: the loaded one is booted out and the new definition is " +
-              "bootstrapped. The definition currently loaded does not spare live panes, so booting it out kills " +
-              "every subshell running on this machine.",
-            "It is the last time that happens. The definition this writes spares panes, so every stop, restart " +
-              "and uninstall after it is free.",
-          ],
-          acceptLabel: "Rewrite the definition",
-          run: async () => finished(await runService("install", { settle: true })),
-        });
-      }),
+      runner.run(
+        async () => {
+          if (!rewriteKillsPanes(probe)) return finished(await runService("install", { settle: true }));
+          return asks({
+            title: "Rewriting the definition restarts the Subshell Node Service",
+            messages: [
+              "All running subshells on this machine will stop while it restarts.",
+              "It is the last time that happens. The definition this writes spares panes, so every stop, restart " +
+                "and uninstall after it is free.",
+            ],
+            acceptLabel: "Rewrite the definition",
+            run: async () => finished(await runService("install", { settle: true })),
+          });
+        },
+        { label: "rewrite" },
+      ),
 
     /**
-     * The two-call flow the Rust side defines: `confirm: false` first, and when
-     * it comes back asking, NOTHING was spawned and no key was spent — so the
-     * reasons are shown and the IDENTICAL arguments are re-sent only on an
-     * explicit acceptance. There is no auto-retry anywhere in here: once the
-     * control plane has accepted a key, a second attempt with it cannot
-     * succeed, and the CLI's own stderr already says to mint a new one where
-     * that is the answer.
+     * The one press whose confirm exists for what it KEEPS rather than what
+     * it costs: nothing here is unrecoverable in the way enroll's spent key
+     * is, but "subshells keep running with nothing managing them" must be
+     * read before it happens, not discovered after. The chain is Rust's
+     * (`node_unenroll`); this is its consent and its settle.
      */
-    enroll: () =>
-      runner.run(async () => {
-        const enrollArgs = form.validate();
-        // Refused here means refused BEFORE a spawn: nothing ran, no key spent.
-        if (enrollArgs === null) return finished(null);
-        const outcome = await nodeEnroll({ ...enrollArgs, confirm: false });
-        if (!outcome.requiresConfirmation) {
-          if (outcome.ok) {
-            onEnrolled(outcome.node);
-            form.clearSpentKey();
-          }
-          return finished(outcome);
-        }
-        return asks({
-          title: "Confirm before this setup key is spent",
-          messages: outcome.confirmations.map((c) => c.message),
-          acceptLabel: "Enroll this machine",
-          run: async () => {
-            const confirmed = await nodeEnroll({ ...enrollArgs, confirm: true });
-            if (confirmed.ok) {
-              onEnrolled(confirmed.node);
-              form.clearSpentKey();
-            }
-            return finished(confirmed);
-          },
-        });
-      }),
-
-    /**
-     * Repointing is the ONE address change that costs nothing, and that is why
-     * it is a single click where {@link NodeCommands.enroll} is two.
-     * `configure` spends no setup key, mints no second node row and keeps the
-     * node key — so there is nothing here to confirm, and asking would teach
-     * the user that this is as dangerous as re-enrolling, which is the
-     * confusion the separate command exists to remove.
-     *
-     * It DOES re-probe: `serverUrl` is a probe fact, and the divergence notice
-     * is computed from it.
-     */
-    repoint: (server) => runner.run(async () => finished(await nodeConfigure({ server }))),
+    unenroll: () =>
+      runner.run(
+        async () =>
+          asks({
+            title: "Un-enroll this machine?",
+            messages: [
+              "This removes this machine's node configuration and key, and uninstalls the node service. Subshells " +
+                "that are still running keep running, but nothing will manage them.",
+              "The control plane keeps its node row until its owner deletes it there.",
+            ],
+            acceptLabel: "Un-enroll",
+            run: async () => {
+              const result = await nodeUnenroll();
+              // A different machine afterwards: the re-probe is what lands the
+              // section off a gone node, as for every lifecycle verb.
+              if (result.ok) await runner.settle();
+              return finished(result);
+            },
+          }),
+        { label: "unenroll" },
+      ),
 
     openPath: (target) =>
       runner.run(async () => {
@@ -426,12 +431,16 @@ export function useNodeCommands(args: {
       }),
 
     /**
-     * Persist only. The runner still re-probes, because nothing about this
-     * machine changed but the screen it should be on has.
+     * Save only. The runner still re-probes and refetches settings, because
+     * nothing about this machine changed but the screen it should be on has
+     * (the walk's `configured` watch reads the list). A rejection — a
+     * non-http(s) URL, or the node's own address, which is always the pinned
+     * row — comes back on the message line with Rust's canonicalization
+     * refusing on the page's behalf.
      */
-    connectOnly: (url) =>
+    addPlane: (url) =>
       runner.run(async () => {
-        await nodeSetPlane({ url });
+        await nodePlaneAdd({ url });
         // An instantaneous save records nothing (operator ruling 2026-09-22):
         // the runner's settings refetch is what moves the address on screen,
         // and a receipt line for a save nobody watched is the same
@@ -440,14 +449,36 @@ export function useNodeCommands(args: {
       }),
 
     /**
+     * Remove behind a confirmed press — deleting a row someone might mean is
+     * never a single click — and the confirmation says the whole reach of
+     * the act: the list is this app's bookmarks, and detaching the MACHINE is
+     * Service's business.
+     */
+    removePlane: (url) =>
+      runner.run(async () =>
+        asks({
+          title: "Remove this control plane?",
+          messages: ["This removes the address from this app's list only. Nothing on the control plane changes."],
+          acceptLabel: "Remove",
+          run: async () => {
+            await nodePlaneRemove({ url });
+            // No receipt: the row vanishing through the settings refetch IS
+            // the feedback, one press one visible result.
+            return finished(null);
+          },
+        }),
+      ),
+
+    /**
      * Three acts, one press, no confirmation.
      *
      * The press IS the consent: a person typed a single-use key into a field
      * labelled as one and pressed Register, so `confirm: true` goes straight
-     * out rather than raising the panel {@link NodeCommands.enroll} raises.
-     * That is scoped to the FIRST run — re-enrolling from the status screen
-     * still asks, because there it overwrites a working `config.json`, mints a
-     * second node row and discards the only copy of a live node key.
+     * out. It is the ONLY key-spending path since the destructive re-enrol
+     * screen retired (operator ruling 2026-09-22); its chain still runs the
+     * two-call `confirm: false` first, because Rust's already-enrolled guard
+     * can still fire on a machine that holds a config the probe cannot see,
+     * and the panel it raises is the honest answer.
      */
     register: ({ startAtLogin, onPhase, onFailed }) =>
       runner.run(async () => {
@@ -570,10 +601,10 @@ export function useNodeCommands(args: {
       }),
 
     /** As {@link openPlane}: the browser is not this machine's state either. */
-    openPlaneUrl: () =>
+    openPlaneUrl: (url) =>
       runner.run(
         async () => {
-          await nodeOpenPlaneUrl();
+          await nodeOpenPlaneUrl({ url });
           return finished(null);
         },
         { reprobe: false },

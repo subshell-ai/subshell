@@ -319,6 +319,39 @@ describe("the invocations that must stay unreachable", () => {
     expect(params.trim()).toBe("");
   });
 
+  // The plane-list ruling (2026-09-22): the page names WHICH plane it opens
+  // or drops, and Rust trusts the page no further than that name. There is
+  // no argument-less "open the current one" left to grow a default plane
+  // from, because nothing is current.
+  // The un-enroll chain takes NOTHING from the page: not a path, not a
+  // flag, not a "--keep-data" knob. The order is Rust's, the refusal words
+  // are the CLI's, and the consent is the dialog's. The two parameters it
+  // does name are INJECTED BY TAURI, never supplied by the caller — the
+  // app handle (added 2026-09-22 so a completed un-enroll repaints the
+  // tray's pinned row) and the settings state — and this pin's whole point
+  // is that the list holds nothing else.
+  it("keeps un-enroll a page-blind chain", () => {
+    const rust = readFileSync(join(TAURI_DIR, "src/control.rs"), "utf8");
+    const signature = rust.slice(rust.indexOf("pub fn node_unenroll("));
+    expect(signature.startsWith("pub fn node_unenroll("), "node_unenroll vanished from control.rs").toBe(true);
+    const params = signature.slice(signature.indexOf("(") + 1, signature.indexOf(")"));
+    let rest = params.trim();
+    for (const injected of ["app: AppHandle", "settings: State<'_, SettingsState>"]) {
+      rest = rest.replace(injected, "");
+    }
+    expect(rest.replace(/[,\s]/g, ""), "only tauri-injected parameters, nothing page-supplied").toBe("");
+  });
+
+  it("keeps the four plane commands to one argument: the address", () => {
+    const rust = readFileSync(join(TAURI_DIR, "src/control.rs"), "utf8");
+    for (const fn of ["node_open_plane", "node_open_plane_url", "node_plane_add", "node_plane_remove"]) {
+      const signature = rust.slice(rust.indexOf(`pub fn ${fn}(`));
+      expect(signature.startsWith(`pub fn ${fn}(`), `${fn} vanished from control.rs`).toBe(true);
+      const params = signature.slice(signature.indexOf("(") + 1, signature.indexOf(")"));
+      expect(params, fn).toContain("url: String");
+    }
+  });
+
   it("keeps the service verbs to the six the CLI accepts", () => {
     const union = /export type ServiceVerb =([^;]+);/.exec(ipcSource)?.[1] ?? "";
     expect(union).not.toBe("");

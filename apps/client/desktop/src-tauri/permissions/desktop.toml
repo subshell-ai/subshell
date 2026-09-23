@@ -46,9 +46,9 @@ description = "Register this machine as a node via `subshell enroll`. Destructiv
 commands.allow = ["node_enroll"]
 
 [[permission]]
-identifier = "allow-node-configure"
-description = "Repoint this machine's node at a different control plane via `subshell configure`. NON-destructive, which is what separates it from enroll: it spends no setup key, mints no second node row, and keeps the node key — so it only works when both addresses are one plane under two names; a different plane refuses the node key and the node goes offline until it is pointed back or enrolled afresh. It also repoints this app's own stored plane address, so the two cannot diverge. It does not rename: the plane owns a node's name."
-commands.allow = ["node_configure"]
+identifier = "allow-node-unenroll"
+description = "Stop being a node: this app's chain stops the service, uninstalls its definition, then runs `subshell unenroll --yes --json`, which deletes the node configuration and key. It keeps the data directory, the installed binary, and every running subshell — which is the point of the confirm the page shows — and the control plane keeps its node row until its owner deletes it there."
+commands.allow = ["node_unenroll"]
 
 [[permission]]
 identifier = "allow-node-service"
@@ -82,17 +82,22 @@ commands.allow = ["node_settings"]
 
 [[permission]]
 identifier = "allow-node-open-plane"
-description = "Open the window showing a control plane's own UI, and remember its address. Validated http/https only. That window holds exactly ONE command of its own, allow-desktop-open-in-browser, which takes a path and can name no host; nothing that drives the CLI is reachable from it."
+description = "Open the window showing a control plane's own UI, at the address the bundled page names, validated http/https. Opens are one-off (operator ruling 2026-09-22, the plane list): it stores nothing. That window holds exactly ONE command of its own, allow-desktop-open-in-browser, which takes a path and can name no host; nothing that drives the CLI is reachable from it."
 commands.allow = ["node_open_plane"]
 
 [[permission]]
-identifier = "allow-node-set-plane"
-description = "Remember a control plane's address without opening anything. The persisting half of allow-node-open-plane, validated http/https by the same rule, so a setup flow can record the plane it is enrolling against without a dashboard appearing over the question it is still asking. Opens no window and grants that window nothing: it writes one field of this app's own settings file."
-commands.allow = ["node_set_plane"]
+identifier = "allow-node-plane-add"
+description = "Add a control plane address to this app's own saved list. Validated http/https by the same rule every opener uses; canonicalized, deduped, and refused when it equals the enrolled node's own address; opens no window and grants nothing: it writes one field of this app's own settings file."
+commands.allow = ["node_plane_add"]
+
+[[permission]]
+identifier = "allow-node-plane-remove"
+description = "Forget one saved control plane address. An edit of this app's own bookmarks and nothing else: it detaches no machine, closes no window, and the node's own acts live in allow-node-service and allow-node-enroll."
+commands.allow = ["node_plane_remove"]
 
 [[permission]]
 identifier = "allow-node-open-plane-url"
-description = "Open the control plane's address in the system browser. The URL is re-read from this app's own stored ladder and http(s)-validated; none of it comes from the page."
+description = "Open one control plane's address in the system browser. The address is named by the BUNDLED node page (only) since the plane list of 2026-09-22, every value it can name a stored row or this machine's own probe fact, and http(s)-validated here; the remote plane window remains granted only allow-desktop-open-in-browser, which names no host."
 commands.allow = ["node_open_plane_url"]
 
 [[permission]]

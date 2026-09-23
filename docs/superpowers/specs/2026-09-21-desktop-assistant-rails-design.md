@@ -107,7 +107,9 @@ re-renders through its own state).
 Its screens are already components. It gains the same `Rail` for its standing
 set — **Status**, **Service**, **Control Plane**, **Update**, **About** —
 while its FTE walk (Welcome → Choice → Register/Connect → Setting Up) stays
-untouched and rail-less, and Reset stays frame-replacing. The tray's
+untouched and rail-less, and Reset stays frame-replacing (until the same
+day's dialog wave, Addendum 8: it became a dialog over the standing
+section). The tray's
 `desktop-screen` events (`about`, `update`) select the rail section they
 name.
 
@@ -255,10 +257,15 @@ render (the screen the press happened on), and an always-on second copy would
 contradict it. The run-at-login switch also gained the server's version
 gate: an agent older than `0.15.0` reads the state (it
 always answered `enabled`) but has no verb to write with, so the switch
-shows the answer greyed under "Update your node to 0.15.0 to control this."
-And when neither fact arrives there is no hiding and no guessing: the switch
-greys under "The node CLI did not report whether login start is armed." —
-the same disabled affordance carrying the honest sentence, not an absent one.
+shows the answer greyed with "Currently the installed version cannot change
+this. Updating to version 0.15.0 lets you." (the server keeps its own
+shorter sentence for the same gate). And when neither fact arrives there is
+no hiding and no guessing: the card itself says so ("Whether it starts on
+startup is not reported.") while the disabled affordance stays, never an
+absent one, and the switch's own help line goes empty.
+The switch's help states the CURRENT condition in every state (armed,
+disarmed, unknown, too-old), operator ruling 2026-09-22: the card says what
+is, the toggle says what flipping it changes.
 
 ## What does not change
 
@@ -306,3 +313,111 @@ rewritten by the wave that changes the surface they describe.
 - Wave 1 is large (~3k lines touched). It is split inside the wave: frame +
   first-run screens first, then the standing screens, one branch, two
   commits.
+
+## Addendum 7 (2026-09-22, same day, plane-list wave + the live-window follow-ups)
+
+The operator's ruling that ended the day's evolution of the Control Plane
+section: "the Control Plane should be a list of control planes to connect
+to … that way it's clear the section is for connecting to other control
+planes, not necessarily tied with the node." What shipped, including the
+corrections made from the running dev window as it went:
+
+- **The list.** A bare table (not a card), rows canonicalized and deduped
+  by Rust. The node's own address is a PINNED first row badged "this node" —
+  a probe fact, never a stored entry, and the pinned row renders exactly
+  once whatever spelling a stored row uses. No row is marked connected and
+  nothing opens at boot: a client never opens a control plane by itself
+  (§ 2 stands; the old plane ladder existed only to feed a `debug_assert`
+  and was deleted).
+- **The row is the door; the `⋮` is a real action menu.** Pressing the
+  address opens the dashboard. The menu — Open in dashboard, Open in
+  browser, Copy URL, Remove — is positioned BY CLASS inside the row's own `relative`
+  box: the CSP outlaws style ATTRIBUTES (the `confirm-panel.tsx`
+  measurement), which sinks measuring poppers but not `absolute right-0
+  top-full`, and a list row does not need a popper. It is FIXED-width
+  (`w-48`) with dense items (`h-7`, `text-detail`): two rulings from the
+  window — the auto-width panel sized to the ROW rather than its labels
+  ("why is the action menu so wide"), and button-sized items made the whole
+  panel read oversized. Escape and outside
+  press dismiss; one is open at a time. The pinned row's menu carries the
+  SAME opens plus Copy URL, NO Remove, and no explanatory sentence —
+  the pointer paragraph was deleted the same hour Un-enroll… stood up on
+  Service ("absence is the whole message") — but the ROUTE survived as a
+  plain **Go to Service** item, restored by a later same-day ruling ("what
+  happened to going to the Service section"). Copy closes the menu on success
+  and, on a refused clipboard, stays open with the item renamed.
+- **The add is the frame's bottom bar; its form is a dialog.** The opener
+  keeps the bar's primary-right slot; pressing it opens `Add a control
+  plane` in the app's dialog, and a submit closes it — the refetched list
+  underneath is the feedback. (Both halves are same-day live-window
+  rulings; § 3's bar grammar survives as the opener's home.)
+- **The node's binding lives on Service.** The "Enrolled to Control Plane"
+  card states the address, carries the loopback notice with it, and offers
+  Re-enroll… — the ENROLLMENT WIZARD's door (the day's final ruling: "Re-enroll
+  should go through the enrollment wizard"): it opens the same walk the
+  Register card opens, seeded with the current address, and the bespoke
+  free-form repoint dialog it replaced went all the way down with its
+  `node_configure` command — re-enrolling spends a setup key and mints a
+  fresh node row, and the walk's two-phase confirm over a live config is the
+  guard. The close-on-submit grammar it taught stands for every dialog that
+  remains: a modal that stays open after the press is zero feedback. And
+  Un-enroll… (confirmed; ONE `node_unenroll` call whose chain is stop →
+  uninstall → `unenroll --yes --json`, definition before config because a
+  kept definition respawns a daemon against a deleted config; panes are
+  never signalled and the confirm says so; gated on node 0.15.0, the
+  autostart gate's twin). Plane-coherence and its notices died with the
+  two-address state — the pinned row IS the notice — and the Status
+  subtitle states the machine, not a plane.
+- **The press narrates its own button, and the wait belongs to it.** A
+  lifecycle or chain press turns the PRESSED button into a spinner and the
+  progressive word ("Restarting…"): the runner carries the submission's
+  label through a confirmation, so a confirmed chain spins from the dialog's
+  Accept to the answer. A STARTING act then does not end on the CLI's
+  return — the manager accepts a kick long before the daemon is up (a
+  throttled launchd restart measured 10–30 s) — it re-probes until ONLINE
+  or a 30 s deadline, which is as close to "confirmed started or unable to
+  start" as a poll honestly gets. The header state chip wears the act's word
+  while it runs — the last read is stale by design for seconds and "Online"
+  over a restart in flight reads as a lie ("why does it say online while
+  it's restarting"). The card's problem sentences go quiet for
+  the act's whole life (plus one residual cycle), a stop keeping no grace,
+  and what survives the hush renders as the screen's yellow warning band.
+  Four live-window rulings: "there should be a spinner saying restarting.
+  same with the stop / start button"; "when restarting this additional
+  message occurs, can we remove it"; "keep it spinning / disabled until
+  it's confirmed started or unable to start"; "it should probably be written
+  as a yellow warning". A later ruling that night deleted the STOPPED
+  sentence outright ("just remove this, the badge already shows the
+  status") — only sentences that say MORE than the chip survived: offline's
+  disagreement, no-service's absent arrangement.
+- **Confirmations are dialogs** (the audit ruling, same hour): every
+  confirmation flows through `ConfirmPanel`, and `ConfirmPanel` is now the
+  app's own class-positioned `Dialog` — Escape and backdrop are the cancel,
+  the accept keeps the right-hand weight. Re-enroll… opens its form in the
+  same dialog. Reset followed within the hour — the rail keeps its "Reset"
+  item and pressing it opens `Reset everything?` as a dialog over whatever
+  section stands, typing the hostname inside it; running, the dialog cannot
+  be dismissed, which is the old frame-replacing room's rule expressed
+  harder. Uninstall and Un-enroll… stay separate commands by ruling.
+- **The tray follows the section, and reset reaches the app's own memory**
+  (the last two live-window rulings, same night). "I think we need to update
+  the tray menu items because open subshell client / browser - doesn't inform
+  which" rebuilt the tray as the Control Plane section's mirror: one submenu
+  per saved address — connected one first, the pinned row's rule read from
+  the same live sources — each offering Open in App | Open in Browser, and
+  the ids carry the canonical URL so a click acts on the address the person
+  read. "This machine" became **Open Client App** in both the tray and the
+  macOS menu bar: the label is the verb. "Have Control Plane have a Open Last
+  option which would open the last used url with the opening method used
+  (browser / app)" put one record in settings — the address AND the door —
+  written by every opener's success path and replayed by the submenu's first
+  item; it greys until the first open and reset clears it with the list. The
+  tray repaints on every mutation its submenu reads (plane add/remove,
+  enroll, un-enroll, reset) — and never from inside its own menu handler,
+  which is a re-entrancy question this app does not answer. And "the reset
+  everything didn't seem to reset. the app didn't restart to the FTE"
+  reversed the reset's one kept artifact: with the plane list feeding
+  `configured()`, keeping it made the first run unreachable forever, so
+  reset now clears `settings.planes` and the open-last memory along with
+  everything else it names — cosmetic preferences stay — and the dialog
+  says the list goes.

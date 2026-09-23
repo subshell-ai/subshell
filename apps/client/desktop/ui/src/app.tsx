@@ -30,12 +30,11 @@ import { useEffect, useRef, useState } from "react";
 import { AboutScreen } from "@/components/assistant/about-screen";
 import { ChoiceScreen } from "@/components/assistant/choice-screen";
 import { ConnectScreen } from "@/components/assistant/connect-screen";
-import { EnrollScreen } from "@/components/assistant/enroll-screen";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { PlaneScreen } from "@/components/assistant/plane-screen";
 import { ProgressScreen } from "@/components/assistant/progress-screen";
 import { RegisterScreen } from "@/components/assistant/register-screen";
-import { ResetScreen } from "@/components/assistant/reset-screen";
+import { ResetDialog } from "@/components/assistant/reset-dialog";
 import { ServiceScreen } from "@/components/assistant/service-screen";
 import { StartupScreen } from "@/components/assistant/startup-screen";
 import { StatusScreen } from "@/components/assistant/status-screen";
@@ -48,7 +47,7 @@ import { Button } from "@/components/ui/button";
 import { useActionRunner } from "@/hooks/use-action-runner";
 import { useEnrollForm } from "@/hooks/use-enroll-form";
 import { useNodeCommands } from "@/hooks/use-node-commands";
-import { useNodeState } from "@/hooks/use-node-state";
+import { PROBE_KEY, useNodeState } from "@/hooks/use-node-state";
 import {
   clientScreen,
   configured,
@@ -83,6 +82,8 @@ export function App() {
 
   /** A screen the USER chose rather than one the machine implies. */
   const [override, setOverride] = useState<NodeUserScreen | null>(null);
+  /** Reset is no longer one of those screens: it is a dialog (ruling 2026-09-22), so its open-ness is its own state. */
+  const [resetOpen, setResetOpen] = useState(false);
   /** Which phase of the first-run walk is in progress, or null for no walk. */
   const [step, setStep] = useState<FteStep | null>(null);
   /**
@@ -97,6 +98,26 @@ export function App() {
   const [phase, setPhase] = useState<RegisterPhase>("form");
   /** Which act of that chain failed, if one did. */
   const [failedAct, setFailedAct] = useState<RegisterRow["id"] | null>(null);
+  /**
+   * The section a door press entered the walk FROM, if any (operator ruling
+   * 2026-09-22: "the back button in register this machine coming from
+   * re-enroll goes back to the control plane instead of the service"). The
+   * walk must clear the override on entry — an override outranks a step in
+   * `clientScreen`, so a standing Service override would swallow the walk's
+   * own screen — and that is exactly what made the walk's exits dump a
+   * configured client on the Control Plane landing they never asked to visit.
+   * Holding the origin for one exit restores it, and nothing else: a fresh
+   * machine's walk never sets it, so its Back still answers "choice", and
+   * Progress's Continue still lands a first-time setup on the landing.
+   */
+  const [walkFrom, setWalkFrom] = useState<NodeUserScreen | null>(null);
+  /** End a walk, landing where it was entered from — the landing itself
+   *  when no door opened it. One-shot: the origin is spent on the exit. */
+  const exitWalk = () => {
+    setStep(null);
+    setOverride(walkFrom);
+    setWalkFrom(null);
+  };
 
   // The tray's own route into this page. One event, one name, and an id this
   // build does not know is IGNORED rather than throwing — that is what lets a
@@ -130,7 +151,7 @@ export function App() {
   /**
    * Leave the watch walk once the address has actually landed.
    *
-   * `connectOnly` persists and the runner refetches the settings, so the walk
+   * `addPlane` saves and the runner refetches the settings, so the walk
    * ends on the FACT rather than on the press: clearing the step optimistically
    * would route a not-yet-configured machine straight back to Welcome for one
    * frame, and the walk deliberately outranks `configured`, so it cannot end
@@ -258,7 +279,7 @@ export function App() {
     const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
       if (
         event.type === "updated" &&
-        event.query.queryKey[0] === "node-probe" &&
+        event.query.queryKey[0] === PROBE_KEY[0] &&
         (event.action as { type?: string } | undefined)?.type === "success"
       ) {
         pull();
@@ -297,10 +318,12 @@ export function App() {
           // 2026-09-22, second addendum): the landing is Control Plane, so
           // clearing the override no longer meant showing Status — a Status
           // select that cleared would land on Control Plane with Status
-          // highlighted nowhere. Reset keeps its arm first: its screen is
-          // frame-replacing.
+          // highlighted nowhere. Reset opens its DIALOG (same day's dialog
+          // ruling): it selects no section, overrides nothing, and the
+          // section underneath stays exactly where it was — including its
+          // share of the rail highlight.
           if (id === "reset") {
-            setOverride("reset");
+            setResetOpen(true);
             return;
           }
           setOverride(id as NodeUserScreen);
@@ -377,232 +400,220 @@ export function App() {
     );
   }
 
-  const facts = { probe, settings, enrolledNode, output: ownedOutput };
+  const _facts = { probe, settings, enrolledNode, output: ownedOutput };
 
-  switch (screen) {
-    case "welcome":
-      return <WelcomeScreen shell={shell} busy={runner.busy} onContinue={() => setStep("choice")} />;
-    case "choice":
-      return (
-        <ChoiceScreen
-          shell={shell}
-          busy={runner.busy}
-          onChoose={(choice) => {
-            // Seed the enrol form's server field from the plane this app
-            // already knows, so a watcher who decides to register does not
-            // retype an address they have already given once.
-            if (choice === "node") form.seedServer(settings?.planeUrl ?? "");
-            setStep(choice);
-          }}
-        />
-      );
-    case "tmux":
-      return (
-        <TmuxScreen
-          shell={shell}
-          probe={probe}
-          busy={runner.busy}
-          onInstall={commands.installTmux}
-          // The TMUX INSTALL's own words, never `runner.output` — that is the
-          // last of any action and outlives the screen it was produced on, so
-          // a failed service verb would render here as a tmux failure. The
-          // server app keeps its own slot for exactly this reason.
-          result={tmuxResult}
-          // Which of `problem`'s three sources is the runner's — the only one
-          // the failure card replaces. See the prop's own docblock.
-          runnerFailure={runner.failure}
-          // Same asymmetry as Register's: Choice for a fresh machine, the
-          // status screen for a configured client that came here from
-          // "Register this machine". This screen needs it most — a machine
-          // without tmux can wait here forever.
-          //
-          // NOT gated on `runner.busy`, alone among this page's handlers, and
-          // that is the whole point of the button: `tmux-screen.tsx` draws it
-          // live while the install runs and says why at the point it draws it
-          // — a screen whose complaint is "there is no way out of this wait"
-          // cannot take its way out away for the length of it, and a `brew
-          // install` is a minute or more. Gating here would leave a live
-          // button whose press does nothing, which says less than a disabled
-          // one does. Leaving is safe: the install is Rust's and finishes
-          // either way, the next probe sees the tmux it produced, and every
-          // control on the screen this lands on is disabled by `busy` as usual.
-          onBack={() => setStep(configured(settings, probe) ? null : "choice")}
-        />
-      );
-    case "register":
-      return (
-        <RegisterScreen
-          shell={shell}
-          probe={probe}
-          form={form}
-          busy={runner.busy}
-          // The credentials are collected here and nothing is spent yet: the
-          // start-up question is the last thing asked, because its answer
-          // parameterizes the chain's own `service install`.
-          //
-          // Where Back goes, and why it is not always the same place: a fresh
-          // machine came through Choice and returns there, while a client that
-          // was ALREADY configured reached this screen from the status screen's
-          // "Register this machine" — for that person Choice is a screen they
-          // never saw, and `setStep(null)` puts them back on the landing with
-          // their dashboard button. Without this the status-screen door was
-          // one-way for the rest of the session.
-          onBack={() => {
-            if (runner.busy) return;
-            setStep(configured(settings, probe) ? null : "choice");
-          }}
-          // Validated HERE as well as inside the chain, because this is the
-          // screen that OWNS the fields. The button is gated only on them
-          // being non-empty, so `https//typo` and a truncated key both reach
-          // this press; `validateEnroll`'s per-field refusals are written to
-          // the form, and if the page had already moved on nobody would ever
-          // see them.
-          onRegister={() => {
-            if (runner.busy) return;
-            if (form.validate() === null) return;
-            setStep("startup");
-          }}
-        />
-      );
-    case "startup":
-      return (
-        <StartupScreen
-          shell={shell}
-          busy={runner.busy}
-          startAtLogin={startAtLogin}
-          onChange={setStartAtLogin}
-          onContinue={runRegister}
-          // Back to the details form. `"node"` rather than a register-specific
-          // step because the walk re-enters through the tmux gate, which
-          // answers instantly when tmux is there — so this lands on the fields
-          // in the ordinary case and on Install tmux in the one case where the
-          // machine has stopped being able to register at all.
-          onBack={() => {
-            if (runner.busy) return;
-            setStep("node");
-          }}
-        />
-      );
-    case "progress":
-      return (
-        <ProgressScreen
-          shell={shell}
-          busy={runner.busy}
-          rows={registerSteps(probe, phase, failedAct)}
-          failureOutput={failedAct ? runner.output?.stderr || runner.output?.stdout || "" : ""}
-          done={phase === "done"}
-          // The walk ends HERE rather than when the last act returned: the
-          // completed checklist is the answer to "what did that just do", and
-          // a pane that navigates away the moment it becomes an answer is the
-          // jarring thing the sibling app was reported for.
-          onContinue={() => setStep(null)}
-          onRetry={runRegister}
-          // Back to the details, unless the machine is already registered —
-          // only the service act fails after enrolment has landed, and by then
-          // changing the details would mean enrolling a second time.
-          onEdit={failedAct === null || failedAct === "start" ? undefined : () => setStep("node")}
-        />
-      );
-    case "connect":
-      return <ConnectScreen shell={shell} commands={commands} busy={runner.busy} />;
-    case "status":
-      // No spread, and no `output`/`busy`: this screen offers no act on the
-      // machine (operator ruling 2026-09-22), and the rails addendum's one
-      // exception is not an act — a fact row's Reveal opens the fact the row
-      // is already showing, exactly the server's pattern. Facts, their
-      // reveals, and the log tail only.
-      return (
-        <StatusScreen
-          rail={rail}
-          shell={shell}
-          probe={probe}
-          settings={settings}
-          enrolledNode={enrolledNode}
-          nodeLog={nodeLog}
-          onReveal={commands.openPath}
-        />
-      );
-    case "service":
-      return (
-        <ServiceScreen
-          shell={shell}
-          rail={rail}
-          probe={probe}
-          commands={commands}
-          busy={runner.busy}
-          onRegister={() => {
-            if (runner.busy) return;
-            form.seedServer(probe?.status?.serverUrl ?? settings?.planeUrl ?? "");
-            // The walk outranks nothing the person asked for, but it DOES
-            // replace the section they are reading: Service is an override
-            // now (every rail select is), and leaving it set would swallow
-            // the walk's own screen behind it — the 11c0f14f fix, re-traced
-            // to its new home on Service.
-            setOverride(null);
-            setStep("node");
-          }}
-          output={ownedOutput}
-        />
-      );
-    case "plane":
-      return (
-        <PlaneScreen
-          shell={shell}
-          rail={rail}
-          probe={probe}
-          settings={settings}
-          commands={commands}
-          busy={runner.busy}
-          onReenroll={() => {
-            if (runner.busy) return;
-            form.seedServer(probe?.status?.serverUrl ?? settings?.planeUrl ?? "");
-            setOverride("enroll");
-          }}
-          output={ownedOutput}
-        />
-      );
-    case "enroll":
-      return (
-        <EnrollScreen
-          shell={shell}
-          {...facts}
-          form={form}
-          commands={commands}
-          busy={runner.busy}
-          onCancel={
-            override === "enroll"
-              ? () => {
-                  if (runner.busy) return;
-                  form.clearErrors();
-                  setOverride(null);
-                }
-              : undefined
-          }
-        />
-      );
-    case "about":
-      return <AboutScreen shell={shell} probe={probe} rail={rail} onClose={() => setOverride(null)} />;
-    case "update":
-      return (
-        <UpdateScreen
-          rail={rail}
-          shell={shell}
-          probe={probe}
-          commands={commands}
-          runner={runner}
-          onClose={() => setOverride(null)}
-        />
-      );
-    case "reset":
-      return (
-        <ResetScreen
-          shell={shell}
-          rail={rail}
-          {...facts}
-          runner={runner}
-          busy={runner.busy}
-          onCancel={() => setOverride(null)}
-        />
-      );
-  }
+  const body = (() => {
+    switch (screen) {
+      case "welcome":
+        return <WelcomeScreen shell={shell} busy={runner.busy} onContinue={() => setStep("choice")} />;
+      case "choice":
+        return (
+          <ChoiceScreen
+            shell={shell}
+            busy={runner.busy}
+            onChoose={(choice) => {
+              // Seed the enrol form's server field from the plane this app
+              // already knows, so a watcher who decides to register does not
+              // retype an address they have already given once.
+              if (choice === "node") form.seedServer(settings?.planes[0] ?? "");
+              setStep(choice);
+            }}
+          />
+        );
+      case "tmux":
+        return (
+          <TmuxScreen
+            shell={shell}
+            probe={probe}
+            busy={runner.busy}
+            onInstall={commands.installTmux}
+            // The TMUX INSTALL's own words, never `runner.output` — that is the
+            // last of any action and outlives the screen it was produced on, so
+            // a failed service verb would render here as a tmux failure. The
+            // server app keeps its own slot for exactly this reason.
+            result={tmuxResult}
+            // Which of `problem`'s three sources is the runner's — the only one
+            // the failure card replaces. See the prop's own docblock.
+            runnerFailure={runner.failure}
+            // Same asymmetry as Register's: Choice for a fresh machine, the
+            // status screen for a configured client that came here from
+            // "Register this machine". This screen needs it most — a machine
+            // without tmux can wait here forever.
+            //
+            // NOT gated on `runner.busy`, alone among this page's handlers, and
+            // that is the whole point of the button: `tmux-screen.tsx` draws it
+            // live while the install runs and says why at the point it draws it
+            // — a screen whose complaint is "there is no way out of this wait"
+            // cannot take its way out away for the length of it, and a `brew
+            // install` is a minute or more. Gating here would leave a live
+            // button whose press does nothing, which says less than a disabled
+            // one does. Leaving is safe: the install is Rust's and finishes
+            // either way, the next probe sees the tmux it produced, and every
+            // control on the screen this lands on is disabled by `busy` as usual.
+            onBack={() => (configured(settings, probe) ? exitWalk() : setStep("choice"))}
+          />
+        );
+      case "register":
+        return (
+          <RegisterScreen
+            shell={shell}
+            probe={probe}
+            form={form}
+            busy={runner.busy}
+            // The credentials are collected here and nothing is spent yet: the
+            // start-up question is the last thing asked, because its answer
+            // parameterizes the chain's own `service install`.
+            //
+            // Where Back goes, and why it is not always the same place: a fresh
+            // machine came through Choice and returns there, while a client
+            // that was ALREADY configured reached this screen from a Service
+            // card's door — for that person Choice is a screen they never saw,
+            // and `exitWalk()` puts them back on the section the door stood on
+            // (ruling 2026-09-22: the landing was the WRONG promise; coming
+            // from Re-enroll and surfacing on Control Plane read as the back
+            // button having lost their place). Without any of this the door was
+            // one-way for the rest of the session.
+            onBack={() => {
+              if (runner.busy) return;
+              if (configured(settings, probe)) exitWalk();
+              else setStep("choice");
+            }}
+            // Validated HERE as well as inside the chain, because this is the
+            // screen that OWNS the fields. The button is gated only on them
+            // being non-empty, so `https//typo` and a truncated key both reach
+            // this press; `validateEnroll`'s per-field refusals are written to
+            // the form, and if the page had already moved on nobody would ever
+            // see them.
+            onRegister={() => {
+              if (runner.busy) return;
+              if (form.validate() === null) return;
+              setStep("startup");
+            }}
+          />
+        );
+      case "startup":
+        return (
+          <StartupScreen
+            shell={shell}
+            busy={runner.busy}
+            startAtLogin={startAtLogin}
+            onChange={setStartAtLogin}
+            onContinue={runRegister}
+            // Back to the details form. `"node"` rather than a register-specific
+            // step because the walk re-enters through the tmux gate, which
+            // answers instantly when tmux is there — so this lands on the fields
+            // in the ordinary case and on Install tmux in the one case where the
+            // machine has stopped being able to register at all.
+            onBack={() => {
+              if (runner.busy) return;
+              setStep("node");
+            }}
+          />
+        );
+      case "progress":
+        return (
+          <ProgressScreen
+            shell={shell}
+            busy={runner.busy}
+            rows={registerSteps(probe, phase, failedAct)}
+            failureOutput={failedAct ? runner.output?.stderr || runner.output?.stdout || "" : ""}
+            done={phase === "done"}
+            // The walk ends HERE rather than when the last act returned: the
+            // completed checklist is the answer to "what did that just do", and
+            // a pane that navigates away the moment it becomes an answer is the
+            // jarring thing the sibling app was reported for.
+            onContinue={exitWalk}
+            onRetry={runRegister}
+            // Back to the details, unless the machine is already registered —
+            // only the service act fails after enrolment has landed, and by then
+            // changing the details would mean enrolling a second time.
+            onEdit={failedAct === null || failedAct === "start" ? undefined : () => setStep("node")}
+          />
+        );
+      case "connect":
+        return <ConnectScreen shell={shell} commands={commands} busy={runner.busy} />;
+      case "status":
+        // No spread, and no `output`/`busy`: this screen offers no act on the
+        // machine (operator ruling 2026-09-22), and the rails addendum's one
+        // exception is not an act — a fact row's Reveal opens the fact the row
+        // is already showing, exactly the server's pattern. Facts, their
+        // reveals, and the log tail only.
+        return (
+          <StatusScreen
+            rail={rail}
+            shell={shell}
+            probe={probe}
+            settings={settings}
+            enrolledNode={enrolledNode}
+            nodeLog={nodeLog}
+            onReveal={commands.openPath}
+          />
+        );
+      case "service":
+        return (
+          <ServiceScreen
+            shell={shell}
+            rail={rail}
+            probe={probe}
+            commands={commands}
+            busy={runner.busy}
+            active={runner.active}
+            actEnded={runner.activeEnded}
+            onRegister={() => {
+              if (runner.busy) return;
+              form.seedServer(probe?.status?.serverUrl ?? settings?.planes[0] ?? "");
+              // The walk outranks nothing the person asked for, but it DOES
+              // replace the section they are reading: Service is an override
+              // now (every rail select is), and leaving it set would swallow
+              // the walk's own screen behind it — the 11c0f14f fix, re-traced
+              // to its new home on Service. The origin is remembered so the
+              // walk's exits can hand the section back (`walkFrom`).
+              setWalkFrom("service");
+              setOverride(null);
+              setStep("node");
+            }}
+            output={ownedOutput}
+          />
+        );
+      case "plane":
+        return (
+          <PlaneScreen
+            onGoToService={() => setOverride("service")}
+            shell={shell}
+            rail={rail}
+            probe={probe}
+            settings={settings}
+            commands={commands}
+            busy={runner.busy}
+            // The pinned row's note sends a detaching person to the node's
+            // acts; a rail select is how every section is reached now.
+            output={ownedOutput}
+          />
+        );
+      case "about":
+        return <AboutScreen shell={shell} probe={probe} rail={rail} onClose={() => setOverride(null)} />;
+      case "update":
+        return (
+          <UpdateScreen
+            rail={rail}
+            shell={shell}
+            probe={probe}
+            commands={commands}
+            runner={runner}
+            onClose={() => setOverride(null)}
+          />
+        );
+      default:
+        return null;
+    }
+  })();
+
+  return (
+    <>
+      {body}
+      {resetOpen && (
+        <ResetDialog probe={probe} runner={runner} busy={runner.busy} onClose={() => setResetOpen(false)} />
+      )}
+    </>
+  );
 }

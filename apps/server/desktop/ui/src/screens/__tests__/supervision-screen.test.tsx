@@ -58,7 +58,54 @@ describe("the choice rows", () => {
     // so the test reads it by id — getByLabelText would match both it and the
     // role=switch span Base UI names through the same label.
     expect((document.getElementById("sup-login") as HTMLInputElement).checked).toBe(true);
-    expect(screen.getByText("A launchd agent runs it, even when this app is closed.")).toBeDefined();
+    expect(
+      screen.getByText(
+        "Currently the Subshell Server Service runs in the background, and starts automatically on startup.",
+      ),
+    ).toBeDefined();
+  });
+
+  /**
+   * The operator ruling of 2026-09-22, second pass: "Currently" is the
+   * machine's word, not the draft's. Flipping the switch without pressing
+   * Apply must not make the screen say the service starts at login — the
+   * state line reads the probe; only the switch follows the pending choice.
+   */
+  it("never says Currently about an unapplied choice", () => {
+    renderSupervision({
+      // Live: service mode, NOT armed. Draft: armed, unapplied.
+      probe: makeProbe({
+        supervision: "service",
+        service: {
+          installed: true,
+          definitionPath: "/p",
+          state: "running",
+          pid: 1,
+          enabled: false,
+          paneSafety: "keeps",
+          detail: "",
+        },
+      }),
+      supervisionForm: { background: true, autostart: true },
+    });
+    expect(
+      screen.getByText(
+        "Currently the Subshell Server Service runs in the background, but does not automatically start on startup.",
+      ),
+    ).toBeDefined();
+    expect(
+      screen.queryByText(
+        "Currently the Subshell Server Service runs in the background, and starts automatically on startup.",
+      ),
+    ).toBeNull();
+    // And the draft still rides the switch: this is a pending choice, not a
+    // disabled readout.
+    expect((document.getElementById("sup-login") as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("says so plainly when the machine runs with the app", () => {
+    renderSupervision({ probe: makeProbe({ supervision: "app", service: null }) });
+    expect(screen.getByText("Currently the Subshell Server Service runs with this app.")).toBeDefined();
   });
 
   it("picks the app mode through the model's dependency rule", () => {
