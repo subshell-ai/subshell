@@ -86,9 +86,9 @@ const confirmPane = (): HTMLElement | undefined =>
 
 describe("the dialog and its gates", () => {
   it("is one labelled modal named for the act (RESET_LABEL)", () => {
-    // "Reset this server" is RESET_LABEL, the dialog's own title — NOT the
-    // rail door's shorter "Reset" label; the door↔title equivalence is held by
-    // wizard-state.test.ts's RESET_LABEL pin, not here.
+    // "Reset this server" is RESET_LABEL, the dialog's own title. The rail
+    // door carries the shorter "Reset" label (server-state.ts) — a different
+    // string for the same act; this test pins only the dialog's aria name.
     renderReset({});
     expect(screen.getByRole("dialog", { name: "Reset this server" })).toBeDefined();
     expect(screen.getByRole("dialog", { name: "Reset this server" }).getAttribute("aria-modal")).toBe("true");

@@ -84,8 +84,9 @@ export function ResetDialog(props: {
   return (
     <Dialog
       // The pane's title, same predicate the frame's carried: the meter's own
-      // heading while the chain runs, the door's word otherwise (RESET_LABEL
-      // is one string for the rail's door and the dialog it opens).
+      // heading while the chain runs, RESET_LABEL otherwise. The rail's door
+      // is the short "Reset" (server-state.ts); the dialog titles itself the
+      // fuller "Reset this server" — two strings, one act.
       title={started ? "Resetting this server" : RESET_LABEL}
       // While the chain runs the dismissal is inert: a running reset keeps
       // its old room's one rule, that nothing ends it but its own end.

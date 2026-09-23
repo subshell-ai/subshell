@@ -315,12 +315,12 @@ describe("RESET_LABEL", () => {
     expect(RESET_LABEL).not.toContain("machine");
   });
 
-  it("is the Reset dialog's own title too, so the door and the dialog agree", () => {
-    // The confirmation became a dialog (operator ruling 2026-09-23), so the
-    // string is the Dialog's title rather than the frame's shell — same
-    // equality, one new home: the dialog names itself with the SAME constant
-    // the rail's door labels. While the chain runs the title follows the
-    // pane, which is what the meter's heading reads.
+  it("is the Reset dialog's own title (its home moved with the frame)", () => {
+    // The confirmation became a dialog (operator ruling 2026-09-23), so
+    // RESET_LABEL is the Dialog's title rather than the frame shell's. It is
+    // the SAME constant as before, just in a new home — NOT the rail door's
+    // shorter "Reset" label (that lives in server-state.ts). While the chain
+    // runs the title follows the pane, which is what the meter's heading reads.
     const dialog = readFileSync(join(import.meta.dir, "../screens/reset-dialog.tsx"), "utf8");
     expect(dialog).toContain('title={started ? "Resetting this server" : RESET_LABEL}');
     // And nothing claims the old frame home any more: `shell()` lost its
