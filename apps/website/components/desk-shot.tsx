@@ -8,6 +8,7 @@ export function DeskShot() {
         At the desk
       </h2>
       <div className="border border-[var(--border)]">
+        {/* biome-ignore lint/performance/noImgElement: static export with images.unoptimized; raw img is the approved concept markup */}
         <img
           src="/shots/control-plane-zoom.png"
           width={2000}

@@ -51,7 +51,15 @@ test("client without installScript: download only, curl row gone (Review Focus 3
 });
 
 test("missing desktop entry: generic releases href, no filename, no crash (Review Focus 2)", () => {
-  const partial = { ...m, components: { "cli-server": m.components["cli-server"]! } } as ReleasesManifest;
+  // The cli-server entry inlined as a literal, not `m.components[...]!`: the
+  // non-null assertion is what this file's lint check flags.
+  const cliServer = {
+    version: "0.16.0",
+    tag: "cli-server-v0.16.0",
+    url: "https://x",
+    installScript: "install-server.sh",
+  };
+  const partial = { ...m, components: { "cli-server": cliServer } } as ReleasesManifest;
   const c = installCopy(partial, "client", true);
   expect(c.downloadHref).toBe("https://github.com/subshell-ai/subshell/releases");
   expect(c.artifactFile).toBeNull();

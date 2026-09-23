@@ -15,6 +15,7 @@ export const ReleasesManifestSchema = z.object({
       .object({
         version: z.string().regex(/^\d+\.\d+\.\d+$/),
         tag: z.string().min(1),
+        // zod-5 sweep: migrate to z.url() repo-wide, not here alone
         url: z.string().url(),
         installScript: z.string().min(1).optional(),
       })

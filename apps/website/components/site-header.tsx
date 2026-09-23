@@ -2,15 +2,16 @@ import { GitHubIcon } from "./icons";
 
 export function SiteHeader() {
   return (
-    <div className="flex items-center gap-6">
+    <div className="flex items-center gap-[26px]">
       <a href="#top" aria-label="Subshell home" className="inline-flex">
-        {/* The wordmark PNG (orchid slash, dotted accent) lives in public/ —
-            copied in the same Step-1 dir as the shots. */}
+        {/* The wordmark PNG (orchid slash, dotted accent) lives in
+            public/shots/ beside the other concept shots. */}
+        {/* biome-ignore lint/performance/noImgElement: static export with images.unoptimized; raw img is the approved concept markup */}
         <img
           src="/shots/wordmark-transparent-96.png"
           alt="Subshell"
-          width={96}
-          height={21}
+          width={445}
+          height={96}
           className="h-[26px] w-auto"
         />
       </a>

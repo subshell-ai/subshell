@@ -1,5 +1,5 @@
 import { desktopArtifactFileName } from "@internal/subshell-protocol";
-import { RAW_MANIFEST_URL, type ReleasesManifest } from "./releases";
+import type { ReleasesManifest } from "./releases";
 
 export type { ReleasesManifest };
 
@@ -44,8 +44,6 @@ export function installCopy(manifest: ReleasesManifest, kind: InstallKind, isMac
     altLabel: isMac ? "Linux (.deb)" : "macOS (.dmg)",
     altHref: generic,
     artifactFile: desktop ? desktopArtifactFileName(productName, target, desktop.version) : null,
-    ...(curlCommand !== null ? { curlCommand } : { curlCommand: null }),
+    curlCommand,
   };
 }
-
-export { RAW_MANIFEST_URL };

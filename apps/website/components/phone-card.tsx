@@ -2,6 +2,7 @@ export function PhoneCard() {
   return (
     <div>
       <div className="border border-[var(--border)]">
+        {/* biome-ignore lint/performance/noImgElement: static export with images.unoptimized; raw img is the approved concept markup */}
         <img
           src="/shots/phone-approval-390.png"
           width={1170}

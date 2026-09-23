@@ -4,7 +4,7 @@ import { Analytics } from "../../components/analytics";
 import { GitHubIcon } from "../../components/icons";
 
 describe("GitHubIcon", () => {
-  test("renders the octicon mark path at currentColor", () => {
+  test("renders GitHub's classic site mark path at currentColor", () => {
     const html = renderToStaticMarkup(<GitHubIcon />);
     expect(html).toContain('viewBox="0 0 16 16"');
     expect(html).toContain("M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53");

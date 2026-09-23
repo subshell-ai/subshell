@@ -209,13 +209,13 @@ jobs:
       - name: Install Dependencies
         run: bun install --frozen-lockfile
 
-      # --force is deliberate, the rule release.yml states for its npm shard:
-      # turbo.json's build task declares no `outputs`, so a cache hit restores
-      # NOTHING — a deploy must never trust that whatever sits in out/ came
-      # from this checkout. For the website this is sharper than hygiene: the
-      # install column renders from data/releases.json BAKED into the bundle
-      # at build time, so a build warm enough to skip would ship whatever
-      # releases list the cache last saw.
+      # --force is deliberate. apps/website/turbo.json DOES declare outputs,
+      # so a cache hit restores a COMPLETE out/ — and that is the trap, not
+      # the safety: its build input, data/releases.json, is gitignored (copied
+      # from the repo root by copy-releases), which puts it OUTSIDE turbo's
+      # input hash. A warm cache would therefore restore an export baked with
+      # whatever releases list the cache last saw. --force guarantees this out/
+      # came from THIS checkout's root releases.json.
       #
       # NEXT_PUBLIC_* values are INLINED by the bundler, so the GA id must sit
       # in the environment at BUILD time — a runtime env would reach nothing.

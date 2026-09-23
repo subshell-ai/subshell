@@ -1,5 +1,5 @@
 /**
- * The official GitHub mark (Octicons `mark-github-16`), MIT © GitHub, Inc.
+ * GitHub's classic site mark (MIT © GitHub, Inc.).
  * The real brand path, never an approximation — a wrong logo reads as a fake
  * link, and this one ships inline so there is no icon font to load.
  */

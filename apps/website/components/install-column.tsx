@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { installCopy } from "../lib/install";
 import { detectIsMac, refreshReleasesHost } from "../lib/install-client";
 import type { ReleasesManifest } from "../lib/releases";
+import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 
 export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifest }) {
@@ -11,6 +12,10 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
   const [isMac, setIsMac] = useState(true);
   const [kind, setKind] = useState<"server" | "client">("server");
   const [copied, setCopied] = useState(false);
+  // The "Copied" reset timer, held so a re-click clears the pending reset
+  // instead of racing it, and unmount clears it instead of calling setState
+  // on a dead component.
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // The refresh is a once-on-mount swap of the baked manifest for the live
   // one; `manifest` is read only as the fallback, so it is deliberately not a
@@ -19,6 +24,9 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
   useEffect(() => {
     setIsMac(detectIsMac(navigator.userAgent, navigator.platform));
     void refreshReleasesHost(manifest).then(setManifest);
+    return () => {
+      if (copyTimer.current !== null) clearTimeout(copyTimer.current);
+    };
   }, []);
 
   const copy = installCopy(manifest, kind, isMac);
@@ -45,9 +53,17 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
           size="sm"
           aria-pressed={kind === "server"}
           onClick={() => setKind("server")}
-          className={
-            kind === "server" ? "border-[rgba(217,139,224,.5)] bg-[rgba(217,139,224,.07)] !text-[var(--orchid)]" : ""
-          }
+          // px-3/rounded-[7px] are the concept's chip metrics, and h-[25px]
+          // pins the chip's MEASURED concept height (15px JetBrains Mono line
+          // + 4px pad + 1px border, top and bottom). Line-height alone cannot
+          // get there: Chrome gives this button an 18.4px content box whatever
+          // its computed line-height says (measured against the concept page's
+          // 25px box), and the +3.4px pushed the curl row +2.9px off the fold,
+          // past the 1px landmark rule.
+          className={cn(
+            "px-3 rounded-[7px] h-[25px]",
+            kind === "server" && "border-[rgba(217,139,224,.5)] bg-[rgba(217,139,224,.07)] !text-[var(--orchid)]",
+          )}
         >
           server
         </Button>
@@ -56,9 +72,10 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
           size="sm"
           aria-pressed={kind === "client"}
           onClick={() => setKind("client")}
-          className={
-            kind === "client" ? "border-[rgba(217,139,224,.5)] bg-[rgba(217,139,224,.07)] !text-[var(--orchid)]" : ""
-          }
+          className={cn(
+            "px-3 rounded-[7px] h-[25px]",
+            kind === "client" && "border-[rgba(217,139,224,.5)] bg-[rgba(217,139,224,.07)] !text-[var(--orchid)]",
+          )}
         >
           client
         </Button>
@@ -76,17 +93,23 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
         </a>
       </p>
       {copy.curlCommand !== null && (
-        <div className="mt-4 flex max-w-[440px] items-center gap-2.5 rounded-[10px] border border-[var(--border)] bg-[var(--term)] px-3 py-2.5">
+        <div className="mt-[18px] flex max-w-[440px] items-center gap-2.5 rounded-[10px] border border-[var(--border)] bg-[var(--term)] px-3 py-2.5">
           <span className="font-mono text-[var(--orchid)]">$</span>
-          <code className="min-w-0 flex-1 truncate font-mono text-[11.5px]">{copy.curlCommand}</code>
+          {/* Truncate only in the three-column spread: under 980 the concept
+              WRAPS the one-liner; ellipsising it on a phone hides the command
+              a visitor is there to copy. */}
+          <code className="min-w-0 flex-1 truncate font-mono text-[11.5px] max-[980px]:overflow-visible max-[980px]:whitespace-normal max-[980px]:break-all">
+            {copy.curlCommand}
+          </code>
           <Button
             variant="plain"
             size="sm"
-            className={copied ? "!text-[var(--orchid)]" : ""}
+            className={cn("rounded-[7px]", copied && "!text-[var(--orchid)]")}
             onClick={() => {
               void navigator.clipboard.writeText(copy.curlCommand ?? "");
               setCopied(true);
-              setTimeout(() => setCopied(false), 1600);
+              if (copyTimer.current !== null) clearTimeout(copyTimer.current);
+              copyTimer.current = setTimeout(() => setCopied(false), 1600);
             }}
           >
             {copied ? "Copied" : "Copy"}

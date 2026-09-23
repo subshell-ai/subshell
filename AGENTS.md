@@ -288,6 +288,7 @@ turbo watch dev            # Same as above
 bun run dev:desktop-server # Subshell Server (Tauri) in dev mode
 bun run dev:desktop-client # Subshell Client (Tauri) in dev mode
 bun run dev:docs           # Documentation site (Fumadocs dev server on :3400)
+bun run dev:website        # Marketing site dev server on :3401
 ```
 
 **The two desktop apps are deliberately NOT part of `turbo watch dev`** — they
@@ -295,7 +296,10 @@ have no `dev` task, because one would open a Tauri window on every developer's
 machine whenever anyone ran `bun run start`. They get their own root commands
 instead. The docs site follows the same rule for the same reason: `apps/docs`
 carries no `dev` script, so `bun run dev:docs` is the only way the Fumadocs
-server starts, on port 3400.
+server starts, on port 3400. The marketing site is the same shape again:
+`apps/website` carries no `dev` script either — its `start` copies the root
+`releases.json` into `data/` and then runs `next dev`, on port 3401 — so
+`bun run dev:website` is the only way that server starts.
 
 Those commands are not proxies to `tauri dev`, and the difference is the whole
 reason they exist: `tauri-build` refuses to build when its `externalBin`
