@@ -1,8 +1,8 @@
 import type { Node } from "@internal/node-admin";
 import { Badge, badgeVariants, cn, relativeElapsed } from "@internal/node-admin";
-import { Settings, Share2, Trash2, Wrench } from "lucide-react";
 import { useState } from "react";
 import { ActionsMenu } from "@/components/actions-menu";
+import { nodeActions } from "@/components/nodes/node-actions";
 
 /**
  * OS label (spec 2026-08-31 §9): darwin reads as "Apple" (the honest brand of
@@ -146,31 +146,7 @@ export function NodeRow({
           as the row wrapped. A column of its own is the thing that was
           actually wanted. */}
       <div className="shrink-0">
-        <ActionsMenu
-          label={node.name}
-          items={[
-            { label: "Open config", icon: Settings, onSelect: onOpenConfig },
-            { label: "Share", icon: Share2, onSelect: onShare, disabled: !node.canManage },
-            {
-              // Ending only widens what the machine accepts, so it is not
-              // destructive and asks nothing; starting stops every subshell
-              // here, including ones this viewer cannot see — hence the red
-              // and the ellipsis promising a confirmation.
-              label: node.maintenance ? "End maintenance" : "Start maintenance…",
-              icon: Wrench,
-              onSelect: onMaintenance,
-              disabled: !node.canManage,
-              destructive: !node.maintenance,
-            },
-            {
-              label: "Delete",
-              icon: Trash2,
-              destructive: true,
-              onSelect: onDelete,
-              disabled: !node.canManage || node.kind === "local",
-            },
-          ]}
-        />
+        <ActionsMenu label={node.name} items={nodeActions(node, { onOpenConfig, onShare, onMaintenance, onDelete })} />
       </div>
     </div>
   );
