@@ -37,16 +37,35 @@
  * - COALESCE: while the queue holds anything (the pipe is behind), a new
  *   enqueue JOINS the tail instead of opening a frame: the tail is filled to
  *   the chunk cap and the remainder spills into further unsent chunks. The
- *   backlog ships the moment the acks drain (nothing sent-but-unacked is
- *   left), on reconnect, or on an explicit resend, always in id order.
+ *   backlog ships when the coalesce window expires ({@link COALESCE_WINDOW_MS}
+ *   after the backlog appeared), when an ack frees a slot under the in-flight
+ *   cap ({@link INFLIGHT_MAX}), on reconnect, or on an explicit resend, always
+ *   in id order.
+ *
+ * The window replaced the ack as the backlog's primary trigger on 2026-09-22,
+ * measured on the AI PC node: every ack over that link takes ~350 ms (the
+ * link's per-exchange floor is ~2x its 83 ms RTT on BOTH legs), so the
+ * original "nothing leaves while anything is unacked" rule serialized typing
+ * at one burst per round trip — twelve keystrokes typed 30 ms apart delivered
+ * as two frames over 700 ms, which reads as laggy, dropped typing. The window
+ * bounds that at one window plus one round trip; the cap keeps its place as
+ * the paste guard a window would otherwise remove (512 spilled chunks must
+ * not all hit the wire at once). Ordering on a healthy link is untouched:
+ * the plane's per-pane input chain and the node's per-daemon one both
+ * serialize writes in arrival order, so pipelined frames complete — and
+ * ack — in id order, which is the premise the server's dedupe window
+ * eviction rests on. The one place pipelining is NOT free is a PARTIAL
+ * plane→node failure: siblings of the failed write are already queued on
+ * the node and land before the server's hold re-fires the head, so one
+ * burst can reorder. That residual is accepted and accounted where the
+ * hold lives (server `ws/input-hold.ts`); bytes are still never lost.
  *
  * One rule keeps the retry story sound through all of it: an entry's bytes
  * are FROZEN the moment they are sent. A sent entry's id names exactly those
  * bytes to the server's dedupe window, so appending to it would make the
  * retry re-send text the server has already written and dropped, losing the
- * appended part. Coalescing therefore only ever targets UNSENT data; that is
- * why the coalesced burst waits for the drain rather than joining a frame
- * already on the wire.
+ * appended part. Coalescing therefore only ever targets UNSENT data — a
+ * burst never joins a frame already on the wire.
  */
 
 /**
@@ -72,6 +91,43 @@ export const CHUNK_MAX_BYTES = 32 * 1024;
  * same per-piece budget the queue's own chunker applies.
  */
 export const FRAME_OVERHEAD_BYTES = new TextEncoder().encode('{"type":"input","data":"","id":99999999999}').length;
+
+/**
+ * How long a fresh coalesced backlog waits for its window before shipping,
+ * in ms. Deliberately short of a human inter-keystroke interval at fast
+ * typing (~70-100 ms) but long enough to fold the sub-30 ms bursts — the
+ * rows a key-repeat or a quick two-finger burst produces — into one frame.
+ * On a LAN the acks arrive inside the window and drain the backlog first, so
+ * the observable behavior there is the original one; the window only stops
+ * slow links from serializing typing at one burst per round trip.
+ */
+export const COALESCE_WINDOW_MS = 30;
+
+/**
+ * How many sent-but-unacked frames the queue will keep on the wire at once.
+ * 1 was the original rule and it IS the throughput ceiling it created on a
+ * slow link; 8 keeps typing fully pipelined — fast typing on a slow link
+ * transiently SATURATES this (one window-frame per 30 ms reaches 8 unacked
+ * in ~240 ms, then the wire pauses until the first ack frees a slot), which
+ * is precisely the pipeline working — while still pacing a multi-chunk
+ * paste at 8 x 32 KiB per round trip instead of unbounded or 1. The
+ * server's per-pane/per-daemon input chains serialize the pane writes in
+ * arrival order regardless.
+ */
+export const INFLIGHT_MAX = 8;
+
+/**
+ * Seams for {@link createInputQueue}.
+ */
+export interface InputQueueOptions {
+  /**
+   * Arms the coalesce-window flush. Default: `setTimeout(fire,
+   * COALESCE_WINDOW_MS)`. Tests inject a recorder so the window is a fact
+   * they fire by hand, on the same hand-advanced clock the rest of the
+   * queue runs on.
+   */
+  scheduleFlush?: (fire: () => void) => void;
+}
 
 /** How many unacked frames the queue will hold. Matched to the server's
  * dedupe window (512, ws/input-window.ts): a reconnect resend can only carry
@@ -174,8 +230,8 @@ export interface InputQueue {
    * {@link createInputQueue}).
    */
   enqueue(text: string): void;
-  /** Retires an acked id: records its RTT and drops it from the queue. Also
-   * the moment the coalesced backlog ships, when this was the last ack. */
+  /** Retires an acked id: records its RTT, drops it from the queue, and
+   * uses the freed slot to pipeline more backlog up to {@link INFLIGHT_MAX}. */
   ack(id: number): void;
   /** Sends every pending frame in id order, ids unchanged. Called on every
    * socket's first server frame (a no-op on the queue's first, empty attach). */
@@ -290,12 +346,18 @@ function chunkToFrameBudget(text: string, budget: number): string[] {
  *   live socket at call time, so the same sender serves every reconnect.
  * @param now - Epoch-ms clock, injectable for tests
  */
-export function createInputQueue(sender: InputSender, now: () => number = Date.now): InputQueue {
+export function createInputQueue(
+  sender: InputSender,
+  now: () => number = Date.now,
+  opts: InputQueueOptions = {},
+): InputQueue {
+  const scheduleFlush = opts.scheduleFlush ?? ((fire) => void setTimeout(fire, COALESCE_WINDOW_MS));
   const pending = new Map<number, PendingInput>();
   const rtts: number[] = [];
   const listeners = new Set<() => void>();
   let engaged = false;
   let nextId = 0;
+  let windowArmed = false;
   /**
    * The PRE-ENGAGE BUFFER: bytes typed before the queue knew how this server
    * answers input, in typing order, held because the sender refused them (a
@@ -336,18 +398,53 @@ export function createInputQueue(sender: InputSender, now: () => number = Date.n
   };
 
   /**
-   * Ships the unsent backlog once nothing sent-but-unacked remains: the
-   * coalesced burst leaves as frames the moment the pipe is clear, in id
-   * order. While a sent frame is still unacked, the backlog waits, because
-   * sending ahead of it would be the head-of-line-free but frame-per-
-   * keystroke behavior the batching addendum replaces.
+   * Pipelines the unsent backlog up to {@link INFLIGHT_MAX} frames on the
+   * wire, in id order. Triggers: the coalesce window, an ack (which frees a
+   * slot), and the reconnect resend. A frame the sender cannot take ends the
+   * pass — the socket is down, and nothing behind it would leave either.
+   *
+   * Ordering with an unacked frame ahead does NOT become an ordering hazard
+   * by pipelining on a healthy link: the browser→plane leg is TCP in send
+   * order, the plane signs and emits per-connection in call order, and the
+   * pane writes serialize in arrival order (the per-pane chain locally, the
+   * per-daemon chain on a node) — so the pane takes the frames in id order
+   * and the acks, the dedupe window's premise, complete in id order too.
+   * (The partial-failure exception — a failed write's held re-fire landing
+   * behind its own burst — is the accepted residual documented in the
+   * module header and the server's `ws/input-hold.ts`.)
    */
-  const flushBacklog = (): void => {
-    for (const entry of pending.values()) {
-      if (entry.sent) return;
-    }
+  const flushUpToCap = (): void => {
+    let inFlight = 0;
+    for (const entry of pending.values()) if (entry.sent) inFlight++;
+    if (inFlight >= INFLIGHT_MAX) return;
     const backlog = [...pending.values()].sort((a, b) => a.id - b.id);
-    for (const entry of backlog) markSent(entry);
+    for (const entry of backlog) {
+      if (entry.sent) continue;
+      markSent(entry);
+      if (!entry.sent) break; // the socket is down; later attempts would fail too
+      inFlight++;
+      if (inFlight >= INFLIGHT_MAX) break;
+    }
+  };
+
+  /** Arms the coalesce window: one pass after {@link COALESCE_WINDOW_MS}
+   * that ships whatever backlog still waits. One window at a time; an
+   * enqueue that finds one armed simply joins the burst it will ship. */
+  const armWindow = (): void => {
+    if (windowArmed) return;
+    windowArmed = true;
+    scheduleFlush(() => {
+      windowArmed = false;
+      flushUpToCap();
+      notify();
+    });
+  };
+
+  /** True once this queue holds anything that has never left: the thing a
+   * window exists to ship. Checked after every mutating path. */
+  const hasUnsent = (): boolean => {
+    for (const entry of pending.values()) if (!entry.sent) return true;
+    return false;
   };
 
   /** Appends text to the pre-engage buffer, coalescing into the tail piece
@@ -428,6 +525,10 @@ export function createInputQueue(sender: InputSender, now: () => number = Date.n
           sent: delivered,
         });
       }
+      // A chunk the sender could not take is backlog like any other, and the
+      // window is what retries it — the old code waited for an ack that can
+      // never come for bytes that never left.
+      if (hasUnsent()) armWindow();
       notify();
       return;
     }
@@ -453,6 +554,9 @@ export function createInputQueue(sender: InputSender, now: () => number = Date.n
       track({ id, data, dataBytes: escapeFrameBytes(data), queuedAt: now(), sentAt: 0, sent: false });
       rest = more;
     }
+    // The burst just entered has a window to ship it in; whether the frame
+    // filled an existing tail or spilled new ones, it is unsent backlog now.
+    if (hasUnsent()) armWindow();
     notify();
   };
 
@@ -482,21 +586,34 @@ export function createInputQueue(sender: InputSender, now: () => number = Date.n
         if (rtts.length > RTT_SAMPLES) rtts.shift();
       }
       pending.delete(id);
-      flushBacklog();
+      // An ack frees a slot under the cap; filling it now rather than at the
+      // window keeps LAN throughput at exactly what the ack-serialized
+      // original delivered.
+      flushUpToCap();
       notify();
     },
     resendPending: () => {
       if (pending.size === 0) return;
       // Id order, always: the pane must receive what the user typed in the
       // order they typed it, and the server's dedupe window consults per id.
-      // Unsent backlog ships here too: a reconnect is a flush point.
+      // What was already SENT is re-sent uncapped — the retry IS the loss
+      // mechanism for those bytes, and the window absorbs the ones that
+      // actually landed. Fresh backlog then fills the freed slots under the
+      // cap, and a window re-arms behind it for the rest.
       const entries = [...pending.values()].sort((a, b) => a.id - b.id);
-      for (const entry of entries) markSent(entry);
+      for (const entry of entries) if (entry.sent) markSent(entry);
+      flushUpToCap();
+      if (hasUnsent()) armWindow();
       notify();
     },
     disengage: () => {
       if (!engaged && pending.size === 0 && preEngage.length === 0) return;
       engaged = false;
+      // A stale armed window fires into a no-op flush and clears itself;
+      // clearing the flag HERE keeps a re-engaged queue from silently losing
+      // its next arm to that old timer (an injected scheduler may defer the
+      // stale fire indefinitely, where production's 30 ms never does).
+      windowArmed = false;
       // The buffered bytes ship bare FIRST — the old server's own answer,
       // and chronologically they are the oldest bytes the queue holds. When
       // the attach still cannot take them they are dropped by the flush (see

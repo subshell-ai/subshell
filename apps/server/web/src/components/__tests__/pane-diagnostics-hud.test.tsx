@@ -180,7 +180,7 @@ describe("PaneDiagnosticsHud rows", () => {
     expect(screen.getByText("1 in flight · 1 waiting")).toBeTruthy();
   });
 
-  it("input: the echo figures and the stall age ride the muted detail line", async () => {
+  it("input: the echo figures and the stall age each ride their own row", () => {
     const { queue } = liveQueue();
     queue.enqueue("a");
     nowMs += 40;
@@ -188,10 +188,24 @@ describe("PaneDiagnosticsHud rows", () => {
     queue.enqueue("b"); // now unacked
     nowMs += 2500; // it has waited past the stall threshold
     const { container } = renderHud({ inputQueueRef: refOf(queue) });
-    expect(screen.getByText(/echo p50 40 ms · max 40 ms/)).toBeTruthy();
-    expect(screen.getByText(/oldest 2.5 s unacked/)).toBeTruthy();
+    // One number per row: the joined detail line these replaced made a
+    // moving p50 unscannable, and the operator asked for their own lines.
+    expect(screen.getByText("Echo p50")).toBeTruthy();
+    expect(screen.getByText("Echo max")).toBeTruthy();
+    expect(screen.getAllByText("40 ms").length).toBe(2);
+    expect(screen.getByText("Oldest")).toBeTruthy();
+    expect(screen.getByText("2.5 s unacked")).toBeTruthy();
     // The stall shares the badge's threshold: the input row reads amber.
     expect(container.querySelector(".text-warning")).toBeTruthy();
+  });
+
+  it("rows: Viewers sits above Output, and the Input echo rows close the list", () => {
+    const { queue } = liveQueue();
+    queue.enqueue("a");
+    act(() => queue.ack(1));
+    const { container } = renderHud({ inputQueueRef: refOf(queue) });
+    const labels = [...container.querySelectorAll(".text-muted-foreground")].map((el) => el.textContent);
+    expect(labels).toEqual(["Socket", "Node", "Pane", "Viewers", "Output", "Input", "Echo p50", "Echo max"]);
   });
 
   it("input: a queue that never engaged says starting pre-answer, no acks once answered", () => {

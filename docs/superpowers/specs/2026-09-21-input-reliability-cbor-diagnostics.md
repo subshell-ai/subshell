@@ -165,6 +165,19 @@ moment for that node. Four rules:
    when its neighbor failed — it can land before the re-fire, the same
    at-least-once family, with a sub-millisecond window.
 
+**Amendment 2026-09-22 (the typing-lag wave).** The client queue now flushes
+the coalesced backlog on a 30 ms window and pipelines up to 8 sent-unacked
+frames (measured on the AI PC node: ack-serialized flushing made typing one
+burst per ~350 ms round trip). Rule 3's BOUND survives — the client's
+512-frame pending queue was always the ceiling — but its stated reason ("the
+client coalesces and stops shipping") no longer describes the client. Rule
+4's residual is WIDER: the burst siblings of a failed write are already
+queued on the node's serial chain, so the held re-fire lands after them —
+keystrokes can reorder within one burst on a partial plane→node failure
+(never lost; closing it means carrying the client id onto the node's chain,
+a protocol change, against the at-least-once posture). The living accounting
+for both now reads in `ws/input-hold.ts`.
+
 **The 4004 refusal is retryable (client).** Wave A's client never retries a
 4xxx close. The table is now: sub-4000 drops and restarts retry on the fixed
 1.5 s cadence; **4004 retries on an escalating backoff (base, doubling,

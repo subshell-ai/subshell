@@ -61,9 +61,12 @@ export function viewersWord(viewers: ViewersState | null, socket: { connected: b
 }
 
 /**
- * The input row's two lines: the numbers on the main line, the echo and
- * stall figures on a muted detail line. `engaged` is null when there is no
- * queue at all (no attach yet); false is split by {@link reconnects},
+ * The input facts, as four rows: the queue's own state on the main row, and
+ * the echo p50, echo max and oldest-wait each on a row of their own. One
+ * number per row is what makes them diff-able between renders with the eye —
+ * the joined detail line these replaced made the p50 move while the reader
+ * was still parsing the previous sentence. `engaged` is null when there is
+ * no queue at all (no attach yet); false is split by {@link reconnects},
  * because the queue's own stats cannot say WHY it is unengaged: within the
  * first attach the innocent reason is the pre-engage window (the server has
  * not answered yet, bytes possibly buffered), which reads "starting";
@@ -79,9 +82,12 @@ export function inputWords(args: {
   rtt: RttSamples;
   engaged: boolean | null;
   reconnects: number;
-}): { main: string; detail: string | null } {
-  if (!args.hasQueue) return { main: "unknown", detail: null };
-  if (args.engaged === false && args.reconnects === 0) return { main: "starting", detail: null };
+}): { main: string; echoP50: string | null; echoMax: string | null; oldest: string | null } {
+  const empty = { main: "unknown", echoP50: null, echoMax: null, oldest: null };
+  if (!args.hasQueue) return empty;
+  if (args.engaged === false && args.reconnects === 0) {
+    return { main: "starting", echoP50: null, echoMax: null, oldest: null };
+  }
   const mainParts: string[] = [];
   if (args.stats.depth === 0) mainParts.push("idle");
   else {
@@ -89,14 +95,18 @@ export function inputWords(args: {
     if (args.stats.backlog > 0) mainParts.push(`${args.stats.backlog} waiting`);
   }
   if (args.engaged === false) mainParts.push("no acks");
-  const detailParts: string[] = [];
-  if (args.rtt.count > 0 && args.rtt.p50 !== null && args.rtt.max !== null) {
-    detailParts.push(`echo p50 ${formatMs(args.rtt.p50)} · max ${formatMs(args.rtt.max)}`);
-  }
-  if (args.stats.unackedOldestMs !== null) {
-    detailParts.push(`oldest ${formatMs(args.stats.unackedOldestMs)} unacked`);
-  }
-  return { main: mainParts.join(" · "), detail: detailParts.length > 0 ? detailParts.join(" · ") : null };
+  // Narrowed in the condition itself so no `as number` is needed: the
+  // samples are either both present or neither is.
+  const echo =
+    args.rtt.count > 0 && args.rtt.p50 !== null && args.rtt.max !== null
+      ? { p50: formatMs(args.rtt.p50), max: formatMs(args.rtt.max) }
+      : null;
+  return {
+    main: mainParts.join(" · "),
+    echoP50: echo?.p50 ?? null,
+    echoMax: echo?.max ?? null,
+    oldest: args.stats.unackedOldestMs !== null ? `${formatMs(args.stats.unackedOldestMs)} unacked` : null,
+  };
 }
 
 /** Props for {@link PaneDiagnosticsHud}. */
@@ -179,10 +189,12 @@ export function PaneDiagnosticsHud({
         <Row label="Socket" value={socketValue} />
         <Row label="Node" value={nodeValue} />
         <Row label="Pane" value={paneValue} />
+        <Row label="Viewers" value={viewersWord(viewers, socket)} />
         <Row label="Output" value={outputAgeWord(subshell)} />
         <Row label="Input" value={input.main} warning={stalled} />
-        {input.detail && <span className="col-span-2 text-muted-foreground">{input.detail}</span>}
-        <Row label="Viewers" value={viewersWord(viewers, socket)} />
+        {input.echoP50 !== null && <Row label="Echo p50" value={input.echoP50} />}
+        {input.echoMax !== null && <Row label="Echo max" value={input.echoMax} />}
+        {input.oldest !== null && <Row label="Oldest" value={input.oldest} warning={stalled} />}
       </div>
     </div>
   );
