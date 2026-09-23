@@ -15,7 +15,6 @@ import { PluginIcon } from "@/components/plugin-icon";
 import { useHarnesses, useNodeHarnesses } from "@/hooks/use-harnesses";
 import { useInstallAgent } from "@/hooks/use-install-agent";
 import { useRecheckNode } from "@/hooks/use-nodes";
-import { checkedAtLabel } from "@/lib/checked-at";
 import type { HarnessInfo } from "@/types/harness";
 
 /** What a row of {@link NodeHarnessCard} knows about one program on this machine. */
@@ -100,7 +99,8 @@ function installableHere(info: HarnessInfo | undefined): boolean {
  * live on every read, and the recheck route answers it 400.
  *
  * **On `local`, and only there, a row that is missing its program also gets
- * Install on this server** (spec 2026-09-15 § 5.3). This is not the plugin
+ * an Install button on its own line** (spec 2026-09-15 § 5.3; the button
+ * reads just "Install" since the card is already about THIS machine). This is not the plugin
  * management that left with Task 9 — it installs the CLI a plugin drives, not
  * the plugin — and it exists because `POST /api/setup/agents/:id/install` had
  * exactly one entrance, the first-run wizard's step 2: skip that screen and
@@ -228,8 +228,8 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
             empty — a skipped cell would slide the rest of that row one column
             left.
 
-            Two columns below `sm`, four above: version and checked-at fall to
-            a second line on a phone rather than crushing the name. */}
+            Two columns below `sm`, four above: version and the action cell
+            fall to a second line on a phone rather than crushing the name. */}
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
           {harnesses.map((h) => {
             const info = registry?.find((r) => r.id === h.harnessId);
@@ -255,7 +255,30 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                   {badgeLabel(h)}
                 </Badge>
                 <span className="font-mono text-detail text-muted-foreground">{h.version ?? ""}</span>
-                <span className="text-detail text-muted-foreground">{checkedAtLabel(h.checkedAt) ?? ""}</span>
+                {/* The action cell, ALWAYS rendered — the grid rule above says
+                  a skipped cell slides the rest of the row one column left.
+                  This is where the `checked …` stamp sat until 2026-09-22,
+                  when the operator asked for the install button on the
+                  harness's own line instead; the stamp came off, not the
+                  data (the detection `checkedAt` still drives the unknown
+                  states below, and Re-check still says when in its own
+                  line). */}
+                {offerInstall && info ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    // One at a time: the route answers a second concurrent
+                    // install 409, so a second button that could be pressed
+                    // would only produce a refusal.
+                    disabled={install.isPending}
+                    onClick={() => install.mutate(h.harnessId)}
+                  >
+                    {installingId === h.harnessId && <LoaderCircle aria-hidden className="animate-spin" />}
+                    {installingId === h.harnessId ? "Installing…" : "Install"}
+                  </Button>
+                ) : (
+                  <span aria-hidden />
+                )}
                 {h.reason === "override-invalid" && (
                   <p className="col-span-full text-detail text-muted-foreground">
                     An environment variable overrides where this program is looked for, and it doesn't point at an
@@ -279,28 +302,14 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                   </p>
                 )}
                 {offerInstall && info && (
-                  <div className="col-span-full space-y-1.5 pb-1">
-                    <Button
-                      type="button"
-                      size="sm"
-                      // One at a time: the route answers a second concurrent
-                      // install 409, so a second button that could be pressed
-                      // would only produce a refusal.
-                      disabled={install.isPending}
-                      onClick={() => install.mutate(h.harnessId)}
-                    >
-                      {installingId === h.harnessId && <LoaderCircle aria-hidden className="animate-spin" />}
-                      {installingId === h.harnessId ? "Installing…" : "Install on this server"}
-                    </Button>
-                    {/* What the button will do, without a click. This runs a
-                      vendor's script on the control-plane host as the
-                      server's own user, which should not take a press to
-                      find out. */}
-                    <p className="text-detail text-muted-foreground">
-                      Runs <code className="font-mono">{info.install.command}</code> on this machine, as the user the
-                      server runs as.
-                    </p>
-                  </div>
+                  /* What the button above will do, without a click. This runs
+                    a vendor's script on the control-plane host as the
+                    server's own user, which should not take a press to
+                    find out. */
+                  <p className="col-span-full text-detail text-muted-foreground">
+                    Runs <code className="font-mono">{info.install.command}</code> on this machine, as the user the
+                    server runs as.
+                  </p>
                 )}
                 {installingId === h.harnessId && (
                   // The installer's own words, one line, verbatim: there is no

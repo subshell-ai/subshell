@@ -156,6 +156,12 @@ test("nodes: the server's own node renders online; Add-node mints a setup key + 
 
   await dialog.getByRole("button", { name: "Done" }).click();
 
+  // The keys ledger is its own tab now (2026-09-22), not a card below the
+  // list, so the read-back starts by switching to it. The tab button's
+  // accessible name is its aria-label; the card title the next assertion
+  // matches is a different element.
+  await page.getByRole("button", { name: "Setup keys" }).click();
+
   // The minted key is LISTED, in full, after the dialog closes — the point of
   // storing it in the clear. Revocable as before, and now re-readable too, so a
   // closed dialog is no longer a re-mint.

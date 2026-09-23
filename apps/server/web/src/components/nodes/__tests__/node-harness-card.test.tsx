@@ -205,7 +205,7 @@ describe("NodeHarnessCard", () => {
     }
   });
 
-  it("rows come from detection, and say when they were checked", async () => {
+  it("rows come from detection, showing name and version (no per-row checked stamp)", async () => {
     const iso = new Date(Date.now() - 2 * 60 * 1000).toISOString();
     const { restore } = await mount({
       harnesses: [{ harnessId: "pi", name: "Pi", installed: true, version: "1.2.3", checkedAt: iso }],
@@ -217,8 +217,10 @@ describe("NodeHarnessCard", () => {
       expect(screen.getByText((content) => content === "Pi")).toBeDefined();
       expect(screen.queryByText((content) => content === "pi")).toBeNull();
       expect(screen.getByText(/1\.2\.3/)).toBeDefined();
-      expect(screen.getByText(/checked/i)).toBeDefined();
       expect(screen.getByText("ready")).toBeDefined();
+      // The `checked … ago` stamp came off 2026-09-22 so the install button
+      // shares the row; a fresh scan must not resurrect it.
+      expect(screen.queryByText(/checked/i)).toBeNull();
     } finally {
       restore();
     }
@@ -341,7 +343,7 @@ describe("NodeHarnessCard", () => {
     }
   });
 
-  describe("Install on this server (spec 2026-09-15 § 5.3)", () => {
+  describe("Install (spec 2026-09-15 § 5.3)", () => {
     /** `local` + a manager, with one agent CLI that is not here yet. */
     const localOpts = {
       kind: "local" as const,
@@ -356,7 +358,7 @@ describe("NodeHarnessCard", () => {
       // second entrance closes.
       const { restore } = await mount(localOpts);
       try {
-        expect(await screen.findByRole("button", { name: "Install on this server" })).toBeDefined();
+        expect(await screen.findByRole("button", { name: "Install" })).toBeDefined();
         expect(screen.getByText(/curl -fsSL https:\/\/example\.test\/install\.sh \| bash/)).toBeDefined();
       } finally {
         restore();
@@ -366,7 +368,7 @@ describe("NodeHarnessCard", () => {
     it("POSTs the install exactly once, to this harness's id", async () => {
       const { calls, restore } = await mount(localOpts);
       try {
-        fireEvent.click(await screen.findByRole("button", { name: "Install on this server" }));
+        fireEvent.click(await screen.findByRole("button", { name: "Install" }));
         await waitFor(() =>
           expect(calls.some((c) => c.method === "POST" && c.url === "/api/setup/agents/claude/install")).toBe(true),
         );
@@ -384,7 +386,7 @@ describe("NodeHarnessCard", () => {
         installFrames: [`${JSON.stringify({ type: "line", text: "downloading claude" })}\n`, null],
       });
       try {
-        fireEvent.click(await screen.findByRole("button", { name: "Install on this server" }));
+        fireEvent.click(await screen.findByRole("button", { name: "Install" }));
         expect(await screen.findByText("downloading claude")).toBeDefined();
       } finally {
         restore();
@@ -399,7 +401,7 @@ describe("NodeHarnessCard", () => {
         ],
       });
       try {
-        fireEvent.click(await screen.findByRole("button", { name: "Install on this server" }));
+        fireEvent.click(await screen.findByRole("button", { name: "Install" }));
         expect(await screen.findByText(/exited with code 2/)).toBeDefined();
         expect(screen.getByText("no such package")).toBeDefined();
       } finally {
