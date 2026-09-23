@@ -22,6 +22,8 @@ function renderStatus(over: {
   tmuxResult?: ActionResult | null;
   problem?: string;
   busy?: boolean;
+  running?: boolean;
+  failure?: ActionResult | null;
   title?: string;
   onAction?: (kind: string) => void;
   onInstallTmux?: () => void;
@@ -32,8 +34,8 @@ function renderStatus(over: {
       strings={{ title: over.title ?? "", subtitle: "", problem: over.problem ?? "" }}
       probe={over.probe ?? makeProbe()}
       busy={over.busy ?? false}
-      running={false}
-      failure={null}
+      running={over.running ?? false}
+      failure={over.failure ?? null}
       form={{ port: "", host: "", baseUrl: "", trustedOrigins: "" }}
       supervision={DEFAULT_SUPERVISION}
       tmuxResult={over.tmuxResult ?? null}
@@ -203,10 +205,10 @@ describe("the running machine's status screen", () => {
     expect(document.querySelector("dl.facts")).not.toBeNull();
   });
 
-  it("keeps the progress and failure views ahead of the running view", () => {
+  it("keeps the progress view ahead of the running view", () => {
     // A chain that just finished on a ready probe still owns the screen (the
-    // press rule the handoff shares with the setup screen), and so does the
-    // failure that stopped short — neither becomes a status screen.
+    // press rule the handoff shares with the setup screen): it does not become
+    // a status screen. The failure case has its own test below.
     const view = renderStatus({ probe: makeProbe({ next: "ready", onboarded: true }) });
     expect(screen.getByRole("button", { name: "Open dashboard" })).toBeDefined();
     view.unmount();
@@ -239,6 +241,17 @@ describe("the running machine's status screen", () => {
         onFail={() => {}}
       />,
     );
+    expect(screen.queryByRole("button", { name: "Open dashboard" })).toBeNull();
+  });
+
+  it("keeps a failed recovery action ahead of the running view", () => {
+    // The `!failure` guard in status-screen.tsx: a recovery action that failed
+    // on an otherwise-ready machine must stay on screen rather than vanish
+    // under the facts view, or the reader loses the very error to act on.
+    renderStatus({
+      probe: makeProbe({ next: "ready", onboarded: true }),
+      failure: { ok: false, stdout: "", stderr: "start refused" },
+    });
     expect(screen.queryByRole("button", { name: "Open dashboard" })).toBeNull();
   });
 });

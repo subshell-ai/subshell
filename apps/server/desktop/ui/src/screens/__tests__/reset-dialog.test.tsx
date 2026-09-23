@@ -85,10 +85,22 @@ const confirmPane = (): HTMLElement | undefined =>
   );
 
 describe("the dialog and its gates", () => {
-  it("is one labelled modal named by the same string the rail's door uses", () => {
+  it("is one labelled modal named for the act (RESET_LABEL)", () => {
+    // "Reset this server" is RESET_LABEL, the dialog's own title — NOT the
+    // rail door's shorter "Reset" label; the door↔title equivalence is held by
+    // wizard-state.test.ts's RESET_LABEL pin, not here.
     renderReset({});
     expect(screen.getByRole("dialog", { name: "Reset this server" })).toBeDefined();
     expect(screen.getByRole("dialog", { name: "Reset this server" }).getAttribute("aria-modal")).toBe("true");
+  });
+
+  it("still renders its gate, refusing, when there is no probe at all", () => {
+    // The guarantee the deleted route(null,"reset") pin used to hold: a deep
+    // link can open the confirmation before any probe answers, and it must
+    // render its refusal rather than a blank dialog or an armable button.
+    renderReset({ probe: null });
+    expect(screen.getByRole("dialog")).toBeDefined();
+    expect((screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("refuses to arm when the server does not report its data locations", () => {

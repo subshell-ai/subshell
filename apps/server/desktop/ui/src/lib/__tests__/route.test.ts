@@ -89,8 +89,8 @@ describe("route", () => {
     // writes — and on a running machine that is the status screen with its
     // one button, not the handoff's bounce through the setup pane.
     expect(route(probe({ next: "ready", onboarded: true }), "recovery", IDLE)).toEqual({ kind: "status" });
-    // A machine that was onboarded, broke, and had its screen corrected onto
-    // recovery by the ratchet keeps that standing view when it heals, too.
+    // But while a chain is still running it outranks even a standing Status
+    // marker: the in-flight checklist renders, not the facts screen.
     expect(route(probe({ next: "ready" }), "recovery", { running: true, failure: null })).toEqual({ kind: "setup" });
   });
 
