@@ -26,7 +26,7 @@ use subshell_desktop_core::pending_install::{resume_decision, Resume};
 use subshell_desktop_core::permissions::{self, Permission};
 use subshell_desktop_core::proc::{run, LineSink, Run, ACTION_TIMEOUT, QUERY_TIMEOUT};
 use subshell_desktop_core::settings::PendingBundledInstall;
-use subshell_desktop_core::settings::{SettingsState, Supervision};
+use subshell_desktop_core::settings::{LaunchWindow, SettingsState, Supervision};
 use subshell_desktop_core::sidecar;
 use subshell_desktop_core::tray::{effective_close_to_tray, tray_support};
 
@@ -945,9 +945,10 @@ pub fn boot_probe(settings: &SettingsState) -> Probe {
     p
 }
 
-/// Which window boot opens, as a pure decision over the POST-MARK probe.
-/// Never call this on the stored flag alone: that is the R6 bug (a
-/// CLI-provisioned machine would meet an assistant it has nothing to do with).
+/// Which window boot opens, as a pure decision over the POST-MARK probe and the
+/// stored launch preference. Never call it on the stored flag alone: that is the
+/// R6 bug (a CLI-provisioned machine would meet an assistant it has nothing to
+/// do with).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowChoice {
     Wizard,
@@ -956,11 +957,25 @@ pub enum WindowChoice {
 
 /// Ready → the dashboard; anything else → the assistant, whose page picks
 /// first-run or recovery screens by `onboarded` (spec 2026-09-12 § 5.2).
-pub fn boot_window(p: &Probe) -> WindowChoice {
-    if p.next == ProbeStep::Ready {
-        WindowChoice::Main
-    } else {
-        WindowChoice::Wizard
+///
+/// **The `launch` preference moves the ready arm and only the ready arm**
+/// (operator ruling 2026-09-23). A machine that is not ready has no dashboard
+/// to open, so the assistant is the answer whatever was chosen; the preference
+/// exists for the machine that does, where the honest question is which of two
+/// working windows a launch should land on.
+///
+/// `open_home` deliberately does NOT read it: the tray, the Dock, the
+/// single-instance relaunch and the SPA's pill are doors someone presses with a
+/// purpose, and each already has its own answer (the tray's second item raises
+/// the assistant by name). One preference quietly re-pointing every door would
+/// make "Open Control Plane In App" a lie.
+pub fn boot_window(launch: LaunchWindow, p: &Probe) -> WindowChoice {
+    if p.next != ProbeStep::Ready {
+        return WindowChoice::Wizard;
+    }
+    match launch {
+        LaunchWindow::Assistant => WindowChoice::Wizard,
+        LaunchWindow::Dashboard => WindowChoice::Main,
     }
 }
 
@@ -2389,6 +2404,30 @@ pub fn desktop_set_server_bin(settings: State<'_, SettingsState>, path: Option<S
         }
     };
     settings.update(|s| s.binary_path = cleaned)
+}
+
+/// Which window a launch of this app opens on a machine whose server is
+/// already running. Read-only, and it reads only this app's own settings file.
+#[tauri::command(async)]
+pub fn desktop_launch_window(settings: State<'_, SettingsState>) -> LaunchWindow {
+    settings.get().open_on_launch
+}
+
+/// Choose which window a launch opens: the dashboard, or the assistant.
+///
+/// One settings field, written the way every other preference here is written.
+/// It reaches the machine at the NEXT launch rather than now, so it can close
+/// no window, stop no server and strand nobody, which is why the row that sets
+/// it saves on the press instead of standing behind an Apply.
+///
+/// **Assistant-only.** It changes what this app shows a person when they open
+/// it, and the served page has its own doors for both windows (the tray, the
+/// sidebar pill) — it has no reason to hold a preference it cannot exercise.
+/// The argument is a deserialized [`LaunchWindow`], so an unknown word is a
+/// refusal before anything is written.
+#[tauri::command(async)]
+pub fn desktop_set_launch_window(settings: State<'_, SettingsState>, window: LaunchWindow) -> Result<(), String> {
+    settings.update(|s| s.open_on_launch = window)
 }
 
 /// The stored close-to-tray preference against a FRESH tray probe. The one
@@ -4099,29 +4138,37 @@ mod tests {
     }
 
     #[test]
-    fn boot_window_opens_the_dashboard_on_a_ready_probe_and_the_assistant_otherwise() {
+    fn boot_window_opens_the_chosen_window_when_ready_and_the_assistant_otherwise() {
         // Spec 2026-09-12 § 5.2: a machine set up entirely from the CLI opens
         // the DASHBOARD on its first app launch, because the first probe
         // answers ready. `onboarded` no longer decides the window at all — it
         // decides which family of assistant screens a not-ready machine sees.
+        // The DASHBOARD preference is that unchanged behavior; the assistant
+        // arm is tested beside it so the pair is read as one decision.
         let ready = Probe {
             next: ProbeStep::Ready,
             onboarded: true,
             ..Probe::default()
         };
-        assert_eq!(boot_window(&ready), WindowChoice::Main);
+        assert_eq!(boot_window(LaunchWindow::Dashboard, &ready), WindowChoice::Main);
+        // The preference (operator ruling 2026-09-23): a ready machine opens
+        // the assistant instead. Nothing else about the boot changes, so the
+        // watch thread, the resume and the tray doors all still hold.
+        assert_eq!(boot_window(LaunchWindow::Assistant, &ready), WindowChoice::Wizard);
         let stopped = Probe {
             next: ProbeStep::Start,
             onboarded: true,
             ..Probe::default()
         };
-        assert_eq!(boot_window(&stopped), WindowChoice::Wizard);
+        assert_eq!(boot_window(LaunchWindow::Dashboard, &stopped), WindowChoice::Wizard);
         let virgin = Probe {
             next: ProbeStep::Setup,
             onboarded: false,
             ..Probe::default()
         };
-        assert_eq!(boot_window(&virgin), WindowChoice::Wizard);
+        assert_eq!(boot_window(LaunchWindow::Dashboard, &virgin), WindowChoice::Wizard);
+        // Not-ready outranks the preference: there is no dashboard to choose.
+        assert_eq!(boot_window(LaunchWindow::Assistant, &virgin), WindowChoice::Wizard);
     }
 
     #[test]

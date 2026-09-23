@@ -43,11 +43,26 @@ so serving the SPA ourselves would mean an auth rework, not a build change.
 ## Boot looks before it leaps
 
 `setup()` runs one `boot_probe` and THEN chooses the window, from the fresh
-probe rather than the stored flag: `boot_window(&Probe)` answers
+probe rather than the stored flag: `boot_window(pref, &Probe)` answers
 `WindowChoice::Main` on a `ready` probe and `WindowChoice::Wizard` on anything
 else. So a machine whose server is already running opens the **dashboard** —
 including one provisioned entirely from the CLI, on its first app launch,
 because the boot probe answers `ready` before the branch runs.
+
+**The launch preference moves that ready arm, and only that arm** (operator
+ruling 2026-09-23). `settings.json`'s `openOnLaunch` is `dashboard` (the default,
+and what every file written before it means) or `assistant`. A machine that is
+NOT ready has no dashboard to open, so it comes up on the assistant whichever
+way the preference is set — the preference answers the question "which of two
+working windows?", not "is there one?". It is set from a row inside **How Your
+Server Runs**, and that row saves on the press rather than waiting for the
+screen's Apply: one settings field whose effect is the NEXT launch stops no
+service and uninstalls no definition, which is what Apply exists for. The two
+commands are `desktop_launch_window` and `desktop_set_launch_window`, both
+`wizard`-only. **`open_home` ignores the preference**: the tray's two doors, the
+Dock reopen, the single-instance relaunch and the SPA's pill each answer for the
+machine, and a stored choice quietly re-pointing "Open Control Plane In App"
+would make that label a lie.
 
 **One thing outranks that choice**: `control::boot_resume` finding an update
 whose second half never ran, which opens the assistant at `update` instead

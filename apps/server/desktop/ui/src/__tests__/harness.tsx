@@ -106,6 +106,13 @@ export function installFakeIpc(
       // is plumbing the page always does, not a command any case is about.
       if (cmd === "plugin:event|listen") return 1;
       if (cmd === "plugin:event|unlisten") return null;
+      // Same reasoning for the launch preference: the Service screen reads it
+      // on every mount, so it is standing chrome's plumbing rather than a
+      // command a case is about. Still recorded in `calls`, so a test that
+      // cares asserts the write, and one that wants a different stored answer
+      // or a failing read overrides it in `handlers`, which is consulted first.
+      if (cmd === "desktop_launch_window") return "dashboard";
+      if (cmd === "desktop_set_launch_window") return null;
       throw new Error(`unstubbed command: ${cmd}`);
     },
   };

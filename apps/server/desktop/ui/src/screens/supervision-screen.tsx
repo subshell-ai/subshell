@@ -7,13 +7,23 @@
  * choice is PAGE state (`supervisionForm`, cleared on the way out by
  * `applyScreen` and `host.close()`), because a radio read from the probe alone
  * would undo the person's selection before they reached Apply.
+ *
+ * **The launch row below it is NOT behind that Apply** (operator ruling
+ * 2026-09-23). It is a different kind of act: writing one settings field whose
+ * effect is felt at the next launch, with nothing on this machine to stop,
+ * uninstall or restart. Apply exists because the modes above are a chain; a
+ * choice that runs no chain saves on the press, and the row says so in the
+ * sentence under it rather than leaving the reader to work out which button
+ * carries it.
  */
 import { type AssistantStrings, Frame } from "@internal/assistant";
 import type { ReactElement } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import type { ActionResult, Probe } from "../lib/ipc";
+import type { ActionResult, LaunchWindow, Probe } from "../lib/ipc";
+import * as ipc from "../lib/ipc";
 import {
   applySupervisionChoice,
   autostartSupported,
@@ -52,11 +62,79 @@ export function SupervisionScreen(props: {
     autostart: probe.service?.enabled === true,
   };
 
-  const option = (opts: { id: string; on: boolean; title: string; body: string; onPick: () => void }): ReactElement => (
+  // The launch preference is this screen's own read (operator ruling
+  // 2026-09-23), not a probe field: it is a choice, and nothing outside this
+  // app can change it under the window, so there is no tick to attach it to.
+  // The initial value is the one Rust gives a settings file that never stored
+  // one, so a read that has not landed yet already draws the right radio.
+  const [launch, setLaunch] = useState<LaunchWindow>("dashboard");
+  const [launchNote, setLaunchNote] = useState<string | null>(null);
+  /**
+   * Whether a press has landed since this screen opened.
+   *
+   * A press outranks the opening read rather than racing it. A fast pick can
+   * beat the read home, and applying the stored answer afterwards would undo a
+   * choice the person can see they just made — the defect the first version of
+   * this row shipped with, caught by
+   * `supervision-screen.test.tsx`'s "saves the moment the other window is
+   * picked".
+   */
+  const picked = useRef(false);
+  useEffect(() => {
+    let alive = true;
+    const read = async () => {
+      try {
+        const stored = await ipc.launchWindow();
+        if (alive && !picked.current) setLaunch(stored);
+      } catch {
+        // A row that cannot read the file still shows the behavior the machine
+        // has, which is the dashboard, and says which of the two it is drawing.
+        if (alive && !picked.current) {
+          setLaunchNote("This app could not read the saved choice. The row shows the dashboard.");
+        }
+      }
+    };
+    void read();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const pickLaunch = (next: LaunchWindow): void => {
+    picked.current = true;
+    const previous = launch;
+    setLaunch(next);
+    setLaunchNote(null);
+    void ipc.setLaunchWindow(next).catch(() => {
+      // The radio goes back to what the file STILL says, re-read rather than
+      // assumed: if the opening read had not landed before this press,
+      // `previous` is the default rather than the machine's answer, and the
+      // sentence below promises what the next launch will really open.
+      const revert = async () => {
+        try {
+          setLaunch(await ipc.launchWindow());
+        } catch {
+          setLaunch(previous);
+        }
+        setLaunchNote("That choice could not be saved. The next launch opens what was saved before.");
+      };
+      void revert();
+    });
+  };
+
+  const option = (opts: {
+    /** The radio group this member belongs to; the two groups are separate. */
+    name: string;
+    id: string;
+    on: boolean;
+    title: string;
+    body: string;
+    onPick: () => void;
+  }): ReactElement => (
     <label className="choice-row" htmlFor={opts.id}>
       <input
         type="radio"
-        name="supervision-mode"
+        name={opts.name}
         id={opts.id}
         checked={opts.on}
         disabled={busy || running}
@@ -113,6 +191,7 @@ export function SupervisionScreen(props: {
             : "Currently the Subshell Server Service runs in the background, but does not automatically start on startup."}
       </p>
       {option({
+        name: "supervision-mode",
         id: "sup-service",
         on: chosen.background,
         title: "In the background",
@@ -141,12 +220,40 @@ export function SupervisionScreen(props: {
         )}
       </div>
       {option({
+        name: "supervision-mode",
         id: "sup-app",
         on: !chosen.background,
         title: "With this app",
         body: "Runs while Subshell Server is open; quitting stops it. Running subshells keep running.",
         onPick: () => props.onChoice(applySupervisionChoice(chosen, { background: false })),
       })}
+      {/* A second radio group, on purpose rather than by omission: two options
+          with names on them is the only spelling that says what the other
+          choice IS, which a switch cannot do. It sits under its own heading
+          because it answers a different question from the modes above, and it
+          saves on the press rather than at Apply. */}
+      <p className="group-heading">Open on launch</p>
+      {option({
+        name: "launch-window",
+        id: "launch-dashboard",
+        on: launch === "dashboard",
+        title: "The dashboard",
+        body: "The server's own page, at its address on this machine.",
+        onPick: () => pickLaunch("dashboard"),
+      })}
+      {option({
+        name: "launch-window",
+        id: "launch-assistant",
+        on: launch === "assistant",
+        title: "The assistant",
+        body: "This app's own page, where Service, Addresses and Reset live.",
+        onPick: () => pickLaunch("assistant"),
+      })}
+      <p className="hint">
+        Saved as you change it. It decides the next launch, and only when the server is already running; anything else
+        opens the assistant whatever is chosen here.
+      </p>
+      {launchNote && <p className="hint bad-text">{launchNote}</p>}
       {out && <pre className={out.failed ? "output output-bad" : "output"}>{out.text}</pre>}
     </Frame>
   );

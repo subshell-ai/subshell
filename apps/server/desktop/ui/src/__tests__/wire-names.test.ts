@@ -1,5 +1,5 @@
 /**
- * Three Rust enums cross the IPC boundary as WORDS, and nothing held any of
+ * Four Rust enums cross the IPC boundary as WORDS, and nothing held any of
  * them to the TypeScript unions that spell them.
  *
  * A member the page names but Rust does not know is refused at runtime, with
@@ -28,6 +28,7 @@ import { join } from "node:path";
 
 const CONTROL_RS = join(import.meta.dir, "../../../src-tauri/src/control.rs");
 const PERMISSIONS_RS = join(import.meta.dir, "../../../../../../crates/desktop-core/src/permissions.rs");
+const SETTINGS_RS = join(import.meta.dir, "../../../../../../crates/desktop-core/src/settings.rs");
 const IPC_TS = join(import.meta.dir, "../lib/ipc.ts");
 const SPA_PERMISSIONS_TS = join(import.meta.dir, "../../../../web/src/types/permissions.ts");
 
@@ -115,6 +116,32 @@ describe("SettingsPane", () => {
     // screen's files row sends it on every render — the variant was defined
     // and granted and sent by nothing at all until the dead-end was fixed.
     expect(unionMembers(IPC_TS, "SettingsPane")).toContain("files-and-folders");
+  });
+});
+
+describe("LaunchWindow", () => {
+  it("names exactly what Rust will accept, in the same spelling", () => {
+    // The newest of the four, and it travels BOTH ways on purpose: the page
+    // sends the word to `desktop_set_launch_window` and reads it back from
+    // `desktop_launch_window`. A drift is therefore a refusal on the write and
+    // a radio that draws the wrong window on the read, and the read half fails
+    // silently, which is the `Permission` shape of the bug.
+    expect(unionMembers(IPC_TS, "LaunchWindow").sort()).toEqual(wireNames(SETTINGS_RS, "LaunchWindow").sort());
+  });
+
+  it("has the same default in the row as in the file", () => {
+    // The row's first draw is the settings default, so a person who presses
+    // before the read lands cannot tell which of the two they are looking at.
+    // Two spellings of one answer, in two languages: pinned here because the
+    // only symptom of a drift is a radio that jumps a moment after opening.
+    const settings = readFileSync(SETTINGS_RS, "utf8");
+    expect(settings, "Settings::default no longer names the dashboard").toContain(
+      "open_on_launch: LaunchWindow::Dashboard",
+    );
+    const screen = readFileSync(join(import.meta.dir, "../screens/supervision-screen.tsx"), "utf8");
+    expect(screen, "the launch row no longer defaults to the dashboard").toContain(
+      'useState<LaunchWindow>("dashboard")',
+    );
   });
 });
 

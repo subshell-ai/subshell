@@ -377,6 +377,30 @@ export const installTmux = (): Promise<ActionResult> => invoke<ActionResult>("de
 /** Validated Rust-side; an `Err` (not an `ok:false`) says the file is not a server. */
 export const setServerBin = (path: string | null): Promise<void> => invoke<void>("desktop_set_server_bin", { path });
 
+/**
+ * Which window a launch of this app opens on a machine whose server is already
+ * running. `LaunchWindow`, kebab-case — a closed set in Rust, whose default is
+ * `dashboard`.
+ */
+export type LaunchWindow = "dashboard" | "assistant";
+
+/**
+ * Read the stored launch preference.
+ *
+ * A command rather than a probe field because it is a CHOICE and not a fact
+ * about the machine: nothing outside this app can change it while the window is
+ * open, so there is no poll to attach it to.
+ */
+export const launchWindow = (): Promise<LaunchWindow> => invoke<LaunchWindow>("desktop_launch_window");
+
+/**
+ * Write the launch preference. It takes effect at the NEXT launch, which is
+ * what lets the row that sets it save on the press: nothing here closes a
+ * window, stops a server or reaches a CLI.
+ */
+export const setLaunchWindow = (window: LaunchWindow): Promise<void> =>
+  invoke<void>("desktop_set_launch_window", { window });
+
 export const openMain = (): Promise<void> => invoke<void>("desktop_open_main");
 
 export const openPath = (target: OpenTarget): Promise<void> => invoke<void>("desktop_open_path", { target });

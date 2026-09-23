@@ -121,6 +121,16 @@ description = "Remember an explicitly chosen server binary. The path is executed
 commands.allow = ["desktop_set_server_bin"]
 
 [[permission]]
+identifier = "allow-desktop-launch-window"
+description = "Read which window a launch of this app opens on a machine whose server is already running: the dashboard or the assistant. Takes no argument, runs nothing, and reads one field of this app's own settings file."
+commands.allow = ["desktop_launch_window"]
+
+[[permission]]
+identifier = "allow-desktop-set-launch-window"
+description = "Choose which window a launch of this app opens: the dashboard or the assistant. Writes that one settings field and nothing else — it takes effect at the next launch, so it closes no window, stops no server and reaches no CLI. The argument is a member of a closed two-word set that Rust deserializes, so an unknown word is refused before anything is written. Assistant only: it decides what THIS app shows a person who opens it, and the served page has its own doors to both windows."
+commands.allow = ["desktop_set_launch_window"]
+
+[[permission]]
 identifier = "allow-desktop-open-main"
 description = "Open the window showing the server's own UI."
 commands.allow = ["desktop_open_main"]

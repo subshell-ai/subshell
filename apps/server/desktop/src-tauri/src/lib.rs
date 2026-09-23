@@ -80,6 +80,11 @@ fn dispatch_menu_bar(_app: &tauri::AppHandle, _id: &str) {}
 /// Boot opens ONE window, chosen from a fresh probe: the dashboard when the
 /// server is already answering, and otherwise the bundled assistant, which is
 /// the page that renders on a cold machine with no server to load from.
+///
+/// The `openOnLaunch` preference moves the first half of that sentence only
+/// (operator ruling 2026-09-23): a ready machine may open the assistant
+/// instead. A machine that is not ready has no dashboard to open, so it lands
+/// on the assistant whichever way the preference is set.
 pub fn run() {
     let mut builder = tauri::Builder::default();
 
@@ -176,6 +181,8 @@ pub fn run() {
             control::desktop_install_tmux,
             control::desktop_service,
             control::desktop_set_server_bin,
+            control::desktop_launch_window,
+            control::desktop_set_launch_window,
             control::desktop_set_supervision,
             control::desktop_open_main,
             control::desktop_open_assistant,
@@ -306,7 +313,10 @@ pub fn run() {
                 if control::boot_resume(&handle, &settings, &probe) {
                     control::WindowChoice::Wizard
                 } else {
-                    control::boot_window(&probe)
+                    // The stored preference moves the ready arm only, and the
+                    // resume above already outranks it: an unfinished update is
+                    // shown whatever this machine was told to open.
+                    control::boot_window(settings.get().open_on_launch, &probe)
                 }
             };
             match choice {
