@@ -1,0 +1,26 @@
+{
+  // The marketing site is an ASSETS-ONLY Worker: `next build` (static export)
+  // writes the site to ./out and Cloudflare serves it. There is no Worker
+  // script, and `main` is deliberately absent — it is optional for
+  // assets-only Workers (verified against the wrangler config reference,
+  // 2026-09-16), and adding one would be code to deploy that nobody wrote.
+  "name": "subshell-website",
+  "compatibility_date": "2026-09-15",
+  "assets": {
+    // Relative to this file; the deploy workflow runs wrangler with
+    // workingDirectory: apps/website, where the export lands.
+    "directory": "./out",
+    // A slug that does not exist answers 404 — NOT the landing page with a
+    // 200. This is a multi-page site; an SPA fallback would turn every
+    // typo and dead link into a soft 404 that search engines index.
+    "not_found_handling": "404-page",
+    // /pricing serves pricing.html. This is already the
+    // default; it is written down so a wrangler upgrade cannot silently
+    // change the site's URL shape under us.
+    "html_handling": "auto-trailing-slash"
+  },
+  // A custom domain, not a route on workers.dev: the domain IS the address
+  // website.yml and the README point at. Cloudflare provisions the DNS record
+  // and TLS certificate on deploy; the zone must live in this account.
+  "routes": [{ "pattern": "subshell.sh", "custom_domain": true }]
+}

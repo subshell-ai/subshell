@@ -54,8 +54,9 @@ and the pieces it names nested inside. `apps/server/`, `apps/client/` and
 `apps/node/` are plain directories with no `package.json` of their own —
 grouping, not packages.
 
-**`apps/docs` is the taxonomy's one exception, and sits directly under `apps/`
-because it names none of the three words.** The documentation site (Fumadocs,
+**`apps/docs` and `apps/website` are the taxonomy's two exceptions, and sit
+directly under `apps/` because they name none of the three words — both are
+sites.** The documentation site (Fumadocs,
 a static export, package `@internal/docs`) is a site, not a product component:
 it is changesets-versioned like the four releasable apps but deploys via
 `docs.yml` outside the release pipelines, and it is not a control plane, not a
@@ -1038,6 +1039,8 @@ refuses on any non-success (`skip_ci_gate: true` is the emergency opt-out).
 The export is static for now (`output: "export"`); the vinext-at-1.0 follow-up
 lifts that. Broken docs fail PR CI, not just the deploy: the package's `build`
 script runs inside `bun run build`, which `lint.yml` runs on every push.
+The marketing site (`apps/website`, `website-v*` tags, `website.yml`,
+subshell.sh) follows the identical deploy shape.
 
 ## Build Dependencies
 
