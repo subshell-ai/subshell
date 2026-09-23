@@ -388,6 +388,50 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     ]);
   });
 
+  it("a booting pane (zero-byte log) gets the fit resize and NO ±1 nudge", async () => {
+    // Pins the `booting` wiring AT THE RELAY — where the agent's `log_read`
+    // answers size 0 for both "missing file" and "empty file", the conflation
+    // the zero-meanings analysis leans on. A still-booting shell takes the
+    // duplicate-prompt hit from a nudge; the helper is tested elsewhere, this
+    // is the call site.
+    const sim = makeNodeSim();
+    sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
+    sim.answer("capture", "SCREEN");
+    sim.answer("log_read", { bytes_b64: "", next: 0, size: 0 });
+    const { ws } = fakeBrowser();
+
+    await attachRemoteSubshellWs(
+      ws,
+      attachRow(),
+      new RemoteLauncher(NODE_ID),
+      "owner",
+      attachParams({ size: { cols: 132, rows: 43 } }),
+    );
+    await until(() => sim.cmdTypes().includes("capture"), "capture");
+    // Exactly ONE resize — the fit. The nudge would add 133-then-back.
+    expect(sim.cmdsOf("resize")).toEqual([{ type: "resize", subshellId: SID, cols: 132, rows: 43 }]);
+  });
+
+  it("a RESTARTED row inside the boot grace (residual bytes, fresh startedAt) also skips the nudge", async () => {
+    // The log survives a restart on purpose, so bytes alone read as "settled
+    // pane"; the row's boot timestamp is what catches the second boot.
+    const sim = makeNodeSim();
+    sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
+    sim.answer("capture", "SCREEN");
+    scriptLogRead(sim, { bytes: "ab\ncd\n", size: 7 }, 40);
+    const { ws } = fakeBrowser();
+
+    await attachRemoteSubshellWs(
+      ws,
+      attachRow({ startedAt: new Date().toISOString() }),
+      new RemoteLauncher(NODE_ID),
+      "owner",
+      attachParams({ size: { cols: 132, rows: 43 } }),
+    );
+    await until(() => sim.cmdTypes().includes("capture"), "capture");
+    expect(sim.cmdsOf("resize")).toEqual([{ type: "resize", subshellId: SID, cols: 132, rows: 43 }]);
+  });
+
   it("refuses 4004 'node offline' when the node has no live connection (nothing hits the wire)", async () => {
     const { ws, sent, closed } = fakeBrowser();
     // No attachConnection for NODE_ID — the registry says offline.

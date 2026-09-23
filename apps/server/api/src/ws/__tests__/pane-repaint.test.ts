@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PANE_LOG_FILE_FLAG, TmuxRunner, tmuxSocketFor } from "@internal/pane-runtime";
 import { LocalLauncher } from "@/services/nodes/local-launcher.js";
-import { fitPaneAndRepaint } from "@/ws/pane-repaint.js";
+import { fitPaneAndRepaint, paneReadsAsBooting, STARTUP_GRACE_MS } from "@/ws/pane-repaint.js";
 
 // Arm `pipe-pane` with a streaming capture child (the real production child is
 // the self-invoked `pane-log` verb). A bare `cat >>` is what froze the live
@@ -55,6 +55,31 @@ async function seed(label: string, cmd: string) {
   };
   return { id, socket, size, sizeOf, dispose };
 }
+
+describe("paneReadsAsBooting", () => {
+  const T = Date.parse("2026-09-23T12:00:00.000Z");
+  const at = (msAgo: number) => new Date(T - msAgo).toISOString();
+
+  it("zero bytes is booting whatever the age (first boot, or no log to read)", () => {
+    expect(paneReadsAsBooting(0, null, T)).toBe(true);
+    expect(paneReadsAsBooting(0, at(86_400_000), T)).toBe(true);
+  });
+
+  it("residual bytes inside the boot grace are a RESTART booting", () => {
+    // The row reused its id and its log survived the restart on purpose;
+    // `startedAt` is the only thing that says "this byte count is from the
+    // PREVIOUS life".
+    expect(paneReadsAsBooting(7, at(500), T)).toBe(true);
+    expect(paneReadsAsBooting(7, at(STARTUP_GRACE_MS - 1), T)).toBe(true);
+  });
+
+  it("residual bytes past the grace, or no timestamp at all, are a settled pane", () => {
+    expect(paneReadsAsBooting(7, at(STARTUP_GRACE_MS), T)).toBe(false);
+    expect(paneReadsAsBooting(7, at(STARTUP_GRACE_MS + 60_000), T)).toBe(false);
+    expect(paneReadsAsBooting(7, null, T)).toBe(false);
+    expect(paneReadsAsBooting(7, "not-a-date", T)).toBe(false);
+  });
+});
 
 describe("fitPaneAndRepaint", () => {
   it("an animating pane: sees the repaint and returns without waiting for a quiet that never comes", async () => {
