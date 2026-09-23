@@ -770,23 +770,34 @@ echo "server exited unexpectedly" >&2; exit 1
     expect(runner.listSubshellNames(socket)).toContain("d1");
   });
 
+  /**
+   * Polls `paneExitCode` itself rather than `hasSubshell` as a proxy. The
+   * proxy raced: under the packages job's parallel load a single swallowed
+   * tmux error answers `hasSubshell:false` immediately, the loop exited while
+   * the pane was still alive, and `paneExitCode` correctly answered `null` —
+   * the assertion then failed 24 ms in with no wait ever having happened.
+   * `null` means "not readable YET", so "yet" is what we wait on.
+   */
+  async function waitForPaneExitCode(socket: string, name: string): Promise<number | null> {
+    for (let i = 0; i < 40; i++) {
+      const code = await runner.paneExitCode(socket, name);
+      if (code !== null) return code;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return null;
+  }
+
   it("reads the exit status of a finished pane, which was previously unreachable", async () => {
     const socket = freshSocket("exitcode");
     runner.newSubshell(socket, "e1", "/tmp", "sh -c 'exit 7'");
-    for (let i = 0; i < 40 && (await runner.hasSubshell(socket, "e1")); i++) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    expect(await runner.paneExitCode(socket, "e1")).toBe(7);
+    expect(await waitForPaneExitCode(socket, "e1")).toBe(7);
   });
 
   it("keeps a clean exit distinguishable from an unknown one", async () => {
     const socket = freshSocket("exitzero");
     runner.newSubshell(socket, "z1", "/tmp", "sh -c 'exit 0'");
-    for (let i = 0; i < 40 && (await runner.hasSubshell(socket, "z1")); i++) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
     // 0 is a real answer; null means "could not be read".
-    expect(await runner.paneExitCode(socket, "z1")).toBe(0);
+    expect(await waitForPaneExitCode(socket, "z1")).toBe(0);
   });
   /**
    * The node's exit watcher acts on this list DIRECTLY — "a pane the socket
