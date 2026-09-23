@@ -1940,9 +1940,17 @@ Three consequences, all load-bearing:
   thing on the tray could not be pressed. It is "Open Control Plane In App" now
   and always enabled, because `open_home` answers for both states of the machine
   — which also retired `set_server_ready` and the `DashboardItem` it held. A
-  second in-app door, "Open Server App", sits beside it: it calls
-  `windows::open_assistant` and raises the bundled window directly, no probe and
-  no server question — the client tray's "Open Client App" carried to this side.
+  second in-app door, "Open Server App", sits beside it: it arms the assistant's
+  standing **Status** screen through `reset::arm_and_raise(app, Some("status"))`
+  and raises the bundled window — no probe and no server question, the client
+  tray's "Open Client App" carried to this side. It must NOT be a bare
+  `windows::open_assistant`: on a running server an un-armed assistant boots to
+  the handoff, opens the dashboard, and `open_main_now` then CLOSES the window it
+  just opened (the assistant's job ends at the dashboard), so the press flashes
+  and vanishes. Arming the standing Status word lands it on a screen that stays.
+  The `status` wire word round-trips through `parse_screen`→`Screen::Status`;
+  `applyScreen` maps it to the same standing marker the rail's Status select
+  uses, deliberately NOT to a requested screen (which would bounce).
 - The window-close handler **re-probes**, and that is the check that actually
   protects the user: a host that has gone away since the setting was made means
   the window closes normally instead of vanishing. The probe is therefore

@@ -100,6 +100,22 @@ describe("the host's correction ratchet", () => {
     await waitFor(() => expect(routeOf()).toBe("update"));
   });
 
+  it("arms the tray's Open Server App onto the standing Status screen, and never opens the dashboard", async () => {
+    // The tray's "Open Server App" word is "status"; applyScreen maps it onto
+    // the standing Status marker (the ScreenId the rail's Status select sets).
+    // On a READY machine it must render the facts screen WITHOUT handing off —
+    // otherwise open_main_now closes the window this press just opened, the very
+    // bug the door exists to avoid. A bare open would land here as `null` and
+    // bounce; Status does not.
+    fake = installFakeIpc({
+      probe: makeProbe({ next: "ready", onboarded: true }),
+      handlers: { desktop_pending_screen: () => "status", desktop_open_main: () => undefined },
+    });
+    render(<Host />);
+    await waitFor(() => expect(routeOf()).toBe("status"));
+    expect(fake.callsTo("desktop_open_main")).toHaveLength(0);
+  });
+
   // The ratchet's POSITIVE arm — a corrected screen persisting when the
   // corrected screen re-enters the list later — needs a screen a PRESS sets
   // (`go`), and no screen exists to press until Task 3. Its arithmetic is
