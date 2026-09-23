@@ -13,7 +13,7 @@ import { captureToReplayText } from "@/ws/capture-text.js";
 import { dropInputHolds, hasHeldInput, holdFailedInput } from "@/ws/input-hold.js";
 import { inputWindowAdd, inputWindowHas, sanitizeInputSession } from "@/ws/input-window.js";
 import type { PaneGeometry } from "@/ws/pane-geometry.js";
-import { captureStable, fitPaneAndRepaint, RESIZE_SETTLE_MS } from "@/ws/pane-repaint.js";
+import { captureStable, fitPaneAndRepaint, paneReadsAsBooting, RESIZE_SETTLE_MS } from "@/ws/pane-repaint.js";
 import { createLogTailSource, createPanePollSource } from "@/ws/pane-sources.js";
 import type { Subscription } from "@/ws/pane-stream.js";
 import { attachRemoteSubshellWs } from "@/ws/remote-subshell-ws.js";
@@ -254,13 +254,12 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
       const outcome = await fitPaneAndRepaint(launcher, socket, row.id, fit, sizeOf, {
         baseline: logStart,
         canNudge: () => hasLog && !detached,
-        // No readable log bytes at the join — a fresh pane whose shell has
-        // printed nothing yet, or no log to read from at all (the state
-        // `canNudge` already refuses to nudge in). The wait could observe
-        // neither, and the winch storm duplicates a still-booting prompt
-        // (the stray prompt-at-top on fresh terminals, operator report
-        // 2026-09-23).
-        booting: logStart === 0,
+        // No readable log bytes at the join, or bytes only from the row's
+        // PREVIOUS life while this boot is inside the grace — a fresh or
+        // restarted shell mid-init. Neither has a settled frame to protect,
+        // and the winch storm duplicates a still-booting prompt (the stray
+        // prompt-at-top on fresh terminals, operator report 2026-09-23).
+        booting: paneReadsAsBooting(logStart, row.startedAt),
       });
       repainted = outcome.repainted;
       nudged = outcome.nudged;

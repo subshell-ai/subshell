@@ -134,6 +134,45 @@ export async function waitForPaneRepaint(
 const NUDGE_SETTLE_MS = 80;
 
 /**
+ * How long after a row's (re)start a pane with residual log bytes still
+ * reads as booting. A restart reuses the row id and the pipe-pane log is
+ * append-only (the transcript survives deliberately), so the zero-bytes rule
+ * alone would let a RESTARTED row — empty grid, shell mid-boot — take the
+ * full nudge storm. `startedAt` is rewritten at every (re)start, which is the
+ * per-boot epoch; this window covers it. Sized to outlast a slow shell's
+ * init (ble.sh-class prompt machinery: seconds) while staying far under the
+ * interval at which a person reattaches to a settled pane — a late joiner to
+ * a still-initializing slower-than-the-window shell keeps the old dance, the
+ * pre-fix behavior, never anything worse.
+ */
+export const STARTUP_GRACE_MS = 5_000;
+
+/**
+ * Whether this attach may skip the repaint wait and the nudge, because there
+ * is no settled frame to protect: no readable log bytes at the join sample
+ * (a first boot, or no log to read from), OR bytes left over from a PREVIOUS
+ * life of the row while the current boot is still young.
+ *
+ * @param logStart - the log size sampled BEFORE any resize (both attach paths)
+ * @param startedAt - the row's boot timestamp (null/older-than-grace ⇒ not booting).
+ *   One inaccuracy to know: the liveness sweep backfills `now` into a legacy
+ *   live row whose timestamp is null, so such a row can read as booting ONCE,
+ *   within a grace of that backfill — the skip direction, costing at most the
+ *   cosmetic provocation on one attach of a pane that has never restarted.
+ * @param nowMs - injected clock for tests
+ */
+export function paneReadsAsBooting(
+  logStart: number,
+  startedAt: string | null | undefined,
+  nowMs: number = Date.now(),
+): boolean {
+  if (logStart === 0) return true;
+  if (!startedAt) return false;
+  const started = Date.parse(startedAt);
+  return Number.isFinite(started) && nowMs - started < STARTUP_GRACE_MS;
+}
+
+/**
  * Force a fresh full repaint when the pane stayed silent after the pre-capture
  * resize.
  *
@@ -268,24 +307,22 @@ export interface FitRepaintOutcome {
  * @param opts.canNudge - evaluated AFTER the first wait: false when there is
  *   no log to read a burst from (a blind nudge would thrash every pane-poll
  *   attach) or the viewer has already gone
- * @param opts.booting - no readable log bytes at the join sample: a FIRST-LIFE
- *   pane whose shell has printed nothing yet, or (locally) a pane with no log
- *   to read at all — a state whose nudge `canNudge` already refused and whose
- *   wait could never observe growth. Then this reduces to the one fit resize
- *   and returns: there is no frame that could be stale, so the repaint wait
- *   has nothing to watch and the nudge is strictly harmful — a slow-booting
- *   shell (ble.sh, powerlevel10k: prompts redrawn by every SIGWINCH during
- *   init) takes the ±1 storm as duplicated prompts written INTO the pane's own
- *   history, the stray prompt-at-top the operator sees on every fresh terminal
- *   (2026-09-23 report). The single fit resize stays: it lands before the
- *   first frame exists, so the shell boots at the fit geometry rather than
- *   being winched mid-prompt later. Two honest edges: a RESTARTED row keeps its
- *   pre-restart log bytes, so its second boot reads as not-booting and keeps
- *   today's dance (a launch-time size epoch would close it — known residual,
- *   not a regression); and bytes landing between the caller's sample and this
- *   call make `booting` stale-TRUE, which skips the provocation — the safe
- *   direction, since a seconds-old frame is not the stale one the nudge
- *   exists for.
+ * @param opts.booting - {@link paneReadsAsBooting}: no readable log bytes at
+ *   the join sample (a first boot, or no log to read at all), or bytes only
+ *   from a PREVIOUS life while the current boot is inside
+ *   {@link STARTUP_GRACE_MS} (a restarted row — its log deliberately
+ *   survives). Then this reduces to the one fit resize and returns: there is
+ *   no frame that could be stale, so the repaint wait has nothing to watch
+ *   and the nudge is strictly harmful — a slow-booting shell (ble.sh,
+ *   powerlevel10k: prompts redrawn by every SIGWINCH during init) takes the
+ *   ±1 storm as duplicated prompts written INTO the pane's own history, the
+ *   stray prompt-at-top the operator sees on every fresh terminal (2026-09-23
+ *   report). The single fit resize stays: it lands before the first frame
+ *   exists, so the shell boots at the fit geometry rather than being winched
+ *   mid-prompt later. Honest edge: bytes landing between the caller's sample
+ *   and this call make `booting` stale-TRUE, which skips the provocation —
+ *   the safe direction, since a seconds-old frame is not the stale one the
+ *   nudge exists for.
  * @throws whatever `launcher.resize` throws — callers keep their fallback
  */
 export async function fitPaneAndRepaint(

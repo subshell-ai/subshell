@@ -7,7 +7,7 @@ import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
 import type { AttachParams } from "@/ws/attach-params.js";
 import { captureToReplayText } from "@/ws/capture-text.js";
-import { captureStable, fitPaneAndRepaint, RESIZE_SETTLE_MS } from "@/ws/pane-repaint.js";
+import { captureStable, fitPaneAndRepaint, paneReadsAsBooting, RESIZE_SETTLE_MS } from "@/ws/pane-repaint.js";
 import { createRemoteTailSource } from "@/ws/pane-sources.js";
 import type { Subscription } from "@/ws/pane-stream.js";
 import {
@@ -62,6 +62,15 @@ export interface RemoteAttachRow {
   tmuxSocket: string | null;
   /** Owning user — whose per-user terminal-history cap governs this attach. */
   userId: string;
+  /**
+   * The row's boot timestamp — `paneReadsAsBooting`'s per-boot epoch. A
+   * restart reuses the id and the log survives, so bytes alone cannot tell
+   * "settled pane" from "second boot in flight"; this can. Optional only for
+   * the relay's test fixtures — the production caller passes the full
+   * `SubshellTable` row, and one that omitted this would quietly lose
+   * restart detection (gracefully: the old winch dance, not a failure).
+   */
+  startedAt?: string | null;
 }
 
 /**
@@ -248,9 +257,11 @@ export async function attachRemoteSubshellWs(
         const outcome = await fitPaneAndRepaint(launcher, data.socket, row.id, fit, sizeOf, {
           baseline: logStart,
           canNudge: () => !detached,
-          // The local twin's rule: a pane with no output yet gets the fit and
-          // nothing else — the winch storm duplicates a still-booting prompt.
-          booting: logStart === 0,
+          // The local twin's rule (see paneReadsAsBooting): a pane with no
+          // settled frame — first boot, or a restart still in the grace —
+          // gets the fit and nothing else; the winch storm duplicates a
+          // still-booting prompt.
+          booting: paneReadsAsBooting(logStart, row.startedAt),
         });
         repainted = outcome.repainted;
         nudged = outcome.nudged;
