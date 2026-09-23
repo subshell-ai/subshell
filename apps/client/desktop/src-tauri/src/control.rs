@@ -1763,7 +1763,10 @@ pub fn record_plane_open(app: &AppHandle, url: &str, browser: bool) {
         url: url.to_string(),
         browser,
     };
-    if let Err(err) = app.state::<SettingsState>().update(|s| s.last_plane_open = Some(record)) {
+    if let Err(err) = app
+        .state::<SettingsState>()
+        .update(|s| s.last_plane_open = Some(record))
+    {
         // The sibling rule for tray-adjacent failures: the console. The open
         // itself happened; only its memory failed.
         eprintln!("tray: could not record the plane open: {err}");

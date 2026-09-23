@@ -241,7 +241,9 @@ function NodeDetailPage() {
           {/* Key rotation lives with the enrolled nodes: `local`'s key is the
               control plane's own credential — mint/rotate it server-side
               deliberately, not from a button on its own status page. */}
-          {n.kind === "agent" && <NodeKeyRotate nodeId={n.id} nodeName={n.name} canManage={n.canManage} />}
+          {n.kind === "agent" && (
+            <NodeKeyRotate nodeId={n.id} nodeName={n.name} agentVersion={n.agentVersion} canManage={n.canManage} />
+          )}
 
           <NodeHarnessCard nodeId={n.id} />
 

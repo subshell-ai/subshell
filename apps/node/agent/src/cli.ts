@@ -76,11 +76,13 @@ usage:
   subshell enroll --server <url> --key <nsk_…> --name <n> [--data-dir <d>] [--json]
                           enrollment ONLY — the primitive that setup composes; it
                           asks nothing, so --name is required
-  subshell configure --server <url> [--json]
-                          repoint an ALREADY-enrolled node at a different control
-                          plane. Keeps this node's identity and spends no setup
-                          key; restart the node to apply. Does NOT rename: the
-                          plane owns a node's name (the Nodes page).
+  subshell configure [--server <url>] [--key <node key>] [--json]
+                          change how an ALREADY-enrolled node reaches its control
+                          plane. --server repoints it; --key stores a ROTATED node
+                          key (the value Rotate key shows once — NOT a setup key,
+                          which enrolls a new node). Keeps this node's identity and
+                          spends no setup key; restart the node to apply. Does NOT
+                          rename: the plane owns a node's name (the Nodes page).
   subshell run [--dashboard-port <n>]
                           the daemon; --dashboard-port (or SUBSHELL_DASHBOARD_PORT)
                           moves the loopback dashboard off :3090
@@ -256,11 +258,13 @@ const subcommandFlagUnion = (command: string): string[] => [
   ...new Set(Object.values(SUBCOMMAND_FLAGS[command] ?? {}).flat()),
 ];
 const COMMAND_FLAGS: Record<string, string[]> = {
-  // No --key and no --data-dir: this command spends no setup key, and the
-  // identity directory belongs to the enrollment that created it. No --name
-  // either — see configure.ts: the plane never reads this file's name outside
-  // the enroll body, so a rename here would be a lie.
-  configure: ["--server", "--json"],
+  // --key here takes a ROTATED NODE key, not a setup key — `normalizeNodeKey`
+  // refuses an `nsk_` value by name, so the one flag that names the other
+  // credential's shape is what keeps the pair unconfusable at a terminal. No
+  // --data-dir: the identity directory belongs to the enrollment that created
+  // it. No --name either — see configure.ts: the plane never reads this file's
+  // name outside the enroll body, so a rename here would be a lie.
+  configure: ["--server", "--key", "--json"],
   enroll: ["--server", "--key", "--name", "--data-dir", "--json"],
   dashboard: ["--dashboard-port"],
   license: [],
@@ -756,25 +760,39 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         // mistyped command, and the usage block is the answer to it. Every
         // other refusal here is the command's own (exit 1, no usage dump).
         const server = parsed.flags.server;
-        if (server === undefined) throw new UsageError("configure requires --server <url>");
-        const next = await runConfigure({ server });
+        const key = parsed.flags.key;
+        if (server === undefined && key === undefined) {
+          throw new UsageError("configure requires --server <url> and/or --key <node key>");
+        }
+        const next = await runConfigure({ server, key });
         if (parsed.flags.json) {
-          // Same rule as enroll/status --json: the nodeKey is NEVER here. A
-          // GUI drives this command, so a leak would land the node's bearer
-          // credential in a webview.
+          // Same rule as enroll/status --json: the nodeKey is NEVER here — and
+          // that holds for a command whose whole job is storing one, more than
+          // ever. A GUI drives this command, so a leak would land the node's
+          // bearer credential in a webview. `keyUpdated` says the write
+          // happened without repeating what was written.
           const body = {
             nodeId: next.nodeId,
             serverUrl: next.serverUrl,
             name: next.name,
             dataDir: next.dataDir,
             configPath: configPath(),
+            ...(key !== undefined ? { keyUpdated: true } : {}),
           };
           return { code: 0, out: `${JSON.stringify(body, null, 2)}\n`, err: "" };
         }
+        // The address sentence is the line this command has always printed,
+        // kept byte-identical when only --server was asked for; the key
+        // sentence names its own write (never the value), and a node key
+        // changing is worth saying since the plane just killed the old one.
+        const changes =
+          server === undefined
+            ? "stored the rotated node key"
+            : `now points at ${next.serverUrl}${key !== undefined ? " and stored the rotated node key" : ""}`;
         return {
           code: 0,
           out:
-            `node ${next.nodeId} "${next.name}" now points at ${next.serverUrl}\n` +
+            `node ${next.nodeId} "${next.name}" ${changes}\n` +
             "restart the node to apply it: subshell service restart (or restart `subshell run`)\n",
           err: "",
         };

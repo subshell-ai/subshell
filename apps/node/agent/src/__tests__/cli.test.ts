@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs, type RunDeps, run } from "../cli.js";
-import { saveConfig } from "../config.js";
+import { loadConfig, saveConfig } from "../config.js";
 import { maintenancePath, readMaintenance, writeMaintenance } from "../maintenance.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
 import { newHome } from "../test-preload.js";
@@ -498,7 +498,6 @@ describe("configure — repoint an enrolled node", () => {
   });
 
   test("rejects the flags it has no business taking", () => {
-    expect(() => parseArgs(["configure", "--key", "nsk_test_0123456789"])).toThrow(/not valid for 'configure'/);
     // `--registry-url` is not even a KNOWN flag anymore (inversion §6 removed
     // the plugin concept the mirror fed), so it refuses before any per-command
     // question is asked.
@@ -509,6 +508,52 @@ describe("configure — repoint an enrolled node", () => {
     // No --name: the plane owns a node's name, so offering one here would
     // promise a rename this command cannot deliver (see configure.ts).
     expect(() => parseArgs(["configure", "--name", "laptop"])).toThrow(/not valid for 'configure'/);
+  });
+
+  /**
+   * `--key` PARSES (the flag arrived with the rotated-key story: the plane
+   * shows the replacement once and there was nowhere to put it), but a
+   * `nsk_` value is still refused — as the command's own exit 1 with the
+   * sentence that names the right verb, NOT as a usage dump. The shape test
+   * belongs to the runtime, which is where the distinction between the two
+   * key kinds is worth explaining to the person holding the wrong one.
+   */
+  test("--key stores a rotated node key and never prints it", async () => {
+    newHome();
+    await saveConfig(enrolled);
+    const result = await run(["configure", "--key", "subshell_rotated_rotated_1"]);
+    expect(result.code).toBe(0);
+    expect(result.out).not.toInclude("subshell_rotated_rotated_1");
+    expect(result.out).toMatch(/rotated node key/i);
+    expect(result.out).toMatch(/restart/i);
+    expect((await loadConfig()).nodeKey).toBe("subshell_rotated_rotated_1");
+    // The identity rule survives the write path: same nodeId, same plane.
+    expect((await loadConfig()).nodeId).toBe(enrolled.nodeId);
+  });
+
+  test("--key --json says the write happened without repeating the secret", async () => {
+    newHome();
+    await saveConfig(enrolled);
+    const result = await run(["configure", "--key", "subshell_rotated_rotated_1", "--json"]);
+    expect(result.code).toBe(0);
+    expect(result.out).not.toInclude("subshell_rotated_rotated_1");
+    const body = JSON.parse(result.out);
+    expect(body.keyUpdated).toBe(true);
+    expect(body.nodeKey).toBeUndefined();
+    // A --server-only call stays byte-identical to what it always returned.
+    const plain = await run(["configure", "--server", "https://subshell.example", "--json"]);
+    expect(JSON.parse(plain.out).keyUpdated).toBeUndefined();
+  });
+
+  test("--key with a SETUP key is exit 1 naming the right verb, not a usage dump", async () => {
+    newHome();
+    await saveConfig(enrolled);
+    const result = await run(["configure", "--key", "nsk_test_0123456789"]);
+    expect(result.code).toBe(1);
+    expect(result.err).toInclude("SETUP key");
+    expect(result.err).toInclude("subshell setup");
+    expect(result.err).not.toInclude(USAGE_MARKER);
+    expect((await loadConfig()).nodeKey).toBe(enrolled.nodeKey);
   });
 
   test("usage lists configure beside enroll", async () => {
