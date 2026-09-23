@@ -296,9 +296,12 @@ export interface FitRepaintOutcome {
  * fires no SIGWINCH for it, so nothing can repaint and the whole no-growth
  * budget was being spent waiting for a burst that could not come — on every
  * attach at the size the pane already had, which is what reattaching IS.
- * When the pane is already at `fit`, the resize and its wait are skipped and
- * the nudge (which provokes the repaint deliberately) runs at once. An
- * unreadable size degrades to the resize-and-wait, never to a guess.
+ * When the pane is already at `fit`, this returns after the queue seed: no
+ * resize, no wait, no nudge (a same-size reopen re-wraps nothing, so there is
+ * no stale frame to correct — see the body). When it is not, the resize runs
+ * and the nudge (which provokes the repaint deliberately) follows if no
+ * repaint burst appears. An unreadable size degrades to the resize-and-wait,
+ * never to a guess.
  *
  * @param fit - the shared grid every viewer will render (never the joiner's own)
  * @param sizeOf - reads the pane log's size (the repaint signal)
@@ -341,6 +344,19 @@ export async function fitPaneAndRepaint(
   // Tell the queue either way: the fit bypassed it, and a client frame asking
   // for this same size must not then be swallowed as already-applied.
   seedPaneGeometry(id, fit.cols, fit.rows);
+  if (alreadyFitted) {
+    // Same-size reopen — the common case for "click the terminal again".
+    // Nothing changed geometry, so tmux re-wrapped nothing and the current
+    // grid IS the current frame: there is no stale paint for the nudge to
+    // correct, and provoking one is strictly harmful. A SIGWINCH-redrawing
+    // prompt (p10k, ble.sh) answers every geometry event by inserting a line
+    // and repainting INTO history — one orphan prompt at the top per reopen,
+    // growing on each one (2026-09-23 live log: a settled 67x25 pane reopened
+    // at 67x25 took winch + ±1 = three orphans). The no-op RESIZE already
+    // cannot repaint a pane (the observation that removed ~450ms from every
+    // reopen); this finishes that thought — neither can a no-op REOPEN.
+    return { repainted: false, nudged: false };
+  }
   if (opts.booting) {
     // See the JSDoc: a pane with no output yet cannot hold a stale frame, and
     // every extra winch is prompt-scatter for its still-booting shell.

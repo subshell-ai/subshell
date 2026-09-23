@@ -306,10 +306,14 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     // size silently undid the shared fit applied moments earlier. An
     // incumbent at 122x49 was left rendering a pane a 122x52 joiner had
     // claimed, clipping every later frame, with nothing scheduled to
-    // re-decide it. The nudge fires whenever no repaint burst is detected,
-    // which is the COMMON case for a reopen at a size the pane already has.
+    // re-decide it.
+    //
+    // The geometry change lives on the INCUMBENT now (the pane waits at 52
+    // rows): a same-size reopen stopped nudging entirely, so the joiner at
+    // the shared grid contributes no resize at all — which is itself half of
+    // what this pins.
     stubLauncher();
-    let paneRows = 49;
+    let paneRows = 52;
     defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
       resizeCalls.push({ cols, rows });
       paneRows = rows;
@@ -321,12 +325,18 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     await Bun.write(subshellLogPath(row.id), "old\n");
 
     const incumbent = await attach(row.userId, row.id, "&cols=122&rows=49");
+    const incumbentDance = resizeCalls.length;
+    expect(incumbentDance).toBeGreaterThan(0); // the incumbent resized (and stepped)
+
     const joiner = await attach(row.userId, row.id, "&cols=122&rows=52");
 
     // Whatever the nudge stepped through, the pane must END at the shared
     // grid — the size BOTH viewers can display — not the joiner's 52.
     expect(resizeCalls.at(-1)).toEqual({ cols: 122, rows: 49 });
     expect(resizeCalls.some((c) => c.rows === 52)).toBe(false);
+    // And the joiner dragged nothing: the pane already displayed the shared
+    // grid, so its reopen was untouched.
+    expect(resizeCalls.length).toBe(incumbentDance);
 
     cleanupSubshellWs(joiner.ws);
     cleanupSubshellWs(incumbent.ws);
@@ -452,7 +462,8 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     // change, so a tab attached while already hidden would have held every
     // other device's pane at its size for the socket's whole life.
     stubLauncher();
-    let paneRows = 50;
+    let paneRows = 60; // differs from both viewers, so the laptop's fit RESIZES —
+    // otherwise a silent no-op would pass "takes no part" for the wrong reason.
     defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
       resizeCalls.push({ cols, rows });
       paneRows = rows;
@@ -462,10 +473,13 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     await Bun.write(subshellLogPath(row.id), "old\n");
 
     const laptop = await attach(row.userId, row.id, "&cols=100&rows=50");
+    const resizedByLaptop = resizeCalls.length;
     const pocketed = await attach(row.userId, row.id, "&cols=100&rows=20&hidden=1");
 
     // The hidden joiner takes no part: the pane stays at the laptop's size.
     expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 50 });
+    expect(resizeCalls.some((c) => c.rows === 20)).toBe(false);
+    expect(resizeCalls.length).toBe(resizedByLaptop);
     const presence = laptop.sent
       .filter((f) => f.includes('"type":"viewers"'))
       .map((f) => JSON.parse(f) as { viewers: Array<{ hidden: boolean; capacity: { rows: number } | null }> })
