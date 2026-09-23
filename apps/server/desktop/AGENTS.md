@@ -145,17 +145,24 @@ route on a machine mid-first-run. Reset is the
 fifth section and the DESTRUCTIVE one (operator ruling 2026-09-22, live
 screenshot): the DOOR moves into the rail — `onSelect("reset")` is
 `openReset`, the paired screen-set-and-open — styled in the destructive
-token. Since the same day's LAYOUT ruling (final word) the reset
-CONFIRMATION rides the rail too, reset active: the sidebar was being lost
-on it and that is not wanted. The frame-replacing premise moved to the
-RUNNING chain — host.tsx withholds the rail from the render for
-`busy || running`, so no navigation sits beside a chain that is deleting
-this server; that is where the safety property lives now. There is NO CANCEL
-where the rail is present (operator ruling 2026-09-22, screenshot 59) — the
-rail is the way out of the confirmation — and the room keeps no Cancel
-regardless, superseding the half-run Cancel beside Retry. The reset's
-half-run log is its own slot and the other screens keep theirs, so no
-cross-screen output inheritance existed here to cut. With the sidebar
+token. The same day's LAYOUT ruling put the reset
+CONFIRMATION on the standing section itself (rail-highlighted, the sidebar
+present); the 2026-09-23 wave superseded that, mirroring the now-proven
+client: `onSelect("reset")` opens a centered **DIALOG** over whatever section
+is up, so host.tsx's `data-route` keeps the section's kind and the Reset rail
+highlight while the confirmation sits on top, overriding nothing — this
+removed the last frame-replacing screen. The dialog is MODAL (a fixed overlay
+across the window, positioned by class because the CSP has no
+`unsafe-inline`), so it covers the rail and no navigation is reachable beside
+it; the safety property that used to live in "withhold the rail while running"
+now lives in the dialog being **inert to its own dismissal** — Escape, the
+backdrop and Cancel all route through one `onClose` the dialog turns into a
+no-op while `busy || running`, so nothing dismisses a chain that is deleting
+this server. A half-run keeps the dialog open with its step log and a **Retry
+reset**; a success closes it and returns to the standing journey. A
+deep-linked reset arms the dialog show-first, and the handoff auto-open is
+guarded so a ready machine cannot bury its own confirmation under the
+dashboard. With the sidebar
 present the rail is also the navigation: the
 standing screens' own leave buttons (Back on Service, Back on
 Addresses, Close on Update) render only where the rail does not — a
@@ -226,13 +233,22 @@ verbatim output, and what this app itself is render INLINE under the diagnosis
 is part of the Status section, not a disclosure — a sidebar section that hides
 its own facts behind a second control is two navigations for one answer), and
 the log tail is pulled while the Status section is up, not while it is not —
-the open-disclosure rule carried over under a new name.
+the open-disclosure rule carried over under a new name. **A standing Status on
+a READY machine is this screen, with one primary **Open dashboard** action
+(the 2026-09-23 wave): it no longer routes to the handoff and auto-opens, so
+selecting Status to LOOK at the server never bounces the window into the
+dashboard.** Only ARRIVAL (a window opened with no screen chosen) hands off and
+auto-opens; the old `held`-handoff arm and `selectHeldHandoff` are gone. On a
+NOT-ready machine the same rail item shows this screen in its diagnosis role,
+exactly as before.
 The other three doors the old screen stacked under its diagnosis (**Update
 Subshell Server**, **How Your Server Runs**, **Server Addresses**) are the
 rail's sections now, which is what those links existed to be a stand-in
 for — and Reset is a rail section too (operator ruling 2026-09-22): the
-door is the sidebar's destructive item, and since the same day's layout
-ruling the confirmation it opens renders under that rail, reset active.
+door is the sidebar's destructive item, and selecting it opens the
+confirmation DIALOG over the standing section (the 2026-09-23 wave; see the
+Reset paragraph above), not under the rail as the same day's earlier layout
+ruling had it.
 
 **A requested screen is routed off `REQUESTED_SCREENS`, never a literal.**
 `screenForRequest` (in `lib/wizard-state.ts`) maps the payload, and the reason
