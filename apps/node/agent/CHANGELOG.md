@@ -1,5 +1,11 @@
 # @internal/node
 
+## 0.15.1
+
+### Patch Changes
+
+- [#160](https://github.com/subshell-ai/subshell/pull/160) [`f0e71d2`](https://github.com/subshell-ai/subshell/commit/f0e71d20862705ebaf50d74939d4b7f9688e06ba) Thanks [@theogravity](https://github.com/theogravity)! - Fix terminal input lag on nodes: keystrokes now echo as fast as they are typed instead of appearing only on a later key (Enter). The pane's live view is fed by `tmux pipe-pane`, whose child was `cat >> <log>`. On hosts where `/usr/bin/cat` is **uutils coreutils**, `cat` buffers a partial write to a regular file, so a keystroke echo — a tiny, newline-less write — never reached the log until an Enter-sized burst flushed it; the browser froze on the last flushed chunk. The capture child is now the binaries' own `pane-log --file <path>` verb, an unbuffered `readSync`→`writeSync` copy that flushes every read and creates the log 0600, identical on macOS and Linux and immune to which `cat` is installed. `subshell` and `subshell-server` both gain the verb; `cat >>` stays only as a no-child fallback. The earlier proxy/LAN-latency explanation was wrong — the keystrokes were arriving instantly; only the capture stalled.
+
 ## 0.15.0
 
 ### Minor Changes
