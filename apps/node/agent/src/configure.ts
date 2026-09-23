@@ -2,19 +2,24 @@ import { loadConfig, type NodeConfig, saveConfig } from "./config.js";
 import { normalizeServer } from "./enroll.js";
 
 /**
- * `subshell configure` — repoint an already-enrolled node at a different
- * control-plane address without re-enrolling.
+ * `subshell configure` — change how an already-enrolled node reaches its
+ * control plane, without re-enrolling.
  *
- * This exists because `enroll` is the wrong tool for "the server moved". It
- * overwrites `config.json` unconditionally, mints a SECOND node row on the
- * plane, spends a single-use 24-hour setup key, and discards the node key
- * whose only home was that file. None of that is what someone changing an
- * address wants, and the address is exactly what changes when a control plane
- * stops being reachable as `localhost` and starts being reachable as a LAN
- * name — the same move that makes the server's own `TRUSTED_ORIGINS` matter.
+ * This exists because `enroll` is the wrong tool for the two maintenance
+ * edits that keep the same node: "the server moved" and "the key was
+ * rotated". `enroll` overwrites `config.json` unconditionally, mints a SECOND
+ * node row on the plane, spends a single-use 24-hour setup key, and discards
+ * the node key whose only home was that file. None of that is what someone
+ * making either edit wants, and the address is exactly what changes when a
+ * control plane stops being reachable as `localhost` and starts being
+ * reachable as a LAN name — the same move that makes the server's own
+ * `TRUSTED_ORIGINS` matter.
  *
- * The identity is untouched: `nodeId`, `nodeKey` and the pinned
- * `controlPublicKey` all survive, so the plane still sees the same node.
+ * The identity is untouched: `nodeId` and the pinned `controlPublicKey` always
+ * survive. `--key` replaces exactly ONE field of it — the bearer secret — with
+ * the rotated value the node's page showed once; every other key is untouched,
+ * so the plane keeps seeing the same node (which is the entire point of
+ * rotating rather than re-enrolling).
  *
  * **Deliberately does NOT rename.** `config.json`'s `name` reaches the control
  * plane in exactly one place — the enroll POST body — and is absent from
@@ -25,14 +30,48 @@ import { normalizeServer } from "./enroll.js";
  * renamed and did not is worse than no flag.
  */
 
-/** What `configure` may change. */
+/** What `configure` may change. At least one is required; the CLI enforces that as a usage error. */
 export interface ConfigureOpts {
   /** `--server`: the control plane's new base URL (http(s), trailing slashes stripped). */
-  server: string;
+  server?: string;
+  /** `--key`: a ROTATED node key to store in place of the current bearer secret. */
+  key?: string;
 }
 
 /**
- * Apply a repoint to the stored config.
+ * Accept a rotated NODE key, or refuse with the sentence that names the
+ * mistake.
+ *
+ * The two credentials this product hands out are different kinds with
+ * different verbs, and only one check keeps them apart in a terminal:
+ * `nsk_…` is a SETUP key (single-use, and `enroll`/`setup` are its only
+ * verbs); the rotated value is this node's bearer key, which starts
+ * `subshell_` because the control plane mints it with that prefix
+ * (`auth.ts` `defaultPrefix`). Someone pasting the wrong one onto `--key`
+ * would otherwise have the setup key silently stored as a bearer secret —
+ * a dead connection whose cause no surface can name.
+ *
+ * Trimmed first, by the same paste rule as the URL. The prefix check is a
+ * refusal only for the shape the server itself issues; nothing here
+ * validates length or alphabet of the `subshell_` side, because the key is
+ * opaque to this binary and a wrong guess at its shape would reject real
+ * keys the day the issuer changes its token format.
+ */
+export function normalizeNodeKey(raw: string): string {
+  const key = raw.trim();
+  if (key === "") {
+    throw new Error("--key needs a value: the new node key the node's page showed once after Rotate key");
+  }
+  if (key.startsWith("nsk_")) {
+    throw new Error(
+      "that is a SETUP key, not a node key. To join with it, run `subshell setup --server <url> --key <nsk_…>` on the machine",
+    );
+  }
+  return key;
+}
+
+/**
+ * Apply a repoint and/or a rotated key to the stored config.
  *
  * Validates BEFORE reading and writes exactly once, so a refusal leaves the
  * file byte-identical — the config holds the only copy of the node key, and a
@@ -52,19 +91,28 @@ export interface ConfigureOpts {
  * rewrite below — loadConfig rebuilds field by field, so the repoint drops
  * the key on its way through.
  *
- * @param opts - the parsed `--server` flag
+ * @param opts - the parsed `--server` and/or `--key` flags
  * @returns the config as it was written (the node key included — callers must
  *   never print it; the CLI prints only the address)
- * @throws when a URL is unusable, or there is no config to repoint (the
+ * @throws when a value is unusable, or there is no config to edit (the
  *   message points at `enroll`)
  */
 export async function runConfigure(opts: ConfigureOpts): Promise<NodeConfig> {
-  // Normalized first, so an unusable URL is refused without touching the file.
-  const serverUrl = normalizeServer(opts.server);
+  // Normalized first, so an unusable value is refused without touching the file.
+  const serverUrl = opts.server === undefined ? undefined : normalizeServer(opts.server);
+  const nodeKey = opts.key === undefined ? undefined : normalizeNodeKey(opts.key);
+  if (serverUrl === undefined && nodeKey === undefined) {
+    // Unreachable from the CLI (which UsageErrors first), but the module is
+    // also called directly — and a no-op that still rewrites a 0600 file is a
+    // write worth refusing outright.
+    throw new Error("configure changes nothing: pass --server <url> and/or --key <node key>");
+  }
 
   const current = await loadConfig();
-  const next: NodeConfig = { ...current, serverUrl };
-  if (serverUrl !== current.serverUrl) {
+  const next: NodeConfig = { ...current };
+  if (serverUrl !== undefined) next.serverUrl = serverUrl;
+  if (nodeKey !== undefined) next.nodeKey = nodeKey;
+  if (serverUrl !== undefined && serverUrl !== current.serverUrl) {
     delete next.nodeWsUrl;
   }
   await saveConfig(next);

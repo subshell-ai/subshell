@@ -17,7 +17,8 @@ import { failConnPendings } from "@/services/nodes/node-rpc.js";
 const RotateResponseSchema = t.Object({
   nodeKey: t.String({ description: "Plaintext node bearer key; shown exactly once here; only its hash is stored" }),
   message: t.String({
-    description: "Operator guidance: the node's stored config does NOT update itself; re-configure it by hand",
+    description:
+      "Operator guidance: the node's stored config does NOT update itself; the machine installs the key with `subshell configure --key` and restarts",
   }),
 });
 
@@ -80,7 +81,7 @@ export const rotateNodeKeyRoute = new Elysia()
       return {
         nodeKey: created.key,
         message:
-          "New key active. Re-configure the node with it manually (subshell config keeps the old key until you replace it); the live connection was closed.",
+          "New key active, and the live connection was closed. Install it on the machine with subshell configure --key <new key>, then restart the node to apply it.",
       };
     },
     {

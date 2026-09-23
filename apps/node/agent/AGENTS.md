@@ -77,7 +77,16 @@ the question now sits where the answer is.
 24-hour setup key, and discards the node key whose only home was that 0600
 file — none of which is what "the control plane moved" wants, and that move is
 routine (it is what fixing a loopback `APP_BASE_URL` IS). `configure`
-(`src/configure.ts`) rewrites the address and keeps the identity.
+(`src/configure.ts`) makes the two maintenance edits that keep the SAME node —
+`--server` rewrites the address, `--key` installs a rotated bearer secret in
+place — and keeps the identity through both. The `--key` half exists because
+the plane shows a rotated key exactly ONCE and there was nowhere to put it:
+`enroll` would mint a second row and spend a setup key to correct one field,
+and the only real path was hand-editing the 0600 file (the rotate screen even
+pointed at a `subshell config` verb that has never existed). Both commands take
+`--key` from the browser-facing `message` and the Nodes card, which is why
+`normalizeNodeKey` refuses an `nsk_` setup key by name rather than storing the
+wrong credential where nothing could later explain a dead connection.
 
 **It clears `nodeWsUrl`, and that is the load-bearing part.** That field is what
 the OLD plane reported about ITSELF at enroll (ledger 17c) and `resolveWsUrl`
@@ -123,17 +132,25 @@ subshell setup --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
 subshell enroll --server <url> --key <nsk_…> --name <n> [--data-dir <d>] [--json]
                                    # --json prints {nodeId,serverUrl,name,dataDir,configPath}
                                    # (never the nodeKey) so a GUI need not scrape the human line
-subshell configure --server <url> [--json]
-                                   # repoint an ALREADY-enrolled node at a different
-                                   # control plane. Keeps nodeId/nodeKey/
-                                   # controlPublicKey, spends NO setup key, mints no second
-                                   # node row — the non-destructive answer to "the server
-                                   # moved", which `enroll` is not. CLEARS nodeWsUrl when the
-                                   # address changes (see above). Restart to apply.
-                                   # Takes NO --name: see above. NO --registry-url either:
-                                   # it configured the npm mirror the old `subshell plugin
-                                   # install` verbs fetched from, and those verbs (and the
-                                   # whole node-side plugin concept) are GONE — see below.
+subshell configure [--server <url>] [--key <node key>] [--json]
+                                   # edit how an ALREADY-enrolled node reaches its
+                                   # control plane, keeping its identity (nodeId/
+                                   # controlPublicKey always survive). --server repoints;
+                                   # --key stores a ROTATED node key (the value the node's
+                                   # page shows once after Rotate key) IN PLACE of the
+                                   # bearer secret — no second node row, no setup key
+                                   # spent. The non-destructive answer to "the server
+                                   # moved" and "the key was rotated", which `enroll` is
+                                   # not. CLEARS nodeWsUrl when the address changes (see
+                                   # above); a --key-only edit leaves it (the dial target
+                                   # is unchanged). Restart to apply. --key REFUSES an
+                                   # `nsk_` value by name — that is a SETUP key, whose verb
+                                   # is `setup`/`enroll` (see configure.ts). At least one
+                                   # of --server/--key is required. Takes NO --name: see
+                                   # above. NO --registry-url either: it configured the npm
+                                   # mirror the old `subshell plugin install` verbs fetched
+                                   # from, and those verbs (and the whole node-side plugin
+                                   # concept) are GONE — see below.
 subshell unenroll [--yes] [--json] # stop being a node: deletes daemon.lock THEN
                                      # config.json (the node key's only home — config
                                      # LAST, the reset chain's resumability rule), and

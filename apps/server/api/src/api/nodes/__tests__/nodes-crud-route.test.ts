@@ -482,7 +482,12 @@ describe("/api/nodes registry CRUD", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { nodeKey: string; message: string };
     expect(body.nodeKey.startsWith("subshell_")).toBe(true);
-    expect(body.message).toMatch(/re-configur/i);
+    // The message must name a command that EXISTS and can do the job. It used
+    // to say "re-configure ... (subshell config keeps the old key)", pointing
+    // at a `subshell config` verb that has never existed — the reason the
+    // rotate screen's guidance read as useless. The real one is `configure
+    // --key`, and the message says so.
+    expect(body.message).toMatch(/subshell configure --key/);
 
     expect(await keyIsValid(body.nodeKey)).toBe(true);
     expect(await keyIsValid(n.key)).toBe(false); // old key revoked

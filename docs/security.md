@@ -431,6 +431,20 @@ consequences are:
   config and is reported by nothing on the wire, so recording a previous value
   would mean inventing one. It does not restart the agent: the address takes
   effect on the next start, and choosing when is the operator's.
+- **Applying a rotated key grants nothing new** (2026-09-22). `subshell
+  configure --key <node key>` — the verb the node's Rotate-key card tells you
+  to run — rewrites ONLY `nodeKey` in the same 0600 `config.json`. It grants
+  nothing the plane did not already hand out: the value is the replacement the
+  plane's own rotate response showed once, the operator is carrying it onto a
+  machine whose local user already owned (and could already write) the file,
+  and the plane has by then revoked the predecessor. It discloses nothing new
+  either, unlike a repoint: the secret stays on disk until the daemon dials
+  the SAME `serverUrl` it already dialed, just with the key the plane now
+  accepts. `--key` refuses an `nsk_` setup key by name, because a setup key
+  belongs to `enroll`/`setup` (a new node row), and storing one here would be a
+  dead connection no surface could later diagnose. Like the repoint, it is not
+  confirmation-gated in Subshell Client, where re-enrolling is.
+
 - **Repointing a node grants nothing** (2026-09-08). `subshell configure
   --server <url>` rewrites `serverUrl` in the agent's own `config.json` — a
   0600 file whose local OS user could already edit it by hand — keeping
