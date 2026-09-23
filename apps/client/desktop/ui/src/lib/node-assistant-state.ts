@@ -22,11 +22,12 @@ import type { ProbeStep } from "@/lib/ipc";
  * button there rather than something that happens to them.
  *
  * The rest are what a person asked for. `connect` is the WATCH path's one
- * screen (an address, and nothing about this machine). `enroll` is GONE with
- * the Control Plane collapse (operator ruling 2026-09-22): re-enrolling is now
- * REPOINTING on the plane card, and the destructive enroll that overwrote a
- * working `config.json` has no screen in this window; a machine moving to a
- * genuinely different plane enrolls there with the CLI.
+ * screen (an address, and nothing about this machine). `enroll` as its own
+ * user-openable screen is GONE with the Control Plane collapse (operator
+ * ruling 2026-09-22): the standalone destructive screen retired with its
+ * command, and Re-enroll… on the Service card runs THIS walk's enroll step
+ * instead, seeded with the current address — the wizard's two-phase
+ * confirmation is what guards overwriting a working `config.json`.
  *
  * Three ids are GONE with the first run, and their absence is the design
  * rather than an omission: `connected`, `service` and `install-agent` were the
@@ -137,9 +138,10 @@ export function screenTitle(screen: NodeScreenId): string {
       return "Install tmux";
     case "register":
       // "Register", not "Enroll": this is the press that makes the machine a
-      // node, and `enroll` stays the CLI's word. What used to be the window's
-      // second use of it, the destructive re-enrolment of a working node, is
-      // gone with the Control Plane collapse; repointing is the word there.
+      // node, and `enroll` stays the CLI's word. The step doubles as the
+      // Service card's Re-enroll… door (same walk, seeded address, same
+      // two-phase confirmation) since the 2026-09-22 ruling retired the
+      // separate re-enrol screen and the repoint form alike.
       return `Register ${HERE}`;
     case "startup":
       return "How This Node Runs";

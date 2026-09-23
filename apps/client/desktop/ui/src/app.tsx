@@ -585,8 +585,8 @@ export function App() {
             settings={settings}
             commands={commands}
             busy={runner.busy}
-            // The pinned row's note sends a detaching person to the node's
-            // acts; a rail select is how every section is reached now.
+            // The pinned row's menu names no route: detaching the machine is
+            // Service's act, reached from the rail like every other section.
             output={ownedOutput}
           />
         );
@@ -612,7 +612,28 @@ export function App() {
     <>
       {body}
       {resetOpen && (
-        <ResetDialog probe={probe} runner={runner} busy={runner.busy} onClose={() => setResetOpen(false)} />
+        <ResetDialog
+          probe={probe}
+          runner={runner}
+          busy={runner.busy}
+          onClose={(ok) => {
+            setResetOpen(false);
+            // A completed reset means EVERYTHING resets (operator ruling,
+            // 2026-09-22): the person is sent to the beginning of the walk,
+            // not left on whatever section the dialog sat over. Override
+            // clears because it outranks the walk in `clientScreen` — a
+            // remembered section would swallow Welcome behind it — and
+            // `walkFrom` clears so the walk's exits land on the recomputed
+            // landing (nothing configured ⇒ Welcome), not the dead section.
+            // A refused chain changes nobody's view: the section underneath
+            // is still the machine's truth.
+            if (ok) {
+              setOverride(null);
+              setWalkFrom(null);
+              setStep("intro");
+            }
+          }}
+        />
       )}
     </>
   );

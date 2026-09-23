@@ -137,15 +137,21 @@ subshell configure --server <url> [--json]
 subshell unenroll [--yes] [--json] # stop being a node: deletes daemon.lock THEN
                                      # config.json (the node key's only home — config
                                      # LAST, the reset chain's resumability rule), and
-                                     # NOTHING else. Refuses a live daemon and live
-                                     # subshells (listed `name · id · cwd`; the
+                                     # NOTHING else. A LIVE DAEMON IS ALWAYS REFUSED —
+                                     # `--yes` cannot buy it (the daemon holds the
+                                     # config in memory and rewrites the lock; deleting
+                                     # under it reports an online node as removed).
+                                     # Live SUBSHELLS (listed `name · id · cwd`; the
                                      # `maintenance on` census protocol — fail-closed
                                      # on an unanswerable tmux, text even under
-                                     # `--json`, exit 1 is the contract) unless --yes,
-                                     # which accepts ORPHANING: nothing in this verb
-                                     # signals anything. Data dir, binary and service
-                                     # definition stay, and the plane's node row stays
-                                     # until its owner deletes it there.
+                                     # `--json`, exit 1 is the contract) are what
+                                     # --yes accepts ORPHANING for: nothing in this
+                                     # verb signals anything. A dead lock naming
+                                     # ANOTHER node is left standing (`status`'s rule),
+                                     # reported `kept` under `--json`. Data dir,
+                                     # binary and service definition stay, and the
+                                     # plane's node row stays until its owner deletes
+                                     # it there.
 subshell run                       # foreground daemon (what the service unit runs)
                                      # NOTE: there is no `subshell plugin` command anymore
                                      # (inversion spec 2026-09-10 §6, Task 7). The node

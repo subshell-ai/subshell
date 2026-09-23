@@ -565,14 +565,28 @@ export async function uninstallService(deps: ServiceDeps): Promise<CliResult> {
     // believes they removed.
     const loser = path === plistPath(deps.home) ? sessionPlistPath(deps.configDir) : plistPath(deps.home);
     if (await deps.fileExists(loser)) await deps.removeFile(loser);
-    if (unload.code !== 0) {
+    // "Boot-out failed: 3: No such process" means the domain held no loaded
+    // job — which is precisely what uninstall is asking for. This is the
+    // ORDINARY second call of the client's reset and un-enroll chains: STOP
+    // boots the job out, and uninstall boots out the same label again, so a
+    // strict read made every macOS reset fail between its stop and delete
+    // steps (measured 2026-09-22 — the config and data dir survived, and the
+    // app stayed configured after a "completed" reset). The definition file
+    // is gone and nothing is loaded: the goal state is reached; say so.
+    // Any OTHER bootout failure still reports (exit 1) with the plist
+    // removal stated, because an unreadable launchd is not "uninstalled".
+    const alreadyGone = unload.code !== 0 && /No such process/.test(`${unload.err}\n${unload.out}`);
+    if (unload.code !== 0 && !alreadyGone) {
       return errLine(
         `launchctl bootout reported (exit ${unload.code}): ${cmdDetail(unload)}; the plist was removed anyway`,
       );
     }
     return {
       code: 0,
-      out: `Removed ${path}; subshell is unloaded and no longer starts on login.\n${noConfigNote}`,
+      out:
+        `Removed ${path}; subshell is unloaded and no longer starts on login.\n` +
+        (alreadyGone ? "(the job was not loaded; nothing to boot out)\n" : "") +
+        noConfigNote,
       err: "",
     };
   }

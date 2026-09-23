@@ -2271,6 +2271,29 @@ describe("the rail", () => {
     await screen.findByRole("dialog", { name: "Reset everything?" });
     expect(screen.getByRole("button", { name: "Control Plane" }).getAttribute("aria-current")).toBe("true");
   });
+
+  it("sends a COMPLETED reset to the beginning of the walk", async () => {
+    // The operator's ruling twice over (2026-09-22): "the reset everything
+    // didn't seem to reset. the app didn't restart to the FTE", then "Reset
+    // should mean EVERYTHING resets". A chain that ENDED OK never returns to
+    // a section — the wipe includes the saved list, `configured()` has
+    // flipped, and any section that could render from here would be the
+    // state "the reset did not work". A REFUSED chain (the runOneReset cases
+    // below) deliberately keeps the section instead: there, it is the truth.
+    const fake = await boot({
+      handlers: {
+        node_arm_reset: () => true,
+        node_reset: () => ({ ok: true, stdout: "deleted", stderr: "" }),
+      },
+    });
+    fireEvent.click(button("Reset"));
+    await screen.findByRole("dialog", { name: "Reset everything?" });
+    fireEvent.change(screen.getByLabelText(/Type/), { target: { value: "devbox" } });
+    fireEvent.click(button("Reset Everything"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Welcome to Subshell Client" })).toBeTruthy());
+    expect(fake.callsTo("node_reset")).toEqual([{ typed: "devbox" }]);
+  });
 });
 
 // ---------------------------------------------------------------------------

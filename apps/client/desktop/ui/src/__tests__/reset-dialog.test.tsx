@@ -78,7 +78,15 @@ describe("the reset dialog", () => {
       await new Promise((r) => setTimeout(r, 0));
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(screen.getByText("reset complete")).toBeTruthy();
+    // Ruling 2026-09-22 on the COMPLETED reset ("the app didn't restart to
+    // the FTE", "Reset should mean EVERYTHING resets"): a success sends the
+    // app to the beginning of the walk — the walk IS the receipt — so the
+    // section the dialog sat over is replaced, not annotated, and the chain's
+    // stdout renders nowhere (a success leaves no receipt line, and Welcome
+    // says more than "reset complete" would). A refusal still lands its
+    // words on the section: see the case below and app.test's ownership pair.
+    expect(screen.getByRole("heading", { name: "Welcome to Subshell Client" })).toBeTruthy();
+    expect(screen.queryByText("reset complete")).toBeNull();
   });
 
   // The CLI's refusal is the answer; the page does not pre-empt it with its

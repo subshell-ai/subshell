@@ -1178,10 +1178,14 @@ pub(crate) fn service_now(
 /// (the client's confirm says so, in words the CLI itself keeps), so
 /// un-enroll orphans panes rather than killing them.
 ///
-/// Stop and uninstall run FIRST and tolerate "nothing installed", for the
-/// reset's own reason: a kept definition respawns a daemon against a deleted
-/// config, and a Retry after any later failure must not die on a step whose
-/// subject an earlier half-run already removed. Then the CLI's verb deletes
+/// Stop and uninstall run FIRST and tolerate the reset's
+/// [`SERVICE_TOLERATED`](crate::reset::SERVICE_TOLERATED) phrases — the same
+/// double-bootout tolerance the reset chain needs, for the same reason: a
+/// kept definition respawns a daemon against a deleted config, and a Retry
+/// after any later failure must not die on a step whose subject an earlier
+/// half-run already removed. A live daemon that outruns both steps is
+/// refused by the CLI's own unconditional check (`--yes` cannot buy it);
+/// its words land on the screen verbatim. Then the CLI's verb deletes
 /// `daemon.lock` before `config.json` (config LAST, the resumability rule it
 /// shares with the reset); the CLI's own refusal words — a live unsupervised
 /// daemon, running panes — reach the screen verbatim, `--yes` notwithstanding
@@ -1190,7 +1194,7 @@ pub(crate) fn service_now(
 pub fn node_unenroll(app: AppHandle, settings: State<'_, SettingsState>) -> ActionResult {
     let mut log = String::new();
     let stop = service_now(&settings, ServiceCommand::Stop, false, true);
-    if let Some(stderr) = crate::reset::push_step(&mut log, &stop, &["nothing installed"]) {
+    if let Some(stderr) = crate::reset::push_step(&mut log, &stop, crate::reset::SERVICE_TOLERATED) {
         return ActionResult {
             ok: false,
             stdout: log,
@@ -1198,7 +1202,7 @@ pub fn node_unenroll(app: AppHandle, settings: State<'_, SettingsState>) -> Acti
         };
     }
     let un = service_now(&settings, ServiceCommand::Uninstall, false, true);
-    if let Some(stderr) = crate::reset::push_step(&mut log, &un, &["nothing installed"]) {
+    if let Some(stderr) = crate::reset::push_step(&mut log, &un, crate::reset::SERVICE_TOLERATED) {
         return ActionResult {
             ok: false,
             stdout: log,
@@ -1722,10 +1726,19 @@ pub fn tray_connected_url() -> Option<String> {
 /// origin — before the opener plugin ever sees it. The tray drives no CLI;
 /// this is a URL and `open`, nothing more.
 pub fn tray_open_in_browser(app: &AppHandle, url: &str) {
-    if let Ok(resolved) = validate_server_url(url) {
-        if app.opener().open_url(&resolved, None::<&str>).is_ok() {
-            record_plane_open(app, &resolved, true);
+    match validate_server_url(url) {
+        Ok(resolved) => {
+            if let Err(err) = app.opener().open_url(&resolved, None::<&str>) {
+                eprintln!("tray: could not open {resolved} in a browser: {err}");
+            } else {
+                record_plane_open(app, &resolved, true);
+            }
         }
+        // A tray id that would not validate is a stored value gone bad (or a
+        // hand-kept menu from before a list change). The menu is rebuilt
+        // from live reads, so this should not happen; if it does, the
+        // console says why nothing opened.
+        Err(err) => eprintln!("tray: refusing to open an unusable address: {err}"),
     }
 }
 
@@ -1738,21 +1751,23 @@ pub fn tray_open_in_browser(app: &AppHandle, url: &str) {
 ///
 /// Deliberately does NOT repaint the tray: its caller can be the tray's own
 /// menu handler, and swapping a menu out from inside its event handler is a
-/// re-entrancy question this app does not need to answer. The item's label
-/// and enabled state change only between "never opened" and "opened", and
-/// the sites that flip THAT (first open of the session, list mutations) are
-/// never inside a tray handler — `node_open_plane` and
-/// `node_open_plane_url` refresh for opens from the page, and
-/// `node_plane_add`/`node_plane_remove`/`node_enroll`/`node_unenroll`
-/// refresh for the list itself.
+/// re-entrancy question this app does not answer. The accepted cost, said
+/// plainly: the FIRST open of a session performed through the tray records
+/// without repainting, so "Open Last" stays grey until something else
+/// repaints. The page's opens (`node_open_plane`, `node_open_plane_url`) and
+/// every list mutation DO, and the menu rebuilds from the stored record at
+/// every launch — so the grey-until-next-repaint window is one session's
+/// tray-only detour, not a lost fact.
 pub fn record_plane_open(app: &AppHandle, url: &str, browser: bool) {
     let record = subshell_desktop_core::settings::LastPlaneOpen {
         url: url.to_string(),
         browser,
     };
-    let _ = app
-        .state::<SettingsState>()
-        .update(|s| s.last_plane_open = Some(record));
+    if let Err(err) = app.state::<SettingsState>().update(|s| s.last_plane_open = Some(record)) {
+        // The sibling rule for tray-adjacent failures: the console. The open
+        // itself happened; only its memory failed.
+        eprintln!("tray: could not record the plane open: {err}");
+    }
 }
 
 /// The MENU BAR's "Open in Browser" id.

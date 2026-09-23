@@ -84,7 +84,24 @@ export function PlaneScreen(props: {
   output: ActionResult | null;
 }): ReactElement {
   const { shell, probe, settings, commands, busy, onGoToService, output } = props;
-  const nodeUrl = probe?.status?.serverUrl ?? null;
+  // The node's reporting address in the shape the stored list holds: Rust
+  // canonicalized every stored entry on the way in (lowercase scheme and
+  // host, no trailing slash, origin only), while the probe echoes this
+  // machine's config file, which a hand-edit can spell any way. Comparing
+  // raw left a `HTTPS://x.example/` config rendering TWO rows for one plane
+  // — a removable one and the pinned one — with the pinned row showing the
+  // un-canonical spelling (merged-wave review; the tray canonicalizes before
+  // its compare, this row now does the same). An unparseable value keeps
+  // itself: the pinned row still says what the config says.
+  const nodeUrl = (() => {
+    const raw = probe?.status?.serverUrl;
+    if (!raw) return null;
+    try {
+      return new URL(raw).origin;
+    } catch {
+      return raw;
+    }
+  })();
   // Display guard against a stored row spelling the node's own address in a
   // way Rust's canonical compare never saw (a CLI re-point can leave two
   // spellings behind): the pinned row renders it, the list does not repeat it.
