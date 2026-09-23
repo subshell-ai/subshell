@@ -1,5 +1,11 @@
 # @internal/desktop-server
 
+## 0.14.1
+
+### Patch Changes
+
+- [#146](https://github.com/subshell-ai/subshell/pull/146) [`410a0c1`](https://github.com/subshell-ai/subshell/commit/410a0c1234929187e8c0080392c31c7b36e4b1cf) Thanks [@theogravity](https://github.com/theogravity)! - The supervision and setup screens name no service managers any more. The named thing is the Subshell Server Service; the background option states the CURRENT condition ("Currently the Subshell Server Service runs in the background, but does not automatically start on startup."), the switch reads "Start automatically on startup", and its help says what flipping it changes. Same pattern the client now uses.
+
 ## 0.14.0
 
 ### Minor Changes

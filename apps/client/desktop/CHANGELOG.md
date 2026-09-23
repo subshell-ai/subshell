@@ -1,5 +1,84 @@
 # @internal/desktop-client
 
+## 0.12.0
+
+### Minor Changes
+
+- [#144](https://github.com/subshell-ai/subshell/pull/144) [`646f7f2`](https://github.com/subshell-ai/subshell/commit/646f7f205229b059ba755c9f1ad2a841d78ba695) Thanks [@theogravity](https://github.com/theogravity)! - Subshell Client's Service section now offers what Subshell Server's does,
+  adapted to a node: the background arrangement stated in one card, a
+  run-at-login switch under it, the lifecycle verbs (Start when the node is
+  down; Stop, Restart and Uninstall when it is up), and an
+  install-and-start door for a machine whose node CLI is installed but has no
+  service keeping it running. The switch is greyed with the exact update
+  sentence on an agent older than this release, because only 0.15.0 gained the
+  verb to write the answer with. On both the Status and Service screens the
+  state chip now reads in the screen header, between the title and the
+  subtitle.
+  
+  Status grew the two halves of Subshell Server's Status section it was
+  missing: the path facts carry their own inline Reveal button (the Service
+  bar's two buttons moved onto the rows whose value is the path, each opening
+  only the fact it is already showing), and a Node log pane tails the agent's
+  own log while the section is open.
+  
+  Behind the switch, the node CLI gains `subshell service autostart on|off`:
+  it arms or disarms login start for an installed service and touches nothing
+  that is running. `subshell service status --json` answers the same fact
+  under its own name, `autostart`, so an older agent without the field still
+  probes (the switch reads `enabled` there). The copy names no service managers. The named thing is the Subshell Node
+  Service, the card states the CURRENT condition ("Currently the Subshell Node
+  Service runs in the background, but does not automatically start on
+  startup."), and the "Start automatically on startup" switch carries help that
+  says what flipping it changes, in each of its states.
+
+- [#146](https://github.com/subshell-ai/subshell/pull/146) [`410a0c1`](https://github.com/subshell-ai/subshell/commit/410a0c1234929187e8c0080392c31c7b36e4b1cf) Thanks [@theogravity](https://github.com/theogravity)! - The Subshell Client's Control Plane section is now a LIST of control planes
+  to connect to, not one address tied to the node: add an address, open a row
+  in the dashboard or the system browser, copy its URL, remove one — and the
+  address this machine's node reports to sits pinned at the top badged "this
+  node", not removable here because detaching a machine is the Service
+  section's act, not this list's. The section is a bare table with the add on
+  the bottom bar, and every confirmation in the app — removing a row,
+  uninstalling the service, un-enrolling, replacing the node CLI, spending a
+  setup key — now answers in a dialog instead of a panel grown inside the
+  section it belongs to.
+  
+  Service gained the node's own binding acts in an "Enrolled to Control Plane"
+  card: Re-enroll… opens the enrollment wizard, seeded with the current
+  address, so re-binding the machine is the same walk as binding it the first
+  time — and its two-phase confirmation is what guards overwriting a live
+  configuration; and Un-enroll… stops the service, removes its definition and
+  deletes the node's configuration and key. Running subshells keep running, and
+  the card says so before it asks; the control plane keeps its node row until
+  its owner deletes it there. A press now owns its wait: the button keeps its
+  spinner and the state chip reads "Restarting…" until the node is confirmed
+  back up, or the thirty-second window says it is not, and the momentary
+  problem notes stay quiet while the machine is coming back from a press. What
+  remains after that is said as a warning; a step that went fine leaves no
+  receipt line.
+  
+  The node CLI gains `subshell unenroll [--yes] [--json]` for the same act
+  from the terminal. It deletes only the daemon lock and the configuration —
+  the data directory, the installed binary and every live pane stay — and it
+  refuses a running daemon UNCONDITIONALLY (it holds the config in memory and
+  would keep the plane seeing an online node), and refuses running subshells,
+  listing them, unless --yes.
+  
+  The same wave finished the reset chain's first real runs: `subshell service
+  uninstall` now treats launchd's "No such process" as the goal reached (a stop
+  already booted the job out — reporting the second bootout as failure stalled
+  every macOS reset between stop and delete), and the client's chain carries the
+  same tolerance for older installed CLIs, refuses outright while a daemon still
+  answers its lock file, and sends the app to the beginning of the walk when the
+  chain completes.
+  
+  The tray menu now mirrors the section: a **Control Plane** submenu lists every
+  saved address - the one this machine's node reports to first - and each opens
+  **Open in App** or **Open in Browser**. **Open Last** replays the most recent
+  plane open through the door it used. "This machine..." reads Open Client App,
+  and the submenu repaints itself whenever the list or the node's binding
+  changes. Reset Everything now clears the app's saved control planes too, so
+  the app lands at the beginning again after a reset, as the ruling asked.
+
 ## 0.11.0
 
 ### Minor Changes
