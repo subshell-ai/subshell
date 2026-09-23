@@ -57,22 +57,16 @@ describe("recoveryFacts", () => {
     expect(missing?.tone).toBe("bad");
   });
 
-  it("names the rung that found the binary, in words", () => {
+  it("shows the binary path and a Reveal, with no resolution-rung jargon", () => {
+    // The provenance sub ("installed by this app", "on your login PATH", …)
+    // was removed: the operator's ruling 2026-09-23 was that "which rung found
+    // it" reads as noise. The row still names the binary and can reveal it.
     const row = recoveryFacts(
       at({ server: { argv: ["/x/subshell-server"], source: "local-bin", version: "1.0.0" } }),
     ).find((f) => f.label === "Server binary");
     expect(row?.value).toBe("/x/subshell-server");
-    expect(row?.sub).toBe("installed by this app");
+    expect(row?.sub).toBeUndefined();
     expect(row?.reveal).toBe("server-dir");
-  });
-
-  it("falls back to the raw rung name for one this build has not heard of", () => {
-    // A newer Rust half can emit a source this map predates; a row with the
-    // wire spelling beats no row at all.
-    const row = recoveryFacts(at({ server: { argv: ["/x/s"], source: "brand-new" as never, version: null } })).find(
-      (f) => f.label === "Server binary",
-    );
-    expect(row?.sub).toBe("brand-new");
   });
 
   it("offers Reveal on a config.env that exists, and says missing when it does not", () => {

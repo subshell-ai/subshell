@@ -86,6 +86,22 @@ export function StatusDetails(props: {
           wrapper div would make each row one grid item and collapse the
           table into alternating narrow columns. The key rides a Fragment. */}
       <dl className="facts">
+        {/* Versions FIRST, beside the config they describe — this is the top of
+            the section, not a footnote under the log. `This app` is the desktop
+            bundle's version (shown even when the server is down); `Server CLI`
+            is the version the running server binary reported. */}
+        {props.about !== null && (
+          <Fragment key="app-version">
+            <dt>This app</dt>
+            <dd>{`${props.about.appName} ${props.about.appVersion}`}</dd>
+          </Fragment>
+        )}
+        {props.probe?.server?.version && (
+          <Fragment key="cli-version">
+            <dt>Server CLI</dt>
+            <dd>{props.probe.server.version}</dd>
+          </Fragment>
+        )}
         {recoveryFacts(props.probe).map((f) => (
           <Fragment key={f.label}>
             <dt>{f.label}</dt>
@@ -112,14 +128,12 @@ export function StatusDetails(props: {
       <p className="group-heading">Server log</p>
       <TailPane tail={props.lastTail} />
       <OutputPane result={props.lastResult} />
-      {/* The About block is gone (spec 2026-09-17 D6) — the terms, copyright and
-          the three links live in the OS-standard About panel under the app menu.
-          What stays is the ONE fact that belongs HERE rather than there: the app's
-          version, sitting beside the server log a person is about to paste into a
-          bug report. It is also the only version no other surface knows on a
-          machine whose server is down. The string is Rust's copy of the legal
-          constants (`desktop_about`); the page stores none of them. */}
-      {props.about !== null && <p className="detail">{`This app: ${props.about.appName} ${props.about.appVersion}`}</p>}
+      {/* The version facts used to end the section here, beside the log. They
+          moved to the TOP of the facts grid above (with the Server CLI version
+          added), because they describe the install, not the transcript. The full
+          About panel — terms, copyright, links — is the OS-standard one under the
+          app menu (spec 2026-09-17 D6); only these two version strings belong on
+          the screen. Do not re-add a line here. */}
     </>
   );
 }

@@ -11,7 +11,7 @@
  *
  * A machine that IS answering, reached because a person selected Status in
  * the rail, sees the same section's running view: its facts, its log tail,
- * and one **Open dashboard** button. The old behavior — resolving the select
+ * and one **Open control plane** button. The old behavior — resolving the select
  * onto the handoff, which auto-opens the dashboard and closes this window —
  * was the setup-pane bounce the operator objected to. An ARRIVAL on a ready
  * machine still hands off by itself (that is `handoff`, a different route
@@ -144,7 +144,7 @@ export function StatusScreen(props: {
     return (
       <Frame rail={props.rail} strings={props.strings} entranceKey={props.entranceKey}>
         <Button type="button" className="w-full" disabled={busy} onClick={props.onOpenDashboard}>
-          Open dashboard
+          Open control plane
         </Button>
         <StatusDetails
           probe={probe}

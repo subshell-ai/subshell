@@ -12,7 +12,7 @@
  * `status --json` / `service status --json`, and a fact the installed server
  * does not report gets no row rather than a guessed one.
  */
-import type { OpenTarget, Probe, ProbeStep, ServerSource } from "./ipc";
+import type { OpenTarget, Probe, ProbeStep } from "./ipc";
 
 /**
  * One line under the recovery title: what this step MEANS, in the words the
@@ -60,30 +60,9 @@ export interface RecoveryFact {
 }
 
 /**
- * Which rung of the resolution ladder found the server, in words.
- *
- * `server.source` is the wire form of `ServerSource` — `local-bin`,
- * `well-known` — which is right for a protocol and unreadable to someone
- * repairing their install. Falls back to the raw value, so a rung added to a
- * newer Rust half still renders something; the map is `Partial` so that
- * fallback is the type-checked answer rather than a blind spot.
- *
- * `Object.create(null)`: a rung named `constructor` would otherwise resolve
- * to `Object.prototype`'s member instead of falling through.
- */
-const SOURCE_LABELS: Partial<Record<ServerSource, string>> = Object.assign(Object.create(null), {
-  env: "named by SUBSHELL_SERVER_BIN",
-  configured: "you chose this path",
-  service: "named by the installed service",
-  "local-bin": "installed by this app",
-  path: "on your login PATH",
-  "well-known": "in a standard install directory",
-});
-
-/**
  * Every fact worth having when the server will not come up: where the binary
- * is and which rung found it, where the configuration is, what the service
- * manager says in its own words, and where the logs are.
+ * is, where the configuration is, what the service manager says in its own
+ * words, and where the logs are.
  *
  * The rows that only appear when something is wrong are the point — an
  * unresolved MCP entrypoint predicts a failure the user would otherwise meet
@@ -100,7 +79,6 @@ export function recoveryFacts(probe: Probe | null): RecoveryFact[] {
     out.push({
       label: "Server binary",
       value: probe.server.argv.join(" "),
-      sub: SOURCE_LABELS[probe.server.source] ?? probe.server.source,
       reveal: "server-dir",
     });
   }

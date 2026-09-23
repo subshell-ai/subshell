@@ -90,7 +90,7 @@ export function SupervisionScreen(props: {
         // A row that cannot read the file still shows the behavior the machine
         // has, which is the dashboard, and says which of the two it is drawing.
         if (alive && !picked.current) {
-          setLaunchNote("This app could not read the saved choice. The row shows the dashboard.");
+          setLaunchNote("This app could not read the saved choice. The row shows the control plane.");
         }
       }
     };
@@ -237,7 +237,7 @@ export function SupervisionScreen(props: {
         name: "launch-window",
         id: "launch-dashboard",
         on: launch === "dashboard",
-        title: "The dashboard",
+        title: "The control plane",
         body: "The server's own page, at its address on this machine.",
         onPick: () => pickLaunch("dashboard"),
       })}

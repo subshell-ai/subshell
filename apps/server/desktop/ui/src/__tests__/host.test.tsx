@@ -100,6 +100,22 @@ describe("the host's correction ratchet", () => {
     await waitFor(() => expect(routeOf()).toBe("update"));
   });
 
+  it("arms the tray's Open Server App onto the standing Status screen, and never opens the dashboard", async () => {
+    // The tray's "Open Server App" word is "status"; applyScreen maps it onto
+    // the standing Status marker (the ScreenId the rail's Status select sets).
+    // On a READY machine it must render the facts screen WITHOUT handing off —
+    // otherwise open_main_now closes the window this press just opened, the very
+    // bug the door exists to avoid. A bare open would land here as `null` and
+    // bounce; Status does not.
+    fake = installFakeIpc({
+      probe: makeProbe({ next: "ready", onboarded: true }),
+      handlers: { desktop_pending_screen: () => "status", desktop_open_main: () => undefined },
+    });
+    render(<Host />);
+    await waitFor(() => expect(routeOf()).toBe("status"));
+    expect(fake.callsTo("desktop_open_main")).toHaveLength(0);
+  });
+
   // The ratchet's POSITIVE arm — a corrected screen persisting when the
   // corrected screen re-enters the list later — needs a screen a PRESS sets
   // (`go`), and no screen exists to press until Task 3. Its arithmetic is
@@ -547,8 +563,8 @@ describe("the rail", () => {
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
     screen.getByRole("button", { name: "Status" }).click();
     await waitFor(() => expect(routeOf()).toBe("status"));
-    expect(screen.getByRole("button", { name: "Open dashboard" })).toBeDefined();
-    screen.getByRole("button", { name: "Open dashboard" }).click();
+    expect(screen.getByRole("button", { name: "Open control plane" })).toBeDefined();
+    screen.getByRole("button", { name: "Open control plane" }).click();
     await waitFor(() => expect(fake?.callsTo("desktop_open_main")).toHaveLength(1));
     cleanup();
     fake?.restore();
@@ -617,9 +633,10 @@ describe("the rail", () => {
     // The running view's words — a standing title, not a handoff's promise.
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Your Server Is Running");
     expect(screen.getByText("Everything the server reports is below.")).toBeDefined();
-    // The section's own content: the facts, the Server log, the app's version.
+    // The section's own content: the facts (app + CLI versions first), the log.
     expect(screen.getByText("Server log")).toBeDefined();
-    expect(screen.getByText("This app: Subshell Server 0.12.1")).toBeDefined();
+    expect(screen.getByText("This app")).toBeDefined();
+    expect(screen.getByText("Subshell Server 0.12.1")).toBeDefined();
     // One button, and NOTHING opened by itself: no Continue, no auto-open.
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
     expect(fake?.callsTo("desktop_open_main")).toHaveLength(0);

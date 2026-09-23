@@ -143,12 +143,23 @@ describe("the panes", () => {
     expect(screen.queryByText("Last action")).toBeNull();
   });
 
-  it("carries the app's version beside the log, and omits the block without a reading", () => {
-    const view = renderDetails({ about: makeAbout() });
-    expect(screen.getByText("This app: Subshell Server 0.12.1")).toBeDefined();
+  it("shows the app version and the running server's CLI version as the first facts", () => {
+    // The version facts moved from a lone line under the log to the top of the
+    // facts grid, and the Server CLI version joined the app version (operator
+    // ruling 2026-09-23).
+    const view = renderDetails({
+      about: makeAbout(),
+      probe: makeProbe({ server: { argv: ["/x/subshell-server"], source: "local-bin", version: "0.16.0" } }),
+    });
+    expect(screen.getByText("This app")).toBeDefined();
+    expect(screen.getByText("Subshell Server 0.12.1")).toBeDefined();
+    expect(screen.getByText("Server CLI")).toBeDefined();
+    expect(screen.getByText("0.16.0")).toBeDefined();
     view.unmount();
+    // No About reading means no app row; no server means no CLI row.
     renderDetails({ about: null });
-    expect(screen.queryByText(/This app:/)).toBeNull();
+    expect(screen.queryByText("This app")).toBeNull();
+    expect(screen.queryByText("Server CLI")).toBeNull();
   });
 });
 

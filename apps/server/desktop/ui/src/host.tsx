@@ -670,7 +670,14 @@ export function Host(): React.JSX.Element {
       // person can go back to, so it takes Back rather than the Continue that
       // opens a dashboard.
       setPermissionsAfterHandoff(false);
-      setScreen(screenForRequest(payload));
+      // The tray's "Open Server App" names the assistant's own Status overview.
+      // It maps onto the STANDING Status marker — the same ScreenId the rail's
+      // Status select sets — which `route()` resolves to the facts screen on a
+      // ready machine and the diagnosis otherwise. It is deliberately NOT a
+      // requested screen: a requested (or null) screen on a ready machine hands
+      // off to the dashboard, and the shell closes this window. "status" is not
+      // in REQUESTED_SCREENS, so `screenForRequest` would return null here.
+      setScreen(payload === "status" ? "recovery" : screenForRequest(payload));
       // A reset returns this page to a machine with nothing set up, so the
       // handoff guard has to be released or a later ready probe renders nothing.
       setHandedOff(false);
@@ -1212,7 +1219,7 @@ export function Host(): React.JSX.Element {
         return { title: SETUP_TITLE, subtitle: `Choose how the server runs on ${here()}.`, problem };
       case "handoff": {
         if (openFailed) {
-          return { title: "Subshell Is Running", subtitle: "The dashboard did not open by itself.", problem };
+          return { title: "Subshell Is Running", subtitle: "The control plane did not open by itself.", problem };
         }
         if (probe === null) return { title: "", subtitle: "", problem };
         const view = handoffView({ onboarded: probe.onboarded, ranSetupHere, continued });

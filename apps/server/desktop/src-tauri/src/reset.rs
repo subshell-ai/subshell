@@ -49,6 +49,13 @@ use crate::control::{ActionResult, ServiceCommand};
 pub enum Screen {
     /// Whatever the probe implies: first run, or the one recovery screen.
     Home,
+    /// The assistant's own **Status** overview — the standing facts screen with
+    /// one "Open control plane" action. This is the word the tray's "Open Server
+    /// App" arms: a deliberately-opened assistant must land on a STANDING
+    /// screen, because `Home` on a ready machine resolves to the handoff, opens
+    /// the dashboard, and the shell then closes the assistant window it just
+    /// opened (`open_main_now`). Status does none of that.
+    Status,
     Reset,
     /// **Update Subshell Server**: the app AND the server it ships, as one act
     /// (spec 2026-09-18 § 8).
@@ -76,11 +83,14 @@ pub enum Screen {
     /// addresses browsers may use, with Save and Restart (spec 2026-09-18
     /// § 14).
     ///
-    /// Reached from the TRAY and from the recovery screen, and the tray is the
-    /// load-bearing door: the screen exists for a machine whose dashboard
-    /// cannot be reached, and the dashboard is the only other place these four
-    /// values can be changed. The assistant needs no session because it drives
-    /// the CLI. (Its original case — an `https://` base URL marking the session
+    /// Reached from the assistant's RAIL (the **Addresses** section), which is
+    /// the door that matters: the screen exists for a machine whose dashboard
+    /// cannot be reached, the dashboard is the only other place these four
+    /// values change, and the assistant needs no session because it drives the
+    /// CLI. It was a TRAY door too until the 2026-09-22 wave removed it — the
+    /// rail already carries it, so the tray item was a second route to a section
+    /// the assistant shows anyway. (Its original case — an `https://` base URL
+    /// marking the session
     /// cookie `Secure` while the window opened on loopback http — was fixed on
     /// 2026-09-19 by `Probe::window_origin`; what remains is a configured
     /// address this machine cannot actually reach.)
@@ -91,6 +101,7 @@ impl Screen {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Screen::Home => "home",
+            Screen::Status => "status",
             Screen::Reset => "reset",
             Screen::Update => "update",
             Screen::Supervision => "supervision",
@@ -100,10 +111,11 @@ impl Screen {
     }
 }
 
-/// Parse the (untrusted, optional) `screen` argument. Five accepted words;
+/// Parse the (untrusted, optional) `screen` argument. Six accepted words;
 /// anything else — including `home` — is the probe's own answer.
 pub fn parse_screen(raw: Option<String>) -> Screen {
     match raw.as_deref() {
+        Some("status") => Screen::Status,
         Some("reset") => Screen::Reset,
         Some("update") => Screen::Update,
         Some("supervision") => Screen::Supervision,
@@ -986,6 +998,9 @@ mod tests {
         assert_eq!(parse_screen(Some("supervision".into())), Screen::Supervision);
         assert_eq!(parse_screen(Some("permissions".into())), Screen::Permissions);
         assert_eq!(parse_screen(Some("settings".into())), Screen::Settings);
+        // "status" is the tray's "Open Server App" word — the assistant's own
+        // standing overview. It parses to Status, NOT Home (a bounce).
+        assert_eq!(parse_screen(Some("status".into())), Screen::Status);
         assert_eq!(parse_screen(Some("/etc".into())), Screen::Home);
     }
 
@@ -1009,6 +1024,7 @@ mod tests {
     fn every_screen_round_trips_through_its_wire_word() {
         for screen in [
             Screen::Home,
+            Screen::Status,
             Screen::Reset,
             Screen::Update,
             Screen::Supervision,
@@ -1022,6 +1038,7 @@ mod tests {
         assert_eq!(Screen::Supervision.as_str(), "supervision");
         assert_eq!(Screen::Permissions.as_str(), "permissions");
         assert_eq!(Screen::Settings.as_str(), "settings");
+        assert_eq!(Screen::Status.as_str(), "status");
         assert_eq!(Screen::Home.as_str(), "home");
     }
 

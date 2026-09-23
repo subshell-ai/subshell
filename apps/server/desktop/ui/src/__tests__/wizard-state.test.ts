@@ -878,7 +878,7 @@ describe("handoffView", () => {
   it("opens the dashboard once they continue", () => {
     const view = handoffView({ onboarded: true, ranSetupHere: true, continued: true });
     expect(view.wait).toBe(false);
-    expect(view.subtitle).toBe("Opening your dashboard…");
+    expect(view.subtitle).toBe("Opening your control plane…");
   });
 
   it("never sends an already-set-up machine to account creation", () => {
@@ -900,7 +900,7 @@ describe("handoffView", () => {
     const view = handoffView({ onboarded: true, ranSetupHere: false, continued: false });
     expect(view.wait).toBe(false);
     expect(view.title).toBe("Your Server Is Running");
-    expect(view.subtitle).toBe("Opening your dashboard…");
+    expect(view.subtitle).toBe("Opening your control plane…");
   });
 
   // The `held` arm left on 2026-09-23, and the test went with it rather than
@@ -913,7 +913,7 @@ describe("handoffView", () => {
   it("keeps the first-run wording for a machine that never onboarded", () => {
     const view = handoffView({ onboarded: false, ranSetupHere: false, continued: false });
     expect(view.title).toBe("Setting Up Subshell…");
-    expect(view.subtitle).toBe("Opening your dashboard…");
+    expect(view.subtitle).toBe("Opening your control plane…");
   });
 
   it("names the machine's family, not the window's history", () => {

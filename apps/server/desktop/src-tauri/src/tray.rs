@@ -130,27 +130,6 @@ pub fn set_update_available(app: &AppHandle, version: Option<&str>) {
     }
 }
 
-/// The tray's **Server Addresses…** id, and the screen it opens.
-///
-/// The item exists for a machine whose dashboard cannot be REACHED (spec
-/// 2026-09-18 § 14), because the four values that decide whether it can are
-/// otherwise editable only from that page. Its original case — an `https://`
-/// base URL marking the session cookie `Secure` while this app opened its
-/// window on loopback http — was fixed on 2026-09-19 by opening the window on
-/// the configured address instead; what remains is an address the operator
-/// configured and this machine cannot reach. So this press must work when the server is DOWN, or not
-/// running, or running and refusing every sign-in, which is exactly what
-/// `reset::arm_and_raise` gives it: the assistant is a BUNDLED page, it opens
-/// without asking the server anything, and it drives the CLI.
-///
-/// Named constants rather than inline literals for the same reason
-/// [`UPDATE_SCREEN`] is one: the test below pins the word the dispatch actually
-/// passes, and the LABEL is pinned against the page's own `SETTINGS_LABEL` — a
-/// tray item and the screen it opens must not disagree about what they are for.
-const SETTINGS_ID: &str = "tray:settings";
-const SETTINGS_SCREEN: &str = "settings";
-const SETTINGS_LABEL: &str = "Server Addresses…";
-
 /// The tray's "Open in Browser" id.
 ///
 /// Distinct from the menu bar's (`menu.rs`) ON PURPOSE, and the reason is the
@@ -167,19 +146,26 @@ const BROWSER_ID: &str = "tray:browser";
 ///   decides between the dashboard (server answering) and the assistant (not),
 ///   so it is the door that goes wherever this machine is actually meant to
 ///   be. This is the item that used to read "Open Subshell Server".
-/// - **"Open Server App"** is `windows::open_assistant`: it raises this app's
-///   OWN bundled window directly, no probe and no server question. It is the
-///   client tray's "Open Client App" carried to this side, and it exists
-///   because the operator could not find that native window except through
-///   Check-for-Updates.
+/// - **"Open Server App"** raises this app's OWN bundled assistant window
+///   directly, no probe and no server question — the client tray's "Open Client
+///   App" carried to this side, the door that was otherwise reachable only
+///   through Check-for-Updates. It arms the **Status** overview through
+///   [`reset::arm_and_raise`], NOT a bare `open_assistant`: on a running server
+///   an un-armed assistant resolves to the handoff, opens the dashboard, and the
+///   shell closes the window it just opened. Status is a standing screen, so it
+///   stays. See [`SERVER_APP_SCREEN`].
 ///
-/// Named constants for the reason [`SETTINGS_LABEL`] is one: the labels are
-/// what a person reads, the ids are what [`on_menu`] dispatches on, and a test
-/// pins both so a rename cannot quietly move a label onto the other's act.
+/// Named constants so a test can pin the labels (what a person reads), the ids
+/// (what [`on_menu`] dispatches on), and the armed word, so a rename cannot
+/// quietly move a label onto the other's act.
 const OPEN_HOME_ID: &str = "tray:open";
 const OPEN_HOME_LABEL: &str = "Open Control Plane In App";
 const SERVER_APP_ID: &str = "tray:app";
 const SERVER_APP_LABEL: &str = "Open Server App";
+/// The screen "Open Server App" arms — the assistant's own standing overview.
+/// A named constant so the test pins the WORD the dispatch passes, exactly as
+/// [`UPDATE_SCREEN`] is.
+const SERVER_APP_SCREEN: &str = "status";
 
 /// Build the tray icon. Failure is not fatal — an app without a tray still works.
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
@@ -188,24 +174,19 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     // item disabled until the first probe was the one thing on a broken
     // machine's tray that could not be pressed.
     let open = MenuItem::with_id(app, OPEN_HOME_ID, OPEN_HOME_LABEL, true, None::<&str>)?;
-    // Directly under it, the OTHER in-app door: this raises the bundled
-    // assistant window itself, no probe and no server question. `open_home`
-    // above may send you to the dashboard; this is the door for the person who
-    // wants the native window whatever the probe would have chosen.
+    // Below the divider (see the menu list), in the assistant group: this raises
+    // the bundled assistant window itself, no probe and no server question.
+    // `open_home` above may send you to the dashboard; this is the door for the
+    // person who wants the native window whatever the probe would have chosen,
+    // armed on the standing Status screen so it stays open on a running server.
     let server_app = MenuItem::with_id(app, SERVER_APP_ID, SERVER_APP_LABEL, true, None::<&str>)?;
-    // Directly under it, because it is the same destination through a
-    // different door: this window's page, in the browser the person keeps
-    // their profiles and passwords in. Always enabled for the same reason
-    // "Open Control Plane In App" is — the Rust side falls back to `/` and to a
-    // fresh probe's origin, so there is no state in which this needs a probe
-    // to know whether it can be pressed.
+    // Directly under "Open Control Plane In App", because it is the same
+    // destination through a different door: this window's page, in the browser
+    // the person keeps their profiles and passwords in. Always enabled for the
+    // same reason "Open Control Plane In App" is — the Rust side falls back to
+    // `/` and to a fresh probe's origin, so there is no state in which this
+    // needs a probe to know whether it can be pressed.
     let browser = MenuItem::with_id(app, BROWSER_ID, "Open in Browser", true, None::<&str>)?;
-    // Beside the two doors home, and always enabled for the same reason they
-    // are: it raises a bundled page, which needs no probe and no server. On a
-    // machine signed out of its own dashboard this is the only route to the
-    // value that signed it out — the recovery screen's link is the other, and
-    // a machine whose server is answering never shows that screen.
-    let settings = MenuItem::with_id(app, SETTINGS_ID, SETTINGS_LABEL, true, None::<&str>)?;
     // The two names for one idea, each the one that platform's users read.
     let keep_label = if cfg!(target_os = "macos") {
         "Keep Running in Menu Bar"
@@ -238,10 +219,18 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let menu = Menu::with_items(
         app,
         &[
+            // Two groups, split by a divider. Above it, the doors that reach the
+            // CONTROL PLANE — the in-app window (probe-decided) and the same
+            // page in the system browser, the two ways to look at the plane.
             &open,
-            &server_app,
             &browser,
-            &settings,
+            &PredefinedMenuItem::separator(app)?,
+            // Below it, the door that reaches the NATIVE assistant window itself,
+            // raised on its standing Status screen. (Server Addresses is no
+            // longer a tray door: the assistant's own rail carries it as
+            // "Addresses", and that rail reaches a machine whose plane is
+            // unreachable too, because the assistant needs no session.)
+            &server_app,
             &PredefinedMenuItem::separator(app)?,
             &update,
             &PredefinedMenuItem::separator(app)?,
@@ -325,21 +314,17 @@ fn on_menu(app: &AppHandle, id: &str) {
         // The other in-app door: raise this app's own bundled assistant window
         // directly. No probe, no server question — this is the window itself,
         // which is why it works on a machine whose server is down. The client
-        // tray's "Open Client App" is the same door on that side.
+        // tray's "Open Client App" is the same door on that side. It arms the
+        // standing Status screen (not a bare open): on a running server an
+        // un-armed assistant would hand off to the dashboard and the shell would
+        // close the window this press just opened.
         SERVER_APP_ID => {
-            let _ = crate::windows::open_assistant(app);
+            let _ = crate::reset::arm_and_raise(app, Some(SERVER_APP_SCREEN.into()));
         }
         // Rust-side, with no page involved: the act is launching another
         // program, and it works whether or not a window exists. `control`
         // reads the dashboard's own url for the path when there is one.
         BROWSER_ID => crate::control::open_current_in_browser(app),
-        // The SAME raise the dashboard's deep links and the update item take,
-        // and deliberately nothing more: no probe, no server question, no verb.
-        // Whatever this machine is doing, the assistant comes up on the screen
-        // that can edit the addresses and restart.
-        SETTINGS_ID => {
-            let _ = crate::reset::arm_and_raise(app, Some(SETTINGS_SCREEN.into()));
-        }
         // ONE act, whatever is known (operator's call, 2026-09-18). This used
         // to branch on the stored version (spec 2026-09-17 § 5.2): a KNOWN
         // update opened the screen, an unknown one ran a background check that
@@ -466,17 +451,13 @@ mod tests {
         );
     }
 
-    /// The settings item's word survives `parse_screen`, and its LABEL is the
-    /// page's own — `ui/src/lib/settings-screen.ts`'s `SETTINGS_LABEL`, plus
-    /// the ellipsis every tray item that opens a screen carries. A tray item
-    /// and the screen it opens disagreeing about what they are for is the same
-    /// small betrayal `RESET_LABEL` exists to prevent, and the two halves are
-    /// in different languages, so only a containment test holds them together.
     /// The two in-app doors carry the labels the operator named and ids that
     /// route to two different acts. "Open Control Plane In App" is the
-    /// probe-decided door (`open_home`); "Open Server App" raises the bundled
-    /// window directly (`open_assistant`). Pinning the words here is what keeps
-    /// a rename from quietly moving one label onto the other's destination.
+    /// probe-decided door (`open_home`, no screen word); "Open Server App" arms
+    /// the standing **Status** screen through `arm_and_raise`. Pinning both the
+    /// labels and the words here keeps a rename from quietly moving one label
+    /// onto the other's destination — and keeps "Open Server App" landing on a
+    /// standing screen rather than the bare-open handoff that closes itself.
     #[test]
     fn the_two_in_app_doors_are_named_and_distinct() {
         assert_eq!(OPEN_HOME_LABEL, "Open Control Plane In App");
@@ -486,31 +467,18 @@ mod tests {
         assert!(OPEN_HOME_ID.starts_with("tray:"));
         assert!(SERVER_APP_ID.starts_with("tray:"));
         assert_ne!(OPEN_HOME_ID, SERVER_APP_ID);
-        for other in [BROWSER_ID, SETTINGS_ID, UPDATE_ID, "tray:keep", crate::zoom::IN_ID] {
+        for other in [BROWSER_ID, UPDATE_ID, "tray:keep", crate::zoom::IN_ID] {
             assert_ne!(SERVER_APP_ID, other);
         }
-        // Unlike the update and settings items, the open door has NO screen
-        // word to pin through `parse_screen`: its arm calls `open_home`
-        // directly, which the probe resolves to the dashboard or the assistant.
-        // So the honest invariant is that `open_home` is wordless — `None`
-        // parses to `Home`, the "decide from the probe" case.
-        assert_eq!(crate::reset::parse_screen(None), crate::reset::Screen::Home);
-    }
-
-    #[test]
-    fn the_settings_item_names_the_screen_and_the_pages_own_label() {
+        // "Open Server App" arms a STANDING screen: the word must survive
+        // `parse_screen` to `Status`, not fall to `Home` (which would bounce).
         assert_eq!(
-            crate::reset::parse_screen(Some(SETTINGS_SCREEN.to_string())),
-            crate::reset::Screen::Settings,
+            crate::reset::parse_screen(Some(SERVER_APP_SCREEN.to_string())),
+            crate::reset::Screen::Status,
             "the tray's word must survive `parse_screen`, not fall back to Home"
         );
-        let page = include_str!("../../ui/src/lib/settings-screen.ts");
-        assert!(
-            page.contains(&format!(
-                "export const SETTINGS_LABEL = \"{}\";",
-                SETTINGS_LABEL.trim_end_matches('…')
-            )),
-            "the tray item and the screen must carry one label"
-        );
+        // The open door, by contrast, is wordless — `None` parses to `Home`, the
+        // "decide from the probe" case, because it calls `open_home` directly.
+        assert_eq!(crate::reset::parse_screen(None), crate::reset::Screen::Home);
     }
 }
