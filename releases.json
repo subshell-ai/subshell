@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-23T08:07:13.741Z",
+  "generatedAt": "2026-09-23T10:16:49.969Z",
   "components": {
     "cli-server": {
       "version": "0.16.2",
@@ -21,7 +21,8 @@
     "desktop-client": {
       "version": "0.12.0",
       "tag": "desktop-client-v0.12.0",
-      "url": "https://github.com/subshell-ai/subshell/releases/tag/desktop-client-v0.12.0"
+      "url": "https://github.com/subshell-ai/subshell/releases/tag/desktop-client-v0.12.0",
+      "installScript": "install-client.sh"
     }
   }
 }
