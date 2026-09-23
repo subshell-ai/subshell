@@ -248,6 +248,9 @@ export async function attachRemoteSubshellWs(
         const outcome = await fitPaneAndRepaint(launcher, data.socket, row.id, fit, sizeOf, {
           baseline: logStart,
           canNudge: () => !detached,
+          // The local twin's rule: a pane with no output yet gets the fit and
+          // nothing else — the winch storm duplicates a still-booting prompt.
+          booting: logStart === 0,
         });
         repainted = outcome.repainted;
         nudged = outcome.nudged;
