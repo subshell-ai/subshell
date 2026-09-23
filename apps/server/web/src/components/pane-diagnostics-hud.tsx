@@ -41,8 +41,27 @@ export function paneWord(subshell: SubshellView | undefined): string {
   return subshell.exitCode === null ? "exited" : `exited (code ${subshell.exitCode})`;
 }
 
-/** The output-age word, on the shared `relativeElapsed` clock every other list uses. */
-export function outputAgeWord(subshell: SubshellView | undefined): string {
+/**
+ * The output-age word. The FIRST fact is the viewer's own: when the last
+ * pane byte arrived on this socket (the hook's `lastOutputRef`). That leads
+ * because the row's `lastOutputAt` only travels with live-feed broadcasts,
+ * and those fire on domain events — on an attached agent pane the DB stamp
+ * can read "3m ago" while echo lands with every keystroke, which is the
+ * stale-sounding row this replaced. Only with no bytes seen at all (never
+ * attached, or attached and nothing has arrived) does the row's server-side
+ * stamp answer, and "waiting…" says which of those it is.
+ */
+export function outputAgeWord(
+  subshell: SubshellView | undefined,
+  lastOutputMs: number | null,
+  socketOpen: boolean,
+): string {
+  if (lastOutputMs !== null) {
+    if (Date.now() - lastOutputMs < 1500) return "live";
+    const elapsed = relativeElapsed(new Date(lastOutputMs).toISOString());
+    return elapsed === "just now" ? elapsed : `${elapsed} ago`;
+  }
+  if (socketOpen) return "waiting…";
   if (!subshell) return "unknown";
   if (!subshell.lastOutputAt) return "none yet";
   const age = relativeElapsed(subshell.lastOutputAt);
@@ -123,6 +142,8 @@ export interface PaneDiagnosticsHudProps {
   viewers: ViewersState | null;
   /** The node's label, resolved by the page; null while unknown. */
   nodeLabel: string | null;
+  /** When the last pane byte reached THIS viewer (the WS hook's ref); null until the first write. */
+  lastOutputRef: { current: number | null };
 }
 
 /**
@@ -133,7 +154,10 @@ function Row({ label, value, warning }: { label: string; value: string; warning?
   return (
     <>
       <span className="text-muted-foreground">{label}</span>
-      <span className={warning ? "text-warning" : undefined}>{value}</span>
+      {/* `tabular-nums`: every digit occupies the same advance width, so a
+        value whose digits roll (echo 99 ms → 100 ms) does not shove the rest
+        of the row sideways between the HUD's one-second repaints. */}
+      <span className={warning ? "text-warning tabular-nums" : "tabular-nums"}>{value}</span>
     </>
   );
 }
@@ -145,6 +169,7 @@ export function PaneDiagnosticsHud({
   inputQueueRef,
   viewers,
   nodeLabel,
+  lastOutputRef,
 }: PaneDiagnosticsHudProps): JSX.Element {
   // Ages (output, stall) are functions of the clock, not of a frame, so the
   // HUD keeps ONE tick while it is open and none of its rows ticks alone.
@@ -184,13 +209,18 @@ export function PaneDiagnosticsHud({
   const stalled = queueBadgeView(stats).stalled;
 
   return (
-    <div className="pointer-events-none w-max max-w-[16rem] rounded-md bg-terminal-strip/85 px-2 py-1.5 text-detail backdrop-blur-sm">
+    // Fixed width, not `w-max`: the rows come and go (the Echo/Oldest lines
+    // exist only once there are samples) and their values change length
+    // ("idle" → "3 waiting", "800 ms" → "1.2 s") — a hug-content panel
+    // resized on every one-second tick and the whole plate jittered under the
+    // reader's eye. 20rem fits the longest value each row can produce.
+    <div className="pointer-events-none w-80 rounded-md bg-terminal-strip/85 px-2 py-1.5 text-detail backdrop-blur-sm">
       <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
         <Row label="Socket" value={socketValue} />
         <Row label="Node" value={nodeValue} />
         <Row label="Pane" value={paneValue} />
         <Row label="Viewers" value={viewersWord(viewers, socket)} />
-        <Row label="Output" value={outputAgeWord(subshell)} />
+        <Row label="Output" value={outputAgeWord(subshell, lastOutputRef.current, socket.connected)} />
         <Row label="Input" value={input.main} warning={stalled} />
         {input.echoP50 !== null && <Row label="Echo p50" value={input.echoP50} />}
         {input.echoMax !== null && <Row label="Echo max" value={input.echoMax} />}

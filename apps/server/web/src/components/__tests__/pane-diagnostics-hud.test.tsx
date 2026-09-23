@@ -80,6 +80,7 @@ function renderHud(props: Partial<Parameters<typeof PaneDiagnosticsHud>[0]> = {}
       inputQueueRef={refOf<InputQueue | null>(null)}
       viewers={viewersState()}
       nodeLabel="mac-mini"
+      lastOutputRef={refOf<number | null>(null)}
       {...props}
     />,
   );
@@ -149,17 +150,36 @@ describe("PaneDiagnosticsHud rows", () => {
     expect(screen.queryByText(/exited/)).toBeNull();
   });
 
-  it("output: none yet, just now, and the elapsed age on the shared clock", () => {
+  it("output: bytes seen here lead; the row's stamp only answers when none arrived", () => {
+    // An attached socket that has received NOTHING yet says so — the row's
+    // stamp cannot speak for this viewer (the feed only re-sends on domain
+    // events, which is the "3m ago while typing" this row used to lie about).
     renderHud({ subshell: makeSubshell({ lastOutputAt: null }) });
+    expect(screen.getByText("waiting…")).toBeTruthy();
+    cleanup();
+
+    // A byte arrived moments ago: live, whatever the stale row claims.
+    renderHud({
+      subshell: makeSubshell({ lastOutputAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString() }),
+      lastOutputRef: refOf(Date.now() - 200),
+    });
+    expect(screen.getByText("live")).toBeTruthy();
+    cleanup();
+
+    renderHud({ lastOutputRef: refOf(Date.now() - 3 * 60 * 1000) });
+    expect(screen.getByText("3m ago")).toBeTruthy();
+    cleanup();
+
+    // No socket and no bytes: only then the row's own server-side fact.
+    renderHud({ subshell: makeSubshell({ lastOutputAt: null }), socket: { connected: false, closed: false } });
     expect(screen.getByText("none yet")).toBeTruthy();
     cleanup();
 
-    renderHud({ subshell: makeSubshell({ lastOutputAt: new Date(Date.now()).toISOString() }) });
-    expect(screen.getByText("just now")).toBeTruthy();
-    cleanup();
-
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-    renderHud({ subshell: makeSubshell({ lastOutputAt: twoHoursAgo }) });
+    renderHud({
+      subshell: makeSubshell({ lastOutputAt: twoHoursAgo }),
+      socket: { connected: false, closed: false },
+    });
     expect(screen.getByText("2h ago")).toBeTruthy();
   });
 

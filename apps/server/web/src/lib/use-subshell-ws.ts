@@ -197,6 +197,17 @@ export function useSubshellWs(
    * every socket state change, which is freshness enough for a count.
    */
   const reconnectsRef = useRef(0);
+  /**
+   * Wall-clock ms of the last pane byte WRITTEN TO THIS VIEWER's terminal
+   * (replay or live output). Read by the diagnostics HUD for its Output row:
+   * the row's `lastOutputAt` arrives only with live-feed broadcasts, which
+   * fire on domain events — so on an attached agent pane the DB stamp can
+   * read minutes old while echo lands with every keystroke. This ref is the
+   * honest fact for an attached viewer: when did BYTES last arrive here.
+   * Survives reconnects deliberately (age is age); null until the first
+   * write of this mount.
+   */
+  const lastOutputRef = useRef<number | null>(null);
   // True once the CURRENT connection has delivered its first server frame.
   // Input is sent (and re-sent) only while this is up: earlier frames are
   // dropped by the server's own attach guard, so sending into that window
@@ -394,6 +405,7 @@ export function useSubshellWs(
                   replayStarted = true;
                 }
                 term.write(frame.data);
+                lastOutputRef.current = Date.now();
                 // The capture was taken for the dimensions we CONNECTED with.
                 // If the grid settled to a different size since (late layout,
                 // scrollbar), those rows are the wrong width for the screen
@@ -405,6 +417,7 @@ export function useSubshellWs(
               }
             } else if (frame.type === "output" && frame.data) {
               term.write(frame.data);
+              lastOutputRef.current = Date.now();
             } else if (frame.type === "viewers") {
               // Engagement is the server's OWN answer, re-learned per attach:
               // a flag engages tracking; its absence disengages and drops the
@@ -548,5 +561,5 @@ export function useSubshellWs(
     };
   }, [terminalRef, subshellId, readOnly, measure]);
 
-  return { wsRef, inputQueueRef, reconnectsRef };
+  return { wsRef, inputQueueRef, reconnectsRef, lastOutputRef };
 }

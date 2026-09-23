@@ -100,6 +100,8 @@ export function TerminalOverlayStack({
     viewers: ViewersState | null;
     /** The node's label, resolved by the page; null while unknown. */
     nodeLabel: string | null;
+    /** When the last pane byte reached this viewer (the WS hook's ref). */
+    lastOutputRef: { current: number | null };
   } | null;
 }) {
   return (
@@ -112,6 +114,7 @@ export function TerminalOverlayStack({
           inputQueueRef={inputQueueRef}
           viewers={diagnostics.viewers}
           nodeLabel={diagnostics.nodeLabel}
+          lastOutputRef={diagnostics.lastOutputRef}
         />
       )}
       <InputQueueBadge inputQueueRef={inputQueueRef} />
@@ -874,7 +877,7 @@ export function SubshellTerminal({
   // Destructured after the hook: the diagnostics HUD reads the reconnect
   // count live on its own re-renders (clock tick, socket changes), so a ref
   // is the whole interface it needs.
-  const { wsRef, inputQueueRef, reconnectsRef } = wsHookRefs;
+  const { wsRef, inputQueueRef, reconnectsRef, lastOutputRef } = wsHookRefs;
 
   // A deliberate detach never reports a close: useSubshellWs nulls its socket
   // ref before the browser delivers onclose, and then discards that close as
@@ -966,6 +969,7 @@ export function SubshellTerminal({
                     reconnectsRef,
                     viewers: hudViewers,
                     nodeLabel: diagnosticsOverlay.nodeLabel,
+                    lastOutputRef,
                   }
                 : null
             }

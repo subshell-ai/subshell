@@ -62,6 +62,7 @@ function renderStack(diagnostics: boolean, pending: boolean) {
               reconnectsRef: refOf(0),
               viewers: null,
               nodeLabel: "mac-mini",
+              lastOutputRef: refOf<number | null>(null),
             }
           : null
       }
