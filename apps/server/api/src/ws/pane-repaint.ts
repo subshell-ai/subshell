@@ -154,7 +154,11 @@ export const STARTUP_GRACE_MS = 5_000;
  * life of the row while the current boot is still young.
  *
  * @param logStart - the log size sampled BEFORE any resize (both attach paths)
- * @param startedAt - the row's boot timestamp (null/older-than-grace ⇒ not booting)
+ * @param startedAt - the row's boot timestamp (null/older-than-grace ⇒ not booting).
+ *   One inaccuracy to know: the liveness sweep backfills `now` into a legacy
+ *   live row whose timestamp is null, so such a row can read as booting ONCE,
+ *   within a grace of that backfill — the skip direction, costing at most the
+ *   cosmetic provocation on one attach of a pane that has never restarted.
  * @param nowMs - injected clock for tests
  */
 export function paneReadsAsBooting(

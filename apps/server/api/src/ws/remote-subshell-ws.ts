@@ -65,8 +65,10 @@ export interface RemoteAttachRow {
   /**
    * The row's boot timestamp — `paneReadsAsBooting`'s per-boot epoch. A
    * restart reuses the id and the log survives, so bytes alone cannot tell
-   * "settled pane" from "second boot in flight"; this can. Optional in the
-   * type because the relay's structural caller always supplies the full row.
+   * "settled pane" from "second boot in flight"; this can. Optional only for
+   * the relay's test fixtures — the production caller passes the full
+   * `SubshellTable` row, and one that omitted this would quietly lose
+   * restart detection (gracefully: the old winch dance, not a failure).
    */
   startedAt?: string | null;
 }

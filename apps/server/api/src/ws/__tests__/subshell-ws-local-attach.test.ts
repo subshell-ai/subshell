@@ -332,6 +332,41 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     cleanupSubshellWs(incumbent.ws);
   });
 
+  it("skips the winch storm for a RESTARTED row inside its boot grace (residual log + fresh startedAt)", async () => {
+    // The local twin of the relay's wiring pins. `paneReadsAsBooting` is
+    // unit-pure and pinned there; THIS case pins that the local attach
+    // actually passes `row.startedAt` to it — drop the argument and every
+    // other suite stays green while a second boot takes the storm again.
+    // A restart reuses the row and the log survives on purpose, so the
+    // residual 4 bytes plus a fresh boot timestamp must read as booting:
+    // exactly ONE resize (the fit), no winch, no ±1 step.
+    stubLauncher();
+    let paneRows = 52; // differs from the join size, so the fit resize really fires
+    defaultLocalLauncher.resize = async (_s: string, _i: string, cols: number, rows: number) => {
+      resizeCalls.push({ cols, rows });
+      paneRows = rows;
+    };
+    defaultLocalLauncher.paneSize = async () => ({ cols: 100, rows: paneRows });
+    // No SIGWINCH route: settled here means the ±1 nudge below the winch
+    // attempt — the very provocation this fast path exists to skip. The push
+    // keeps "did the storm even start" observable.
+    defaultLocalLauncher.signalPaneWinch = async () => {
+      order.push("winch");
+      return false;
+    };
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+    const { repos } = getRequestlessContext();
+    await repos.subshells.update(row.id, { startedAt: new Date().toISOString() });
+
+    const viewer = await attach(row.userId, row.id, "&cols=100&rows=50");
+
+    expect(resizeCalls).toEqual([{ cols: 100, rows: 50 }]);
+    expect(order).not.toContain("winch");
+
+    cleanupSubshellWs(viewer.ws);
+  });
+
   it("clears a pin when the device it names leaves", async () => {
     // `decideSharedGrid` already falls through to auto for a pin it cannot
     // resolve, so the pane is never wrong — but the policy still rides the
