@@ -1,7 +1,27 @@
 import { describe, expect, it } from "bun:test";
-import { TmuxRunner, tmuxSocketFor } from "@internal/pane-runtime";
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { PANE_LOG_FILE_FLAG, TmuxRunner, tmuxSocketFor } from "@internal/pane-runtime";
 import { LocalLauncher } from "@/services/nodes/local-launcher.js";
 import { fitPaneAndRepaint } from "@/ws/pane-repaint.js";
+
+// Arm `pipe-pane` with a streaming capture child (the real production child is
+// the self-invoked `pane-log` verb). A bare `cat >>` is what froze the live
+// view on hosts whose `cat` is uutils coreutils, and this repaint test watches
+// log GROWTH — so on such a host the cat child would never flush the spinner
+// and the test would hang/fail for reasons unrelated to the repaint dance. The
+// child is `bun <shim> pane-log --file <path>`, resolved to the running bun.
+const PANLOG_SHIM = join(tmpdir(), `subshell-repaint-shim-${process.pid}.ts`);
+// Resolve the package to its on-disk module (from /tmp a bare specifier would
+// not resolve); a file: URL becomes an absolute path Bun can import.
+const PANLOG_MOD = import.meta.resolve("@internal/pane-runtime").replace(/^file:\/\//, "");
+writeFileSync(
+  PANLOG_SHIM,
+  `import { appendStdinToLogFile } from ${JSON.stringify(PANLOG_MOD)};\n` +
+    `const a = process.argv.slice(2);\nappendStdinToLogFile(a[a.indexOf(${JSON.stringify(PANE_LOG_FILE_FLAG)}) + 1]);\n`,
+);
+const panlogChild = { command: process.execPath, args: [PANLOG_SHIM, "pane-log"] };
 
 /**
  * The attach's fit-then-repaint dance, against REAL panes.
@@ -24,7 +44,7 @@ async function seed(label: string, cmd: string) {
   const socket = tmuxSocketFor(id);
   tmux.newSubshell(socket, id, "/tmp", cmd);
   const log = launcher.logPath(id);
-  tmux.pipePane(socket, id, log);
+  tmux.pipePane(socket, id, log, panlogChild);
   await Bun.sleep(500);
   const size = await launcher.paneSize(socket, id);
   if (!size) throw new Error("pane has no size");

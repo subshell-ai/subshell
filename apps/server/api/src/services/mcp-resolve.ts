@@ -165,6 +165,22 @@ export function probeReporterLaunch(io: McpResolveIo = {}): McpProbeOutcome {
 }
 
 /**
+ * How tmux's pipe-pane re-enters this binary to stream a `local` pane's output
+ * to its log file: `<self> pane-log --file <path>`.
+ *
+ * The third rider on the autodetect ladder (`mcp`, `report`, now `pane-log`) —
+ * same binary, same host question. It resolves the SELF rung (the running
+ * `subshell-server`) or falls back to the `subshell` agent on PATH; an
+ * unresolved answer is not fatal — `pipePane` then falls back to a bare
+ * `cat >>`, which streams on any host with GNU/BSD coreutils and only stalls on
+ * a uutils-`cat` host, which is by definition a host that HAS one of these
+ * binaries and so resolves here.
+ */
+export function probePaneLogLaunch(io: McpResolveIo = {}): McpProbeOutcome {
+  return probeSelfInvoke("pane-log", io);
+}
+
+/**
  * Resolve the MCP launch for the CURRENT deployment, throwing when no rung
  * answered — the error message is where the SUBSHELL_MCP_COMMAND hint
  * surfaces to the failed-create path.

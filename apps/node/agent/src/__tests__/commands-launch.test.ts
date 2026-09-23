@@ -266,7 +266,12 @@ describe("execLaunch (spec §6.4/§7)", () => {
     expect(result).toEqual({ ok: true });
     expect(events).toEqual([]); // the answer is the RESULT frame; no stray events
     expect(methodsOf(calls)).toEqual(["newSubshell", "pipePane", "resizeWindow"]);
-    expect(calls[1]?.args).toEqual(["subshell-launch-test", S1, ctx.meta.logPath(S1)]);
+    // pipePane now carries the capture child (the self-invoked `pane-log` verb)
+    // as its 4th arg; the child's args must END in the verb, whatever self-path
+    // rung the test host resolves.
+    const pipeArgs = calls[1]?.args ?? [];
+    expect(pipeArgs.slice(0, 3)).toEqual(["subshell-launch-test", S1, ctx.meta.logPath(S1)]);
+    expect((pipeArgs[3] as { args: string[] }).args.at(-1)).toBe("pane-log");
     expect(calls[2]?.args).toEqual(["subshell-launch-test", S1, 120, 30]);
 
     // (4) meta recorded first — full record visible at newSubshell time and after.

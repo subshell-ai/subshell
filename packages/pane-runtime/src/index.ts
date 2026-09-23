@@ -65,6 +65,11 @@ export {
   type ResolvedVersion,
   resolvePackageVersion,
 } from "./npm-registry.js";
+export {
+  appendStdinToLogFile,
+  PANE_LOG_FILE_FLAG,
+  PANE_LOG_VERB,
+} from "./pane-log.js";
 export { adaptPlugin } from "./plugin-adapter.js";
 export {
   createPluginHost,

@@ -238,6 +238,74 @@ describe("TmuxRunner", () => {
     }
   });
 
+  it("pipe-pane with a child runs the flushing capture verb (--file), never cat", async () => {
+    // Host-independent guard for the uutils-`cat` fix: production always passes
+    // a child (the self-invoked `pane-log` verb), and the emitted command must
+    // be `exec <self…> pane-log --file <quoted path>` — NOT a bare `cat >>`
+    // (which buffers on a uutils host). Asserted on the exact argv tmux receives
+    // via a stub, so it cannot pass by accident of the test host's `cat`.
+    const stubDir = mkdtempSync(join(tmpdir(), "subshell-tmux-stub-"));
+    const argvFile = join(stubDir, "argv.txt");
+    const stub = join(stubDir, "tmux-stub");
+    writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvFile}"\n`, { mode: 0o755 });
+    try {
+      const hostile = "/tmp/a b'c.log";
+      new TmuxRunner(stub).pipePane("sock", "s1", hostile, {
+        command: "/usr/bin/bun",
+        args: ["/opt/child.ts", "pane-log"],
+      });
+      const argv = (await Bun.file(argvFile).text()).trim().split("\n");
+      expect(argv).toEqual([
+        "-L",
+        "sock",
+        "pipe-pane",
+        "-t",
+        "s1",
+        "-o",
+        `(umask 077; exec '/usr/bin/bun' '/opt/child.ts' 'pane-log' --file '/tmp/a b'\\''c.log')`,
+      ]);
+      // Back-compat: the no-child fallback still emits `cat >>` (unresolved
+      // self-path on a control-plane host that has neither binary — rare).
+      const argvFile2 = join(stubDir, "argv2.txt");
+      const stub2 = join(stubDir, "tmux-stub2");
+      writeFileSync(stub2, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvFile2}"\n`, { mode: 0o755 });
+      new TmuxRunner(stub2).pipePane("sock", "s1", "/tmp/plain.log");
+      const argv2 = (await Bun.file(argvFile2).text()).trim().split("\n");
+      expect(argv2.at(-1)).toBe("(umask 077; cat >> '/tmp/plain.log')");
+    } finally {
+      rmSync(stubDir, { recursive: true, force: true });
+    }
+  });
+
+  it("streams a newline-less chunk through the child (uutils-cat regression)", async () => {
+    // End-to-end through REAL tmux: the child is `bun <shim> pane-log --file …`,
+    // the pane emits a chunk with NO trailing newline, and it must reach the
+    // file at once. A buffering child (uutils `cat >>`) holds it; this is the
+    // shape a live terminal echo has, and the whole reason the child is ours.
+    const socket = freshSocket("panlog");
+    const outFile = `/tmp/subshell-panlog-${Date.now()}.txt`;
+    const modPath = new URL("../pane-log.js", import.meta.url).pathname;
+    const shim = `/tmp/subshell-panlog-shim-${Date.now()}.ts`;
+    writeFileSync(
+      shim,
+      `import { appendStdinToLogFile } from ${JSON.stringify(modPath)};
+const a = process.argv.slice(2);
+appendStdinToLogFile(a[a.indexOf("--file") + 1]);
+`,
+    );
+    try {
+      runner.newSubshell(socket, "s1", "/tmp", `bash -c 'read l; printf noeol-chunk; exec sleep 30'`);
+      runner.pipePane(socket, "s1", outFile, { command: process.execPath, args: [shim, "pane-log"] });
+      await runner.sendInput(socket, "s1", "go\r");
+      // No EOF, no newline after `noeol-chunk` — only a flushing child shows it.
+      await waitForFileToContain(outFile, "noeol-chunk", 3000);
+    } finally {
+      if (existsSync(outFile)) unlinkSync(outFile);
+      if (existsSync(shim)) unlinkSync(shim);
+      runner.killSubshell(socket, "s1");
+    }
+  });
+
   it("sends input to the subshell, submitting only on an explicit CR", async () => {
     const socket = freshSocket("key");
     runner.newSubshell(socket, "s1", "/tmp", "bash -c 'read line; echo got-$line; exec sleep 30'");

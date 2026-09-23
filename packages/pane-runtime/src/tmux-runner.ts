@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { spawn, spawnSync } from "bun";
+import { PANE_LOG_FILE_FLAG } from "./pane-log.js";
 import { shellQuote } from "./shell.js";
 
 /**
@@ -502,17 +503,38 @@ export class TmuxRunner {
    * between creation and tightening; `umask 077` in the command itself is
    * the only way the file is never world-readable, not even briefly.
    * Callers still own the DIRECTORY's mode (see LocalLauncher).
+   *
+   * **The capture child is a streaming copier we own, not `cat`.** When
+   * `child` is given (a self-path prefix whose args already name the
+   * `pane-log` verb — `selfInvocation("pane-log")` on a node, the resolved
+   * `subshell-server pane-log` on the control-plane host), the child is that
+   * binary running {@link appendStdinToLogFile}, which flushes every read. The
+   * bare `cat >>` below stays ONLY as the no-child fallback: `cat` on some
+   * hosts is uutils coreutils, which buffers a partial write to a regular file
+   * and so freezes the live view until an Enter-sized burst flushes it (the
+   * reason the child is our binary at all — see `pane-log.ts`). Callers on both
+   * machines can resolve the verb, so production always passes `child`.
    */
-  pipePane(socket: string, subshellName: string, outputFile: string): void {
+  pipePane(
+    socket: string,
+    subshellName: string,
+    outputFile: string,
+    child?: { command: string; args: string[] },
+  ): void {
     // The command runs in tmux's shell (`sh -c`), so the path must be
     // POSIX-single-quoted. The previous JSON.stringify-based escaping did
     // NOT neutralize `$`, backticks or `;` — JSON string escaping and shell
     // quoting are different languages. shellQuote is the same quoter the
     // pane commands are baked with (canonical source: @internal/pane-runtime).
     //
-    // The subshell parentheses scope the umask to this `cat`, so nothing else
-    // tmux's shell may go on to run inherits it.
-    const append = `(umask 077; cat >> ${shellQuote(outputFile)})`;
+    // The subshell parentheses scope the umask to this child, so nothing else
+    // tmux's shell may go on to run inherits it. `exec` replaces the shell with
+    // the capture child, so the child owns the pipe directly (a clean EOF when
+    // the pane dies or the pipe is re-armed).
+    const append =
+      child === undefined
+        ? `(umask 077; cat >> ${shellQuote(outputFile)})`
+        : `(umask 077; exec ${[child.command, ...child.args].map(shellQuote).join(" ")} ${PANE_LOG_FILE_FLAG} ${shellQuote(outputFile)})`;
     this.run(["-L", socket, "pipe-pane", "-t", subshellName, "-o", append], {});
   }
 

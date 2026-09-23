@@ -182,7 +182,11 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
     const subshellsDir = join(ctx.config.dataDir, "subshells");
     await mkdir(subshellsDir, { recursive: true, mode: 0o700 });
     await enforceMode(subshellsDir, 0o700);
-    ctx.tmux.pipePane(cmd.socket, cmd.subshellId, logFile);
+    // The capture child is this agent's own `pane-log` verb — the same
+    // self-invocation the exit hook above uses, a different word. It flushes
+    // every read, where a bare `cat >>` would freeze the live view on a host
+    // whose `cat` is uutils coreutils (buffers partial writes to a regular file).
+    ctx.tmux.pipePane(cmd.socket, cmd.subshellId, logFile, selfInvocation("pane-log"));
   };
   if (cmd.bestEffortLog === true) {
     // Revive parity (Task 1's wire flag, twin of LaunchPlan.bestEffortLog):
