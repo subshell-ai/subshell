@@ -1,6 +1,5 @@
 import type { Kysely } from "kysely";
 import { sql } from "kysely";
-import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import type { Database } from "@/db/types/index.js";
 import { logger } from "@/utils/logger.js";
@@ -37,13 +36,31 @@ const MS_PER_DAY = 86_400_000;
  * queue on a damaged row and silently never expiring one are both worse
  * than the default with a loud line in the journal.
  *
+ * It reads the raw `settings` row rather than `SettingsRepository.get`,
+ * because `get` swallows the `JSON.parse` failure into the fallback — the
+ * brief's "corrupt ⇒ 30 WITH a warn" requires seeing the unparseable case
+ * separately from the absent one. Absent stays silent (it is the normal
+ * state); present-but-undecodable is not, and says so.
+ *
  * @param db - the app database
  */
 export async function expiryDays(db: Kysely<Database>): Promise<number> {
-  const raw = await new SettingsRepository(db).get<unknown>(
-    PENDING_APPROVAL_EXPIRY_KEY,
-    DEFAULT_PENDING_APPROVAL_EXPIRY_DAYS,
-  );
+  const row = await db
+    .selectFrom("settings")
+    .select("value")
+    .where("key", "=", PENDING_APPROVAL_EXPIRY_KEY)
+    .executeTakeFirst();
+  if (!row) return DEFAULT_PENDING_APPROVAL_EXPIRY_DAYS;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(row.value) as unknown;
+  } catch {
+    logger.warn(
+      `pending approvals: settings row ${PENDING_APPROVAL_EXPIRY_KEY} is not JSON; ` +
+        `expiring after ${DEFAULT_PENDING_APPROVAL_EXPIRY_DAYS} days instead`,
+    );
+    return DEFAULT_PENDING_APPROVAL_EXPIRY_DAYS;
+  }
   if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0) return raw;
   logger.warn(
     `pending approvals: settings row ${PENDING_APPROVAL_EXPIRY_KEY} is not a day count (${JSON.stringify(raw)}); ` +
@@ -74,16 +91,38 @@ export async function expiryDays(db: Kysely<Database>): Promise<number> {
  * until its next knock re-stamps it — `setApproval` always stamps on entry,
  * so that state only arises from a hand edit.)
  *
- * ONE transaction: select the ids, then delete each user's rows from every
- * table that can hold one — `user_meta` (typed), then better-auth's
- * `session`, `verification` and `account`, then `user` (raw SQL with the
- * physical camelCase names per the plugin-bypass rule; `verification`
- * carries no userId column, so `identifier` is the only principal handle it
- * can match). The session/verification deletes are DEFENSIVE — a pending
- * person never had a session, but the sweep must not depend on that being
- * true (§6), and the FK cascade is not relied on either: the pragma being
- * on is an `open-database` detail, and a sweep whose correctness lived
- * there would be one connection-flag away from orphaning accounts.
+ * ONE transaction: select the ids, refuse the ones that own anything, then
+ * delete each remaining user's rows from every table that can hold one —
+ * `user_meta` (typed), then better-auth's `session`, `verification` and
+ * `account`, then `user` (raw SQL with the physical camelCase names per the
+ * plugin-bypass rule; `verification` carries no userId column, so
+ * `identifier` is the only principal handle it can match — and NOTE that no
+ * current better-auth writer spells `identifier` as a userId (email-verify,
+ * password-reset and account-delete tokens all put an email or a token
+ * there, checked against the installed 1.7.1), so this clause is stated
+ * defense for an id-shaped row, not a live path). The session/verification
+ * deletes are DEFENSIVE — a pending person never had a session, but the
+ * sweep must not depend on that being true (§6), and the FK cascade is not
+ * relied on either: the pragma being on is an `open-database` detail, and a
+ * sweep whose correctness lived there would be one connection-flag away
+ * from orphaning accounts.
+ *
+ * **An expired pending row that OWNS anything is refused, not deleted**
+ * (Task 10 review, finding 1). Under correct marking this state is
+ * impossible: a pending arrival never gets a session (`session.create.before`
+ * + `validateUserInfo`), and an ownerless human creates no subshells, nodes
+ * or workspaces. So ownership on a pending row testifies that the
+ * failed-mark path was live — exactly what the re-mark pass repairs while
+ * the clock is fresh, and anything still pending-and-owning past the expiry
+ * window is beyond a sweep's right to guess with. Deleting it would orphan
+ * those owner refs (none carry an FK back) and would leave an enrolled
+ * node's socket answering `accountDisabled` for a row that no longer
+ * exists. The rows stay `pending`, every hour loudly, until a human acts;
+ * "unresolvable states are asked about, never asserted away" is the same
+ * posture the live-feed revocation already holds. The three ownership
+ * probes run per sweep (not per candidate): the queue is tiny by §6's own
+ * dedup rule, and one `IN`-list query per table keeps the check inside the
+ * same transaction as the deletes it gates.
  *
  * @param db - the app database
  * @returns the number of expired pending users deleted
@@ -105,13 +144,50 @@ export async function expirePendingApprovals(db: Kysely<Database>): Promise<numb
       .execute();
     if (rows.length === 0) return 0;
     const ids = rows.map((row) => row.userId);
-    const list = sql.join(ids.map((id) => sql`${id}`));
+
+    // Ownership refusal (finding 1 above): a pending row owning ANY of the
+    // three user-owned tables stays. Typed reads — every table here is an
+    // app table, so the plugin spells the physical names from these fields.
+    const subshellOwners = await trx
+      .selectFrom("subshells")
+      .select("userId")
+      .distinct()
+      .where("userId", "in", ids)
+      .execute();
+    const nodeOwners = await trx
+      .selectFrom("nodes")
+      .select("ownerUserId")
+      .distinct()
+      .where("ownerUserId", "in", ids)
+      .execute();
+    const workspaceOwners = await trx
+      .selectFrom("workspaces")
+      .select("userId")
+      .distinct()
+      .where("userId", "in", ids)
+      .execute();
+    const owned = new Set<string>([
+      ...subshellOwners.map((row) => row.userId),
+      ...nodeOwners.map((row) => row.ownerUserId),
+      ...workspaceOwners.map((row) => row.userId),
+    ]);
+    const refused = ids.filter((id) => owned.has(id));
+    const doomed = ids.filter((id) => !owned.has(id));
+    if (refused.length > 0) {
+      logger.warn(
+        `pending approvals: expiry REFUSED for ${refused.join(", ")} — pending rows that own ` +
+          `subshells/nodes/workspaces cannot have arrived cleanly; an admin must resolve these by hand`,
+      );
+    }
+    if (doomed.length === 0) return 0;
+
+    const list = sql.join(doomed.map((id) => sql`${id}`));
     await sql`DELETE FROM session WHERE userId IN (${list})`.execute(trx);
     await sql`DELETE FROM verification WHERE identifier IN (${list})`.execute(trx);
     await sql`DELETE FROM account WHERE userId IN (${list})`.execute(trx);
     await sql`DELETE FROM user WHERE id IN (${list})`.execute(trx);
-    await trx.deleteFrom("userMeta").where("userId", "in", ids).execute();
-    return ids.length;
+    await trx.deleteFrom("userMeta").where("userId", "in", doomed).execute();
+    return doomed.length;
   });
 }
 
@@ -137,6 +213,17 @@ export async function expirePendingApprovals(db: Kysely<Database>): Promise<numb
  * - that account's `providerId` names an `auth_providers` row with
  *   `require_approval = 1`, and is not `credential` — mirroring the hook's
  *   `getById` + skip guard exactly, email-door sign-ups included;
+ * - that door row was last updated AT OR BEFORE the user's `createdAt`
+ *   (Task 10 review, guard 6): a `require_approval` flip landed AFTER a
+ *   person arrived cannot retroactively queue — and DEMOTE — them. The
+ *   sharp case is concrete: an instance whose first admin walked through a
+ *   then-open door, an admin later flips approval on, and without this
+ *   clause the next sweep demotes the sole admin and re-queues them,
+ *   bricking the instance against its own policy. (The clause reads the
+ *   door's `updated_at` through SQLite `datetime()` because the two tables
+ *   spell time differently — see the query.) A hand-SQL flip that never
+ *   bumps `updated_at` stays outside the guard's reach, like every other
+ *   hand edit this service only bounds conservatively;
  * - `approvalState` reads APPROVED, asked through `UserMetaRepository` so
  *   the absent-row and hand-edit rules live in one reader (an absent row —
  *   both after-hooks missed — counts as approved too);
@@ -144,7 +231,11 @@ export async function expirePendingApprovals(db: Kysely<Database>): Promise<numb
  * - the user's `createdAt` is within {@link ARRIVAL_REMARK_WINDOW_MS} —
  *   anything older is established membership regardless of current policy,
  *   and the window is also the belt against old accounts whose meta row was
- *   hand-deleted.
+ *   hand-deleted. The window has a stated cost: a server blackout longer
+ *   than it permanently skips the repair, and the hook's `logger.error` at
+ *   arrival time is then the only trace that the marking was ever lost —
+ *   accepted, because widening the window is exactly how the sweep starts
+ *   fighting recent human decisions.
  *
  * **Why the audit trail and not row-absence is the human-spoke signal:**
  * a failed marking does NOT leave no row — `user.create.after`'s
@@ -192,6 +283,15 @@ export async function remarkUnmarkedArrivals(db: Kysely<Database>): Promise<numb
   // ever MATCH the gated one — a two-account user must fail the count even
   // though only one row joins. Result aliases pass through the
   // CamelCasePlugin's camelize, so plain identifiers read back unchanged.
+  // The door-vs-user timestamp gate compares through `datetime()` because
+  // the two sides do not carry the SAME spelling of time: `auth_providers`
+  // is an app table whose row-creation default is `datetime('now')`
+  // (second-precise, space-separated), the repo's own `update` rewrites it
+  // as a full ISO string, and better-auth's `user.createdAt` is ISO with
+  // milliseconds and a Z. A raw lexicographic `<=` would read every
+  // space-separated stamp of the SAME DAY as less than an ISO one (space
+  // sorts before `T`), which is exactly the day that a flip must be caught
+  // on; `datetime()` normalizes both spellings to second-precise UTC.
   const candidates = await sql<{ userId: string; providerId: string }>`
     SELECT u.id AS userId, a.providerId AS providerId
     FROM user u
@@ -199,6 +299,7 @@ export async function remarkUnmarkedArrivals(db: Kysely<Database>): Promise<numb
     JOIN auth_providers p ON p.id = a.providerId
     WHERE a.providerId <> 'credential'
       AND p.require_approval = 1
+      AND datetime(p.updated_at) <= datetime(u."createdAt")
       AND u."createdAt" > ${windowStart}
       AND (SELECT COUNT(*) FROM account a2 WHERE a2.userId = u.id) = 1
   `.execute(db);
@@ -221,12 +322,35 @@ export async function remarkUnmarkedArrivals(db: Kysely<Database>): Promise<numb
       .where("targetId", "=", candidate.userId)
       .executeTakeFirst();
     if (approvedByHuman) continue;
-    await meta.setApproval(candidate.userId, "pending", { arrivedAt: new Date().toISOString() });
-    await meta.demoteAdminIfAutoPromoted(candidate.userId);
+    // The repair is ONE transaction (review finding 2): mark, demote and
+    // revoke are three writes over state the next pass cannot re-derive —
+    // a death between `setApproval` and the demote would leave permanent
+    // pending+ADMIN (invisible to this pass, whose gate wants `approved`)
+    // and the next approval would mint a privileged member from it. And
+    // finding 1: the re-mark must take back the ACCESS, not just the queue
+    // row — a failed-mark arrival minted a real session (it read `approved`
+    // at `session.create.before`, and the auth guard does not re-ask
+    // pending), so leaving those rows alive would hand a re-queued person
+    // member access until each expires. Same raw-SQL revoke as
+    // `setDisabled`, count included, for the journal line.
+    const revokedSessions = await db.transaction().execute(async (trx) => {
+      const tmeta = new UserMetaRepository(trx);
+      // The expiry clock starts HERE, at repair time: the row never had one
+      // (correct marking stamps on entry, the failed one never got there),
+      // and re-mark time is the honest start of this arrival's expiry
+      // window — §6's days count from when the queue actually saw it.
+      await tmeta.setApproval(candidate.userId, "pending", { arrivedAt: new Date().toISOString() });
+      await tmeta.demoteAdminIfAutoPromoted(candidate.userId);
+      const counted = await sql<{
+        n: number;
+      }>`SELECT COUNT(*) AS n FROM session WHERE userId = ${candidate.userId}`.execute(trx);
+      await sql`DELETE FROM session WHERE userId = ${candidate.userId}`.execute(trx);
+      return Number(counted.rows[0]?.n ?? 0);
+    });
     remarked += 1;
     logger.warn(
       `door policy: re-queued unmarked arrival user ${candidate.userId} on provider ${candidate.providerId} — ` +
-        `account.create.after's marking was lost; the account is now pending again`,
+        `account.create.after's marking was lost; the account is pending again and ${revokedSessions} session(s) were revoked`,
     );
   }
   return remarked;

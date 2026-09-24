@@ -29,6 +29,8 @@ const createdSessionIds: string[] = [];
 const createdVerificationIds: string[] = [];
 /** user ids an approval audit row was written for (cleaned by targetId). */
 const createdApprovalTargetIds: string[] = [];
+/** user ids that own seeded workspace/node rows (cleaned by owner id). */
+const createdOwnerUserIds: string[] = [];
 
 const daysAgo = (n: number): string => new Date(Date.now() - n * 86_400_000).toISOString();
 
@@ -136,6 +138,10 @@ afterAll(async () => {
   for (const targetId of createdApprovalTargetIds) {
     await db.deleteFrom("auditEvents").where("targetId", "=", targetId).execute();
   }
+  for (const ownerId of createdOwnerUserIds) {
+    await db.deleteFrom("workspaces").where("userId", "=", ownerId).execute();
+    await db.deleteFrom("nodes").where("ownerUserId", "=", ownerId).execute();
+  }
   await new SettingsRepository(db).delete(PENDING_APPROVAL_EXPIRY_KEY);
 });
 
@@ -227,6 +233,52 @@ describe("expirePendingApprovals", () => {
     expect((await metaState(approvedAncient))?.approvalState).toBe("approved");
   });
 
+  test("an expired pending row that OWNS anything is refused, not deleted", async () => {
+    // Finding 1(review): a pending arrival that owns subshells, nodes or
+    // workspaces can only exist if the failed-mark path was live (correct
+    // marking never grants a session before approval). Deleting it would
+    // orphan those owner refs; the sweep must refuse loudly instead. One
+    // probe test covers the branch; nodes and workspaces seed the two
+    // differently-spelled owner columns the code checks (`userId` vs
+    // `ownerUserId`), and `subshells` rides the same `userId` clause as
+    // `workspaces` without its seeding weight.
+    await new SettingsRepository(db).delete(PENDING_APPROVAL_EXPIRY_KEY); // ⇒ 30 days
+    const doorId = `expiry-owned-door-${crypto.randomUUID().slice(0, 8)}`;
+    await makeDoor(doorId, 1);
+    const clock = daysAgo(31);
+
+    const owner = await makeUser(`expiry-owner-${crypto.randomUUID().slice(0, 8)}@example.test`, clock);
+    await makeAccount(owner, doorId);
+    await new UserMetaRepository(db).setApproval(owner, "pending", { arrivedAt: clock });
+    createdOwnerUserIds.push(owner);
+    await db
+      .insertInto("workspaces")
+      .values({
+        id: crypto.randomUUID(),
+        userId: owner,
+        name: `owned-${crypto.randomUUID().slice(0, 8)}`,
+        layoutJson: null,
+        draft: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })
+      .execute();
+
+    const cleanVictim = await makeUser(`expiry-clean-${crypto.randomUUID().slice(0, 8)}@example.test`, clock);
+    await makeAccount(cleanVictim, doorId);
+    await new UserMetaRepository(db).setApproval(cleanVictim, "pending", { arrivedAt: clock });
+
+    await expirePendingApprovals(db);
+
+    // The owner survives, still pending, still queued — asked about, not
+    // asserted away.
+    expect(await userRowExists(owner)).toBe(true);
+    expect((await metaState(owner))?.approvalState).toBe("pending");
+    expect((await metaState(owner))?.pendingArrivedAt).toBe(clock);
+    // Its sibling with nothing behind it goes as before.
+    expect(await userRowExists(cleanVictim)).toBe(false);
+  });
+
   test("expiryDays 0 keeps even an expired pending row forever", async () => {
     const doorId = `expiry-forever-door-${crypto.randomUUID().slice(0, 8)}`;
     await makeDoor(doorId, 1);
@@ -262,6 +314,10 @@ describe("remarkUnmarkedArrivals", () => {
     );
     await makeAccount(promotedArrival, doorId);
     await db.insertInto("userMeta").values({ userId: promotedArrival, role: "admin", setupStep: "network" }).execute();
+    // The consequence of the failed mark: session.create.before read
+    // `approved`, so this person HOLDS a session. Re-marking must revoke
+    // it — pending with live member access is the finding-1 defect.
+    await makeSession(promotedArrival);
 
     // The harsher shape: BOTH hooks missed, so there is no meta row at all —
     // "absent reads approved" must catch it too.
@@ -284,6 +340,7 @@ describe("remarkUnmarkedArrivals", () => {
       .executeTakeFirstOrThrow();
     expect(meta.role).toBe("user");
     expect(meta.setupStep).toBeNull();
+    expect(await countIn("session", promotedArrival)).toBe(0);
 
     const metaless = await metaState(metalessArrival);
     expect(metaless?.approvalState).toBe("pending");
@@ -326,6 +383,38 @@ describe("remarkUnmarkedArrivals", () => {
     const state = await metaState(approved);
     expect(state?.approvalState).toBe("approved");
     expect(state?.pendingArrivedAt).toBeNull();
+  });
+
+  test("a require_approval flip AFTER arrival does not retroactively queue (and demote) the already-in", async () => {
+    // Guard 6(review): the brick shape. The sole admin arrived through a
+    // then-OPEN door minutes ago; an admin flips `require_approval` on.
+    // Without the door-vs-arrival timestamp gate the next sweep would read
+    // this row as a failed-mark arrival (approved, no audit trail, one
+    // gated account, fresh) and DEMOTE + RE-QUEUE the instance's only
+    // admin. `updatedAt > createdAt` on the door is what says "this person
+    // walked through a door that did not yet ask".
+    const doorId = `remark-flip-door-${crypto.randomUUID().slice(0, 8)}`;
+    await makeDoor(doorId, 0); // OPEN when they arrived
+    const arrivedAt = new Date(Date.now() - 5 * 60_000).toISOString(); // well inside the 2 h window
+    const soleAdmin = await makeUser(`remark-flip-${crypto.randomUUID().slice(0, 8)}@example.test`, arrivedAt);
+    await makeAccount(soleAdmin, doorId);
+    await db.insertInto("userMeta").values({ userId: soleAdmin, role: "admin", setupStep: "network" }).execute();
+
+    // The flip, through the repo — the real CRUD path, which stamps
+    // `updatedAt` as a fresh ISO now, seconds after the arrival's createdAt.
+    await new AuthProvidersRepository(db).update(doorId, { requireApproval: 1 });
+
+    await remarkUnmarkedArrivals(db);
+
+    const meta = await db
+      .selectFrom("userMeta")
+      .select(["approvalState", "pendingArrivedAt", "role", "setupStep"])
+      .where("userId", "=", soleAdmin)
+      .executeTakeFirstOrThrow();
+    expect(meta.approvalState).toBe("approved");
+    expect(meta.pendingArrivedAt).toBeNull();
+    expect(meta.role).toBe("admin");
+    expect(meta.setupStep).toBe("network");
   });
 
   test("established members, linked users, open doors and rejected rows are never touched", async () => {
