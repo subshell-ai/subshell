@@ -568,6 +568,9 @@ describe("SubshellManagerService restart", () => {
       socketA = ra?.tmuxSocket; // A spawned a real pane; reap it in the finally
       expect(ra?.id).toBe(id);
       expect(rb?.id).toBe(id);
+      // The plain joiner issued nothing of its own: the ONE token issue was
+      // A's (the counter is shared between the two managers).
+      expect(aIssues).toBe(1);
     } finally {
       releaseGate();
       if (socketA) trackTmuxSocket(socketA);

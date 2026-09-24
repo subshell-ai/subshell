@@ -134,9 +134,13 @@ than fixed: a swap that arrives while the `restartInFlight` lease is held is
 now REFUSED (409 `RESTART_IN_FLIGHT`) instead of joining — the running revival
 composes the first caller's preset, and a joined 200 would have promised a
 swap that never lands. Plain restarts keep joining (that is the lease's
-purpose). The audit rows of the act (both `subshell.restart` and
-`subshell.preset_switch`) now name the ACTING viewer, not the row's owner —
-moved together, the final review's condition.
+purpose). The refusal is keyed to the BODY, not the value: a swap-carrying
+body whose target equals the current preset is refused during a held lease
+too, even though §3's unchanged-target rule would have made it a no-op write —
+one shape rule beats a caller-inspecting one at the lease. The audit rows of
+the act (both `subshell.restart` and `subshell.preset_switch`) now name the
+ACTING viewer, not the row's owner — moved together, the final review's
+condition.
 
 ## 5. Tests
 
