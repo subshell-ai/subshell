@@ -58,6 +58,25 @@ export class NodeRpcError extends Error {
 /** A `result` frame — what the WS handler feeds into {@link resolveResult}. */
 export type NodeResultEvent = Extract<NodeEvent, { type: "result" }>;
 
+/**
+ * Wraps sealed link bytes for {@link NodeSocket.send} — the Buffer-view fact.
+ *
+ * Elysia 1.4.29's `ElysiaWS.send` JSON-stringifies EVERY object it is handed
+ * that is not a Buffer: a bare `Uint8Array` (what `LinkSession.sealFrame`
+ * returns) would leave the socket as a TEXT frame of `{"0":165,…}` instead of
+ * binary ciphertext. A Buffer VIEW over the same bytes passes Elysia's own
+ * `isBuffer` guard straight through to Bun's binary send, with no copy. This
+ * is the `wsBinaryPayload` precedent in `ws/viewers.ts`, where the CBOR wire
+ * mode hit it first (measured live 2026-09-21: blank terminal, all unit tests
+ * green because the fakes record what they are given, not what Elysia does
+ * with it).
+ * @param u8 - the sealed ciphertext
+ * @returns a Buffer view to hand to `ws.send`
+ */
+function binaryPayload(u8: Uint8Array): Buffer {
+  return Buffer.from(u8.buffer, u8.byteOffset, u8.length);
+}
+
 /** Default per-command deadline (spec §4: commands are socket-open-only). */
 export const DEFAULT_COMMAND_TIMEOUT_MS = 10_000;
 
@@ -177,7 +196,13 @@ export function sendCommand(nodeId: string, cmd: NodeCommandBody, options: SendC
       reject: fail,
       timer,
     });
-    conn.ws.send(JSON.stringify({ jws }));
+    // An encrypted link seals the envelope to binary ciphertext (spec
+    // 2026-09-24 §2); the plaintext branch is the legacy/held path and stays
+    // byte-for-byte what it always sent. The seal happens INSIDE this
+    // connection's serialized step, so the secretstream ratchet advances in
+    // exactly the order the frames hit the socket — the same invariant that
+    // makes `seq` trustworthy.
+    conn.ws.send(conn.link ? binaryPayload(conn.link.sealFrame(JSON.stringify({ jws }))) : JSON.stringify({ jws }));
   };
 
   // Serialize per connection (the seq/send-order invariant, see header). Each

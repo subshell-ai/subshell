@@ -11,10 +11,10 @@ import {
   resetNodeRegistryForTests,
 } from "../node-registry.js";
 
-/** Minimal fake socket recording frames and close calls. */
+/** Minimal fake socket recording frames (text or binary) and close calls. */
 interface FakeSocket extends NodeSocket {
   /** Payloads passed to `send` in call order */
-  sent: string[];
+  sent: Array<string | Buffer>;
   /** Close calls in call order */
   closed: { code?: number; reason?: string }[];
 }
@@ -23,7 +23,7 @@ function fakeSocket(): FakeSocket {
   return {
     sent: [],
     closed: [],
-    send(data: string) {
+    send(data: string | Buffer) {
       this.sent.push(data);
       return data.length;
     },

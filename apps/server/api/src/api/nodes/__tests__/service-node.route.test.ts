@@ -145,10 +145,10 @@ describe("/api/nodes service + runtime", () => {
     );
   }
 
-  function fakeSocket(): NodeSocket & { sent: string[] } {
+  function fakeSocket(): NodeSocket & { sent: Array<string | Buffer> } {
     return {
       sent: [],
-      send(data: string) {
+      send(data: string | Buffer) {
         this.sent.push(data);
         return data.length;
       },

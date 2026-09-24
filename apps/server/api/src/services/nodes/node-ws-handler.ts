@@ -339,9 +339,27 @@ export async function handleNodeOpen(deps: Pick<NodeWsDeps, "accountDisabled">, 
   }
 }
 
-/** Byte size of an inbound frame, whichever form Elysia hands us. */
-function frameBytes(raw: string | object): number {
-  return typeof raw === "string" ? Buffer.byteLength(raw) : Buffer.byteLength(JSON.stringify(raw));
+/**
+ * Byte size of an inbound frame, whichever form Elysia hands us.
+ *
+ * **Binary measures natively (ruling R2, spec 2026-09-24 ledger).** Once an
+ * encrypted link exists (task 8 onward), ciphertext arrives as a Buffer /
+ * Uint8Array / ArrayBuffer. The `JSON.stringify` fallback would serialize a
+ * Buffer to its `{"type":"Buffer","data":[1,2,…]}` JSON — an order of
+ * magnitude over the real byte size — so EVERY encrypted frame would read
+ * oversize and this socket would close 1009. The stringify branch therefore
+ * stays for what it was always for: a genuinely pre-parsed object (Elysia
+ * JSON-parses text frames beginning with `{`). The Buffer-view arithmetic on
+ * the Uint8Array arm is the same non-copy window the send side uses (pool
+ * Buffers and subviews report their own span, not the backing store).
+ *
+ * @internal exported for its unit tests — callers use `handleNodeMessage`.
+ */
+export function frameBytes(raw: string | object): number {
+  if (typeof raw === "string") return Buffer.byteLength(raw);
+  if (raw instanceof ArrayBuffer) return raw.byteLength;
+  if (raw instanceof Uint8Array) return Buffer.from(raw.buffer, raw.byteOffset, raw.length).byteLength;
+  return Buffer.byteLength(JSON.stringify(raw));
 }
 
 /**
@@ -425,7 +443,11 @@ async function holdRefusedNode(
  * frame at a time.
  * @param deps - injected dependencies
  * @param ws - the socket that produced the frame
- * @param raw - frame as Elysia delivered it (JSON text or pre-parsed object)
+ * @param raw - frame as Elysia delivered it (JSON text, pre-parsed object, or
+ *   a Buffer of link ciphertext — task 6 plumbing; the encrypted-link acceptor
+ *   that decrypts-before-parsing lands with the handshake, and until then
+ *   binary frames measure natively against the cap and fall out of
+ *   {@link parseNodeEvent} as unrecognized)
  */
 export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw: string | object): Promise<void> {
   const nodeId = ws.data.nodeId;

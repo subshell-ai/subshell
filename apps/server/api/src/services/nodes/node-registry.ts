@@ -1,4 +1,5 @@
 import { NODE_CLOSE_SUPERSEDED, type NodeRuntimeReport } from "@internal/subshell-protocol";
+import type { LinkSession } from "@internal/subshell-protocol/node-link-crypto";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { projectNodeOffline } from "./node-presence-announce.js";
 import type { NodeRpcError } from "./node-rpc.js";
@@ -48,8 +49,14 @@ export const OWNER_DISABLED_CLOSE_CODE = 4403;
  * drive fakes and the Bun ws object satisfies it structurally.
  */
 export interface NodeSocket {
-  /** Send one text frame (the JSON envelope); returns like Bun's `ws.send`. */
-  send(data: string): unknown;
+  /**
+   * Send one frame; returns like Bun's `ws.send`. Text carries the legacy
+   * JSON envelope; a Buffer carries an encrypted link's binary ciphertext —
+   * and it must ARRIVE as a Buffer, not a bare `Uint8Array` (Elysia's
+   * `send` JSON-stringifies any non-Buffer object into a TEXT frame; see
+   * `binaryPayload` in `node-rpc.ts`).
+   */
+  send(data: string | Buffer): unknown;
   /** Close the socket with an optional code/reason. */
   close(code?: number, reason?: string): void;
 }
@@ -153,6 +160,15 @@ export interface NodeConnection {
    * `agent: undefined` and reads as such to every consumer.
    */
   agent?: NodeFacts;
+  /**
+   * The encrypted link negotiated on this socket (spec 2026-09-24), or
+   * `undefined` while the connection speaks the legacy plaintext envelope —
+   * every held socket, every agent that predates the handshake, and every
+   * connection from before its `kx` completed. `node-rpc.sendCommand` seals
+   * outbound commands through it when present; the `/ws/node` handshake
+   * acceptor is its only writer.
+   */
+  link?: LinkSession;
 }
 
 const live = new Map<string, NodeConnection>();

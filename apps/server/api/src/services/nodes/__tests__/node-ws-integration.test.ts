@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { MIN_NODE_VERSION, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
+import { MIN_NODE_VERSION, NODE_MAX_FRAME_BYTES, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { Elysia } from "elysia";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
@@ -45,6 +45,14 @@ const deps: NodeWsDeps = {
   resolveResult: () => false, // no RPC in flight in this test
 };
 
+/**
+ * Every NON-TEXT frame the message hook received, as Elysia delivered it
+ * (task 6 plumbing proof: the `ws.plugin.ts` filter shape passes Buffers
+ * through to the handler, which does its own shape work — nothing is
+ * normalized at the plugin edge).
+ */
+const nonTextFrames: Array<{ typeof: string; isBuffer: boolean }> = [];
+
 const app = new Elysia()
   // THE REAL global error handler — the refusal body the wire test below
   // asserts is exactly what production sends for a status-carrying throw.
@@ -61,7 +69,11 @@ const app = new Elysia()
       void handleNodeOpen(deps, ws as unknown as NodeWsSocket);
     },
     message(ws, message) {
+      // The same predicate `ws.plugin.ts` uses (string or object passes).
       if (typeof message === "string" || (message && typeof message === "object")) {
+        if (typeof message !== "string") {
+          nonTextFrames.push({ typeof: typeof message, isBuffer: Buffer.isBuffer(message) });
+        }
         void handleNodeMessage(deps, ws as unknown as NodeWsSocket, message as string | object);
       }
     },
@@ -237,5 +249,72 @@ describe("/ws/node over the real ws stack", () => {
     await waitFor(() => getLive(nodeId)?.ws !== undefined, "registry attach after re-enable");
     ws.close();
     await waitFor(async () => (await nodes.findById(nodeId))?.status === "offline", "close → offline");
+  });
+
+  /* ---------------- binary-wire plumbing (task 6) ---------------- */
+
+  /** Enrolled row + working key from the fake store, ready to dial. */
+  async function fixtureNode(): Promise<{ nodeId: string; key: string }> {
+    const nodeId = unique("n");
+    const apiKeyId = unique("k");
+    const key = unique("secret");
+    await nodes.create({
+      id: nodeId,
+      ownerUserId: unique("u"),
+      name: unique("node"),
+      kind: "agent",
+      status: "offline",
+    });
+    await nodes.setApiKeyId(nodeId, apiKeyId);
+    keyStore.set(key, { id: apiKeyId, nodeId });
+    return { nodeId, key };
+  }
+
+  it("binary frames reach the node handler as Buffers; under-cap ciphertext does not close (R2 on the wire)", async () => {
+    const { nodeId, key } = await fixtureNode();
+    const ws = await connect(`Bearer ${key}`);
+    await waitFor(() => getLive(nodeId)?.ws !== undefined, "registry attach");
+    let clientClose: number | undefined;
+    ws.addEventListener("close", (ev) => {
+      clientClose = ev.code;
+    });
+    nonTextFrames.length = 0;
+
+    // Step 3 verification: the ws.plugin filter shape (string or object) lets
+    // a Buffer through to the handler untouched — Elysia delivers binary
+    // frames as Buffers, `typeof "object"`, and NOTHING normalizes them at
+    // the plugin edge (the node handler does its own shape work).
+    ws.send(new Uint8Array([1, 2, 3, 4]));
+    await waitFor(() => nonTextFrames.length === 1, "small binary frame reaches the message hook");
+    expect(nonTextFrames[0]).toEqual({ typeof: "object", isBuffer: true });
+
+    // Ruling R2 at the wire: 1016 KiB sits UNDER the 1 MiB node cap, but the
+    // old JSON.stringify measurement inflated a Buffer to its
+    // `{"type":"Buffer","data":[…]}` form — ~4× the size — and would have
+    // closed this 1009. With the fix the handler sees the real size, drops
+    // the unrecognized ciphertext, and the socket lives.
+    ws.send(new Uint8Array(NODE_MAX_FRAME_BYTES - 1024));
+    await waitFor(() => nonTextFrames.length === 2, "near-cap binary frame reaches the message hook");
+    await new Promise((r) => setTimeout(r, 100)); // a stray close lands well inside this beat
+    expect(clientClose).toBeUndefined();
+    expect(getLive(nodeId)).toBeDefined();
+    ws.close();
+  });
+
+  it("oversized binary frames are closed 1009 by the HANDLER's byte guard", async () => {
+    const { nodeId, key } = await fixtureNode();
+    const ws = await connect(`Bearer ${key}`);
+    await waitFor(() => getLive(nodeId)?.ws !== undefined, "registry attach");
+    const closed = new Promise<{ code: number; reason: string }>((resolve) =>
+      ws.addEventListener("close", (ev) => resolve({ code: ev.code, reason: ev.reason })),
+    );
+
+    ws.send(new Uint8Array(NODE_MAX_FRAME_BYTES + 1024));
+    const c = await closed; // the suite timeout is the failure net
+    expect(c.code).toBe(1009);
+    // The handler's OWN close, naming the node cap — not Bun's payload guard
+    // (which would close with its own message), so this proves the frame
+    // travelled filter → handler → size check end to end.
+    expect(c.reason).toContain(`frame exceeds ${NODE_MAX_FRAME_BYTES} bytes`);
   });
 });

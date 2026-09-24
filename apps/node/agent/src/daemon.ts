@@ -116,7 +116,12 @@ const STATUS_PROBE_TIMEOUT_MS = 5_000;
 /** The client surface the daemon uses; Bun's `WebSocket` satisfies it structurally. */
 export interface WsLike {
   readonly readyState: number;
-  send(data: string): void;
+  /**
+   * Send one frame: the JSON text the daemon emits today, and — once an
+   * encrypted link exists (spec 2026-09-24, task 9 seals the outbound path) —
+   * the binary ciphertext of the secretstream. Bun's client accepts both.
+   */
+  send(data: string | Uint8Array): void;
   close(code?: number, reason?: string): void;
   addEventListener(type: "open", listener: () => void): void;
   addEventListener(type: "close", listener: (event: { code: number; reason: string }) => void): void;
@@ -646,30 +651,45 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   };
 
   /**
-   * The two byte guards, run ON ARRIVAL rather than in the serialization chain
+   * The byte guards, run ON ARRIVAL rather than in the serialization chain
    * below.
    *
-   * Both are synchronous and cost nothing, and putting them behind the chain
+   * They are synchronous and cost nothing, and putting them behind the chain
    * would mean a burst of oversize frames is RETAINED in a queue before being
    * rejected — the daemon holding megabytes of hostile noise it has already
    * decided to drop. Dropped here, the memory goes with the event.
    *
+   * The SAME cap measures both shapes natively (spec 2026-09-24 ruling R2's
+   * agent-side twin): bytes by their length, text by its UTF-8 size — never
+   * by a re-serialization of one into the other.
+   *
    * @param data - the raw `message` payload
-   * @returns the frame's text, or null when it was logged and dropped
+   * @returns `{ text }` or `{ bytes }` (every binary shape normalized to a
+   *   Uint8Array view — Bun's client delivers a Buffer, and the WebAPI
+   *   spelling is an ArrayBuffer), or null when the frame was logged and
+   *   dropped
    */
-  const admitFrame = (data: unknown): string | null => {
-    if (typeof data !== "string") {
-      log("ignored non-text frame");
-      return null;
-    }
-    const size = Buffer.byteLength(data); // exact UTF-8 size without allocating a Blob
-    if (size > NODE_MAX_FRAME_BYTES) {
-      // Ignore, do NOT close: the server already guards its own direction, so an
-      // oversize inbound frame is hostile noise — answer nothing.
+  const admitFrame = (data: unknown): { text: string } | { bytes: Uint8Array } | null => {
+    const oversize = (size: number): null => {
+      // Ignore, do NOT close: the server already guards its own direction, so
+      // an oversize inbound frame is hostile noise — answer nothing.
       log(`oversize frame ignored (${size} bytes > ${NODE_MAX_FRAME_BYTES})`);
       return null;
+    };
+    if (typeof data === "string") {
+      const size = Buffer.byteLength(data); // exact UTF-8 size without allocating a Blob
+      return size > NODE_MAX_FRAME_BYTES ? oversize(size) : { text: data };
     }
-    return data;
+    if (data instanceof ArrayBuffer) {
+      return data.byteLength > NODE_MAX_FRAME_BYTES ? oversize(data.byteLength) : { bytes: new Uint8Array(data) };
+    }
+    if (data instanceof Uint8Array) {
+      // Covers Buffer too (Buffer extends Uint8Array); `.length` is the
+      // view's own byte span, not a backing store it may share.
+      return data.length > NODE_MAX_FRAME_BYTES ? oversize(data.length) : { bytes: data };
+    }
+    log("ignored non-text frame");
+    return null;
   };
 
   /** One ADMITTED frame: jws extraction → verify → execute (spec §4). */
@@ -896,8 +916,18 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       ws.addEventListener("message", (ev) => {
         const frame = admitFrame(ev.data);
         if (frame === null) return;
+        if ("bytes" in frame) {
+          // Wire plumbing only (task 6): bytes cannot mean anything until an
+          // encrypted link exists, so this is the old blanket non-text drop
+          // wearing its real shape — same ignore-don't-close posture, and
+          // NEVER a fall-through into `onFrame` (bytes parsed as text would
+          // answer the plane with a `verify: malformed` event). Task 9's
+          // client session replaces this drop with `openFrame`.
+          log("ignored binary frame (no encrypted link)");
+          return;
+        }
         frameChain = frameChain
-          .then(() => onFrame(ws, frame))
+          .then(() => onFrame(ws, frame.text))
           .catch((err: unknown) => log(`frame handling error: ${String(err)}`));
       });
       ws.addEventListener("close", (ev) => finish({ code: ev?.code ?? 1006, reason: ev?.reason ?? "" }));

@@ -33,6 +33,7 @@ import {
 import { NodeRpcError } from "../node-rpc.js";
 import {
   authenticateNodeUpgrade,
+  frameBytes,
   handleNodeClose,
   handleNodeMessage,
   handleNodeOpen,
@@ -54,9 +55,9 @@ import {
  */
 const OPEN_DEPS: Pick<NodeWsDeps, "accountDisabled"> = { accountDisabled: async () => false };
 
-/** Scripted socket: records sends and closes, carries `data` like ElysiaWS. */
+/** Scripted socket: records sends (text OR binary) and closes, carries `data` like ElysiaWS. */
 interface FakeNodeSocket extends NodeWsSocket {
-  sent: string[];
+  sent: Array<string | Buffer>;
   closed: { code?: number; reason?: string }[];
 }
 
@@ -65,7 +66,7 @@ function fakeSocket(nodeId?: string): FakeNodeSocket {
     data: nodeId ? { nodeId, apiKeyId: "k-n1" } : {},
     sent: [],
     closed: [],
-    send(d: string) {
+    send(d: string | Buffer) {
       this.sent.push(d);
       return d.length;
     },
@@ -1090,7 +1091,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     expect(h.ready).toHaveLength(0);
   });
 
-  it("oversized frames close 1009 — both as text and pre-parsed objects — with no processing", async () => {
+  it("oversized frames close 1009 — text, pre-parsed objects, AND binary — with no processing", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
     await handleNodeMessage(h.deps, ws, "x".repeat(NODE_MAX_FRAME_BYTES + 1));
@@ -1098,13 +1099,67 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     const ws2 = fakeSocket("n1");
     await handleNodeMessage(h.deps, ws2, { type: "heartbeat", ts: "y".repeat(NODE_MAX_FRAME_BYTES) });
     expect(ws2.closed.map((c) => c.code)).toEqual([NODE_CLOSE_TOO_BIG]);
+    // The binary arm (task 6 plumbing; Task 8's ciphertext cap stands on it):
+    // one byte over the cap closes, measured NATIVELY per ruling R2.
+    const ws3 = fakeSocket("n1");
+    await handleNodeMessage(h.deps, ws3, new Uint8Array(NODE_MAX_FRAME_BYTES + 1));
+    expect(ws3.closed.map((c) => c.code)).toEqual([NODE_CLOSE_TOO_BIG]);
     expect(h.touched).toHaveLength(0);
+  });
+
+  it("a binary frame under the cap reaches dispatch and is dropped unrecognized, not closed", async () => {
+    // Pre-R2 this closed 1009: the JSON.stringify branch measured a Buffer at
+    // its `{"type":"Buffer","data":[…]}` length, ~4× over the real byte size.
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    await handleNodeMessage(h.deps, ws, Buffer.alloc(NODE_MAX_FRAME_BYTES - 1024, 7));
+    expect(ws.closed).toHaveLength(0);
+    expect(h.touched).toHaveLength(0);
+    expect(h.ready).toHaveLength(0);
   });
 
   it("frames on a socket without identity are ignored entirely", async () => {
     const h = makeHarness();
     await handleNodeMessage(h.deps, fakeSocket(), JSON.stringify({ type: "heartbeat", ts: "now" }));
     expect(h.touched).toHaveLength(0);
+  });
+});
+
+/* ---------------------------- frameBytes ----------------------------- */
+
+/**
+ * Ruling R2 (spec 2026-09-24 ledger): binary ciphertext frames must measure at
+ * their native byte size. The old `Buffer.byteLength(JSON.stringify(raw))`
+ * fallback serialized a Buffer to `{"type":"Buffer","data":[1,2,…]}` — an
+ * order of magnitude over its real size — so every encrypted frame would read
+ * oversize and close 1009. Task 8's pre-decrypt ciphertext cap depends on
+ * what these shapes measure.
+ */
+describe("frameBytes (ruling R2 — binary measures natively)", () => {
+  it("measures a Buffer by its bytes, not its JSON serialization", () => {
+    const raw = Buffer.alloc(100, 7);
+    expect(frameBytes(raw)).toBe(100);
+    // The bug this pins: the JSON fallback is many times larger.
+    expect(frameBytes(raw)).toBeLessThan(Buffer.byteLength(JSON.stringify(raw)));
+  });
+
+  it("measures a Uint8Array by its own view window, not its backing store", () => {
+    const backing = new Uint8Array(64);
+    const view = backing.subarray(8, 18);
+    expect(frameBytes(view)).toBe(10);
+  });
+
+  it("measures an ArrayBuffer by byteLength", () => {
+    expect(frameBytes(new ArrayBuffer(77))).toBe(77);
+  });
+
+  it("keeps the JSON branch for genuinely-parsed objects", () => {
+    const parsed = { type: "heartbeat", ts: "2026-09-24T00:00:00Z" };
+    expect(frameBytes(parsed)).toBe(Buffer.byteLength(JSON.stringify(parsed)));
+  });
+
+  it("measures strings as UTF-8 bytes", () => {
+    expect(frameBytes("héllo")).toBe(6);
   });
 });
 

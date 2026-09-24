@@ -20,7 +20,7 @@ import {
 /* ---------------------------- fakes ----------------------------- */
 
 interface FakeNodeSocket extends NodeWsSocket {
-  sent: string[];
+  sent: Array<string | Buffer>;
   closed: { code?: number; reason?: string }[];
 }
 
@@ -29,7 +29,7 @@ function fakeSocket(nodeId?: string): FakeNodeSocket {
     data: nodeId ? { nodeId, apiKeyId: "k-n1" } : {},
     sent: [],
     closed: [],
-    send(d: string) {
+    send(d: string | Buffer) {
       this.sent.push(d);
       return d.length;
     },

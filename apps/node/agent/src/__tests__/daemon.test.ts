@@ -839,14 +839,23 @@ const HEX_A = "00000000-0000-4000-8000-00000000000a";
 const HEX_B = "00000000-0000-4000-8000-00000000000b";
 
 /**
+ * The shapes a socket layer can hand a `message` listener: text, and the two
+ * binary spellings (`admitFrame` normalizes both — Bun's client delivers a
+ * Buffer, the WebAPI spelling is an ArrayBuffer).
+ */
+type DeliveredFrame = string | Uint8Array | ArrayBuffer;
+
+/**
  * Wraps the real WebSocket and keeps each socket's `message` listeners, so a
  * test can hand the daemon several frames in ONE event-loop turn.
  *
  * Sending them from the plane does not do that: they cross a real socket and
  * arrive as separate turns, which is exactly the case that already worked.
+ * Frames are text OR bytes (task 6: the binary shapes a real socket delivers,
+ * so the byte guards see what production sees).
  * @param pumps - filled with one entry per socket the daemon opens
  */
-function wrapRealWsWithPump(pumps: Array<{ deliverBurst: (frames: string[]) => void }>): WsConstructor {
+function wrapRealWsWithPump(pumps: Array<{ deliverBurst: (frames: DeliveredFrame[]) => void }>): WsConstructor {
   const Real = globalThis.WebSocket as unknown as new (
     url: string,
     opts?: { headers?: Record<string, string> },
@@ -857,7 +866,7 @@ function wrapRealWsWithPump(pumps: Array<{ deliverBurst: (frames: string[]) => v
     constructor(url: string, opts?: { headers?: Record<string, string> }) {
       this.inner = new Real(url, opts);
       pumps.push({
-        deliverBurst: (frames: string[]): void => {
+        deliverBurst: (frames: DeliveredFrame[]): void => {
           for (const frame of frames) {
             for (const listener of this.messageListeners) listener({ data: frame });
           }
@@ -867,7 +876,7 @@ function wrapRealWsWithPump(pumps: Array<{ deliverBurst: (frames: string[]) => v
     get readyState(): number {
       return this.inner.readyState;
     }
-    send(data: string): void {
+    send(data: string | Uint8Array): void {
       this.inner.send(data);
     }
     close(code?: number, reason?: string): void {
@@ -903,7 +912,7 @@ test("a burst of frames in one turn is verified in ARRIVAL order, not signature-
       sent.push(data);
     },
   } as unknown as TmuxRunner;
-  const pumps: Array<{ deliverBurst: (frames: string[]) => void }> = [];
+  const pumps: Array<{ deliverBurst: (frames: DeliveredFrame[]) => void }> = [];
   const h = await startDaemon({
     tmux: fakeTmux,
     meta: { get: async () => undefined, list: async () => [] } as unknown as SubshellMetaStore,
@@ -944,7 +953,7 @@ test("an oversize frame is dropped on ARRIVAL, not queued behind the chain", asy
   // returns once the listener has run for both frames, and by then the
   // oversize one must ALREADY be logged even though the input ahead of it is
   // still mid-verify. Chained, nothing would be logged yet.
-  const pumps: Array<{ deliverBurst: (frames: string[]) => void }> = [];
+  const pumps: Array<{ deliverBurst: (frames: DeliveredFrame[]) => void }> = [];
   const h = await startDaemon({
     tmux: { sendInput: async () => {} } as unknown as TmuxRunner,
     meta: { get: async () => undefined, list: async () => [] } as unknown as SubshellMetaStore,
@@ -965,6 +974,93 @@ test("an oversize frame is dropped on ARRIVAL, not queued behind the chain", asy
   // …and the connection is unharmed: the input ahead of it still lands.
   await waitFor(h, (e) => e.type === "result" && e.ref === "admit-1", "the input's result");
   expect(h.plane.closes).toBe(0);
+});
+
+/* ------------------------------------------------------------------ */
+/* Task 6: binary frames survive the wire (plumbing, no session yet)   */
+/* ------------------------------------------------------------------ */
+
+test("binary frames arrive as bytes, are ignored while no link exists, and NEVER reach the text path", async () => {
+  // `admitFrame` returns `{ bytes }` for every binary shape (the pump hands
+  // frames in as the socket layer would: a Buffer, a plain Uint8Array, and an
+  // ArrayBuffer — Bun's client delivers whichever its `binaryType` names).
+  // The listener drops them with the SAME ignore-don't-close posture the old
+  // blanket "ignored non-text frame" had, because there is no session to open
+  // them until task 9. The assertion that gives this teeth: bytes must not
+  // fall into `onFrame`, where a failed JSON.parse answers the plane with a
+  // `verify: malformed` error event.
+  const pumps: Array<{ deliverBurst: (frames: DeliveredFrame[]) => void }> = [];
+  const h = await startDaemon({
+    tmux: { sendInput: async () => {} } as unknown as TmuxRunner,
+    meta: { get: async () => undefined, list: async () => [] } as unknown as SubshellMetaStore,
+    WebSocketImpl: wrapRealWsWithPump(pumps),
+  });
+  const input = await signEnvelope(h, { type: "input", subshellId: HEX_A, data: "z" }, "bytes-1", 1);
+  const pump = pumps.at(-1);
+  if (!pump) throw new Error("no socket was opened");
+
+  const logs = captureLogs();
+  try {
+    pump.deliverBurst([Buffer.alloc(5, 7), new Uint8Array([1, 2, 3]), new ArrayBuffer(4), input]);
+    expect(logs.lines.filter((l) => l.includes("ignored binary frame")).length).toBe(3);
+  } finally {
+    logs.restore();
+  }
+  // No answered error frames — nothing binary was parsed as text — and the
+  // input behind them still processes normally.
+  await waitFor(h, (e) => e.type === "result" && e.ref === "bytes-1", "the input's result");
+  expect(eventsAs(h, "error")).toEqual([]);
+  expect(h.plane.closes).toBe(0);
+});
+
+test("an oversize BINARY frame is refused on ARRIVAL exactly like an oversize text one", async () => {
+  // Same cap, same guards, same shape: measured by `bytes.length`, ignored,
+  // never queued behind the chain — the R2 ruling's agent-side twin.
+  const pumps: Array<{ deliverBurst: (frames: DeliveredFrame[]) => void }> = [];
+  const h = await startDaemon({
+    tmux: { sendInput: async () => {} } as unknown as TmuxRunner,
+    meta: { get: async () => undefined, list: async () => [] } as unknown as SubshellMetaStore,
+    WebSocketImpl: wrapRealWsWithPump(pumps),
+  });
+  const input = await signEnvelope(h, { type: "input", subshellId: HEX_A, data: "x" }, "bigbytes-1", 1);
+  const oversize = new Uint8Array(NODE_MAX_FRAME_BYTES + 10_000);
+  const pump = pumps.at(-1);
+  if (!pump) throw new Error("no socket was opened");
+
+  const logs = captureLogs();
+  try {
+    pump.deliverBurst([input, oversize]);
+    // Asserted with no await: the drop happened on ARRIVAL, not behind the
+    // chain the input now occupies mid-verify.
+    expect(logs.lines.some((l) => l.includes("oversize frame ignored"))).toBe(true);
+  } finally {
+    logs.restore();
+  }
+  await waitFor(h, (e) => e.type === "result" && e.ref === "bigbytes-1", "the input's result");
+  expect(h.plane.closes).toBe(0);
+});
+
+test("WsLike carries binary sends (the seam task 9's sealed outbound frames need)", () => {
+  // `implements WsLike` makes the fake a COMPILE-TIME check of the widened
+  // `send(data: string | Uint8Array)` — narrowing the interface again fails
+  // right here, in the one suite that will soon drive a real session. The
+  // runtime assertion proves the recording wrapper keeps bytes intact.
+  class Recording implements WsLike {
+    readonly readyState = 1;
+    readonly sends: Array<string | Uint8Array> = [];
+    send(data: string | Uint8Array): void {
+      this.sends.push(data);
+    }
+    close(): void {}
+    addEventListener(): void {}
+  }
+  const sock: WsLike = new Recording();
+  sock.send(JSON.stringify({ type: "heartbeat" }));
+  sock.send(new Uint8Array([9, 8, 7]));
+  expect(sock instanceof Recording).toBe(true);
+  const recorded = (sock as Recording).sends;
+  expect(typeof recorded[0]).toBe("string");
+  expect(recorded[1]).toEqual(new Uint8Array([9, 8, 7]));
 });
 
 test("commands run SERIALLY in arrival order (spec §3.4): the second starts only after the first's promise resolves", async () => {
@@ -1226,13 +1322,16 @@ test("a throwing subshells_report scan is catch-logged, never fatal to the conne
  * after its close? — which plane-side event counts cannot answer (the dead
  * socket delivers nothing).
  */
-function wrapRealWs(sockets: Array<{ sends: string[] }>, state: { throwOnSend: boolean }): WsConstructor {
+function wrapRealWs(
+  sockets: Array<{ sends: Array<string | Uint8Array> }>,
+  state: { throwOnSend: boolean },
+): WsConstructor {
   const Real = globalThis.WebSocket as unknown as new (
     url: string,
     opts?: { headers?: Record<string, string> },
   ) => WsLike;
   class Wrapped {
-    readonly sends: string[] = [];
+    readonly sends: Array<string | Uint8Array> = [];
     private readonly inner: WsLike;
     constructor(url: string, opts?: { headers?: Record<string, string> }) {
       this.inner = new Real(url, opts);
@@ -1241,7 +1340,7 @@ function wrapRealWs(sockets: Array<{ sends: string[] }>, state: { throwOnSend: b
     get readyState(): number {
       return this.inner.readyState;
     }
-    send(data: string): void {
+    send(data: string | Uint8Array): void {
       this.sends.push(data);
       if (state.throwOnSend) throw new Error("ws.send exploded");
       this.inner.send(data);
@@ -1257,10 +1356,15 @@ function wrapRealWs(sockets: Array<{ sends: string[] }>, state: { throwOnSend: b
   return Wrapped as unknown as WsConstructor;
 }
 
-/** How many of a wrapped socket's recorded sends were `inventory` events. */
-function inventorySendCount(sock: { sends: string[] } | undefined): number {
+/**
+ * How many of a wrapped socket's recorded TEXT sends were `inventory` events.
+ * (Binary sends exist on the socket from task 9 on — they are ciphertext,
+ * never an inventory event, so they parse-fail out of this count by shape.)
+ */
+function inventorySendCount(sock: { sends: Array<string | Uint8Array> } | undefined): number {
   if (!sock) return 0;
   return sock.sends.filter((s) => {
+    if (typeof s !== "string") return false;
     try {
       return (JSON.parse(s) as { type?: string }).type === "inventory";
     } catch {
@@ -1270,7 +1374,7 @@ function inventorySendCount(sock: { sends: string[] } | undefined): number {
 }
 
 test("periodic inventory: ticks push on the interval; close clears the loop; the reconnect arms exactly one", async () => {
-  const sockets: Array<{ sends: string[] }> = [];
+  const sockets: Array<{ sends: Array<string | Uint8Array> }> = [];
   const h = await startDaemon({ inventoryMs: 40, WebSocketImpl: wrapRealWs(sockets, { throwOnSend: false }) });
   // Connect push + two periodic ticks (T8b pinned the beat's existence and
   // order; this pins that it REPEATS and lands on the live socket).
@@ -1293,7 +1397,7 @@ test("periodic inventory: ticks push on the interval; close clears the loop; the
 
 test("a throwing send does not kill the periodic loop: later ticks still deliver", async () => {
   const state = { throwOnSend: false };
-  const sockets: Array<{ sends: string[] }> = [];
+  const sockets: Array<{ sends: Array<string | Uint8Array> }> = [];
   const h = await startDaemon({ inventoryMs: 40, WebSocketImpl: wrapRealWs(sockets, state) });
   await waitFor(h, () => count(h, (e) => e.type === "inventory") >= 2, "connect push + first tick");
   const { lines, restore } = captureLogs();

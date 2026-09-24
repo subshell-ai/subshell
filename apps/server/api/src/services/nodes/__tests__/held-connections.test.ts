@@ -29,7 +29,7 @@ import { sendCommand } from "../node-rpc.js";
  */
 
 interface FakeSocket extends NodeSocket {
-  sent: string[];
+  sent: Array<string | Buffer>;
   closed: { code?: number; reason?: string }[];
 }
 
@@ -37,7 +37,7 @@ function fakeSocket(): FakeSocket {
   return {
     sent: [],
     closed: [],
-    send(data: string) {
+    send(data: string | Buffer) {
       this.sent.push(data);
       return data.length;
     },
