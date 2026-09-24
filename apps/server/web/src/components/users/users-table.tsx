@@ -62,7 +62,13 @@ export function UsersTable({
             <th className="pr-4 pb-2 font-strong">Email</th>
             <th className="pr-4 pb-2 font-strong">Role</th>
             <th className="pr-4 pb-2 font-strong">Created</th>
-            <th className="pb-2 font-strong">Manage</th>
+            {/* The Nodes table's idiom: no visible title above a column of
+                kebab buttons, because a "Manage" header over rows that say
+                "Your account" or "Service account" reads as controls that
+                failed to render. Screen readers still get the column name. */}
+            <th className="pb-2 text-right font-strong">
+              <span className="sr-only">Actions</span>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -88,7 +94,7 @@ export function UsersTable({
               <td className="py-2 pr-4 text-muted-foreground">
                 {u.createdAt ? new Date(u.createdAt).toLocaleString() : "—"}
               </td>
-              <td className="py-2">
+              <td className="py-2 text-right">
                 {u.manageable === false ? (
                   <span className="text-detail text-muted-foreground">Service account</span>
                 ) : (

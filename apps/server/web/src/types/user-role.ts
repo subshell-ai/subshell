@@ -16,11 +16,13 @@ export const USER_ROLE_LABELS: Record<UserRole, string> = { admin: "Admin", user
 /**
  * The roles as a Base UI Select root wants them.
  *
- * Both role selects — the Add user dialog and the per-row one — pass this as
- * `items`, because Base UI's `Value` renders the RAW value and a root whose
- * labels differ from its values otherwise shows a trigger reading "admin"
- * under a menu reading "Admin" (see `components/ui/select.tsx`). One list, so
- * the two controls on the page cannot spell a role two ways.
+ * The Add user dialog's role select passes this as `items`, because Base UI's
+ * `Value` renders the RAW value and a root whose labels differ from its values
+ * otherwise shows a trigger reading "admin" under a menu reading "Admin" (see
+ * `components/ui/select.tsx`). The per-row control became an action menu on
+ * 2026-09-24 (spec 2026-09-24-users-table-manage-column) and no longer reads
+ * this list — but the menu's item and the Add dialog's option still name the
+ * same role the same way because both trace to `USER_ROLE_LABELS`.
  */
 export const USER_ROLE_OPTIONS: { value: UserRole; label: string }[] = USER_ROLES.map((value) => ({
   value,

@@ -1,5 +1,7 @@
 import { apiFetch, Button, errMessage, Input, Label } from "@internal/node-admin";
+import { KeyRound, ShieldCheck, ShieldOff, UserCheck, UserX } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import {
   Dialog,
   DialogContent,
@@ -8,35 +10,45 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PASSWORD_REQUIREMENT, passwordTooShort } from "@/lib/password";
-import { asUserRole, USER_ROLE_OPTIONS, type UserRole } from "@/types/user-role";
+import { asUserRole, USER_ROLE_LABELS, type UserRole } from "@/types/user-role";
 
 /**
- * Per-user admin controls on `/settings/users`: reassign the role, reset the
- * password, and disable or re-enable the account.
+ * Per-user admin controls on `/settings/users`: one action menu offering the
+ * role flip, the password reset, and the disable or re-enable.
  *
  * All three are server-gated (`requireAdmin`, cookie-only); these controls
  * render only for a cookie admin, which is presentation, never the boundary.
  *
- * The copy carries what the mechanism cannot:
+ * It is the shared `ActionsMenu` (the Nodes rows drive the same component)
+ * because this table sits beside every other roster in the app, and the last
+ * one still spreading three inline widgets reads as a different product. The
+ * column header it sits under is visually empty for the same reason the Nodes
+ * table's is: a `Manage` title above rows whose only content is "Your account"
+ * or "Service account" reads as a control that failed to render, not as the
+ * statement that the row is not manageable.
+ *
+ * The copy carries what the mechanism cannot (terse by operator ruling,
+ * 2026-09-24 — each fact named once, nothing restored without asking):
  *
  * - a reset and a disable both **sign the user out everywhere**, which is the
  *   point of them and also a surprise if unannounced, and neither notifies
  *   anyone — there is no email on this instance;
  * - since the 2026-09-24 ruling a disable also **takes the account's enrolled
  *   nodes offline** (they reconnect on their own within a minute of a
- *   re-enable), and the confirmation says so: the admin presses it, so the
- *   admin hears what it costs;
+ *   re-enable), so the one word `nodes` in the confirmation carries that
+ *   state: the admin presses it, so the admin hears what it costs;
  * - the new password is shown to the admin ONCE, because they have to be able
  *   to read what they set in order to pass it on;
- * - the last admin can be neither demoted nor disabled — surfaced as the
- *   server's own 409 message rather than a guess made client-side, so the two
- *   can never disagree about when it applies.
+ * - the last admin cannot be demoted, and the last ENABLED admin cannot be
+ *   disabled — two rules, one for each direction of the flip and the disable.
+ *   Both are surfaced as the server's own 409 message rather than a client-side
+ *   guess, so the two can never disagree about when they apply.
  */
 export interface UserRowActionsProps {
-  /** The user this row is for. */
-  user: { id: string; email: string; role: UserRole | string | null; disabled?: boolean };
+  /** The user this row is for. `role` is a raw string (null = no `user_meta`
+   * row), narrowed through `asUserRole` below, not a pre-narrowed UserRole. */
+  user: { id: string; email: string; role: string | null; disabled?: boolean };
   /** The signed-in admin's own id — self gets no controls at all. */
   viewerId: string | null;
   /** Refetch the roster after a change. */
@@ -83,10 +95,19 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
     errorTimer.current = setTimeout(() => setError(null), 8000);
   }
 
-  async function changeRole(role: string): Promise<void> {
-    if (role === (user.role ?? "user")) return;
-    setBusy(true);
+  /**
+   * Takes back the error AND its retire timer — every path that clears `error`
+   * early (dialog close, dialog open) uses this so no orphaned callback can
+   * outlive the message it was scheduled to erase.
+   */
+  function clearError(): void {
+    if (errorTimer.current) clearTimeout(errorTimer.current);
     setError(null);
+  }
+
+  async function changeRole(role: UserRole): Promise<void> {
+    setBusy(true);
+    clearError();
     try {
       await apiFetch(`/api/users/${user.id}/role`, { method: "PATCH", body: JSON.stringify({ role }) });
       onChanged();
@@ -102,7 +123,7 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
 
   async function resetPassword(): Promise<void> {
     setBusy(true);
-    setError(null);
+    clearError();
     try {
       const res = await apiFetch<{ sessionsRevoked: number }>(`/api/users/${user.id}/password`, {
         method: "PATCH",
@@ -126,7 +147,7 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
    */
   async function setDisabled(disabled: boolean): Promise<void> {
     setBusy(true);
-    setError(null);
+    clearError();
     try {
       const res = await apiFetch<{ sessionsRevoked: number }>(`/api/users/${user.id}/disabled`, {
         method: "PATCH",
@@ -147,69 +168,79 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
 
   function closeReset(): void {
     setResetOpen(false);
-    if (errorTimer.current) clearTimeout(errorTimer.current);
     // Cleared on close, not on open: the password must not survive in memory
     // (or in a re-opened dialog) after the admin has finished with it.
     setPassword("");
     setDone(null);
-    setError(null);
+    clearError();
   }
 
   function closeDisable(): void {
     setDisableOpen(false);
     setDisabledDone(null);
-    setError(null);
+    clearError();
   }
 
-  // Nothing at all on your own row. The role select was the last one standing,
-  // and it is the worst of them: an admin who demotes or disables themselves
-  // has removed their own administration, and nothing short of another admin
-  // — which an instance need not have — puts it back. The Role column's badge
-  // still says what the role is, so this hides no fact, only every lever.
+  // Nothing at all on your own row: every one of the three is a way to remove
+  // your own administration, and nothing short of another admin — which an
+  // instance need not have — puts it back. The Role column's badge still says
+  // what the role is, so this hides no fact, only every lever.
   if (isSelf) {
     return <span className="text-detail text-muted-foreground">Your account</span>;
   }
 
+  const roleTarget: UserRole = asUserRole(user.role) === "admin" ? "user" : "admin";
+  const items: ActionItem[] = [
+    {
+      // One item named by the TARGET role — the flip's answer, not its
+      // question — with the word traced to USER_ROLE_LABELS so menu and badge
+      // cannot spell a role differently. Sentence-cased into the item the way
+      // every menu in the app spells its actions.
+      label: `${roleTarget === "admin" ? "Promote to" : "Demote to"} ${USER_ROLE_LABELS[roleTarget].toLowerCase()}`,
+      icon: roleTarget === "admin" ? ShieldCheck : ShieldOff,
+      onSelect: () => void changeRole(roleTarget),
+    },
+    {
+      // A reset here never applies to the viewer (the self row returned
+      // above): Account is the path that requires the current password, and
+      // offering both would make the weaker one the obvious choice.
+      label: "Reset password",
+      icon: KeyRound,
+      // Clears the row error first, for the same reason the disable item does:
+      // the dialog renders `error` itself, so a stale refusal from another act
+      // would be misattributed to this one. closeReset already clears on the
+      // way out, but not every open is preceded by a close.
+      onSelect: () => {
+        clearError();
+        setResetOpen(true);
+      },
+    },
+    user.disabled
+      ? { label: "Enable account", icon: UserCheck, onSelect: () => void setDisabled(false) }
+      : // The only red item: it locks a person out until an admin returns.
+        // Demotion loses no session and is undone by the item's other half one
+        // click away, so it stays neutral.
+        {
+          label: "Disable account",
+          icon: UserX,
+          destructive: true,
+          // Clears the row error first: the in-dialog alert shows `error`, so
+          // a role-flip refusal still inside its 8 s window would otherwise
+          // be misattributed to the act being confirmed here.
+          onSelect: () => {
+            clearError();
+            setDisableOpen(true);
+          },
+        },
+  ];
+
   return (
-    <div className="flex items-center gap-2">
-      <Select
-        value={asUserRole(user.role)}
-        onValueChange={(v) => void changeRole(v ?? "user")}
-        // Base UI's Value prints the raw value without this map, so the closed
-        // trigger read "admin" under a menu item reading "Admin".
-        items={USER_ROLE_OPTIONS}
-        disabled={busy}
-      >
-        <SelectTrigger className="h-8 w-28" aria-label={`Role for ${user.email}`}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {USER_ROLE_OPTIONS.map((o) => (
-            <SelectItem key={o.value} value={o.value}>
-              {o.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+    <div className="flex items-center justify-end gap-2">
+      <ActionsMenu label={user.email} items={items} disabled={busy} />
 
-      {/* A reset here never applies to the viewer (the self row returned
-          above): Account is the path that requires the current password, and
-          offering both would make the weaker one the obvious choice. */}
-      <Button variant="outline" size="sm" disabled={busy} onClick={() => setResetOpen(true)}>
-        Reset password
-      </Button>
-
-      {user.disabled ? (
-        <Button variant="outline" size="sm" disabled={busy} onClick={() => void setDisabled(false)}>
-          Enable
-        </Button>
-      ) : (
-        <Button variant="outline" size="sm" disabled={busy} onClick={() => setDisableOpen(true)}>
-          Disable
-        </Button>
-      )}
-
-      {error && !disableOpen && (
+      {/* Gated by both modals: a refusal met INSIDE a dialog belongs to the
+          dialog (it renders `error` there), not to the row behind the scrim. */}
+      {error && !disableOpen && !resetOpen && (
         <span role="alert" className="text-destructive text-detail">
           {error}
         </span>
@@ -218,10 +249,12 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
       <Dialog open={resetOpen} onOpenChange={(open) => (open ? setResetOpen(true) : closeReset())}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reset password for {user.email}</DialogTitle>
+            {/* One static title for a repeated act, and the email in the body
+                where the sentence needs it: the title says what the dialog IS,
+                the body says who it lands on. */}
+            <DialogTitle>Reset password</DialogTitle>
             <DialogDescription>
-              Sets a new password immediately and signs this user out of every device. They are not notified: there is
-              no email on this instance, so pass the password on yourself.
+              Sets a new password for {user.email} and signs them out of every device. They won't be notified.
             </DialogDescription>
           </DialogHeader>
 
@@ -249,6 +282,13 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={PASSWORD_REQUIREMENT}
               />
+              {/* Same rule as the disable dialog: the refusal an admin meets
+                  here renders here, not on the row behind the scrim. */}
+              {error && (
+                <p role="alert" className="text-destructive text-detail">
+                  {error}
+                </p>
+              )}
             </div>
           )}
 
@@ -272,12 +312,10 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
       <Dialog open={disableOpen} onOpenChange={(open) => (open ? setDisableOpen(true) : closeDisable())}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Disable {user.email}</DialogTitle>
+            <DialogTitle>Disable account</DialogTitle>
             <DialogDescription>
-              They can no longer sign in, they are signed out of every device, every credential they hold stops working,
-              their API keys and running subshells' tokens included, and any nodes they enrolled disconnect and stay
-              offline until they are re-enabled. They are not notified: there is no email on this instance, so tell them
-              yourself.
+              Everything stops for {user.email}: sign-in, their sessions, their keys and subshells, their nodes. They
+              won't be notified.
             </DialogDescription>
           </DialogHeader>
 
