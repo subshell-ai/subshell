@@ -730,11 +730,17 @@ export class SubshellsService extends BaseService {
    * @throws ApiError 409 NODE_OFFLINE when the row's agent node has no live
    *         connection (spec §5.6) — the manager has already rolled the
    *         parked row back and retired the token before this boundary.
+   * @throws ApiError 400 INVALID_PRESET when the swap preset is unknown, not
+   *         the caller's, or from another harness (spec 2026-09-23 §2).
+   * @param swapPresetTo - the optional preset swap riding this restart
+   *         (spec 2026-09-23): `null` = swap to presetless, `undefined` = no
+   *         swap. Validated here, written by the manager at the swap point.
    */
   async restartSubshell(
     viewerId: string,
     id: string,
     actor: GuardActor,
+    swapPresetTo?: string | null,
   ): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     const { row } = await this.#gate(viewerId, id, "edit", actor);
     // A restart IS a launch, and this path never touches `resolveLaunchNode`
@@ -751,7 +757,24 @@ export class SubshellsService extends BaseService {
         doNotLog: true,
       });
     }
-    const revived = await this.#manager.restartSubshell(row.userId, id).catch(rethrowLaunchRefusal);
+    // The swap is validated HERE — after the gate and every 409 refusal,
+    // before the manager kills anything — so a refused restart never changes
+    // the preset (spec 2026-09-23 §2). The preset must be the CALLER's (the
+    // same per-user rule create enforces; a bearer/system actor resolves to
+    // the owner, so its swap lands on the owner's own presets), and one of
+    // this row's harness: a harness switch on a live row would silently
+    // resume another agent's transcript in a different CLI.
+    if (swapPresetTo !== undefined && swapPresetTo !== null) {
+      const preset = await this.repos.presets.findById(swapPresetTo);
+      if (!preset || preset.userId !== viewerId || preset.harnessId !== row.harnessId) {
+        throwApiError({
+          code: BackendErrorCodes.INVALID_PRESET,
+          message: "The preset must exist, belong to you, and match the subshell's harness",
+          doNotLog: true,
+        });
+      }
+    }
+    const revived = await this.#manager.restartSubshell(row.userId, id, swapPresetTo).catch(rethrowLaunchRefusal);
     if (!revived) {
       throw new SubshellError("not_found", "Subshell not found");
     }

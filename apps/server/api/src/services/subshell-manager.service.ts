@@ -700,8 +700,18 @@ export class SubshellManagerService {
    *         `terminated` + token revoked on the way out, so a failed restart
    *         leaves a dead-and-restartable row, never a `running` zombie the
    *         sweep would auto-revive.
+   * @param swapPresetTo - the optional preset swap of spec 2026-09-23 §2,
+   *         applied at the swap point (after the kill, before `parkForRestart`)
+   *         and read by `#reviveRow`'s fresh re-read below: `null` = swap to
+   *         presetless, `undefined`/unchanged = no swap (no write, no audit).
+   *         A refusal that threw before this point — the service's, or the
+   *         offline kill here — never moves the column.
    */
-  async restartSubshell(userId: string, sourceId: string): Promise<{ id: string; tmuxSocket: string } | null> {
+  async restartSubshell(
+    userId: string,
+    sourceId: string,
+    swapPresetTo?: string | null,
+  ): Promise<{ id: string; tmuxSocket: string } | null> {
     // Ownership is checked BEFORE consulting the lease, so a foreign caller
     // can never ride another principal's in-flight restart for the id's info.
     const source = await this.#subshells.findById(sourceId);
@@ -716,6 +726,20 @@ export class SubshellManagerService {
         // (an offline agent answers NodeRpcError("offline"), which the
         // service maps to the 409 NODE_OFFLINE of spec §5.6).
         await this.#launcherFor(source.nodeId).killSubshell(source.tmuxSocket, source.id);
+      }
+      // The swap point (spec 2026-09-23): written only once the kill proved
+      // the node reachable, and read fresh by #reviveRow's row re-read below.
+      // A refusal that threw earlier leaves the column untouched; an
+      // unchanged target is not a swap (no write, no audit row).
+      if (swapPresetTo !== undefined && swapPresetTo !== source.presetId) {
+        await this.#subshells.update(source.id, { presetId: swapPresetTo });
+        await this.#audit({
+          actorUserId: userId,
+          action: "subshell.preset_switch",
+          targetType: "subshell",
+          targetId: source.id,
+          metadataJson: JSON.stringify({ name: source.name, presetId: swapPresetTo }),
+        });
       }
       // Conditional park: succeeds only if the row is still where we read it.
       // A terminate/delete in the window flips status/alive, so this no-ops
