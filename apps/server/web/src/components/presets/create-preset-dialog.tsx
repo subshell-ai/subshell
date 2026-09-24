@@ -20,9 +20,17 @@ import type { PresetRow } from "@/types/preset";
  * launch dialog, where the Agent was just chosen and only its presets make
  * sense — the agent renders as static text and rides the POST.
  *
+ * A third posture: with `initialForm` the form starts from a seed carried
+ * over from an existing preset — a CLONE. The header reads "Clone preset",
+ * but the POST is still a plain create, and the caller passes
+ * `lockedHarness` = the source's because a preset's harness is immutable.
+ *
  * Base UI nests dialogs natively, so mounting this inside the launch dialog
  * works: Escape closes this one first. The mount IS the open (clone-dialog
- * posture): every open starts from a blank form and a cleared error for free.
+ * posture): every open starts from a blank form and a cleared error for free,
+ * and in the clone posture from a fresh seed of the then-current source, so a
+ * second Clone starts from the preset as it is now, not as it was when the
+ * first dialog mounted.
  * A successful create invalidates the preset list (in `useCreatePreset`) and
  * hands the row to `onCreated` — the launch form selects it.
  */
@@ -30,17 +38,27 @@ export function CreatePresetDialog({
   open,
   onOpenChange,
   lockedHarness,
+  initialForm,
   onCreated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Agent id to lock the form to; absent = the unlocked /presets posture */
   lockedHarness?: string;
+  /** The clone posture: form values carried over from an existing preset
+   * (seeded name/env/flags/restart). The caller also passes
+   * `lockedHarness` = the source's, because a preset's harness is immutable
+   * and a clone stays with its agent. The POST is still a plain create. */
+  initialForm?: PresetFormValue;
   /** Called with the created row (after the list invalidation) */
   onCreated?: (row: PresetRow) => void;
 }): JSX.Element {
   const [form, setForm] = useState<PresetFormValue>(() =>
-    lockedHarness ? { ...emptyPresetForm(), harnessId: lockedHarness } : emptyPresetForm(),
+    initialForm !== undefined
+      ? initialForm
+      : lockedHarness
+        ? { ...emptyPresetForm(), harnessId: lockedHarness }
+        : emptyPresetForm(),
   );
   const create = useCreatePreset();
   // Only for the locked title's agent NAME — the catalog is already cached by
@@ -70,7 +88,13 @@ export function CreatePresetDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl" onClick={(e) => e.stopPropagation()}>
         <DialogHeader>
-          <DialogTitle>{lockedHarness !== undefined ? `New preset for ${lockedName}` : "Create preset"}</DialogTitle>
+          <DialogTitle>
+            {initialForm !== undefined
+              ? "Clone preset"
+              : lockedHarness !== undefined
+                ? `New preset for ${lockedName}`
+                : "Create preset"}
+          </DialogTitle>
           <DialogDescription>
             Saved flags, env vars and restart policy.
             {lockedHarness !== undefined
