@@ -273,7 +273,7 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                     disabled={install.isPending}
                     onClick={() => install.mutate(h.harnessId)}
                   >
-                    {installingId === h.harnessId && <LoaderCircle aria-hidden className="animate-spin" />}
+                    {installingId === h.harnessId && <LoaderCircle aria-hidden className="motion-safe:animate-spin" />}
                     {installingId === h.harnessId ? "Installing…" : "Install"}
                   </Button>
                 ) : (

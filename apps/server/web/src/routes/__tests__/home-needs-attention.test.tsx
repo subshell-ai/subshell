@@ -61,8 +61,10 @@ function mount(subshells: SubshellView[], entry = "/"): () => void {
     const body = url.includes("/api/subshells")
       ? subshells
       : url.includes("/api/nodes")
-        ? // The card's node pill reads `useNodes()` (`GET /api/nodes`), whose
-          // shape is the `{ nodes }` envelope, not a bare array.
+        ? // The PAGE reads `useNodes()` (`GET /api/nodes`) to name its machine
+          // sections — the label ladder's source (the cards' node pill that
+          // used to need it is retired) — and the route's shape is the
+          // `{ nodes }` envelope, not a bare array.
           { nodes: [] }
         : url.includes("/api/settings/public")
           ? { viewerIsAdmin: false, instanceName: "Test plane" }

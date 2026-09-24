@@ -83,7 +83,7 @@ export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
             {/* The POST blocks for the node's whole download-and-restart window,
                 up to five minutes, so a bare disabled button reads as nothing
                 happening. */}
-            {updating && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
+            {updating && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 motion-safe:animate-spin" />}
             {updating ? "Updating…" : "Update to latest"}
           </Button>
         </div>

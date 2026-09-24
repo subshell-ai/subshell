@@ -50,7 +50,7 @@ export function AgentRow({
                 host, which can sit for a while on a slow network. A label
                 that changes once and then holds still for a minute is how a
                 working button comes to look like a wedged one. */}
-            {installing && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
+            {installing && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 motion-safe:animate-spin" />}
             {installing ? "Installing…" : "Install"}
           </Button>
         )}

@@ -214,12 +214,11 @@ describe("the rail's subshell list, grouped by node", () => {
         expect(header.textContent).toContain("mac-pro");
         expect(header.textContent).not.toContain("unknown node");
         // The reveal is a styled tooltip popup since 2026-09-24 (the rows'
-        // zoom reason): the label span carries the trigger marker, and the
-        // popup's content is the full id — pinned at `ui/tooltip` level, so
-        // here the trigger's presence on the label is the assertion.
-        const label = header.querySelector("span");
-        expect(label?.getAttribute("title")).toBeNull();
-        expect(label?.hasAttribute("data-base-ui-tooltip-trigger")).toBe(true);
+        // zoom reason), and its trigger is the HEADER BUTTON itself — the
+        // focusable element the reveal must be keyboard-reachable on (round-4
+        // review: a span trigger inside the button could never see focus).
+        expect(header.querySelector("span")?.getAttribute("title")).toBeNull();
+        expect(header.hasAttribute("data-base-ui-tooltip-trigger")).toBe(true);
       },
       { failNodes: true },
     );
@@ -258,32 +257,34 @@ describe("the rail's subshell list, grouped by node", () => {
       await waitFor(() => expect(groupHeaders()).toHaveLength(1));
       expect(groupHeader("gone-node-xyz").textContent).toContain("unknown node");
       // Same popup shape as the cold-failure case: trigger marker on the
-      // label, no leftover native title. (Focus-openable like the rows —
-      // Base UI's focus path — and the reveal TEXT is the full id, pinned by
-      // the focus-driven row tests' idiom and the group's own title prop.)
-      const label = groupHeader("gone-node-xyz").querySelector("span");
-      expect(label?.getAttribute("title")).toBeNull();
-      expect(label?.hasAttribute("data-base-ui-tooltip-trigger")).toBe(true);
+      // button, no leftover native title anywhere in the header.
+      const header = groupHeader("gone-node-xyz");
+      expect(header.getAttribute("title")).toBeNull();
+      expect(header.querySelector("span")?.getAttribute("title")).toBeNull();
+      expect(header.hasAttribute("data-base-ui-tooltip-trigger")).toBe(true);
     });
   });
 
   it("opens the header reveal on focus, showing the full id", async () => {
     await withRail([subshell({ id: "a", nodeId: "gone-node-xyz" })], async () => {
       await waitFor(() => expect(groupHeaders()).toHaveLength(1));
-      const label = groupHeader("gone-node-xyz").querySelector("span");
-      fireEvent.focus(label as Element);
+      // Focus the BUTTON — what a keyboard user actually focuses. This is
+      // real behavior now because the trigger merged onto it via `render`.
+      fireEvent.focus(groupHeader("gone-node-xyz"));
       // The full id exists in the DOM nowhere else on the rail while shut —
       // finding it IS the popup.
       expect(await screen.findByText("gone-node-xyz")).toBeTruthy();
     });
   });
 
-  it("gives a RESOLVED header no tooltip at all — the hover would repeat its own name", async () => {
+  it("gives a RESOLVED header no popup — the hover would repeat its own name", async () => {
     await withRail([subshell({ id: "a", name: "one", nodeId: "n1" })], async () => {
       await waitFor(() => expect(groupHeaders()).toHaveLength(1));
-      const label = groupHeader("n1").querySelector("span");
-      expect(label?.hasAttribute("data-base-ui-tooltip-trigger")).toBe(false);
-      expect(label?.getAttribute("title")).toBeNull();
+      fireEvent.focus(groupHeader("n1"));
+      // Past the 300 ms open delay: still nothing. The header has no hover
+      // content, because its hover would say only "mac-mini" again.
+      await new Promise((r) => setTimeout(r, 450));
+      expect(document.querySelector("[class*='text-body']")).toBeNull();
     });
   });
 

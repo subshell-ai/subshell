@@ -67,40 +67,42 @@ export function SubshellNodeGroup({
   // and a DOM id derived from a name could collide or carry characters that
   // make the `aria-controls` selector unreliable.
   const listId = `sidebar-node-group-${nodeId}`;
+  const headerButton = (
+    <button
+      type="button"
+      onClick={disabled ? undefined : onToggle}
+      disabled={disabled}
+      aria-expanded={open}
+      aria-controls={listId}
+      className={cn(
+        "flex w-full cursor-pointer items-center gap-2 rounded-md py-1 pr-2 pl-3 text-detail text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground",
+        disabled && "pointer-events-none",
+      )}
+    />
+  );
+  const headerBody = (
+    <>
+      <span className="min-w-0 flex-1 truncate text-left font-strong">{label}</span>
+      <span className="shrink-0 tabular-nums opacity-70">{count}</span>
+      <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform duration-200", !open && "-rotate-90")} />
+    </>
+  );
+  // The trigger is the BUTTON, not a span inside it: focus lands on the
+  // button and a nested trigger's handler would never see it — the reveal is
+  // keyboard-reachable only because it merges onto the focusable element.
+  // (Review round 4 caught a span trigger plus a focus test asserting
+  // behavior a browser cannot show.) When the hover would only repeat the
+  // heading there is no content: a trigger with nothing to show stays silent.
   return (
     <div>
-      <button
-        type="button"
-        onClick={disabled ? undefined : onToggle}
-        disabled={disabled}
-        aria-expanded={open}
-        aria-controls={listId}
-        className={cn(
-          "flex w-full cursor-pointer items-center gap-2 rounded-md py-1 pr-2 pl-3 text-detail text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground",
-          disabled && "pointer-events-none",
-        )}
-      >
-        {title === label ? (
-          <span className="min-w-0 flex-1 truncate text-left font-strong">{label}</span>
-        ) : (
-          <TooltipProvider delay={300}>
-            <Tooltip>
-              <TooltipTrigger
-                // The tooltip's own inertness follows the header's: while the
-                // rail filters, the header is a static label and its reveal
-                // should not open either.
-                disabled={disabled}
-                render={<span className="min-w-0 flex-1 truncate text-left font-strong" />}
-              >
-                {label}
-              </TooltipTrigger>
-              <TooltipContent>{title}</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
-        <span className="shrink-0 tabular-nums opacity-70">{count}</span>
-        <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform duration-200", !open && "-rotate-90")} />
-      </button>
+      <TooltipProvider delay={300}>
+        <Tooltip>
+          <TooltipTrigger disabled={disabled} render={headerButton}>
+            {headerBody}
+          </TooltipTrigger>
+          {title === label ? null : <TooltipContent>{title}</TooltipContent>}
+        </Tooltip>
+      </TooltipProvider>
       <div id={listId} className={cn(!open && "hidden")}>
         {children}
       </div>

@@ -105,10 +105,14 @@ function SubshellsPage() {
   // Rail order in, exactly as the sidebar's grouping expects it: status band
   // first (waiting → working → idle → offline → exited → ended), groups then
   // ranked by their liveliest member. `priorityRunning` first because the
-  // sort is stable: unanswered pushes lead WITHIN their band, which is the
-  // 2026-09-24 attention rule surviving the machine segmentation (it used to
-  // lead the flat Running list). No memo — `filtered` is a fresh array every
-  // render, so there would be nothing to hit.
+  // sort is stable: its ranked rows — bell-on AND currently-waiting — lead
+  // WITHIN their band, the rule that led the flat Running list surviving the
+  // machine segmentation. Distinct from the spotlight above, which selects on
+  // the UNSEEN-PUSH signal: a resumed row clears the waiting stamp without
+  // clearing the bell, so the two lists read different fields (the confusion
+  // `needsAttention`'s own docblock warns about, named here so the ordering
+  // comment is not a second source for it). No memo — `filtered` is a fresh
+  // array every render, so there would be nothing to hit.
   const machineGroups = groupSubshellsByNode(sortByStatus(priorityRunning(filtered)), nodeData?.nodes, {
     unanswered,
   });
@@ -232,9 +236,9 @@ function SubshellsPage() {
 
       {!isLoading && filtered.length > 0 && view === "tiled" && (
         <>
-          {/* The attention heading is a fixed string, and its hover text
-              would say the same thing — same-value title is the honest no-id
-              case for a section that is not a machine. */}
+          {/* Not a machine, so there is no id to reveal: label and title are
+              one string, and TileSection's equal-title branch renders this
+              heading with no tooltip at all. */}
           <TileSection label="Needs Attention" title="Needs Attention" subshells={attention} />
           {machineGroups.map((g) => (
             <TileSection key={g.nodeId} label={g.label} title={g.title} subshells={g.subshells} />

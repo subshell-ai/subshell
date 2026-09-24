@@ -152,12 +152,12 @@ export function ServerRow({
           {/* The wait runs into minutes and the page loses its server in the
               middle of it, so a static sentence reads as a page that has
               stopped rather than one that is working. */}
-          <LoaderCircle className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+          <LoaderCircle className="h-4 w-4 shrink-0 motion-safe:animate-spin" aria-hidden />
           <span>{jobLine(job)}</span>
         </p>
       ) : update.outcome === "waiting" ? (
         <p className="col-span-full flex items-center gap-2 text-sm text-warning">
-          <LoaderCircle className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+          <LoaderCircle className="h-4 w-4 shrink-0 motion-safe:animate-spin" aria-hidden />
           <span>Restarting… waiting for the server to come back.</span>
         </p>
       ) : null}
