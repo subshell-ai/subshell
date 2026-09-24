@@ -717,7 +717,11 @@ export class SubshellManagerService {
     const source = await this.#subshells.findById(sourceId);
     if (!source || source.userId !== userId) return null;
     const existing = restartInFlight.get(sourceId);
-    if (existing) return existing; // same owner, already restarting — join it
+    // Same owner, already restarting — join it. A JOINED caller whose restart
+    // carried a swap applies only the FIRST caller's: the lease joins the whole
+    // revival (spec 2026-09-23 keeps it), so the joiner's 200 means the restart
+    // happened, not that its presetId was the one revived.
+    if (existing) return existing;
     const run = (async (): Promise<{ id: string; tmuxSocket: string } | null> => {
       if (source.alive === 1 && source.tmuxSocket) {
         // killSubshell swallows "already gone"; the tree dies with its baked
@@ -731,6 +735,9 @@ export class SubshellManagerService {
       // the node reachable, and read fresh by #reviveRow's row re-read below.
       // A refusal that threw earlier leaves the column untouched; an
       // unchanged target is not a swap (no write, no audit row).
+      // The comparison reads `source`, captured before the kill: a concurrent
+      // preset delete nulling dangling references can make this a no-op write
+      // + audit row; the row stays valid and honest either way.
       if (swapPresetTo !== undefined && swapPresetTo !== source.presetId) {
         await this.#subshells.update(source.id, { presetId: swapPresetTo });
         await this.#audit({

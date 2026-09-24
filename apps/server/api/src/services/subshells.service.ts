@@ -760,10 +760,12 @@ export class SubshellsService extends BaseService {
     // The swap is validated HERE — after the gate and every 409 refusal,
     // before the manager kills anything — so a refused restart never changes
     // the preset (spec 2026-09-23 §2). The preset must be the CALLER's (the
-    // same per-user rule create enforces; a bearer/system actor resolves to
-    // the owner, so its swap lands on the owner's own presets), and one of
-    // this row's harness: a harness switch on a live row would silently
-    // resume another agent's transcript in a different CLI.
+    // same per-user rule create enforces): a pane-token actor resolves through
+    // the guard as its row's owner, so its swap lands on the owner's presets;
+    // the system service user owns nothing and holds no grants, so the edit
+    // gate above refuses it before this validation. And one of this row's
+    // harness: a harness switch on a live row would silently resume another
+    // agent's transcript in a different CLI.
     if (swapPresetTo !== undefined && swapPresetTo !== null) {
       const preset = await this.repos.presets.findById(swapPresetTo);
       if (!preset || preset.userId !== viewerId || preset.harnessId !== row.harnessId) {

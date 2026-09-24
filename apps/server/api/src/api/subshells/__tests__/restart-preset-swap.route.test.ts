@@ -330,11 +330,19 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
 
   it("an offline node 409s with the preset untouched (the kill precedes the swap point)", async () => {
     const sim = attachScriptedNode(nodeLive, LIFECYCLE);
-    const id = await createOnLive("swap-offline");
-    sim.detach(); // the row is alive=1 with no connection: the kill fires first and fails
-    const res = await restart(id, { cookie: ownerCookie, body: { presetId: presetB } });
-    expect(res.status).toBe(409);
-    expect((await errorBody(res)).code).toBe("NODE_OFFLINE");
-    expect(await rowPreset(id)).toBe(presetA);
+    try {
+      const id = await createOnLive("swap-offline");
+      sim.detach(); // the row is alive=1 with no connection: the kill fires first and fails
+      const res = await restart(id, { cookie: ownerCookie, body: { presetId: presetB } });
+      expect(res.status).toBe(409);
+      expect((await errorBody(res)).code).toBe("NODE_OFFLINE");
+      expect(await rowPreset(id)).toBe(presetA);
+    } finally {
+      // The detach above is the mechanism of the test, but an expect that
+      // throws before it would leave the sim attached for the whole suite;
+      // detachConnection is guarded by socket identity, so this is a no-op
+      // when the body already detached.
+      sim.detach();
+    }
   });
 });
