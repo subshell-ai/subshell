@@ -169,11 +169,11 @@ export function SubshellActionsMenu({
           },
         ]
       : []),
-    // Beside the plain restart, and gated exactly like it: a running pane is
-    // revived from the new preset, a dead one is started with it, and it
-    // replaces nothing (spec 2026-09-23). "Edit preset …" edits the
-    // DEFINITION; this changes which one the row uses. Offered on dead
-    // panes too — there it means switch and start.
+    // Beside the plain restart, gated by the same `canEdit` — and offered on
+    // live panes too, unlike restart's dead-row `!alive` condition (spec
+    // 2026-09-23): a running pane is revived from the new preset, a dead one
+    // is started with it. It replaces nothing; "Edit preset …" edits the
+    // DEFINITION, this changes which one the row uses.
     ...(canEdit
       ? [
           {

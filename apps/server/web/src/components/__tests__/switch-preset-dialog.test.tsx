@@ -60,6 +60,8 @@ interface MockOptions {
   presets?: PresetRow[];
   /** The presets query never answers — pins the in-flight posture */
   presetsHang?: boolean;
+  /** GET /api/presets fails — pins the errored posture */
+  presetsFail?: boolean;
   /** Status/body the restart POST answers with (default: 200 { id }) */
   restart?: { status: number; body: unknown };
   /** When set, the restart POST resolves only when the caller resolves it */
@@ -81,6 +83,7 @@ function mockFetch(opts: MockOptions = {}) {
     });
     if (url.pathname === "/api/presets") {
       if (opts.presetsHang) return new Promise<Response>(() => {});
+      if (opts.presetsFail) return Promise.resolve(new Response(JSON.stringify({ message: "boom" }), { status: 500 }));
       return Promise.resolve(new Response(JSON.stringify(opts.presets ?? CLAUDE_PRESETS)));
     }
     if (url.pathname === "/api/subshells/id-1/restart" && method === "POST") {
@@ -194,6 +197,20 @@ describe("SwitchPresetDialog", () => {
     try {
       await renderDialog(makeSubshell({ presetId: "preset-1" }));
       expect(trigger().textContent).toContain("preset-1");
+      expect(trigger().hasAttribute("disabled")).toBe(true);
+      expect(confirmButton().hasAttribute("disabled")).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  it("a failed presets fetch says so, and the confirm stays inert", async () => {
+    const { restore } = mockFetch({ presetsFail: true });
+    try {
+      await renderDialog(makeSubshell());
+      // The errored posture looks like the in-flight one (data stays
+      // undefined); the sentence is what separates them.
+      expect(await screen.findByText(/could not load presets/i)).toBeDefined();
       expect(trigger().hasAttribute("disabled")).toBe(true);
       expect(confirmButton().hasAttribute("disabled")).toBe(true);
     } finally {

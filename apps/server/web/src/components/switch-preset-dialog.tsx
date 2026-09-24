@@ -46,7 +46,11 @@ export function SwitchPresetDialog({
   onOpenChange: (open: boolean) => void;
 }): JSX.Element {
   const queryClient = useQueryClient();
-  const { data: presets } = usePresets();
+  // An errored list is `undefined` too, and it never becomes anything else —
+  // the in-flight posture would be permanent. `isError` separates the two so
+  // the failure can say so (the clone dialog's rule) instead of leaving the
+  // picker silently inert.
+  const { data: presets, isError: presetsFailed } = usePresets();
   const options = (presets ?? []).filter((p) => p.harnessId === subshell.harnessId);
   // Chosen wins; until then the row's preset, falling back to "none" once
   // the list has ANSWERED and cannot resolve it (a deleted preset, or one a
@@ -102,6 +106,11 @@ export function SwitchPresetDialog({
             ))}
           </SelectContent>
         </Select>
+        {presetsFailed && (
+          <p className="text-destructive text-detail">
+            Could not load presets, so the picker has nothing to offer. Close and reopen to try again.
+          </p>
+        )}
         {swap.error && (
           <p className="text-destructive text-sm">{(swap.error as Error).message || "Failed to switch preset"}</p>
         )}
