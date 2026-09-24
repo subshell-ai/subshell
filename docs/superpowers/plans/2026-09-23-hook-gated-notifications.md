@@ -909,7 +909,212 @@ git commit -m "feat(server): opening a pane over the owner's cookie answers its 
 
 ---
 
-### Task 5: Docs, changesets, full verification
+### Task 5: The rail's unseen-notification bell (`unseenPush` → `SubshellDot`)
+
+**Files:**
+- Modify: `apps/server/api/src/services/subshell-manager.service.ts` (`toSubshellView`: the inline row-param type ~line 1937 and the returned object ~line 1988)
+- Modify: `apps/server/api/src/api/models.ts` (`SubshellSchema`, after the `waitingSince` line ~51)
+- Modify: `apps/server/api/src/services/notify.service.ts` (announce after the urgency write)
+- Modify: `apps/server/api/src/services/subshells.service.ts` (announce in `#rememberSeen`)
+- Modify: `apps/server/api/src/ws/attach-resolve.ts` (announce after the attach clear)
+- Modify: `apps/server/web/src/types/subshell.ts` (mirror, after `waitingSince` ~line 74)
+- Modify: `apps/server/web/src/components/sidebar/SubshellDot.tsx`
+- Test: `apps/server/web/src/components/sidebar/__tests__/subshell-dot.test.tsx` (new describe)
+- Test: `apps/server/api/src/api/subshells/__tests__/unseen-push-clear.test.ts` (extend the list case)
+
+**Interfaces:**
+- Consumes: `SubshellTable.lastPushUrgency` (Task 3), `publishLive` from `@/services/live-bus.js` (already imported in `subshells.service.ts`).
+- Produces: `unseenPush: boolean` on every subshell view — REST body, `/ws/live` broadcasts (they run the same `toSubshellView` through `viewsForBroadcast`, so it rides by construction), and the web `SubshellView` type. `SubshellDot` renders a lucide `Bell` while `unseenPush`.
+
+- [ ] **Step 1: Write the failing web test**
+
+Append to `apps/server/web/src/components/sidebar/__tests__/subshell-dot.test.tsx` (the file's `probe` fixture casts, so it accepts the new field before it exists):
+
+```tsx
+describe("SubshellDot — the unseen-notification bell (spec 2026-09-23)", () => {
+  afterEach(cleanup);
+
+  it("swaps the dot for a bell while a push goes unseen, raw pair intact", () => {
+    render(
+      <SubshellDot
+        subshell={probe({ unseenPush: true, waitingSince: "2026-09-23T00:00:00.000Z" })}
+        accessible
+      />,
+    );
+    const el = document.querySelector('[role="img"]');
+    expect(el?.querySelector("svg")).toBeTruthy();
+    expect(el?.getAttribute("aria-label")).toBe("unseen notification (waiting for you)");
+    expect(el?.getAttribute("data-status")).toBe("running");
+    expect(el?.getAttribute("data-alive")).toBe("true");
+  });
+
+  it("keeps the indicator's tone on the bell", () => {
+    render(<SubshellDot subshell={probe({ unseenPush: true })} />);
+    expect(document.querySelector("svg")?.getAttribute("class") ?? "").toContain("text-success");
+  });
+
+  it("no bell, no glyph — the dot stays when nothing is unseen", () => {
+    render(<SubshellDot subshell={probe()} />);
+    expect(document.querySelector("svg")).toBeNull();
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `cd apps/server/web && bun test src/components/sidebar/__tests__/subshell-dot.test.tsx`
+Expected: the first two new cases FAIL (no `svg` / wrong label); the third and all existing cases pass.
+
+- [ ] **Step 3: Expose `unseenPush` server-side**
+
+In `apps/server/api/src/services/subshell-manager.service.ts`, inside `toSubshellView`'s inline row-param type, after `waitingSince: string | null;` (~line 1937):
+
+```ts
+    lastPushUrgency: number | null;
+```
+
+and in its returned object, after the `waitingSince: row.waitingSince,` line (~1988):
+
+```ts
+    // "A delivered push the owner has not answered by opening the pane"
+    // (spec 2026-09-23) — what turns the rail's dot into a bell.
+    unseenPush: row.lastPushUrgency !== null,
+```
+
+In `apps/server/api/src/api/models.ts`, after the `waitingSince` property (~line 51):
+
+```ts
+  unseenPush: t.Boolean({
+    description:
+      "True = a delivered push the owner has not answered by opening the pane (spec 2026-09-23)",
+  }),
+```
+
+- [ ] **Step 4: Announce every write of the column**
+
+The rail is live-fed, not polled, so each urgency write owes a `subshell.changed` (the AGENTS.md announce rule — and note the suite CANNOT see a missing announce; that is why the flag also lands in the REST body, so a stale rail is at least diagnosable).
+
+`notify.service.ts`: add the import
+
+```ts
+import { publishLive } from "@/services/live-bus.js";
+```
+
+and after `await subshellsRepo.update(subshellId, { lastPushUrgency: urgency });` add:
+
+```ts
+          publishLive({ kind: "subshell.changed", id: subshellId });
+```
+
+`subshells.service.ts` `#rememberSeen` (Task 4's helper): after its update line add:
+
+```ts
+    publishLive({ kind: "subshell.changed", id: row.id });
+```
+
+(its `publishLive` import already exists at line 14).
+
+`ws/attach-resolve.ts`: add the import
+
+```ts
+import { publishLive } from "@/services/live-bus.js";
+```
+
+and after the clear's `await repos.subshells.update(row.id, { lastPushUrgency: null });` add:
+
+```ts
+      publishLive({ kind: "subshell.changed", id: row.id });
+```
+
+- [ ] **Step 5: Mirror the type and render the bell (web)**
+
+In `apps/server/web/src/types/subshell.ts`, after `waitingSince: string | null;` (~line 74):
+
+```ts
+  /** True = a delivered push the owner has not answered by opening the pane (spec 2026-09-23). */
+  unseenPush: boolean;
+```
+
+In `apps/server/web/src/components/sidebar/SubshellDot.tsx`: add the import `import { Bell } from "lucide-react";`, add beside `DOT_CLASS`:
+
+```tsx
+/**
+ * Bell tone per state (spec 2026-09-23): the glyph says "pushed and you have
+ * not looked", the colour keeps saying what the dot said. Spelled apart from
+ * DOT_CLASS on purpose — those are background fills, an icon colors by
+ * `text-*`.
+ */
+const BELL_TONE: Record<SubshellIndicator, string> = {
+  active: "text-success",
+  idle: "text-muted-foreground",
+  waiting: "text-warning",
+  exited: "text-muted-foreground/50",
+  terminated: "text-muted-foreground",
+  "node-offline": "text-orange-500",
+};
+```
+
+and inside the component, immediately BEFORE the existing `return (`:
+
+```tsx
+  // The bell REPLACES the dot while a delivered push goes unseen. The raw
+  // data pair rides along: the e2e liveness assertions read this element in
+  // either shape. No em dash in the label — the design-system copy rule.
+  if (subshell.unseenPush) {
+    const bellLabel = `unseen notification (${label})`;
+    return (
+      <span
+        {...(accessible ? { role: "img", "aria-label": bellLabel } : { "aria-hidden": true })}
+        title={bellLabel}
+        data-status={subshell.status}
+        data-alive={String(subshell.alive)}
+        className={cn("mt-px shrink-0", className)}
+      >
+        <Bell size={12} className={BELL_TONE[indicator]} />
+      </span>
+    );
+  }
+```
+
+- [ ] **Step 6: Prove the flag reaches the wire**
+
+Extend the last case of `apps/server/api/src/api/subshells/__tests__/unseen-push-clear.test.ts` (the list route) — replace its body:
+
+```ts
+  it("the list route the sidebar polls never clears, and carries the flag", async () => {
+    const { id } = await unseen();
+    const res = await app.fetch(
+      new Request("http://localhost:3080/api/subshells", {
+        headers: { cookie: `better-auth.session_token=${ownerCookie}` },
+      }),
+    );
+    expect(res.status).toBe(200);
+    // Shape-agnostic: the list body's exact form is another suite's claim.
+    expect(JSON.stringify(await res.json())).toContain('"unseenPush":true');
+    expect(await urgencyOf(id)).toBe(2);
+  });
+```
+
+- [ ] **Step 7: Run everything this task touched**
+
+```bash
+cd apps/server/web && bun test src/components/sidebar/__tests__/subshell-dot.test.tsx
+cd apps/server/api && bun test src/api/subshells/__tests__/unseen-push-clear.test.ts src/services/__tests__/notify.service.test.ts
+bunx turbo build
+```
+
+Expected: all green; `verify-types` inside the build also confirms no `toSubshellView` literal missed the new param key (fix any that surface by adding `lastPushUrgency: null`).
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add apps/server/api/src/services/subshell-manager.service.ts apps/server/api/src/api/models.ts apps/server/api/src/services/notify.service.ts apps/server/api/src/services/subshells.service.ts apps/server/api/src/ws/attach-resolve.ts apps/server/web/src/types/subshell.ts apps/server/web/src/components/sidebar/SubshellDot.tsx apps/server/web/src/components/sidebar/__tests__/subshell-dot.test.tsx apps/server/api/src/api/subshells/__tests__/unseen-push-clear.test.ts
+git commit -m "feat(server,web): the rail's dot becomes a bell while a push goes unseen"
+```
+
+---
+
+### Task 6: Docs, changesets, full verification
 
 **Files:**
 - Modify: `apps/server/api/AGENTS.md`, `apps/node/agent/AGENTS.md` (the `report` verb descriptions)
@@ -938,10 +1143,10 @@ Create `.changeset/hook-gated-notifications.md`:
 "@subshell-ai/plugin-claude-code": patch
 ---
 
-Notifications get quieter. A Stop hook no longer rings "Done, waiting for you" while the session is parked on background work; approval pushes fire only for the notification types that genuinely need a human; and a pane pushes at most once until its owner opens it, escalation excepted.
+Notifications get quieter. A Stop hook no longer rings "Done, waiting for you" while the session is parked on background work; approval pushes fire only for the notification types that genuinely need a human; a pane pushes at most once until its owner opens it, escalation excepted; and the sidebar dot becomes a bell for exactly as long as a push sits unanswered.
 ```
 
-(`mcp-core` is an ignored workspace; it ships inside the two binaries, so the `@internal/server` + `@internal/node` entries carry its change — never write a changeset for `@internal/mcp-core`.)
+(`mcp-core` is an ignored workspace; it ships inside the two binaries, so the `@internal/server` + `@internal/node` entries carry its change — never write a changeset for `@internal/mcp-core`. The SPA work rides `@internal/server` for the same reason.)
 
 - [ ] **Step 3: Full verification**
 

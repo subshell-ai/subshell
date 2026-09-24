@@ -132,6 +132,15 @@ cleared by:
 `waitingSince` and the dashboard chip are untouched by this gate — the chip
 still marks every waiting event; only the push waits.
 
+**The rail says it too.** The unseen state becomes visible where the owner
+already looks: the subshell view carries `unseenPush: boolean` (non-null
+`last_push_urgency`), and `SubshellDot` swaps the dot for a bell glyph while
+anything is unseen — colour still carries the indicator state, the glyph
+carries "pushed and you have not looked". The raw `data-status`/`data-alive`
+pair rides along, because the e2e liveness assertions read this element in
+either shape. Every write to the column announces `subshell.changed`: the
+rail is live-fed, not polled.
+
 ### 4. What does NOT change
 
 The `attention` route and its self-scope, `recordAttention`, `NotifyKind`,
@@ -170,6 +179,9 @@ whether a report *rings*.
   fires over any unseen state, no-subscriber attempt sets nothing.
 - Clear-path tests: owner cookie detail/log/attach clears; viewer, admin,
   subshell token, and system key do NOT; the list route never clears.
+- Rail tests: `unseenPush` reaches the view; the dot becomes a bell while
+  unseen (raw pair intact, tone by indicator); no bell when seen; the
+  web-side `SubshellView` mirror carries the field.
 
 ## Surfaces this ships through
 
