@@ -13,9 +13,10 @@ export interface EmptyStateProps {
    *
    * Optional together with {@link onAction}: an empty state a viewer cannot
    * act on is a real shape, not a missing prop. `/nodes` reaches it when an
-   * admin has turned off adding nodes — the alternative was offering a button
-   * whose route answers 403, which is worse than an explanation and no
-   * button.
+   * admin has turned off adding nodes — the action stays absent rather than
+   * a second dead button on the page (the header's Add-node button carries
+   * the disabled state and its why, since 2026-09-24); offering a button
+   * whose route answers 403 is the thing this gates.
    */
   actionLabel?: string;
   /** Opens the creation flow; omit with `actionLabel` for a stateless card */

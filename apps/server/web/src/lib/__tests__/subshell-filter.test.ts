@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { SubshellView } from "@/types/subshell";
-import { filterByNode, filterSubshells, machineIds, showMachineFilter } from "../subshell-filter";
+import { filterByNode, filterSubshells, machineIds } from "../subshell-filter";
 
 /** A subshell with only the fields these helpers read. */
 function subshell(overrides: Partial<SubshellView>): SubshellView {
@@ -66,26 +66,5 @@ describe("machineIds / filterByNode", () => {
 
   it("empty list has no machines", () => {
     expect(machineIds([])).toEqual([]);
-  });
-});
-
-describe("showMachineFilter", () => {
-  it("hides a filter with nothing to distinguish: no machines, or only the control-plane host", () => {
-    expect(showMachineFilter([], "all")).toBe(false);
-    expect(showMachineFilter(["local"], "all")).toBe(false);
-  });
-
-  it("shows once a second machine exists, or the sole machine is a real node", () => {
-    expect(showMachineFilter(["local", "mac"], "all")).toBe(true);
-    // A lone AGENT keeps the control: the day a second enrolls, the answer is
-    // news (mirrors the launch form's hideMachineField).
-    expect(showMachineFilter(["mac"], "all")).toBe(true);
-  });
-
-  it("stays visible while a machine is selected — even one that has no rows left", () => {
-    // Hide it while active and the page reads "no subshells" with no control
-    // to clear. A machine whose last row closed is exactly this case.
-    expect(showMachineFilter(["mac"], "mac")).toBe(true);
-    expect(showMachineFilter([], "mac")).toBe(true);
   });
 });

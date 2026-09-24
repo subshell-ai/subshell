@@ -11,11 +11,13 @@ import type { SubshellView } from "@/types/subshell";
  * `menu` slot because `SubshellActionsMenu` carries its own state (title
  * dialog, lifecycle mutations) rather than a plain `items` list.
  *
- * The corner badge is the SAME dot the rail and the subshell page header
- * draw (2026-09-24, replacing the text chips): one component for one state,
- * everywhere. It is `accessible` here because the dot is the only thing on
- * the card carrying the state word — the label rides the link's accessible
- * name exactly where the badge's text used to read.
+ * The status dot is the SAME dot the rail and the subshell page header draw
+ * (2026-09-24, replacing the text chips), and it LEADS the title there as it
+ * does here: one component, one state, one position (operator ask, same day
+ * — it sat on the title's right and read as a different thing in a grid of
+ * rows that all say it on the left). It is `accessible` here because the dot
+ * is the only thing on the card carrying the state word — the label rides the
+ * link's accessible name exactly where the badge's text used to read.
  *
  * The card carries NO machine badge any more (2026-09-24): the tile grid it
  * sits in is segmented by machine, the way the sidebar's recents are, so

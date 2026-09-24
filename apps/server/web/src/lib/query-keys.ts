@@ -42,6 +42,15 @@ export const SUBSHELL_WORKSPACES_QUERY_KEY = ["subshell-workspaces"] as const;
 /** Prefix of a node's sharing grants: `[...NODE_SHARES_QUERY_KEY, id]`. */
 export const NODE_SHARES_QUERY_KEY = ["node-shares"] as const;
 
+/**
+ * The instance settings (`GET /api/settings`), read on the General page and
+ * invalidated by both of its writers — the shared `toggle` and the Lockdown
+ * card. Spelled here once because the card and the page MUST agree: with
+ * `refetchOnWindowFocus: false`, a card invalidating a key the page no longer
+ * reads would show a state the server never confirmed until a full reload.
+ */
+export const SETTINGS_QUERY_KEY = ["settings"] as const;
+
 /** How this server is deployed (`GET /api/admin/server`); read via `useServerDeployment`. */
 export const SERVER_DEPLOYMENT_QUERY_KEY = ["server-deployment"] as const;
 

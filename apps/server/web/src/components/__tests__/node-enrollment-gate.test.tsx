@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { canAddNode } from "@/lib/node-enrollment";
+import { canAddNode, NODE_ENROLLMENT_OFF_COPY } from "@/lib/node-enrollment";
 
 /**
  * The rule the Nodes page and the launch picker's empty state both apply.
@@ -26,6 +26,18 @@ describe("who may add a node", () => {
     // until the request landed, flickering it away and back.
     expect(canAddNode(undefined)).toBe(true);
     expect(canAddNode({})).toBe(true);
+  });
+
+  it("states the gate in ONE sentence, shared verbatim by both surfaces", () => {
+    // Operator ask 2026-09-24: the Nodes page's disabled-button tooltip says
+    // what the launch form says. Both surfaces import this constant, so this
+    // pin is what makes "the same copy" an enforced fact rather than a
+    // promise about two strings.
+    expect(NODE_ENROLLMENT_OFF_COPY).toBe("Adding nodes is turned off on this instance; an admin can add one.");
+    // And the copy rules it is written under: ≤2 sentences, no em dash.
+    expect(NODE_ENROLLMENT_OFF_COPY).not.toContain("—");
+    const sentences = NODE_ENROLLMENT_OFF_COPY.split(/[.!?]\s/).filter((s) => s.trim() !== "");
+    expect(sentences.length).toBeLessThanOrEqual(2);
   });
 });
 

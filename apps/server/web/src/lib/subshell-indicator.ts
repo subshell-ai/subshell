@@ -99,6 +99,17 @@ const STATUS_RANK: Record<SubshellIndicator, number> = {
 };
 
 /**
+ * The same table as {@link STATUS_RANK}, read as the band ORDER (urgency
+ * first) — derived, so a rank edit moves the order too. The page's group-by-
+ * status sections walk this to decide which bands exist and in what order.
+ */
+export const INDICATOR_BAND_ORDER: readonly SubshellIndicator[] = (
+  Object.entries(STATUS_RANK) as [SubshellIndicator, number][]
+)
+  .sort(([, a], [, b]) => a - b)
+  .map(([band]) => band);
+
+/**
  * One subshell's position in the status band order (see {@link STATUS_RANK}) —
  * lower is more urgent.
  *

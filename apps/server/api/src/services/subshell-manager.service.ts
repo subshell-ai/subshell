@@ -27,6 +27,12 @@ import { getRequestlessContext } from "@/lib/context.js";
 import type { Access } from "@/lib/subshell-access.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import { publishLive } from "@/services/live-bus.js";
+// Value cycle with `lockdown.js` (it imports THIS module for the kill loop):
+// safe by construction because every use in either direction sits inside a
+// function body and both bindings are hoisted — but it is the tree's first
+// service-module cycle, so a future refactor that calls either module at
+// import time would bite here as "undefined is not a constructor".
+import { lockdownEnabled } from "@/services/lockdown.js";
 import {
   nodeSelfInvoke,
   planRemoteSubshellMcp,
@@ -50,6 +56,7 @@ import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { EMPTY_PRESET, parsePreset } from "@/services/preset-definition.js";
+import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import { issueSubshellToken, revokeSubshellToken } from "@/services/subshell-tokens.js";
 import { logger } from "@/utils/logger.js";
 
@@ -1054,6 +1061,27 @@ export class SubshellManagerService {
       // the next tick; the node coming back is what unblocks the restart.
       if (isNodeOffline(fresh.nodeId)) {
         logger.debug(`subshell ${fresh.id}: auto-restart deferred: node "${fresh.nodeId}" has no live connection`);
+        return false;
+      }
+      // Lockdown is instance-wide, so it is asked before anything
+      // machine-shaped — and a respawn through the sweep would undo the stop
+      // minutes later with NO machine to blame, which is the exact hazard the
+      // maintenance guard below names. Deferred, not given up on: the backoff
+      // schedule up-front means the row revives on its own once the lockdown
+      // ends. Rows lockdown TERMINATED are not `running` and never reach
+      // here; the rows that get here are `failed[]` survivals and the
+      // sub-second create race — and the switch says nothing starts, so
+      // nothing starts.
+      if (await lockdownEnabled(getRequestlessContext().db)) {
+        logger.debug(`subshell ${fresh.id}: auto-restart deferred: the instance is in lockdown`);
+        return false;
+      }
+      // The host's off-switch says running panes FINISH — for an auto-restart
+      // row, this death IS the finishing, and reviving it would be a NEW
+      // launch on the machine the admin just refused everywhere else. Same
+      // deferral shape: back on, the due attempt lands by itself.
+      if (fresh.nodeId === LOCAL_NODE_ID && !(await serverSubshellsEnabled(getRequestlessContext().db))) {
+        logger.debug(`subshell ${fresh.id}: auto-restart deferred: the Server is switched off as a launch target`);
         return false;
       }
       // A node in maintenance takes NO new work, and a sweep respawning a

@@ -84,8 +84,14 @@ export function nodeCanLaunchOn(
   access: NodeAccess,
   granted: NodeAccess,
   maintenance: boolean,
+  serverAsNode = true,
 ): boolean {
   if (maintenance) return false;
+  // The admin's "don't run subshells on the Server" switch: a fact about the
+  // ONE machine, so it never reaches an agent row. Not folded into
+  // `maintenance` — that word says "temporarily out of service, panes killed"
+  // and this says "not a launch target"; the node view keeps them distinct.
+  if (kind === "local" && !serverAsNode) return false;
   return kind === "local" ? nodeCanLaunch(granted) : nodeCanLaunch(access);
 }
 

@@ -10,13 +10,15 @@ import { ensureSystemUser } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
 import { APP_BASE_URL, NODE_ARTIFACTS_DIR, SERVER_PORT } from "@/constants.js";
 import { db } from "@/db/index.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { setLanProbeForTests } from "@/services/lan-origins.js";
-import { localHostname } from "@/services/nodes/seed-local.js";
+import { ensureLocalNode, localHostname } from "@/services/nodes/seed-local.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { originRegistry, resetOriginRegistryForTests } from "@/services/trusted-origins.js";
 import { SERVER_VERSION } from "@/version.js";
@@ -247,6 +249,62 @@ describe("settings routes (admin cookie only)", () => {
     // trail has to name who opened it, not just that something changed.
     expect(JSON.parse(events[0]?.metadataJson ?? "{}")).toEqual({ from: true, to: false });
     expect(JSON.parse(events[1]?.metadataJson ?? "{}")).toEqual({ from: false, to: true });
+    await clearEvents();
+  });
+
+  // `allow_server_subshells` (operator ask 2026-09-24): the third boolean on
+  // this page, so it earns the same three disciplines as its siblings — the
+  // absent-row default, the flip-only audit, and BOTH reads agreeing.
+  it("reports allowServerSubshells as true with no row, on BOTH reads", async () => {
+    await db.deleteFrom("settings").where("key", "=", "allow_server_subshells").execute();
+    const admin = await (await app.fetch(authedRequest("/api/settings", adminCookie))).json();
+    expect((admin as { allowServerSubshells: boolean }).allowServerSubshells).toBe(true);
+    const pub = await (await app.fetch(authedRequest("/api/settings/public", adminCookie))).json();
+    expect((pub as { allowServerSubshells: boolean }).allowServerSubshells).toBe(true);
+  });
+
+  it("PATCH of allowServerSubshells audits real flips only, like its siblings", async () => {
+    const patchTo = async (allowServerSubshells: boolean) => {
+      const res = await app.fetch(
+        authedRequest("/api/settings", adminCookie, {
+          method: "PATCH",
+          body: JSON.stringify({ allowServerSubshells }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { allowServerSubshells: boolean }).allowServerSubshells).toBe(allowServerSubshells);
+    };
+    const clearEvents = async () =>
+      await db
+        .deleteFrom("auditEvents")
+        .where("actorUserId", "=", adminId)
+        .where("action", "=", "settings.update")
+        .where("targetId", "=", "allow_server_subshells")
+        .execute();
+
+    await clearEvents();
+    await patchTo(false);
+    await patchTo(false); // no flip — must not add an event
+    await patchTo(true);
+
+    const events = await db
+      .selectFrom("auditEvents")
+      .select(["targetType", "targetId", "metadataJson"])
+      .where("actorUserId", "=", adminId)
+      .where("action", "=", "settings.update")
+      .where("targetId", "=", "allow_server_subshells")
+      .execute();
+    expect(events.length).toBe(2);
+    expect(events[0]?.targetId).toBe("allow_server_subshells");
+    expect(JSON.parse(events[0]?.metadataJson ?? "{}")).toEqual({ from: true, to: false });
+    expect(JSON.parse(events[1]?.metadataJson ?? "{}")).toEqual({ from: false, to: true });
+
+    // The public read follows the write: it is what the home page's
+    // "nothing can launch" guidance and every launch picker answer from.
+    await patchTo(false);
+    const pub = await (await app.fetch(authedRequest("/api/settings/public", adminCookie))).json();
+    expect((pub as { allowServerSubshells: boolean }).allowServerSubshells).toBe(false);
+    await patchTo(true);
     await clearEvents();
   });
 
@@ -525,6 +583,174 @@ describe("settings routes (admin cookie only)", () => {
     const bearer = await app.fetch(bearerRequest("/api/settings/public", adminSubshellKey));
     expect(bearer.status).toBe(200);
     expect(((await bearer.json()) as { viewerIsAdmin: boolean }).viewerIsAdmin).toBe(false);
+  });
+
+  // Lockdown (operator ask 2026-09-24): the instance-wide emergency stop.
+  // Absent row = OFF like nothing-can-go-wrong defaults should — but EVERY
+  // real flip, both directions, must be typed, not clicked: the PATCH itself
+  // refuses without the machine name, so the ritual is a server rule rather
+  // than dialog theatre. The stop-all act and the 403s live in
+  // `subshells-lockdown.test.ts`; this block pins the confirm gate and the
+  // flips-only audit. LAST in the describe because a real ON stops what this
+  // file's own fixture pane is: a destructive act runs after everyone who
+  // still needs the scenery has finished with it.
+  it("reports lockdown false with no row, and carries the confirm name", async () => {
+    await db.deleteFrom("settings").where("key", "=", "lockdown").execute();
+    await ensureLocalNode(db);
+    const name = (await new NodesRepository(db).findById(LOCAL_NODE_ID))?.name ?? "Server";
+    const admin = (await (await app.fetch(authedRequest("/api/settings", adminCookie))).json()) as {
+      lockdown: boolean;
+      localNodeName: string;
+    };
+    expect(admin.lockdown).toBe(false);
+    expect(admin.localNodeName).toBe(name);
+    const pub = (await (await app.fetch(authedRequest("/api/settings/public", adminCookie))).json()) as {
+      lockdown: boolean;
+    };
+    expect(pub.lockdown).toBe(false);
+  });
+
+  it("a refused lockdown confirm leaves a compound PATCH entirely unapplied", async () => {
+    // Review finding I2 (2026-09-24): the confirm check used to run AFTER the
+    // sibling writes, so `{ allowRegistrations: true, lockdown: true }` with
+    // a missing name opened sign-ups, audited it, and answered 400 — a
+    // response that reasonably reads as "nothing happened". The validation
+    // is hoisted above every write now; this pins that.
+    await db.deleteFrom("settings").where("key", "=", "lockdown").execute();
+    await ensureLocalNode(db);
+    const close = await app.fetch(
+      authedRequest("/api/settings", adminCookie, {
+        method: "PATCH",
+        body: JSON.stringify({ allowRegistrations: false }),
+      }),
+    );
+    expect(close.status).toBe(200);
+    const regAuditsBefore = await db
+      .selectFrom("auditEvents")
+      .select("id")
+      .where("actorUserId", "=", adminId)
+      .where("action", "=", "settings.update")
+      .where("targetId", "=", "allow_registrations")
+      .execute();
+
+    const refused = await app.fetch(
+      authedRequest("/api/settings", adminCookie, {
+        method: "PATCH",
+        body: JSON.stringify({ allowRegistrations: true, lockdown: true }),
+      }),
+    );
+    expect(refused.status).toBe(400);
+
+    const after = (await (await app.fetch(authedRequest("/api/settings", adminCookie))).json()) as {
+      allowRegistrations: boolean;
+      lockdown: boolean;
+    };
+    expect(after.allowRegistrations).toBe(false);
+    expect(after.lockdown).toBe(false);
+    const regAuditsAfter = await db
+      .selectFrom("auditEvents")
+      .select("id")
+      .where("actorUserId", "=", adminId)
+      .where("action", "=", "settings.update")
+      .where("targetId", "=", "allow_registrations")
+      .execute();
+    expect(regAuditsAfter.length).toBe(regAuditsBefore.length);
+
+    await app.fetch(
+      authedRequest("/api/settings", adminCookie, {
+        method: "PATCH",
+        body: JSON.stringify({ allowRegistrations: true }),
+      }),
+    );
+    await db
+      .deleteFrom("auditEvents")
+      .where("actorUserId", "=", adminId)
+      .where("action", "=", "settings.update")
+      .where("targetId", "=", "allow_registrations")
+      .execute();
+  });
+
+  it("refuses to turn lockdown ON without the machine name typed", async () => {
+    await db.deleteFrom("settings").where("key", "=", "lockdown").execute();
+    await ensureLocalNode(db);
+    for (const body of [
+      { lockdown: true },
+      { lockdown: true, lockdownConfirm: "" },
+      { lockdown: true, lockdownConfirm: "  " },
+      { lockdown: true, lockdownConfirm: "not-the-machine-name" },
+    ]) {
+      const res = await app.fetch(
+        authedRequest("/api/settings", adminCookie, { method: "PATCH", body: JSON.stringify(body) }),
+      );
+      expect(res.status).toBe(400);
+    }
+    // And a refusal arms nothing: no flag written, no pane stopped, no audit.
+    const pub = (await (await app.fetch(authedRequest("/api/settings/public", adminCookie))).json()) as {
+      lockdown: boolean;
+    };
+    expect(pub.lockdown).toBe(false);
+    const fixture = await new SubshellsRepository(db).findById(subshellId);
+    expect(fixture?.status).toBe("running");
+  });
+
+  it("every real flip asks for the name, in both directions, and no-ops ask nothing", async () => {
+    await db.deleteFrom("settings").where("key", "=", "lockdown").execute();
+    await ensureLocalNode(db);
+    const name = (await new NodesRepository(db).findById(LOCAL_NODE_ID))?.name ?? "Server";
+    const patch = (body: Record<string, unknown>) =>
+      app.fetch(authedRequest("/api/settings", adminCookie, { method: "PATCH", body: JSON.stringify(body) }));
+
+    // Already OFF, saying OFF: the no-op rule cuts both ways, or every card
+    // mount that resends current state would 400.
+    expect((await patch({ lockdown: false })).status).toBe(200);
+
+    const on = await patch({ lockdown: true, lockdownConfirm: name });
+    expect(on.status).toBe(200);
+    const onBody = (await on.json()) as { lockdown: boolean; stopped?: string[] };
+    expect(onBody.lockdown).toBe(true);
+    // The act really stopped things: this file's fixture pane was running when
+    // the PATCH landed, and ON retires it — `stopped` naming it is this
+    // suite's share of the proof (the isolated one lives in
+    // `subshells-lockdown.test.ts`).
+    expect(onBody.stopped).toContain(subshellId);
+
+    // Already locked: a second ON is the dialog's double-submit, not a new
+    // act — it must neither re-ask the name nor write a second audit row.
+    const again = await patch({ lockdown: true, lockdownConfirm: "junk" });
+    expect(again.status).toBe(200);
+
+    // Out asks for the name too (operator ruling 2026-09-24): both edges of
+    // the switch are instance-wide acts every user feels, so neither is a
+    // bare click. The unanswered attempt must also leave it LOCKED.
+    const offNoName = await patch({ lockdown: false });
+    expect(offNoName.status).toBe(400);
+    const stillPub = (await (await app.fetch(authedRequest("/api/settings/public", adminCookie))).json()) as {
+      lockdown: boolean;
+    };
+    expect(stillPub.lockdown).toBe(true);
+    const off = await patch({ lockdown: false, lockdownConfirm: name });
+    expect(off.status).toBe(200);
+    expect(((await off.json()) as { lockdown: boolean }).lockdown).toBe(false);
+
+    const events = await db
+      .selectFrom("auditEvents")
+      .select(["metadataJson"])
+      .where("actorUserId", "=", adminId)
+      .where("action", "=", "settings.update")
+      .where("targetId", "=", "lockdown")
+      .execute();
+    // Exactly the two REAL flips; the no-op ON wrote nothing, like siblings.
+    expect(events.length).toBe(2);
+    expect(JSON.parse(events[0]?.metadataJson ?? "{}")).toMatchObject({ from: false, to: true });
+    expect(JSON.parse(events[1]?.metadataJson ?? "{}")).toMatchObject({ from: true, to: false });
+
+    await db.deleteFrom("settings").where("key", "=", "lockdown").execute();
+    await db
+      .deleteFrom("auditEvents")
+      .where("actorUserId", "=", adminId)
+      .where("action", "=", "settings.update")
+      .where("targetId", "=", "lockdown")
+      .execute();
   });
 });
 

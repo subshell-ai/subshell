@@ -44,7 +44,13 @@ export function EntityCard({
    * dialogs and lifecycle mutations). Occupies the same floated slot.
    */
   menu?: ReactNode;
-  /** Optional chip beside the title (a harness badge, an activity chip) */
+  /**
+   * Optional element LEADING the title (the subshell status dot, a harness
+   * badge). Left, not right, on the operator's 2026-09-24 call: every other
+   * surface that draws this state — the rail's rows, the manager table's name
+   * cell, the subshell page header — puts the mark before the name, and a
+   * card that trails it reads as a different thing in the same grid.
+   */
   accessory?: ReactNode;
   /** Optional extra header line under the description (e.g. a working dir) */
   headerExtra?: ReactNode;
@@ -64,14 +70,18 @@ export function EntityCard({
           `navigate`/`Link` instead. */}
       <Link to={to as never} params={params as never} className="block h-full">
         <Card className="h-full overflow-hidden transition-colors hover:border-primary/60">
-          <CardHeader className="pb-2">
+          {/* p-4, not the primitive's p-6: the operator's settled call on
+              thinner cards (2026-09-24). Overridden here, on the shared
+              shell, so the workspace grid tightens with it — the two are
+              one design. */}
+          <CardHeader className="p-4 pb-2">
             <div className="flex items-center justify-between gap-2">
               {accessory ? (
                 <>
-                  <CardTitle className="min-w-0 truncate text-label" title={title}>
+                  <div className="flex shrink-0 items-center gap-2">{accessory}</div>
+                  <CardTitle className="min-w-0 flex-1 truncate pr-7 text-label" title={title}>
                     {title}
                   </CardTitle>
-                  <div className="flex shrink-0 items-center gap-2 pr-7">{accessory}</div>
                 </>
               ) : (
                 <CardTitle className="truncate pr-7 text-label" title={title}>
@@ -82,7 +92,9 @@ export function EntityCard({
             {description !== undefined && <CardDescription className="truncate">{description || "·"}</CardDescription>}
             {headerExtra}
           </CardHeader>
-          {children && <CardContent className="space-y-1 text-detail text-muted-foreground">{children}</CardContent>}
+          {children && (
+            <CardContent className="space-y-1 p-4 pt-0 text-detail text-muted-foreground">{children}</CardContent>
+          )}
         </Card>
       </Link>
 

@@ -850,19 +850,23 @@ describe("nowhere to launch", () => {
     }
   });
 
-  it("offers a non-manager only the route they can take, and names who can take the other", async () => {
+  it("offers a non-manager only the route they can take", async () => {
     const off = node({ id: "local", name: "Server", kind: "local", canManage: false, canLaunch: false });
     const restore = mockFetch([off], [CLAUDE]);
     try {
       await renderForm();
-      await waitFor(() => expect(screen.getByText("No machine can run a subshell")).toBeDefined());
+      const headline = await screen.findByText("No machine can run a subshell");
+      // Title level (operator ask 2026-09-24): the shared CardTitle carries
+      // this line, weight and all — not a size class restated here.
+      expect(headline.className).toContain("font-strong");
       expect(screen.queryByRole("button", { name: /^Share / })).toBeNull();
       expect(screen.getByRole("button", { name: "Add a node" })).toBeDefined();
-      // Re-based on spec 2026-09-14 §2: the host's launch "switch" was never a
-      // switch — it was its Everyone grant — and with the maintenance flag
-      // taking over that job the sentence names grants instead of an on/off
-      // nobody can find.
-      expect(screen.getByText("Nobody is granted launch access on Server; an admin can share it.")).toBeDefined();
+      // Operator ruling 2026-09-24: a non-manager gets NO per-machine grants
+      // sentence. The card states the situation and the one button left IS
+      // the answer; "an admin can share it" narrated a route this viewer was
+      // just denied twice over. (The MANAGER's sharing sentence stays — the
+      // card can act on it — pinned in `no-launch-targets.test.tsx`.)
+      expect(screen.queryByText(/granted launch access/i)).toBeNull();
     } finally {
       restore();
     }

@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { cleanup, render, screen } from "@testing-library/react";
 import { SubshellManagerTable } from "@/components/subshell-manager-table";
+import type { SubshellSection } from "@/lib/subshell-sections";
 import type { SubshellView } from "@/types/subshell";
 
 /** A full SubshellView with overridable fields — the fixture idiom from the
@@ -68,13 +69,13 @@ function mockFetch() {
  * minimal memory router that also registers the link target — the wrapper
  * idiom of the subshell-card/subshell-actions-menu tests.
  */
-async function renderTable(subshells: SubshellView[]) {
+async function renderTable(subshells: SubshellView[], sections?: SubshellSection[]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute();
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/",
-    component: () => <SubshellManagerTable subshells={subshells} />,
+    component: () => <SubshellManagerTable subshells={subshells} sections={sections} />,
   });
   const subshellRoute = createRoute({
     getParentRoute: () => rootRoute,
@@ -162,5 +163,67 @@ describe("SubshellManagerTable time columns (spec §5.6 nodeOffline posture)", (
     const ghost = makeSubshell({ id: "g2", name: "ghost-null-times", nodeOffline: true });
     await renderTable([ghost]);
     expect(timeCells("ghost-null-times")).toEqual(["—", "—"]);
+  });
+});
+
+/**
+ * The `sections` banding (2026-09-24): the list's answer to the tile
+ * headings, and the surface a quiet regression loves — a dropped band row
+ * or a swapped order changes nothing a type checker can see.
+ */
+describe("SubshellManagerTable sections bands", () => {
+  let restore: (() => void) | undefined;
+  afterEach(() => {
+    cleanup();
+    restore?.();
+    restore = undefined;
+  });
+
+  /** The tbody's rows in DOM order, as band/row markers. */
+  function bodyRows(): string[] {
+    const tbody = document.querySelector("tbody");
+    return Array.from(tbody?.querySelectorAll("tr") ?? []).map((tr) => {
+      const band = tr.querySelector("td[colspan]");
+      return band
+        ? `BAND:${band.textContent?.trim()}`
+        : (tr.querySelector("td:nth-child(2)")?.textContent?.trim() ?? "?");
+    });
+  }
+
+  it("renders a band row before each section's rows, in the caller's order", async () => {
+    restore = mockFetch();
+    const a = makeSubshell({ id: "a", name: "alpha" });
+    const b = makeSubshell({ id: "b", name: "beta" });
+    await renderTable(
+      [a, b],
+      [
+        { key: "srv", label: "Server", title: "Server", subshells: [a] },
+        { key: "mac", label: "mac mini", title: "mac mini", subshells: [b] },
+      ],
+    );
+    expect(bodyRows()).toEqual(["BAND:Server", "alpha", "BAND:mac mini", "beta"]);
+  });
+
+  it("an unresolved label still renders, with the reveal as tooltip state not text", async () => {
+    restore = mockFetch();
+    const a = makeSubshell({ id: "a", name: "alpha" });
+    await renderTable(
+      [a],
+      [
+        // The ladder's unanswered shape: short id out front, full id revealed
+        // on hover only — the row text must not carry the full id.
+        { key: "deadbeef", label: "deadbeef", title: "deadbeef-cafe-1234", subshells: [a] },
+      ],
+    );
+    expect(bodyRows()).toEqual(["BAND:deadbeef", "alpha"]);
+    expect(screen.queryByText("deadbeef-cafe-1234")).toBeNull();
+  });
+
+  it("no sections prop means the flat table it has always been — zero band rows", async () => {
+    restore = mockFetch();
+    const a = makeSubshell({ id: "a", name: "alpha" });
+    const b = makeSubshell({ id: "b", name: "beta" });
+    await renderTable([a, b]);
+    expect(bodyRows()).toEqual(["alpha", "beta"]);
   });
 });

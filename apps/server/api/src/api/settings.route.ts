@@ -13,16 +13,23 @@ import {
   resolveInstanceName,
   setInstanceName,
 } from "@/services/instance-name.js";
+import { applyLockdown, lockdownEnabled, serverNodeName } from "@/services/lockdown.js";
 import { ALLOW_NODE_ENROLLMENT_KEY, ALLOW_REGISTRATIONS_KEY, registrationOpen } from "@/services/registration-gate.js";
 import { autoFetchEnabled } from "@/services/releases.js";
+import { ALLOW_SERVER_SUBSHELLS_KEY, serverSubshellsEnabled } from "@/services/server-as-node.js";
 import { originRegistry } from "@/services/trusted-origins.js";
 import { SERVER_VERSION } from "@/version.js";
 
-const SettingsSchema = t.Object({
+/** The five settings an admin can WRITE, one shape shared by both schemas. */
+const SettingsWriteSchema = t.Object({
   allowRegistrations: t.Boolean({ description: "Whether new users can register" }),
   allowNodeEnrollment: t.Boolean({
     description:
       "Whether a non-admin may mint a node setup key, and so add a machine to this instance. Absent means true: an instance that never set it is unchanged. Admins are unaffected.",
+  }),
+  allowServerSubshells: t.Boolean({
+    description:
+      "Whether the control-plane host runs subshells at all. Absent means true: an instance that never set it is unchanged. Off, NOTHING launches on the Server, admins included; running panes finish and the machine stays manageable everywhere else. Distinct from maintenance, which is temporary and kills panes",
   }),
   instanceName: t.String({
     minLength: 0,
@@ -30,6 +37,51 @@ const SettingsSchema = t.Object({
     description:
       "Operator-chosen display name for this control plane; falls back to the host's own name when cleared. Names the instance for everyone signing in, so several planes are tellable apart",
   }),
+  lockdown: t.Boolean({
+    description:
+      "Instance-wide emergency stop (absent means false). ON stops every running subshell and starts no new ones on any machine, admins and pane-to-pane launches included; clearing it restarts nothing. Every real flip, either direction, must carry the server's node name in `lockdownConfirm`; re-sending the current state asks nothing. Distinct from node maintenance, which is one machine, its owner, and mirrored onto it",
+  }),
+});
+
+/**
+ * The General page's read: what can be written, plus the confirmation name
+ * its lockdown dialog must show (and therefore echo back verbatim).
+ */
+const SettingsSchema = t.Object({
+  ...SettingsWriteSchema.properties,
+  localNodeName: t.String({
+    description:
+      'The control-plane host\'s admin-chosen node name (default "Server") — what a lockdown ON is confirmed against, so the dialog and the route cannot disagree about a correctly typed name',
+  }),
+});
+
+/**
+ * The PATCH body: the writable fields plus the one write-only ritual.
+ * Separate from the read schema on purpose — `localNodeName` is an input
+ * nowhere, and a body that accepted it silently would be a lie the OpenAPI
+ * page tells.
+ */
+const SettingsPatchSchema = t.Partial(
+  t.Object({
+    ...SettingsWriteSchema.properties,
+    lockdownConfirm: t.String({
+      description:
+        "The server's node name, required to CHANGE lockdown in either direction and checked against the live node row — nothing is stored from it. Ignored when the body only re-sends the current state, which is a double-submit, not an act",
+    }),
+  }),
+);
+
+/** PATCH response: the read, plus what this act stopped, in the maintenance route's grammar. */
+const SettingsPatchResponseSchema = t.Object({
+  ...SettingsSchema.properties,
+  stopped: t.Array(t.String(), {
+    description: "Subshell ids retired by THIS PATCH's lockdown ON; empty unless it turned lockdown ON",
+  }),
+  failed: t.Optional(
+    t.Array(t.String(), {
+      description: "Ids whose kill failed — absent when clean, never []. A row here may still be running",
+    }),
+  ),
 });
 
 /**
@@ -57,6 +109,21 @@ const PublicSettingsSchema = t.Object({
   allowNodeEnrollment: t.Boolean({
     description:
       "Whether a non-admin may mint a node setup key, and so add a machine to this instance. Absent means true: an instance that never set it is unchanged. Admins are unaffected.",
+  }),
+  // The home page's "nothing can launch" guidance reads it, and so does every
+  // launch picker's reason — which makes it a fact about what a signed-in
+  // person may DO, disclosed exactly as `allowNodeEnrollment` is: no secret,
+  // no grant, and the admin's own refusal would name it anyway.
+  allowServerSubshells: t.Boolean({
+    description:
+      "Whether the control-plane host runs subshells at all (absent means true). Off, no machine may launch there and the Subshells page points people at adding a node instead",
+  }),
+  // Lockdown drives the server-wide banner EVERY signed-in user sees, so it
+  // must be readable by everyone signed in — the same disclosure rule as the
+  // two flags above, and the refusal a launch meets already names it.
+  lockdown: t.Boolean({
+    description:
+      "True while the instance is in lockdown: subshells are stopped and no new ones can be created anywhere (drives the server-wide banner; absent means false)",
   }),
   // Rides the shared public read like serverVersion — every signed-in page
   // already holds this payload, and the sidebar needs it on every route.
@@ -144,6 +211,8 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
       return {
         allowRegistrations: allow,
         allowNodeEnrollment: await repo.get(ALLOW_NODE_ENROLLMENT_KEY, true),
+        allowServerSubshells: await serverSubshellsEnabled(db),
+        lockdown: await lockdownEnabled(db),
         instanceName: await resolveInstanceName(db),
         emergencyLoginActive: emergencyLoginArmed(),
         appBaseUrl: APP_BASE_URL,
@@ -181,7 +250,14 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
       return {
         allowRegistrations: allow,
         allowNodeEnrollment: await repo.get(ALLOW_NODE_ENROLLMENT_KEY, true),
+        allowServerSubshells: await serverSubshellsEnabled(db),
+        lockdown: await lockdownEnabled(db),
         instanceName: await resolveInstanceName(db),
+        // The dialog shows this and echoes it back; the route re-checks it
+        // against the live row, so a rename between read and PATCH costs the
+        // admin a 400 naming the NEW name rather than a silent lockdown by
+        // a stale confirmation.
+        localNodeName: await serverNodeName(db),
       } as const;
     },
     {
@@ -189,7 +265,8 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
       detail: {
         operationId: "getSettings",
         tags: ["settings"],
-        description: "Full settings (admin only, cookie session)",
+        description:
+          "Full settings (admin only, cookie session): the instance flags, the operator's name, and the machine name a lockdown ON must be confirmed with",
       },
     },
   )
@@ -200,6 +277,25 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
       // never reach settings writes even when their owner is an admin.
       if (!(await isCookieAdmin(user, actor))) {
         throw new SettingsError("forbidden", "Admins only (cookie session)");
+      }
+      // Lockdown validation is HOISTED above every write (review finding I2,
+      // 2026-09-24): a PATCH refused for its confirmation must have changed
+      // NOTHING, because a 400 is reasonably read as "nothing happened" and
+      // the OpenAPI page advertises the compound body. One read answers both
+      // the gate here and `expectFrom` below — no second world to be stale
+      // against.
+      const lockdownBefore = body.lockdown === undefined ? undefined : await lockdownEnabled(db);
+      if (lockdownBefore !== undefined && body.lockdown !== lockdownBefore) {
+        // A REAL flip in either direction (operator ruling 2026-09-24); a
+        // re-send of the CURRENT state asks nothing — that is the dialog's
+        // double-submit and a card mount echoing state, not an act.
+        const expected = await serverNodeName(db);
+        if ((body.lockdownConfirm ?? "").trim() !== expected) {
+          // Naming what to type is safe here (the name rides every signed-in
+          // node list already) and it is the whole remedy for a caller who
+          // arrived at this PATCH without the dialog.
+          throw new SettingsError("lockdown_confirm", `Type the machine name "${expected}" to confirm.`, 400);
+        }
       }
       const repo = new SettingsRepository(db);
       if (body.allowRegistrations !== undefined) {
@@ -237,6 +333,23 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
           });
         }
       }
+      if (body.allowServerSubshells !== undefined) {
+        const before = await serverSubshellsEnabled(db);
+        await repo.set(ALLOW_SERVER_SUBSHELLS_KEY, body.allowServerSubshells);
+        // Audited on a REAL flip only, like its siblings. Turning it OFF
+        // strands no pane (running subshells finish), but it stops every
+        // launch on the host for every user at once — the trail should say
+        // who moved the ground under them.
+        if (before !== body.allowServerSubshells) {
+          await audit({
+            actorUserId: user.id,
+            action: "settings.update",
+            targetType: "settings",
+            targetId: ALLOW_SERVER_SUBSHELLS_KEY,
+            metadataJson: JSON.stringify({ from: before, to: body.allowServerSubshells }),
+          });
+        }
+      }
       if (body.instanceName !== undefined) {
         // Audited on a REAL change only, like the registration flip: the name
         // is what every user sees the instance called, so a silent edit by one
@@ -254,20 +367,44 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
           });
         }
       }
+      // Lockdown is the one write here that ACTS rather than records, so it
+      // runs last — every other field is settled before the whole instance
+      // goes down. Its CONFIRMATION was validated up top, above every write;
+      // this half only performs. An echo of the current state never reaches
+      // `applyLockdown` at all (review finding I1): the guard it carries is
+      // for the race where another admin's flip lands between the read above
+      // and this call, and the correct act there is none.
+      let lockdownStopped: string[] = [];
+      let lockdownFailed: string[] = [];
+      if (body.lockdown !== undefined && lockdownBefore !== undefined && body.lockdown !== lockdownBefore) {
+        const effects = await applyLockdown(db, {
+          on: body.lockdown,
+          expectFrom: lockdownBefore,
+          actorUserId: user.id,
+        });
+        lockdownStopped = effects.stopped;
+        lockdownFailed = effects.failed;
+      }
       const allow = await registrationOpen(db);
       return {
         allowRegistrations: allow,
         allowNodeEnrollment: await repo.get(ALLOW_NODE_ENROLLMENT_KEY, true),
+        allowServerSubshells: await serverSubshellsEnabled(db),
+        lockdown: await lockdownEnabled(db),
         instanceName: await resolveInstanceName(db),
+        localNodeName: await serverNodeName(db),
+        stopped: lockdownStopped,
+        ...(lockdownFailed.length > 0 ? { failed: lockdownFailed } : {}),
       } as const;
     },
     {
-      body: t.Partial(SettingsSchema),
-      response: SettingsSchema,
+      body: SettingsPatchSchema,
+      response: SettingsPatchResponseSchema,
       detail: {
         operationId: "updateSettings",
         tags: ["settings"],
-        description: "Updates settings (admin only, cookie session)",
+        description:
+          "Updates settings (admin only, cookie session). Turning lockdown ON stops every running subshell (reported in `stopped`); changing it in either direction requires the server's node name in `lockdownConfirm`",
       },
     },
   )
@@ -315,9 +452,12 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
  */
 class SettingsError extends Error {
   readonly code: string;
-  readonly status = 403;
-  constructor(code: string, message: string) {
+  readonly status: number;
+  constructor(code: string, message: string, status = 403) {
     super(message);
     this.code = code;
+    // 403 is every existing throw (authorization); the lockdown confirmation
+    // is the first INPUT problem this route can have, and it is a 400.
+    this.status = status;
   }
 }

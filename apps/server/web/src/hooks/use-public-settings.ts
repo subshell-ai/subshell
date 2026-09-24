@@ -18,6 +18,27 @@ export interface PublicSettings {
    * the code does not believe.
    */
   allowNodeEnrollment?: boolean;
+  /**
+   * Whether the control-plane host runs subshells at all; an absent row on
+   * the server means true.
+   *
+   * OPTIONAL for the usual reason: a server older than the setting sends no
+   * key, which `lib/launch-guidance.ts` reads as ON — the same unknown
+   * discipline as `allowNodeEnrollment` above, for the same cost of getting
+   * it wrong (a card that flashes on every load and retracts when the read
+   * lands).
+   */
+  allowServerSubshells?: boolean;
+  /**
+   * True while the instance is in lockdown: every subshell stopped, nothing
+   * creatable anywhere (drives the server-wide banner, operator ask
+   * 2026-09-24).
+   *
+   * Optional, and an absent key reads OFF — a server older than the setting
+   * must not raise a banner it cannot back, the same absence discipline as
+   * the two fields above.
+   */
+  lockdown?: boolean;
   /** True while SUBSHELL_EMERGENCY_PASSWORD is set (spec 2026-08-31 §6) */
   emergencyLoginActive: boolean;
   /**
