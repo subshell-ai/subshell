@@ -11,6 +11,7 @@ import {
   parseFlagsPaste,
   presetFormFromRow,
   presetFormToCommand,
+  suggestCloneName,
   toPresetPayload,
   toPresetUpdatePayload,
 } from "../preset-form";
@@ -445,5 +446,36 @@ describe("presetFormToCommand", () => {
   it("prints the command line for env vars alone — that is the whole command", () => {
     const form = { ...emptyPresetForm(), envRows: [{ key: "A", value: "1" }] };
     expect(presetFormToCommand(form, "claude")).toBe("A=1 \\\nclaude");
+  });
+});
+
+describe("suggestCloneName", () => {
+  const row = (over: Partial<PresetRow>): PresetRow => ({ ...baseRow, ...over });
+
+  it("suggests (2) when nothing collides", () => {
+    const src = row({ id: "a", name: "Work" });
+    expect(suggestCloneName([src], src)).toBe("Work (2)");
+  });
+
+  it("skips taken suffixes and fills a gap", () => {
+    const src = row({ id: "a", name: "Work" });
+    const rows = [src, row({ id: "b", name: "Work (2)" }), row({ id: "c", name: "Work (4)" })];
+    expect(suggestCloneName(rows, src)).toBe("Work (3)");
+  });
+
+  it("matches case-insensitively like the NOCASE index", () => {
+    const src = row({ id: "a", name: "Work" });
+    expect(suggestCloneName([src, row({ id: "b", name: "wOrK (2)" })], src)).toBe("Work (3)");
+  });
+
+  it("ignores a same-named row under a different harness", () => {
+    const src = row({ id: "a", name: "Work" });
+    const rows = [src, row({ id: "b", name: "Work (2)", harnessId: "pi" })];
+    expect(suggestCloneName(rows, src)).toBe("Work (2)");
+  });
+
+  it("a source already named X (2) nests the suffix, deterministically", () => {
+    const src = row({ id: "a", name: "Work (2)" });
+    expect(suggestCloneName([src], src)).toBe("Work (2) (2)");
   });
 });

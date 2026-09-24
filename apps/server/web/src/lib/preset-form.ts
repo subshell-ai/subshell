@@ -449,3 +449,30 @@ function shellQuote(value: string): string {
   if (!/[\s'"\\]/.test(value)) return value;
   return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
+
+/**
+ * Suggests a clone name for a preset: the source name with the first free
+ * numeric suffix — `"<name> (2)"`, `(3)`, …, the convention migration 0028
+ * used to break the collisions it found. Taken-ness is scoped to rows of the
+ * SAME harness (the UNIQUE index is `(user_id, harness_id, name
+ * COLLATE NOCASE)`) and compared case-insensitively, so the suggestion
+ * matches what `POST /api/presets` would reject. The loop is bounded because
+ * names are unique per harness, so at most `taken.size` candidates can be
+ * taken — one more number is always free.
+ *
+ * @param rows - The caller's preset list (the `usePresets()` cache)
+ * @param source - The preset being cloned (its own row never blocks)
+ * @returns A name free for this user's preset of the same harness
+ */
+export function suggestCloneName(rows: PresetRow[], source: PresetRow): string {
+  const taken = new Set(
+    rows.filter((r) => r.harnessId === source.harnessId && r.id !== source.id).map((r) => r.name.toLowerCase()),
+  );
+  for (let n = 2; n <= taken.size + 2; n++) {
+    const candidate = `${source.name} (${n})`;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
+  }
+  // Unreachable while the index holds: taken.size names cannot fill
+  // taken.size + 1 candidates.
+  return `${source.name} (${taken.size + 2})`;
+}
