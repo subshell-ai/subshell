@@ -58,13 +58,13 @@ function childEnv(extra: Record<string, string> = {}): Record<string, string> {
  * The race this file can genuinely suffer on a loaded machine is the
  * claim-a-port / release / hand-off window below: the probe proves a port
  * free, releases it, and another process can claim it before the child
- * binds. When that happens the honest report is a SKIP naming the port
- * (the suite is not broken, the machine was busy), not a red and never a
- * vacuous pass. Every other cause still fails red with the backend's own
- * log. The skip reason rides the boolean here because bun's
- * `describe.skipIf` takes one; the port and the log are what a reader
- * greps for in `backend.log`, kept under the temp dir this file names in
- * its failure text.
+ * binds. When that happens the suite skips — the machine was busy, not the
+ * code. What a skip actually looks like: bun's `describe.skipIf` takes a
+ * boolean only, so the skip names no port and carries no reason text; the
+ * temp dir (and with it `backend.log`) is still removed by the top-level
+ * reaper, so nothing survives to be read afterwards; the entire signal is
+ * a run line that reads "1 skip". Every other cause still fails red with
+ * the backend's own log.
  *
  * The wait budget stays as measured: this boots a REAL backend while the
  * rest of the suite's packages build/test in parallel under turbo — 20 s
@@ -99,16 +99,39 @@ const boot = await (async () => {
   // "up", and the suite died later at the first real call with a confusing
   // error. `GET /api/setup/status` answers {needsSetup, hasUsers} JSON from
   // the route graph itself, so a body carrying that boolean is the backend
-  // serving real routes — and an answer WITHOUT it is the squatter.
+  // serving real routes. MAINTENANCE NOTE: if the /api/setup/status
+  // response shape changes, this fingerprint must move with it — an answer
+  // WITHOUT the boolean is classified below by whether our child is still
+  // alive, and a live child makes that classification go red on purpose.
   const deadline = Date.now() + Math.min(TIMEOUT - 5_000, 60_000);
   let up = false;
   let squatter = false;
-  while (Date.now() < deadline && !up && !squatter) {
+  /** The odd answer, kept for the loud failure when the child is alive. */
+  let drift: { status: number; body: string } | undefined;
+  while (Date.now() < deadline && !up && !squatter && !drift) {
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/api/setup/status`);
+      // A 2 s socket bound: a module-scope await is NOT bounded by bun's
+      // --timeout, so a squatter that accepts and never answers would
+      // otherwise hang this file forever.
+      const res = await fetch(`http://127.0.0.1:${port}/api/setup/status`, {
+        signal: AbortSignal.timeout(2000),
+      });
       if (res.status < 500) {
-        const body = (await res.json().catch(() => null)) as { needsSetup?: unknown } | null;
-        if (typeof body?.needsSetup === "boolean") up = true;
+        const text = await res.text();
+        let needsSetup: unknown;
+        try {
+          needsSetup = (JSON.parse(text) as { needsSetup?: unknown }).needsSetup;
+        } catch {
+          needsSetup = undefined;
+        }
+        if (typeof needsSetup === "boolean") up = true;
+        else if (backend.exitCode === null)
+          // Our child is still alive, so this odd answer is NOT the
+          // squatter's 404 — either the probe's fingerprint no longer
+          // matches OUR route's shape (drift nobody would ever notice,
+          // because every machine would "cleanly" skip forever) or the boot
+          // answered oddly. Both must go red, not quiet.
+          drift = { status: res.status, body: text.slice(0, 500) };
         else squatter = true;
       } else {
         await Bun.sleep(250);
@@ -117,15 +140,17 @@ const boot = await (async () => {
       await Bun.sleep(250);
     }
   }
-  const log = up ? "" : await Bun.file(backendLog).text();
+  const log = up || drift ? "" : await Bun.file(backendLog).text();
   // Port contention has two faces: the child could not bind (bun's message
   // is "Failed to start server. Is port <n> in use?" — it never spells
-  // EADDRINUSE, so match both spellings for future versions), or somebody
-  // else is answering on the port. Both are the machine being busy, and
-  // both SKIP rather than go red — and the old `up` check would have gone
-  // red on the SECOND face, later and more confusingly.
-  const portBusy = !up && (squatter || /EADDRINUSE|in use\?/i.test(log));
-  return { up, portBusy };
+  // EADDRINUSE, so match both spellings for future versions), or a DEAD
+  // child means somebody else is answering on the port. Both are the
+  // machine being busy, and both SKIP rather than go red — and the old
+  // `up` check would have gone red on the SECOND face, later and more
+  // confusingly. A live child answers the third face (shape drift) with
+  // `drift`, which is deliberately NOT portBusy.
+  const portBusy = !up && !drift && (squatter || /EADDRINUSE|in use\?/i.test(log));
+  return { up, portBusy, drift };
 })();
 
 // The backend child and the temp dir belong to the MODULE now — a skipped
@@ -181,6 +206,17 @@ describe.skipIf(boot.portBusy)("cross-subshell e2e (two subshell mcp processes)"
   }
 
   beforeAll(async () => {
+    // The probe saw a non-500 answer without `needsSetup` while our child
+    // was still alive: either /api/setup/status changed shape or the boot
+    // answered oddly. Name what it actually saw so the drift is diffable,
+    // rather than a silent "1 skip" on every machine forever.
+    if (boot.drift) {
+      throw new Error(
+        `probe got an answer without needsSetup while the backend child was alive ` +
+          `(status ${boot.drift.status}, body: ${boot.drift.body || "<empty>"}) — ` +
+          `if /api/setup/status changed shape, the fingerprint in this file must move with it`,
+      );
+    }
     // Not up and not the port race: fail red, with the backend's own words.
     if (!boot.up) {
       throw new Error(`backend did not come up: ${await Bun.file(backendLog).text()}`);
