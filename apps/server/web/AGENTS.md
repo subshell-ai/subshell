@@ -60,8 +60,13 @@ than nav.** Recent subshell rows carry a status dot and are the drag source of
 wrapper and the `/workspaces` cards; the payload contract is
 `lib/subshell-dnd.ts` — handlers react ONLY to its MIME, which is what keeps
 xterm's file-drop and dockview's tab-drag untouched). Status words/precedence
-live once in `lib/subshell-indicator.ts` (home card badges consume it), and
-the dot fills beside it. Subshell lists everywhere are kept current by ONE
+live once in `lib/subshell-indicator.ts`, and `SubshellDot`
+(`components/subshell-dot.tsx` — moved out of `components/sidebar/` on
+2026-09-24 because it is no longer sidebar-only) is its only renderer: the
+rail's rows, the subshell page header, the home cards' corner and the list
+rows' name cell. The text chips (`StatusChip`/`WaitingChip`, kept in
+`subshell-status.tsx`) now survive only in the add-subshell picker, where
+`RowStatusBadges` still spells the state out. Subshell lists everywhere are kept current by ONE
 live socket — `hooks/use-live-subshells-feed.tsx`, mounted in `__root.tsx`
 signed-in-only — which writes `/ws/live`'s frames into `SUBSHELLS_QUERY_KEY`;
 read via `useSubshellsList`/`useLiveSubshells`, never by opening a second one.
@@ -86,8 +91,8 @@ Header labels read `node.name`, never the id, and the unresolved ladder is
 "never succeeded (in flight, or failed with nothing cached) → short id, with
 the full one as the hover title; answered-without-the-id → `unknown node`",
 NOT "deleted node" — a revoked share is indistinguishable from deletion, and
-this header labels `local` too, where the card's pill can dodge by returning
-null. The flag is `nodeData === undefined`, not `isError`: TanStack reports
+this header labels `local` too (the retired card pill could dodge by
+returning null; a section header cannot). The flag is `nodeData === undefined`, not `isError`: TanStack reports
 `isError` on a failed BACKGROUND refresh while keeping the cache, and
 relabeling resolved names on a blip is the bug that shape caused once. A
 row's native-`title` tooltip (native because the row is a Link + drag source +
@@ -102,6 +107,27 @@ group too (spotlight, not extraction: group counts stay true and no row jumps
 when a pane is opened). It filters with the box and vanishes entirely when
 nothing is unseen; the home page's identically-named `TileSection` is the same
 selector over its own list.
+
+**The home page reads its state as a dot and segments by machine** (operator
+calls, 2026-09-24). The cards' corner chip and the list's STATUS column are
+gone — both draw `SubshellDot` beside the title instead, `accessible` because
+there it is the ONLY thing carrying the state word (the rail keeps its dot
+`aria-hidden`; its row text already speaks). Offline is the dot's red
+(`bg-destructive`), an operator reversal of the orange it launched with: a
+machine you cannot reach is an error, not a caution. The tiles are segmented
+per machine on the RAIL's own machinery — `sortByStatus` into
+`groupSubshellsByNode`/`nodeLabelFor` — with no per-group cap and no collapse
+(a grid of cards is not a rail), and the old Running/Paused/Completed bands
+left with the chips: the dot says what the band said. `nodePill` left the card
+with the corner chip, so the section header is the one place a tile says which
+machine it is on. A machine `Select` beside the search box narrows BOTH views
+(default **All**); three rules ride it: its options are the machines with rows
+(`machineIds`, never an option that answers nothing), a stale selection is
+kept in the list so the control never blanks itself out from under its own
+value, and `showMachineFilter` — a pure export mirroring the launch form's
+`hideMachineField` — draws it only once the distinction is real, but ALWAYS
+while one is selected (an active filter with no visible control is an empty
+page you cannot leave).
 
 **There is no cadence, and that is the design.** One snapshot at connect, then
 a frame only when something changed: the server publishes domain events to Bun

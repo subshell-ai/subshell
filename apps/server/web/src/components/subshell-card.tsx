@@ -1,60 +1,27 @@
-import type { Node } from "@internal/node-admin";
-import { Badge } from "@internal/node-admin";
-import type { ReactNode } from "react";
 import { EntityCard } from "@/components/entity-card";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
+import { SubshellDot } from "@/components/subshell-dot";
 import { TerminalPreview } from "@/components/terminal-preview";
-import { WaitingChip } from "@/components/waiting-chip";
-import { useNodes } from "@/hooks/use-nodes";
-import { INDICATOR_LABEL, INDICATOR_VARIANT, subshellIndicator } from "@/lib/subshell-indicator";
 import type { SubshellView } from "@/types/subshell";
 
 /**
- * The card's corner badge: delegates the state to the shared
- * `subshellIndicator` precedence (node unreachable → exited → waiting-for-you
- * → activity — see lib/subshell-indicator.ts) and renders it. `WaitingChip`
- * self-guards, but the indicator branch keeps it explicit: the waiting arm
- * outranks the plain activity chip.
- */
-function accessoryFor(subshell: SubshellView): ReactNode {
-  const indicator = subshellIndicator(subshell);
-  if (indicator === "node-offline") return <Badge variant="warning">{INDICATOR_LABEL["node-offline"]}</Badge>;
-  if (indicator === "exited") return <Badge variant="muted">{INDICATOR_LABEL.exited}</Badge>;
-  if (indicator === "waiting") return <WaitingChip subshell={subshell} />;
-  return <Badge variant={INDICATOR_VARIANT[indicator]}>{INDICATOR_LABEL[indicator]}</Badge>;
-}
-
-/**
- * The subtitle node pill for a REMOTE subshell — where the process runs when
- * that isn't the control-plane host. The name rides the shared `useNodes()`
- * cache (one query, names only); an id the registry no longer holds is a
- * deleted node, said plainly — but only once the registry has ANSWERED.
- * While the list is still in flight, absence proves nothing, so the pill
- * wears the raw short id (a cold `/` must not flash "deleted node" at every
- * remote card before the fetch lands). A FAILED list is indistinguishable
- * from a vanished one from here, so it still reads "deleted node".
- * Identity only: the offline STATE renders as the corner badge (see
- * {@link accessoryFor}), so a downed node's card spells "node unreachable"
- * exactly once.
- */
-function nodePill(subshell: SubshellView, known: Node | undefined, pending: boolean): ReactNode {
-  if (!subshell.nodeId || subshell.nodeId === "local") return null;
-  if (!known && pending) {
-    return (
-      <Badge variant="muted" title={subshell.nodeId}>
-        {subshell.nodeId.slice(0, 8)}
-      </Badge>
-    );
-  }
-  return <Badge variant="muted">{known ? known.name : "deleted node"}</Badge>;
-}
-
-/**
- * Card for a subshell: name, harness, activity chip, a live view of the
+ * Card for a subshell: name, harness, status dot, a live view of the
  * subshell's screen, and an actions menu — all on the shared `EntityCard`
  * shell the workspace grid uses. The menu is passed through the
  * `menu` slot because `SubshellActionsMenu` carries its own state (title
  * dialog, lifecycle mutations) rather than a plain `items` list.
+ *
+ * The corner badge is the SAME dot the rail and the subshell page header
+ * draw (2026-09-24, replacing the text chips): one component for one state,
+ * everywhere. It is `accessible` here because the dot is the only thing on
+ * the card carrying the state word — the label rides the link's accessible
+ * name exactly where the badge's text used to read.
+ *
+ * The card carries NO machine badge any more (2026-09-24): the tile grid it
+ * sits in is segmented by machine, the way the sidebar's recents are, so
+ * the section header answers "which machine" for every card at once — on
+ * the same label ladder (see lib/subshell-node-groups.ts), `local`
+ * included.
  *
  * The preview is the subshell's actual terminal screen, captured server-side
  * and refreshed by the same feed that drives the rest of the page, so a wall
@@ -68,12 +35,6 @@ export function SubshellCard({ subshell }: { subshell: SubshellView }) {
   // Remote + no live node: everything "exited" would claim is unknowable
   // right now (spec §5.6), so the offline reading supersedes it everywhere.
   const nodeOffline = subshell.nodeOffline === true;
-  // Names-only lookup over the shared nodes query (already cached for the
-  // pickers). While it's in flight the pill shows the raw id, not a verdict;
-  // a failed list still reads as "unknown id", the same as a genuinely
-  // deleted node, and the pill refreshes when data lands.
-  const { data: nodeData, isPending } = useNodes();
-  const knownNode = subshell.nodeId ? nodeData?.nodes.find((n) => n.id === subshell.nodeId) : undefined;
 
   return (
     <EntityCard
@@ -82,20 +43,15 @@ export function SubshellCard({ subshell }: { subshell: SubshellView }) {
       title={subshell.name}
       description={subshell.harnessId}
       menu={<SubshellActionsMenu subshell={subshell} />}
-      accessory={accessoryFor(subshell)}
-      // A subshell is a process *somewhere*, so the directory and (for remote
-      // rows) the node pill ride in the subtitle block with the harness —
-      // the preview area below stays purely about output.
+      accessory={<SubshellDot subshell={subshell} accessible className="mt-0" />}
+      // A subshell is a process *somewhere*, so the directory rides in the
+      // subtitle block with the harness — the preview area below stays
+      // purely about output. (The machine used to sit here as a pill; the
+      // grid's section header carries that now.)
       headerExtra={
-        <div className="flex min-w-0 items-center gap-2">
-          <p
-            className="min-w-0 flex-1 truncate font-mono text-detail text-muted-foreground"
-            title={subshell.workingDir}
-          >
-            {subshell.workingDir}
-          </p>
-          {nodePill(subshell, knownNode, isPending)}
-        </div>
+        <p className="truncate font-mono text-detail text-muted-foreground" title={subshell.workingDir}>
+          {subshell.workingDir}
+        </p>
       }
     >
       {/* Fixed height whatever the state, so cards in a row stay the

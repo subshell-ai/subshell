@@ -1,7 +1,7 @@
 import { cn } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
-import { SubshellDot } from "@/components/sidebar/SubshellDot";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
+import { SubshellDot } from "@/components/subshell-dot";
 import { encodeSubshellDrag } from "@/lib/subshell-dnd";
 import { subshellRowTooltip } from "@/lib/subshell-row-tooltip";
 import type { SubshellView } from "@/types/subshell";

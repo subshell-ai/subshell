@@ -88,8 +88,8 @@ describe("ExistingSubshellList", () => {
 
     it("replaces both chips with 'node unreachable' for a subshell on an unreachable node", () => {
       // alive + waitingSince + activity say nothing while the agent is down —
-      // the card already hides them (subshell-card.tsx accessoryFor); the
-      // picker row must agree.
+      // the dot already shows them as offline (subshell-dot.tsx's shared
+      // indicator); the picker row must agree.
       const ghost = makeSubshell({
         id: "ghost",
         name: "ghost-on-mac",

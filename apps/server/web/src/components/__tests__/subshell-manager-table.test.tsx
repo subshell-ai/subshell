@@ -94,11 +94,13 @@ async function renderTable(subshells: SubshellView[]) {
   );
 }
 
-/** The row's two time columns, by position: [last output, uptime]. */
+/** The row's two time columns, by position: [last output, uptime].
+ *  (Since 2026-09-24 there is no Status column — the state is the dot in
+ *  the Name cell — so the time cells moved from [4,5] to [3,4].) */
 function timeCells(subshellName: string): string[] {
   const row = screen.getByText(subshellName).closest("tr");
   const cells = Array.from(row?.querySelectorAll("td") ?? []);
-  return [4, 5].map((i) => cells[i]?.textContent ?? "");
+  return [3, 4].map((i) => cells[i]?.textContent ?? "");
 }
 
 describe("SubshellManagerTable time columns (spec §5.6 nodeOffline posture)", () => {
@@ -148,8 +150,11 @@ describe("SubshellManagerTable time columns (spec §5.6 nodeOffline posture)", (
     // No elapsed-style text survives in either cell…
     expect(lastOutput).not.toMatch(/ago|just now|\d+[mhd]/);
     expect(uptime).not.toMatch(/ago|just now|\d+[mhd]/);
-    // …while the one assertive signal — the status badge — is present.
-    expect(screen.getByText("node unreachable")).toBeDefined();
+    // …while the one assertive signal — the status dot's name — is present.
+    expect(screen.getByRole("img", { name: "node unreachable" })).toBeDefined();
+    // The Status column is gone: the only "node unreachable" is the dot in
+    // the Name cell, never a rendered word.
+    expect(screen.queryByText("node unreachable")).toBeNull();
   });
 
   it("keeps '—' semantics for an offline row with no timestamps at all", async () => {

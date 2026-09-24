@@ -8,8 +8,11 @@ import type { SubshellView } from "@/types/subshell";
  * 2026-09-03 sidebar-quickadd §1 note): tone is a sidebar concern, so this
  * table lives with the dot, not in the shared indicator module. Two dead
  * states stay readable at 6px by shape, not just hue — `exited` is a faint
- * fill, `terminated` a hollow ring. Unlike the home cards' waiting chip, the
- * rail never animates.
+ * fill, `terminated` a hollow ring. The dot never animates, on any surface.
+ *
+ * `node-offline` is the palette's RED (2026-09-24, operator call: it read as
+ * too gentle as an orange): a machine you cannot reach is an error state, not
+ * a caution, and it now outranks `waiting`'s amber on the colour scale.
  */
 const DOT_CLASS: Record<SubshellIndicator, string> = {
   active: "bg-success",
@@ -17,7 +20,7 @@ const DOT_CLASS: Record<SubshellIndicator, string> = {
   waiting: "bg-warning",
   exited: "bg-muted-foreground/50",
   terminated: "border border-muted-foreground",
-  "node-offline": "bg-orange-500",
+  "node-offline": "bg-destructive",
 };
 
 /**
@@ -32,14 +35,18 @@ const BELL_TONE: Record<SubshellIndicator, string> = {
   waiting: "text-warning",
   exited: "text-muted-foreground/50",
   terminated: "text-muted-foreground",
-  "node-offline": "text-orange-500",
+  "node-offline": "text-destructive",
 };
 
 /**
- * The 6px state dot for one subshell — the rail's recent rows, and (since
- * 2026-09-20) the subshell page's own header, where it replaced a status
- * badge. Both read the SHARED indicator precedence, so a subshell can never
- * say one thing in the rail and another above its own terminal.
+ * The 6px state dot for one subshell — the rail's recent rows, the subshell
+ * page's own header (2026-09-20, where it replaced a status badge), and since
+ * 2026-09-24 the home cards' corner and the list rows' name cell (where it
+ * replaced the text chips). All read the SHARED indicator precedence, so a
+ * subshell can never say one thing in the rail and another above its own
+ * terminal. Surfaces beyond the rail pass `mt-0` — the default margin aligns
+ * the dot with the FIRST text line of the rail's two-line rows; standalone
+ * dots center against their row's own `items-center`.
  *
  * `data-status` and `data-alive` carry the raw fields beside the rendered
  * indicator. The two questions are genuinely different — the indicator is
