@@ -1,7 +1,8 @@
 import { errMessage } from "@internal/node-admin";
 import { useMemo, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
-import { type PresetFormValue, parseCommandPaste, presetFormToCommand } from "@/lib/preset-form";
+import { parseCommandPaste, presetFormToCommand } from "@/lib/preset-command";
+import type { PresetFormValue } from "@/lib/preset-form";
 
 /** Placeholder: a worked command, so the shape is shown rather than described. */
 const EXAMPLE = [
