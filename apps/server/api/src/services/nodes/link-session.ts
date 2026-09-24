@@ -350,10 +350,29 @@ async function handleLegacyFrame(deps: LinkSessionDeps, nodeId: string, frame: L
   if ("bytes" in frame) {
     // A row with no pin has no stream to open. Hand the frame to the existing
     // path — a v13-era agent never sends binary, and anything that does gets
-    // dropped as unrecognized exactly as it is today.
+    // dropped as unrecognized exactly as it is today. R10 needs NO refusal
+    // here: a provisioned agent's sealed binding can only arrive AFTER its
+    // `kx`, and the text claim below closes the socket first.
     return { forwarded: frame.bytes };
   }
   if (isRegisterClaim(frame.text)) return acceptRegister(deps, nodeId, frame.text);
+  // R10: a real `kx` CLAIM (same shape gate the handshake path uses —
+  // parseKxFrame over the parsed frame, eph AND pub present) on a pin-less row
+  // is the post-rotation redial, or its lookalike: the agent's config kept
+  // both link fields while key rotation cleared the row's pin
+  // (rotate-node-key.route.ts step 2), so it dials handshake mode at a row
+  // that no longer holds its identity. Forwarded, this was a silent permanent
+  // stall — no ack, no deadline on either end, no register, a socket open and
+  // saying nothing. Refused, the agent's own non-terminal-4410 loop relays
+  // the remedy to its log. A refusal, deliberately NOT a hold: pairing is a
+  // handshake between the two endpoints, not an admin surface, and fail
+  // closed is this machine's whole doctrine. A frame the shape gate rejects
+  // (no eph, eph not base64-shaped, no pub) is junk and stays forwarded —
+  // the refusal is for claims, not for anyone who typed `"t":"kx"`.
+  const claim = parseKxFrame(parseJson(frame.text));
+  if (claim && claim.pub !== undefined) {
+    return refuse("legacy row received a kx claim — re-pair via register");
+  }
   // R3: the row's lack of a pin is not evidence it may run. A ready that
   // WOULD pass both gates on this socket is the downgrade attempt spec §4's
   // properties call out, and the hold for it is a NEW reason only Task 8's

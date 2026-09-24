@@ -500,6 +500,77 @@ describe("legacy mode", () => {
     const outcome = await handleLinkFrame(h.deps, { data: legacyData() }, frame);
     expect(outcome).toEqual({ forwarded: frame.text });
   });
+
+  // R10 (spec 2026-09-24 follow-up): key rotation CLEARS the row's pin
+  // (rotate-node-key.route.ts step 2), and the agent's config keeps both link
+  // fields — so its redial arrives in handshake mode, on a row the machine
+  // now classifies legacy. Before this, the `kx` was forwarded as garbage and
+  // the binding dropped as garbage: no refusal, no deadline on either end,
+  // an open socket that never establishes and never registers. The refusal
+  // names the remedy: re-pair via register.
+  it("refuses a real kx CLAIM on a legacy row, 4410 naming register (R10)", async () => {
+    const h = await makeHarness();
+    const outcome = await handleLinkFrame(h.deps, { data: legacyData() }, kxText(h));
+    expectClose(outcome, "re-pair via register");
+    // A pure shape decision: it lands BEFORE any derivation work, the same
+    // order the handshake path keeps for its own pub-mismatch refusal.
+    expect(h.calls.load).toBe(0);
+    expect(h.calls.verify).toBe(0);
+    expect(h.calls.setPub).toEqual([]);
+  });
+
+  it("keeps a kx that fails the shape gate forwarded-unrecognized — refusal is for real claims only", async () => {
+    const h = await makeHarness();
+    // "Real claim" is parseKxFrame's SHAPES decision (the same gate the
+    // handshake path runs), not a 32-byte decode: the negotiator's claim
+    // always carries eph AND pub, and anything the gate rejects — pub absent,
+    // eph not base64-shaped at all — is someone who typed `"t":"kx"`, exactly
+    // the junk the forwarded path always dropped.
+    // Untyped on purpose (the file's convention): the union's `.text` accessor
+    // belongs to these calls, not to the widened `LinkFrame` annotation.
+    const noPub = { text: JSON.stringify({ t: "kx", eph: h.client.ephemeralPublicKey }) };
+    expect(await handleLinkFrame(h.deps, { data: legacyData() }, noPub)).toEqual({ forwarded: noPub.text });
+    const junkEph = {
+      text: JSON.stringify({ t: "kx", eph: "not base64!!", pub: h.nodeStatic.publicKey }),
+    };
+    expect(await handleLinkFrame(h.deps, { data: legacyData() }, junkEph)).toEqual({ forwarded: junkEph.text });
+    // The 31-byte case sits INSIDE the gate (base64-shaped), so it is a claim
+    // by shape and refused — pinning where the boundary actually is.
+    const sodium = await ensureSodium();
+    const shortEph: LinkFrame = {
+      text: JSON.stringify({ t: "kx", eph: sodium.to_base64(new Uint8Array(31)), pub: h.nodeStatic.publicKey }),
+    };
+    expectClose(await handleLinkFrame(h.deps, { data: legacyData() }, shortEph), "re-pair via register");
+    // And Elysia's PRE-PARSED object form is the same decision, not a bypass.
+    const preParsed: LinkFrame = { text: { t: "kx", eph: h.client.ephemeralPublicKey, pub: h.nodeStatic.publicKey } };
+    expectClose(await handleLinkFrame(h.deps, { data: legacyData() }, preParsed), "re-pair via register");
+  });
+
+  it("the R10 sequence end-to-end server-side: claim → 4410, and the redial's register still pairs", async () => {
+    // The self-heal's plane half, in wire order. Connect 1: the stale-identity
+    // agent handshakes, gets the named refusal. Connect 2 (the redial, fresh
+    // socket on the still-pin-less row): a register claim — it was never
+    // poisoned by the refusal — pins, answers register-ok, closes normally
+    // (R7), and connect 3 will classify handshake. The agent-side 4410
+    // handling is pinned in apps/node/agent/src/__tests__/daemon.test.ts
+    // ("(b) a 4410 handshake refusal relays the plane's reason and
+    // reconnects — never terminal"); NOT duplicated here.
+    const h = await makeHarness();
+    const first = await handleLinkFrame(h.deps, { data: legacyData() }, kxText(h));
+    expectClose(first, "re-pair via register");
+
+    const redial = await handleLinkFrame(
+      h.deps,
+      { data: legacyData() },
+      { text: JSON.stringify({ t: "register", pub: h.nodeStatic.publicKey }) },
+    );
+    expect("sendText" in redial && "thenClose" in redial).toBe(true);
+    if (!("sendText" in redial) || !("thenClose" in redial)) return;
+    const ok = JSON.parse(redial.sendText) as { t: string; controlEncryptPublicKey: string };
+    expect(ok.t).toBe("register-ok");
+    expect(ok.controlEncryptPublicKey).toBe(h.serverStatic.publicKey);
+    expect(h.calls.setPub).toHaveLength(1);
+  });
 });
 
 describe("handshake timeout budget", () => {
