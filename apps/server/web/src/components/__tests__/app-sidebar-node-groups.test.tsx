@@ -255,10 +255,18 @@ describe("the rail's subshell list, grouped by node", () => {
     });
   });
 
+  // The reveal moved off the native `title` onto the styled tooltip (2026-09-24,
+  // zoom scaling), so these assert the POPUP itself, opened by the keyboard
+  // focus path the tooltip also implements. (Hover needs a pointer stack
+  // happy-dom lacks; focus drives the same popup, and earns keyboard users
+  // the reveal as a side effect.)
   it("gives every row a tooltip naming the node, the agent and the state", async () => {
     await withRail([subshell({ id: "a", name: "one", nodeId: "n1" })], async () => {
       const link = await waitFor(() => screen.getByRole("link", { name: /one/ }));
-      expect(link.getAttribute("title")).toBe(
+      expect(link.getAttribute("title")).toBeNull();
+      fireEvent.focus(link);
+      const popup = await screen.findByText(/Name: one/);
+      expect(popup.textContent).toBe(
         "Name: one\nNode: mac-mini\nAgent: Claude Code\nStatus: idle\nDirectory: /Users/theo",
       );
     });
@@ -268,7 +276,9 @@ describe("the rail's subshell list, grouped by node", () => {
     // A readable slug beats an empty line — the clone dialog makes the same trade.
     await withRail([subshell({ id: "a", name: "one", harnessId: "codex" })], async () => {
       const link = await waitFor(() => screen.getByRole("link", { name: /one/ }));
-      expect(link.getAttribute("title")).toContain("Agent: codex");
+      fireEvent.focus(link);
+      const popup = await screen.findByText(/Name: one/);
+      expect(popup.textContent).toContain("Agent: codex");
     });
   });
 });

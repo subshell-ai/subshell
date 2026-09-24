@@ -18,13 +18,19 @@ import type { SubshellView } from "@/types/subshell";
  * that and stays honored. The three labelled lines the 2026-09-20 grouping
  * asked for (node, agent, status) sit between them: the answers someone
  * hovers FOR, framed by the two strings they hover to FINISH READING. The
- * path goes last because it is the longest line, and a native tooltip shows
- * what fits; ordering keeps the answers above a long path's fold.
+ * path goes last because it is the longest line: ordering keeps the answers
+ * above a long path's wrap, whatever renders the string.
  *
- * A native `title` rather than the styled `ui/tooltip` component,
- * deliberately: the row is a `Link` that is also `draggable` and also the
- * trigger of a context menu, and a third render-prop wrapper around one
- * element is where one of those three gestures quietly stops working.
+ * Rendered by `ui/tooltip` (the shadcn Base UI popup) rather than a native
+ * `title` — a 2026-09-24 reversal of this function's original medium: the
+ * browser paints native tooltips at the SYSTEM font size, so page zoom
+ * (ctrl +/-) grew the rail and left the tooltip behind at its old size, and
+ * an in-page popup scales with everything else. The gesture collision the
+ * native choice used to dodge (the row is a Link + drag source +
+ * context-menu trigger, and a third wrapper around one element is where one
+ * of them quietly dies) is what Base UI's `render` prop answers: the tooltip
+ * merges onto the Link instead of wrapping it, so all four consumers share
+ * the one element.
  *
  * `Status` uses the SHARED indicator word, the same one the dot beside it
  * shows and the same one the home card's badge shows.

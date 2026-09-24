@@ -95,10 +95,15 @@ this header labels `local` too (the retired card pill could dodge by
 returning null; a section header cannot). The flag is `nodeData === undefined`, not `isError`: TanStack reports
 `isError` on a failed BACKGROUND refresh while keeping the cache, and
 relabeling resolved names on a blip is the bug that shape caused once. A
-row's native-`title` tooltip (native because the row is a Link + drag source +
-context-menu trigger and a third wrapper is where one of those dies) carries
-Name/Node/Agent/Status/Directory — the three asked-for facts framed by the two
-strings the rail truncates, which the PRE-grouping title existed to reveal.
+row's tooltip carries Name/Node/Agent/Status/Directory — the three asked-for
+facts framed by the two strings the rail truncates, which the PRE-grouping
+title existed to reveal. It is a `ui/tooltip` popup (the shadcn Base UI split
+form, `TooltipTrigger render={...}`) merged onto the row's own `Link` rather
+than a native `title` (2026-09-24 reversal: the browser paints native
+tooltips at the SYSTEM font size, so page zoom grew the rail and left the
+reveal behind; `render` composes the fourth consumer without the wrapper
+that used to be the reason not to). Base `ui/tooltip` text is `text-body` —
+one step up from `detail`, same day's call.
 **Above the groups sits a `Needs Attention` spotlight** (spec 2026-09-24,
 `needsAttention()` in the same lib): the owner's rows whose push has not been
 opened since, filtered by the same rule as the bell. It is a sibling, never a
