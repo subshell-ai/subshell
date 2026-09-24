@@ -81,7 +81,9 @@ function LoginPage() {
   // minor 1: a consumed `unable_to_create_session` was sticky, so a later
   // mistyped password showed the old refusal beside the new one), and a
   // decision still riding the live params would blink out together with them.
-  const [authError] = useState(() => mapAuthError({ error: searchError, error_description: searchErrorDescription }));
+  const [authError, setAuthError] = useState(() =>
+    mapAuthError({ error: searchError, error_description: searchErrorDescription }),
+  );
   const navigate = useNavigate();
   useEffect(() => {
     // Pending is excluded because its <Navigate to="/pending"> already leaves
@@ -149,6 +151,10 @@ function LoginPage() {
     e.preventDefault();
     setBusy(true);
     setError(null);
+    // A fresh attempt retires the earlier round-trip refusal: within the SAME
+    // page-view the captured decision used to outlive its moment, painting the
+    // stale OAuth line beside the new password error (Task 14 re-review nit).
+    setAuthError({ kind: "none" });
     try {
       const { error: signInError } = await authClient.signIn.email({ email, password });
       if (signInError) {
@@ -166,6 +172,7 @@ function LoginPage() {
   async function signInWithPasskey() {
     setBusy(true);
     setError(null);
+    setAuthError({ kind: "none" });
     try {
       const { error: pkError } = await authClient.signIn.passkey({});
       if (pkError) {
