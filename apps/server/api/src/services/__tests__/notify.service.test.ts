@@ -10,8 +10,10 @@ import * as notificationsMigration from "@/db/migrations/0014-session-notificati
 import * as sharingMigration from "@/db/migrations/0016-session-sharing.js";
 import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
 import * as presetsMigration from "@/db/migrations/0027-presets.js";
+import * as pushUrgencyMigration from "@/db/migrations/0035-subshell-push-urgency.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { NotificationsRepository } from "@/db/repositories/notifications.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { Database } from "@/db/types/index.js";
 import {
   __setVapidDirForTests,
@@ -31,6 +33,7 @@ async function freshDb() {
   await sharingMigration.up(db as Kysely<any>);
   await subshellRenameMigration.up(db as Kysely<any>); // renamed schema the code sees
   await presetsMigration.up(db as Kysely<any>); // profiles → presets (spec 2026-09-13 §6)
+  await pushUrgencyMigration.up(db as Kysely<any>); // last_push_urgency (spec 2026-09-23)
   return db;
 }
 
@@ -325,5 +328,97 @@ describe("VAPID key storage", () => {
       __setVapidDirForTests(null);
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("notifySubshell unseen gate (spec 2026-09-23)", () => {
+  /** Bell on, one web-push subscription, recording sender. */
+  async function gated() {
+    const db = await freshDb();
+    await (db as Kysely<any>)
+      .insertInto("subshells")
+      .values({
+        id: "s1",
+        userId: "u1",
+        presetId: "p",
+        harnessId: "h",
+        name: "n",
+        workingDir: "/tmp",
+        tmuxSocket: null,
+        notify: 1,
+      })
+      .execute();
+    const subs = new NotificationsRepository(db);
+    await subs.upsertForUser("u1", "https://push/a", "k", "a");
+    const record: { to: string[] } = { to: [] };
+    const service = createNotifyService({ subshells: db, subs, sender: sender(record) });
+    const urgency = async (): Promise<number | null> =>
+      (await new SubshellsRepository(db).findById("s1"))?.lastPushUrgency ?? null;
+    return { db, record, service, urgency };
+  }
+
+  it("the first turn_complete pushes and marks urgency; its repeat is silent", async () => {
+    const { record, service, urgency } = await gated();
+    await service.notifySubshell("s1", "turn_complete");
+    expect(record.to).toEqual(["https://push/a"]);
+    expect(await urgency()).toBe(1);
+    await service.notifySubshell("s1", "turn_complete");
+    expect(record.to).toHaveLength(1);
+  });
+
+  it("needs_attention escalates over an unseen done; its own repeat and a later done do not", async () => {
+    const { record, service, urgency } = await gated();
+    await service.notifySubshell("s1", "turn_complete");
+    await service.notifySubshell("s1", "needs_attention");
+    expect(record.to).toHaveLength(2);
+    expect(await urgency()).toBe(2);
+    await service.notifySubshell("s1", "needs_attention");
+    await service.notifySubshell("s1", "turn_complete");
+    expect(record.to).toHaveLength(2);
+  });
+
+  it("death rings over any unseen state; crashed_final rings over an unseen crashed", async () => {
+    const { record, service, urgency } = await gated();
+    await service.notifySubshell("s1", "needs_attention");
+    await service.notifySubshell("s1", "exited");
+    expect(record.to).toHaveLength(2);
+    expect(await urgency()).toBe(3);
+    // Same-rank repeats are silent: the ladder is strictly-outranks.
+    await service.notifySubshell("s1", "crashed");
+    expect(record.to).toHaveLength(2);
+    await service.notifySubshell("s1", "crashed_final");
+    expect(record.to).toHaveLength(3);
+    expect(await urgency()).toBe(4);
+  });
+
+  it("an undelivered attempt (no subscribers, no devices) marks nothing", async () => {
+    const db = await freshDb();
+    await (db as Kysely<any>)
+      .insertInto("subshells")
+      .values({
+        id: "s1",
+        userId: "u1",
+        presetId: "p",
+        harnessId: "h",
+        name: "n",
+        workingDir: "/tmp",
+        tmuxSocket: null,
+        notify: 1,
+      })
+      .execute();
+    const record: { to: string[] } = { to: [] };
+    const service = createNotifyService({
+      subshells: db,
+      subs: new NotificationsRepository(db),
+      sender: sender(record),
+    });
+    await service.notifySubshell("s1", "turn_complete");
+    expect(record.to).toHaveLength(0);
+    expect((await new SubshellsRepository(db).findById("s1"))?.lastPushUrgency).toBeNull();
+    // And the pane is not silenced by it: with a subscription now present,
+    // the event rings.
+    await new NotificationsRepository(db).upsertForUser("u1", "https://push/b", "k", "a");
+    await service.notifySubshell("s1", "turn_complete");
+    expect(record.to).toEqual(["https://push/b"]);
   });
 });

@@ -34,6 +34,7 @@ import * as nodeMaintenanceMigration from "@/db/migrations/0031-node-maintenance
 import * as setupStepMigration from "@/db/migrations/0032-setup-step.js";
 import * as setupKeyPlaintextMigration from "@/db/migrations/0033-setup-key-plaintext.js";
 import * as favoritesNodeScopeMigration from "@/db/migrations/0034-favorites-node-scope.js";
+import * as pushUrgencyMigration from "@/db/migrations/0035-subshell-push-urgency.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -94,6 +95,9 @@ export async function runMigrations(): Promise<void> {
           // (node-setup revamp, 2026-09-17). Drops every outstanding key.
           "0033-setup-key-plaintext": setupKeyPlaintextMigration,
           "0034-favorites-node-scope": favoritesNodeScopeMigration,
+          // One push per unseen interval: the urgency of the last delivered
+          // push a pane has not had answered (spec 2026-09-23).
+          "0035-subshell-push-urgency": pushUrgencyMigration,
         };
       },
     },
