@@ -1,4 +1,4 @@
-import { apiFetch } from "@internal/node-admin";
+import { apiFetch, cn } from "@internal/node-admin";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { createRootRoute, Navigate, Outlet, useLocation } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
@@ -20,6 +20,7 @@ import { LiveSubshellsFeedProvider } from "@/hooks/use-live-subshells-feed";
 import { useServerOffline } from "@/hooks/use-server-offline";
 import { useSetupProgress } from "@/hooks/use-setup-progress";
 import { useVisualViewportInsets } from "@/hooks/use-visual-viewport-insets";
+import { routeOwnsBottomEdge } from "@/lib/app-frame";
 import { useCurrentUser } from "@/lib/auth";
 import { desktopPlatform, isServerDesktop } from "@/lib/desktop";
 import { queryClient } from "@/lib/query-client";
@@ -62,8 +63,11 @@ const NAVIGATE_TO_SETUP = <Navigate to="/setup" />;
  * Soft-keyboard pinning (spec §5) also lives here: sizing/transforming the
  * WHOLE shell to the visible viewport keeps every descendant's
  * percentage/flex height (pages use `h-full`) correct without each page
- * having to subtract the top bar and key bar itself. The `h-dvh` class is the
- * fallback whenever insets are null (desktop, browsers without the API).
+ * having to subtract the top bar and key bar itself. The hook also carries
+ * the standalone-PWA pin (iOS `dvh` is wrong on a home-screen cold start) —
+ * see `use-visual-viewport-insets`. The `h-dvh` class is the fallback
+ * whenever insets are null (desktop, browser tabs, browsers without the
+ * API).
  *
  * The signed-out guard holds first paint until the session (and, when signed
  * out, the setup state) is known so chrome never flashes, then redirects:
@@ -113,6 +117,9 @@ function Shell() {
   const location = useLocation();
   // Pre-auth pages own the whole frame: no sidebar, no drawer bar.
   const bare = location.pathname === "/login" || location.pathname === "/setup";
+  // Pages that pad the home-indicator strip themselves (their key bar carries
+  // the safe-area padding inside the card) — see lib/app-frame.ts.
+  const bottomOwner = routeOwnsBottomEdge(location.pathname);
   // First-run precedence: with no users yet, signed-out visitors go to the
   // wizard (the boot experience), never to a sign-in form that cannot work.
   // Cached hard — needsSetup is true exactly once in an instance's life.
@@ -214,7 +221,11 @@ function Shell() {
                 one line and `browserFooter` is hoisted above rather than
                 inlined. */}
             {hasSidebar && !bare && (desktop ? <DesktopSidebar /> : <AppSidebar footerEnd={browserFooter} />)}
-            <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+            {/* The shell pads the home indicator for the pages that SCROLL.
+              Pages whose bottom-most element is a key bar own that padding
+              themselves (`routeOwnsBottomEdge`), and this padding on top of
+              theirs is a background band under the bar. */}
+            <div className={cn("flex-1 overflow-y-auto", !bottomOwner && "pb-[env(safe-area-inset-bottom)]")}>
               <Outlet />
             </div>
           </div>

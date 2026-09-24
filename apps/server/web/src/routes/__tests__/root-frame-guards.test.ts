@@ -51,3 +51,24 @@ describe("the root frame's session-only children", () => {
     });
   }
 });
+
+/**
+ * The frame's bottom safe-area padding must stay gated on the shell knowing
+ * a page does NOT own its own bottom edge. The padding exists for the
+ * scrolling pages; stacked under the key bar's own identical padding it
+ * renders a background band below the bar — half of the PWA short-height
+ * report (the other half is the standalone `dvh` bug, see
+ * `use-visual-viewport-insets`). Asserted at the source because, like the
+ * session guards above, this is JSX in `Shell`, not a value any pure
+ * function returns; the predicate itself is unit-tested in
+ * `lib/__tests__/app-frame.test.ts`.
+ */
+describe("the root frame's bottom padding", () => {
+  const source = readFileSync(ROOT, "utf8");
+
+  test("the outlet wrapper's safe-area padding is gated on the bottom-owner check", () => {
+    const line = source.split("\n").find((l) => l.includes("pb-[env(safe-area-inset-bottom)]"));
+    expect(line, "no bottom safe-area padding line in __root.tsx").toBeDefined();
+    expect(line, `bottom padding ungated: ${line?.trim()}`).toContain("bottomOwner");
+  });
+});
