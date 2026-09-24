@@ -42,6 +42,34 @@ describe("SubshellDot", () => {
   });
 });
 
+describe("SubshellDot — the working blink (2026-09-24)", () => {
+  afterEach(cleanup);
+
+  const classOfDot = () => document.querySelector('[aria-hidden="true"]')?.getAttribute("class") ?? "";
+
+  it("the ACTIVE dot carries the blink", () => {
+    render(<SubshellDot subshell={probe({ activity: "active" })} />);
+    expect(classOfDot()).toContain("subshell-dot-blink");
+  });
+
+  it("nothing else blinks — the motion is the difference between working and quiet", () => {
+    // Dim green already says "alive, quiet"; the blink says "printing NOW".
+    // If idle blinked too, the pair would differ only by brightness again.
+    for (const overrides of [
+      { activity: "idle" },
+      { waitingSince: "2026-09-24T00:00:00.000Z" },
+      { alive: false },
+      { nodeOffline: true },
+      { unseenPush: true, activity: "active" }, // the bell stays still
+    ] satisfies Partial<SubshellView>[]) {
+      const { unmount } = render(<SubshellDot subshell={probe(overrides)} />);
+      expect(classOfDot()).not.toContain("subshell-dot-blink");
+      expect(document.querySelector("svg")?.getAttribute("class") ?? "").not.toContain("subshell-dot-blink");
+      unmount();
+    }
+  });
+});
+
 describe("SubshellDot — the header's variant (2026-09-20)", () => {
   // Each case queries the document, so a leftover render would answer for it.
   afterEach(cleanup);

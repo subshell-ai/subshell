@@ -256,6 +256,30 @@ body {
   .assistant-enter {
     animation: assistant-in 220ms ease-out;
   }
+
+  /* The working dot's blink (operator request, 2026-09-24, first as a halo
+     pulse then set to blink "like Claude Code's in-progress work"): actively
+     printing gets MOTION, "alive but quiet" stays the still dim green, so
+     the pair no longer differs by brightness alone. A hard on/off square
+     wave, not a fade — the terminal-cursor idiom the ask named; `steps(1)`
+     makes the switch instant and the keyframe stops belt-and-meaningless.
+     This is the design system's one deliberate LOOPING animation — the
+     one-shot rule exists because a rebuilt element replays it forever; a
+     loop on a stable element (the dot's DOM node survives row re-renders:
+     stable keys, structural sharing in the live feed) replays nothing, it
+     just runs. Under `prefers-reduced-motion` the class does not exist at
+     all: the dot is plain green, and the tooltip still says which is which. */
+  .subshell-dot-blink {
+    animation: subshell-dot-blink 1.6s steps(1) infinite;
+  }
+}
+@keyframes subshell-dot-blink {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
 }
 @keyframes assistant-in {
   from {

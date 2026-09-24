@@ -6,22 +6,32 @@ import type { SubshellView } from "@/types/subshell";
 /**
  * Fill classes per state, in the rail's own visual language (spec
  * 2026-09-03 sidebar-quickadd §1 note): tone is a sidebar concern, so this
- * table lives with the dot, not in the shared indicator module. The dot
- * never animates, on any surface.
+ * table lives with the dot, not in the shared indicator module.
  *
  * GREEN is the ALIVE family (2026-09-24, operator call): full green is
  * printing, dim green is quiet-but-running. Idle used to be neutral gray,
  * which read as "off" — a mid-tool-call agent with a 60s silence looked dead
- * beside things that are. The two dead states stay readable at 6px by shape
- * and faintness, not just hue — `exited` is a faint GRAY fill (gray is not
- * alive), `terminated` a hollow ring.
+ * beside things that are. The pair's difference is MOTION, not brightness
+ * alone (same-day operator ask): ACTIVE carries the hard on/off blink
+ * defined in `styles.css` (`subshell-dot-blink`, "like Claude Code's
+ * in-progress work") — the app's one looping animation, on a node that
+ * structurally never remounts — and under `prefers-reduced-motion` the loop
+ * does not exist and the dot is plain green. Every other state, and the
+ * bell, is still.
+ *
+ * The two dead states stay readable at 6px by shape and faintness, not just
+ * hue — `exited` is a faint GRAY fill (gray is not alive), `terminated` a
+ * hollow ring.
  *
  * `node-offline` is the palette's RED (2026-09-24, operator call: it read as
  * too gentle as an orange): a machine you cannot reach is an error state, not
  * a caution, and it now outranks `waiting`'s amber on the colour scale.
  */
 const DOT_CLASS: Record<SubshellIndicator, string> = {
-  active: "bg-success",
+  // The blink class is CSS-gated on `prefers-reduced-motion: no-preference`
+  // (see styles.css); naming it here unconditionally is safe — under reduce
+  // the class carries nothing.
+  active: "bg-success subshell-dot-blink",
   idle: "bg-success/50",
   waiting: "bg-warning",
   exited: "bg-muted-foreground/50",
