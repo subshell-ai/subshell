@@ -14,11 +14,13 @@ import { DEFAULT_DEPS } from "../service.js";
 import { newHome } from "../test-preload.js";
 import { NODE_VERSION } from "../version.js";
 
-/** The canned 201 the real route sends (spec §5.2). */
+/** The canned 201 the real route sends (spec §5.2 + link key spec §3). */
 const CANNED = {
   nodeId: "node_test_1",
   nodeKey: "subshell_key_never_printed",
   controlPublicKey: '{"kty":"EC","crv":"P-256","x":"x","y":"y"}',
+  // A realistic shape: 32 bytes base64 is exactly 43 unpadded chars.
+  controlEncryptPublicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
   wsUrl: "ws://localhost/ws/node",
 };
 
@@ -89,9 +91,14 @@ test("enroll posts the route-shaped body, persists config at 0600, exits 0", asy
   expect(path).toBe("/api/nodes/enroll");
 
   // Body must match EnrollBodySchema field names and the route's os vocabulary.
+  // `encryptPublicKey` (spec 2026-09-24 §3): the node's fresh static public
+  // half for the encrypted link. libsodium's `to_base64` spells it URL-safe
+  // (measured: `-`/`_`, no padding) and its `from_base64` REFUSES the padded
+  // standard spelling, so this is the alphabet that survives the round trip.
   expect(Object.keys(seen ?? {}).sort()).toEqual(
-    ["agentVersion", "arch", "hostname", "name", "os", "publicKey", "setupKey"].sort(),
+    ["agentVersion", "arch", "encryptPublicKey", "hostname", "name", "os", "publicKey", "setupKey"].sort(),
   );
+  expect(String(seen?.encryptPublicKey)).toMatch(/^[A-Za-z0-9_-]{43,44}$/);
   expect((["linux", "darwin", "unknown"] as unknown[]).includes(seen?.os)).toBe(true);
   expect(seen?.os).toBe(mapOs(process.platform));
   expect(seen?.name).toBe("test node"); // required now; the hostname default is gone
@@ -103,16 +110,26 @@ test("enroll posts the route-shaped body, persists config at 0600, exits 0", asy
   expect("d" in pub).toBe(false);
 
   const cfg = await loadConfig();
-  expect(cfg).toEqual({
+  // The link pair is FRESH per enroll, so it is asserted by pairing rather
+  // than by value: the public half in the config is the one that was posted,
+  // and both halves are 32-byte base64. `controlEncryptPublicKey` is pinned
+  // verbatim from the response.
+  const { encryptKeyPair, ...cfgRest } = cfg;
+  expect(cfgRest).toEqual({
     serverUrl: url,
     nodeId: CANNED.nodeId,
     nodeKey: CANNED.nodeKey,
     controlPublicKey: CANNED.controlPublicKey,
+    controlEncryptPublicKey: CANNED.controlEncryptPublicKey,
     dataDir,
     name: "test node",
     // Ledger 17c: the SERVER-REPORTED dial URL is persisted alongside the rest.
     nodeWsUrl: CANNED.wsUrl,
   });
+  expect(encryptKeyPair?.publicKey).toBe(String(seen?.encryptPublicKey));
+  expect(encryptKeyPair?.publicKey).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(encryptKeyPair?.privateKey).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(encryptKeyPair?.privateKey).not.toBe(encryptKeyPair?.publicKey);
   expect(existsSync(join(dataDir, "identity.json"))).toBe(true);
 
   // The secret never appears in CLI output.
@@ -198,6 +215,35 @@ test("an empty wsUrl in the 201 is ignored — config carries no nodeWsUrl (daem
   const res = await run(enrollArgv(url));
   expect(res.code).toBe(0);
   expect((await loadConfig()).nodeWsUrl).toBeUndefined();
+});
+
+test("a 201 missing controlEncryptPublicKey is malformed — enroll fails, nothing persisted", async () => {
+  // Ruling R1 (spec 2026-09-24): a v14 agent NEVER silently enrolls against a
+  // plane that cannot answer the link pin — absence is the same malformed
+  // response as a missing `controlPublicKey`, and the setup key is already
+  // spent server-side; the message says so rather than pretending otherwise.
+  const { controlEncryptPublicKey: _drop, ...noLinkKey } = CANNED;
+  const url = fakeControlPlane(() => Response.json(noLinkKey, { status: 201 }));
+  const res = await run(enrollArgv(url));
+  expect(res.code).toBe(1);
+  expect(res.err).toInclude("malformed");
+  expect(res.err).toInclude("spent");
+  expect(existsSync(configPath())).toBe(false);
+});
+
+test("each enroll generates a FRESH link keypair — the static is not reused across enrollments", async () => {
+  // The pair generated at enroll IS the node's identity for the encrypted link
+  // (spec §3); re-enrolling re-provisions rather than reusing an old secret.
+  const url = fakeControlPlane(() => Response.json(CANNED, { status: 201 }));
+  expect((await run(enrollArgv(url))).code).toBe(0);
+  const first = (await loadConfig()).encryptKeyPair?.publicKey;
+  expect((await run(enrollArgv(url))).code).toBe(0);
+  const cfg = await loadConfig();
+  expect(first).toBeDefined();
+  expect(cfg.encryptKeyPair?.publicKey).toBeDefined();
+  expect(cfg.encryptKeyPair?.publicKey).not.toBe(first);
+  // The second POST carried its OWN fresh public half.
+  expect(seenBody().encryptPublicKey).toBe(cfg.encryptKeyPair?.publicKey);
 });
 
 // The one-line copy per 401 state. The INVALID/generic string is TODAY'S

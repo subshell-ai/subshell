@@ -1,5 +1,6 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { NODE_NAME_MAX_UNITS, normalizeNodeName } from "@internal/subshell-protocol";
+import { ensureSodium } from "@internal/subshell-protocol/node-link-crypto";
 import { Elysia, t } from "elysia";
 import { HttpError } from "@/api/auth-guard.js";
 import { assertImportablePublicJwk } from "@/api/public-jwk.js";
@@ -15,6 +16,7 @@ import { isUniqueNameViolation } from "@/lib/node-errors.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
 import { controlPublicJwkJson } from "@/services/nodes/control-keys.js";
+import { nodeEncryptionPublicKey } from "@/services/nodes/node-encryption-keys.js";
 
 /** Enrollment body (spec 2026-08-31 §5.2) — machine identity facts + the setup key. */
 const EnrollBodySchema = t.Object({
@@ -47,6 +49,18 @@ const EnrollBodySchema = t.Object({
     maxLength: 2048,
     description: "JSON-serialized P-256 ECDH-ES PUBLIC JWK (no private component) for sealed delivery to this node",
   }),
+  // Optional so a pre-v14 one-liner still enrolls (spec 2026-09-24 §5): the row
+  // then stores NULL and the node registers its static on first connect. A
+  // PRESENT value is decoded and length-checked below — like `publicKey` above,
+  // BEFORE the setup key is spent.
+  encryptPublicKey: t.Optional(
+    t.String({
+      minLength: 43,
+      maxLength: 44,
+      description:
+        "Base64 X25519 PUBLIC key for /ws/node link encryption (the node's long-term static, spec 2026-09-24 §3); absent enrolls the node in legacy mode until it registers on first connect",
+    }),
+  ),
 });
 
 /** What the agent needs to connect: its id, its one-time bearer key, the key to pin, the endpoint. */
@@ -55,6 +69,14 @@ const EnrollResponseSchema = t.Object({
   nodeKey: t.String({ description: "Plaintext node bearer key; shown exactly once here; only its hash is stored" }),
   controlPublicKey: t.String({
     description: "JSON-serialized control-plane signing public JWK; the node pins it to verify commands",
+  }),
+  // Always present (NOT optional): a v14 agent treats its absence as a
+  // malformed response and refuses to enroll, which is the fail-closed posture
+  // for the encrypted link (spec 2026-09-24 §3 — the agent must never silently
+  // provision without the pin).
+  controlEncryptPublicKey: t.String({
+    description:
+      "Base64 X25519 PUBLIC key — the control plane's static for /ws/node link encryption; the node pins it as `controlEncryptPublicKey`",
   }),
   wsUrl: t.String({
     description:
@@ -177,6 +199,39 @@ export const enrollRoute = new Elysia().use(apiModels).post(
       );
     }
 
+    // The link-encryption static (spec 2026-09-24 §3), validated in the SAME
+    // pre-consume position as publicKey above — a malformed body must not burn
+    // the single-use key. Shape is schema-checked (43-44 chars); the decode
+    // here is what proves 32 bytes. `from_base64` throws on non-base64; a
+    // wrong length is the other refusal. The STORED value is the canonical
+    // re-encode of the decoded bytes, so the row's pin is always in the exact
+    // spelling the handshake's byte comparison will see.
+    let encryptPublicKey: string | null = null;
+    if (body.encryptPublicKey !== undefined) {
+      try {
+        const sodium = await ensureSodium();
+        const decoded = sodium.from_base64(body.encryptPublicKey);
+        if (decoded.length !== 32) {
+          return status(
+            400,
+            apiErrorBody({
+              code: BackendErrorCodes.INPUT_VALIDATION_ERROR,
+              message: "encryptPublicKey must decode to 32 bytes (an X25519 public key)",
+            }),
+          );
+        }
+        encryptPublicKey = sodium.to_base64(decoded);
+      } catch {
+        return status(
+          400,
+          apiErrorBody({
+            code: BackendErrorCodes.INPUT_VALIDATION_ERROR,
+            message: "encryptPublicKey must be a base64-encoded 32-byte X25519 public key",
+          }),
+        );
+      }
+    }
+
     // ── Consume: single-winner redemption — the transactional flip is still the
     // authentication step. The peek above already mapped invalid/consumed/expired,
     // so a null here means the key changed state between peek and consume (a
@@ -211,6 +266,9 @@ export const enrollRoute = new Elysia().use(apiModels).post(
         hostname: body.hostname,
         agentVersion: body.agentVersion,
         publicKey: body.publicKey,
+        // Decoded-and-revalidated above (or null for a pre-v14 enroll) — never
+        // the raw body string.
+        encryptPublicKey,
       });
       nodeRowCreated = true;
       await new IdentitiesRepository(db).register({
@@ -245,6 +303,7 @@ export const enrollRoute = new Elysia().use(apiModels).post(
         nodeId,
         nodeKey: created.key,
         controlPublicKey: await controlPublicJwkJson(),
+        controlEncryptPublicKey: await nodeEncryptionPublicKey(),
         wsUrl: nodeWsUrl(),
       });
     } catch (err) {
@@ -300,7 +359,7 @@ export const enrollRoute = new Elysia().use(apiModels).post(
       operationId: "enrollNode",
       tags: ["nodes"],
       description:
-        "Redeems a single-use setup key into an enrolled node (public, the setup key is the credential); returns the node id, its bearer key (once), the control public JWK, and the ws URL",
+        "Redeems a single-use setup key into an enrolled node (public, the setup key is the credential); returns the node id, its bearer key (once), the control public JWK, the control link-encryption public key (spec 2026-09-24 §3), and the ws URL",
     },
   },
 );

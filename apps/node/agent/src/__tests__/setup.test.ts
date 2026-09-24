@@ -22,6 +22,9 @@ const CANNED = {
   nodeId: "node_setup_1",
   nodeKey: "subshell_key_never_printed",
   controlPublicKey: '{"kty":"EC","crv":"P-256","x":"x","y":"y"}',
+  // Required by a v14 agent since the link-key spec (2026-09-24 §3): absence
+  // is a malformed response, so every canned enroll carries it.
+  controlEncryptPublicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
   wsUrl: "ws://localhost/ws/node",
 };
 
