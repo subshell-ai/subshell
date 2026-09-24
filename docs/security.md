@@ -607,31 +607,64 @@ consequences are:
   everything else here, and now the link keypair lives there too. E2EE buys
   nothing against control-plane compromise; §11's acceptance stands word for
   word.
-- **A legacy row refuses a kx claim** (2026-09-24, ruling R10). Key rotation
-  clears the row's pin (`rotate-node-key.route.ts` step 2), so a node whose
-  config still holds its link identity redials in handshake mode at a row that
-  no longer holds it. The machine answers a real claim (`kx` carrying eph AND
-  pub) with a named 4410 — "re-pair via register" — never the silent
-  open-but-unestablished stall it forwarded before, and never a HOLD: pairing
-  is a handshake between the two endpoints, not an act anyone but them can
-  take, so the fail-closed answer is the refusal and the register is the
-  remedy. The loop is closed on the agent side too (ruling R11): a 4410 the
-  PLANE sends before the socket ever established drops the node's control pin
-  and nothing else — the pair stays, so the next connect registers the SAME
-  static and the row re-pairs; an established stream that dies still redials
-  fully provisioned, exactly as before. Accepted residue: if the PLANE's own
-  keypair is replaced, the node's binding fails pre-establishment the same
-  way, the pin drop lands it in the register-refused loop against its
-  still-pinned row, and the operator remedy is rotating the node key — which
-  clears the pin and lets register heal.
+- **A legacy row refuses a kx claim** (2026-09-24, rulings R10 + R12b). Key
+  rotation clears the row's pin (`rotate-node-key.route.ts` step 2), so a node
+  whose config still holds its link identity redials in handshake mode at a row
+  that no longer holds it. The machine answers a real claim (`kx` carrying eph
+  AND pub) with a named **4411** (`NODE_CLOSE_REPAIR_REQUIRED`) — "re-pair via
+  register" — never the silent open-but-unestablished stall it forwarded before,
+  and never a HOLD: pairing is a handshake between the two endpoints, not an act
+  anyone but them can take, so the fail-closed answer is the refusal and the
+  register is the remedy. **4411 is a code distinct from the generic 4410
+  precisely because the code, not prose, is the signal** the agent acts on. The
+  loop is closed on the agent side too (R11, narrowed by R12b): a 4411 the PLANE
+  sends before the socket ever established drops the node's control pin and
+  nothing else — the pair stays, so the next connect registers the SAME static
+  and the row re-pairs. A **generic 4410 no longer drops it**: the plane also
+  emits 4410 for its 10-second handshake deadline on a row that is usually still
+  pinned, and clearing the pin there would send the redial to register against a
+  still-pinned row — a network blip permanently offlining a healthy node (the
+  final review's I-1). An established stream that dies still redials fully
+  provisioned either way.
+- **The re-pair healing has honest limits — read which case it fixes.** 4411
+  heals the **pin-HOLDER's** misfire: a node that still holds its control pin and
+  is cut off by a generic 4410 (the handshake deadline foremost) keeps its pin
+  byte-identical and redials fully provisioned, healing on the next dial's fresh
+  ephemeral. It does NOT heal the **register crash-window** — a node that is
+  already PIN-LESS dialing a row that STILL pins its identity. Two paths reach
+  that state: the PLANE's own keypair replaced (the node's `kx` is still ACCEPTED
+  because the row pin is the node's own key, its binding fails to open, the agent
+  drops its control pin, and the register then hits the still-pinned row); and the
+  pin-before-answer window (the plane persisted the row's pin at
+  `link-session.ts` acceptRegister, then died, or the agent died before persisting
+  its own control pin). Both are a dead register loop — the plane refuses a
+  `register` on a pinned handshake-mode socket with a GENERIC 4410 whose REASON
+  now names the remedy, and the agent's register-mode 4410 log says the same — and
+  4411 will never fire to heal them. The remedy is manual and unchanged: an admin
+  rotates the node's key (clearing the pin so `register` heals), and because
+  rotation disables the old bearer the operator must ALSO run `subshell configure
+  --key <new>` on the machine and restart the agent. A fuller arm that would
+  auto-heal these (accepting a byte-equality-matched plaintext `register` on a
+  pinned handshake-mode socket) was RULED OUT: it accepts a plaintext frame on a
+  protocol-14 connection, against the operator's absolute no-downgrade ruling —
+  loosening that is not a controller's call, so the manual-rotate residue stands.
+  These states must NEVER read as healed by 4411.
+- **A command is never written plaintext onto a v14 socket** (2026-09-24,
+  ruling I-2). A handshake-classified socket carries `plaintextAllowed = false`
+  from the moment it attaches, so `sendCommand` refuses `offline` in the
+  open→established window rather than emit a plaintext command the agent would
+  refuse (killing its own healthy handshake). A LEGACY socket
+  (`plaintextAllowed = true`) still runs plaintext until it registers.
 - **The plaintext carve-out is exactly one command.** `update` still reaches a
   HELD pre-14 agent as plaintext, because that socket is held precisely for not
-  speaking the current contract — you cannot ask a downgrade to negotiate. The
-  command's wire shape is frozen across protocol bumps for this, and a
-  regression lock pins the full path through the classifier: below-floor
-  plaintext `ready` → held → plaintext `update` out → plaintext `result` in →
-  RPC completes (`node-ws-handler.test.ts`, "(h) the held `update` path…").
-  Every other command to a held node rejects `offline`.
+  speaking the current contract — you cannot ask a downgrade to negotiate. Every
+  held socket is a LEGACY classification (a handshake row's plaintext `ready` is
+  refused before the gates ever run), so the frozen rescue rides the
+  `plaintextAllowed = true` arm. The command's wire shape is frozen across
+  protocol bumps for this, and a regression lock pins the full path through the
+  classifier: below-floor plaintext `ready` → held → plaintext `update` out →
+  plaintext `result` in → RPC completes (`node-ws-handler.test.ts`, "(h) the held
+  `update` path…"). Every other command to a held node rejects `offline`.
 - **A node key can do nothing on REST.** Explicit, permanent guard rejection. Its
   entire blast radius is impersonating that node on `/ws/node`.
 - **A disabled owner's node cannot dial in** (2026-09-24). The upgrade chain

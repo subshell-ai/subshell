@@ -19,6 +19,7 @@ import {
   generateControlKeys,
   HARNESS_BINARY_PLACEHOLDER,
   NODE_CLOSE_HANDSHAKE_REQUIRED,
+  NODE_CLOSE_REPAIR_REQUIRED,
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
   type NodeCommandBody,
@@ -112,6 +113,8 @@ interface PlaneSockState {
   session?: LinkSession;
   /** The kind of the socket's FIRST inbound frame, for the (d) "kx before anything" assertion. */
   firstFrame?: string;
+  /** The plane closed this socket; later inbound frames are dropped, as on a real gone socket. */
+  dead?: boolean;
 }
 
 interface Plane {
@@ -127,6 +130,8 @@ interface Plane {
   sockets: Set<PlaneSocket>;
   /** Per socket, in open order: the kind of its first inbound frame ("kx" | "register" | "text:<t>" | "bytes"). */
   firstFrames: string[];
+  /** The close code of every kx REFUSAL the fake sent, in send order (R12b: pin WHICH code the agent saw). */
+  refusalCodes: number[];
   /** Anything the agent put on the wire that the handshake machine says it may not (spec §6). */
   violations: string[];
   /** The node static pinned by a §5 `register` — the kx claim is compared against it once set. */
@@ -147,14 +152,24 @@ interface PlaneOpts {
   serverStatic: LinkKeyPair;
   /** The kx claim accepted before any §5 register has pinned a different one. */
   nodePublicKey: string;
-  /** 4410 EVERY kx with this reason (refusal-path tests). */
+  /** 4410 (generic) EVERY kx with this reason — the pub-mismatch/deadline shape. */
   refuseKx?: string;
   /**
-   * 4410 every kx that arrives BEFORE the first register pins this fake's
-   * node static, then accept handshakes normally — the R10 rule (an unpaired
-   * row refuses claims) and the plane half of the R11 rotation-heal story.
+   * 4411 (NODE_CLOSE_REPAIR_REQUIRED, ruling R12b) every kx that arrives
+   * BEFORE the first register pins this fake's node static, then accept
+   * handshakes normally — the R10 rule (an unpaired row refuses claims) and
+   * the plane half of the R11 rotation-heal story. The CODE is the point:
+   * 4411 is what tells the agent to drop its control pin, and this fake must
+   * carry the real refusal's code for the E2E to mean anything.
    */
   refuseKxUntilRegister?: string;
+  /**
+   * Accept the kx, then close the socket with the GENERIC 4410 and this
+   * reason — the fake's stand-in for the plane's 10-second handshake deadline
+   * firing mid-handshake on a healthy, still-pinned row (the I-1 state: the
+   * redial must stay handshake mode with a byte-identical config).
+   */
+  deadlineAfterKx?: string;
   /**
    * Fires SYNCHRONOUSLY the instant a `register` claim lands, BEFORE its
    * answer. Non-racy disk-window hook (R11): the daemon's `provisioning` gate
@@ -194,6 +209,7 @@ function startPlane(opts: PlaneOpts): Plane {
     closes: 0,
     sockets: new Set(),
     firstFrames: [],
+    refusalCodes: [],
     violations: [],
     sendToAgent(text: string): void {
       if (!plane.socket) throw new Error("plane has no live socket");
@@ -210,6 +226,8 @@ function startPlane(opts: PlaneOpts): Plane {
   /** One refusal path, mirroring the server machine's `refuse`: 4410 with the reason the agent relays. */
   const refuseSock = (sock: PlaneSocket, reason: string): void => {
     plane.violations.push(reason);
+    plane.refusalCodes.push(NODE_CLOSE_HANDSHAKE_REQUIRED);
+    sock.data.dead = true;
     try {
       sock.close(NODE_CLOSE_HANDSHAKE_REQUIRED, reason);
     } catch {
@@ -237,6 +255,11 @@ function startPlane(opts: PlaneOpts): Plane {
       async message(rawWs, msg) {
         const ws = rawWs as unknown as PlaneSocket;
         const st = ws.data;
+        // Post-close frames: the agent's binding is already in flight when a
+        // refusal/deadline closes the socket. A real gone socket delivers
+        // nothing further, so neither does this one — the in-flight frame is
+        // DROPPED, never re-processed into a spurious violation or refusal.
+        if (st.dead) return;
         const isBytes = typeof msg !== "string";
         const kind = isBytes ? "bytes" : labelTextFrame(msg);
         if (st.firstFrame === undefined) {
@@ -312,16 +335,23 @@ function startPlane(opts: PlaneOpts): Plane {
           return;
         }
         if (claim === "kx") {
-          // A flat refusal, or the R10-shaped one that lifts once a register
-          // has pinned the node's static (the unpaired row refuses claims).
+          // A flat refusal (generic 4410 — the pub-mismatch/deadline shape),
+          // or the R10-shaped one that lifts once a register has pinned the
+          // node's static. R12b gives the two DIFFERENT codes: the flat/general
+          // arm carries 4410, and the unpaired-row re-pair refusal carries
+          // 4411 (NODE_CLOSE_REPAIR_REQUIRED) — the signal the agent's
+          // `onClosed` acts on, which is what makes the R11 rotation-heal E2E
+          // below exercise the REAL refusal rather than a stand-in.
           const refusal = opts.refuseKx
-            ? opts.refuseKx
+            ? { reason: opts.refuseKx, code: NODE_CLOSE_HANDSHAKE_REQUIRED }
             : opts.refuseKxUntilRegister && plane.pinnedNodePublicKey === undefined
-              ? opts.refuseKxUntilRegister
+              ? { reason: opts.refuseKxUntilRegister, code: NODE_CLOSE_REPAIR_REQUIRED }
               : undefined;
           if (refusal) {
+            plane.refusalCodes.push(refusal.code); // a REFUSAL under test, not a violation
+            st.dead = true; // drop the agent's in-flight binding, as a gone socket would
             try {
-              ws.close(NODE_CLOSE_HANDSHAKE_REQUIRED, refusal); // a REFUSAL under test, not a violation
+              ws.close(refusal.code, refusal.reason);
             } catch {
               /* already gone */
             }
@@ -339,6 +369,22 @@ function startPlane(opts: PlaneOpts): Plane {
           }
           st.phase = "awaiting-binding";
           if (opts.silentKx) return; // consumed; the binding is consumed too, and nothing is ever acked
+          if (opts.deadlineAfterKx) {
+            // The plane's 10-second handshake deadline, simulated at kx-accept:
+            // it consumed the kx and now closes the STILL-PINNED healthy socket
+            // with the GENERIC 4410. The agent must not treat this as re-pair.
+            // `dead` first: the agent's binding is already in flight and a real
+            // gone socket drops it — this fake must too, not fake up a second
+            // "no derivation" refusal from a frame the wire would never carry.
+            plane.refusalCodes.push(NODE_CLOSE_HANDSHAKE_REQUIRED);
+            st.dead = true;
+            try {
+              ws.close(NODE_CLOSE_HANDSHAKE_REQUIRED, opts.deadlineAfterKx);
+            } catch {
+              /* already gone */
+            }
+            return;
+          }
           // Consumed in SILENCE (R6) — the node's next frame is already ciphertext.
           st.sessionP = createServerSession({
             serverStatic: opts.serverStatic,
@@ -404,7 +450,13 @@ async function startDaemon(
   > & {
     config?: Partial<NodeConfig>;
     /** Handshake tweaks for the fake plane (refusals, silence, the R11 register window hook). */
-    plane?: { refuseKx?: string; refuseKxUntilRegister?: string; onRegisterClaim?: () => void; silentKx?: boolean };
+    plane?: {
+      refuseKx?: string;
+      refuseKxUntilRegister?: string;
+      deadlineAfterKx?: string;
+      onRegisterClaim?: () => void;
+      silentKx?: boolean;
+    };
     /** The harness normally awaits the first `ready`; refusal/legacy tests drive the loop themselves. */
     skipReady?: boolean;
     /** Persist the harness config to the agent home BEFORE the daemon starts (the §5 register's `updateConfig` reads it back). */
@@ -1880,15 +1932,16 @@ describe("the link handshake (spec 2026-09-24 §4/§5)", () => {
     expect(h.plane.violations).toEqual([]);
   });
 
-  test("(e) R11 rotation heal: refused kx drops the CONTROL PIN only, register re-presents the SAME static, next connect handshakes", async () => {
+  test("(e) R11 rotation heal: 4411 refused kx drops the CONTROL PIN only, register re-presents the SAME static, next connect handshakes", async () => {
     // The agent half of the rotation story (spec 2026-09-24 §5 + rulings
-    // R10/R11): key rotation cleared the row's pin, the plane answers this
-    // node's handshake-mode `kx` with the named 4410, and the config must
-    // shrink by EXACTLY the control pin — pair and nodeKey untouched — so the
-    // redial registers the SAME static and the row re-pairs. The mid-file
-    // snapshot rides `onRegisterClaim`: the provisioning gate makes that
-    // moment the non-racy window between the drop and the re-pin (rand→0
-    // reconnects are otherwise FASTER than any poll).
+    // R10/R11/R12b): key rotation cleared the row's pin, the plane answers
+    // this node's handshake-mode `kx` with the named RE-PAIR refusal — close
+    // 4411 (NODE_CLOSE_REPAIR_REQUIRED), the code R12b introduced — and the
+    // config must shrink by EXACTLY the control pin — pair and nodeKey
+    // untouched — so the redial registers the SAME static and the row
+    // re-pairs. The mid-file snapshot rides `onRegisterClaim`: the
+    // provisioning gate makes that moment the non-racy window between the
+    // drop and the re-pin (rand→0 reconnects are otherwise FASTER than any poll).
     newHome(); // the drop's updateConfig merges over the REAL on-disk config
     const [nodeLink] = await Promise.all([nodeLinkReady]);
     const midSnapshots: Array<Record<string, unknown>> = [];
@@ -1901,6 +1954,10 @@ describe("the link handshake (spec 2026-09-24 §4/§5)", () => {
       },
     });
     await waitForReady(h); // only the THIRD socket can reach protocol
+
+    // THE R12b code: the refusal that drove this heal was 4411, not a generic
+    // 4410 — the plane half of the story uses the real code the agent acts on.
+    expect(h.plane.refusalCodes).toEqual([NODE_CLOSE_REPAIR_REQUIRED]);
 
     // The full arc, in wire order: refused claim → register (pair kept, pin
     // gone) → encrypted handshake.
@@ -1922,7 +1979,45 @@ describe("the link handshake (spec 2026-09-24 §4/§5)", () => {
     expect(h.plane.pinnedNodePublicKey).toBe(nodeLink.publicKey); // the plane re-pinned the node's ORIGINAL static
     const healed = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
     expect(healed.controlEncryptPublicKey).toBe(h.serverLink.publicKey); // re-pinned by the register-ok — encrypted for good
-    expect(h.exits).toEqual([]); // the 4410 stayed an ordinary disconnect
+    expect(h.exits).toEqual([]); // the 4411 stayed an ordinary disconnect
+    expect(h.plane.violations).toEqual([]);
+  });
+
+  test("(f) a GENERIC 4410 mid-handshake (deadline-style) keeps the pin — the redial is still kx, config byte-identical (R12b, I-1)", async () => {
+    // The incident R12b closes. The plane's 10-second handshake deadline emits
+    // the SAME generic 4410 on a row that is healthy and STILL PINNED. Under
+    // the original broad R11 trigger this transient stalled dial would drop
+    // the control pin; the redial would then register against the still-pinned
+    // row → refused forever → a healthy node permanently offlined by a network
+    // blip. `deadlineAfterKx` reproduces the deadline exactly: consume the kx,
+    // close 4410, do not ack. The agent must redial STILL HANDSHAKE (kx again,
+    // never register) and its config must not move a byte.
+    newHome();
+    const [nodeLink] = await Promise.all([nodeLinkReady]);
+    const h = await startDaemon({
+      saveConfig: true, // provisioned on disk — the healthy, still-pinned state
+      skipReady: true, // this daemon NEVER establishes (every dial is deadline-cut)
+      plane: { deadlineAfterKx: "handshake required: no kx/binding within the deadline" },
+    });
+    // Let several deadline cycles run (rand→0 → instant reconnect; the daemon
+    // NEVER establishes, so it keeps redialing until afterEach stops it).
+    await waitUntil(() => h.plane.opens >= 3, "several redials after the deadline 4410", 4000);
+    await sleep(30); // give any (wrong) config write the deadline must NOT cause its chance to land
+
+    // Every first frame across every redial was a kx — the config never
+    // dropped the pin, so it NEVER fell to register mode. (This is the whole
+    // point: a broad R11 trigger would drop on the first 4410 and the redial
+    // would be a `register`.)
+    expect(h.plane.firstFrames.length).toBeGreaterThanOrEqual(3);
+    expect(h.plane.firstFrames.every((f) => f === "kx")).toBe(true);
+    // Every refusal the fake sent was the GENERIC 4410 — not one 4411.
+    expect(h.plane.refusalCodes.length).toBeGreaterThanOrEqual(3);
+    expect(h.plane.refusalCodes.every((c) => c === NODE_CLOSE_HANDSHAKE_REQUIRED)).toBe(true);
+    // And the on-disk config is byte-identical: BOTH link fields still there.
+    const saved = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
+    expect(saved.controlEncryptPublicKey).toBe(h.serverLink.publicKey); // pin INTACT
+    expect((saved.encryptKeyPair as { publicKey: string }).publicKey).toBe(nodeLink.publicKey); // pair INTACT
+    expect(h.exits).toEqual([]); // the generic 4410 is an ordinary disconnect too
     expect(h.plane.violations).toEqual([]);
   });
 });

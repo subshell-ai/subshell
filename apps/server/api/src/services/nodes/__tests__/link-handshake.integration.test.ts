@@ -6,6 +6,7 @@ import {
   JtiLru,
   MIN_NODE_VERSION,
   NODE_CLOSE_HANDSHAKE_REQUIRED,
+  NODE_CLOSE_REPAIR_REQUIRED,
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
   type NodeCommandBody,
@@ -720,18 +721,20 @@ describe("the cutover matrix (spec §7)", () => {
 
     // ── the agent's redial, still holding BOTH link fields in its config ──
     // The row is legacy now, so the handshake-mode kx CLAIM is refused: a
-    // silent stall was R10's defect; the refusal is its remedy.
+    // silent stall was R10's defect; the refusal is its remedy. R12b: the
+    // refusal carries its OWN code — 4411, the re-pair signal — so a generic
+    // 4410 (the handshake deadline) can never be mistaken for it agent-side.
     const dialer = new FakeAgent(
       { nodeId, key: k2, nodeStatic, controlStaticPub: serverStatic.publicKey, mode: "handshake" },
       lru,
     );
     await dialer.dial();
     const c2 = await dialer.waitClosed();
-    expect(c2.code).toBe(NODE_CLOSE_HANDSHAKE_REQUIRED);
+    expect(c2.code).toBe(NODE_CLOSE_REPAIR_REQUIRED);
     expect(c2.reason).toContain("re-pair via register");
     expect((await nodes.findById(nodeId))?.encryptPublicKey).toBeNull(); // the refusal writes nothing
 
-    // ── R11 on the agent side: the pre-establishment 4410 drops ONLY the
+    // ── R11 on the agent side: the pre-establishment 4411 drops ONLY the
     // control pin — the pair is kept — so the next begin() registers the
     // SAME static. ──
     const registrar = new FakeAgent({ nodeId, key: k2, nodeStatic, controlStaticPub: "", mode: "register" }, lru);

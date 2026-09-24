@@ -42,8 +42,9 @@ import { NODE_VERSION } from "./version.js";
  * Since spec 2026-09-24 the socket opens ENCRYPTED: `link-crypto.ts` runs the
  * kx/binding handshake (or §5's register self-heal) before this loop sends or
  * interprets a single frame, `ready` and everything after it rides the sealed
- * stream, and a 4410 handshake refusal is an ordinary (retried) disconnect —
- * NOT added to the terminal close-code list below.
+ * stream, and a 4410 handshake refusal (or a 4411 re-pair refusal, ruling
+ * R12b) is an ordinary (retried) disconnect — NEITHER added to the terminal
+ * close-code list below.
  *
  * Direction of trust: the socket is authenticated by the bearer node key at
  * upgrade (so outbound events are unsigned — §3.3), while every inbound
@@ -864,14 +865,17 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         if (currentWs === ws) currentWs = undefined;
         if (link === connLink) link = undefined; // send() falls to the logged drop, never to a stale seal key
         setDaemonState({ connected: false });
-        // R11: the negotiator decides what this close means for the CONFIG —
-        // a plane-initiated 4410 before establishment drops the pinned
-        // control key so the redial re-registers the node's SAME static
-        // (key rotation's self-heal; see link-crypto.ts). Its persist rides
-        // the provisioning gate, so the next `await provisioning` below
-        // cannot dial past the write. Every other close keeps the file
-        // byte-identical.
-        connLink.onClosed(close.code);
+        // R11 as narrowed by R12b: the negotiator decides what this close
+        // means for the CONFIG — a plane-initiated 4411 (the re-pair signal)
+        // before establishment drops the pinned control key so the redial
+        // re-registers the node's SAME static (key rotation's self-heal; see
+        // link-crypto.ts). A generic 4410 — the handshake deadline foremost —
+        // keeps everything, so a transient stall cannot brick a healthy node.
+        // The reason rides along for the log line, never for the decision.
+        // Its persist rides the provisioning gate, so the next `await
+        // provisioning` below cannot dial past the write. Every other close
+        // keeps the file byte-identical.
+        connLink.onClosed(close.code, close.reason);
         // Tails push into the socket that just died — stop every pump before
         // the reconnect loop dials again (the control plane re-`tail_start`s
         // on the new connection with its own cursors; spec §3.4).

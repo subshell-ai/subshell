@@ -15,7 +15,7 @@ import {
   type LinkSession,
 } from "@internal/subshell-protocol/node-link-crypto";
 import { loadControlKeys } from "../control-keys.js";
-import { attachConnection, type NodeSocket, resetNodeRegistryForTests } from "../node-registry.js";
+import { attachConnection, holdConnection, type NodeSocket, resetNodeRegistryForTests } from "../node-registry.js";
 import { failConnPendings, type NodeResultEvent, NodeRpcError, resolveResult, sendCommand } from "../node-rpc.js";
 
 /** Fake agent socket: records every wire frame we send it (text OR binary). */
@@ -395,7 +395,10 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
     await waitFor(() => fake.sent.length === 1, "plaintext frame");
 
     // The held/legacy path is this branch's unchanged behavior — what the
-    // socket receives is exactly the string it always received.
+    // socket receives is exactly the string it always received. (A hand-built
+    // conn has `plaintextAllowed` UNSET, and unset means "not classified",
+    // which is never a refusal — the `=== false` guard below fires only on
+    // what handleNodeOpen actually marked.)
     expect(typeof fake.sent[0]).toBe("string");
     const claims = await unwrap(jwsOf(fake.sent, 0), "n1", publicJwk, new JtiLru(), new SeqTracker());
     expect(claims.cmd).toEqual({ type: "ping" });
@@ -403,5 +406,134 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
 
     resolveResult(conn, { type: "result", ref: claims.jti, ok: true, data: "pong" } satisfies NodeResultEvent);
     expect(await p).toBe("pong");
+  });
+
+  /* ---------- ruling I-2 (2026-09-24): never plaintext onto a v14 socket ---------- */
+
+  describe("a classified-but-unestablished v14 socket is never sent plaintext", () => {
+    it("handshake-mode live socket, link unset: rejects `offline` and writes NOTHING", async () => {
+      // The open→established window: `handleNodeOpen` attaches the socket to
+      // the live registry at `open`, but `conn.link` exists only once the
+      // binding completes — and `plaintextAllowed` is false for a handshake
+      // classification. A Re-check/service click landing in that window used
+      // to WRITE a plaintext JSON command onto a protocol-14 socket: the agent
+      // refuses it (no security hole), but it violates "never serves
+      // plaintext" and kills the in-flight handshake. The rejection is the
+      // ordinary `offline` shape every caller already maps.
+      const fake = fakeSocket();
+      const conn = attachConnection("n1", fake);
+      conn.plaintextAllowed = false; // exactly what handleNodeOpen sets on a handshake row
+
+      const err = await rejection(sendCommand("n1", { type: "ping" }, { timeoutMs: 5000 }));
+      expect(err.code).toBe("offline");
+      await new Promise((r) => setTimeout(r, 20)); // give a bad send every chance to reach the wire
+      expect(fake.sent).toEqual([]); // NOTHING was written
+      expect(conn.pending.size).toBe(0); // and no phantom correlation entry was registered
+    });
+
+    it("LEGACY-mode live socket (link unset): plaintext is still sent — the carve-out regression guard", async () => {
+      // `plaintextAllowed === true` is what handleNodeOpen writes for a
+      // legacy classification; the guard fires on `=== false` ONLY, so a
+      // pin-less row's socket keeps speaking plaintext until it registers.
+      const fake = fakeSocket();
+      const conn = attachConnection("n1", fake);
+      conn.plaintextAllowed = true;
+
+      const p = sendCommand("n1", { type: "ping" }, { timeoutMs: 5000 });
+      await waitFor(() => fake.sent.length === 1, "legacy plaintext frame");
+      expect(typeof fake.sent[0]).toBe("string");
+      // BYTE-IDENTICAL through the new refusal codepath: the wire frame is still
+      // exactly the `{"jws": …}` text envelope the pre-I-2 code sent — not a
+      // Buffer, not a re-shaped object. The carve-out does not drift.
+      const jws = jwsOf(fake.sent, 0);
+      expect(fake.sent[0]).toBe(JSON.stringify({ jws }));
+      const claims = await unwrap(jws, "n1", publicJwk, new JtiLru(), new SeqTracker());
+      expect(claims.cmd).toEqual({ type: "ping" });
+      resolveResult(conn, { type: "result", ref: claims.jti, ok: true, data: "pong" } satisfies NodeResultEvent);
+      expect(await p).toBe("pong");
+    });
+
+    it("HELD socket: plaintext `update` is still sent — the frozen rescue is untouched", async () => {
+      // spec 2026-09-15 §5.3's ONE command, I-2's non-target: every held
+      // socket is legacy-classified (a handshake row never reaches the hold
+      // path — its plaintext ready is refused before the gates run), so
+      // `plaintextAllowed` is true here exactly as handleNodeOpen set it.
+      const fake = fakeSocket();
+      const conn = attachConnection("held-1", fake);
+      conn.plaintextAllowed = true;
+      holdConnection("held-1", conn, {
+        reason: "below-floor",
+        agentVersion: "0.16.0",
+        protocolVersion: 13,
+        os: "linux",
+        arch: "x64",
+        onIdle: () => fake.close(4406, "update required"),
+      });
+
+      const p = sendCommand(
+        "held-1",
+        { type: "update", version: "9.9.9", url: "http://127.0.0.1:1/x", sha256: "0".repeat(64) },
+        { timeoutMs: 5000 },
+      );
+      await waitFor(() => fake.sent.length === 1, "held plaintext update");
+      expect(typeof fake.sent[0]).toBe("string"); // the frozen wire shape, verbatim
+      // BYTE-IDENTICAL through the new refusal codepath: the held rescue still
+      // sends exactly the `{"jws": …}` text envelope — the I-2 guard's `=== false`
+      // never reaches it (plaintextAllowed is true), and the frozen update shape
+      // does not drift.
+      const updateJws = jwsOf(fake.sent, 0);
+      expect(fake.sent[0]).toBe(JSON.stringify({ jws: updateJws }));
+      const claims = await unwrap(updateJws, "held-1", publicJwk, new JtiLru(), new SeqTracker());
+      expect(claims.cmd).toEqual({
+        type: "update",
+        version: "9.9.9",
+        url: "http://127.0.0.1:1/x",
+        sha256: "0".repeat(64),
+      });
+      resolveResult(conn, {
+        type: "result",
+        ref: claims.jti,
+        ok: true,
+        data: { status: "updating" },
+      } satisfies NodeResultEvent);
+      expect(await p).toEqual({ status: "updating" });
+    });
+
+    it("the guard re-asks inside the chain: a link that lands while the command queues still seals", async () => {
+      // The window's other half: the command was ISSUED while `link` was
+      // unset, but the handshake completes before the chain's step runs. The
+      // guard reads `conn.link` at SEND time, so this seals — proving the
+      // check lives in `step`, not at the call. The chain is parked on a
+      // gate (the `sendChain` field every send already serializes behind) so
+      // "while queued" is deterministic, not a race against the test's own
+      // awaits.
+      const fake = fakeSocket();
+      const conn = attachConnection("n1", fake);
+      conn.plaintextAllowed = false;
+      let releaseGate: () => void = () => {};
+      conn.sendChain = new Promise<void>((r) => {
+        releaseGate = r;
+      });
+      const p = sendCommand("n1", { type: "ping" }, { timeoutMs: 5000 });
+      await new Promise((r) => setTimeout(r, 20)); // parked: nothing may be written yet
+      expect(fake.sent).toEqual([]);
+
+      const { server, client } = await linkPair();
+      conn.link = server; // establishment lands WHILE the step is queued
+      releaseGate();
+      await waitFor(() => fake.sent.length === 1, "sealed frame after late establishment");
+      expect(Buffer.isBuffer(fake.sent[0])).toBe(true);
+      const opened = client.openFrame(fake.sent[0] as Buffer);
+      expect(opened).not.toBeNull();
+      const claims = await unwrap(
+        (JSON.parse(opened as string) as { jws: string }).jws,
+        "n1",
+        publicJwk,
+        new JtiLru(),
+        new SeqTracker(),
+      );
+      resolveResult(conn, { type: "result", ref: claims.jti, ok: true, data: "pong" } satisfies NodeResultEvent);
+      expect(await p).toBe("pong");
+    });
   });
 });

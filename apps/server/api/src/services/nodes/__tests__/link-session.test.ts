@@ -35,6 +35,8 @@ const FOREIGN_NODE_KEY = "subshell_foreign_node_key";
 /** The 4410 constant as the test names it; imported by number so a silent
  * constant change in the protocol package fails loudly here. */
 const CLOSE_4410 = 4410;
+/** The 4411 re-pair signal (ruling R12b), likewise pinned by number. */
+const CLOSE_4411 = 4411;
 
 interface Harness {
   deps: LinkSessionDeps;
@@ -148,10 +150,16 @@ async function driveHandshake(h: Harness, data: LinkWsData) {
   return { kx, binding, data };
 }
 
-function expectClose(outcome: LinkOutcome, reasonIncludes?: string): void {
+/**
+ * Assert a refusal outcome. The code defaults to the generic 4410 — every
+ * handshake-mode refusal uses it. The R10 re-pair refusal (ruling R12b) is
+ * the lone 4411 producer and must pass `CLOSE_4411` explicitly, so the two
+ * signals can never quietly collapse back into one.
+ */
+function expectClose(outcome: LinkOutcome, reasonIncludes?: string, code = CLOSE_4410): void {
   expect("close" in outcome).toBe(true);
   if (!("close" in outcome)) return;
-  expect(outcome.close.code).toBe(CLOSE_4410);
+  expect(outcome.close.code).toBe(code);
   if (reasonIncludes) expect(outcome.close.reason).toContain(reasonIncludes);
 }
 
@@ -260,6 +268,21 @@ describe("handshake mode — every refusal is 4410", () => {
     const outcome = await handleLinkFrame(h.deps, { data: handshakeData(badPin) }, kxText(h));
     expectClose(outcome);
     expect(h.calls.load).toBe(0);
+  });
+
+  it("refuses a `register` on a PINNED row with a generic 4410 naming the rotate remedy (the crash-window)", async () => {
+    // §5's self-heal aimed at the WRONG row: the agent lost its control pin
+    // while this row still pins its identity, so it dials in register mode.
+    // Fail-closed refusal (the no-downgrade ruling forbids answering a plaintext
+    // register on a v14 socket) and the code stays the GENERIC 4410 — NOT 4411,
+    // which would wrongly tell the agent to drop a pin it does not have — but
+    // the reason is actionable rather than "expected a kx frame".
+    const h = await makeHarness();
+    const register: LinkFrame = { text: JSON.stringify({ t: "register", pub: h.nodeStatic.publicKey }) };
+    const outcome = await handleLinkFrame(h.deps, { data: handshakeData(h.nodeStatic.publicKey) }, register);
+    expectClose(outcome, "rotating the node key on the plane"); // default 4410, NOT 4411
+    expect(h.calls.load).toBe(0);
+    expect(h.calls.setPub).toEqual([]); // a refusal writes nothing
   });
 
   it("closes a plaintext ready as the FIRST frame on a handshake row (the downgrade attempt)", async () => {
@@ -507,11 +530,13 @@ describe("legacy mode", () => {
   // now classifies legacy. Before this, the `kx` was forwarded as garbage and
   // the binding dropped as garbage: no refusal, no deadline on either end,
   // an open socket that never establishes and never registers. The refusal
-  // names the remedy: re-pair via register.
-  it("refuses a real kx CLAIM on a legacy row, 4410 naming register (R10)", async () => {
+  // names the remedy: re-pair via register. R12b gives it its OWN close code
+  // (4411), distinct from the generic 4410 — so the agent drops its control
+  // pin on THIS refusal and no other.
+  it("refuses a real kx CLAIM on a legacy row with 4411, naming register (R10 + R12b)", async () => {
     const h = await makeHarness();
     const outcome = await handleLinkFrame(h.deps, { data: legacyData() }, kxText(h));
-    expectClose(outcome, "re-pair via register");
+    expectClose(outcome, "re-pair via register", CLOSE_4411);
     // A pure shape decision: it lands BEFORE any derivation work, the same
     // order the handshake path keeps for its own pub-mismatch refusal.
     expect(h.calls.load).toBe(0);
@@ -540,24 +565,25 @@ describe("legacy mode", () => {
     const shortEph: LinkFrame = {
       text: JSON.stringify({ t: "kx", eph: sodium.to_base64(new Uint8Array(31)), pub: h.nodeStatic.publicKey }),
     };
-    expectClose(await handleLinkFrame(h.deps, { data: legacyData() }, shortEph), "re-pair via register");
+    expectClose(await handleLinkFrame(h.deps, { data: legacyData() }, shortEph), "re-pair via register", CLOSE_4411);
     // And Elysia's PRE-PARSED object form is the same decision, not a bypass.
     const preParsed: LinkFrame = { text: { t: "kx", eph: h.client.ephemeralPublicKey, pub: h.nodeStatic.publicKey } };
-    expectClose(await handleLinkFrame(h.deps, { data: legacyData() }, preParsed), "re-pair via register");
+    expectClose(await handleLinkFrame(h.deps, { data: legacyData() }, preParsed), "re-pair via register", CLOSE_4411);
   });
 
-  it("the R10 sequence end-to-end server-side: claim → 4410, and the redial's register still pairs", async () => {
+  it("the R10 sequence end-to-end server-side: claim → 4411, and the redial's register still pairs", async () => {
     // The self-heal's plane half, in wire order. Connect 1: the stale-identity
     // agent handshakes, gets the named refusal. Connect 2 (the redial, fresh
     // socket on the still-pin-less row): a register claim — it was never
     // poisoned by the refusal — pins, answers register-ok, closes normally
-    // (R7), and connect 3 will classify handshake. The agent-side 4410
+    // (R7), and connect 3 will classify handshake. The agent-side 4411
     // handling is pinned in apps/node/agent/src/__tests__/daemon.test.ts
-    // ("(b) a 4410 handshake refusal relays the plane's reason and
-    // reconnects — never terminal"); NOT duplicated here.
+    // ("(e) R11 rotation heal …" drives the 4411 refusal, and the R12b tests
+    // pin that a generic 4410 leaves the config byte-identical); NOT
+    // duplicated here.
     const h = await makeHarness();
     const first = await handleLinkFrame(h.deps, { data: legacyData() }, kxText(h));
-    expectClose(first, "re-pair via register");
+    expectClose(first, "re-pair via register", CLOSE_4411);
 
     const redial = await handleLinkFrame(
       h.deps,

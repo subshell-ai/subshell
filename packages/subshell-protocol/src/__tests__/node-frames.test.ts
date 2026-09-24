@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import {
   HARNESS_BINARY_PLACEHOLDER,
+  NODE_CLOSE_HANDSHAKE_REQUIRED,
+  NODE_CLOSE_REPAIR_REQUIRED,
+  NODE_CLOSE_SUPERSEDED,
+  NODE_CLOSE_UPDATE_REQUIRED,
   NODE_PROTOCOL_VERSION,
   NODE_RESULT_DIGEST_MISMATCH,
   NODE_RESULT_DOWNLOAD_FAILED,
@@ -784,5 +788,38 @@ describe("update command (protocol 10, spec 2026-09-15 §5.1)", () => {
     expect(NODE_RESULT_DOWNLOAD_FAILED).toBe("download failed");
     expect(NODE_RESULT_DIGEST_MISMATCH).toBe("digest mismatch");
     expect(NODE_RESULT_VERSION_MISMATCH).toBe("installed binary reports a different version");
+  });
+});
+
+describe("node-link close codes (spec 2026-09-24, ruling R12b)", () => {
+  it("exports the two handshake codes by value — pinned as numbers", () => {
+    // Imported by number (like link-session.test.ts does) so a silent value
+    // change fails HERE, at the definition, not at whichever consumer happened
+    // to compare against the constant.
+    expect(NODE_CLOSE_HANDSHAKE_REQUIRED).toBe(4410);
+    expect(NODE_CLOSE_REPAIR_REQUIRED).toBe(4411);
+    expect(NODE_CLOSE_UPDATE_REQUIRED).toBe(4406);
+    expect(NODE_CLOSE_SUPERSEDED).toBe(4409);
+  });
+
+  it("4411 is unique among every code /ws/node ever sends", () => {
+    // The handler-local ones are literals because they live in the backend
+    // (`node-ws-handler.ts` 4401/1009, `node-registry.ts` 4403, and 1012 is the
+    // service-restart close `performRestart` puts on node sockets); 1000 is the
+    // R7 register-ok close and every graceful teardown. A collision here would
+    // make the agent drop its control pin on a refusal that meant something
+    // else — which is the exact incident R12b exists to prevent.
+    const codes = [
+      1000,
+      1009,
+      1012,
+      4401,
+      4403,
+      NODE_CLOSE_UPDATE_REQUIRED,
+      NODE_CLOSE_SUPERSEDED,
+      NODE_CLOSE_HANDSHAKE_REQUIRED,
+      NODE_CLOSE_REPAIR_REQUIRED,
+    ];
+    expect(new Set(codes).size).toBe(codes.length);
   });
 });

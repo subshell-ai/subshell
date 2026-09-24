@@ -1510,6 +1510,34 @@ describe("handleNodeMessage through the link machine (spec 2026-09-24 §4/§5/§
     expect(h.ready).toHaveLength(0);
   });
 
+  it("(b2) the handshake DEADLINE closes a stalled handshake-mode socket with the GENERIC 4410 — never 4411 (I-1's server pin)", async () => {
+    // The exact I-1 trigger from the SERVER side, pinned so the two codes cannot
+    // quietly re-merge: a handshake-mode socket that opens and never completes
+    // is refused at the deadline with 4410. This is the plane's most common
+    // pre-establishment 4410, and it MUST stay generic — a future "simplification"
+    // that fired the deadline as 4411 would drop a healthy agent's control pin on
+    // any transient stall, and its redial's register would be refused forever.
+    const ws = fakeSocket("n1");
+    Object.assign(ws.data, { linkMode: "handshake", linkEncryptPublicKey: "pin", ownerUserId: "u1" });
+    await handleNodeOpen({ accountDisabled: async () => false, handshakeTimeoutMs: 5 }, ws);
+    expect(ws.closed).toHaveLength(0); // not yet — the DEADLINE is what closes it, not the open
+    await new Promise((r) => setTimeout(r, 40));
+    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_HANDSHAKE_REQUIRED); // the generic 4410
+    expect(ws.closed[0]?.code).not.toBe(4411); // explicitly NOT the re-pair signal
+    expect(ws.closed[0]?.reason).toContain("deadline");
+  });
+
+  it("(b3) a LEGACY socket arms NO handshake deadline — it is legitimately plaintext until it registers", async () => {
+    // The other half of the deadline pin: a legacy row is NOT refused for saying
+    // nothing (a plaintext deadline would be the downgrade guard run backwards).
+    const ws = fakeSocket("n1");
+    Object.assign(ws.data, { linkMode: "legacy", linkEncryptPublicKey: null });
+    await handleNodeOpen({ accountDisabled: async () => false, handshakeTimeoutMs: 5 }, ws);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(ws.closed).toHaveLength(0); // legacy never deadline-closes
+    expect(ws.data.handshakeTimer).toBeUndefined();
+  });
+
   it("(c) legacy + register sends register-ok as TEXT and closes the socket NORMALLY (R7, not 4410)", async () => {
     const h = makeHarness();
     const serverStatic = await generateLinkKeyPair();

@@ -385,10 +385,23 @@ export async function authenticateNodeUpgrade(
  * failing closed here would evict healthy nodes on any transient the DB has;
  * the next dial-in meets the flag at the pre-socket gate, where the read is
  * load-bearing anyway.
- * @param deps - the one account gate the re-ask reads
+ * @param deps - the one account gate the re-ask reads, plus the optional
+ *   test-only `handshakeTimeoutMs` override of the deadline interval
  * @param ws - the authenticated socket (identity stashed by the upgrade hook)
  */
-export async function handleNodeOpen(deps: Pick<NodeWsDeps, "accountDisabled">, ws: NodeWsSocket): Promise<void> {
+export async function handleNodeOpen(
+  deps: Pick<NodeWsDeps, "accountDisabled"> & {
+    /**
+     * Test-only override of the handshake-deadline interval, so a unit test can
+     * pin that a handshake-mode socket which never establishes is closed with
+     * the GENERIC 4410 when it fires (ruling R12b's I-1 regression: this 4410
+     * must NOT drop the agent's pin). Production wiring omits it →
+     * {@link HANDSHAKE_TIMEOUT_MS}.
+     */
+    handshakeTimeoutMs?: number;
+  },
+  ws: NodeWsSocket,
+): Promise<void> {
   const nodeId = ws.data.nodeId;
   if (!nodeId) {
     // Unreachable behind a correctly-wired upgrade hook; refuse loudly
@@ -397,6 +410,16 @@ export async function handleNodeOpen(deps: Pick<NodeWsDeps, "accountDisabled">, 
     return;
   }
   const conn = attachConnection(nodeId, connectionSocket(ws));
+  // Ruling I-2: this socket's plaintext policy, decided from the SAME
+  // classification every frame is routed on. A HANDSHAKE (protocol-14) row
+  // may never receive a plaintext command — not even in the open→established
+  // window, where `conn.link` is unset: `sendCommand` refuses `offline` there
+  // instead of killing the in-flight handshake with a frame the agent will
+  // refuse anyway. A LEGACY row legitimately runs plaintext until it
+  // registers — which is also how every HELD socket reaches us (a handshake
+  // row's plaintext `ready` never survives to the gates that hold it), so the
+  // frozen `update` rescue keeps its plaintext verbatim.
+  conn.plaintextAllowed = ws.data.linkMode === "legacy";
   ws.data.nodeConn = conn;
   logger.debug(`node ws: ${nodeId} connected`);
 
@@ -409,15 +432,21 @@ export async function handleNodeOpen(deps: Pick<NodeWsDeps, "accountDisabled">, 
   // registers, and the plaintext deadline would be the downgrade guard run
   // backwards. Cleared the moment the link establishes, or by any close.
   if (ws.data.linkMode === "handshake") {
-    const timer = setTimeout(() => {
-      if (handshakeIncomplete(ws.data)) {
-        try {
-          ws.close(NODE_CLOSE_HANDSHAKE_REQUIRED, "handshake required: no kx/binding within the deadline");
-        } catch {
-          // already gone
+    const timer = setTimeout(
+      () => {
+        if (handshakeIncomplete(ws.data)) {
+          try {
+            ws.close(NODE_CLOSE_HANDSHAKE_REQUIRED, "handshake required: no kx/binding within the deadline");
+          } catch {
+            // already gone
+          }
         }
-      }
-    }, HANDSHAKE_TIMEOUT_MS);
+      },
+      // Test seam: a unit test drives this at a few-ms interval to pin the
+      // deadline's GENERIC 4410 (not a 4411) firing on a stalled-but-pinned
+      // socket. Omitted in production → the real HANDSHAKE_TIMEOUT_MS.
+      deps.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS,
+    );
     // Never let an unfinished handshake hold the process (or a test runner).
     timer.unref?.();
     ws.data.handshakeTimer = timer;

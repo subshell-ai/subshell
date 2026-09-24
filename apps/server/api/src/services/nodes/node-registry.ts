@@ -169,6 +169,18 @@ export interface NodeConnection {
    * acceptor is its only writer.
    */
   link?: LinkSession;
+  /**
+   * Whether a PLAINTEXT frame may be written to this socket at all (ruling
+   * I-2, spec 2026-09-24). `handleNodeOpen` sets it beside the attach: true
+   * for a LEGACY classification (a pin-less row legitimately runs plaintext
+   * until it registers — and every held socket is one), false for HANDSHAKE
+   * (a protocol-14 socket in the open→established window, where `link` is
+   * not yet set). `sendCommand` refuses with `offline` rather than emit
+   * plaintext while `link` is unset and this is false — the frozen held-
+   * `update` rescue rides the `true` arm untouched. UNSET means "never
+   * classified" (a hand-built test conn): never a refusal.
+   */
+  plaintextAllowed?: boolean;
 }
 
 const live = new Map<string, NodeConnection>();

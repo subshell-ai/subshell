@@ -1,5 +1,6 @@
 import {
   NODE_CLOSE_HANDSHAKE_REQUIRED,
+  NODE_CLOSE_REPAIR_REQUIRED,
   NODE_PROTOCOL_VERSION,
   nodeVersionSupported,
   parseNodeEvent,
@@ -54,10 +55,13 @@ import type { NodeTable } from "@/db/types/nodes.db-types.js";
  * (the hold itself, and the `HeldReason` union that names it, are Task 8's).
  *
  * The byte caps are NOT this file's business: the handler's `frameBytes`
- * pre-caps the raw frame (ruling R2 — binary measures natively), and the
- * post-decrypt cap runs on `forwarded` inside the handler. Ciphertext is
- * plaintext + 17B (`crypto_secretstream_ABYTES`), so no second constant is
- * needed and the machine must not size-reject anything itself.
+ * caps the RAW frame before anything here runs (ruling R2 — binary measures
+ * natively). Nothing is measured again after decrypt, and nothing needs to
+ * be: what an `openFrame` yields is bounded STRUCTURALLY — a ciphertext is
+ * 17 bytes LARGER than the plaintext it carries
+ * (`crypto_secretstream_ABYTES`), so plaintext ≤ wire bytes ≤ cap, and a
+ * frame that could have overflowed it was already refused. The machine must
+ * not size-reject anything itself.
  */
 
 /** What the row's state says about the socket, decided at upgrade time. */
@@ -114,9 +118,11 @@ export type LinkFrame = { text: string | object } | { bytes: Uint8Array };
  *   carries the 24B secretstream header), to be sent as a binary frame;
  *   `established` is the live session for Task 8 to key its send path on.
  * - `{ forwarded }` — plaintext for the existing `parseNodeEvent` + gates
- *   path. From an established link this is the DECRYPTED string (the post-
- *   decrypt byte cap runs on it in the handler); from a legacy socket it is
- *   the frame as it arrived, legacy bytes included — binary there is what
+ *   path. From an established link this is the DECRYPTED string — bounded
+ *   structurally, never re-measured (a ciphertext is 17 bytes larger than what
+ *   it carries, so plaintext ≤ wire bytes ≤ the cap the handler enforced on the
+ *   RAW frame before this machine ran; see the header). From a legacy socket it
+ *   is the frame as it arrived, legacy bytes included — binary there is what
  *   binary on a plaintext socket always was: dropped as unrecognized.
  * - `{ holdEncryptionRequired }` — ledger R3: a legacy row received a
  *   plaintext `ready` that WOULD pass both gates. Task 8 holds it DIRECTLY
@@ -126,8 +132,10 @@ export type LinkFrame = { text: string | object } | { bytes: Uint8Array };
  *   below-floor or protocol-mismatch `ready` on the same socket is FORWARDED
  *   and keeps its existing `applyReady` + hold path unchanged.) The machine
  *   does not write or hold anything itself.
- * - `{ close }` — refuse the socket with `code` (4410 here) and a reason the
- *   agent relays to its own log (spec §6).
+ * - `{ close }` — refuse the socket with `code` (4410 for every handshake
+ *   refusal; 4411 for R10's legacy-kx re-pair refusal, ruling R12b — the code
+ *   is the signal the agent reads) and a reason the agent relays to its own
+ *   log (spec §6).
  * - `{ sendText, thenClose }` — ruling R7, the legacy register answer: send
  *   this ONE plaintext frame, then close the socket NORMALLY (not 4410). The
  *   agent reconnects encrypted; do not handshake on the same socket (§5).
@@ -224,6 +232,21 @@ async function handleHandshakeFrame(
   // An absent phase is the socket's first frame.
   if ((data.linkPhase ?? "awaiting-kx") === "awaiting-kx") {
     if ("bytes" in frame) return refuse("unexpected frame: ciphertext before kx");
+    // A `register` claim on a PINNED (handshake-classified) row is the
+    // crash-window lookalike of §5's self-heal: the agent lost its control pin
+    // while the row still holds its identity, so it dials in register mode at a
+    // row that will never accept one. Refused fail-closed with the GENERIC 4410
+    // — the absolute no-downgrade ruling forbids answering a plaintext register
+    // on a protocol-14 socket, exactly as it forbids the reviewer's declined
+    // "accept a pin-matched register" arm — but the REASON names the remedy, so
+    // a stale-pinned agent reads "rotate the node key" instead of "expected a kx
+    // frame". This is NOT 4411: a register is not the re-pair signal, and the
+    // agent must NOT drop its (already-absent) pin or re-mint on this close.
+    if (isRegisterClaim(frame.text)) {
+      return refuse(
+        "register refused: the row already pins an encryption identity — rotating the node key on the plane re-pairs it",
+      );
+    }
     return acceptKx(deps, data, frame.text);
   }
   if (data.linkPhase === "awaiting-binding") {
@@ -366,15 +389,20 @@ async function handleLegacyFrame(deps: LinkSessionDeps, nodeId: string, frame: L
   // (rotate-node-key.route.ts step 2), so it dials handshake mode at a row
   // that no longer holds its identity. Forwarded, this was a silent permanent
   // stall — no ack, no deadline on either end, no register, a socket open and
-  // saying nothing. Refused, the agent's own non-terminal-4410 loop relays
-  // the remedy to its log. A refusal, deliberately NOT a hold: pairing is a
+  // saying nothing. Refused, the agent's own non-terminal loop relays the
+  // remedy to its log. A refusal, deliberately NOT a hold: pairing is a
   // handshake between the two endpoints, not an admin surface, and fail
   // closed is this machine's whole doctrine. A frame the shape gate rejects
   // (no eph, eph not base64-shaped, no pub) is junk and stays forwarded —
   // the refusal is for claims, not for anyone who typed `"t":"kx"`.
+  // R12b: this is the ONLY producer of 4411 (NODE_CLOSE_REPAIR_REQUIRED) —
+  // the code IS the re-pair signal the agent's `onClosed` acts on, so the
+  // plane's generic pre-establishment 4410s (the 10-second handshake deadline
+  // foremost) cannot be mistaken for "your pin is stale" and must never cost
+  // a healthy node its control pin.
   const claim = parseKxFrame(parseJson(frame.text));
   if (claim && claim.pub !== undefined) {
-    return refuse("legacy row received a kx claim — re-pair via register");
+    return refuse("legacy row received a kx claim — re-pair via register", NODE_CLOSE_REPAIR_REQUIRED);
   }
   // R3: the row's lack of a pin is not evidence it may run. A ready that
   // WOULD pass both gates on this socket is the downgrade attempt spec §4's
@@ -420,8 +448,15 @@ async function acceptRegister(deps: LinkSessionDeps, nodeId: string, raw: string
 /* shared helpers                                                      */
 /* ------------------------------------------------------------------ */
 
-function refuse(reason: string): LinkOutcome {
-  return { close: { code: NODE_CLOSE_HANDSHAKE_REQUIRED, reason } };
+/**
+ * A handshake refusal carrying the generic {@link NODE_CLOSE_HANDSHAKE_REQUIRED}
+ * (4410). Every handshake-mode wrong-kind/wrong-phase close uses this. The ONE
+ * caller that needs a different signal — R10's re-pair refusal on a legacy row —
+ * passes {@link NODE_CLOSE_REPAIR_REQUIRED} (4411) explicitly (ruling R12b), so
+ * the agent drops its stale control pin on that refusal and on nothing else.
+ */
+function refuse(reason: string, code: number = NODE_CLOSE_HANDSHAKE_REQUIRED): LinkOutcome {
+  return { close: { code, reason } };
 }
 
 function requireSession(data: LinkWsData): LinkSession {

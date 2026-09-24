@@ -108,6 +108,10 @@ export interface SendCommandOptions {
  * - no answer within `timeoutMs` → rejects `NodeRpcError("timeout")`
  * - node not connected now, or gone by the time the queued step runs →
  *   rejects `NodeRpcError("offline")`
+ * - a protocol-14 socket whose link has not established yet (ruling I-2) →
+ *   rejects `NodeRpcError("offline")` WITHOUT sending — a v14 socket is never
+ *   handed a plaintext command, and the agent's handshake must not be killed
+ *   by one
  *
  * **A HELD socket is used when there is no live one, and ONLY for `update`**
  * (spec 2026-09-15 §5.3). A held agent speaks a protocol this plane does not,
@@ -168,6 +172,24 @@ export function sendCommand(nodeId: string, cmd: NodeCommandBody, options: SendC
     if (conn.closing || (getLive(nodeId) !== conn && getHeld(nodeId)?.conn !== conn)) {
       throw new NodeRpcError("offline", `node "${nodeId}" disconnected before the command was sent`, nodeId);
     }
+    // Ruling I-2 (spec 2026-09-24): a protocol-14 socket may NEVER carry a
+    // plaintext command, including in the open→established window where
+    // `link` is not yet set (the socket enters the live registry at `open`,
+    // while the handshake is mid-flight — a Re-check/service click landing
+    // there used to write plaintext JSON the agent refuses, killing its own
+    // healthy handshake and costing the command a timeout). Read INSIDE the
+    // step, so a handshake that completes while this queues still seals
+    // normally. `plaintextAllowed === false` is exactly the classified
+    // handshake row; legacy and held sockets (true), and unclassified
+    // hand-built conns (undefined), take the ordinary paths unchanged — the
+    // frozen held-`update` rescue above and beside this line stays verbatim.
+    if (!conn.link && conn.plaintextAllowed === false) {
+      throw new NodeRpcError(
+        "offline",
+        `node "${nodeId}" is connected but its encrypted link is not established yet`,
+        nodeId,
+      );
+    }
     const { privateJwk } = await loadControlKeys();
     const seq = ++conn.seq;
     const jws = await signCommand(privateJwk, { nodeId, jti, seq, cmd });
@@ -198,7 +220,9 @@ export function sendCommand(nodeId: string, cmd: NodeCommandBody, options: SendC
     });
     // An encrypted link seals the envelope to binary ciphertext (spec
     // 2026-09-24 §2); the plaintext branch is the legacy/held path and stays
-    // byte-for-byte what it always sent. The seal happens INSIDE this
+    // byte-for-byte what it always sent — a HANDSHAKE socket that got this
+    // far has a link, because the unestablished window was refused by the
+    // I-2 guard above. The seal happens INSIDE this
     // connection's serialized step, so the secretstream ratchet advances in
     // exactly the order the frames hit the socket — the same invariant that
     // makes `seq` trustworthy.

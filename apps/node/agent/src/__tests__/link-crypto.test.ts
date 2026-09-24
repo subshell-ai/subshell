@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { NODE_CLOSE_HANDSHAKE_REQUIRED, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
+import {
+  NODE_CLOSE_HANDSHAKE_REQUIRED,
+  NODE_CLOSE_REPAIR_REQUIRED,
+  NODE_PROTOCOL_VERSION,
+} from "@internal/subshell-protocol";
 import {
   createServerSession,
   ensureSodium,
@@ -413,7 +417,7 @@ describe("legacy register self-heal (spec §5)", () => {
   });
 });
 
-describe("onClosed — R11: a plane 4410 BEFORE establishment drops the control pin", () => {
+describe("onClosed — R11 as narrowed by R12b: a plane 4411 BEFORE establishment drops the control pin", () => {
   /** Handshake-mode harness: kx + binding on the wire, ack never opened. */
   async function provisionedSocket() {
     const serverStatic = await serverFixture();
@@ -425,11 +429,13 @@ describe("onClosed — R11: a plane 4410 BEFORE establishment drops the control 
     return { config, pair, serverStatic, h, ws };
   }
 
-  test("handshake mode + plane-initiated 4410 + never established → persist EXACTLY {controlEncryptPublicKey: undefined}", async () => {
+  const R10_REASON = "legacy row received a kx claim — re-pair via register";
+
+  test("handshake mode + plane-initiated 4411 + never established → persist EXACTLY {controlEncryptPublicKey: undefined}", async () => {
     const { config, pair, h } = await provisionedSocket();
     expect(h.negotiator.established()).toBe(false);
 
-    h.negotiator.onClosed(NODE_CLOSE_HANDSHAKE_REQUIRED); // the R10 refusal, or the handshake timeout
+    h.negotiator.onClosed(NODE_CLOSE_REPAIR_REQUIRED, R10_REASON); // the R10 refusal — 4411 is its code (R12b)
 
     expect(h.patches).toHaveLength(1);
     const patch = h.patches[0] as Record<string, unknown>;
@@ -444,9 +450,39 @@ describe("onClosed — R11: a plane 4410 BEFORE establishment drops the control 
     expect(config.encryptKeyPair).toEqual(pair);
     expect(config.controlEncryptPublicKey).toBeUndefined();
     expect(h.logs.some((l) => l.includes("R11") || l.includes("registers this node's SAME static"))).toBe(true);
+    // The reason rides into the log verbatim — the operator reads the plane's
+    // sentence, not a paraphrase of it.
+    expect(h.logs.some((l) => l.includes(R10_REASON))).toBe(true);
   });
 
-  test("establishment WAS reached → no write at all: a dead established stream redials fully provisioned (RF#3)", async () => {
+  test("a GENERIC 4410 before establishment keeps the pin INTACT — the deadline must not re-pair anyone (R12b, the I-1 pin)", async () => {
+    // The incident this gate exists for: the plane closes pre-establishment
+    // sockets with the SAME generic 4410 on its 10-second handshake deadline —
+    // a transient stall on a row that is STILL PINNED and healthy. Under R11's
+    // original broad trigger this state dropped the control pin, and the
+    // redial registered against the still-pinned row → refused forever → a
+    // healthy node permanently offlined by a network blip. Under R12b only
+    // 4411 re-pairs; a deadline 4410 leaves the config byte-identical so the
+    // redial comes up in handshake mode, fresh ephemeral, pin matches, heals.
+    const { config, pair, serverStatic, h } = await provisionedSocket();
+    expect(h.negotiator.established()).toBe(false);
+
+    h.negotiator.onClosed(NODE_CLOSE_HANDSHAKE_REQUIRED, "handshake required: no kx/binding within the deadline");
+    await new Promise((r) => setTimeout(r, 20)); // a (wrong) persist would have landed by now
+    expect(h.patches).toEqual([]); // no persist AT ALL…
+    expect(config.controlEncryptPublicKey).toBe(serverStatic.publicKey); // …and the pin stands
+    expect(config.encryptKeyPair).toEqual(pair);
+
+    // And the redial is handshake, not register: the next dial's negotiator
+    // (fresh per socket, as the daemon builds it) sends the kx claim again,
+    // still fully provisioned.
+    const ws2 = new FakeWs();
+    const h2 = makeHarness({ config });
+    await h2.negotiator.begin(ws2);
+    expect(parseKxFrame(JSON.parse(ws2.sends[0] as string))).not.toBeNull();
+  });
+
+  test("establishment WAS reached → no write even for a 4411: a dead established stream redials fully provisioned (RF#3)", async () => {
     const serverStatic = await serverFixture();
     const pair = await generateLinkKeyPair();
     const config = baseConfig({ encryptKeyPair: pair, controlEncryptPublicKey: serverStatic.publicKey });
@@ -459,23 +495,24 @@ describe("onClosed — R11: a plane 4410 BEFORE establishment drops the control 
     h.negotiator.onBytesFrame(ws, session.sealFrame(JSON.stringify({ t: "ok" })));
     expect(h.negotiator.established()).toBe(true);
 
-    // The stream later dies with a 4410 — from the plane, or from this side's
-    // own ratchet-refuse; either way `reachedEstablished` gates the clear: the
+    // The stream later dies — fed the ACTUAL drop signal, so the only gate
+    // standing between this state and a pin drop is `reachedEstablished`: the
     // byte-flip recovery (RF#3) redials FULLY PROVISIONED and must not be
     // downgraded into a register.
-    h.negotiator.onClosed(NODE_CLOSE_HANDSHAKE_REQUIRED);
+    h.negotiator.onClosed(NODE_CLOSE_REPAIR_REQUIRED, "late 4411 after a live session");
     expect(h.patches).toEqual([]);
     expect(config.controlEncryptPublicKey).toBe(serverStatic.publicKey); // byte-identical
   });
 
   test("our OWN refusal keeps the config byte-identical (ratchet desync, junk pin, wrong-kind frames)", async () => {
-    // The sharpest gate: mode is handshake, established was never reached, and
-    // the close code IS 4410 — `selfRefused` is the only thing standing between
-    // this state and an unrequested pin drop.
+    // The sharpest gate: mode is handshake, established was never reached —
+    // fed the 4411 drop signal directly (a self-refusal really closes 4410;
+    // this isolates `selfRefused` as the ONLY thing standing between this
+    // state and an unrequested pin drop).
     const s = await provisionedSocket();
     s.h.negotiator.onTextFrame(s.ws, JSON.stringify({ type: "heartbeat" })); // the negotiator itself refuses with 4410
     expect(s.ws.closes[0]?.code).toBe(NODE_CLOSE_HANDSHAKE_REQUIRED);
-    s.h.negotiator.onClosed(NODE_CLOSE_HANDSHAKE_REQUIRED); // finish() feeds the close back
+    s.h.negotiator.onClosed(NODE_CLOSE_REPAIR_REQUIRED, "belt: 4411 after OUR own refusal"); // finish() feeds the close back
     expect(s.h.patches).toEqual([]);
     expect(s.config.controlEncryptPublicKey).toBeDefined();
   });
@@ -486,25 +523,55 @@ describe("onClosed — R11: a plane 4410 BEFORE establishment drops the control 
     const h = makeHarness({ config });
     await h.negotiator.begin(ws); // register mode — the pair's own store lands HERE
     const before = h.patches.length;
-    h.negotiator.onClosed(NODE_CLOSE_HANDSHAKE_REQUIRED);
+    h.negotiator.onClosed(NODE_CLOSE_REPAIR_REQUIRED, "belt: 4411 on a registering socket"); // mode gate is the answer
     expect(h.patches).toHaveLength(before); // no clear patch added…
     expect(h.patches.some((p) => "controlEncryptPublicKey" in p)).toBe(false); // …and never one naming the pin
     expect(config.encryptKeyPair).toBeDefined(); // the pair survives to continue the registration
   });
 
-  test("every non-4410 close keeps the config byte-identical", async () => {
+  test("a PLANE generic-4410 on a REGISTER-mode socket logs the rotate remedy and keeps the config byte-identical (crash-window)", async () => {
+    // §5's self-heal aimed at a row that STILL pins this node's identity: the
+    // agent's control pin is already gone, so 4411 will never arrive to heal it
+    // and the register loop is dead-on-arrival. The gate must NOT drop anything
+    // (there is no pin to drop, and a persist here would be a lie), but the log
+    // has to name the manual remedy — rotate + `configure --key` + restart — so
+    // the spin reads as a known failure, not merely "offline". This is the
+    // exact mirror of link-session's register-on-pinned-row 4410 refusal.
+    const ws = new FakeWs();
+    const config = baseConfig(); // no pin, no pair → register mode
+    const h = makeHarness({ config });
+    await h.negotiator.begin(ws); // the pair's own store lands here (not a pin touch)
+    const before = h.patches.length;
+
+    h.negotiator.onClosed(
+      NODE_CLOSE_HANDSHAKE_REQUIRED,
+      "register refused: the row already pins an encryption identity — rotating the node key on the plane re-pairs it",
+    );
+    await new Promise((r) => setTimeout(r, 20)); // a (wrong) persist would have landed by now
+
+    expect(h.patches).toHaveLength(before); // NOTHING persisted by the close
+    expect(h.patches.some((p) => "controlEncryptPublicKey" in p)).toBe(false); // never a pin touch
+    expect(config.controlEncryptPublicKey).toBeUndefined(); // and there was none to keep
+    expect(
+      h.logs.some(
+        (l) => l.includes("rotate the node key") && l.includes("subshell configure --key") && l.includes("restart"),
+      ),
+    ).toBe(true);
+  });
+
+  test("every non-4411 close keeps the config byte-identical", async () => {
     const a = await provisionedSocket();
-    a.h.negotiator.onClosed(1006);
+    a.h.negotiator.onClosed(1006, "abnormal closure");
     expect(a.h.patches).toEqual([]);
     const b = await provisionedSocket();
-    b.h.negotiator.onClosed(1012);
+    b.h.negotiator.onClosed(1012, "service restart");
     expect(b.h.patches).toEqual([]);
   });
 
   test("idempotent: a second onClosed persists nothing further", async () => {
     const { h } = await provisionedSocket();
-    h.negotiator.onClosed(NODE_CLOSE_HANDSHAKE_REQUIRED);
-    h.negotiator.onClosed(NODE_CLOSE_HANDSHAKE_REQUIRED);
+    h.negotiator.onClosed(NODE_CLOSE_REPAIR_REQUIRED, R10_REASON);
+    h.negotiator.onClosed(NODE_CLOSE_REPAIR_REQUIRED, R10_REASON);
     expect(h.patches).toHaveLength(1);
   });
 
@@ -520,7 +587,7 @@ describe("onClosed — R11: a plane 4410 BEFORE establishment drops the control 
     });
     const ws = new FakeWs();
     await h.negotiator.begin(ws);
-    h.negotiator.onClosed(NODE_CLOSE_HANDSHAKE_REQUIRED);
+    h.negotiator.onClosed(NODE_CLOSE_REPAIR_REQUIRED, R10_REASON);
     await new Promise((r) => setTimeout(r, 20)); // the rejection must surface, not hang or crash the run
     expect(h.logs.some((l) => l.includes("could not drop") && l.includes("disk full"))).toBe(true);
   });
