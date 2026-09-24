@@ -72,6 +72,9 @@ async function deriveFromApiKey(bearer: string) {
   if (meta?.kind === "node") {
     // Explicit, permanent rejection (spec 2026-08-31 §5.5): a node key's blast
     // radius is exactly "open /ws/node as that node". Do NOT widen this.
+    // Node keys carry no permission map since 2026-09-23 (security-actionable
+    // item 10) — the kind guard is the whole boundary, so this refusal has no
+    // grants behind it to preserve if anyone ever does widen it.
     throw new UnauthorizedError("Node keys cannot be used on the REST API");
   }
   // System-key actor is reserved for keys owned by the `system` service user

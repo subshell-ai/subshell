@@ -86,10 +86,13 @@ function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown"
   if (err.detail === NODE_RESULT_KILLS_PANES) {
     return {
       code: BackendErrorCodes.NODE_RESTART_KILLS_PANES,
+      // Only `kills` earns the certain sentence; `unknown` and `undefined`
+      // (no frozen runtime report at all) are both "nobody read the
+      // definition" and say so — the `service-node.route.ts` rule, mirrored.
       message:
-        paneSafety === "unknown"
-          ? "That node's service definition could not be read, so whether the restart keeps its running subshells is unknown; update anyway with force, or repair the definition on that machine"
-          : "That node's service definition would close every subshell running on it when it restarts; reinstall the definition on that machine, or update anyway with force",
+        paneSafety === "kills"
+          ? "That node's service definition would close every subshell running on it when it restarts; reinstall the definition on that machine, or update anyway with force"
+          : "That node's service definition could not be read, so whether the restart keeps its running subshells is unknown; update anyway with force, or repair the definition on that machine",
     };
   }
   if (err.detail === NODE_RESULT_NOT_COMPILED) {

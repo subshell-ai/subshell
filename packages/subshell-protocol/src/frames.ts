@@ -222,14 +222,39 @@ export function parseClientFrame(raw: string | object): ClientFrame | null {
 export const DEVICE_LABEL_MAX = 40;
 
 /**
- * Normalizes a display label: control characters replaced, whitespace
- * collapsed, length capped.
+ * Unicode format characters (category Cf): zero-width joiners and spaces,
+ * the bidi embeds/overrides/isolates, soft hyphen, BOM, tag characters.
+ *
+ * None has a printable width and every one can change what the SAME visible
+ * text means — U+202E reverses what follows it, U+FE0F flips an emoji's
+ * presentation, U+E0020..U+E007F spell invisible payloads inside emoji flag
+ * sequences. A label is a name a person reads; none of that belongs in one,
+ * and the uniqueness checks that compare these strings (workspace names, node
+ * renames) cannot see past them. Emoji variation selectors (U+FE00-U+FE0F,
+ * the ones that decide text vs emoji presentation) are category Mn, not Cf,
+ * so they are dropped by name rather than assumed covered.
+ */
+const FORMAT_CHAR = /\p{Cf}/u;
+const PRESENTATION_SELECTOR = /[\uFE00-\uFE0F]/u;
+
+/**
+ * Normalizes a display label: control characters replaced, format characters
+ * dropped, whitespace collapsed, length capped.
  *
  * The one implementation of "a label a person chose on one machine, which a
  * different machine renders or logs" — device labels, node names, the
- * instance name. The C0/DEL/C1 pass is the load-bearing part, and the pair
- * that matters most is CR/LF, which would otherwise forge a second line in a
- * log record.
+ * instance name, and the subshell/workspace names written by the control
+ * plane. The C0/DEL/C1 pass is the load-bearing part, and the pair that
+ * matters most is CR/LF, which would otherwise forge a second line in a log
+ * record; the Cf pass and the surrogate drop close the INVISIBLE half of the
+ * same class — bytes a reader never sees but a renderer or comparator acts on.
+ *
+ * NFC runs FIRST so the whole rule operates on canonical forms: new writes
+ * through every door unify "cafe" + combining acute and precomposed é into
+ * one name, and the cap counts code points of the normalized string. The
+ * unification is FORWARD-ONLY: rows written before it landed keep what they
+ * got, and the uniqueness checks compare stored bytes, so a decomposed old
+ * row and a composed new one can still coexist (no backfill — decided).
  *
  * @param raw - A candidate label
  * @param max - Maximum length of the result
@@ -237,9 +262,16 @@ export const DEVICE_LABEL_MAX = 40;
  */
 export function normalizeLabel(raw: string, max: number): string {
   let out = "";
-  for (const ch of raw) {
+  for (const ch of raw.normalize("NFC")) {
     const code = ch.codePointAt(0) ?? 0;
-    out += code < 0x20 || (code >= 0x7f && code <= 0x9f) ? " " : ch;
+    if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) out += " ";
+    // Unpaired surrogates: a lone half of a pair equals no valid string at
+    // all — unrenderable, and unequal to every later read of the same row.
+    // (A PAIRED one never reaches this branch: the for-of above iterates code
+    // points, so a valid astral char arrives whole and outside this range.)
+    else if (code >= 0xd800 && code <= 0xdfff) continue;
+    else if (FORMAT_CHAR.test(ch) || PRESENTATION_SELECTOR.test(ch)) continue;
+    else out += ch;
   }
   // Capped over CODE POINTS, which is what the loop above already iterates and
   // what every other cap on these labels counts — the agent's `--name` preflight,

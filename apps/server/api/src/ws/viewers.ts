@@ -96,6 +96,16 @@ export interface WsData {
    * the client dialed, decided once in the attach handlers.
    */
   wireMode?: WireMode;
+  /**
+   * Whose account this socket authenticated as, stashed by the attach entry
+   * point (`handleSubshellWs`) as soon as `resolveAttach` answers, BEFORE the
+   * local path registers itself or delegates to the remote relay — the one
+   * `ws.data` channel both paths share. Nothing on the attach path reads it;
+   * {@link dropTerminalSocketsFor} is its only consumer, because the account
+   * behind a live socket is otherwise unanswerable: the registry keys panes,
+   * not people, and a disable has to find PEOPLE.
+   */
+  attachUserId?: string;
   cleanup?: () => void;
 }
 
@@ -523,6 +533,53 @@ export function closeAllViewers(code: number, reason: string): number {
     for (const ws of viewers.values()) {
       try {
         ws.close(code, reason);
+        closed++;
+      } catch {
+        // A socket already gone is the outcome this wanted anyway.
+      }
+    }
+  }
+  return closed;
+}
+
+/**
+ * Close every terminal socket ONE user holds, with one code.
+ *
+ * The account-disable drop for browser terminals, the sibling of
+ * `dropLiveSocketsFor` in `ws/live-registry.ts`. The live-feed sweep stopped
+ * being the whole story the day this module grew `attachUserId`: a terminal
+ * socket authenticates at connect and is never re-checked either (the same
+ * rule §11.5 records), so a disabled account with a pane open on screen kept
+ * streaming it until the tab happened to close.
+ *
+ * The walk is by WHO attached, not by what they attached to — which is what
+ * makes it complete in both directions an owner-enumeration could not be: it
+ * finds the user's socket on a pane they merely watch (shared IN, no row
+ * ownership involved), and it leaves every OTHER viewer of the disabled
+ * user's own panes attached — the disable is the account's, not the
+ * bystander's, and closing innocent viewers is collateral, not containment.
+ *
+ * Like {@link closeAllViewers}, the maps are NOT cleared here: each socket's
+ * own close handler runs `detachViewer`, which is where the teardown
+ * bookkeeping lives. The close code is the same BELOW-4000 convention — the
+ * client retries rather than reporting a refusal, and while the flag stands
+ * the retry cannot get far: the mint runs through `authGuard`, and
+ * `resolveAttach`'s own paths refuse the disabled account it does reach.
+ *
+ * @param userId - whose sockets to drop
+ * @param reason - the close reason the sockets carry
+ * @returns how many sockets were asked to close, for the audit line
+ */
+export function dropTerminalSocketsFor(userId: string, reason = "account disabled"): number {
+  let closed = 0;
+  for (const viewers of [...liveViewers.values()]) {
+    // Snapshot per pane: closing a socket is expected to run its own close
+    // handler, and a `detachViewer` that empties a pane deletes the map we
+    // are standing in.
+    for (const ws of [...viewers.values()]) {
+      if (ws.data?.attachUserId !== userId) continue;
+      try {
+        ws.close(1012, reason);
         closed++;
       } catch {
         // A socket already gone is the outcome this wanted anyway.

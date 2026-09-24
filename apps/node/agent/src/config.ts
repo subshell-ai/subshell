@@ -45,6 +45,27 @@ export interface NodeConfig {
    * read-only (`debug-logging.ts`).
    */
   debugLogging?: boolean;
+  /**
+   * Pane-log retention, in days (with `logRetentionHours` completing the
+   * window): a NON-running subshell's `<id>.log` is unlinked once its mtime
+   * is older than `days * 24h + hours`. Resolved per field —
+   * `SUBSHELL_LOG_RETENTION_DAYS` / `SUBSHELL_LOG_RETENTION_HOURS` win over
+   * these fields, the fields over the default of 1 day / 0 hours, and
+   * `0 + 0` together is the documented keep-forever pair
+   * (`pane-log-retention.ts`). A running pane's log is never swept.
+   *
+   * The daemon re-reads these two on every scheduled pass, so a write (the
+   * loopback dashboard's retention card, `retention-settings.ts`, or a
+   * hand-edit) lands without a restart; the boot read is what decides whether
+   * a pass is scheduled at all.
+   *
+   * Absent means the default, which is also what an older config means;
+   * junk (non-integer, negative) is dropped at load like a junk
+   * `nodeWsUrl`, never a corruption verdict.
+   */
+  logRetentionDays?: number;
+  /** The hours half of {@link logRetentionDays}; see that field for every rule. */
+  logRetentionHours?: number;
 }
 
 /** Root the config + default data dir live under (`SUBSHELL_CONFIG_HOME` for tests). */
@@ -69,6 +90,42 @@ export async function saveConfig(cfg: NodeConfig): Promise<void> {
   await enforceMode(dir, 0o700);
   await writeFile(file, `${JSON.stringify(cfg, null, 2)}\n`, { mode: 0o600 });
   await enforceMode(file, 0o600);
+}
+
+/**
+ * Read fresh, apply the NAMED keys of `patch`, save — the merge discipline
+ * every live writer of `config.json` goes through.
+ *
+ * The file holds the node key (its only home) beside settings that can change
+ * at the same moment from different hands: the loopback dashboard's retention
+ * card and debug-logging switch, and `subshell configure` at the keyboard. The
+ * shape they had — `saveConfig({ ...cfg, field })` over whatever snapshot the
+ * caller happened to hold — let a concurrent pair silently revert each other's
+ * fields: A reads, B saves, A saves, and B's field is gone even though A never
+ * touched it. Re-reading at save time and applying ONLY the keys the caller
+ * names makes the worst remaining interleaving last-writer-wins FOR ONE KEY:
+ * two overlapping writers can lose only the key they both wrote, never a field
+ * either one ignored. (The window from this read to the rename inside
+ * `saveConfig` is not zero — taking a lock over a 0600 JSON file would cost
+ * more than a microseconds-stale merge of a field nobody else is editing. The
+ * per-key bound is the honest statement, and it is what the writers rely on.)
+ *
+ * A patch key explicitly set to `undefined` CLEARS the field (`JSON.stringify`
+ * drops it) — that is how `configure` says "the enroll-time ws URL no longer
+ * applies". Keys the patch does not name are round-tripped verbatim, which is
+ * why `loadConfig` models every field worth keeping (`debugLogging` joins for
+ * exactly this reason).
+ *
+ * @returns the config as written — the same value `saveConfig` persisted.
+ */
+export async function updateConfig(patch: Partial<NodeConfig>): Promise<NodeConfig> {
+  const fresh = await loadConfig();
+  const next: NodeConfig = { ...fresh };
+  for (const key of Object.keys(patch) as (keyof NodeConfig)[]) {
+    (next as unknown as Record<string, unknown>)[key] = patch[key];
+  }
+  await saveConfig(next);
+  return next;
 }
 
 /**
@@ -112,6 +169,20 @@ export async function loadConfig(): Promise<NodeConfig> {
     // server answer, so "" can only be a hand-edit, and `??` in resolveWsUrl
     // would otherwise pin an empty dial target.
     nodeWsUrl: typeof obj.nodeWsUrl === "string" && obj.nodeWsUrl.trim() !== "" ? obj.nodeWsUrl : undefined,
+    // The debug flag round-trips like every other modelled field: `updateConfig`
+    // re-reads through THIS loader before saving, so a field dropped here would
+    // be silently cleared by any unrelated config write (a retention save
+    // erasing the debug flag), and `loadAndApplyDebugLogging` — which reads the
+    // persisted flag at boot through this function — could only ever see
+    // absent. A non-boolean is junk, treated as absent like the fields below.
+    debugLogging: typeof obj.debugLogging === "boolean" ? obj.debugLogging : undefined,
+    // Retention fields (see NodeConfig): a non-negative integer or absent.
+    // Junk loads as absent — the one-day default, i.e. the SAFE side of the
+    // pair, because a mistyped privacy window must not quietly become
+    // keep-forever. `0` is a real value here (it is half of that pair), so
+    // the guard is `>= 0`, not `> 0`.
+    logRetentionDays: retentionField(obj.logRetentionDays),
+    logRetentionHours: retentionField(obj.logRetentionHours),
     // loadConfig rebuilds field by field, so a field NOT listed here is
     // dropped on its way to the daemon. That is how an older config's
     // `registryUrl` (the phase-3 npm mirror, dead with the node's plugin
@@ -119,4 +190,14 @@ export async function loadConfig(): Promise<NodeConfig> {
     // no code reads is inert residue, and rewriting users' configs to scrub a
     // key they never wrote is not this loader's job.
   };
+}
+
+/**
+ * One retention field: a non-negative integer, or `undefined` for
+ * absent/junk. `0` must survive (it is half of the keep-forever pair), and
+ * nothing here is ever fatal — a hand-edit that mistypes a number lands on
+ * the default, which is the sweeping side (see `NodeConfig.logRetentionDays`).
+ */
+function retentionField(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 }

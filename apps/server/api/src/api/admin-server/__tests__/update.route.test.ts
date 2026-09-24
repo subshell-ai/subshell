@@ -159,6 +159,24 @@ describe("POST /api/admin/server/update", () => {
     expect(started).toEqual([]);
   });
 
+  /**
+   * C4's race, as two concurrent POSTs. Step 4's check and the job-set used
+   * to sit two awaits apart (the release lookup, the audit), so both requests
+   * passed the check and BOTH started — sharing one `<name>.download-<pid>`
+   * temp file while the loser's cleanup unlinked the winner's bytes. The
+   * claim is the lock: one slot, synchronous, taken with no await around it,
+   * and it stands whether or not the step-4 pre-check already said no.
+   */
+  it("starts exactly one job when two POSTs race; the loser gets UPDATE_IN_PROGRESS", async () => {
+    const [a, b] = await Promise.all([app.fetch(post(fx.adminCookie, {})), app.fetch(post(fx.adminCookie, {}))]);
+    expect([a.status, b.status].sort()).toEqual([202, 409]);
+    // The seam sees one start — and no second job can have opened a second
+    // temp file, because only one handler reached `start` at all.
+    expect(started).toEqual([{ to: "99.0.0", forced: false }]);
+    const loser = a.status === 202 ? b : a;
+    expect(await code(loser)).toBe("UPDATE_IN_PROGRESS");
+  });
+
   it("409 UPDATE_IN_PROGRESS when a marker is already on disk", async () => {
     // A CLI update started in a terminal leaves exactly this, which is why the
     // route reads the marker rather than only its own job.
@@ -209,12 +227,28 @@ describe("POST /api/admin/server/update", () => {
 
   it("409 RESTART_KILLS_PANES without force; 202 with it, and the job learns it was forced", async () => {
     updateSeams.deployment = () => viewWith({ supervised: true, paneSafety: "kills" });
-    expect(await code(await app.fetch(post(fx.adminCookie, {})))).toBe("RESTART_KILLS_PANES");
+    const refused = await app.fetch(post(fx.adminCookie, {}));
+    const refusedBody = (await refused.json()) as { code: string; message: string };
+    expect(refusedBody.code).toBe("RESTART_KILLS_PANES");
+    // Only an answered `kills` earns the certain sentence.
+    expect(refusedBody.message).toContain("would close every running subshell");
     expect(started).toEqual([]);
 
     const forced = await app.fetch(post(fx.adminCookie, { force: true }));
     expect(forced.status).toBe(202);
     expect(started).toEqual([{ to: "99.0.0", forced: true }]);
+  });
+
+  it("an unreadable definition says it could not be read — same code, no false certainty", async () => {
+    // The restart route's rule, mirrored: `unknown` shares the refusal code,
+    // and the wording is the only place the two differ.
+    updateSeams.deployment = () => viewWith({ supervised: true, paneSafety: "unknown" });
+    const res = await app.fetch(post(fx.adminCookie, {}));
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { code: string; message: string };
+    expect(body.code).toBe("RESTART_KILLS_PANES");
+    expect(body.message).toMatch(/could not be read/i);
+    expect(body.message).not.toMatch(/would close/i);
   });
 
   it("202 with from/to, and an audit row naming the admin BEFORE the job", async () => {

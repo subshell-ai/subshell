@@ -237,6 +237,51 @@ describe("installPlugin", () => {
     expect(readdirSync(pluginsDir(dir))).toEqual(["third"]);
   });
 
+  it("a refused squatter's code NEVER runs: the claim check is hoisted ahead of the load-check", async () => {
+    // The load-check IMPORTS the module and CALLS its factory in the host's
+    // own process. The id-collision refusal used to fire only inside
+    // `installStaged`, after that load — so the disk stayed byte-identical
+    // while the squatter's payload had already run with the server's
+    // privileges. The refusal must precede the first import.
+    const dir = tempDataDir();
+    served.set("third-party", {
+      latest: "1.0.0",
+      versions: { "1.0.0": makePluginTgz({ name: "third-party", version: "1.0.0", id: "third" }) },
+    });
+    await installPlugin(dir, { spec: "third-party@1.0.0", registryUrl: base });
+
+    // A loadable module (the load-check would ACCEPT it) that marks both
+    // moments of execution: module body at import, factory at call. It passes
+    // every load-check gate on purpose — the only reason to refuse it is the
+    // claim.
+    const markerDir = mkdtempSync(join(tmpdir(), "squatter-marker-"));
+    const moduleMarker = join(markerDir, "imported");
+    const factoryMarker = join(markerDir, "factory");
+    const boobyTrapped = [
+      'import { writeFileSync } from "node:fs";',
+      `writeFileSync(${JSON.stringify(moduleMarker)}, "module body ran");`,
+      "export default function fixture() {",
+      `  writeFileSync(${JSON.stringify(factoryMarker)}, "factory called");`,
+      "  return { capabilities: () => [], buildCommand: (input) => [input.binary], validatePreset: () => ({ valid: true }) };",
+      "}",
+    ].join("\n");
+    served.set("squatter", {
+      latest: "1.0.0",
+      versions: {
+        "1.0.0": makePluginTgz({ name: "squatter", version: "1.0.0", id: "third", entryBody: boobyTrapped }),
+      },
+    });
+
+    await expect(installPlugin(dir, { spec: "squatter@1.0.0", registryUrl: base })).rejects.toThrow(
+      /third-party.*already claims plugin id 'third'/,
+    );
+    expect(existsSync(moduleMarker)).toBe(false);
+    expect(existsSync(factoryMarker)).toBe(false);
+    // And the refusal still moves nothing: the owner's claim survives whole.
+    expect((await readInstallRecord(dir, "third"))?.name).toBe("third-party");
+    expect(readdirSync(pluginsDir(dir))).toEqual(["third"]);
+  });
+
   it("a registry package declaring a built-in's id cannot replace the embedded install it has no name tie to", async () => {
     // The §2.4 guard cannot lean on the sidecar alone: an embedded install
     // carries none, so a squatter would pass a record-only check and the swap
@@ -262,7 +307,12 @@ describe("installPlugin", () => {
     await installPlugin(dir, { id: "pi" });
     const before = (await listInstalled(dir))[0]?.version;
 
-    served.set("bad-pi", {
+    // Served under the built-in's OWN package name on purpose: the claim
+    // check is hoisted ahead of the load-check now, so a spec with a FOREIGN
+    // name would be refused as a squatter before the broken module was ever
+    // loaded — which is the right refusal, but it is the squatter test's
+    // right refusal. This one exists for the load-check branch.
+    served.set("@subshell-ai/plugin-pi", {
       latest: "99.0.0",
       tags: { bad: "99.0.0" },
       versions: {
@@ -274,9 +324,9 @@ describe("installPlugin", () => {
         }),
       },
     });
-    await expect(installPlugin(dir, { id: "pi", spec: "bad-pi@bad", registryUrl: base })).rejects.toThrow(
-      /loaded with an error/,
-    );
+    await expect(
+      installPlugin(dir, { id: "pi", spec: "@subshell-ai/plugin-pi@bad", registryUrl: base }),
+    ).rejects.toThrow(/loaded with an error/);
     // The swap never happened: no sidecar, the old embedded bytes, no leftover working dirs.
     expect(await readInstallRecord(dir, "pi")).toBeNull();
     const after = await listInstalled(dir);

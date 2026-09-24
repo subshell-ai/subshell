@@ -90,7 +90,7 @@ export const deleteNodeRoute = new Elysia()
       // and drain its in-flight commands AFTER (P1-T9 carry: eviction must
       // failConnPendings itself — no real socket close may ever fire).
       const evicted = getLive(gate.row.id);
-      disconnectNode(gate.row.id, REVOKED_CLOSE_CODE, "node deleted");
+      await disconnectNode(gate.row.id, REVOKED_CLOSE_CODE, "node deleted");
       if (evicted) failConnPendings(evicted, "offline", "node deleted");
 
       await audit({

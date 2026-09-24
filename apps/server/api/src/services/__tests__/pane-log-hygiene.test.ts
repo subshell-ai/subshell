@@ -65,26 +65,26 @@ describe("tightenPaneLogModes", () => {
 });
 
 describe("sweepExpiredPaneLogs", () => {
-  it("removes logs older than the window whose subshell is not running", () => {
+  it("removes logs older than the window whose subshell is not running", async () => {
     const dir = freshDir();
     const stale = writeLog(dir, "stale", { ageDays: 40 });
     const fresh = writeLog(dir, "fresh", { ageDays: 2 });
 
-    const { removed } = sweepExpiredPaneLogs({ dir, retentionDays: 30, runningIds: new Set() });
+    const { removed } = await sweepExpiredPaneLogs({ dir, retentionDays: 30, runningIds: new Set() });
 
     expect(removed).toEqual(["stale"]);
     expect(existsSync(stale)).toBe(false);
     expect(existsSync(fresh)).toBe(true);
   });
 
-  it("never removes a running subshell's log, however old the file looks", () => {
+  it("never removes a running subshell's log, however old the file looks", async () => {
     // A long-lived agent that has printed nothing for months is still LIVE:
     // its log is the replay buffer an attach reads, and deleting it mid-session
     // would blank the terminal for every viewer.
     const dir = freshDir();
     const running = writeLog(dir, "live-one", { ageDays: 400 });
 
-    const { removed } = sweepExpiredPaneLogs({
+    const { removed } = await sweepExpiredPaneLogs({
       dir,
       retentionDays: 30,
       runningIds: new Set(["live-one"]),
@@ -94,27 +94,27 @@ describe("sweepExpiredPaneLogs", () => {
     expect(existsSync(running)).toBe(true);
   });
 
-  it("treats retentionDays 0 as keep-forever", () => {
+  it("treats retentionDays 0 as keep-forever", async () => {
     const dir = freshDir();
     const ancient = writeLog(dir, "ancient", { ageDays: 9999 });
 
-    const { removed } = sweepExpiredPaneLogs({ dir, retentionDays: 0, runningIds: new Set() });
+    const { removed } = await sweepExpiredPaneLogs({ dir, retentionDays: 0, runningIds: new Set() });
 
     expect(removed).toEqual([]);
     expect(existsSync(ancient)).toBe(true);
   });
 
-  it("sweeps orphaned logs — a row deleted whose unlink failed", () => {
+  it("sweeps orphaned logs — a row deleted whose unlink failed", async () => {
     const dir = freshDir();
     const orphan = writeLog(dir, "orphan", { ageDays: 31 });
 
-    const { removed } = sweepExpiredPaneLogs({ dir, retentionDays: 30, runningIds: new Set() });
+    const { removed } = await sweepExpiredPaneLogs({ dir, retentionDays: 30, runningIds: new Set() });
 
     expect(removed).toEqual(["orphan"]);
     expect(existsSync(orphan)).toBe(false);
   });
 
-  it("measures age against the injected clock, exactly at the boundary", () => {
+  it("measures age against the injected clock, exactly at the boundary", async () => {
     const dir = freshDir();
     const edge = writeLog(dir, "edge", { ageDays: 0 });
     // The file's OWN mtime, not a second `Date.now()`. `writeLog` stamps the
@@ -127,31 +127,96 @@ describe("sweepExpiredPaneLogs", () => {
 
     // Exactly at the window: not yet expired (the comparison is strict).
     expect(
-      sweepExpiredPaneLogs({ dir, retentionDays: 1, runningIds: new Set(), nowMs: nowMs + DAY_MS }).removed,
+      (await sweepExpiredPaneLogs({ dir, retentionDays: 1, runningIds: new Set(), nowMs: nowMs + DAY_MS })).removed,
     ).toEqual([]);
     // One millisecond past it: gone.
     expect(
-      sweepExpiredPaneLogs({ dir, retentionDays: 1, runningIds: new Set(), nowMs: nowMs + DAY_MS + 1 }).removed,
+      (await sweepExpiredPaneLogs({ dir, retentionDays: 1, runningIds: new Set(), nowMs: nowMs + DAY_MS + 1 })).removed,
     ).toEqual(["edge"]);
   });
 
-  it("ignores a missing directory and non-log files", () => {
+  it("ignores a missing directory and non-log files", async () => {
     const dir = freshDir();
     writeFileSync(join(dir, "subshell.db"), "x");
     mkdirSync(join(dir, "mcp"));
 
-    expect(sweepExpiredPaneLogs({ dir, retentionDays: 1, runningIds: new Set() }).removed).toEqual([]);
+    expect((await sweepExpiredPaneLogs({ dir, retentionDays: 1, runningIds: new Set() })).removed).toEqual([]);
     expect(
-      sweepExpiredPaneLogs({
-        dir: join(tmpdir(), `subshell-absent-${Date.now()}`),
-        retentionDays: 1,
-        runningIds: new Set(),
-      }).removed,
+      (
+        await sweepExpiredPaneLogs({
+          dir: join(tmpdir(), `subshell-absent-${Date.now()}`),
+          retentionDays: 1,
+          runningIds: new Set(),
+        })
+      ).removed,
     ).toEqual([]);
     expect(existsSync(join(dir, "subshell.db"))).toBe(true);
   });
 
   it("defaults to a 30-day window", () => {
     expect(DEFAULT_LOG_RETENTION_DAYS).toBe(30);
+  });
+
+  /**
+   * C6: the snapshot goes stale while the loop runs, and a RESTART reuses the
+   * log path append-only (pane-runtime `pane-log.ts` opens `a` — no truncate)
+   * with the file's old mtime intact until the new pane prints. An id that
+   * became running after `runningIds` was built must still survive.
+   */
+  it("re-checks liveness per file immediately before unlinking — a restart after the snapshot keeps its log", async () => {
+    const dir = freshDir();
+    const restarted = writeLog(dir, "restarted", { ageDays: 40 });
+    const dead = writeLog(dir, "dead", { ageDays: 41 });
+    const _young = writeLog(dir, "young", { ageDays: 2 });
+
+    const probed: string[] = [];
+    const { removed } = await sweepExpiredPaneLogs({
+      dir,
+      retentionDays: 30,
+      runningIds: new Set(), // the stale snapshot: nothing was running when it was taken
+      isStillRunning: (id) => {
+        probed.push(id);
+        return id === "restarted"; // it came back up between the snapshot and its turn
+      },
+    });
+
+    expect(removed).toEqual(["dead"]);
+    expect(existsSync(restarted)).toBe(true);
+    expect(existsSync(dead)).toBe(false);
+    // Probed once per ELIGIBLE file — the young one was never a candidate,
+    // so no predicate call is spent on it.
+    expect(new Set(probed)).toEqual(new Set(["restarted", "dead"]));
+  });
+
+  it("a re-check that cannot answer keeps the file — unknown is not dead", async () => {
+    const dir = freshDir();
+    const file = writeLog(dir, "stale", { ageDays: 40 });
+
+    const { removed } = await sweepExpiredPaneLogs({
+      dir,
+      retentionDays: 30,
+      runningIds: new Set(),
+      isStillRunning: () => {
+        throw new Error("database went away mid-sweep");
+      },
+    });
+
+    expect(removed).toEqual([]);
+    expect(existsSync(file)).toBe(true);
+  });
+
+  it("still sweeps orphans under a re-check — a deleted row is not running", async () => {
+    const dir = freshDir();
+    const orphan = writeLog(dir, "orphan", { ageDays: 31 });
+
+    const { removed } = await sweepExpiredPaneLogs({
+      dir,
+      retentionDays: 30,
+      runningIds: new Set(),
+      isStillRunning: async () => false,
+    });
+
+    expect(removed).toEqual(["orphan"]);
+    expect(existsSync(orphan)).toBe(false);
   });
 });

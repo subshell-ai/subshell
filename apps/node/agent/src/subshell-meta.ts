@@ -32,13 +32,15 @@ const META_SUFFIX = ".meta.json";
 /**
  * Agent-side name for the protocol package's ONE subshell-id guard
  * (`isNodeSubshellId` in `@internal/subshell-protocol` — ids interpolated into
- * node-side paths; wire contract shared by backend RemoteLauncher gates and
- * the agent path policy). The alias keeps every call site below reading as
+ * node-side paths; the agent half of the policy that guard documents, and
+ * today the enforced half — see the backend-adoption note on
+ * `isNodeSubshellId`). The alias keeps every call site below reading as
  * the agent's own boundary check. The boundary matters: ids arrive over a
  * control-plane wire we do not fully trust, and this store interpolates them
- * directly into paths — a hostile `../../../../x` would let Task 4's
- * pipe-pane (`cat >> <logPath>`) write anywhere, bypassing the path policy
- * entirely because tmux/shell, not us, opens the file.
+ * directly into paths — a hostile `../../../../x` would let the pipe-pane
+ * capture child (the `pane-log` verb writing to `<logPath>`) write anywhere,
+ * bypassing the path policy entirely because tmux/shell, not us, opens the
+ * file.
  */
 export const isSubshellId = isNodeSubshellId;
 

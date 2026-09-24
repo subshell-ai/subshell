@@ -84,16 +84,21 @@ The Nodes plane adds two files outside the DB: `GET /api/downloads/node/*`
 published as `subshell-node-cli-<triple>` + `.sha256` — from `NODE_ARTIFACTS_DIR`
 (`SUBSHELL_NODE_ARTIFACTS_DIR`, default
 `<SUBSHELL_SERVER_DATA_DIR>/node-artifacts` — populated by `bun run release:cli-node`,
-see root `AGENTS.md`), gated cookie-or-unconsumed-setup-key, never anonymous.
+see root `AGENTS.md`), gated cookie-or-unconsumed-setup-key-or-a-still-valid
+one-time `?update_token=` (minted inside a node's signed `update` command;
+see the release-coherent rule below), never anonymous.
 A binary-only server install ships that dir EMPTY. That used to mean the
 install one-liner 404ed until someone published; since 2026-09-12 the server
 FETCHES a missing binary from the project's own `cli-node-v*` GitHub release the
 first time a machine asks for it (`services/releases.ts`). Lazily, on the
 download route's 404 branch — no warm-up, no admin button, no poll, so a plane
 whose nodes are all one platform never spends a byte on the others. The bytes
-stream THROUGH while being hashed against the release's `.sha256` (fetched
-first); a mismatch errors the response mid-flight, so nothing unverified is
-cached and the node's own digest check before `chmod +x` still decides.
+stream THROUGH while being hashed against the digest from the release's
+SIGNED manifest `assets` map — the manifest and its signature are
+verified before the first binary byte, and the `.sha256` sidecar is never
+fetched on this path; a mismatch errors the response mid-flight, so
+nothing unverified is cached and the node's own digest check before
+`chmod +x` still decides.
 `SUBSHELL_RELEASE_URL` configures it and EMPTY disables it — the
 air-gapped configuration, and the default under `IS_TEST` so no suite reaches
 the network by accident. (It was `SUBSHELL_NODE_RELEASE_URL` until spec
@@ -308,9 +313,14 @@ the journal. (An earlier revision had no size command and a node pane announced
 the size it had been ASKED for. That asymmetry is gone; do not reintroduce it.)
 
 **A node is refused by TWO gates, in this order** (`node-ws-handler.ts`;
-since spec 2026-09-15 §5.3 neither CLOSES any more — both HOLD the socket,
-offline for every purpose but `update`, with the reason the node RELAYS to
-its own log carried on the eventual idle close):
+since spec 2026-09-15 §5.3 neither CLOSES any more — a refusal is
+`holdRefusedNode` parking the socket in `node-registry.ts`'s `held` map, so
+the node is offline for every purpose but `update`, its inbound frames are
+dropped unparsed, and the 4406 close carrying the refusal reason the node
+RELAYS to its own log comes only when the hold ends: ten idle minutes
+(`HELD_IDLE_MS`), a newer socket, or `disconnectNode` on key rotation or
+deletion — the held window is exactly what lets the Updates surface send the
+one command that fixes it):
 
 1. **The version floor.** `MIN_NODE_VERSION`
    (`@internal/subshell-protocol` `versions.ts`) is the operator-facing
@@ -678,7 +688,13 @@ well as `"kills"` — its destructive verbs fail closed on a definition they
 could not read — so only the plane can tell the two apart, and it does so in
 the WORDING and never the code. Telling someone their panes will die when the
 truth is that nobody could read the definition is the kind of certainty that
-teaches people to ignore warnings.
+teaches people to ignore warnings. **Only an answered `"kills"` earns the
+certain sentence**: `undefined` — no frozen runtime report at all, the
+documented degraded shape — is a third absence of an answer and belongs on
+the hedge side (the branch must read `=== "kills"`, never `=== "unknown"`,
+which silently asserted over the no-report case), and the server's OWN
+`restart`/`update` refusals follow the same rule on their own
+`paneSafety` field.
 
 `runtime` (the node's report of how its own process runs) lives on the LIVE
 CONNECTION, never in the `nodes` table, and `GET /api/nodes/:id` exposes it
@@ -1210,6 +1226,16 @@ The four modules, and the one fact each exists for:
   the manager respawns the old version), completes AFTER `startServer`
   (audit `server.update` with actor null, delete `.previous` and the marker),
   and records a failure when the marker names a version this process is not.
+  The swap's front half, `keepPreviousBinary`, hardlinks the RUNNING binary and
+  where links are refused copies ATOMICALLY (temp + fsync + one rename) — a
+  truncated `.previous` can never exist as a rollback target — and BOTH paths
+  that rename it back onto the live path PROBE it first (`<previous> version`,
+  exit 0): `update --rollback` refuses outright when the copy cannot run, and
+  the boot-time `revertUpdate` records `failed.json` and leaves the
+  refused-to-migrate new binary in place rather than burying an unbootable copy
+  at the unit's ExecStart path, where the manager could not exec it and the
+  boot-revert logic (which lives in whatever boots) could not say so
+  (round-3 review, finding 2 — mirrored by the node's `update.ts`).
 
 Three measurements the design rests on, each pinned or recorded where the code
 that depends on it lives:

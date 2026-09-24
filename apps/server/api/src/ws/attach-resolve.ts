@@ -16,6 +16,7 @@ import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
 import { type Access, accessAtLeast, loadSubshellAccess } from "@/lib/subshell-access.js";
+import { accountDisabled } from "@/services/account-status.js";
 import { logger } from "@/utils/logger.js";
 import { type AttachParams, parseAttachParams } from "@/ws/attach-params.js";
 import { consumeWsToken, type WsTokenIdentity } from "@/ws/ws-token.js";
@@ -33,6 +34,13 @@ export interface AttachRequest {
 /** The attach may proceed. */
 export interface AttachResolved {
   ok: true;
+  /**
+   * Whose account admitted this socket — the token's recorded identity or the
+   * cookie's user. The attach stamps it onto `ws.data.attachUserId` so an
+   * account disable can FIND the open socket later: the viewer registry keys
+   * panes, not people (see `ws/viewers.ts:dropTerminalSocketsFor`).
+   */
+  userId: string;
   /** The subshell row the socket attaches to. */
   row: SubshellTable;
   /** The caller's access to it — `view` watches, `edit`/`owner` may type. */
@@ -82,11 +90,42 @@ export async function resolveAttach(input: AttachRequest): Promise<AttachResolve
     if (identity && identity.subshellId !== null && identity.subshellId !== subshellId) {
       return { ok: false, code: 4001, reason: "unauthorized" };
     }
+    // The post-ATTACH re-ask doctrine (`handleNodeOpen`, ruling 2026-09-24),
+    // on the other credential that can outlive its check. The mint passes
+    // `authGuard`, the disable commits, `dropUserTokensFor` walks the store —
+    // and a mint whose insert lands after that walk survives the sweep for
+    // its whole 30 s life. The store alone cannot see that (the disable's
+    // sweep is a check-then-act with the insert sitting between them), but
+    // the FLAG cannot be beaten: re-asking at redeem time refuses exactly
+    // what the sweep missed. It runs AFTER `consumeWsToken` on purpose — a
+    // refused redeem still burns the token, the wrong-scope rule above being
+    // the precedent — and the refusal is the uniform unknown-token pair, so
+    // a disable is never an enumeration signal. The cookie branch needs no
+    // twin: it re-asks `accountDisabled` on the session below.
+    if (identity) {
+      const { db } = getRequestlessContext();
+      if (await accountDisabled(db, identity.userId)) {
+        return { ok: false, code: 4001, reason: "unauthorized" };
+      }
+    }
   } else {
     // Same shared extraction as the REST guard — accepts the https
     // `__Secure-` spelling and re-presents it under both names. A cookie
     // identity is unscoped by definition.
     const session = await resolveCookieSession(input.cookieHeader);
+    // A DISABLED account is unauthenticated here exactly as `authGuard`'s
+    // derive refuses it on REST (one function, `accountDisabled`, on both
+    // doors). The admin path revokes sessions when it sets the flag, so
+    // usually `resolveCookieSession` already answers null — but that is the
+    // route's behaviour, not its guarantee: between the flag landing and the
+    // revocation there is a transient, and a session restored from any other
+    // path must not find the WS door open when the REST door is shut.
+    if (session) {
+      const { db } = getRequestlessContext();
+      if (await accountDisabled(db, session.user.id)) {
+        return { ok: false, code: 4001, reason: "unauthorized" };
+      }
+    }
     identity = session ? { userId: session.user.id, subshellId: null } : null;
   }
   if (!identity) return { ok: false, code: 4001, reason: "unauthorized" };
@@ -135,18 +174,65 @@ export async function resolveAttach(input: AttachRequest): Promise<AttachResolve
   // It rides `ws.data.attachUa`, stashed by the plugin's `upgrade` hook,
   // because `ws.raw.request` is NOT populated in Elysia's WS open context
   // (that read is the fallback for direct callers, e.g. tests).
-  const ua = input.attachUa;
+  logger.info(attachJournalLine(row.id, params, input.attachUa));
+  return { ok: true, userId: identity.userId, row, access, params };
+}
+
+/** Longest User-Agent the attach line will print (unchanged from the raw slice). */
+const MAX_UA_LEN = 90;
+
+/**
+ * The characters a real User-Agent actually contains.
+ *
+ * `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)
+ * Chrome/120.0.0.0 Safari/537.36` is the template; the set adds what client
+ * markers actually use — `_`/`-` (OS version spellings), `+`/`=` (Presto/Gecko
+ * tails and some app SDKs), `,` (inside the parentheses is ordinary), `[`/`]`
+ * (Facebook's in-app browsers append `[FBAN/…]`), and `:`/`;`/`/`/`.` . It is
+ * an allow-set on purpose, mirroring `parseClientBuild` in `attach-params.ts`:
+ * the UA is untrusted display data interpolated into a quoted field of the one
+ * forensics line an operator greps, and everything that would let it escape
+ * the field — `"`, CR/LF, ESC, backslash, control bytes — is exactly what no
+ * honest UA carries. Anything else is dropped, not escaped: a log field is not
+ * worth inventing an encoding for.
+ */
+const UA_UNSAFE = /[^A-Za-z0-9 ._:;/(),+\-=[\]]/g;
+
+/**
+ * The UA reduced to what the journal may carry: clamped to the allow-set,
+ * THEN sliced to {@link MAX_UA_LEN}.
+ *
+ * The order matters: slice-first lets a padding-prefixed attack string spend
+ * the 90-character budget on the noise and keep a real payload beyond the
+ * cut. Clamp-first can only ever smuggle characters the set admits.
+ */
+export function sanitizeAttachUa(ua: string): string {
+  return ua.replace(UA_UNSAFE, "").slice(0, MAX_UA_LEN);
+}
+
+/**
+ * The per-attach journal line, built as one function so its sanitization is
+ * testable WITHOUT a logger (which is disabled under tests) — this string is
+ * exactly what `logger.info` receives, and a client-supplied UA or build id
+ * must not be able to mint a second `ws attach` record, forge a line break,
+ * or write ANSI into the operator's journal.
+ *
+ * @param subshellId - The row the socket attaches to
+ * @param params - What the client declared on its URL (already parsed)
+ * @param ua - The raw User-Agent behind the socket
+ * @returns The log line
+ */
+export function attachJournalLine(subshellId: string, params: AttachParams, ua: string): string {
+  const safeUa = sanitizeAttachUa(ua);
   // WHICH BUNDLE is asking. A cached PWA keeps running old JavaScript across
   // any number of server deploys, and static requests are not logged, so
   // "did the client actually load the fix" was unanswerable — the 2026-09-04
   // session burned hours on renderer theories while the phone may never have
   // fetched the new chunk. `build=` is the client's own asset hash, so a
   // reload is visible as a CHANGED id; `build MISSING` is itself the answer,
-  // meaning a bundle older than this line.
-  logger.info(
-    params.size
-      ? `ws attach ${row.id}: geometry ${params.size.cols}x${params.size.rows} build=${params.build} ua="${ua.slice(0, 90)}"`
-      : `ws attach ${row.id}: geometry MISSING (stale client predates cols/rows) build=${params.build} ua="${ua.slice(0, 90)}"`,
-  );
-  return { ok: true, row, access, params };
+  // meaning a bundle older than this line. It arrives from `parseClientBuild`,
+  // which clamps to the same "drop what a real value never carries" rule.
+  return params.size
+    ? `ws attach ${subshellId}: geometry ${params.size.cols}x${params.size.rows} build=${params.build} ua="${safeUa}"`
+    : `ws attach ${subshellId}: geometry MISSING (stale client predates cols/rows) build=${params.build} ua="${safeUa}"`;
 }

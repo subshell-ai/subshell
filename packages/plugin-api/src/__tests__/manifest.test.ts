@@ -278,6 +278,64 @@ describe("parseManifest (network)", () => {
     expect("error" in result && result.error).toContain("must not need sudo");
   });
 
+  it("refuses sudo/doas/pkexec at ANY command boundary, not just the line start", () => {
+    // `install.command` reaches the machine through `sh -c`
+    // (`api/network/install-network.route.ts`), and that path never traverses
+    // `PluginHost.run`'s first-word basename refusal — so THIS parser rule is
+    // the gate. `"apt-get update && sudo apt-get install -y x"` loaded and
+    // executed while the check only looked at the start of the line.
+    for (const command of [
+      "sudo apt install x", // the case that was always caught, kept honest
+      "apt-get update && sudo apt-get install -y x", // &&
+      "apt-get update || sudo apt-get install -y x", // ||
+      "apt-get update; sudo apt-get install -y x", // ;
+      "curl -fsSL https://x.invalid/install.sh | sudo sh", // |
+      "sleep 5 & sudo apt-get install -y x", // & (background, then a new command)
+      "apt-get update\nsudo apt-get install -y x", // newline (two lines, one string)
+      "apt-get update && doas apt-get install -y x", // the sibling wrapper
+      "echo ready; pkexec sh install.sh", // and the other one
+      "SUDO_USER=root sudo apt install x", // a leading env-assignment does not hide the head word
+      "apt update; FOO=bar PATH=/x sudo apt install y", // after a boundary AND behind assignments
+      "apt-get update && /usr/bin/sudo apt-get install -y x", // basename: an absolute path is still sudo
+    ]) {
+      const result = parseManifest(networkPkg({ install: { command, docsUrl: "https://x.invalid" } }));
+      expect(["refused", command, "error" in result]).toEqual(["refused", command, true]);
+      if ("error" in result) expect(result.error).toContain("must not need sudo");
+    }
+  });
+
+  it("still accepts a command whose words merely CONTAIN a privileged name", () => {
+    // The refusal compares the first word of each boundary-separated segment
+    // by basename, never a substring of the line: these name real programs
+    // whose vendors happened to include the word.
+    for (const command of [
+      "brew install pkexec-demo",
+      "brew install sudoers-editor",
+      "dscl . -get /Users/me pkexec-fix",
+      "doas-rate-report --check && brew install cloudflared", // boundary, and the word is a prefix of the name
+      "curl -fsSL https://x.invalid/install.sh | bash", // the pipes built-ins actually ship
+    ]) {
+      const result = parseManifest(networkPkg({ install: { command, docsUrl: "https://x.invalid" } }));
+      expect(["accepted", command, "error" in result]).toEqual(["accepted", command, false]);
+    }
+  });
+
+  it("accepts sudo inside a quoted argument — the line-split is not quote-aware, and that is the decided limit", () => {
+    // The tokenizer splits on shell boundaries WITHOUT tracking quoting, so a
+    // quoted word is only refused when it happens to start a segment. The
+    // split therefore errs toward OVER-refusing (a `;` inside a quote still
+    // counts as a boundary — no legitimate installer loses anything there),
+    // and quoting the word as guidance text is the accepted case this pins.
+    // A sudo truly hidden inside quotes (`sh -c 'sudo …'`) is the same limit
+    // `PluginHost.run`'s first-word check has: a plugin that got loaded can
+    // already run code (§11.9) — the gate is against the MANIFEST being
+    // careless, not against a payload that wants in.
+    for (const command of ['echo "run sudo yourself" && brew install cloudflared', "echo 'do not need pkexec here'"]) {
+      const result = parseManifest(networkPkg({ install: { command, docsUrl: "https://x.invalid" } }));
+      expect(["accepted", command, "error" in result]).toEqual(["accepted", command, false]);
+    }
+  });
+
   it("allows an unprivileged install command", () => {
     const result = parseManifest(
       networkPkg({ install: { command: "brew install cloudflared", docsUrl: "https://x.invalid" } }),

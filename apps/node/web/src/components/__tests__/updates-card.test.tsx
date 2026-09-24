@@ -62,6 +62,14 @@ describe("UpdatesCard", () => {
     expect(await screen.findByText(/Running/)).toBeTruthy();
     expect(requested.some((u) => u.endsWith("/api/self/update"))).toBe(true);
     expect(screen.getByText("Update to latest")).toBeTruthy();
+    // The force option must not promise a durable downgrade the page cannot
+    // verify: a version the plane refuses lands HELD and is reverted on the
+    // 4406 at the end of the hold, so the card says so beside the checkbox.
+    expect(
+      screen.getByText(
+        "A downgrade the control plane will not accept is reversed automatically after about ten minutes offline.",
+      ),
+    ).toBeTruthy();
   });
 
   test("an air-gapped node is told the machine remedy and offered no install button", async () => {

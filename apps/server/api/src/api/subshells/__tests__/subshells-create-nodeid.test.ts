@@ -452,6 +452,61 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     }
   });
 
+  it("create names go through the shared label rule — control bytes die, and an unusable name is an unnamed create", async () => {
+    // The stored name is what `subshell restarted in place: … (${parked.name})`
+    // interpolates into the journal, and what the launch argv, SUBSHELL_NAME
+    // and the recent-path label all carry. The service-level normalize covers
+    // the row; the route-level one is what keeps the RAW string out of the
+    // recent-path label.
+    const stub = join(testDir, "claude-stub-name");
+    writeFileSync(stub, "#!/bin/sh\nexec sleep 300\n", { mode: 0o755 });
+    const prev = process.env.CLAUDE_PATH;
+    process.env.CLAUDE_PATH = stub;
+    try {
+      const res = await post({ ...base(claudePresetId, "claude-code"), name: "x\u001B[2K\u000Dbad" });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { id: string; tmuxSocket: string };
+      createdSubshellIds.push(body.id);
+      sockets.add(body.tmuxSocket);
+      const row = await new SubshellsRepository(db).findById(body.id);
+      expect(row?.name).toBe("x [2K bad");
+      const recent = await db
+        .selectFrom("recentPaths")
+        .select("label")
+        .where("userId", "=", userId)
+        .where("path", "=", "/tmp")
+        .where("nodeId", "=", LOCAL_NODE_ID)
+        .executeTakeFirst();
+      expect(recent?.label).toBe("x [2K bad");
+      await app.fetch(
+        new Request(`http://localhost:3080/api/subshells/${body.id}/terminate`, {
+          method: "POST",
+          headers: { cookie: `better-auth.session_token=${cookie}` },
+        }),
+      );
+
+      // Nothing printable remains: NOT a 400 — create always accepted blank
+      // names by falling back to the default, and normalization keeps that
+      // meaning. What changes is the stored name no longer wears raw bytes.
+      const blank = await post({ ...base(claudePresetId, "claude-code"), name: "\u001B\u202E" });
+      expect(blank.status).toBe(200);
+      const b = (await blank.json()) as { id: string; tmuxSocket: string };
+      createdSubshellIds.push(b.id);
+      sockets.add(b.tmuxSocket);
+      const bRow = await new SubshellsRepository(db).findById(b.id);
+      expect(bRow?.name).not.toContain("\u001B");
+      expect((bRow?.name ?? "").trim().length).toBeGreaterThan(0);
+      await app.fetch(
+        new Request(`http://localhost:3080/api/subshells/${b.id}/terminate`, {
+          method: "POST",
+          headers: { cookie: `better-auth.session_token=${cookie}` },
+        }),
+      );
+    } finally {
+      if (prev === undefined) delete process.env.CLAUDE_PATH;
+      else process.env.CLAUDE_PATH = prev;
+    }
+  });
   it("presetless launch: no presetId → 200, row presetId null + restartOnExit 0, view echoes presetId null", async () => {
     const stub = join(testDir, "claude-stub3");
     writeFileSync(stub, "#!/bin/sh\nexec sleep 300\n", { mode: 0o755 });

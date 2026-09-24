@@ -1,4 +1,4 @@
-import { loadConfig, type NodeConfig, saveConfig } from "./config.js";
+import { loadConfig, type NodeConfig, updateConfig } from "./config.js";
 import { normalizeServer } from "./enroll.js";
 
 /**
@@ -108,13 +108,20 @@ export async function runConfigure(opts: ConfigureOpts): Promise<NodeConfig> {
     throw new Error("configure changes nothing: pass --server <url> and/or --key <node key>");
   }
 
+  // Read for the ONE comparison below (does the address actually change?),
+  // never as the snapshot to rewrite — the save is `updateConfig`'s fresh
+  // re-read with only the named keys applied (round-3 review, finding 3):
+  // this CLI runs against a LIVE daemon whose dashboard can write retention or
+  // debug logging at any moment, and a repoint must lose neither field, just
+  // as neither write may lose `serverUrl`/`nodeKey`. `enroll` stays a whole
+  // write: it CREATES the file (or replaces the machine's identity outright,
+  // which is a confirmed destructive act, not a field edit).
   const current = await loadConfig();
-  const next: NodeConfig = { ...current };
-  if (serverUrl !== undefined) next.serverUrl = serverUrl;
-  if (nodeKey !== undefined) next.nodeKey = nodeKey;
+  const patch: Partial<NodeConfig> = {};
+  if (serverUrl !== undefined) patch.serverUrl = serverUrl;
+  if (nodeKey !== undefined) patch.nodeKey = nodeKey;
   if (serverUrl !== undefined && serverUrl !== current.serverUrl) {
-    delete next.nodeWsUrl;
+    patch.nodeWsUrl = undefined; // the explicit-undefined CLEAR rule of `updateConfig`
   }
-  await saveConfig(next);
-  return next;
+  return await updateConfig(patch);
 }

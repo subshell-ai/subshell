@@ -41,7 +41,7 @@ describe("planRemoteSubshellMcp", () => {
   // every dev-run agent's panes a `bun mcp` that cannot start.
 
   it("composes from the agent's selfInvoke verbatim, interpreter shape included", () => {
-    const plan = planRemoteSubshellMcp(harness("claude-code"), "sshp_interp", {
+    const plan = planRemoteSubshellMcp(harness("claude-code"), "a2000000-0000-4000-8000-000000000002", {
       dataDir: "/d",
       selfInvoke: { command: "/usr/local/bin/bun", args: ["/opt/subshell/src/index.ts"] },
     });
@@ -57,7 +57,9 @@ describe("planRemoteSubshellMcp", () => {
   });
 
   it("absent selfInvoke falls back to `subshell` mcp on PATH, as before", () => {
-    const plan = planRemoteSubshellMcp(harness("claude-code"), "sshp_fallbk", { dataDir: "/d" });
+    const plan = planRemoteSubshellMcp(harness("claude-code"), "a3000000-0000-4000-8000-000000000003", {
+      dataDir: "/d",
+    });
     if (!plan) throw new Error("remote mcp plan missing");
     const content = JSON.parse(plan.reg.fileContent) as {
       mcpServers: { subshell: { command: string; args: string[] } };
@@ -68,7 +70,10 @@ describe("planRemoteSubshellMcp", () => {
 
   it("the composed args are a copy — later fact refreshes cannot mutate a shipped plan", () => {
     const selfInvoke = { command: "/usr/bin/subshell", args: [] as string[] };
-    const plan = planRemoteSubshellMcp(harness("claude-code"), "sshp_copy01", { dataDir: "/d", selfInvoke });
+    const plan = planRemoteSubshellMcp(harness("claude-code"), "a4000000-0000-4000-8000-000000000004", {
+      dataDir: "/d",
+      selfInvoke,
+    });
     if (!plan) throw new Error("remote mcp plan missing");
     selfInvoke.args = ["poisoned"];
     const content = JSON.parse(plan.reg.fileContent) as { mcpServers: { subshell: { args: string[] } } };
@@ -76,8 +81,10 @@ describe("planRemoteSubshellMcp", () => {
   });
 
   it("target path is the node-side layout, unchanged by the composition change", () => {
-    const plan = planRemoteSubshellMcp(harness("claude-code"), "sshp_path01", { dataDir: "/node/d" });
+    const plan = planRemoteSubshellMcp(harness("claude-code"), "a5000000-0000-4000-8000-000000000005", {
+      dataDir: "/node/d",
+    });
     if (!plan) throw new Error("remote mcp plan missing");
-    expect(plan.configPath).toBe("/node/d/mcp/sshp_path01.json");
+    expect(plan.configPath).toBe("/node/d/mcp/a5000000-0000-4000-8000-000000000005.json");
   });
 });

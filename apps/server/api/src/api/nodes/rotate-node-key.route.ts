@@ -47,14 +47,14 @@ export const rotateNodeKeyRoute = new Elysia()
       }
       if (!gate.canManage) throw new ForbiddenError();
 
-      // 1. Mint FIRST (least-privilege + kind-tagged, exactly like enroll).
+      // 1. Mint FIRST — kind-tagged and with NO permissions map, exactly like
+      //    enroll (the guard's rationale lives at that call site; item 10).
       const metadata: NodeKeyMetadata = { kind: "node", nodeId: gate.row.id };
       const created = (await getAuth().api.createApiKey({
         body: {
           name: `node:${gate.row.id}`,
           userId: gate.row.ownerUserId,
           metadata,
-          permissions: { nodes: ["read", "write"] },
         },
       })) as unknown as CreatedApiKey;
 
@@ -68,7 +68,7 @@ export const rotateNodeKeyRoute = new Elysia()
       //    and drain its in-flight commands AFTER (P1-T9 carry: an eviction
       //    must failConnPendings itself — no real socket close may ever fire).
       const evicted = getLive(gate.row.id);
-      disconnectNode(gate.row.id, REVOKED_CLOSE_CODE, "node key rotated");
+      await disconnectNode(gate.row.id, REVOKED_CLOSE_CODE, "node key rotated");
       if (evicted) failConnPendings(evicted, "offline", "node key rotated");
 
       await audit({

@@ -1,6 +1,16 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Kysely } from "kysely";
@@ -11,6 +21,7 @@ import {
   beginUpdate,
   clearPending,
   completeUpdate,
+  keepPreviousBinary,
   type PendingUpdate,
   readFailed,
   readPending,
@@ -32,12 +43,24 @@ afterEach(() => {
   rmSync(work, { recursive: true, force: true });
 });
 
-/** A marker over two real files, so a revert has something to rename. */
+/** What the stub below prints — the byte-identical `version` contract. */
+const OLD_STUB_TEXT = '#!/bin/sh\necho "subshell-server 0.6.0"\n';
+
+/**
+ * A marker over two real files, so a revert has something to rename.
+ *
+ * The `.previous` is a stub EXECUTABLE that answers `version`, because the
+ * revert PROBEs it before putting it back (round-3 review, finding 2) — the
+ * same shape `server-update.sh` proves with two compiled binaries, shrunk to
+ * a shebang here. A revert test that wants the refusal stages a file that
+ * CANNOT answer, instead of opting out of the probe.
+ */
 function stage(over: Partial<PendingUpdate> = {}): PendingUpdate {
   const binary = join(work, "subshell-server");
   const previousBinary = `${binary}.previous`;
   writeFileSync(binary, "the new binary");
-  writeFileSync(previousBinary, "the old binary");
+  writeFileSync(previousBinary, OLD_STUB_TEXT);
+  chmodSync(previousBinary, 0o755);
   return {
     from: "0.6.0",
     to: "0.7.0",
@@ -157,7 +180,8 @@ describe("revertUpdate", () => {
     beginUpdate(pending, dir);
     revertUpdate(pending, new Error("migration 0032 failed"), { dir });
 
-    expect(readFileSync(pending.binary, "utf8")).toBe("the old binary");
+    // The stub answers `version`, so the probe lets it back onto the live path.
+    expect(readFileSync(pending.binary, "utf8")).toBe(OLD_STUB_TEXT);
     expect(existsSync(pending.previousBinary)).toBe(false);
     expect(readPending(dir)).toBeNull();
     const failed = readFailed(dir);
@@ -189,7 +213,26 @@ describe("revertUpdate", () => {
     const restored = new Database(dbPath, { readonly: true });
     expect(restored.query("SELECT v FROM t").all() as { v: string }[]).toEqual([{ v: "before" }]);
     restored.close();
-    expect(readFileSync(pending.binary, "utf8")).toBe("the old binary");
+    expect(readFileSync(pending.binary, "utf8")).toBe(OLD_STUB_TEXT);
+  });
+
+  it("does NOT put back a .previous that cannot run — it records and keeps both files", () => {
+    // Round-3 review, finding 2. The copy a plain (pre-atomic) copy-fallback
+    // interrupted mid-write, or a truncated file a hand produced, would
+    // otherwise land at the path the unit names, where the manager cannot
+    // EXEC it and the boot-revert logic cannot live. The revert instead:
+    // restores the database, writes failed.json, and leaves the bootable
+    // (if un-migratable) new binary at its path with the copy kept as evidence.
+    const pending = stage();
+    writeFileSync(pending.previousBinary, "trunc");
+    chmodSync(pending.previousBinary, 0o644); // present, regular, unrunnable
+    beginUpdate(pending, dir);
+    expect(() => revertUpdate(pending, new Error("migration 0032 failed"), { dir })).not.toThrow();
+
+    expect(readFileSync(pending.binary, "utf8")).toBe("the new binary"); // left in place
+    expect(existsSync(pending.previousBinary)).toBe(true); // kept, not buried
+    expect(readPending(dir)).toBeNull();
+    expect(readFailed(dir)?.error).toBe("migration 0032 failed");
   });
 
   it("says the previous binary is gone rather than throwing", () => {
@@ -227,6 +270,57 @@ describe("recordFailure", () => {
     expect(existsSync(pending.previousBinary)).toBe(true);
     // And an update can be attempted again.
     expect(() => beginUpdate(stage({ to: "0.8.0" }), dir)).not.toThrow();
+  });
+});
+
+describe("keepPreviousBinary", () => {
+  /** Names in `work` that the keeper may never leave behind. */
+  const strayTmps = () => readdirSync(work).filter((n) => n.includes(".previous.tmp-"));
+
+  it("links when the filesystem allows it: same inode, no copy", () => {
+    const binary = join(work, "subshell-server");
+    writeFileSync(binary, "bytes");
+    expect(keepPreviousBinary(binary)).toBe(`${binary}.previous`);
+    expect(readFileSync(`${binary}.previous`, "utf8")).toBe("bytes");
+    expect(statSync(`${binary}.previous`).ino).toBe(statSync(binary).ino);
+    expect(strayTmps()).toEqual([]);
+  });
+
+  it("copies atomically when links are refused: full bytes at .previous, no tmp", () => {
+    const binary = join(work, "subshell-server");
+    writeFileSync(binary, "bytes");
+    keepPreviousBinary(binary, {
+      link: () => {
+        throw Object.assign(new Error("link refused"), { code: "EXDEV" });
+      },
+    });
+    expect(readFileSync(`${binary}.previous`, "utf8")).toBe("bytes");
+    expect(strayTmps()).toEqual([]); // the tmp was renamed INTO place, not left
+  });
+
+  it("a copy that throws mid-write leaves NOTHING at .previous and sweeps the tmp", () => {
+    // The hole this closes (round-3 review, finding 2): the old plain copy
+    // left a TRUNCATED `.previous` in place on ENOSPC, failure paths kept it,
+    // and `--rollback` renamed that onto the live path. An interrupted copy
+    // now costs only a stray tmp name — and even the tmp is swept here, so
+    // only a hard crash between write and rename can leave it.
+    const binary = join(work, "subshell-server");
+    writeFileSync(binary, "bytes");
+    const previous = `${binary}.previous`;
+    writeFileSync(previous, "stale copy from an earlier swap");
+    expect(() =>
+      keepPreviousBinary(binary, {
+        link: () => {
+          throw new Error("no links here");
+        },
+        copy: (_from, to) => {
+          writeFileSync(to, "byt"); // got partway, then the disk filled
+          throw Object.assign(new Error("No space left on device"), { code: "ENOSPC" });
+        },
+      }),
+    ).toThrow(/No space left/);
+    expect(existsSync(previous)).toBe(false); // stale was cleared; the partial never landed
+    expect(strayTmps()).toEqual([]);
   });
 });
 

@@ -444,14 +444,46 @@ async function idOf(dir: string): Promise<string | null> {
 }
 
 /**
+ * The §2.4 id-claim rule, decided against what the target directory says today.
+ *
+ * Two packages claiming one id would silently replace the first operator's
+ * plugin with the second's bytes. The claim is the sidecar when there is
+ * one, and the target's OWN package.json name when there is not: an
+ * embedded install carries no sidecar, and without that second half a
+ * registry package declaring a built-in's id could swap over the built-in
+ * and have the swap RECORD the squatter. A same-name target is the
+ * §2.5-rule-3 flow (this build's pi replaced by a registry pi), which
+ * must pass.
+ *
+ * This runs TWICE on the registry path, and both runs earn their place:
+ * before the load-check (a squatter is refused BEFORE its module is imported
+ * or its factory called — `load()` executes plugin code in this process), and
+ * again inside {@link installStaged} immediately before the swap, where it
+ * also closes the window a concurrent install could open on the target
+ * between the two checks.
+ */
+function assertIdClaim(existing: TargetState | null, name: string, id: string): void {
+  const claimedBy = existing?.record?.name ?? existing?.pkgName ?? null;
+  if (claimedBy && claimedBy !== name) {
+    const origin = existing?.record
+      ? `installed ${existing.record.version}`
+      : "no install record, so it is this build's copy or one dropped in by hand";
+    throw new Error(
+      `'${claimedBy}' already claims plugin id '${id}' (${origin}); uninstall it before installing '${name}' under that id`,
+    );
+  }
+}
+
+/**
  * Installs one plugin from an npm registry: resolve, verify, unpack, check,
  * swap. INTERNAL to this module: `installPlugin` is the one door, and the
  * embedded-first decision belongs to it.
  *
  * Ordering is the safety property: integrity is verified over the raw bytes
- * BEFORE anything is written (in `fetchVerifiedTarball`), the id checks run
- * before the swap, and the load-check runs against a staging copy before the
- * swap too, so every refusal here leaves the previous copy untouched.
+ * BEFORE anything is written (in `fetchVerifiedTarball`), the id-claim
+ * refusal runs before the package's code is ever executed, and the load-check
+ * runs against a staging copy before the swap, so every refusal here leaves
+ * the previous copy untouched AND never imports a module it will refuse.
  * @param expectId - the id the caller asked for, when they named one; the manifest's own id must agree
  */
 async function installFromRegistry(
@@ -489,13 +521,23 @@ async function installFromRegistry(
   };
   files[RECORD_FILE] = `${JSON.stringify(record, null, 2)}\n`;
 
+  const root = pluginsDir(dataDir);
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  await enforceMode(root, 0o700);
+
+  // The id-claim refusal BEFORE the load-check, and that ordering is itself
+  // the security property: `load()` imports the module and calls its factory
+  // IN THIS PROCESS, so a package whose claim on the id will not be honoured
+  // must not reach it. (It used to: the refusal lived only inside
+  // `installStaged`, after the load — the disk stayed byte-identical while
+  // the squatter's code had already run. `docs/security.md` §6.)
+  const target = join(root, id);
+  assertIdClaim(existsSync(target) ? await readTargetState(target) : null, name, id);
+
   // Load-check BEFORE anything moves (spec §8.1): the staging dir is a plugin
   // directory as far as the loader is concerned, and a module that throws (or
   // mismatches its declared capabilities) is refused here, so an operator who
   // installs a broken package keeps the copy they had.
-  const root = pluginsDir(dataDir);
-  await mkdir(root, { recursive: true, mode: 0o700 });
-  await enforceMode(root, 0o700);
   const checkDir = await mkdtemp(join(root, `.tmp-${id}-check-`));
   try {
     await writeFiles(checkDir, files);
@@ -505,25 +547,11 @@ async function installFromRegistry(
     await rm(checkDir, { recursive: true, force: true }).catch(() => {});
   }
 
-  return await installStaged(dataDir, id, files, (existing) => {
-    // Two packages claiming one id would silently replace the first operator's
-    // plugin with the second's bytes. The claim is the sidecar when there is
-    // one, and the target's OWN package.json name when there is not: an
-    // embedded install carries no sidecar, and without that second half a
-    // registry package declaring a built-in's id could swap over the built-in
-    // and have the swap RECORD the squatter. A same-name target is the
-    // §2.5-rule-3 flow (this build's pi replaced by a registry pi), which
-    // must pass.
-    const claimedBy = existing?.record?.name ?? existing?.pkgName ?? null;
-    if (claimedBy && claimedBy !== name) {
-      const origin = existing?.record
-        ? `installed ${existing.record.version}`
-        : "no install record, so it is this build's copy or one dropped in by hand";
-      throw new Error(
-        `'${claimedBy}' already claims plugin id '${id}' (${origin}); uninstall it before installing '${name}' under that id`,
-      );
-    }
-  });
+  // Defense in depth, kept deliberately: the hoisted check reads the target
+  // at decision time, this one runs against the state `installStaged` re-reads
+  // immediately before the rename — the last gate against a concurrent
+  // install swapping a different claim into place in between.
+  return await installStaged(dataDir, id, files, (existing) => assertIdClaim(existing, name, id));
 }
 
 /**

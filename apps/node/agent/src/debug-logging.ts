@@ -1,4 +1,4 @@
-import { loadConfig, saveConfig } from "./config.js";
+import { loadConfig, updateConfig } from "./config.js";
 import { agentLogFile } from "./log.js";
 import type { LevelledTransport } from "./log-file.js";
 
@@ -98,8 +98,10 @@ export async function setDebugLogging(debug: boolean): Promise<DebugLoggingState
       "SUBSHELL_DEBUG_LOGGING is set in this agent's environment, so debug logging cannot be changed here",
     );
   }
-  const cfg = await loadConfig();
-  await saveConfig({ ...cfg, debugLogging: debug });
+  // `updateConfig`, not a held snapshot: a retention save landing between this
+  // refusal-check and the write must not be reverted by it (round-3 review,
+  // finding 3) — only `debugLogging` is named, only `debugLogging` changes.
+  await updateConfig({ debugLogging: debug });
   stored = debug;
   applyDebugLogging(debug);
   return currentDebugLogging();

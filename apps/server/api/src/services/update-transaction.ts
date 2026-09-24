@@ -26,14 +26,35 @@
  * **MEASURED (spec §12.2, 2026-09-15, darwin arm64, bun 1.4.2).** `rename(2)`
  * over a RUNNING compiled binary leaves the running process alive and running
  * to completion — unlike overwriting the bytes in place, which the desktop
- * app's sidecar module documents as a SIGKILL. That is why both halves of the
- * swap are renames, and why they are both inside one directory.
+ * app's sidecar module documents as a SIGKILL. That is why the swap is ONE
+ * rename onto the live path ({@link keepPreviousBinary}), and why everything
+ * lives inside one directory. The old shape — rename the live binary aside,
+ * then rename the new one in — left a window where the path the service
+ * definition names held NOTHING, and the boot-revert lives in the missing
+ * binary, so only a hand at a keyboard could recover it. The live path is now
+ * never moved: `.previous` is made a second name for the running binary
+ * first, and a single rename replaces the path underneath the running
+ * process. A crash between the two leaves the OLD binary at ExecStart —
+ * bootable, and the boot hook's marker/version mismatch converges it to a
+ * recorded failure (round-3 sweep C5, 2026-09-24).
  *
  * Everything here is SYNCHRONOUS on purpose: the boot hook runs it before the
  * listener starts, the CLI runs it inside a command, and the whole point of
  * the marker is that it is durable before the next line executes.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  copyFileSync,
+  existsSync,
+  fsyncSync,
+  linkSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { audit } from "@/services/audit.js";
@@ -149,9 +170,92 @@ export function beginUpdate(input: PendingUpdate, dir: string = updateDir()): vo
   writeMarker(pendingPath(dir), input);
 }
 
-/** Drop the marker without auditing — the updater's own undo between the two renames. */
+/** Drop the marker without auditing — the updater's own undo before the swap lands. */
 export function clearPending(dir: string = updateDir()): void {
   rmSync(pendingPath(dir), { force: true });
+}
+
+/**
+ * Make `<binary>.previous` a copy of the RUNNING binary without moving the
+ * live path — the first half of every swap on every surface (the dashboard
+ * job, the CLI verb, and the node's own port of it), and the reason a crash
+ * mid-swap leaves a bootable machine.
+ *
+ * A hardlink: `.previous` gets a second name for the same inode, so the old
+ * bytes stay at `binary` (which is where the service definition points) and
+ * the kept copy costs no disk. On a filesystem that refuses links — an
+ * EXDEV-shaped bind-mount edge between the binary and its own directory, a
+ * FUSE volume with no hardlink support — a real copy is kept instead, flushed
+ * to the platter before this returns: a rollback copy that a power loss eats
+ * is not a rollback copy.
+ *
+ * A stale `.previous` from an earlier swap is cleared first (the old
+ * rename-aside overwrote it implicitly; a hardlink does not). The caller's
+ * rename of the new bytes onto `binary` is the whole swap — see the module
+ * header for why that one rename is safe over a running image.
+ *
+ * The copy fallback is ATOMIC, because `.previous` is a boot target, not a
+ * backup: a plain `copyFileSync` interrupted mid-write (ENOSPC, a signal, a
+ * power loss) left a TRUNCATED `.previous` standing exactly where `--rollback`
+ * and the boot revert look for a working binary. Here the bytes go to a
+ * sibling `.tmp-<pid>`, are fsynced, and ONE rename lands them on
+ * `<previous>` — a crash mid-copy leaves only the stray tmp name, and
+ * `<previous>` is never present-but-incomplete. (The rollback probe below is
+ * the second layer: it refuses even a copy truncated by the pre-atomic code,
+ * or by a hand.)
+ *
+ * @returns the previous-binary path, which is `${binary}.previous` — the
+ *   marker names this exact spelling everywhere.
+ * @internal `seams` exists only so the copy-fallback branch is testable
+ *   without a no-link filesystem; production passes nothing.
+ */
+export function keepPreviousBinary(
+  binary: string,
+  seams: {
+    link?: (from: string, to: string) => void;
+    copy?: (from: string, to: string) => void;
+  } = {},
+): string {
+  const previous = `${binary}.previous`;
+  rmSync(previous, { force: true });
+  try {
+    (seams.link ?? linkSync)(binary, previous);
+    return previous;
+  } catch {
+    /* no links here — the atomic copy below */
+  }
+  const tmp = `${previous}.tmp-${process.pid}`;
+  try {
+    (seams.copy ?? copyFileSync)(binary, tmp);
+    const fd = openSync(tmp, "r");
+    try {
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    renameSync(tmp, previous);
+  } catch (err) {
+    // The refused bytes never reached `<previous>`; sweep the partial.
+    rmSync(tmp, { force: true });
+    throw err;
+  }
+  return previous;
+}
+
+/**
+ * Whether `file` answers `<file> version` with exit 0 — the rollback PROBE,
+ * the same question every install path already asks a candidate binary
+ * (`update --from` probes before installing; the release ladder probes the
+ * download). A `.previous` that cannot say what it is cannot RUN, whatever
+ * the stat says.
+ */
+function rollbackBinaryRuns(file: string): boolean {
+  try {
+    const res = Bun.spawnSync({ cmd: [file, "version"], stdout: "ignore", stderr: "ignore", timeout: 10_000 });
+    return res.exitCode === 0;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -199,11 +303,24 @@ export async function completeUpdate(
  * A missing `.previous` is logged rather than thrown: the database is already
  * restored by then, and the operator needs to be told to reinstall, not to be
  * handed a stack trace by a process that is about to exit.
+ *
+ * A PRESENT-but-unbootable `.previous` is also not put back — see the probe's
+ * comment for the decision and its reasoning. The operator-driven
+ * `subshell-server update --rollback` refuses outright; this automatic path
+ * records and keeps both files.
  */
 export function revertUpdate(
   pending: PendingUpdate,
   error: unknown,
-  deps: { dir?: string; databasePath?: string } = {},
+  deps: {
+    dir?: string;
+    databasePath?: string;
+    /**
+     * Rollback probe (default: {@link rollbackBinaryRuns}). @internal seam for
+     * tests that stage plain files instead of real executables.
+     */
+    probe?: (file: string) => boolean;
+  } = {},
 ): void {
   const dir = deps.dir ?? updateDir();
   const message = error instanceof Error ? error.message : String(error);
@@ -226,13 +343,41 @@ export function revertUpdate(
   }
 
   if (existsSync(pending.previousBinary)) {
+    let bootable = false;
     try {
-      renameSync(pending.previousBinary, pending.binary);
-      log.info(`update revert: put ${pending.from} back at ${pending.binary}`);
-    } catch (swapError) {
-      log
-        .withError(swapError)
-        .error(`update revert: could NOT put ${pending.previousBinary} back; reinstall ${pending.binary} by hand`);
+      bootable = (deps.probe ?? rollbackBinaryRuns)(pending.previousBinary);
+    } catch {
+      bootable = false;
+    }
+    if (!bootable) {
+      // THE DECISION on an automatic revert whose copy fails the probe (round-3
+      // review, finding 2): record, do not swap, keep the copy. The operator's
+      // `update --rollback` REFUSES in this case — there is a human, and
+      // refusing costs nothing. Here there is no human, and the choice is
+      // between two crash loops: renaming an unbootable copy onto the path the
+      // service definition names leaves the manager unable to EXEC anything —
+      // no journal line from the binary, and the boot-revert logic that could
+      // notice all lives inside a file that cannot run, now buried at the
+      // live path with the copy destroyed by the rename. Leaving the
+      // refused-to-migrate new binary in place keeps a process that boots,
+      // logs the migration failure on every attempt, and leaves the whole
+      // incident legible (`failed.json` below plus the executable
+      // `.previous` kept as evidence). The machine needs an operator in both
+      // worlds; this one keeps talking until they arrive, and says what to
+      // do. The database restore above stands either way — that half is
+      // correct regardless of which file boots.
+      log.error(
+        `update revert: ${pending.previousBinary} did not answer \`version\`, so it was NOT put back over ${pending.binary}; the copy is kept — reinstall ${pending.from} by hand`,
+      );
+    } else {
+      try {
+        renameSync(pending.previousBinary, pending.binary);
+        log.info(`update revert: put ${pending.from} back at ${pending.binary}`);
+      } catch (swapError) {
+        log
+          .withError(swapError)
+          .error(`update revert: could NOT put ${pending.previousBinary} back; reinstall ${pending.binary} by hand`);
+      }
     }
   } else {
     log.error(`update revert: ${pending.previousBinary} is gone; reinstall ${pending.from} by hand`);

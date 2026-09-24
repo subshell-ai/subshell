@@ -239,4 +239,69 @@ describe("restoreDatabase", () => {
     // A restore consumes nothing: the same snapshot can be restored again.
     expect(readdirSync(dir)).toHaveLength(1);
   });
+
+  /**
+   * C8's crash arithmetic, tested with a REAL hot WAL rather than garbage
+   * sidecars. The replaced file carries committed-but-uncheckpointed frames
+   * left by a SIGKILLed writer — the shape a power loss leaves. The stale
+   * sidecar is made REAL on purpose: a garbage "stale" file only tests
+   * header-validation. `restoreDatabase` folds that tail into the file it is
+   * replacing and only then drops the sidecars, so (a) the final state is
+   * exactly the snapshot — a stale WAL left beside the renamed-in snapshot is
+   * NOT inert: measured on bun 1.4.2, a self-consistent WAL replayed onto the
+   * delete-mode snapshot (a 10-row read answered 12), which is why the
+   * sidecars must be gone before the rename — and (b) a crash between the
+   * checkpoint and the rename can only leave a live database that is whole
+   * (tail folded in) and re-revertable, never a main file silently truncated
+   * of its committed tail, which is what unlink-first left.
+   */
+  it("checkpoints the killed writer's uncheckpointed tail before dropping the sidecars", async () => {
+    const live = seed(10);
+    const backup = await backupDatabase({ reason: "update", databasePath: dbPath, dir });
+    live.prepare("INSERT INTO t (v) VALUES (?)").run("migrated");
+    const killed = Bun.spawnSync({
+      cmd: [
+        process.execPath,
+        "-e",
+        `const {Database} = require("bun:sqlite");
+         const db = new Database(${JSON.stringify(dbPath)});
+         db.exec("PRAGMA journal_mode = WAL");
+         db.exec("CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, v TEXT)");
+         db.prepare("INSERT INTO t (v) VALUES (?)").run("tail-from-killed-writer");
+         process.kill(process.pid, "SIGKILL");`,
+      ],
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(killed.exitCode).not.toBe(0); // died of the signal, as intended
+    expect(existsSync(`${dbPath}-wal`)).toBe(true);
+    live.close();
+
+    restoreDatabase(backup?.path as string, dbPath);
+
+    expect(existsSync(`${dbPath}-wal`)).toBe(false);
+    expect(existsSync(`${dbPath}-shm`)).toBe(false);
+    // The snapshot, not the snapshot plus a tail it never had.
+    expect(count(dbPath)).toBe(10);
+    const check = new Database(dbPath, { readonly: true });
+    expect(check.query("PRAGMA integrity_check").all()).toEqual([{ integrity_check: "ok" }]);
+    check.close();
+  });
+
+  it("sweeps the staging file a crashed restore left behind, and no one else's", async () => {
+    seed(4).close();
+    const backup = await backupDatabase({ reason: "manual", databasePath: dbPath, dir });
+    // The leftover was there BEFORE this restore ran, as it would be on a
+    // boot retrying a revert whose own staging died mid-flight.
+    const leftover = `${dbPath}.restore-99999`;
+    writeFileSync(leftover, "crashed staging debris");
+    const foreign = join(work, "other-app.db.restore-1");
+    writeFileSync(foreign, "not this module's file");
+
+    restoreDatabase(backup?.path as string, dbPath);
+
+    expect(existsSync(leftover)).toBe(false);
+    expect(existsSync(foreign)).toBe(true); // prefix-scoped: never a sweep of the directory
+    expect(count(dbPath)).toBe(4);
+  });
 });

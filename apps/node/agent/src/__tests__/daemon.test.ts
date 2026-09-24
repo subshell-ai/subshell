@@ -1,12 +1,14 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import {
   appendFileSync,
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, hostname, tmpdir } from "node:os";
@@ -38,6 +40,7 @@ import {
 } from "../daemon.js";
 import { type DaemonLock, lockPath } from "../lock.js";
 import { maintenancePath, writeMaintenance } from "../maintenance.js";
+import { sweepIsScheduled } from "../retention-settings.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
 import { newHome } from "../test-preload.js";
 import { NODE_VERSION } from "../version.js";
@@ -159,9 +162,21 @@ afterAll(() => {
 
 async function startDaemon(
   overrides: Partial<
-    Pick<DaemonDeps, "heartbeatMs" | "inventoryMs" | "rand" | "tmux" | "meta" | "WebSocketImpl" | "runtime">
-  > = {},
+    Pick<
+      DaemonDeps,
+      | "heartbeatMs"
+      | "inventoryMs"
+      | "rand"
+      | "tmux"
+      | "meta"
+      | "WebSocketImpl"
+      | "runtime"
+      | "retentionMs"
+      | "retentionPass"
+    >
+  > & { config?: Partial<NodeConfig> } = {},
 ): Promise<Harness> {
+  const { config: configPatch, ...daemonOverrides } = overrides;
   const [keys, hostileKeys] = await Promise.all([keysReady, hostileKeysReady]);
   const plane = startPlane();
   const dataDir = mkdtempSync(join(tmpdir(), "subshell-daemon-"));
@@ -177,6 +192,7 @@ async function startDaemon(
     // run deterministic. Removed in the file's afterAll.
     dataDir,
     name: "test-node",
+    ...configPatch,
   };
   const exits: number[] = [];
   const h: Harness = { plane, config, keys, hostileKeys, exits, stopped: Promise.resolve() };
@@ -189,7 +205,7 @@ async function startDaemon(
       exits.push(code);
       throw new DaemonStopped(code);
     },
-    ...overrides,
+    ...daemonOverrides,
   });
   h.stopped = promise.then(
     () => undefined,
@@ -1492,12 +1508,24 @@ describe("maintenance (spec 2026-09-14 §4.3)", () => {
 });
 
 describe("the update transaction, settled by the daemon (spec 2026-09-15 §5.1/§5.2)", () => {
+  /**
+   * The kept copy, as a stub EXECUTABLE that answers `version`.
+   *
+   * The 4406 revert PROBEs `.previous` before renaming it back (round-3
+   * review, finding 2 — the daemon calls `revertAfterRefusal` with the
+   * default probe), so the fixture must be a file the probe lets through:
+   * the shape `node-update.sh` proves with two compiled binaries, shrunk to
+   * a shebang here.
+   */
+  const OLD_STUB = '#!/bin/sh\necho "subshell 0.8.0"\n';
+
   /** Write a pending marker as `applyUpdate` would, plus the `.previous` it names. */
   function stageTransaction(dataDir: string): { binary: string; previous: string } {
     const binary = join(dataDir, "subshell");
     const previous = `${binary}.previous`;
     writeFileSync(binary, "NEW");
-    writeFileSync(previous, "OLD");
+    writeFileSync(previous, OLD_STUB);
+    chmodSync(previous, 0o755);
     writeFileSync(
       join(dataDir, "update-pending.json"),
       JSON.stringify({
@@ -1567,8 +1595,11 @@ describe("the update transaction, settled by the daemon (spec 2026-09-15 §5.1/�
     const deadline = Date.now() + 2000;
     while (h.exits.length === 0 && Date.now() < deadline) await sleep(5);
     expect(h.exits).toEqual([1]);
-    // The previous binary is back where the service manager will find it.
-    expect(readFileSync(binary, "utf8")).toBe("OLD");
+    // The previous binary is back where the service manager will find it —
+    // the revert PROBE ran it (`version`, exit 0) before renaming, and the
+    // stub answers, so this is the ordinary swap-back (finding 2's refusal
+    // path is pinned with the real probe in `__tests__/update.test.ts`).
+    expect(readFileSync(binary, "utf8")).toBe(OLD_STUB);
     expect(existsSync(previous)).toBe(false);
     expect(existsSync(join(h.config.dataDir, "update-pending.json"))).toBe(false);
     const failed = JSON.parse(readFileSync(join(h.config.dataDir, "update-failed.json"), "utf8")) as {
@@ -1590,5 +1621,109 @@ describe("the update transaction, settled by the daemon (spec 2026-09-15 §5.1/�
     while (h.exits.length === 0 && Date.now() < deadline) await sleep(5);
     expect(h.exits).toEqual([1]);
     expect(existsSync(join(h.config.dataDir, "update-failed.json"))).toBe(false);
+  });
+});
+
+describe("pane-log retention wiring", () => {
+  test("the pass starts at boot, and again on its period", async () => {
+    // Boot-first still matters most: a node that was OFFLINE while a subshell
+    // was deleted (or simply idle past its window) begins aging the transcript
+    // out the moment the agent starts, before the plane asks anything. What
+    // finding 2 changed is only that the pass is SCHEDULED before the dial,
+    // not awaited by it.
+    let passes = 0;
+    const h = await startDaemon({ retentionPass: async () => void passes++, retentionMs: 30 });
+    expect(passes).toBeGreaterThanOrEqual(1); // the boot pass was started before the first dial completed
+    // A finite boot (the default one-day window) arms the hourly timer, and
+    // the daemon states that boot decision to the retention endpoints so the
+    // dashboard's copy promises a sweep that actually runs (finding 5).
+    expect(sweepIsScheduled()).toBe(true);
+    const deadline = Date.now() + 2000;
+    while (passes < 3 && Date.now() < deadline) await sleep(10);
+    expect(passes).toBeGreaterThanOrEqual(3);
+    void h;
+  });
+
+  test("a boot sweep that never finishes does not gate the first dial (finding 2)", async () => {
+    // The census is one tmux probe per meta record; on a wedged host an
+    // AWAITED boot pass stalled the node's first connection for N × the 15 s
+    // timeout. The pass now shares the hourly beat's fire-and-forget posture:
+    // `startDaemon` itself awaits the first `ready`, so if the daemon were
+    // still awaiting a hung pass this test would hang, not fail.
+    let started = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    try {
+      const h = await startDaemon({
+        retentionPass: async () => {
+          started += 1; // synchronous: proves the pass was SCHEDULED before the dial
+          await gate; // and never resolves on its own — the dial must not care
+        },
+        retentionMs: 3_600_000, // one hung boot pass only (the timer stays effectively off)
+      });
+      expect(started).toBe(1);
+      expect(eventTypes(h)[0]).toBe("ready"); // the socket is up while the sweep is still hung
+    } finally {
+      release();
+    }
+  });
+
+  test("keep-forever (0 days + 0 hours) runs no pass at all", async () => {
+    let passes = 0;
+    const h = await startDaemon({
+      retentionPass: async () => void passes++,
+      retentionMs: 30,
+      config: { logRetentionDays: 0, logRetentionHours: 0 },
+    });
+    await sleep(120);
+    expect(passes).toBe(0);
+    // The boot decision is stated for the dashboard too: this shape scheduled
+    // no timer, so the retention card must promise the restart and not a pass
+    // (finding 5 — the truth the old stored-derived sentence got backwards).
+    expect(sweepIsScheduled()).toBe(false);
+    void h;
+  });
+
+  test("the default pass re-reads config.json: a write lands without a restart (R3)", async () => {
+    // The live-effect half of the dashboard's setter, through the REAL default
+    // pass (no spy): boot says 30 days, so a two-day-old transcript survives;
+    // the config file is then rewritten to `0 + 1` mid-run — exactly what
+    // `PUT /api/self/log-retention` does — and the next scheduled sweep
+    // deletes the file. Nothing restarts; the pass itself re-resolves.
+    const h = await startDaemon({ config: { logRetentionDays: 30 }, retentionMs: 30 });
+    const dir = join(h.config.dataDir, "subshells");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, "aaaaaaaa-0000-4000-8000-0000000000aa.log");
+    writeFileSync(file, "typed transcript\n");
+    const t = (Date.now() - 2 * 24 * 3_600_000) / 1000;
+    utimesSync(file, t, t);
+    await sleep(80); // a few 30-day passes: the file is inside the window
+    expect(existsSync(file)).toBe(true);
+
+    await saveConfig({ ...h.config, logRetentionDays: 0, logRetentionHours: 1 });
+    const deadline = Date.now() + 2000;
+    while (existsSync(file) && Date.now() < deadline) await sleep(10);
+    expect(existsSync(file)).toBe(false);
+  });
+
+  test("SUBSHELL_LOG_RETENTION_* forces the config aside — environment wins", async () => {
+    // config.json says keep-forever; the environment says sweep hourly. The
+    // pass must run anyway (it is a spy — the sweep's own semantics are
+    // tested in pane-log-retention.test.ts; this pins the precedence wire).
+    process.env.SUBSHELL_LOG_RETENTION_HOURS = "1";
+    try {
+      let passes = 0;
+      const h = await startDaemon({
+        retentionPass: async () => void passes++,
+        retentionMs: 30,
+        config: { logRetentionDays: 0, logRetentionHours: 0 },
+      });
+      expect(passes).toBeGreaterThanOrEqual(1);
+      void h;
+    } finally {
+      delete process.env.SUBSHELL_LOG_RETENTION_HOURS;
+    }
   });
 });

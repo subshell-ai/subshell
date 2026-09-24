@@ -1,3 +1,4 @@
+import { normalizeLabel } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
@@ -45,12 +46,17 @@ export const createSubshellRoute = new Elysia()
       // actors get the STRICT owner-only rule everywhere on this path (no
       // admin boost, no shares — a leaked harness key must not spawn a
       // control-plane subshell), hence `machineActor` below.
+      // Normalized at the door (the shared label rule) so the recent-path
+      // label below the launch carries the same string the row does; the
+      // manager re-normalizes as the choke point, which is idempotent. An
+      // optional name that normalizes to nothing stays an unnamed create —
+      // it never was a 400 and is not one now.
       return await ctx.services.subshells.createSubshell({
         userId: user.id,
         harnessId: body.harnessId,
         presetId: body.presetId,
         workingDir: body.workingDir,
-        name: body.name,
+        name: body.name === undefined ? undefined : normalizeLabel(body.name, 120),
         prompt: body.prompt,
         nodeId: body.nodeId,
         machineActor: actor !== "cookie",

@@ -71,7 +71,10 @@ interface Refusal {
  * its destructive verbs fail closed on a definition they could not read. Only
  * the plane knows which of the two it was, and telling someone their panes
  * WILL die when the truth is that nobody could tell is the kind of certainty
- * that makes a warning worth ignoring.
+ * that makes a warning worth ignoring. `undefined` — no frozen runtime report
+ * at all, the documented degraded case — is the SAME absence of an answer as
+ * `unknown`, so only `kills` earns the certain sentence (the rule the node's
+ * own dashboard twin carries verbatim).
  */
 function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown" | undefined): Refusal {
   if (err.code === "offline") {
@@ -101,9 +104,9 @@ function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown"
     return {
       code: BackendErrorCodes.NODE_RESTART_KILLS_PANES,
       message:
-        paneSafety === "unknown"
-          ? "That node's service definition could not be read, so whether this keeps its running subshells is unknown; act anyway with force, or repair the definition on that machine"
-          : "That node's service definition would close every subshell running on it; reinstall the definition on that machine, or act anyway with force",
+        paneSafety === "kills"
+          ? "That node's service definition would close every subshell running on it; reinstall the definition on that machine, or act anyway with force"
+          : "That node's service definition could not be read, so whether this keeps its running subshells is unknown; act anyway with force, or repair the definition on that machine",
     };
   }
   return { code: BackendErrorCodes.NODE_UNREACHABLE, message: err.message };

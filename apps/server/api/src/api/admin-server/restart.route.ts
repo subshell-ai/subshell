@@ -62,12 +62,18 @@ export const restartRoute = new Elysia()
         );
       }
       if (view.service.paneSafety !== "keeps" && body.force !== true) {
+        // The same wording rule the node routes carry: `unknown` is nobody
+        // having read the definition, not a definition that kills, and the
+        // refusal must not upgrade an unreadable unit into a promise about
+        // panes dying. The CODE stays one value — this is WORDING only.
         return status(
           409,
           apiErrorBody({
             code: BackendErrorCodes.RESTART_KILLS_PANES,
             message:
-              "The installed service definition would close every running subshell on restart; reinstall the service definition, or pass force to restart anyway",
+              view.service.paneSafety === "kills"
+                ? "The installed service definition would close every running subshell on restart; reinstall the service definition, or pass force to restart anyway"
+                : "The installed service definition could not be read, so whether a restart keeps the running subshells is unknown; reinstall the definition, or pass force to restart anyway",
           }),
         );
       }

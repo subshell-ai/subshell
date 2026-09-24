@@ -12,15 +12,19 @@ import { NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { artifactPath } from "@/lib/node-artifacts.js";
 import {
   autoFetchEnabled,
+  checkReleaseManifest,
   compatibleNodeRelease,
   downloadVerified,
   fetchArtifact,
   fetchDigest,
+  MAX_REDIRECT_HOPS,
   refreshReleases,
+  releaseFetchAllowed,
   releaseSeams,
   resetReleaseCacheForTests,
   resolveReleases,
   setReleaseUrlForTests,
+  signedAssetDigest,
 } from "@/services/releases.js";
 
 /**
@@ -37,6 +41,10 @@ interface Fake {
   stop: () => void;
   /** Bodies served per asset name; mutate between cases. */
   assets: Map<string, Uint8Array>;
+  /** Assets answered with a 302 to this Location instead of a body. */
+  redirects: Map<string, string>;
+  /** Asset name → how many times its path was fetched (redirect hops included). */
+  assetFetches: Map<string, number>;
   /** Releases listed, newest-by-date first the way GitHub answers. */
   tags: { tag: string; draft?: boolean }[];
   /** How many times the list endpoint was read — the TTL's observable effect. */
@@ -44,7 +52,13 @@ interface Fake {
 }
 
 function startFakeRelease(): Fake {
-  const state: Partial<Fake> = { assets: new Map(), tags: [], listReads: 0 };
+  const state: Partial<Fake> = {
+    assets: new Map(),
+    redirects: new Map(),
+    assetFetches: new Map(),
+    tags: [],
+    listReads: 0,
+  };
   const server = Bun.serve({
     port: 0,
     fetch(request) {
@@ -64,6 +78,9 @@ function startFakeRelease(): Fake {
       const asset = url.pathname.startsWith("/asset/")
         ? decodeURIComponent(url.pathname.slice("/asset/".length))
         : null;
+      if (asset) state.assetFetches!.set(asset, (state.assetFetches!.get(asset) ?? 0) + 1);
+      const to = asset ? state.redirects!.get(asset) : undefined;
+      if (to !== undefined) return new Response(null, { status: 302, headers: { location: to } });
       const bytes = asset ? (state.assets ?? new Map()).get(asset) : undefined;
       if (!bytes) return new Response("not found", { status: 404 });
       return new Response(bytes);
@@ -361,6 +378,163 @@ describe("fetchArtifact", () => {
   });
 });
 
+describe("egress pin (round-3 sweep C12)", () => {
+  it("allows GitHub's release hosts and the configured source's origin — and nothing else", () => {
+    // The shipped default IS this list: `DEFAULT_RELEASE_API` is api.github.com
+    // (which the configured-origin rule also covers), a GitHub release asset's
+    // `browser_download_url` is github.com, and that 302s to
+    // objects.githubusercontent.com — all three allowed. So for the default
+    // configuration the pin is trivially true of every real fetch, and it
+    // exists for the other one: an operator pointing SUBSHELL_RELEASE_URL at
+    // a mirror, where the LIST can then name any host and must not be able to
+    // turn the plane into a probe of link-local internals.
+    expect(releaseFetchAllowed("https://api.github.com/repos/theo/subshell/releases")).toBe(true);
+    expect(releaseFetchAllowed("https://github.com/theo/subshell/releases/download/cli-node-v1/bin")).toBe(true);
+    expect(releaseFetchAllowed("https://objects.githubusercontent.com/signed/asset-blob")).toBe(true);
+    expect(releaseFetchAllowed(`${fake.url}/asset/bin`)).toBe(true); // the configured source
+    expect(releaseFetchAllowed("http://169.254.169.254/latest/meta-data/")).toBe(false);
+    expect(releaseFetchAllowed(`${fake.url.replace("127.0.0.1", "localhost")}/asset/bin`)).toBe(false); // not same-origin
+    expect(releaseFetchAllowed("https://attacker.example/whatever")).toBe(false);
+    expect(releaseFetchAllowed("not a url")).toBe(false);
+  });
+
+  it("refuses an off-list binary URL before anything is fetched from it", async () => {
+    // The SSRF-probe class, end to end: the digest gate bounds what ARRIVES;
+    // this bounds where the plane KNOCKS. `hits` is the assertion — a
+    // connection to the refused host is the bug, whatever error arrives.
+    let hits = 0;
+    const attacker = Bun.serve({
+      port: 0,
+      fetch: () => {
+        hits++;
+        return new Response("should never be fetched");
+      },
+    });
+    try {
+      // The cached index the rest of the flow reads is the live object —
+      // rewriting its binary URL is what a mirror would have done in its
+      // JSON, without needing a second fake release source.
+      const index = await resolveReleases();
+      const release = index.byComponent["cli-node"]!;
+      release.assets.set(BINARY, `http://127.0.0.1:${attacker.port}/asset/bin`);
+      await expect(fetchArtifact(TARGET)).rejects.toThrow(
+        /is neither a GitHub release host nor the configured release source's host/,
+      );
+      expect(hits).toBe(0);
+    } finally {
+      attacker.stop(true);
+    }
+  });
+
+  it("refuses an off-list manifest before reading the digest from it — the release is not offered", async () => {
+    // The tiny reads get the same pin as the 80 MB one. A manifest hosted
+    // elsewhere cannot reach the verification stage at all, and the refusal
+    // reads as the ordinary "failed" outcome (the page explains it; the log
+    // line carries the host).
+    const index = await resolveReleases();
+    const release = index.byComponent["cli-node"]!;
+    release.assets.set(RELEASE_MANIFEST_NAME, "http://169.254.169.254/latest/meta-data/manifest");
+    release.manifestRead = false;
+    release.manifestOutcome = null;
+    const outcome = await checkReleaseManifest(release);
+    if (outcome.kind !== "failed") throw new Error(`expected the off-list manifest to fail, got ${outcome.kind}`);
+    expect(outcome.reason).toMatch(
+      /169\.254\.169\.254 is neither a GitHub release host nor the configured release source's host/,
+    );
+    // …and the digest question has nothing to answer, which is the same
+    // refusal the update paths already render.
+    expect(signedAssetDigest(release, BINARY)).rejects.toThrow(/no verifiable manifest/);
+  });
+
+  it("downloadVerified — the server's OWN update download — is pinned too", async () => {
+    // Same untrusted field (a URL out of the release list), and the caller
+    // EXECUTES what this writes.
+    let hits = 0;
+    const attacker = Bun.serve({
+      port: 0,
+      fetch: () => {
+        hits++;
+        return new Response("x");
+      },
+    });
+    try {
+      await expect(
+        downloadVerified({
+          url: `http://127.0.0.1:${attacker.port}/bin`,
+          expectedDigest: "0".repeat(64),
+          destDir: NODE_ARTIFACTS_DIR,
+          destName: "subshell-server",
+        }),
+      ).rejects.toThrow(/is neither a GitHub release host nor the configured release source's host/);
+      expect(hits).toBe(0);
+      expect(existsSync(join(NODE_ARTIFACTS_DIR, `subshell-server.download-${process.pid}`))).toBe(false);
+    } finally {
+      attacker.stop(true);
+    }
+  });
+
+  it("the default GitHub flow is unregressed through the real list fetch", async () => {
+    // The fake IS the configured source, so every fetch here goes to the
+    // configured origin — the case the pin must never break. One full
+    // manifest-and-digest round confirms it.
+    const digest = await fetchDigest(TARGET);
+    expect(digest).toBe(BINARY_PAYLOAD.digest);
+  });
+
+  // --- redirect hops (C12's blind spot, closed 2026-09-24) -----------------
+  // Bun's fetch follows 302s by default, so pinning the URL the source NAMED
+  // left every one of those fetches one redirect away from any host on the
+  // planet. The module now fetches with `redirect: "manual"` and re-runs the
+  // pin on each hop itself; these three cases are the whole shape of that.
+
+  it("a source-named 302 to an off-list host is refused BEFORE the second hop is fetched", async () => {
+    // The mirror stays on the allowlist — it is the configured source — and
+    // answers the binary's URL with a 302 to a link-local stand-in. Byte
+    // trust was never egress trust: the refused hop must cost zero probes.
+    let hits = 0;
+    const linkLocalStandIn = Bun.serve({
+      port: 0,
+      fetch: () => {
+        hits++;
+        return new Response("the metadata endpoint nobody asked to knock on");
+      },
+    });
+    try {
+      fake.redirects.set(BINARY, `http://127.0.0.1:${linkLocalStandIn.port}/latest/meta-data/`);
+      await expect(fetchArtifact(TARGET)).rejects.toThrow(
+        /is neither a GitHub release host nor the configured release source's host/,
+      );
+      expect(hits).toBe(0);
+      expect(existsSync(artifactPath(TARGET))).toBe(false);
+    } finally {
+      linkLocalStandIn.stop(true);
+    }
+  });
+
+  it("follows an allowed redirect chain — the mirror-to-storage shape still delivers verified bytes", async () => {
+    // github.com 302s to objects.githubusercontent.com in production; the
+    // test's honest stand-in is a hop that stays on an allowed origin. The
+    // hop is followed, the digest still decides, and the cache still lands.
+    fake.assets.set("signed-blob-storage", BINARY_PAYLOAD.bytes);
+    fake.redirects.set(BINARY, "/asset/signed-blob-storage");
+    const fetched = await fetchArtifact(TARGET);
+    expect(await drain(fetched.stream)).toBe(BINARY_PAYLOAD.bytes.byteLength);
+    expect(readFileSync(artifactPath(TARGET), "utf8")).toBe("a convincing binary");
+    expect(fake.assetFetches.get("signed-blob-storage")).toBe(1);
+  });
+
+  it("refuses an endless redirect chain at the hop budget, without fetching past it", async () => {
+    // Self-redirecting on an ALLOWED origin — so what stops the walk is the
+    // budget, not the pin. `assetFetches` proves the loop spent exactly
+    // MAX_REDIRECT_HOPS + 1 requests and stopped, not a fetch-following
+    // client's default 20 and not forever.
+    fake.redirects.set(BINARY, `/asset/${encodeURIComponent(BINARY)}`);
+    await expect(fetchArtifact(TARGET)).rejects.toThrow(new RegExp(`redirected more than ${MAX_REDIRECT_HOPS} times`));
+    expect(fake.assetFetches.get(BINARY)).toBe(MAX_REDIRECT_HOPS + 1);
+    expect(existsSync(artifactPath(TARGET))).toBe(false);
+  });
+});
+
 describe("superseding", () => {
   it("removes a cached binary from an older release, and only a cached one", async () => {
     // One file we fetched at an old tag, and one the operator published.
@@ -471,6 +645,19 @@ describe("downloadVerified", () => {
       onProgress: (received) => seen.push(received),
     });
     expect(seen.at(-1)).toBe("a convincing binary".length);
+  });
+
+  it("re-pins redirect hops too — a 302 off-list never writes the file its caller will EXECUTE", async () => {
+    fake.redirects.set(BINARY, "http://169.254.169.254/latest/meta-data/");
+    await expect(
+      downloadVerified({
+        url: assetUrl(BINARY),
+        expectedDigest: BINARY_PAYLOAD.digest,
+        destDir: NODE_ARTIFACTS_DIR,
+        destName: "subshell-server",
+      }),
+    ).rejects.toThrow(/is neither a GitHub release host nor the configured release source's host/);
+    expect(existsSync(join(NODE_ARTIFACTS_DIR, `subshell-server.download-${process.pid}`))).toBe(false);
   });
 
   it("throws and keeps nothing when the asset is not there", async () => {

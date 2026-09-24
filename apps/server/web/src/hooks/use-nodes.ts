@@ -129,6 +129,34 @@ export function useSetupKeys(enabled = true) {
   });
 }
 
+/** What the admin `?all=1` read adds to each row: whose key it is. */
+export interface SetupKeyOwnerFields {
+  /** Creator's user id */
+  ownerUserId: string;
+  /** Creator's display name, falling back to email, then to the raw id for a deleted account */
+  ownerLabel: string;
+}
+
+/** One row of the admin instance-wide listing. */
+export type AllSetupKeyRow = SetupKeyRow & SetupKeyOwnerFields;
+
+/**
+ * EVERY setup key in the instance (audit 2026-09 item 4) — a cookie-admin
+ * read. A plain user gets 403 from the route, so callers gate the switch on
+ * `viewerIsAdmin` and keep this `enabled` until someone asks for it.
+ *
+ * The key sits BELOW `SETUP_KEYS_QUERY_KEY`, so the revoke mutation's prefix
+ * invalidation refreshes both shapes at once and neither list can lag the
+ * other.
+ */
+export function useAllSetupKeys(enabled: boolean) {
+  return useQuery({
+    queryKey: [...SETUP_KEYS_QUERY_KEY, "all"] as const,
+    queryFn: () => apiFetch<{ keys: AllSetupKeyRow[] }>("/api/nodes/setup-keys?all=1"),
+    enabled,
+  });
+}
+
 /**
  * Mints a single-use enrollment key. No argument and no body: the key names
  * nothing, because a node is named by the machine that becomes it.

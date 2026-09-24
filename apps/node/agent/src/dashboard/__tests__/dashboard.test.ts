@@ -2,7 +2,9 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { UpdateExecContext } from "../../commands/update.js";
 import { type NodeConfig, saveConfig } from "../../config.js";
+import { noteSweepScheduled } from "../../retention-settings.js";
 import { newHome } from "../../test-preload.js";
 import { NODE_VERSION } from "../../version.js";
 import { refuseRequest } from "../guards.js";
@@ -40,12 +42,9 @@ async function call(
   method: string,
   path: string,
   body?: unknown,
-  opts: {
-    rollback?: (dataDir: string) => Promise<{ binary: string; to: string }>;
-    resolveRelease?: (
-      to?: string,
-    ) => Promise<{ version: string; url: string; sha256: string; manifest: { bytes: Buffer; sig: string } }>;
-  } = {},
+  // The seam list IS `buildRoutes`'s own parameter — restating it here only
+  // drifts, and the arrow literals below are contextually typed from it.
+  opts: NonNullable<Parameters<typeof buildRoutes>[1]> = {},
 ): Promise<Response> {
   const app = buildRoutes(cfg, opts);
   const hdrs: Record<string, string> = {
@@ -194,6 +193,63 @@ test("service refusals answer 409 with the plane's sentence — the shape the ca
   expect(bogus.status).toBeLessThan(500);
 });
 
+test("a standalone service refusal's wording reads the resolved runtime, not the absent daemon state", async () => {
+  // The route decided from `liveRuntime()` (no daemon state — the standalone
+  // dashboard), and its refusal used to pick wording from
+  // `getDaemonState().runtime`, which is exactly the null the route had just
+  // fallen back past. So a machine whose fresh read said `unknown` ("no
+  // answer") got the CERTAIN sentence ("would close every subshell") — the
+  // false certainty the plane's own wording rule refuses. The resolved
+  // paneSafety must ride to the sentence, the way the update route already
+  // threads `proof?.paneSafety`.
+  const cfg = await enrolled();
+  setDaemonState({ runtime: null });
+  try {
+    const r = await call(
+      cfg,
+      "POST",
+      "/api/nodes/self/service",
+      { verb: "stop" },
+      {
+        liveRuntime: async () => fakeRuntime(true, "unknown"),
+      },
+    );
+    expect(r.status).toBe(409);
+    const b = await r.json();
+    expect(b.message).toBe(
+      "This node's service definition could not be read, so whether this keeps its running subshells is unknown; act anyway with force, or repair the definition on this machine",
+    );
+    expect(b.message).not.toContain("would close every subshell");
+  } finally {
+    setDaemonState({ runtime: null });
+  }
+});
+
+test("a standalone service refusal with a resolved `kills` still says so", async () => {
+  // The mirror case: the manager ANSWERED "kills" and the sentence must be
+  // the certain one — the threading must not collapse both answers into the
+  // hedge, exactly as the update path's kills-wording test pins.
+  const cfg = await enrolled();
+  setDaemonState({ runtime: null });
+  try {
+    const r = await call(
+      cfg,
+      "POST",
+      "/api/nodes/self/service",
+      { verb: "stop" },
+      {
+        liveRuntime: async () => fakeRuntime(true, "kills"),
+      },
+    );
+    expect(r.status).toBe(409);
+    const b = await r.json();
+    expect(b.message).toContain("would close every subshell");
+    expect(b.message).not.toContain("could not be read");
+  } finally {
+    setDaemonState({ runtime: null });
+  }
+});
+
 test("POST update on an air-gapped host refuses by name before any download or refusal-race", async () => {
   const cfg = await enrolled();
   // Air-gapped by preload (SUBSHELL_RELEASE_URL=""), so resolution refuses
@@ -247,6 +303,137 @@ test("POST update refuses an unsupervised node before the release source is aske
   const r = await call(cfg, "POST", "/api/self/update", {});
   expect(r.status).toBe(409);
   expect((await r.json()).error).toContain("service manager");
+});
+
+test("POST update threads the boot-window supervision proof INTO the executor (finding 5)", async () => {
+  // The mismatch this pins: the frozen runtime report is null (boot window, or
+  // a failed boot-time read), the route re-proves supervision with a live
+  // manager query, and `execUpdate` used to re-read the same null and 409 the
+  // supervised node the page had just proved supervised — two sources, one
+  // request. The route's proof must BE the executor's answer. `execUpdate` is
+  // a capturing seam because the real one would run the ladder and the network
+  // on the test process; what is under test is the threading, not the install.
+  const cfg = await enrolled();
+  setDaemonState({ runtime: null });
+  let seen: UpdateExecContext | undefined;
+  const r = await call(
+    cfg,
+    "POST",
+    "/api/self/update",
+    {},
+    {
+      proveSupervision: async () => ({ supervised: true, paneSafety: "keeps" as const }),
+      resolveRelease: async () => ({
+        version: "99.0.0",
+        url: "https://example.invalid/agent",
+        sha256: "0".repeat(64),
+        manifest: { bytes: Buffer.from("manifest"), sig: "sig" },
+      }),
+      execUpdate: async (ctx: UpdateExecContext) => {
+        seen = ctx;
+        return { ok: true };
+      },
+    },
+  );
+  expect(r.status).toBe(200);
+  expect((await r.json()).version).toBe("99.0.0");
+  expect(seen).toBeDefined();
+  expect(seen?.runtime).toBeNull(); // the frozen report stayed the null the proof answers for
+  expect(seen?.supervisedProof).toEqual({ supervised: true, paneSafety: "keeps" });
+  setDaemonState({ runtime: null });
+});
+
+test("POST update with a null report refuses when the live manager does not confirm supervision", async () => {
+  // The other half of the same window: a proof that CANNOT confirm is still
+  // the refusal, in the page's existing sentence, and nothing downstream runs.
+  const cfg = await enrolled();
+  setDaemonState({ runtime: null });
+  let executorRan = 0;
+  const r = await call(
+    cfg,
+    "POST",
+    "/api/self/update",
+    {},
+    {
+      proveSupervision: async () => ({ supervised: false }),
+      resolveRelease: async () => {
+        throw new Error("must not be reached");
+      },
+      execUpdate: async () => {
+        executorRan += 1;
+        return { ok: true };
+      },
+    },
+  );
+  expect(r.status).toBe(409);
+  const b = await r.json();
+  expect(b.error).toContain("not running under a service manager");
+  expect(b.message).toContain("update it with `subshell update`");
+  expect(executorRan).toBe(0);
+});
+
+test("POST update with a null report refuses on the proof's pane safety, with the kills wording", async () => {
+  // Supervised but the definition kills: the proof carries that answer too,
+  // `execUpdate` (REAL here — it refuses before any download) must refuse, and
+  // the sentence must say "would close every subshell", not "could not be
+  // read" — the manager answered, and false hedging is as wrong as false
+  // certainty.
+  const cfg = await enrolled();
+  setDaemonState({ runtime: null });
+  try {
+    const r = await call(
+      cfg,
+      "POST",
+      "/api/self/update",
+      {},
+      {
+        proveSupervision: async () => ({ supervised: true, paneSafety: "kills" as const }),
+        resolveRelease: async () => ({
+          version: "99.0.0",
+          url: "https://example.invalid/agent",
+          sha256: "0".repeat(64),
+          manifest: { bytes: Buffer.from("manifest"), sig: "sig" },
+        }),
+      },
+    );
+    expect(r.status).toBe(409);
+    const b = await r.json();
+    expect(b.message).toContain("would close every subshell");
+    expect(b.message).not.toContain("could not be read");
+  } finally {
+    setDaemonState({ runtime: null });
+  }
+});
+
+test("a service refusal where NOTHING answered reads as unknown, not as kills", async () => {
+  // The third state, and the one the two above cannot see: no daemon AND no
+  // fresh report (a standalone dashboard whose manager query resolves null).
+  // The executor still fail-closes the destructive verb with KILLS_PANES —
+  // that's its rule about unreadable definitions — but the SENTENCE must not
+  // upgrade "nobody read anything" into "every subshell will die". Finding
+  // (iter 5): the old wording branch asserted whenever paneSafety was not
+  // exactly `unknown`, and `undefined` is a different absence of an answer.
+  const cfg = await enrolled();
+  setDaemonState({ runtime: null });
+  try {
+    const r = await call(
+      cfg,
+      "POST",
+      "/api/nodes/self/service",
+      { verb: "stop" },
+      {
+        liveRuntime: async () => null,
+      },
+    );
+    expect(r.status).toBe(409);
+    const b = await r.json();
+    expect(b.message).toBe(
+      "This node's service definition could not be read, so whether this keeps its running subshells is unknown; act anyway with force, or repair the definition on this machine",
+    );
+    expect(b.message).not.toContain("would close every subshell");
+  } finally {
+    setDaemonState({ runtime: null });
+  }
 });
 
 function fakeRuntime(supervised: boolean, paneSafety: "keeps" | "kills" | "unknown") {
@@ -384,6 +571,96 @@ test("the server-level guard refuses a foreign Host on EVERY path, SPA fallback 
   } finally {
     dash.stop();
   }
+});
+
+test("log-retention: GET answers the layer truth, PUT persists to config.json", async () => {
+  const cfg = await enrolled();
+  noteSweepScheduled(false); // this suite runs with no daemon: the honest answer is "not scheduled"
+  const fresh = await (await call(cfg, "GET", "/api/self/log-retention")).json();
+  expect(fresh.days).toEqual({ value: 1, source: "default", forced: false });
+  expect(fresh.hours).toEqual({ value: 0, source: "default", forced: false });
+  expect(fresh.forever).toBe(false);
+  expect(fresh.scheduled).toBe(false); // the boot-shape fact travels beside the window (finding 5)
+
+  const written = await call(cfg, "PUT", "/api/self/log-retention", { days: 7, hours: 3 });
+  expect(written.status).toBe(200);
+  const state = await written.json();
+  expect(state.days).toEqual({ value: 7, source: "stored", forced: false });
+  expect(state.hours).toEqual({ value: 3, source: "stored", forced: false });
+  expect(state.scheduled).toBe(false); // the write echoes the same process fact
+  // The write landed in the machine's own file, identity and everything else
+  // round-tripped — the same discipline every saveConfig write owes.
+  const saved = JSON.parse(readFileSync(join(process.env.SUBSHELL_CONFIG_HOME as string, "config.json"), "utf8"));
+  expect(saved.logRetentionDays).toBe(7);
+  expect(saved.logRetentionHours).toBe(3);
+  expect(saved.nodeId).toBe("node-abc");
+  const reread = await (await call(cfg, "GET", "/api/self/log-retention")).json();
+  expect(reread.days.value).toBe(7);
+});
+
+test("log-retention: the env forces the field it names, per field", async () => {
+  const cfg = await enrolled();
+  process.env.SUBSHELL_LOG_RETENTION_DAYS = "3";
+  try {
+    const view = await (await call(cfg, "GET", "/api/self/log-retention")).json();
+    expect(view.days).toEqual({ value: 3, source: "env", forced: true });
+
+    // The forced field refuses, by name, 409 — the debug-logging rule.
+    const refused = await call(cfg, "PUT", "/api/self/log-retention", { days: 9 });
+    expect(refused.status).toBe(409);
+    expect((await refused.json()).message).toContain("SUBSHELL_LOG_RETENTION_DAYS");
+    // The un-forced half of the same window stays the machine's to set.
+    const hours = await call(cfg, "PUT", "/api/self/log-retention", { hours: 6 });
+    expect(hours.status).toBe(200);
+    expect((await hours.json()).hours).toEqual({ value: 6, source: "stored", forced: false });
+    // A combined write naming the forced field stores NOTHING either half.
+    const both = await call(cfg, "PUT", "/api/self/log-retention", { days: 1, hours: 2 });
+    expect(both.status).toBe(409);
+    expect(
+      JSON.parse(readFileSync(join(process.env.SUBSHELL_CONFIG_HOME as string, "config.json"), "utf8"))
+        .logRetentionHours,
+    ).toBe(6);
+  } finally {
+    delete process.env.SUBSHELL_LOG_RETENTION_DAYS;
+  }
+});
+
+test("log-retention: values retentionField would junk are refused, 0 is real", async () => {
+  const cfg = await enrolled();
+  for (const bad of [-1, 1.5, "seven"]) {
+    const r = await call(cfg, "PUT", "/api/self/log-retention", { days: bad });
+    expect([bad, r.status]).toEqual([bad, 400]);
+  }
+  const empty = await call(cfg, "PUT", "/api/self/log-retention", {});
+  expect(empty.status).toBe(400);
+
+  // 0 + 0 is the documented keep-forever pair, not junk.
+  const forever = await call(cfg, "PUT", "/api/self/log-retention", { days: 0, hours: 0 });
+  expect(forever.status).toBe(200);
+  const foreverState = await forever.json();
+  expect(foreverState.forever).toBe(true);
+  expect(foreverState.scheduled).toBe(false);
+});
+
+test("log-retention: a daemon that armed its sweep says so on both verbs (finding 5)", async () => {
+  // The boot shape the card's copy must be able to tell apart: a node that
+  // booted FINITE armed the hourly timer, so every later save (including a
+  // move away from keep-forever) lands on the next pass. Only the daemon's
+  // boot resolution knows this, and it states it through
+  // `noteSweepScheduled` — the file cannot answer it, which is the defect the
+  // card's old forever-derived sentence asserted wrongly for that daemon.
+  const cfg = await enrolled();
+  noteSweepScheduled(true);
+  try {
+    const get = await (await call(cfg, "GET", "/api/self/log-retention")).json();
+    expect(get).toMatchObject({ scheduled: true, forever: false });
+    const put = await (await call(cfg, "PUT", "/api/self/log-retention", { days: 0, hours: 0 })).json();
+    expect(put).toMatchObject({ scheduled: true, forever: true });
+  } finally {
+    noteSweepScheduled(false); // the memo must not leak into the next case
+  }
+  const after = await (await call(cfg, "GET", "/api/self/log-retention")).json();
+  expect(after.scheduled).toBe(false);
 });
 
 test("GET /api/self/state reads the daemon bridge, and the bridge survives the daemon leaving", () => {

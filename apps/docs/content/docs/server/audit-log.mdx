@@ -16,7 +16,7 @@ Not every request — only **acts**. The families, with their shape:
 
 - **People.** Accounts created, role changes (with the before and after), password resets, and disable/enable. A password reset records **that** it happened and **how many sessions it cut** — never the password, in any form.
 - **The instance's own switches.** Flips of registration, of node-enrollment permission, of the instance display name, and of debug logging — each audited only on a *real* change, with the old and new values, so the log reconstructs decisions rather than page visits.
-- **Credentials.** System API keys created, enabled, disabled, deleted; node setup keys created and revoked. Plaintext never appears — the setup-key rows name the key's id and nothing else.
+- **Credentials.** System API keys created, enabled, disabled, deleted; node setup keys created and revoked. Plaintext never appears — the setup-key rows name the key's id and nothing else. An admin revoking **someone else's** key is the one row in that family with context: `{ foreign: true, ownerUserId }`, so the trail says whose door was closed by whom. Ids, never the key text.
 - **Subshell lifecycle.** Create, restart, terminate, delete.
 - **Nodes.** Enroll, delete, rename, key rotation, directory-allowlist changes, share changes, service verbs (start/stop/restart/install/uninstall, with whether `force` was used), repointing to another control plane (the row names the new address — that is the disclosure the act makes), logging toggles, maintenance flips, and binary updates. A maintenance row can carry a `null` actor: that is the machine's own `subshell maintenance on|off`, deciding for itself.
 - **The server, to itself.** Config writes (key, old value, new value — and this surface cannot write secrets), restarts, autostart armed or disarmed, supervision switches — though the supervision row is the table's one soft spot: it is posted by the desktop app itself as a record of intent, so the sanctioned path always leaves one and a direct command invocation would leave none. And **updates**, which are recorded twice: once when an admin presses the button (actor: the admin) and once at the completing boot (actor: `null` — the new binary answering for itself). A job that dies mid-download still leaves the first half.
@@ -26,7 +26,6 @@ Not every request — only **acts**. The families, with their shape:
 
 ## What deliberately does not
 
-- **Sign-in and sign-out.** The auth flow is a better-auth passthrough; session lifecycle is not audited (creating a user and resetting a password are). This is a recorded gap in the threat model, not an oversight to rediscover.
 - **Reads and re-checks.** Nothing that changes no state earns a row — including the Updates page's Re-check button, so the `server.update` row that matters does not drown beside it.
 - **Request lines.** Those are the *log file*'s world, not this one (see [Logs & Debugging](/server/logs-debug)), and even there they stay off unless debug logging is explicitly on.
 - **Secret values.** This is the row-writing discipline behind the whole table, and it is what makes the audit trail safe to screenshot, paste into an issue, or hand to whoever is helping you debug: rows name origins, keys, field names, counts and before/after values for things that are not credentials — never a password, a token, or a secret.

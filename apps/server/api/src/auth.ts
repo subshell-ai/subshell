@@ -2,8 +2,10 @@ import { apiKey } from "@better-auth/api-key";
 import { passkey } from "@better-auth/passkey";
 import { betterAuth } from "better-auth";
 import { sql } from "kysely";
+import { auditAuthAfterRequest, auditSessionDeleted } from "@/auth/audit-hooks.js";
 import { authDatabase } from "@/auth/database.js";
 import { APP_BASE_URL, AUTH_SECRET } from "@/constants.js";
+import { REAL_ACCOUNT_FILTER } from "@/db/repositories/users.repository.js";
 import { FIRST_SETUP_STEP } from "@/db/types/setup-step.js";
 import { accountDisabled } from "@/services/account-status.js";
 import { registrationOpen } from "@/services/registration-gate.js";
@@ -122,7 +124,24 @@ export const AUTH_OPTIONS = {
           return false;
         },
       },
+      delete: {
+        after: async (session: { userId: string }) => {
+          // `auth.sign_out` (audit item R1): one row per session row ACTUALLY
+          // deleted. The delete hook is the seam rather than `hooks.after` on
+          // `/sign-out` because that endpoint answers `{ success: true }`
+          // even when nobody was signed in, and its hook context names no
+          // user — here the row is the proof and `userId` the actor.
+          await auditSessionDeleted(session);
+        },
+      },
     },
+  },
+  // `auth.sign_in` (audit item R1): successful sign-ins, keyed by endpoint
+  // path inside the handler — see `@/auth/audit-hooks` for what counts as
+  // success and why failures deliberately write nothing. Runs for every
+  // better-auth request, so the path table short-circuits everything else.
+  hooks: {
+    after: auditAuthAfterRequest,
   },
 };
 
@@ -205,15 +224,40 @@ async function signInAllowed(userId: string): Promise<boolean> {
  * The first user ever registered becomes admin; everyone else lands on
  * "user". Roles live in `user_meta` (separate from the auth user table).
  *
+ * **First-user-ness is decided from ACCOUNTS** (security-actionable 2026-09
+ * item 9), the same notion the registration gate counts
+ * (`registration-gate.ts` → `countRealAccounts`): the probe's second clause
+ * shares that gate's `REAL_ACCOUNT_FILTER`, so the two surfaces cannot
+ * disagree about "has anybody registered". It used to ask only whether
+ * `user_meta` was empty, and `user_meta` is this statement's own output —
+ * an instance whose only human never got a meta row (the hook not reached)
+ * read as nobody having registered, and minted the next account admin.
+ *
  * ONE atomic statement (security audit 2026-08, F6b): the old count-then-
  * insert let two concurrent first sign-ups both read zero and both mint
  * admin, and its `onConflict doUpdateSet({ role })` could afterwards flip a
- * winner back to loser. Here the emptiness test lives inside the INSERT
- * itself (`CASE WHEN NOT EXISTS (…)`), which SQLite evaluates under the
- * write lock — the second concurrent caller necessarily sees the winner's
- * row and lands on 'user'. Documented loser semantics: it gets its own row
- * with role 'user'; re-running for an existing user is a no-op
- * (`ON CONFLICT DO NOTHING`), so a role is never overwritten here.
+ * winner back to loser. Both clauses of the probe live inside the INSERT
+ * (`CASE WHEN NOT EXISTS (…)`), which SQLite evaluates under the write
+ * lock, and each covers the other's blind spot:
+ *
+ * - *no other admin meta row* is the self-referential half that makes the
+ *   concurrency proof exact — the second concurrent caller necessarily sees
+ *   the winner's freshly-written admin row, whatever their `createdAt`
+ *   values say (same-millisecond sign-ups included, and the hook runs
+ *   AFTER this account's `user` row exists, so "strictly older" alone could
+ *   never rank two accounts created in one breath);
+ * - *no strictly-older real account* is what an orphaned meta-less user row
+ *   still testifies to. It is strict-`<` on purpose: an account whose row
+ *   is missing (the scratch concurrency test, or a hook racing its own row)
+ *   sees no older row, and the first clause alone then decides, which is
+ *   exactly F6b's documented semantics.
+ *
+ * The `system` service row boot writes (`index.ts` → `ensureSystemUser`) is
+ * excluded by the shared filter — counting it would deny the FIRST HUMAN the
+ * admin role and brick a fresh install behind a dashboard nobody can
+ * administer. Documented loser semantics: it gets its own row with role
+ * 'user'; re-running for an existing user is a no-op (`ON CONFLICT DO
+ * NOTHING`), so a role is never overwritten here.
  *
  * **It also writes the wizard's resume bookmark** (spec 2026-09-16): the same
  * CASE decides `setup_step`, so the account that becomes admin is bookmarked
@@ -233,15 +277,27 @@ export async function promoteFirstUserAtomically(
   db: import("kysely").Kysely<import("@/db/types/index.js").Database>,
   userId: string,
 ): Promise<void> {
-  // Raw SQL on purpose: physical snake_case names, and the emptiness probe
-  // must sit inside the INSERT statement (a builder `.select()` subquery for
-  // this shape only re-introduces noise). CamelCasePlugin leaves snake_case
-  // text untouched.
+  // Raw SQL on purpose: physical snake_case names, and both probes must sit
+  // inside the INSERT statement (a builder `.select()` subquery for this
+  // shape only re-introduces noise). CamelCasePlugin leaves snake_case text
+  // untouched; the quoted camelCase `"createdAt"` is better-auth's own
+  // spelling on its `user` table. The probe is spelled twice because the
+  // two CASEs must be THE same condition — one admin decides both columns.
   await sql`
     INSERT INTO user_meta (user_id, role, setup_step)
     SELECT ${userId},
-           CASE WHEN NOT EXISTS (SELECT 1 FROM user_meta) THEN 'admin' ELSE 'user' END,
-           CASE WHEN NOT EXISTS (SELECT 1 FROM user_meta) THEN ${FIRST_SETUP_STEP} ELSE NULL END
+           CASE WHEN NOT EXISTS (SELECT 1 FROM user_meta WHERE role = 'admin' AND user_id <> ${userId})
+                  AND NOT EXISTS (SELECT 1 FROM user
+                                  WHERE ${REAL_ACCOUNT_FILTER}
+                                    AND id <> ${userId}
+                                    AND "createdAt" < (SELECT "createdAt" FROM user WHERE id = ${userId}))
+                THEN 'admin' ELSE 'user' END,
+           CASE WHEN NOT EXISTS (SELECT 1 FROM user_meta WHERE role = 'admin' AND user_id <> ${userId})
+                  AND NOT EXISTS (SELECT 1 FROM user
+                                  WHERE ${REAL_ACCOUNT_FILTER}
+                                    AND id <> ${userId}
+                                    AND "createdAt" < (SELECT "createdAt" FROM user WHERE id = ${userId}))
+                THEN ${FIRST_SETUP_STEP} ELSE NULL END
     ON CONFLICT (user_id) DO NOTHING
   `.execute(db);
 }

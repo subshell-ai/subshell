@@ -59,7 +59,7 @@ const NODE_FACTS = {
 };
 
 /** The subshell id the MCP config path is composed from (both sides, same input). */
-const SUBSHELL_ID = "sshp_parity0001";
+const SUBSHELL_ID = "a1000000-0000-4000-8000-000000000001";
 
 /** Each built-in's own settings keys — what its preset editor can store. */
 const SETTINGS_FIXTURES: Record<string, Record<string, unknown>> = {

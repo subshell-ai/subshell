@@ -11,7 +11,13 @@ import {
   TmuxTimeoutError,
   tmuxSocketFor,
 } from "@internal/pane-runtime";
-import { dirAllowed, type NodeEvent, type NodeProbeEntry, parseNodeProbeEntries } from "@internal/subshell-protocol";
+import {
+  dirAllowed,
+  type NodeEvent,
+  type NodeProbeEntry,
+  normalizeLabel,
+  parseNodeProbeEntries,
+} from "@internal/subshell-protocol";
 import { harnessUsable } from "@/api/harness-utils.js";
 import type { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import type { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -348,7 +354,13 @@ export class SubshellManagerService {
     // so the plugins omit `--name`, the harness titles its own pane, and the
     // reconcile sweep adopts those titles into the row (whose displayed name
     // stays the agent's own until the first one lands).
-    const userNamed = name?.trim() ?? "";
+    // The name goes through the SAME label rule every other human-chosen
+    // string obeys (2026-09-23): this value is interpolated into the restart
+    // journal line below, baked into the launch argv and the harness env, and
+    // re-normalizing here is the choke point no caller can route around. A
+    // name that normalizes to nothing is an UNNAMED create — the pre-existing
+    // meaning of "", which `name?.trim()` already produced for "   ".
+    const userNamed = normalizeLabel(name ?? "", 120);
     const subshellName = userNamed || defaultSubshellName(harness.name);
     // Restart-resume plan: continue the predecessor's conversation when it
     // survived, else pin a fresh id this subshell will be resumed by later.

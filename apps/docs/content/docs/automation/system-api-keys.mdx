@@ -9,6 +9,8 @@ A system API key is the credential your own tooling carries: a nightly script th
 
 It is a full-access machine credential with **no permission map**: the API has no per-key scopes to set, no read-only flag, no path allowlist. The pane's own token, by contrast, carries a scoped ceiling and dies when its subshell dies — but that credential belongs to a pane, not to you. When you mint a key you are taking the long-lived, unscoped end of that trade, because the API can't narrow it for you.
 
+One consequence worth naming: the key can drive a terminal. It may mint a WebSocket attach token for **any** subshell on the instance — each mint is bound to one named pane and expires in 30 seconds, but within that bound your script can type into a live agent session on any machine the instance runs. A pane's own token can mint the same token only for itself.
+
 What the API *does* enforce is the boundary that matters most: **a bearer credential can never manage the instance.** Your script can use Subshell; it cannot administer it. Requests to `/api/users`, `/api/system-keys`, `/api/plugins`, `/api/network`, `/api/audit`, the `/api/admin/*` group, and the subshell-sharing routes are refused (403) the moment the guard sees a bearer key instead of a browser session — no admin action, no key minting, no user changes through your script, even though the key belongs to the whole instance.
 
 ## The two reads every credential gets

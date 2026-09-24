@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import type { HarnessPlugin, McpLaunchSpec, McpRegistration } from "@internal/pane-runtime";
 import { APP_BASE_URL, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { resolveMcpLaunch } from "@/services/mcp-resolve.js";
+import { assertNodePathId } from "@/services/nodes/node-path-id.js";
 import type { NodeFacts } from "@/services/nodes/node-registry.js";
 
 /**
@@ -109,6 +110,10 @@ export function planRemoteSubshellMcp(
   subshellId: string,
   facts: Pick<NodeFacts, "dataDir" | "selfInvoke">,
 ): { reg: McpRegistration; configPath: string } | undefined {
+  // The same guard the delete-side `mcpArtifactPath` applies (audit 2026-09
+  // item 7): this is the LAUNCH-side interpolation of the same template, and
+  // the composed path rides into the agent's `launch` frame verbatim.
+  assertNodePathId(subshellId);
   const launch = nodeSelfInvoke(facts, "mcp");
   const configPath = `${facts.dataDir}/mcp/${subshellId}.json`;
   const reg = harness.mcpRegistration?.(launch, configPath);

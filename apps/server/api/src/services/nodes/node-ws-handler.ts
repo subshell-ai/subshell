@@ -12,21 +12,24 @@ import { getAuth } from "@/auth.js";
 import type { NodeReadyReport, NodesRepository } from "@/db/repositories/nodes.repository.js";
 import type { NodeStatus } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
+import { accountDisabled } from "@/services/account-status.js";
 import { pushAllowedDirsBestEffort } from "@/services/nodes/allowed-dirs-sync.js";
 import { detectOnNodeBestEffort } from "@/services/nodes/inventory.js";
-import { announceNodePresence } from "@/services/nodes/node-presence-announce.js";
+import { announceNodePresence, projectNodeOffline } from "@/services/nodes/node-presence-announce.js";
 import { logger } from "@/utils/logger.js";
 import { refireInputHoldsForNode } from "@/ws/input-hold.js";
 import { dispatchOutput, getNodeLifecycleHooks } from "./node-events.js";
 import {
   attachConnection,
   detachConnection,
+  disconnectNode,
   getHeld,
   getLive,
   type HeldReason,
   holdConnection,
   type NodeConnection,
   type NodeSocket,
+  OWNER_DISABLED_CLOSE_CODE,
   releaseHeld,
 } from "./node-registry.js";
 import { failConnPendings, resolveResult } from "./node-rpc.js";
@@ -64,12 +67,21 @@ export interface NodeWsIdentity {
   nodeId: string;
   /** better-auth api-key row id (anti-forgery link against `nodes.apiKeyId`) */
   apiKeyId: string;
+  /**
+   * The owner the upgrade chain just read as enabled, stashed so
+   * {@link handleNodeOpen} can RE-ASK about the same account after the
+   * attach without a second row read. Ownership never changes while a socket
+   * is mid-handshake, so this is the same fact the pre-socket gate used.
+   */
+  ownerUserId: string;
 }
 
 /** Per-socket data: the upgrade-stashed identity plus the registry record. */
 export interface NodeWsData {
   nodeId?: string;
   apiKeyId?: string;
+  /** Part of the stashed identity — see {@link NodeWsIdentity.ownerUserId}. */
+  ownerUserId?: string;
   /** Registry connection created at `open`; close teardown fails THIS record. */
   nodeConn?: NodeConnection;
   /**
@@ -122,6 +134,13 @@ export interface NodeWsDeps {
   /** Node row writes (prod: the requestless context's `repos.nodes`). */
   nodes: NodeWsNodesRepo;
   /**
+   * Whether an account is disabled (prod: `services/account-status.ts` over
+   * the requestless db — the ONE function `authGuard` and better-auth's
+   * session hook share, so "disabled" cannot answer differently per surface).
+   * Ruling 2026-09-24: a disabled account's enrolled nodes cannot dial in.
+   */
+  accountDisabled(userId: string): Promise<boolean>;
+  /**
    * Feed a `result` frame to the RPC correlator (prod: `node-rpc.resolveResult`).
    * Connection-scoped: only `conn`'s own pendings may settle — pass the
    * socket's own record, never another node's.
@@ -161,6 +180,10 @@ export function getNodeWsDeps(): NodeWsDeps {
         }
       },
       nodes: getRequestlessContext().repos.nodes,
+      // The one account-disabled function, taken from the requestless graph's
+      // db — the same one `authGuard` consults on the bearer path, so the
+      // upgrade tier cannot disagree with REST about which accounts are dead.
+      accountDisabled: (userId) => accountDisabled(getRequestlessContext().db, userId),
       resolveResult: (conn, event) => resolveResult(conn, event),
     };
   }
@@ -175,19 +198,28 @@ function bearerOf(headerValue: string | null): string | null {
 /**
  * The full upgrade-time verification chain (spec §5.3): bearer key → valid →
  * kind==="node" → node row exists → row is not the local node →
- * `nodes.apiKeyId === row.id`. Throws the status-carrying errors the global
- * error handler maps to a pre-socket HTTP refusal — 401 for a key that is not
- * a live node credential, 403 for a key↔node link mismatch (rotated/stale
- * key) or a dial-in aimed at the local node (it never runs an agent). The
- * node-row read happens HERE (not at `open`) so the socket is never opened
- * for a mismatched key.
+ * `nodes.apiKeyId === row.id` → the node's owner is not a disabled account.
+ * Throws the status-carrying errors the global error handler maps to a
+ * pre-socket HTTP refusal — 401 for a key that is not a live node credential,
+ * 403 for a key↔node link mismatch (rotated/stale key), a dial-in aimed at the
+ * local node (it never runs an agent), or an owner whose account is disabled
+ * (ruling 2026-09-24). The node-row read happens HERE (not at `open`) so the
+ * socket is never opened for a mismatched key.
+ *
+ * The disabled-owner refusal is deliberately NOT the version-floor hold
+ * (spec 2026-09-15 §5.3): a held socket exists to carry the one command that
+ * fixes the hold, and `update` cannot un-disable an owner — holding a disabled
+ * owner's node would buy nothing and hide it. The agent keeps its ordinary
+ * backoff-and-retry (non-terminal), and the upgrade succeeds the moment an
+ * admin re-enables, within one reconnect interval (the agent's backoff caps at
+ * 60 s).
  * @param deps - injected dependencies
  * @param authzHeader - the raw `Authorization` header value (or null)
  * @returns the identity to stash on the socket
  * @throws HttpError 401/403 — thrown from `upgrade()` to refuse the handshake
  */
 export async function authenticateNodeUpgrade(
-  deps: Pick<NodeWsDeps, "verifyApiKey" | "nodes">,
+  deps: Pick<NodeWsDeps, "verifyApiKey" | "nodes" | "accountDisabled">,
   authzHeader: string | null,
 ): Promise<NodeWsIdentity> {
   const rawKey = bearerOf(authzHeader);
@@ -213,17 +245,57 @@ export async function authenticateNodeUpgrade(
   // flips `apiKeyId`; delete disables the key — either breaks the link).
   if (node.apiKeyId !== row.id) throw new HttpError(403, "Key is not bound to this node");
 
-  return { nodeId: meta.nodeId, apiKeyId: row.id };
+  // Operator ruling 2026-09-24: a disabled account's enrolled nodes are
+  // offline, and stay so. This is the pre-socket half — the disable route's
+  // `disconnectNode` closed the live socket with 4403; this refuses every
+  // dial-in while the flag stands. The KEY stays valid (rotate/delete revoke
+  // it; disable does not — re-enabling must restore the node with no second
+  // act), which is exactly why the account, not the key, is the gate here.
+  // `local` never reaches this line: its 403 is above it, and an admin
+  // disabling the system service user is refused by the route that would do
+  // it. A node whose owner has no `user_meta` row reads enabled, matching
+  // every other surface — this function is `account-status.ts`, the one
+  // `authGuard` uses on the bearer path.
+  if (await deps.accountDisabled(node.ownerUserId)) {
+    throw new HttpError(403, "The node's owner account is disabled");
+  }
+
+  return { nodeId: meta.nodeId, apiKeyId: row.id, ownerUserId: node.ownerUserId };
 }
 
 /**
- * Socket-open step: attach to the registry (newest-wins, spec §5.3) and
- * remember the connection on the socket for close teardown. Deliberately
- * does NOT touch the DB — `status='online'` arrives with `ready` via
- * {@link handleNodeMessage}, so a connected-but-silent agent reads offline.
+ * Socket-open step: attach to the registry (newest-wins, spec §5.3), remember
+ * the connection on the socket for close teardown, then RE-ASK the question
+ * the upgrade hook already asked. Deliberately does NOT touch the DB —
+ * `status='online'` arrives with `ready` via {@link handleNodeMessage}, so a
+ * connected-but-silent agent reads offline.
+ *
+ * **Why the second ask exists.** The upgrade-time refusal and the disable
+ * route's socket sweep are a check-then-act pair with the whole handshake
+ * sitting between them, and that is inherently racy: an upgrade reads the
+ * owner as enabled, the admin disables (flag commits, sweep runs and finds NO
+ * live socket to close — this one has not attached yet), and only then does
+ * `open` land its `attachConnection`. Without the re-ask, that socket — the
+ * one the sweep missed by microseconds — would stay online until the agent's
+ * connection happened to drop. Attaching BEFORE asking is the whole point of
+ * the order: every interleaving is then covered by one of the two halves. A
+ * disable that beats the attach finds the socket in the sweep; one that lands
+ * inside the window is caught here.
+ *
+ * The eviction reuses the disable route's own machinery —
+ * {@link disconnectNode} with {@link OWNER_DISABLED_CLOSE_CODE} and the same
+ * reason string, then the captured record drained the same way — because a
+ * second teardown implementation is a second thing to drift. A socket whose
+ * stashed identity names no owner is not this rule's business (nothing to
+ * ask about), and a THROWING re-ask leaves the socket attached: the upgrade
+ * chain already answered this same question successfully moments ago, and
+ * failing closed here would evict healthy nodes on any transient the DB has;
+ * the next dial-in meets the flag at the pre-socket gate, where the read is
+ * load-bearing anyway.
+ * @param deps - the one account gate the re-ask reads
  * @param ws - the authenticated socket (identity stashed by the upgrade hook)
  */
-export function handleNodeOpen(ws: NodeWsSocket): void {
+export async function handleNodeOpen(deps: Pick<NodeWsDeps, "accountDisabled">, ws: NodeWsSocket): Promise<void> {
   const nodeId = ws.data.nodeId;
   if (!nodeId) {
     // Unreachable behind a correctly-wired upgrade hook; refuse loudly
@@ -231,8 +303,40 @@ export function handleNodeOpen(ws: NodeWsSocket): void {
     ws.close(NODE_CLOSE_UNAUTHENTICATED, "no verified identity on this socket");
     return;
   }
-  ws.data.nodeConn = attachConnection(nodeId, connectionSocket(ws));
+  const conn = attachConnection(nodeId, connectionSocket(ws));
+  ws.data.nodeConn = conn;
   logger.debug(`node ws: ${nodeId} connected`);
+
+  if (!ws.data.ownerUserId) return;
+  if (await deps.accountDisabled(ws.data.ownerUserId)) {
+    // The sweep's contract, on the socket the sweep missed: close 4403 with
+    // the reason the agent relays into its own log, evict from the live
+    // registry, drain the record's in-flight commands. The eviction also
+    // OWNS its status projection (`disconnectNode` → row offline + presence
+    // announce): usually this row is pre-`ready` and the write lands as an
+    // idempotent no-op, but a row still reading `online` from an earlier
+    // session's ready is exactly the case that needs it, and the close
+    // event's own teardown finds the record already gone and stops there.
+    // `conn` is passed as the eviction's ONLY target: if a newer socket
+    // took the live slot while this re-ask was in flight, THIS eviction must
+    // not condemn it — that socket ran its own `accountDisabled` re-ask the
+    // moment it attached. Finding nothing to evict is the correct false; the
+    // superseded record drains through its own 4409 close event (see
+    // `handleNodeClose`), and the replacement's state is the replacement's
+    // business.
+    if (await disconnectNode(nodeId, OWNER_DISABLED_CLOSE_CODE, "the node's owner account is disabled", conn)) {
+      failConnPendings(conn, "offline");
+      logger.warn(`node ws: ${nodeId} attached after its owner's disable landed — evicted at open`);
+    } else {
+      // The honest other branch: this socket was superseded mid-await, so it
+      // was never live to evict and its replacement's re-ask owns that one.
+      // Logging an eviction that did not happen is the kind of journal line
+      // that teaches an operator to distrust the journal.
+      logger.warn(
+        `node ws: ${nodeId} attached after its owner's disable landed, but its socket had already been superseded — the replacement answers for itself`,
+      );
+    }
+  }
 }
 
 /** Byte size of an inbound frame, whichever form Elysia hands us. */
@@ -362,6 +466,33 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
     return;
   }
 
+  // The LIVE twin of the held path's identity probe above (C14, 2026-09-24).
+  // `attachConnection` newest-wins closes the older socket with 4409, but a
+  // frame that was already queued on THAT socket's serialized chain
+  // (`ws.data.frameQueue` lives on the shared data object, and the close
+  // event lands whenever Elysia gets to it) still runs. Without this probe,
+  // the stale `ready` re-applies machine facts over the replacement's row and
+  // the stale `heartbeat` stamps `lastSeen` through the new socket's own
+  // liveness — writes from a connection the plane has already disowned.
+  //
+  // `result` is the one exempt type: it settles ONLY this socket's own record
+  // (the `result` case below reads `ws.data.nodeConn`, never the registry's
+  // current entry), which is the contract
+  // `node-ws-handler.test.ts` pins — "a result on a socket whose node was
+  // superseded still settles only ITS own record". A `result` cannot write a
+  // row; the frames worth refusing are exactly the ones the switch hands to
+  // `deps.nodes`.
+  //
+  // Identity is by record, per the file's own discipline: a frame whose
+  // socket never went through `open` (unit fakes) and a node with no live
+  // entry are `undefined` on both sides and pass — a socket whose record is
+  // simply no longer THE record is superseded, and `getLive(nodeId) !==
+  // ws.data.nodeConn` is the file-idiomatic probe for that.
+  if (event.type !== "result" && getLive(nodeId) !== ws.data.nodeConn) {
+    logger.debug(`node ws: dropped ${event.type} from a superseded socket of ${nodeId}`);
+    return;
+  }
+
   switch (event.type) {
     case "ready": {
       const report: NodeReadyReport = {
@@ -375,6 +506,25 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // Record FIRST (spec §5.3/§8): even an incompatible agent gets its
       // identity persisted so the Nodes page can show "agent too old".
       await deps.nodes.applyReady(nodeId, report);
+      // The write this frame issued can OVERTAKE its own eviction: a forced
+      // `disconnectNode` that lands while the UPDATE is in flight detaches
+      // and projects `offline` around its own await, and the already-issued
+      // write lands `online` after it — the row would otherwise read online
+      // for a machine with no socket until the stale sweep (~45 s). Converge
+      // with the C14 probe's identity idiom, and BY DIRECTION: GONE means the
+      // eviction's projection deserves the last word, so re-project (the same
+      // seam every other forced teardown uses, idempotent); REPLACED means a
+      // newer socket is live and `online` is that machine's truth —
+      // projecting there would strand a healthy node offline until its next
+      // reconnect, the same divergence wearing the other coat. Both-undefined
+      // (a socket that never went through `open`) passes, as it does above.
+      // Either way the frame STOPS here: everything below belongs to the
+      // connection that owns the row now, not to this disowned one.
+      const stillLive = getLive(nodeId);
+      if (stillLive !== ws.data.nodeConn) {
+        if (stillLive === undefined) await projectNodeOffline(nodeId);
+        return;
+      }
       // Same "record FIRST" spirit for the live connection: the agent-facts
       // stash goes before the protocol floor, so an incompatible agent's
       // facts are still on `conn.agent` for diagnosis (spec §6.4).

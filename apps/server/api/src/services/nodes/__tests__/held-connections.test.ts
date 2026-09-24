@@ -191,12 +191,28 @@ describe("held connections", () => {
     expect(ws.sent).toHaveLength(1);
   });
 
-  it("disconnectNode evicts a HELD socket too — a revoked key must not keep one open", () => {
+  it("`only` evicts the held record it names — a re-ask whose socket got held mid-await still reaches it", async () => {
+    // The third shape of the disable re-ask (finding, review iteration 5):
+    // between attach and the `accountDisabled` answer, this very socket's
+    // `ready` landed and the protocol gates HELD it — the record is no longer
+    // in `live` at all. A held-first early-return (the pre-fix eviction, which
+    // only consulted `live` once the held map missed) found nothing to say
+    // about a socket the act owned; the target-aware walk checks both maps.
+    const sock = fakeSocket();
+    const conn = attachConnection("n1", sock);
+    holdConnection("n1", conn, holdInput());
+
+    expect(await disconnectNode("n1", 4403, "the node's owner account is disabled", conn)).toBe(true);
+    expect(getHeld("n1")).toBeUndefined();
+    expect(sock.closed).toEqual([{ code: 4403, reason: "the node's owner account is disabled" }]);
+  });
+
+  it("disconnectNode evicts a HELD socket too — a revoked key must not keep one open", async () => {
     // `update` is the one thing a held socket could still carry, and that is
     // precisely what a rotated or deleted key must no longer be able to do.
     const ws = fakeSocket();
     holdConnection("n1", attachConnection("n1", ws), holdInput());
-    expect(disconnectNode("n1")).toBe(true);
+    expect(await disconnectNode("n1")).toBe(true);
     expect(ws.closed[0]?.code).toBe(REVOKED_CLOSE_CODE);
     expect(getHeld("n1")).toBeUndefined();
   });

@@ -51,6 +51,7 @@ function makeHarness(): Harness {
   const resolvers: (() => void)[] = [];
   h.deps = {
     verifyApiKey: async () => null,
+    accountDisabled: async () => false,
     nodes: {
       findById: async () => undefined,
       applyReady: async (id: string) => {
@@ -159,7 +160,7 @@ describe("ready → connection.agent (NodeFacts, spec §6.4)", () => {
   it("sets ws.data.nodeConn.agent EXACTLY from the frame when selfInvoke is present", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    handleNodeOpen(ws);
+    await handleNodeOpen(h.deps, ws);
     const conn = ws.data.nodeConn;
     if (!conn) throw new Error("open must stash the registry record on ws.data");
 
@@ -191,7 +192,7 @@ describe("ready → connection.agent (NodeFacts, spec §6.4)", () => {
     // later `in`-check would misread.
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    handleNodeOpen(ws);
+    await handleNodeOpen(h.deps, ws);
     const conn = ws.data.nodeConn;
     if (!conn) throw new Error("open must stash the registry record on ws.data");
 
@@ -211,7 +212,7 @@ describe("ready → connection.agent (NodeFacts, spec §6.4)", () => {
   it("records facts even for an agent it is about to refuse (diagnosis first)", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    handleNodeOpen(ws);
+    await handleNodeOpen(h.deps, ws);
     const conn = ws.data.nodeConn;
     if (!conn) throw new Error("open must stash the registry record on ws.data");
 

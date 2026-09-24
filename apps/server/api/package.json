@@ -47,7 +47,6 @@
     "@loglayer/elysia": "2.4.0",
     "@loglayer/transport-simple-pretty-terminal": "3.3.0",
     "better-auth": "1.7.1",
-    "better-auth-ui": "3.2.27",
     "dotenv": "17.4.2",
     "elysia": "1.4.29",
     "env-var": "7.5.0",

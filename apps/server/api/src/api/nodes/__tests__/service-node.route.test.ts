@@ -383,6 +383,26 @@ describe("/api/nodes service + runtime", () => {
     expect(body.message).toMatch(/could not be read/i);
   });
 
+  it("says the same when there is NO runtime report at all — `undefined` is not evidence of kills", async () => {
+    // The degraded case the `=== "unknown"` branch silently asserted over:
+    // an agent whose frozen `ready` facts never landed gives the plane
+    // `undefined`, which is a THIRD state — nobody answered — and belongs on
+    // the hedge side of the wording rule, not the certain one.
+    const id = await mkNode();
+    const res = await serviceWithAnswer(
+      id,
+      aliceCookie,
+      { verb: "stop" },
+      { ok: false, error: NODE_RESULT_KILLS_PANES },
+      null,
+    );
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { code: string; message: string };
+    expect(body.code).toBe("NODE_RESTART_KILLS_PANES");
+    expect(body.message).toMatch(/could not be read/i);
+    expect(body.message).not.toMatch(/would close/i);
+  });
+
   /**
    * The mapping matches the protocol's exact wire strings, so an agent error
    * nobody enumerated degrades to the generic unreachable code instead of

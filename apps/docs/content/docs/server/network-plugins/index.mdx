@@ -19,7 +19,7 @@ Network plugins are the same plugins as the harnesses that drive agent panes: on
 **A network plugin describes; the host executes.** A plugin builds an argument vector, parses what a vendor CLI printed, and names a secret. It never spawns a process, never writes a file, never touches `config.env`, and never reads a credential back. Every effect goes through the host the server owns — a run member for commands, the supervisor for the one declared long-running process — under the same bounds:
 
 - the command must be an absolute path the plugin resolved with the host's own binary lookup — a bare name is refused, because nobody could then say which binary ran;
-- anything whose name is `sudo`, `doas` or `pkexec` is refused outright;
+- anything the run member or the supervisor is handed whose first word is `sudo`, `doas` or `pkexec` is refused outright (the manifest's install command runs through a shell and is guarded at load instead — see below);
 - the child gets a fixed allowlist of environment variables, so neither the auth secret nor the database path rides along;
 - stdin starts closed so a prompt cannot hang the run, output is capped at 64 KiB, and the clock is real — 30 seconds by default, extendable to ten minutes for a package manager that needs it.
 
@@ -27,7 +27,7 @@ This is what keeps the properties the installers already had — admin-only, bou
 
 ## Privileged steps are printed, never run
 
-Every mesh daemon needs one root install, and the server has no terminal to answer a password prompt — so it never tries. Privileged steps are manifest **data** under `network.privileged`: labelled commands, each with the vendor page that explains it, rendered as a numbered list you copy and run yourself. The plugin refuses them the same way, so declaring one in `install.command` rather than `network.privileged` fails at load.
+Every mesh daemon needs one root install, and the server has no terminal to answer a password prompt — so it never tries. Privileged steps are manifest **data** under `network.privileged`: labelled commands, each with the vendor page that explains it, rendered as a numbered list you copy and run yourself. The field the server will run on request is guarded at load instead: the manifest parser refuses an `install.command` that runs `sudo`, `doas` or `pkexec` as a command at ANY shell boundary — the line start, or after `&&`, `||`, `;`, `|`, `&` or a newline — not merely one that begins with such a word. That command reaches the machine through a shell, so this parser rule — not the host's first-word check — is what stands in front of it.
 
 `cloudflared` is the one binary that needs no root on any supported platform, which is why it is the only plugin carrying an install command the server will run itself. The other three ask you to install their CLI, and then drive whatever you installed.
 
@@ -39,7 +39,7 @@ Platform support, exposure and the privileged steps all live in the manifest, so
 
 ## How an address becomes trusted
 
-The trusted-origin allowlist is assembled per request from three sources: this instance's own addresses, your extras on the Service page, and every enabled network plugin's recorded addresses. Nothing a plugin contributes is written into `config.env` — your `TRUSTED_ORIGINS` stays yours alone, and a publish or unpublish takes effect on the next request rather than at the next restart. Nothing about a publish moves the passkey rpID either; that is `APP_BASE_URL`, changed on the Service page.
+The trusted-origin allowlist is assembled per request from three sources: this instance's own addresses, your extras on the Networking page, and every enabled network plugin's recorded addresses. Nothing a plugin contributes is written into `config.env` — your `TRUSTED_ORIGINS` stays yours alone, and a publish or unpublish takes effect on the next request rather than at the next restart. Nothing about a publish moves the passkey rpID either; that is `APP_BASE_URL`, changed on the Networking page.
 
 What a plugin contributes follows its record, not a status in hand:
 

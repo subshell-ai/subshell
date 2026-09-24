@@ -122,6 +122,15 @@ const testFacts: NodeFacts = {
 };
 
 /**
+ * A conforming subshell id for the PATH-COMPOSITION tests. Real ids are
+ * `crypto.randomUUID()`s, and since 2026-09-23 the backend's path guard
+ * (`assertNodePathId`, audit item 7) throws on anything else — the `"s1"`
+ * fixture these tests otherwise share stays for the wire-frame members,
+ * which carry the id as data the AGENT gates, not as an interpolated path.
+ */
+const SUB = "11111111-2222-4333-8444-555555555555";
+
+/**
  * Stub plugin for the wire-mapping tests: identity, a `buildCommand` whose
  * output the pinned frames can name, and a detect rule like a real manifest
  * carries. Tests that need the PLUGINS' own dialect (argv shape, MCP args/env)
@@ -363,7 +372,7 @@ describe("launch", () => {
     const claude = getHarness("claude-code");
     if (!claude) throw new Error("claude-code plugin is not in the registry");
     const h = makeHarness();
-    const planned = planRemoteSubshellMcp(claude, "s1", testFacts);
+    const planned = planRemoteSubshellMcp(claude, SUB, testFacts);
     if (!planned) throw new Error("claude-code has no mcpRegistration");
     await h.launcher.launch({ ...planBase(), harness: claude, mcp: planned.reg, mcpConfigPath: planned.configPath });
     const cmd = h.calls[0]?.cmd as Extract<NodeCommandBody, { type: "launch" }>;
@@ -378,7 +387,7 @@ describe("launch", () => {
     const opencode = getHarness("opencode");
     if (!opencode) throw new Error("opencode plugin is not in the registry");
     const h2 = makeHarness();
-    const planned2 = planRemoteSubshellMcp(opencode, "s1", testFacts);
+    const planned2 = planRemoteSubshellMcp(opencode, SUB, testFacts);
     if (!planned2) throw new Error("opencode has no mcpRegistration");
     await h2.launcher.launch({
       ...planBase(),
@@ -415,7 +424,7 @@ describe("launch", () => {
     const claude = getHarness("claude-code");
     if (!claude) throw new Error("claude-code plugin is not in the registry");
     const h = makeHarness();
-    const planned = planRemoteSubshellMcp(claude, "s1", testFacts);
+    const planned = planRemoteSubshellMcp(claude, SUB, testFacts);
     if (!planned) throw new Error("claude-code has no mcpRegistration");
     await h.launcher.launch({ ...planBase(), harness: claude, mcp: planned.reg, mcpConfigPath: planned.configPath });
     const parsed = parseNodeCommandBody(JSON.parse(JSON.stringify(h.calls[0]?.cmd)));
@@ -606,9 +615,9 @@ describe("deliverPrompt", () => {
 describe("log paths and reads", () => {
   it("logPath composes from facts; throws NoLiveConnectionError (and sends nothing) without them", () => {
     const h = makeHarness();
-    expect(h.launcher.logPath("s1")).toBe("/home/u/.subshell/subshells/s1.log");
+    expect(h.launcher.logPath(SUB)).toBe(`/home/u/.subshell/subshells/${SUB}.log`);
     h.setFacts(undefined);
-    expect(() => h.launcher.logPath("s1")).toThrow(NoLiveConnectionError);
+    expect(() => h.launcher.logPath(SUB)).toThrow(NoLiveConnectionError);
     expect(h.calls).toEqual([]);
   });
 
@@ -618,9 +627,9 @@ describe("log paths and reads", () => {
     // into the delete-time `remove_paths` so a deliberate delete unlinks the
     // agent's per-subshell record alongside the log and the MCP config.
     const h = makeHarness();
-    expect(h.launcher.metaArtifactPath("s1")).toBe("/home/u/.subshell/subshells/s1.meta.json");
+    expect(h.launcher.metaArtifactPath(SUB)).toBe(`/home/u/.subshell/subshells/${SUB}.meta.json`);
     h.setFacts(undefined);
-    expect(() => h.launcher.metaArtifactPath("s1")).toThrow(NoLiveConnectionError);
+    expect(() => h.launcher.metaArtifactPath(SUB)).toThrow(NoLiveConnectionError);
     expect(h.calls).toEqual([]);
   });
 
@@ -960,7 +969,7 @@ describe("removeArtifacts", () => {
 describe("offline short-circuit (no facts ⇒ no send)", () => {
   it("facts-dependent members fail before the wire; never-throws members stay soft", async () => {
     const h = makeHarness(null);
-    expect(() => h.launcher.logPath("s1")).toThrow(NoLiveConnectionError);
+    expect(() => h.launcher.logPath(SUB)).toThrow(NoLiveConnectionError);
     expect(h.calls).toEqual([]);
 
     // Non-facts members do go through `send` — with the REAL offline rpc error

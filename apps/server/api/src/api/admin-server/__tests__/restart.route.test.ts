@@ -62,11 +62,28 @@ describe("POST /api/admin/server/restart", () => {
     restartSeams.deployment = () => viewWith({ supervised: true, paneSafety: "kills" });
     const refused = await app.fetch(post(fx.adminCookie, {}));
     expect(refused.status).toBe(409);
-    expect(((await refused.json()) as { code: string }).code).toBe("RESTART_KILLS_PANES");
+    const body = (await refused.json()) as { code: string; message: string };
+    expect(body.code).toBe("RESTART_KILLS_PANES");
+    // A definition that ANSWERED `kills` is the one case the certain sentence
+    // belongs to (the wording rule the node routes carry too).
+    expect(body.message).toContain("would close every running subshell");
     expect(performed).toBe(0);
     const forced = await app.fetch(post(fx.adminCookie, { force: true }));
     expect(forced.status).toBe(202);
     expect(performed).toBe(1);
+  });
+
+  it("an unreadable definition says it could not be read — same code, no false certainty", async () => {
+    // `unknown` shares the refusal CODE with `kills` (both stop without
+    // `force`), but promising that panes WILL die about a unit nobody read is
+    // the certainty that teaches operators to ignore warnings.
+    restartSeams.deployment = () => viewWith({ supervised: true, paneSafety: "unknown" });
+    const res = await app.fetch(post(fx.adminCookie, {}));
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { code: string; message: string };
+    expect(body.code).toBe("RESTART_KILLS_PANES");
+    expect(body.message).toMatch(/could not be read/i);
+    expect(body.message).not.toMatch(/would close/i);
   });
 
   it("202 when supervised and pane-safe, with resumeAt and an audit row", async () => {
