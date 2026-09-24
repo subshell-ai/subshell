@@ -175,6 +175,20 @@ export async function resolveAttach(input: AttachRequest): Promise<AttachResolve
   // because `ws.raw.request` is NOT populated in Elysia's WS open context
   // (that read is the fallback for direct callers, e.g. tests).
   logger.info(attachJournalLine(row.id, params, input.attachUa));
+  // Attention answers the unseen push (spec 2026-09-23). The human marker is
+  // `identity.subshellId === null`: the cookie fallback and the cookie-minted
+  // ws-token are the ONLY unbound identities — every Bearer-key mint is bound
+  // at issue, including a system key's — so a machine credential that
+  // resolves as the owner still attends nothing, and the owner check is the
+  // row itself. Best-effort: an uncleared urgency costs one extra escalation,
+  // a throwing update must not refuse an admitted attach.
+  if (identity.subshellId === null && identity.userId === row.userId && row.lastPushUrgency !== null) {
+    try {
+      await repos.subshells.update(row.id, { lastPushUrgency: null });
+    } catch {
+      logger.warn(`unseen-push clear failed for ${row.id} (escalation may double)`);
+    }
+  }
   return { ok: true, userId: identity.userId, row, access, params };
 }
 

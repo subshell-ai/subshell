@@ -548,6 +548,18 @@ export class SubshellsService extends BaseService {
   }
 
   /**
+   * Opening the pane as its owner answers the unseen push (spec 2026-09-23):
+   * the stored urgency clears, re-arming follow-ups until the next delivered
+   * push. Only a cookie session whose user IS the row's owner — a shared
+   * viewer saw a pane that was never theirs to be pushed about, and a
+   * machine credential resolves as the owner but attended nothing.
+   */
+  async #rememberSeen(actor: GuardActor, viewerId: string, row: SubshellTable): Promise<void> {
+    if (actor !== "cookie" || viewerId !== row.userId || row.lastPushUrgency === null) return;
+    await this.repos.subshells.update(row.id, { lastPushUrgency: null });
+  }
+
+  /**
    * Gets a single subshell view for the viewer — their own or one shared to
    * them — stamped with the viewer's own `access`.
    * @throws SubshellError 404 when absent or invisible to the caller.
@@ -555,6 +567,7 @@ export class SubshellsService extends BaseService {
    */
   async getSubshell(viewerId: string, id: string, actor: GuardActor): Promise<SubshellView> {
     const { row, access } = await this.#gate(viewerId, id, "view", actor);
+    await this.#rememberSeen(actor, viewerId, row);
     // Build the view under the OWNER's id (the manager is owner-keyed); the
     // caller never sees the owner id, only their resolved access level.
     const subshell = await this.#manager.getSubshell(row.userId, id);
@@ -583,6 +596,7 @@ export class SubshellsService extends BaseService {
     actor: GuardActor,
   ): Promise<{ lines: string[]; truncated: boolean }> {
     const { row } = await this.#gate(viewerId, id, "view", actor);
+    await this.#rememberSeen(actor, viewerId, row);
     // Spec §6.5: the tail reads from the node that owns the pane — an
     // agent-node row goes through its RemoteLauncher (`log_read` window),
     // whose offline throw maps onto §5.6 exactly like create/restart.
