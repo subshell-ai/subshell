@@ -43,7 +43,7 @@ import { collapsedNodeGroups, setCollapsedNodeGroups, toggleNodeGroup } from "@/
 import { RECENT_LIMIT, recentWorkspaceLinks } from "@/lib/sidebar-recents";
 import { filterSubshells } from "@/lib/subshell-filter";
 import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
-import { groupSubshellsByNode } from "@/lib/subshell-node-groups";
+import { FALLBACK_NODE_ID, groupSubshellsByNode, needsAttention, nodeLabelFor } from "@/lib/subshell-node-groups";
 
 /** localStorage key for the collapsed state (persists across reloads). */
 const COLLAPSED_KEY = "subshell.sidebarCollapsed";
@@ -323,6 +323,13 @@ export function AppSidebar({
     // reason to hold. Stale-but-cached beats a verdict from a failed retry.
     unanswered: nodeData === undefined,
   });
+  // The "Needs Attention" spotlight above the machine groups (spec 2026-09-24):
+  // the SAME status-ordered rows the groups are built from — the live filter
+  // applied identically — narrowed to the owner's unseen pushes. Computed from
+  // the filter set, not from `nodeGroups`, so a match in filter mode shows here
+  // exactly as it shows in the (forced-open) group, and the cap that groups
+  // apply never hides a pane that pushed.
+  const attentionRows = needsAttention(q ? filterSubshells(byStatus, subshellQuery) : byStatus);
   const listedCount = nodeGroups.reduce((sum, group) => sum + group.subshells.length, 0);
   // Which node groups this device has shut. Read once at mount — the rail
   // lives for the session, so re-reading storage on every render would buy
@@ -622,6 +629,26 @@ export function AppSidebar({
               )}
               {!collapsed && item.to === "/" && q !== "" && listedCount === 0 && (
                 <p className="px-3 py-1 text-detail text-muted-foreground">No matches.</p>
+              )}
+              {!collapsed && item.to === "/" && attentionRows.length > 0 && (
+                <section aria-label="Needs Attention" className="mb-1">
+                  <div className="flex w-full items-center gap-2 py-1 pr-2 pl-3 text-detail text-muted-foreground">
+                    <span className="min-w-0 flex-1 truncate font-strong">Needs Attention</span>
+                    <span className="shrink-0 tabular-nums opacity-70">{attentionRows.length}</span>
+                  </div>
+                  {attentionRows.map((sub) => (
+                    <SubshellRecentRow
+                      key={`attention-${sub.id}`}
+                      subshell={sub}
+                      active={location.pathname === `/subshells/${sub.id}`}
+                      nodeLabel={
+                        nodeLabelFor(sub.nodeId || FALLBACK_NODE_ID, nodeData?.nodes, nodeData === undefined).label
+                      }
+                      agentLabel={agentLabel(sub.harnessId)}
+                      presetLabel={presetLabel(sub.presetId)}
+                    />
+                  ))}
+                </section>
               )}
               {!collapsed &&
                 item.to === "/" &&
