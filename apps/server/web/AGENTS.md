@@ -342,7 +342,12 @@ and its `+` opens `create-preset-dialog.tsx` nested in the launch dialog with
 the agent locked — a created preset is selected on return. First run hides the
 Preset row entirely: a new account has zero presets, so the row would offer
 only "None". The saved set lives at `/presets`, grouped by agent under real
-`<h2>` headers. A presetless launch omits `presetId` — absence, never null.
+`<h2>` headers. There the row menu's **Clone preset** opens the SAME
+`create-preset-dialog.tsx`, seeded through `initialForm`: the clone IS a plain
+create, and the agent rides locked because a preset's harness is immutable.
+The suggested `… (2)` name mirrors the UNIQUE index's collision rule, so the
+prefill is a name the server can accept. A presetless launch omits `presetId`
+— absence, never null.
 
 **Two cards, because they are two kinds of thing.** `ServiceCard` is about the
 running PROCESS — who supervises it, since when, and Restart. `SupervisionCard`

@@ -451,6 +451,13 @@ function shellQuote(value: string): string {
 }
 
 /**
+ * The API's cap on a preset name — mirrors `name.maxLength: 120` in
+ * `CreatePresetBodySchema` (`apps/server/api/src/api/presets.route.ts`). A
+ * clone suggestion the server can only reject is worse than a shorter name.
+ */
+const MAX_PRESET_NAME = 120;
+
+/**
  * Suggests a clone name for a preset: the source name with the first free
  * numeric suffix — `"<name> (2)"`, `(3)`, …, the convention migration 0028
  * used to break the collisions it found. Taken-ness is scoped to rows of the
@@ -462,17 +469,25 @@ function shellQuote(value: string): string {
  *
  * @param rows - The caller's preset list (the `usePresets()` cache)
  * @param source - The preset being cloned (its own row never blocks)
- * @returns A name free for this user's preset of the same harness
+ * @returns A name free for this user's preset of the same harness, at most
+ *   {@link MAX_PRESET_NAME} characters: a source base longer than that is
+ *   trimmed so base + ` (${n})` still fits what `POST /api/presets` accepts
  */
 export function suggestCloneName(rows: PresetRow[], source: PresetRow): string {
   const taken = new Set(
     rows.filter((r) => r.harnessId === source.harnessId && r.id !== source.id).map((r) => r.name.toLowerCase()),
   );
+  // The candidate is built per n: the suffix length rides the number, so a
+  // two-digit n trims the base one character further than a one-digit one.
+  const candidateFor = (n: number): string => {
+    const suffix = ` (${n})`;
+    return source.name.slice(0, MAX_PRESET_NAME - suffix.length) + suffix;
+  };
   for (let n = 2; n <= taken.size + 2; n++) {
-    const candidate = `${source.name} (${n})`;
+    const candidate = candidateFor(n);
     if (!taken.has(candidate.toLowerCase())) return candidate;
   }
   // Unreachable while the index holds: taken.size names cannot fill
   // taken.size + 1 candidates.
-  return `${source.name} (${taken.size + 2})`;
+  return candidateFor(taken.size + 2);
 }

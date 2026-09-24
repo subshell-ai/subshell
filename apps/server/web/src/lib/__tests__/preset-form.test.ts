@@ -478,4 +478,15 @@ describe("suggestCloneName", () => {
     const src = row({ id: "a", name: "Work (2)" });
     expect(suggestCloneName([src], src)).toBe("Work (2) (2)");
   });
+
+  it("keeps the suggestion within the API's 120-char name limit", () => {
+    // The rule: the FULL candidate base + " (2)" fits 120, so the base is
+    // trimmed to 120 minus the suffix length — 116 for n=2. A prefill the
+    // server can only 400 is worse than a shorter suggestion.
+    const src = row({ id: "a", name: "n".repeat(120) });
+    const suggested = suggestCloneName([src], src);
+    expect(suggested.length).toBeLessThanOrEqual(120);
+    expect(suggested.startsWith("n".repeat(115))).toBe(true);
+    expect(suggested).toBe(`${"n".repeat(116)} (2)`);
+  });
 });
