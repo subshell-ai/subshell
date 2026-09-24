@@ -15,6 +15,7 @@ import { useClockTick } from "@/hooks/use-clock-tick";
 import { useLiveSubshells } from "@/hooks/useLiveSubshells";
 import { filterSubshells, groupSubshells } from "@/lib/subshell-filter";
 import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
+import { needsAttention } from "@/lib/subshell-node-groups";
 import { priorityRunning } from "@/lib/subshell-order";
 import type { SubshellView } from "@/types/subshell";
 
@@ -70,6 +71,13 @@ function SubshellsPage() {
   // Bell-on subshells waiting for the operator lead the Running section;
   // everything else keeps the order the feed gave it.
   groups.running = priorityRunning(groups.running);
+  // The owner's unanswered pushes, gathered above the status sections
+  // (spec 2026-09-24). `filtered` (not `subshells`) so the page's own search
+  // narrows it exactly as it narrows the three status groups; the selector is
+  // owner-only, so a shared unseen pane is not listed here any more than in
+  // the rail. `TileSection` renders nothing when the list is empty, so the
+  // whole section disappears with the last unseen push — no empty heading.
+  const attention = needsAttention(filtered);
 
   /** Switches view. Tiled clears the param rather than spelling out the default. */
   function setView(next: SubshellsView) {
@@ -146,6 +154,7 @@ function SubshellsPage() {
 
       {!isLoading && filtered.length > 0 && view === "tiled" && (
         <>
+          <TileSection title="Needs Attention" subshells={attention} />
           <TileSection title="Running" subshells={groups.running} />
           <TileSection title="Paused / exited" subshells={groups.exited} />
           <TileSection title="Completed" subshells={groups.terminated} />

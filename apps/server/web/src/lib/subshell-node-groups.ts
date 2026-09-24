@@ -139,3 +139,28 @@ export function groupSubshellsByNode(
     total,
   }));
 }
+
+/**
+ * The panes that pushed and have not been answered — the spotlight rule the
+ * rail's Needs Attention section and the home page's are both built from
+ * (spec 2026-09-24).
+ *
+ * It is a filter, not a sort: the caller's order (the rail's status band, the
+ * home's already-filtered feed-order list) is preserved, and the list is
+ * uncapped — a pane that pushed is news however many rows sit above it.
+ *
+ * `access === "owner"` is load-bearing, not tidy: every clear site for
+ * `last_push_urgency` requires the OWNER's cookie, so a shared pane's unseen
+ * push is a state a grantee can see but never end. Listing it in THEIR rail
+ * would be a bell no click can silence — permanent noise about a machine that
+ * is not theirs. `unseenPush` alone is the whole predicate on the owner's own
+ * rows: a muted pane pushed nothing, so it is absent here exactly as it is
+ * absent from the bell, and the waiting chip (a different signal) does not
+ * belong to this section at all.
+ *
+ * @param rows - the surface's already-ordered list (own + shared; the feed's
+ *               rows may carry no `access` until a snapshot stamps it)
+ */
+export function needsAttention(rows: readonly SubshellView[]): SubshellView[] {
+  return rows.filter((row) => row.unseenPush && row.access === "owner");
+}

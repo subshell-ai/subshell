@@ -363,3 +363,77 @@ describe("filtering across groups", () => {
     );
   });
 });
+
+/** The rail's Needs Attention region, found by the accessible name it now carries. */
+function attentionRegion(): HTMLElement | null {
+  return screen.queryByRole("region", { name: "Needs Attention" });
+}
+
+describe("the rail's Needs Attention spotlight (spec 2026-09-24)", () => {
+  it("renders nothing when no pane has an unseen push", async () => {
+    await withRail([subshell({ id: "a", name: "seen" })], async () => {
+      await waitFor(() => expect(groupHeaders()).toHaveLength(1));
+      expect(attentionRegion()).toBeNull();
+    });
+  });
+
+  it("lists the owner's unseen rows above the first machine group", async () => {
+    await withRail(
+      [
+        subshell({ id: "a", name: "waiting", nodeId: "n1", unseenPush: true }),
+        subshell({ id: "b", name: "seen", nodeId: "local" }),
+      ],
+      async () => {
+        await waitFor(() => expect(groupHeaders()).toHaveLength(2));
+        const region = attentionRegion();
+        if (!region) throw new Error("the rail rendered no Needs Attention region");
+        expect(region.textContent).toContain("waiting");
+        expect(region.textContent).not.toContain("seen");
+        // Above every machine group: the region precedes the first group header
+        // in document order, whatever the group sort did with the unseen row's
+        // own node.
+        const firstButton = groupHeaders()[0];
+        if (!firstButton) throw new Error("the rail rendered no group header to order against");
+        expect(region.compareDocumentPosition(firstButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+          Node.DOCUMENT_POSITION_FOLLOWING,
+        );
+      },
+    );
+  });
+
+  it("spotlights without extracting — the unseen row is ALSO in its node group", async () => {
+    await withRail([subshell({ id: "a", name: "waiting", nodeId: "n1", unseenPush: true })], async () => {
+      await waitFor(() => expect(groupHeaders()).toHaveLength(1));
+      expect(attentionRegion()?.textContent).toContain("waiting");
+      // The group it belongs to still lists it and still counts it; no row
+      // jumps between groups when the pane is opened.
+      expect(groupList("n1").textContent).toContain("waiting");
+      expect(groupHeader("n1").textContent).toContain("1");
+    });
+  });
+
+  it("excludes a grantee's unseen row from the owner's spotlight", async () => {
+    await withRail([subshell({ id: "a", name: "shared", unseenPush: true, access: "view" })], async () => {
+      await waitFor(() => expect(groupHeaders()).toHaveLength(1));
+      expect(attentionRegion()).toBeNull();
+    });
+  });
+
+  it("narrows with the filter and empties when no unseen row matches", async () => {
+    await withRail(
+      [
+        subshell({ id: "a", name: "keep-me", unseenPush: true }),
+        subshell({ id: "b", name: "other", unseenPush: true }),
+      ],
+      async () => {
+        await waitFor(() => expect(attentionRegion()).not.toBeNull());
+        fireEvent.change(screen.getByLabelText("Filter subshells"), { target: { value: "keep" } });
+        await waitFor(() => expect(attentionRegion()?.textContent).toContain("keep-me"));
+        expect(attentionRegion()?.textContent).not.toContain("other");
+
+        fireEvent.change(screen.getByLabelText("Filter subshells"), { target: { value: "zzz-nomatch" } });
+        await waitFor(() => expect(attentionRegion()).toBeNull());
+      },
+    );
+  });
+});

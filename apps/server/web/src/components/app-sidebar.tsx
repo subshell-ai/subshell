@@ -43,7 +43,7 @@ import { collapsedNodeGroups, setCollapsedNodeGroups, toggleNodeGroup } from "@/
 import { RECENT_LIMIT, recentWorkspaceLinks } from "@/lib/sidebar-recents";
 import { filterSubshells } from "@/lib/subshell-filter";
 import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
-import { groupSubshellsByNode } from "@/lib/subshell-node-groups";
+import { FALLBACK_NODE_ID, groupSubshellsByNode, needsAttention, nodeLabelFor } from "@/lib/subshell-node-groups";
 
 /** localStorage key for the collapsed state (persists across reloads). */
 const COLLAPSED_KEY = "subshell.sidebarCollapsed";
@@ -308,12 +308,17 @@ export function AppSidebar({
       presetId === null ? undefined : (presetData?.find((p) => p.id === presetId)?.name ?? presetId),
     [presetData],
   );
+  // The one filtered list both rail consumers read: the machine groups AND the
+  // Needs Attention spotlight. Deriving it once makes "the spotlight sees the
+  // exact rows the groups see" a fact of the code rather than two identical
+  // expressions kept in sync by a comment.
+  const railRows = q ? filterSubshells(byStatus, subshellQuery) : byStatus;
   // NOT memoised, deliberately: a group's rank re-derives activity against
   // the CLOCK, so a `useMemo` keyed on the data would freeze the group order
   // between feed frames and undo the liveliest-member ordering the 20 s tick
   // exists to maintain. The pass is O(rows) with a Map, per tick and per
   // keystroke — the frame it costs is one the rail re-renders for anyway.
-  const nodeGroups = groupSubshellsByNode(q ? filterSubshells(byStatus, subshellQuery) : byStatus, nodeData?.nodes, {
+  const nodeGroups = groupSubshellsByNode(railRows, nodeData?.nodes, {
     limit: q ? undefined : RECENT_LIMIT,
     // "Unanswered" means NO successful read has ever committed: in flight, or
     // failed with nothing cached. It cannot be `isPending || isError` — a
@@ -323,6 +328,13 @@ export function AppSidebar({
     // reason to hold. Stale-but-cached beats a verdict from a failed retry.
     unanswered: nodeData === undefined,
   });
+  // The "Needs Attention" spotlight above the machine groups (spec 2026-09-24):
+  // `railRows` — the same rows the groups are built from — narrowed to the
+  // owner's unseen pushes. Computed from the filter set, not from `nodeGroups`,
+  // so a match in filter mode shows here exactly as it shows in the
+  // (forced-open) group, and the cap that groups apply never hides a pane that
+  // pushed.
+  const attentionRows = needsAttention(railRows);
   const listedCount = nodeGroups.reduce((sum, group) => sum + group.subshells.length, 0);
   // Which node groups this device has shut. Read once at mount — the rail
   // lives for the session, so re-reading storage on every render would buy
@@ -622,6 +634,26 @@ export function AppSidebar({
               )}
               {!collapsed && item.to === "/" && q !== "" && listedCount === 0 && (
                 <p className="px-3 py-1 text-detail text-muted-foreground">No matches.</p>
+              )}
+              {!collapsed && item.to === "/" && attentionRows.length > 0 && (
+                <section aria-label="Needs Attention" className="mb-1">
+                  <div className="flex w-full items-center gap-2 py-1 pr-2 pl-3 text-detail text-muted-foreground">
+                    <span className="min-w-0 flex-1 truncate font-strong">Needs Attention</span>
+                    <span className="shrink-0 tabular-nums opacity-70">{attentionRows.length}</span>
+                  </div>
+                  {attentionRows.map((sub) => (
+                    <SubshellRecentRow
+                      key={`attention-${sub.id}`}
+                      subshell={sub}
+                      active={location.pathname === `/subshells/${sub.id}`}
+                      nodeLabel={
+                        nodeLabelFor(sub.nodeId || FALLBACK_NODE_ID, nodeData?.nodes, nodeData === undefined).label
+                      }
+                      agentLabel={agentLabel(sub.harnessId)}
+                      presetLabel={presetLabel(sub.presetId)}
+                    />
+                  ))}
+                </section>
               )}
               {!collapsed &&
                 item.to === "/" &&

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { Node } from "@internal/node-admin";
-import { groupSubshellsByNode, nodeLabelFor } from "@/lib/subshell-node-groups";
+import { groupSubshellsByNode, needsAttention, nodeLabelFor } from "@/lib/subshell-node-groups";
 import type { SubshellView } from "@/types/subshell";
 
 /** A minimal subshell view — only the fields grouping and ranking read. */
@@ -184,5 +184,39 @@ describe("nodeLabelFor: the exported ladder (the diagnostics HUD names a node wi
     expect(nodeLabelFor("abcdef0123456789", undefined, true).label).toBe("abcdef01");
     // Answered without the id: unknown, never a "deleted" verdict.
     expect(nodeLabelFor("gone", [node()], false).label).toBe("unknown node");
+  });
+});
+
+describe("needsAttention — the shared spotlight rule (spec 2026-09-24)", () => {
+  it("keeps exactly the owner's unseen rows, in the caller's order", () => {
+    const rows = [
+      subshell({ id: "a", unseenPush: true }),
+      subshell({ id: "b", unseenPush: false }),
+      subshell({ id: "c", unseenPush: true }),
+    ];
+    expect(needsAttention(rows).map((s) => s.id)).toEqual(["a", "c"]);
+  });
+
+  it("excludes a grantee's unseen row — they can never clear it", () => {
+    // Every clear site for last_push_urgency requires the OWNER's cookie, so
+    // a shared pane would sit in this section forever as permanent noise.
+    const rows = [
+      subshell({ id: "mine", unseenPush: true, access: "owner" }),
+      subshell({ id: "theirs", unseenPush: true, access: "view" }),
+      subshell({ id: "theirs2", unseenPush: true, access: "edit" }),
+    ];
+    expect(needsAttention(rows).map((s) => s.id)).toEqual(["mine"]);
+  });
+
+  it("excludes a row the feed has not stamped an access for — skipped, never guessed", () => {
+    // The live feed carries no per-viewer access; a row arriving before any
+    // snapshot has an undefined access (the fixture omits the field).
+    const rows = [subshell({ id: "unstamped", unseenPush: true, access: undefined })];
+    expect(needsAttention(rows)).toEqual([]);
+  });
+
+  it("returns nothing for a seen list or an empty one", () => {
+    expect(needsAttention([subshell({ unseenPush: false }), subshell()])).toEqual([]);
+    expect(needsAttention([])).toEqual([]);
   });
 });
