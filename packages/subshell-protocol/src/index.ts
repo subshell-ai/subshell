@@ -66,6 +66,7 @@ export {
   isNodeServiceVerb,
   isNodeSubshellId,
   type LaunchResolveWire,
+  NODE_CLOSE_HANDSHAKE_REQUIRED,
   NODE_CLOSE_SUPERSEDED,
   NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,

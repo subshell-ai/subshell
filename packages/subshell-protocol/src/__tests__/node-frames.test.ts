@@ -182,7 +182,10 @@ describe("parseNodeCommandBody", () => {
     // 13 is `pane_cursor`: the attach replay ends with the client's cursor
     // ON the pane's cursor, without which every live byte after a
     // fresh-terminal replay paints a row-count away from the prompt.
-    expect(NODE_PROTOCOL_VERSION).toBe(13);
+    // 14 is the encrypted node link: the kx handshake, secretstream frames,
+    // the register self-heal and close 4410 — a protocol-14 node never writes
+    // a plaintext frame.
+    expect(NODE_PROTOCOL_VERSION).toBe(14);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {

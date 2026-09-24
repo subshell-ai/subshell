@@ -101,8 +101,14 @@ export function semverLt(a: string, b: string): boolean {
  * publishes, `releases.ts` refuses to offer the older node release (its own
  * check: below the floor) and the held-socket update path is what carries
  * the fleet.
+ *
+ * Raised to 0.17.0 with protocol 14 (the encrypted node link, spec
+ * 2026-09-24), the same way — `apps/node/agent/package.json` goes to 0.17.0
+ * in the same commit. An agent below this speaks no handshake, and the whole
+ * point of this bump is that no such agent may put a plaintext frame on the
+ * link the encrypted one is meant to carry.
  */
-export const MIN_NODE_VERSION = "0.16.0";
+export const MIN_NODE_VERSION = "0.17.0";
 
 /**
  * Whether an agent reporting `version` may connect.

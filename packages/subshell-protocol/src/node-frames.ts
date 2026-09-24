@@ -116,8 +116,14 @@ import type { JsonValue } from "./json.js";
  * agent never gets asked (its plane cannot exist — server and node ship
  * together), and a null or failing answer just means the replay ships
  * without the restore, which is precisely the pre-13 behavior.
+ *
+ * **13 → 14 is the encrypted link (spec 2026-09-24).** The link is encrypted
+ * end-to-end: kx handshake, secretstream frames, the register self-heal,
+ * close 4410. Hard cutover: protocol-14 nodes never write plaintext frames,
+ * and legacy rows are held-updatable until they register. Not additive in
+ * anything — this one changes the transport itself.
  */
-export const NODE_PROTOCOL_VERSION = 13;
+export const NODE_PROTOCOL_VERSION = 14;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
@@ -162,6 +168,14 @@ export const NODE_CLOSE_UPDATE_REQUIRED = 4406;
  * the backend ever emits them.
  */
 export const NODE_CLOSE_SUPERSEDED = 4409;
+
+/**
+ * Close: the link refused to speak without the encryption handshake
+ * (spec 2026-09-24 §6). Not terminal for the agent: the reason is relayed
+ * to its own log and the existing backoff loop reconnects — the register
+ * self-heal (§5) rides the next dial.
+ */
+export const NODE_CLOSE_HANDSHAKE_REQUIRED = 4410;
 
 /**
  * `result.error` from a `service` verb the agent refused because its service
