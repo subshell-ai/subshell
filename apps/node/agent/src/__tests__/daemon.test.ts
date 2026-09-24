@@ -128,6 +128,17 @@ interface Plane {
   socket?: PlaneSocket;
   /** EVERY currently-open socket — teardown 4409s all of them, probes included. */
   sockets: Set<PlaneSocket>;
+  /**
+   * Set by `afterEach` before it drains the sockets: every NEW socket that opens is
+   * immediately closed 4409. The escape hatch a `closeAllSockets` alone is not —
+   * a never-establishing daemon (a refusal/silent/deadline test that redials at
+   * zero backoff) can sit between dials with no open socket when teardown runs,
+   * and the plain socket-drain then misses it: its loop is abandoned mid-redial,
+   * spams reconnects into the SHARED log sink, and leaks across the file boundary
+   * to contaminate another test's `captureLogs()` window. Closing-on-connect
+   * catches whichever socket the loop holds NEXT, so `h.stopped` always settles.
+   */
+  teardown: boolean;
   /** Per socket, in open order: the kind of its first inbound frame ("kx" | "register" | "text:<t>" | "bytes"). */
   firstFrames: string[];
   /** The close code of every kx REFUSAL the fake sent, in send order (R12b: pin WHICH code the agent saw). */
@@ -208,6 +219,7 @@ function startPlane(opts: PlaneOpts): Plane {
     opens: 0,
     closes: 0,
     sockets: new Set(),
+    teardown: false,
     firstFrames: [],
     refusalCodes: [],
     violations: [],
@@ -251,6 +263,15 @@ function startPlane(opts: PlaneOpts): Plane {
         const sock = ws as unknown as PlaneSocket;
         plane.socket = sock;
         plane.sockets.add(sock);
+        // Teardown escape hatch: a loop redialing between dials has no OPEN socket
+        // for `closeAllSockets` to reach; closing THIS one 4409 breaks it for good.
+        if (plane.teardown) {
+          try {
+            sock.close(4409, "test teardown");
+          } catch {
+            /* already gone */
+          }
+        }
       },
       async message(rawWs, msg) {
         const ws = rawWs as unknown as PlaneSocket;
@@ -603,6 +624,11 @@ afterEach(async () => {
   if (!h) return;
   active = undefined;
   // Drive the daemon out through the terminal path so its loop stops for good.
+  // Arm the close-on-connect hatch FIRST: if the daemon is mid-redial with no open
+  // socket (a never-establish refusal test at zero backoff), the socket-drain below
+  // would miss it and the loop leaks across the file boundary into the next test's
+  // log capture. Whichever socket it opens next is now a terminal 4409.
+  h.plane.teardown = true;
   closeAllSockets(h.plane, 4409, "test teardown");
   await Promise.race([h.stopped, sleep(1500)]);
   h.plane.server.stop(true);
