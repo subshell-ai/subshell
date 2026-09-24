@@ -69,7 +69,13 @@ export interface Subscription {
    * line-insert prompt dance) re-apply as a second, misplaced prompt (the
    * 2026-09-23 ghost-prompt-at-bottom). Other viewers on the same pump still
    * receive everything: the drop is per-viewer, the pump's join point
-   * unchanged.
+   * unchanged. The window is narrowed, not eliminated: bytes that arrive
+   * between the mark and the capture are BOTH queued and inside the capture,
+   * and re-apply at open — the same overlap the join-point rule has always
+   * tolerated as self-healing. It usually quiesces first, because a booting
+   * attach has already watched the repaint settle before marking; a shell
+   * still mid-prompt-dance at the mark keeps a ghost-prompt chance one
+   * capture call wide.
    */
   discardQueued(): void;
   /** Detaches this viewer. Idempotent, and safe to call after a later attach. */

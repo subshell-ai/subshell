@@ -1261,6 +1261,10 @@ describe("dispatchCli — update and backup", () => {
     const { deps, err, exits } = collectingDeps({ home: newConfigDir(), configDir: newConfigDir() });
     expect(await dispatchCli(["update", "--yes"], deps)).toBe(true);
     expect(exits).toEqual([1]);
-    expect(err.join("\n")).toMatch(/no service definition|cannot replace|does not fetch releases/);
+    // Three refusals, all before any request. The third fires on a host whose
+    // unit carries the DEV form (an interpreter plus a script path, so the
+    // ladder's rung 1 answers `kind: "source"`): the update refuses to `git
+    // pull` a checkout. Same measured-on-your-machine caveat as the other two.
+    expect(err.join("\n")).toMatch(/no service definition|cannot replace|does not fetch releases|runs from a checkout/);
   });
 });

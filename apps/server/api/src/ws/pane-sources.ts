@@ -148,6 +148,13 @@ export interface PanePollSourceOptions {
  * stripping markers over the full string also catches one straddling the
  * boundary between what was already sent and what is new.
  *
+ * Content only — this path cannot carry the cursor restore. A whole-grid
+ * re-print (any non-prefix change: scroll, repaint) ends with the client's
+ * cursor after the last painted row, so on a pane whose log never shows the
+ * browser caret can sit below the visible prompt even though every character
+ * is right. Degraded, not broken, and the attach's replay + `pane_cursor`
+ * still fixed the BASE — this is the narrow fallback, not the stream.
+ *
  * @param options - Launcher, pane handles, and the output heartbeat
  * @returns A source for {@link import("./pane-stream.js").PaneStreamRegistry}
  */

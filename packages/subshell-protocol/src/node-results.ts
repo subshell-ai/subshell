@@ -321,8 +321,10 @@ export interface NodePaneSizeResult {
  *
  * The last two collapse deliberately: both mean "no confirmed size", and the
  * control plane's only sane response to either is to announce nothing rather
- * than a guess. An agent too old to know the command never gets asked (see
- * `PANE_SIZE_MIN_PROTOCOL_VERSION`).
+ * than a guess. An agent too old to know the command never gets asked: the
+ * plane's EXACT-match gate (`NODE_PROTOCOL_VERSION`) refuses every agent that
+ * does not share the current protocol, so any agent that receives this
+ * command already speaks its answer.
  *
  * @param data - the `data` member of a successful result frame
  * @returns the pane's grid, or null when absent/malformed

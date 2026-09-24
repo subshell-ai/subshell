@@ -406,8 +406,10 @@ Three invariants on that path are load-bearing and easy to regress:
   attach paths read it via `readPaneCursor` (remote: the `pane_cursor`
   command, protocol 13; a null cursor ships the replay without the restore —
   the pre-13 behavior, degraded only for a cursor near the top). Without the
-  restore every live byte after a replay painted one row too low — the
-  2026-09-23 "prompt at the top, typing off-screen" report.
+  restore every live byte after a replay painted below the visible prompt —
+  off by whatever sat between the pane's cursor row and the bottom of the
+  grid (up to a full screen), the 2026-09-23 "prompt at the top, typing
+  off-screen" report.
 
 ### Error contract
 

@@ -214,6 +214,10 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
       await Bun.sleep(LOG_FILE_POLL_MS);
     }
   }
+  // The client left during a wait this PR made up to 1.5 s long: its close
+  // already ran and found nothing armed, and nothing here has been since —
+  // returning now keeps the fit resize from firing for a viewer that is gone.
+  if (detached) return;
 
   // No readable log bytes at the join, or bytes only from the row's PREVIOUS
   // life while the current boot is inside the grace — a fresh or restarted
@@ -318,6 +322,19 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // very next diff, which the client is guaranteed to receive.
   const cap = replayLineCap(await getRequestlessContext().repos.userMeta.getTerminalReplayLines(row.userId));
   const text = await captureStable(launcher, socket, row.id, cap);
+  // A booting viewer whose capture FAILED has no base to stream onto: the
+  // drop above took its queued bytes on the promise that the capture subsumes
+  // them, and with no capture that promise is void — opening would park the
+  // viewer on a blank screen with no replay coming. The remote twin refuses
+  // every null capture this way; local takes the same refusal HERE and only
+  // here, because a non-booting viewer still has its gap-free queue to flush.
+  // 4004 is the client's retryable refusal, so a tmux hiccup reconnects into
+  // a fresh attach rather than dead-ending the panel.
+  if (booting && text === null) {
+    cleanupSubshellWs(ws);
+    ws.close(4004, "subshell not running");
+    return;
+  }
   // The cursor is read immediately after the capture: the replay must END on
   // the pane's cursor row, and without it the client's cursor sits after the
   // last row painted — the bottom of the grid — while a fresh terminal's

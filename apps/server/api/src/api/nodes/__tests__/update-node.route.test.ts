@@ -424,9 +424,12 @@ describe("POST /api/nodes/:id/update", () => {
   it("refuses an agent on an older protocol, naming both numbers", async () => {
     useFakeRelease();
     const id = await mkNode();
+    // One below the SIGNED-UPDATES gate, not merely one below current:
+    // protocol 13 made `current - 1` (12) a signed-updates-capable agent,
+    // which belongs to the dispatch path, not this refusal.
     await nodes.applyReady(id, {
       agentVersion: "0.10.0",
-      protocolVersion: NODE_PROTOCOL_VERSION - 1,
+      protocolVersion: NODE_SIGNED_UPDATES_PROTOCOL_VERSION - 1,
       os: "linux",
       arch: "x64",
       hostname: "box",
@@ -438,7 +441,7 @@ describe("POST /api/nodes/:id/update", () => {
     const err = (await res.json()) as { code: string; message: string };
     expect(err.code).toBe("NODE_AGENT_TOO_OLD");
     expect(err.message).toContain("predates signed updates");
-    expect(err.message).toContain(`protocol ${NODE_PROTOCOL_VERSION - 1}`);
+    expect(err.message).toContain(`protocol ${NODE_SIGNED_UPDATES_PROTOCOL_VERSION - 1}`);
     expect(err.message).toContain(`need ${NODE_SIGNED_UPDATES_PROTOCOL_VERSION}`);
   });
 
@@ -448,7 +451,10 @@ describe("POST /api/nodes/:id/update", () => {
     // answer is the honest one. Here it says "not capable", so that decides.
     useFakeRelease();
     const id = await mkNode();
-    const sock = goHeld(id, NODE_PROTOCOL_VERSION - 1);
+    // Below the SIGNED-UPDATES gate for the same reason as the `applyReady`
+    // case above: at protocol 13, `current - 1` speaks signed updates and
+    // belongs to the dispatch path.
+    const sock = goHeld(id, NODE_SIGNED_UPDATES_PROTOCOL_VERSION - 1);
     const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
     expect(res.status).toBe(409);
     expect(((await res.json()) as { code: string }).code).toBe("NODE_AGENT_TOO_OLD");

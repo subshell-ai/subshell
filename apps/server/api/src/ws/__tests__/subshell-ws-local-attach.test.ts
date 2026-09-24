@@ -250,6 +250,26 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     expect(sent.some((f) => f.includes("live byte"))).toBe(true);
   });
 
+  it("a booting viewer whose capture FAILS is refused, not parked on a blank screen", async () => {
+    // The boot drop promises the capture subsumes its queued bytes. When the
+    // capture itself fails (pane died mid-attach, tmux hiccup) the promise is
+    // void: opening would flush a DRAINED queue and the viewer would wait
+    // forever for a replay that never comes. It gets the remote twin's
+    // refusal instead — stream torn down, 4004, which the client treats as
+    // retryable, so a transient tmux failure reconnects rather than
+    // dead-ending the panel. (A NON-booting viewer still streams on a null
+    // capture: it kept its queue — the local path's long-standing swallow.)
+    stubLauncher();
+    defaultLocalLauncher.capture = async () => {
+      throw new Error("tmux went away mid-attach");
+    };
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), ""); // live row, empty log ⇒ booting
+    const viewer = await attach(row.userId, row.id, "&cols=100&rows=50");
+    expect(viewer.closed).toEqual([{ code: 4004, reason: "subshell not running" }]);
+    expect(viewer.sent.some((f) => f.includes('"type":"replay"'))).toBe(false);
+  });
+
   it("still falls back to pane-poll when the log never appears at all", async () => {
     // The wait is bounded so a row whose log genuinely never shows (swept,
     // hand-deleted) attaches rather than hangs — and the poll fallback still
