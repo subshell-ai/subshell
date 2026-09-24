@@ -97,10 +97,12 @@ const BUTTON_CLASS =
  * In {@link readOnly} mode only the scroll row renders.
  *
  * The bottom padding is HALF the home-indicator inset, not all of it. The
- * indicator floats over the bottom ~21 pt dead-centre; the 44 pt buttons sit
- * clear of it at half the inset, and the full inset read as a dead card
- * band below the keys (operator: "huge bottom padding"). The shell adds no
- * bottom padding under this bar — see `routeOwnsBottomEdge`.
+ * indicator's VISUAL sits in roughly the bottom 15 pt (the ~21 pt below
+ * that is the system's swipe zone, which claims swipes, never taps), so
+ * half of a 34 pt inset still leaves the 44 pt buttons' bottom edge above
+ * it — and the full inset read as a dead card band below the keys
+ * (operator: "huge bottom padding"). The shell adds no bottom padding
+ * under this bar — see `routeOwnsBottomEdge`.
  */
 export function TerminalKeyBar({
   disabled,

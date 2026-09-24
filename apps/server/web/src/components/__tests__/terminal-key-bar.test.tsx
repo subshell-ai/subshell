@@ -144,8 +144,13 @@ describe("TerminalKeyBar", () => {
       const bar = readOnly
         ? screen.getByRole("toolbar", { name: "Terminal scrolling" })
         : screen.getByRole("toolbar", { name: "Terminal special keys" });
-      expect(bar.className).toContain("pb-[calc(env(safe-area-inset-bottom)/2)]");
-      expect(bar.className).not.toMatch(/pb-\[env\(/);
+      // The WHOLE pb-* set, not a substring hunt: a second pb-* utility
+      // wins by stylesheet order, not attribute order, and a full inset
+      // re-wrapped as `pb-[calc(env(...))]` would slip past a
+      // `pb-[env(` regex.
+      expect([...bar.classList].filter((c) => c.startsWith("pb-"))).toEqual([
+        "pb-[calc(env(safe-area-inset-bottom)/2)]",
+      ]);
     }
   });
 
