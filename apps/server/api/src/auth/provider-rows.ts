@@ -43,7 +43,7 @@ export interface StoredProviderRow {
   allowedDomains: string[];
   /** Whether this door may sign in at all. */
   signInEnabled: boolean;
-  /** False ⇒ `disableSignUp`; NULL is the legacy dynamic gate, legal on the email row only (§2). */
+  /** Read by the door policy's registration case, never mapped to `disableSignUp` (finding F1: the belt short-circuited the create path before the hook could answer `registration_closed`); NULL is the legacy dynamic gate, legal on the email row only (§2). */
   registrationEnabled: boolean | null;
   /** Whether accounts this door creates land on "pending" (§6). */
   requireApproval: boolean;
