@@ -177,7 +177,12 @@ describe("parseNodeCommandBody", () => {
     // 10 is the `update` command: the plane hands an agent a version, a URL
     // and a digest and it replaces its own binary — the one command that
     // crosses a protocol boundary, which is why its shape is frozen.
-    expect(NODE_PROTOCOL_VERSION).toBe(12);
+    // 12 (skipping 11) is the signed `update`: manifest bytes plus the
+    // publisher's signature, verified by the agent before any swap.
+    // 13 is `pane_cursor`: the attach replay ends with the client's cursor
+    // ON the pane's cursor, without which every live byte after a
+    // fresh-terminal replay paints a row-count away from the prompt.
+    expect(NODE_PROTOCOL_VERSION).toBe(13);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -196,6 +201,15 @@ describe("parseNodeCommandBody", () => {
     expect(parseNodeCommandBody({ type: "set_allowed_dirs" })).toBeNull();
     expect(parseNodeCommandBody({ type: "set_allowed_dirs", dirs: "/a" })).toBeNull();
     expect(parseNodeCommandBody({ type: "set_allowed_dirs", dirs: [1, 2] })).toBeNull();
+  });
+
+  it("accepts pane_cursor and rejects a missing or non-string id", () => {
+    expect(parseNodeCommandBody({ type: "pane_cursor", subshellId: "s1" })).toEqual({
+      type: "pane_cursor",
+      subshellId: "s1",
+    });
+    expect(parseNodeCommandBody({ type: "pane_cursor" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "pane_cursor", subshellId: 7 })).toBeNull();
   });
 
   it("accepts pane_size and rejects a missing or non-string id", () => {

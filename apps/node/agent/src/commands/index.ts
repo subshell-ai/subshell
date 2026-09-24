@@ -6,6 +6,7 @@ import {
   execInput,
   execInventory,
   execKill,
+  execPaneCursor,
   execPaneSize,
   execPathExists,
   execProbe,
@@ -82,6 +83,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execCapture(ctx, cmd);
       case "pane_size":
         return await execPaneSize(ctx, cmd);
+      case "pane_cursor":
+        return await execPaneCursor(ctx, cmd);
       case "prompt_deliver":
         return await execPromptDeliver(ctx, cmd);
       case "stat_dir":

@@ -140,13 +140,13 @@ describe("fitPaneAndRepaint", () => {
     }
   });
 
-  it("a booting pane (zero log bytes) gets the fit resize and NO winch storm", async () => {
+  it("a booting pane that never paints gets the fit resize, the capped watch, and NO winch storm", async () => {
     // The fresh-terminal duplicate-prompt report (2026-09-23): attach fires
     // while the shell is still booting, and the nudge's ±1 geometry steps make
     // slow-init prompts (ble.sh, powerlevel10k) redraw THEMSELVES INTO HISTORY
-    // — the stray prompt at the top of an empty pane. With `booting`, the one
-    // fit resize happens (before any frame exists, so the shell boots AT the
-    // fit geometry) and nothing else.
+    // — the stray prompt at the top of an empty pane. With `booting`, the fit
+    // resize happens (before any frame exists, so the shell boots AT the fit
+    // geometry) and the passive first-paint watch runs, but NOTHING provokes.
     const p = await seed("boot-quiet", "sh -c 'sleep 30'");
     try {
       const fit = { cols: p.size.cols - 3, rows: p.size.rows };
@@ -157,15 +157,40 @@ describe("fitPaneAndRepaint", () => {
         booting: true,
       });
       expect(r).toEqual({ repainted: false, nudged: false });
-      // The same call without `booting` spends ≥200ms waiting for a burst a
-      // silent pane cannot send, then nudges (~520ms floor); this path is one
-      // resize RPC. 300ms keeps a wide margin over the fast path's two tmux
-      // round trips while still discriminating against the broken floor —
-      // CI-load-spare on the bound is the convention here.
-      expect(performance.now() - t0).toBeLessThan(300);
+      // The wait IS paid here on purpose (the no-growth budget, ≤200ms): an
+      // immediate capture of a booting pane ships a blank grid and corrupts
+      // the client's cursor base. The bound still discriminates against the
+      // provocation path (fit-wait + winch + ±1 ≈ 520ms floor) while allowing
+      // the watch + two tmux RPCs under CI load.
+      expect(performance.now() - t0).toBeLessThan(500);
       expect(await launcher.paneSize(p.socket, p.id)).toEqual(fit);
       // And the pane stayed untouched: no winch-provoked bytes.
       expect(await p.sizeOf()).toBe(0);
+    } finally {
+      await p.dispose();
+    }
+  });
+
+  it("a booting pane's FIRST PAINT is caught: the watch ends on it, so the capture is not blank", async () => {
+    // The regression this watch exists for (dev server, 2026-09-23): a fast
+    // path that skipped the wait captured 78 bytes of empty grid three ms
+    // after pane birth; the prompt arrived later as live bytes, and the
+    // client rendered prompt-at-top with its cursor stranded at the bottom.
+    // A pane that paints within the budget must come back repainted=true.
+    // `seed` already spent 500ms, so the paint is armed to land ~100ms INTO
+    // the watch — growth observed, 60ms of quiet, return — well inside the
+    // 200ms no-growth budget the silent case above pays instead.
+    const p = await seed("boot-paint", "sh -c 'sleep 0.6; printf hello; sleep 30'");
+    try {
+      const before = await p.sizeOf();
+      expect(before).toBe(0); // nothing painted yet — the blank-replay risk is live
+      const r = await fitPaneAndRepaint(launcher, p.socket, p.id, p.size, p.sizeOf, {
+        baseline: 0,
+        canNudge: true,
+        booting: true,
+      });
+      expect(r).toEqual({ repainted: true, nudged: false });
+      expect(await p.sizeOf()).toBeGreaterThan(before);
     } finally {
       await p.dispose();
     }

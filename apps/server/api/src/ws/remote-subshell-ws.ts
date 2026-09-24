@@ -16,6 +16,7 @@ import {
   broadcastViewers,
   paneStreams,
   persistOutputFor,
+  readPaneCursor,
   readPaneGeometry,
   registerViewer,
   sendFrame,
@@ -197,6 +198,12 @@ export async function attachRemoteSubshellWs(
     const logStart = (await launcher.readLogSized(row.id, 0, 1)).size;
     if (detached) return;
 
+    // The local twin's rule: no readable bytes at the join, or residual bytes
+    // from a previous life inside the restart grace — a booting pane gets no
+    // provocation, and its viewer gets the boot bytes DROPPED before the
+    // capture (see `discardQueued`), not replayed on top of the same screen.
+    const booting = paneReadsAsBooting(logStart, row.startedAt);
+
     // Attach to the subshell's shared pump BEFORE the pane is read — the
     // local twin's ordering, and here it is also a hard requirement rather
     // than an optimization: `NodeLauncher`'s contract forbids overlapping
@@ -261,7 +268,7 @@ export async function attachRemoteSubshellWs(
           // settled frame — first boot, or a restart still in the grace —
           // gets the fit and nothing else; the winch storm duplicates a
           // still-booting prompt.
-          booting: paneReadsAsBooting(logStart, row.startedAt),
+          booting,
         });
         repainted = outcome.repainted;
         nudged = outcome.nudged;
@@ -271,6 +278,12 @@ export async function attachRemoteSubshellWs(
       }
       if (detached) return;
     }
+
+    // The local twin's booting drop: the replay below captures the whole
+    // current screen, so the queued boot bytes are the same frames twice —
+    // and the boot's transitional sequences (scroll-region, line-insert)
+    // repaint as a ghost prompt when re-applied. Mark now, capture after.
+    if (booting) stream.discardQueued();
 
     // N is the OWNER's per-user setting (Account → Terminal history), falling
     // back to the instance default — the local twin's rule; the clamp
@@ -292,6 +305,11 @@ export async function attachRemoteSubshellWs(
       ws.close(4004, "subshell not running");
       return;
     }
+    // The cursor is read immediately after the capture, like the local twin:
+    // the replay must end with the client's cursor ON the pane's cursor, or
+    // every later live byte paints at a row the two disagree about. Null
+    // (pane gone, agent unanswerable) ships the replay without the restore.
+    const cursor = await readPaneCursor(launcher, data.socket, row.id);
     // The pane's CONFIRMED grid, announced to every viewer before the
     // replay so the capture is painted onto a grid they already agree
     // with. Null means the pane died between the fit and here, and a
@@ -302,7 +320,7 @@ export async function attachRemoteSubshellWs(
       broadcastToViewers(row.id, { type: "geometry", cols: attachGeometry.cols, rows: attachGeometry.rows });
     }
 
-    const painted = captureToReplayText(replay);
+    const painted = captureToReplayText(replay, cursor ?? undefined);
     sendFrame(ws, { type: "replay", data: painted });
     recordAttachPaint({ subshellId: row.id, preResize, replay: painted, repainted, nudged });
     if (detached) return;

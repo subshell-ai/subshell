@@ -119,6 +119,17 @@ export interface NodeLauncher {
    */
   paneSize(socket: string, id: string): Promise<{ cols: number; rows: number } | null>;
   /**
+   * The pane's cursor in viewport coordinates (0-based), or null when it
+   * cannot be read.
+   *
+   * The attach replay needs it to end the paint ON the pane's cursor: after
+   * writing the captured grid the client's cursor sits after the last row,
+   * which for a fresh terminal (cursor under a prompt near the top) leaves
+   * every later live byte on the wrong row. A null ships the replay without
+   * the restore — the older, degraded behavior, never a wrong guess.
+   */
+  paneCursor(socket: string, id: string): Promise<{ x: number; y: number } | null>;
+  /**
    * Sends `SIGWINCH` to the pane's process WITHOUT changing its size, so a
    * diff-rendering TUI repaints the grid it already has. Returns false when
    * the machine cannot deliver the signal.

@@ -150,10 +150,12 @@ const NUDGE_SETTLE_MS = 80;
 export const STARTUP_GRACE_MS = 5_000;
 
 /**
- * Whether this attach may skip the repaint wait and the nudge, because there
- * is no settled frame to protect: no readable log bytes at the join sample
- * (a first boot, or no log to read from), OR bytes left over from a PREVIOUS
- * life of the row while the current boot is still young.
+ * Whether this attach must not PROVOKE the pane (winch, ±1 step), because
+ * there is no settled frame to protect: no readable log bytes at the join
+ * sample (a first boot, or no log to read from), OR bytes left over from a
+ * PREVIOUS life of the row while the current boot is still young. The
+ * repaint WAIT still runs — see {@link fitPaneAndRepaint}'s `booting`
+ * parameter for why skipping it is what shipped the blank-replay bug.
  *
  * @param logStart - the log size sampled BEFORE any resize (both attach paths)
  * @param startedAt - the row's boot timestamp (null/older-than-grace ⇒ not booting).
@@ -316,18 +318,23 @@ export interface FitRepaintOutcome {
  *   the join sample (a first boot, or no log to read at all), or bytes only
  *   from a PREVIOUS life while the current boot is inside
  *   {@link STARTUP_GRACE_MS} (a restarted row — its log deliberately
- *   survives). Then this reduces to the one fit resize and returns: there is
- *   no frame that could be stale, so the repaint wait has nothing to watch
- *   and the nudge is strictly harmful — a slow-booting shell (ble.sh,
- *   powerlevel10k: prompts redrawn by every SIGWINCH during init) takes the
- *   ±1 storm as duplicated prompts written INTO the pane's own history, the
- *   stray prompt-at-top the operator sees on every fresh terminal (2026-09-23
- *   report). The single fit resize stays: it lands before the first frame
- *   exists, so the shell boots at the fit geometry rather than being winched
- *   mid-prompt later. Honest edge: bytes landing between the caller's sample
- *   and this call make `booting` stale-TRUE, which skips the provocation —
- *   the safe direction, since a seconds-old frame is not the stale one the
- *   nudge exists for.
+ *   survives). Then the fit resize and the repaint wait stay and EVERY
+ *   provocation is skipped (no winch, no ±1 step): there is no frame that
+ *   could be stale, while a slow-booting shell (ble.sh, powerlevel10k:
+ *   prompts redrawn by every SIGWINCH during init) takes the storm as
+ *   duplicated prompts written INTO the pane's own history, the stray
+ *   prompt-at-top the operator sees on every fresh terminal (2026-09-23
+ *   report). The WAIT is kept deliberately: a booting pane is mid-first-
+ *   paint, and an immediate capture ships the blank grid the client then
+ *   scrolls past (prompt-at-top/cursor-at-bottom — see the body). Checked
+ *   BEFORE the same-size shortcut: a booting pane that happens to already
+ *   hold `fit` is still racing its first paint and still gets the watch.
+ *   The fit resize itself lands before the first frame exists, so the shell
+ *   boots at the fit geometry rather than being winched mid-prompt later.
+ *   Honest edge: bytes landing between the caller's sample and this call
+ *   make `booting` stale-TRUE, which skips the provocation — the safe
+ *   direction, since a seconds-old frame is not the stale one the nudge
+ *   exists for.
  * @throws whatever `launcher.resize` throws — callers keep their fallback
  */
 export async function fitPaneAndRepaint(
@@ -346,28 +353,39 @@ export async function fitPaneAndRepaint(
   // Tell the queue either way: the fit bypassed it, and a client frame asking
   // for this same size must not then be swallowed as already-applied.
   seedPaneGeometry(id, fit.cols, fit.rows);
-  if (alreadyFitted) {
-    // Same-size reopen — the common case for "click the terminal again".
-    // Nothing changed geometry, so tmux re-wrapped nothing and the current
-    // grid IS the current frame: there is no stale paint for the nudge to
-    // correct — short of the rare case where the LAST real resize's repaint
-    // never landed (a viewer detaching mid-dance suppressed its nudge, or the
-    // app was wedged) — and provoking one is strictly harmful for the common
-    // pane. A SIGWINCH-redrawing
-    // prompt (p10k, ble.sh) answers every geometry event by inserting a line
-    // and repainting INTO history — one orphan prompt at the top per reopen,
-    // growing on each one (2026-09-23 live log: a settled 67x25 pane reopened
-    // at 67x25 took winch + ±1 = three orphans). The no-op RESIZE already
-    // cannot repaint a pane (the observation that removed ~450ms from every
-    // reopen); this finishes that thought — neither can a no-op REOPEN.
-    return { repainted: false, nudged: false };
-  }
   if (opts.booting) {
-    // See the JSDoc: a pane with no output yet cannot hold a stale frame, and
-    // every extra winch is prompt-scatter for its still-booting shell.
+    // Watch, never provoke. A pane with no settled frame cannot hold a stale
+    // paint, so the winch and the ±1 step are pure prompt-scatter here (the
+    // stray-prompt report, 2026-09-23). But the WAIT is not provocation — it
+    // is the only thing keeping the capture off the shell's boot race. An
+    // immediate capture of a booting pane ships a BLANK grid: the client's
+    // cursor lands at the bottom of the replay's empty screen, the prompt
+    // then arrives as live bytes that position themselves absolutely near
+    // the top — prompt-at-top, cursor-at-bottom, typing off-screen. (The
+    // first fast path shipped exactly that, caught on the dev server the
+    // same day: attach 3 ms after pane birth, `replay=78B` of nothing.) The
+    // watch is capped (≤200 ms until "no burst is coming", 300 ms under an
+    // active stream) and ends the moment the first paint goes quiet; a
+    // pane-poll attach with no readable log just pays the no-growth budget
+    // and captures an by-then-painted grid anyway.
+    return { repainted: await waitForPaneRepaint(sizeOf, { baseline: opts.baseline }), nudged: false };
+  }
+  if (alreadyFitted) {
+    // Same-size reopen of a SETTLED pane — the common case for "click the
+    // terminal again". Nothing changed geometry, so tmux re-wrapped nothing
+    // and the current grid IS the current frame: there is no stale paint for
+    // the nudge to correct — short of the rare case where the LAST real
+    // resize's repaint never landed (a viewer detaching mid-dance suppressed
+    // its nudge, or the app was wedged) — and provoking one is strictly
+    // harmful for the common pane. A SIGWINCH-redrawing prompt (p10k, ble.sh)
+    // answers every geometry event by inserting a line and repainting INTO
+    // history — one orphan prompt at the top per reopen, growing on each one
+    // (2026-09-23 live log: a settled 67x25 pane reopened at 67x25 took
+    // winch + ±1 = three orphans). Unlike the booting case there is no paint
+    // race to wait off: the frame is already final.
     return { repainted: false, nudged: false };
   }
-  const repainted = alreadyFitted ? false : await waitForPaneRepaint(sizeOf, { baseline: opts.baseline });
+  const repainted = await waitForPaneRepaint(sizeOf, { baseline: opts.baseline });
   const canNudge = typeof opts.canNudge === "function" ? opts.canNudge() : opts.canNudge;
   if (repainted || !canNudge) return { repainted, nudged: false };
   return { repainted: await nudgePaneForRepaint(launcher, socket, id, fit.cols, fit.rows, sizeOf), nudged: true };

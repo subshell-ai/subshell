@@ -321,8 +321,10 @@ export interface NodePaneSizeResult {
  *
  * The last two collapse deliberately: both mean "no confirmed size", and the
  * control plane's only sane response to either is to announce nothing rather
- * than a guess. An agent too old to know the command never gets asked (see
- * `PANE_SIZE_MIN_PROTOCOL_VERSION`).
+ * than a guess. An agent too old to know the command never gets asked: the
+ * plane's EXACT-match gate (`NODE_PROTOCOL_VERSION`) refuses every agent that
+ * does not share the current protocol, so any agent that receives this
+ * command already speaks its answer.
  *
  * @param data - the `data` member of a successful result frame
  * @returns the pane's grid, or null when absent/malformed
@@ -334,6 +336,34 @@ export function parseNodePaneSizeResult(data: unknown): NodePaneSizeResult | nul
   if (!isInt(cols) || !isInt(rows)) return null;
   if (cols <= 0 || rows <= 0) return null;
   return { cols, rows };
+}
+
+/** The pane's cursor, in viewport coordinates (0-based, as tmux reports it). */
+export interface NodePaneCursorResult {
+  /** Column within the visible grid. */
+  x: number;
+  /** Row within the visible grid. */
+  y: number;
+}
+
+/**
+ * Validates and narrows a `pane_cursor` command's `result{data}`.
+ *
+ * Same three-answer grammar as {@link parseNodePaneSizeResult}: a cursor, a
+ * legal null (pane gone), or a parse failure that collapses into null. Null
+ * means the replay ships WITHOUT its cursor restore — the pre-`pane_cursor`
+ * behavior, which is degraded for a cursor near the top of the grid and fine
+ * everywhere the capture's last row is the cursor's row.
+ *
+ * @param data - the `data` member of a successful result frame
+ * @returns the cursor, or null when absent/malformed
+ */
+export function parseNodePaneCursorResult(data: unknown): NodePaneCursorResult | null {
+  if (!isRecord(data)) return null;
+  const { x, y } = data as { x?: unknown; y?: unknown };
+  if (!isInt(x) || !isInt(y)) return null;
+  if (x < 0 || y < 0) return null;
+  return { x, y };
 }
 
 /* ------------------------------------------------------------------ */

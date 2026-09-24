@@ -589,6 +589,37 @@ export class TmuxRunner {
   }
 
   /**
+   * The pane's cursor, in viewport coordinates (0-based, as tmux reports it).
+   *
+   * The replay needs it to END on the row the pane's own cursor is on: a
+   * capture paints the grid and leaves the client's cursor after the last
+   * row it wrote — for a fresh terminal that is the BOTTOM of the grid while
+   * the shell sits with its cursor under the prompt near the TOP, and every
+   * later live byte paints at the wrong row (the 2026-09-23
+   * "prompt-at-top, typing-off-screen" browser report). tmux's cursor is
+   * viewport-relative and the replay's no-trailing-terminator rule makes the
+   * client's viewport map 1:1 onto the pane's rows, which is what makes this
+   * pair meaningful ({@link captureToReplayText}).
+   *
+   * @returns The cursor, or null when the pane or socket is gone (the caller
+   *   then ships the replay without a cursor restore, as before)
+   */
+  async paneCursor(socket: string, subshellName: string): Promise<{ x: number; y: number } | null> {
+    try {
+      const out = (
+        await this.runAsync(["-L", socket, "display-message", "-t", subshellName, "-p", "#{cursor_x}:#{cursor_y}"], {})
+      ).stdout.trim();
+      const [rawX, rawY] = out.split(":");
+      const x = Number(rawX);
+      const y = Number(rawY);
+      if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0) return null;
+      return { x, y };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Writes raw terminal input to the subshell's pane, byte for byte.
    *
    * This is a dumb pipe: the client's terminal already emits the exact bytes

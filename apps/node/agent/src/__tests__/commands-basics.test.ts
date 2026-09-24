@@ -8,6 +8,7 @@ import {
   type NodeEvent,
   parseNodeCaptureResult,
   parseNodeDetectResults,
+  parseNodePaneCursorResult,
   parseNodePaneSizeResult,
   parseNodePathExistsResult,
   parseNodeProbeEntries,
@@ -62,6 +63,7 @@ interface Spec {
   paneTitle?: (socket: string, id: string) => { title: string; command: string } | null;
   paneExitCode?: (socket: string, id: string) => number | null;
   paneSize?: (socket: string, id: string) => { cols: number; rows: number } | null;
+  paneCursor?: (socket: string, id: string) => { x: number; y: number } | null;
 }
 
 /** Build a CommandContext over a scripted double; unstubbed methods throw (a test calling one is a bug). */
@@ -85,6 +87,7 @@ function makeCtx(spec: Spec, events: NodeEvent[]): { ctx: CommandContext; tmux: 
     paneTitle: method("paneTitle"),
     paneExitCode: method("paneExitCode"),
     paneSize: method("paneSize"),
+    paneCursor: method("paneCursor"),
   };
   const config: NodeConfig = {
     serverUrl: "http://localhost:1",
@@ -219,6 +222,25 @@ describe("command executors (spec §7)", () => {
     const result = await dispatchCommand(ctx, { type: "pane_size", subshellId: S1 });
     expect(result).toEqual({ ok: true, data: null });
     expect(parseNodePaneSizeResult(result.ok ? result.data : null)).toBeNull();
+  });
+
+  it("pane_cursor answers the viewport cursor, in the shape the server parses", async () => {
+    // Same contract discipline as pane_size: this half ships inside the
+    // compiled agent binary, so it is asserted against the server's parser.
+    const { ctx, tmux } = makeCtx({ paneCursor: () => ({ x: 4, y: 2 }) }, []);
+    const result = await dispatchCommand(ctx, { type: "pane_cursor", subshellId: S1 });
+    expect(result).toEqual({ ok: true, data: { x: 4, y: 2 } });
+    expect(parseNodePaneCursorResult(result.ok ? result.data : null)).toEqual({ x: 4, y: 2 });
+    expect(argsOf(tmux, "paneCursor")).toEqual([["recorded-sock", S1]]);
+  });
+
+  it("pane_cursor answers ok:true with null data for a pane that is gone", async () => {
+    // The server reads null as "ship the replay without the cursor restore" —
+    // the pre-command behavior — and an error result as a wedged node.
+    const { ctx } = makeCtx({ paneCursor: () => null }, []);
+    const result = await dispatchCommand(ctx, { type: "pane_cursor", subshellId: S1 });
+    expect(result).toEqual({ ok: true, data: null });
+    expect(parseNodePaneCursorResult(result.ok ? result.data : null)).toBeNull();
   });
 
   it("probe: live row carries title/command/capture; dead row carries the exit code and NO capture", async () => {

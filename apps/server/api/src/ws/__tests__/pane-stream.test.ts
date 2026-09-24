@@ -45,6 +45,41 @@ describe("createPaneStreamRegistry — one pump per subshell, fanned out", () =>
     b.close();
   });
 
+  it("discardQueued drops only what arrived before the mark", () => {
+    // The booting viewer's drop: bytes already inside its upcoming capture
+    // must not be replayed ON TOP of it (a shell's transitional boot
+    // sequences repaint as a ghost prompt), while everything after the mark
+    // still flushes at open — a per-viewer drop, never a pump-wide one.
+    const registry = createPaneStreamRegistry();
+    const fake = fakeSource();
+    const a: string[] = [];
+    const b: string[] = [];
+
+    const subA = registry.subscribe(
+      "s1",
+      () => fake.source,
+      (t) => a.push(t),
+    );
+    const subB = registry.subscribe(
+      "s1",
+      () => fake.source,
+      (t) => b.push(t),
+    );
+
+    fake.emit("boot 1");
+    fake.emit("boot 2");
+    subA.discardQueued();
+    fake.emit("after mark");
+    subA.open();
+    subB.open();
+
+    expect(a).toEqual(["after mark"]);
+    expect(b).toEqual(["boot 1", "boot 2", "after mark"]); // the drop is per-viewer
+
+    subA.close();
+    subB.close();
+  });
+
   it("delivers every chunk to every OPEN subscriber", () => {
     const registry = createPaneStreamRegistry();
     const fake = fakeSource();

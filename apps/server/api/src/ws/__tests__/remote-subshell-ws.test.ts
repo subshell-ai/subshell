@@ -256,7 +256,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     // `pane_size` closes the list: the attach reads the pane back so the
     // geometry it announces is CONFIRMED rather than the size it asked for —
     // an echo of the requested size is indistinguishable from a real readback.
-    expect(sim.cmdTypes()).toEqual(["probe", "log_read", "tail_start", "capture", "pane_size"]);
+    expect(sim.cmdTypes()).toEqual(["probe", "log_read", "tail_start", "capture", "pane_cursor", "pane_size"]);
     expect(sim.cmdsOf("log_read")).toEqual([{ type: "log_read", subshellId: SID, fromByte: 0, maxBytes: 1 }]);
     // The capture carries the default replay line cap; the tail starts at the
     // probed size (7): only bytes past the snapshot ever ship.
@@ -376,7 +376,9 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     // the pane already holds so a same-size reopen skips a resize that tmux
     // would make a no-op (no SIGWINCH, nothing to wait for) — the 450ms every
     // reattach used to spend waiting on exactly that.
-    expect([...new Set(sim.cmdTypes())].join(",")).toBe("probe,log_read,tail_start,pane_size,resize,capture");
+    expect([...new Set(sim.cmdTypes())].join(",")).toBe(
+      "probe,log_read,tail_start,pane_size,resize,capture,pane_cursor",
+    );
     // The scripted log never grows, so the pane reads as "never repainted"
     // and the relay nudges it (±1 col) to force a SIGWINCH — the local twin's
     // rule for a resize that changed the grid but got no repaint burst. (The
@@ -399,7 +401,10 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     const sim = makeNodeSim();
     sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
     sim.answer("capture", "SCREEN");
-    sim.answer("log_read", { bytes_b64: "", next: 0, size: 0 });
+    // Sized generously: `booting` keeps the PASSIVE first-paint watch (it is
+    // the wait that keeps the capture off the boot race), and the watch polls
+    // the 1-byte size probe every 25ms up to its budget.
+    for (let i = 0; i < 40; i++) sim.answer("log_read", { bytes_b64: "", next: 0, size: 0 });
     const { ws } = fakeBrowser();
 
     await attachRemoteSubshellWs(
@@ -432,6 +437,29 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     );
     await until(() => sim.cmdTypes().includes("capture"), "capture");
     expect(sim.cmdsOf("resize")).toEqual([{ type: "resize", subshellId: SID, cols: 132, rows: 43 }]);
+  });
+
+  it("ends the replay on the PANE's cursor: reads pane_cursor and CUPs the replay", async () => {
+    // The typing-off-screen browser report (2026-09-23) was a cursor-base
+    // bug, not a bytes bug: the replay left the client's cursor after the
+    // grid's last row while the pane's sat near the top, so every echo
+    // painted 16 rows away. The relay must ASK the agent and pass the answer
+    // to the replay builder; a missing answer ships no restore, never a
+    // guess. This is the call-site pin — captureToReplayText's CUP and
+    // parseNodePaneCursorResult are unit-tested at their own sites.
+    const sim = makeNodeSim();
+    sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
+    sim.answer("capture", "SCREEN");
+    scriptLogRead(sim, { bytes: "ab\ncd\n", size: 7 });
+    sim.answer("pane_cursor", { x: 4, y: 2 });
+    const { ws, sent } = fakeBrowser();
+
+    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+    await until(() => sent.length > 0, "replay");
+    // tmux's 0-based (4,2) becomes the 1-based CUP ESC[3;5H, and the replay
+    // frame — the browser's first paint — must end with it.
+    expect(JSON.parse(sent[0]).data).toBe("SCREEN\x1b[3;5H");
+    expect(sim.cmdsOf("pane_cursor")).toEqual([{ type: "pane_cursor", subshellId: SID }]);
   });
 
   it("refuses 4004 'node offline' when the node has no live connection (nothing hits the wire)", async () => {

@@ -88,8 +88,21 @@ export function semverLt(a: string, b: string): boolean {
  * the floor and {@link NODE_SIGNED_UPDATES_PROTOCOL_VERSION} tell one story,
  * and until the matching `cli-node-v*` cut publishes, held-node copy is what
  * explains the gap to the operator.
+ *
+ * Raised to 0.16.0 with protocol 13 (`pane_cursor`, the attach-replay cursor
+ * restore, 2026-09-23), the same way — `apps/node/agent/package.json` goes to
+ * 0.16.0 in the same commit (0.15.1 was the published version, so the floor
+ * lands one minor above it), and the release changesets one patch above the
+ * floor. An agent below this is one the plane would never ASK for a cursor
+ * anyway — the attach degrades to the pre-13 replay on its own — but it also
+ * speaks nothing else of this protocol generation, so the floor turns the
+ * backstop's "protocol v13 required" into the actionable
+ * "install subshell >= 0.16.0". Until the matching `cli-node-v0.16.x` cut
+ * publishes, `releases.ts` refuses to offer the older node release (its own
+ * check: below the floor) and the held-socket update path is what carries
+ * the fleet.
  */
-export const MIN_NODE_VERSION = "0.11.0";
+export const MIN_NODE_VERSION = "0.16.0";
 
 /**
  * Whether an agent reporting `version` may connect.

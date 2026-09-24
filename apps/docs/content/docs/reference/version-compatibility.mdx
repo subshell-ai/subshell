@@ -9,11 +9,11 @@ The control plane and the node ship as a pair, and this page is what that costs 
 
 Both are decided on the node's first frame (`ready`), and both live in the shared protocol package — one definition, imported by both sides.
 
-**Gate 1 — the version floor.** `MIN_NODE_VERSION` is the operator-facing statement "this server needs subshell ≥ X". A node reporting lower — or a version it cannot parse, or none — is refused. It runs first because its refusal is the one a person can act on: it names the version required and the version found, where a bare protocol number names neither. It is raised in the same commit as a protocol bump that changes what a node must *be able to do* — a node below the floor either cannot hear a command the plane means to send or reports a fact the plane has learned to read.
+**Gate 1 — the version floor.** `MIN_NODE_VERSION` is the operator-facing statement "this server needs subshell ≥ X". A node reporting lower — or a version it cannot parse, or none — is refused. It runs first because its refusal is the one a person can act on: it names the version required and the version found, where a bare protocol number names neither. It is raised in the same commit as every protocol bump — a node below the floor either cannot hear a command the plane means to send or cannot report a fact the plane has learned to read.
 
-**Gate 2 — the protocol, matched exactly.** `NODE_PROTOCOL_VERSION` is a wire number (currently `10`); any difference in **either direction** fails the check. There is no compatibility window and no per-feature gating, deliberately: a window buys "add a command without a node rollout" and pays for it in one untestable "is this node new enough?" branch per feature and a second meaning for every null. One comparison and no dead ends instead. A server that lags its node is just as wrong as the reverse — the pair ships together, and the Nodes page names which is which.
+**Gate 2 — the protocol, matched exactly.** `NODE_PROTOCOL_VERSION` is a wire number (currently `13`); any difference in **either direction** fails the check. There is no compatibility window and no per-feature gating, deliberately: a window buys "add a command without a node rollout" and pays for it in one untestable "is this node new enough?" branch per feature and a second meaning for every null. One comparison and no dead ends instead. A server that lags its node is just as wrong as the reverse — the pair ships together, and the Nodes page names which is which.
 
-The floor and the protocol are independent numbers on purpose: most releases raise the floor without touching the wire, and a mismatch always says which failed.
+The floor and the protocol are independent numbers on purpose — one meaning each, one comparison each, raised together — and a mismatch always says which failed.
 
 ## What a refusal does now: held, not dropped
 

@@ -9,6 +9,7 @@ import {
   parseNodeEvent,
   parseNodeFsLsResult,
   parseNodeLogReadResult,
+  parseNodePaneCursorResult,
   parseNodePaneSizeResult,
   parseNodePathExistsResult,
   parseNodeProbeEntries,
@@ -128,6 +129,31 @@ describe("phase-2 additive frame fields (protocol stays v1)", () => {
     expect(parseNodeEvent({ ...ready, selfInvoke: "/usr/bin/subshell mcp" })).toBeNull();
     expect(parseNodeEvent({ ...ready, selfInvoke: { command: "/usr/bin/subshell" } })).toBeNull(); // args required
     expect(parseNodeEvent({ ...ready, selfInvoke: { args: [] } })).toBeNull(); // command required
+  });
+});
+
+describe("parseNodePaneCursorResult", () => {
+  it("narrows a viewport cursor", () => {
+    expect(parseNodePaneCursorResult({ x: 0, y: 0 })).toEqual({ x: 0, y: 0 });
+    expect(parseNodePaneCursorResult({ x: 4, y: 2 })).toEqual({ x: 4, y: 2 });
+    // Unknown members are tolerated the same way the size parser tolerates them.
+    expect(parseNodePaneCursorResult({ x: 1, y: 1, future: true })).toEqual({ x: 1, y: 1 });
+  });
+
+  it("collapses nonsense and negatives into null — no restore beats a wrong one", () => {
+    for (const bad of [
+      null,
+      undefined,
+      "x",
+      {},
+      { x: 0 },
+      { y: 0 },
+      { x: -1, y: 0 },
+      { x: 0, y: -1 },
+      { x: 1.5, y: 0 },
+    ]) {
+      expect(parseNodePaneCursorResult(bad)).toBeNull();
+    }
   });
 });
 

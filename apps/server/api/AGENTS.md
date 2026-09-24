@@ -307,15 +307,23 @@ it — otherwise geometry announcements for that pane would stop with nothing in
 the journal. (An earlier revision had no size command and a node pane announced
 the size it had been ASKED for. That asymmetry is gone; do not reintroduce it.)
 
-**A node is refused by TWO gates, in this order** (`node-ws-handler.ts`,
-both closing 4406 with a reason the node RELAYS to its own log):
+**A node is refused by TWO gates, in this order** (`node-ws-handler.ts`;
+since spec 2026-09-15 §5.3 neither CLOSES any more — both HOLD the socket,
+offline for every purpose but `update`, with the reason the node RELAYS to
+its own log carried on the eventual idle close):
 
 1. **The version floor.** `MIN_NODE_VERSION`
    (`@internal/subshell-protocol` `versions.ts`) is the operator-facing
    statement "this server needs subshell >= X". The reason names both the
    required and the found version. This is the gate an operator can act on,
-   which is why it runs first — and it is bumped deliberately, on its own
-   schedule, whenever a server needs newer node BEHAVIOUR.
+   which is why it runs first. It rides EVERY protocol bump — the same
+   commit raises it and `apps/node/agent/package.json` to one value, so the
+   refusal always names a version that exists (the rule is stated in full
+   in `versions.ts`); a floor-only raise is still possible for a behavior
+   the plane needs without a frame change, and every bump since protocol 7
+   has carried the floor with it — the earlier reset-week bumps carried it
+   unevenly (1–4 held 0.1.0, 5 raised it to 0.3.0, 6 held), which is what
+   the rule, now stated in full in `versions.ts`, exists to prevent.
 2. **The protocol, matched EXACTLY.** Any `protocolVersion` differing from
    `NODE_PROTOCOL_VERSION`, in either direction, is refused; the reason names
    both numbers. No compatibility window, no per-feature gating — the server
@@ -330,8 +338,11 @@ refusal; Settings → Status lists every enrolled node under the floor in one
 place, since a refused node looks like an ordinary offline node everywhere
 else.
 
-The two gates are INDEPENDENT — raising the floor without a protocol bump is
-the normal case — so never infer one from the other.
+The two gates carry distinct meanings and emit distinct refusals — never
+infer one from the other — but their SCHEDULES are not independent: the
+floor rides every protocol bump (see `versions.ts`), so a node can be
+below-floor and protocol-mismatched at once, and the floor refusal, which
+runs first, is the one it hears.
 
 Neither gate touches geometry: `paneSize` answers the same way on a local and a
 remote pane, so nothing downstream of the attach branches on where a pane runs.
@@ -401,9 +412,15 @@ Three invariants on that path are load-bearing and easy to regress:
   cursor name the wrong row. Every later relative-positioned frame then lands
   on the wrong rows — the long-running "reopen a subshell and it is garbled"
   report. Verify with `apps/server/web/scripts/probe-replay.ts`.
-  `captureToReplayText` still accepts an optional cursor and appends an
-  absolute CUP; **no caller passes one today** (that was the quiet join's
-  half). It is kept, and tested, for whatever replaces it.
+  `captureToReplayText` takes the pane's cursor and appends an absolute CUP,
+  so the replay ENDS where the pane is, not at the bottom of the grid. Both
+  attach paths read it via `readPaneCursor` (remote: the `pane_cursor`
+  command, protocol 13; a null cursor ships the replay without the restore —
+  the pre-13 behavior, degraded only for a cursor near the top). Without the
+  restore every live byte after a replay painted below the visible prompt —
+  off by whatever sat between the pane's cursor row and the bottom of the
+  grid (up to a full screen), the 2026-09-23 "prompt at the top, typing
+  off-screen" report.
 
 ### Error contract
 
