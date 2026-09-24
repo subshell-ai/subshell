@@ -188,7 +188,9 @@ export async function resolveAttach(input: AttachRequest): Promise<AttachResolve
       await repos.subshells.update(row.id, { lastPushUrgency: null });
       publishLive({ kind: "subshell.changed", id: row.id });
     } catch {
-      logger.warn(`unseen-push clear failed for ${row.id} (escalation may double)`);
+      // Covers BOTH writes inside the try: the announce failing after a
+      // SUCCEEDED clear belongs here too, or the line lies about what broke.
+      logger.warn(`unseen-push clear/announce failed for ${row.id} (escalation may double)`);
     }
   }
   return { ok: true, userId: identity.userId, row, access, params };

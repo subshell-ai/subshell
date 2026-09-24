@@ -114,7 +114,10 @@ once; a death always lands (waiting is moot when the pane is gone); a death
 is a one-way transition so two urgency-3 events never contend on one pane,
 and `crashed_final` sits above any unseen `crashed`. A push with no
 subscribers and no enrolled devices sets nothing — an undelivered event must
-not silence the pane forever.
+not silence the pane forever. A restart — manual or backoff — reuses the row,
+so reviving a pane opens a fresh unseen interval: the revive write clears the
+state, because a revived pane's approval prompt outranks the crash push the
+owner may never have seen.
 
 **Clearing** happens when the subshell's **owner reads the pane as a human
 session** — cookie principal, `userId` equal to the row's: the pane detail

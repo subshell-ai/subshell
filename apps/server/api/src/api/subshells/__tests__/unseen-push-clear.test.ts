@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { subshellRoutes } from "@/api/subshells/index.js";
@@ -115,6 +115,26 @@ describe("owner-cookie pane reads clear the unseen urgency", () => {
   it("a shared viewer's cookie does not clear the owner's state", async () => {
     const { id } = await unseen(true);
     expect((await get(id, viewerCookie)).status).toBe(200);
+    expect(await urgencyOf(id)).toBe(2);
+  });
+
+  it("a throwing clear still answers the owner's read — best-effort like the attach twin (final review)", async () => {
+    // A real SQLITE_BUSY here used to turn the owner's OWN pane detail GET
+    // into a 500; the attach twin in `ws/attach-resolve.ts` wraps the
+    // identical write in try/catch and this site must not be worse. The spy
+    // makes exactly ONE method throw — the read path reaches `update` only
+    // from `#rememberSeen` (`getSubshell` is read-only).
+    const { id } = await unseen();
+    const spy = spyOn(SubshellsRepository.prototype, "update").mockImplementation(async () => {
+      throw new Error("database is locked (simulated SQLITE_BUSY)");
+    });
+    try {
+      expect((await get(id, ownerCookie)).status).toBe(200);
+    } finally {
+      spy.mockRestore();
+    }
+    // And the failed clear is honest: the urgency survives, costing at most
+    // one extra push.
     expect(await urgencyOf(id)).toBe(2);
   });
 

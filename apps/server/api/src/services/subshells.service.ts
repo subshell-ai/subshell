@@ -18,6 +18,7 @@ import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { readSubshellLogTail, SubshellManagerService } from "@/services/subshell-manager.service.js";
 import { extendSubshellToken, subshellTokenTtlSeconds } from "@/services/subshell-tokens.js";
+import { logger } from "@/utils/logger.js";
 
 /** The kinds a harness may self-report through the attention endpoint. */
 export type AttentionKind = Extract<NotifyKind, "turn_complete" | "needs_attention">;
@@ -553,11 +554,18 @@ export class SubshellsService extends BaseService {
    * push. Only a cookie session whose user IS the row's owner — a shared
    * viewer saw a pane that was never theirs to be pushed about, and a
    * machine credential resolves as the owner but attended nothing.
+   * Best-effort, like the attach twin in `ws/attach-resolve.ts`: an
+   * uncleared urgency costs one extra push at most; a throwing clear (a real
+   * SQLITE_BUSY in this repo) must not turn the owner's own read into a 500.
    */
   async #rememberSeen(actor: GuardActor, viewerId: string, row: SubshellTable): Promise<void> {
     if (actor !== "cookie" || viewerId !== row.userId || row.lastPushUrgency === null) return;
-    await this.repos.subshells.update(row.id, { lastPushUrgency: null });
-    publishLive({ kind: "subshell.changed", id: row.id });
+    try {
+      await this.repos.subshells.update(row.id, { lastPushUrgency: null });
+      publishLive({ kind: "subshell.changed", id: row.id });
+    } catch (err) {
+      logger.withError(err).warn(`unseen-push clear/announce failed for ${row.id} (escalation may double)`);
+    }
   }
 
   /**

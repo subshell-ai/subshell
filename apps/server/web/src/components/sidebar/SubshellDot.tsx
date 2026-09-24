@@ -72,10 +72,15 @@ export function SubshellDot({
 }) {
   const indicator = subshellIndicator(subshell);
   const label = INDICATOR_LABEL[indicator];
-  // The bell REPLACES the dot while a delivered push goes unseen. The raw
-  // data pair rides along: the e2e liveness assertions read this element in
-  // either shape. No em dash in the label — the design-system copy rule.
-  if (subshell.unseenPush) {
+  // The bell REPLACES the dot while a delivered push goes unseen — for its
+  // OWNER only. Every clear site (pane open, log tail, attach) requires the
+  // owner's cookie, so a bell on a shared pane would be owner notification
+  // state rendered as grantee state: a mark that can never clear from this
+  // seat. `access` is the client's own per-viewer stamp (the live feed carries
+  // none) — this is the layer that knows it. The raw data pair rides along:
+  // the e2e liveness assertions read this element in either shape. No em dash
+  // in the label — the design-system copy rule.
+  if (subshell.unseenPush && subshell.access === "owner") {
     const bellLabel = `unseen notification (${label})`;
     return (
       <span

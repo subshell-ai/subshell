@@ -240,9 +240,12 @@ export function createNotifyService(deps: NotifyServiceDeps) {
           }
         }
         const liveDevices = await deviceDelivery;
-        // The urgency sticks only behind a DELIVERED attempt: an owner with no
-        // subscription and no enrolled device received nothing, and an
-        // undelivered event must not silence its pane's future escalations.
+        // The urgency sticks only behind an ATTEMPTED delivery: the condition
+        // is targets existing (a send was made to at least one), not a gateway
+        // accepting it. An owner with no subscription and no enrolled device
+        // received nothing and was attempted nothing — such an owner must not
+        // have the pane's future escalations silenced by an attempt that never
+        // existed.
         if (subs.length > 0 || liveDevices > 0) {
           await subshellsRepo.update(subshellId, { lastPushUrgency: urgency });
           publishLive({ kind: "subshell.changed", id: subshellId });

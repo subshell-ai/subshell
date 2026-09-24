@@ -1125,6 +1125,14 @@ export class SubshellManagerService {
       startedAt: new Date().toISOString(),
       backoffCount,
       nextRestartAt: null,
+      // A restart opens a FRESH unseen interval (spec 2026-09-23 §3, amended
+      // by the final review): the crash push that parked this row must not
+      // outrank the revived pane's own approval prompt. A row that pushed
+      // "Crashed, auto-restarting" (urgency 3) would otherwise keep that
+      // number on the SAME row, and the revived pane's `needs_attention` (2)
+      // and second death (3) would both stay silently gated — a permission
+      // prompt with no push.
+      lastPushUrgency: null,
       // Persist the pinned id when this attempt re-pinned (mode "start");
       // a mode "resume" id equals the stored one, so this is a no-op write.
       ...(harnessSession ? { harnessSessionId: harnessSession.id } : {}),
