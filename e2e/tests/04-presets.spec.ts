@@ -185,4 +185,14 @@ test("clone a preset from the row's action menu", async ({ page }) => {
     ["E2E clone source", "pi"],
     ["E2E clone source (2)", "pi"],
   ]);
+
+  // A SECOND Clone re-seeds against the list that just gained the (2) row:
+  // the suggestion advances to "(3)" instead of replaying the "(2)" the
+  // first dialog opened on ("mount IS the open" re-deriving the seed).
+  await page.getByRole("button", { name: "Actions for E2E clone source", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Clone preset" }).click();
+  await expect(page.locator("#preset-name")).toHaveValue("E2E clone source (3)");
+  // Cancel, not create: no third row is added, so the sweep list stays as-is.
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByText("E2E clone source (3)", { exact: true })).toHaveCount(0);
 });

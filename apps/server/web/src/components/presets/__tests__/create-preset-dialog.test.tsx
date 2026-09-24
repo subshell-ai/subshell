@@ -47,7 +47,7 @@ const SOURCE: PresetRow = {
   updatedAt: "2026-09-13T00:00:00.000Z",
 };
 
-function mockFetch() {
+function mockFetch(post: { status?: number; body?: unknown } = {}) {
   const calls: { method: string; url: string; body: unknown }[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown, init?: RequestInit) => {
@@ -75,7 +75,9 @@ function mockFetch() {
         ),
       );
     }
-    if (url.pathname === "/api/presets" && method === "POST") return Promise.resolve(new Response(JSON.stringify(ROW)));
+    if (url.pathname === "/api/presets" && method === "POST") {
+      return Promise.resolve(new Response(JSON.stringify(post.body ?? ROW), { status: post.status ?? 200 }));
+    }
     // The list a page with a live usePresets() would read — an ARRAY, like
     // the real endpoint; the {} fallthrough below is for the schema route.
     if (url.pathname === "/api/presets" && method === "GET") return Promise.resolve(new Response(JSON.stringify([])));
@@ -208,6 +210,34 @@ describe("CreatePresetDialog — clone (initialForm)", () => {
           },
         }),
       );
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("surfaces a duplicate-name 409 inline and keeps the dialog open", async () => {
+    // The raced collision the clone posture is built to expect: the suggestion
+    // was computed against a cache another tab had not written yet. The
+    // server's shape is `{ message }`, which `apiFetch` lifts into an
+    // ApiError's message, so `create.error` renders it verbatim — and the
+    // dialog stays open on the mutation error so the name can be edited and
+    // the same button pressed again.
+    const m = mockFetch({
+      status: 409,
+      body: { message: 'You already have a claude-code preset named "Work (2)"' },
+    });
+    const closes: boolean[] = [];
+    try {
+      renderDialog({
+        initialForm: { ...presetFormFromRow(SOURCE), name: "Work (2)" },
+        onClose: (o) => closes.push(o),
+      });
+      const dialog = await screen.findByRole("dialog", { name: "Clone preset" });
+      fireEvent.click(screen.getByRole("button", { name: "Create preset" }));
+      await screen.findByText(/You already have a claude-code preset named "Work \(2\)"/);
+      // Still open: the same dialog node, and `onOpenChange(false)` never fired.
+      expect(screen.getByRole("dialog")).toBe(dialog);
+      expect(closes).not.toContain(false);
     } finally {
       m.restore();
     }
