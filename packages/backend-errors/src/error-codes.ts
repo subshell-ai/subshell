@@ -15,15 +15,30 @@ export enum BackendErrorCodes {
   CONFIG_INVALID = "CONFIG_INVALID",
   /** `PATCH /api/admin/server/config`: the key is set in the server's environment, so a config.env write would be masked at the next boot. */
   CONFIG_KEY_FROM_ENV = "CONFIG_KEY_FROM_ENV",
+  /** `/api/auth-providers`: OIDC discovery could not resolve the issuer's endpoints; the message names why. Raised on save and on the in-dialog probe (spec 2026-09-24 §8). */
+  DISCOVERY_FAILED = "DISCOVERY_FAILED",
+  /** `PATCH /api/auth-providers/:id`: the reserved `email` row's kind is the credential door's identity — it cannot be changed into an OIDC kind (or back). */
+  EMAIL_ROW_IMMUTABLE_KIND = "EMAIL_ROW_IMMUTABLE_KIND",
+  /** `DELETE /api/auth-providers/:id`: the reserved `email` row can be closed but never deleted (spec §2). */
+  EMAIL_ROW_UNDELETABLE = "EMAIL_ROW_UNDELETABLE",
   EXISTS_ERROR = "EXISTS_ERROR",
   INPUT_VALIDATION_ERROR = "INPUT_VALIDATION_ERROR",
   INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR",
   INVALID_CREDENTIALS = "INVALID_CREDENTIALS",
   /** `POST /api/subshells/:id/restart` with a `presetId`: the preset is unknown, not the caller's, or belongs to a different harness. Nothing was written and no restart was attempted. */
   INVALID_PRESET = "INVALID_PRESET",
+  /**
+   * A write to `/api/auth-providers` would leave the instance with ZERO open
+   * sign-in doors (spec 2026-09-24 §8's last-door guard). Nothing was written;
+   * the remedy is in the message — open another door first, or break-glass
+   * from the CLI.
+   */
+  LAST_SIGN_IN_DOOR = "LAST_SIGN_IN_DOOR",
   /** `PUT /api/admin/server/logging`: `SUBSHELL_DEBUG_LOGGING` is set in the environment, so the setting is read-only. */
   LOGGING_FROM_ENV = "LOGGING_FROM_ENV",
   NOT_FOUND_ERROR = "NOT_FOUND_ERROR",
+  /** `/api/auth-providers/:id`: no door row with that id. */
+  PROVIDER_NOT_FOUND = "PROVIDER_NOT_FOUND",
   /**
    * The phase-1 placeholder refusing any non-local `POST /api/subshells` body.
    * Phase 2 removed the gate it served (§6.6 resolution is live); kept for
@@ -89,6 +104,8 @@ export enum BackendErrorCodes {
   SETUP_KEY_CONSUMED = "SETUP_KEY_CONSUMED",
   SETUP_KEY_EXPIRED = "SETUP_KEY_EXPIRED",
   SETUP_KEY_INVALID = "SETUP_KEY_INVALID",
+  /** `POST /api/auth-providers`: the chosen id slug already names a row. Ids are the callback path's identity and never get renumbered (spec §2). */
+  SLUG_TAKEN = "SLUG_TAKEN",
   /** `POST /api/admin/server/update`: `SUBSHELL_RELEASE_URL` is empty — this instance fetches no releases (the air-gapped configuration). */
   UPDATE_SOURCE_DISABLED = "UPDATE_SOURCE_DISABLED",
   /**
@@ -167,6 +184,18 @@ export const BackendErrorCodeDefs = {
     message: "That setting is fixed by the server's environment",
     statusCode: 409,
   },
+  [BackendErrorCodes.DISCOVERY_FAILED]: {
+    message: "OIDC discovery could not resolve this issuer",
+    statusCode: 400,
+  },
+  [BackendErrorCodes.EMAIL_ROW_IMMUTABLE_KIND]: {
+    message: "The e-mail door's kind cannot be changed",
+    statusCode: 400,
+  },
+  [BackendErrorCodes.EMAIL_ROW_UNDELETABLE]: {
+    message: "The e-mail door can be closed but never deleted",
+    statusCode: 400,
+  },
   [BackendErrorCodes.EXISTS_ERROR]: {
     message: "Resource already exists",
     statusCode: 409,
@@ -187,8 +216,16 @@ export const BackendErrorCodeDefs = {
     message: "Invalid preset",
     statusCode: 400,
   },
+  [BackendErrorCodes.LAST_SIGN_IN_DOOR]: {
+    message: "This would leave no way to sign in",
+    statusCode: 409,
+  },
   [BackendErrorCodes.NOT_FOUND_ERROR]: {
     message: "Resource not found",
+    statusCode: 404,
+  },
+  [BackendErrorCodes.PROVIDER_NOT_FOUND]: {
+    message: "Auth provider not found",
     statusCode: 404,
   },
   [BackendErrorCodes.NODE_LAUNCH_NOT_READY]: {
@@ -278,6 +315,10 @@ export const BackendErrorCodeDefs = {
   [BackendErrorCodes.SETUP_KEY_INVALID]: {
     message: "Invalid setup key",
     statusCode: 401,
+  },
+  [BackendErrorCodes.SLUG_TAKEN]: {
+    message: "That provider id is already taken",
+    statusCode: 409,
   },
   // Every update refusal is a 409: the request is well-formed and the caller
   // is allowed to make it — the host is simply not in a state where it can be
