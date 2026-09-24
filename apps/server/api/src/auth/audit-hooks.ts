@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import { logger } from "@/utils/logger.js";
 
@@ -162,26 +162,67 @@ function consumeEmergencySignIn(userId: string, headers: Headers | undefined): b
   return true;
 }
 
-/** The minimal slice of better-auth's after-hook context this module reads. */
-interface AuthAfterHookContext {
-  path?: unknown;
-  context?: { returned?: unknown };
-  /**
-   * The incoming request. The dispatch context spreads better-call's router
-   * context, which carries the live `Request` at its top level
-   * (`dist/router.mjs` `processRequest`); `headers` is the same object
-   * rebuilt by `dispatchAuthEndpoint`. Read defensively like everything
-   * here — an endpoint invoked without a request (a direct `auth.api.*`
-   * call) simply has neither.
-   */
+/**
+ * The request-bearing slice of the endpoint context better-call hands every
+ * hook (before AND after): the dispatch context spreads better-call's router
+ * context, which carries the live `Request` at its top level
+ * (`dist/router.mjs` `processRequest`); `headers` is the same object rebuilt
+ * by `dispatchAuthEndpoint`. Read defensively like everything here — an
+ * endpoint invoked without a request (a direct `auth.api.*` call) simply has
+ * neither.
+ */
+export interface AuthHookRequestSlice {
   request?: unknown;
   headers?: unknown;
 }
 
-/** The request headers the after-hook context exposes, whichever field carried them. */
-function hookRequestHeaders(ctx: AuthAfterHookContext): Headers | undefined {
+/** The request headers the hook context exposes, whichever field carried them. */
+export function hookRequestHeaders(ctx: AuthHookRequestSlice): Headers | undefined {
   if (ctx.request instanceof Request) return ctx.request.headers;
   return ctx.headers instanceof Headers ? ctx.headers : undefined;
+}
+
+/**
+ * Nonce equality with a length guard before `timingSafeEqual` (which throws
+ * on differing lengths) — the same shape `auth-rate-limit.route.ts` uses for
+ * the emergency password. The nonce is a server-minted UUID, not a
+ * user-chosen secret, so this is hygiene rather than a threat-model
+ * requirement; a length mismatch is visible in the timing either way.
+ */
+function nonceEquals(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ab.length === bb.length && timingSafeEqual(ab, bb);
+}
+
+/**
+ * True when `nonce` names a LIVE (unexpired, unconsumed) emergency mark on
+ * ANY user — read-only. The door guards (spec §9: "break-glass unchanged")
+ * ask this to exempt the wrapper's forwarded sign-in from a closed E-mail
+ * door, whose refusal would otherwise land AFTER the rewrite had already
+ * destructively reset the admin's credential. It deliberately does NOT
+ * consume: {@link consumeEmergencySignIn} stays the only site that spends a
+ * mark, so the guard's check cannot starve the audit dedupe that reads the
+ * same store moments later on the same request. Expired entries are tidied
+ * on the way past, like consume; a forged header names no mark and reads
+ * false.
+ */
+export function hasActiveEmergencyMark(nonce: string | null): boolean {
+  if (nonce === null || nonce === "") return false;
+  const now = Date.now();
+  let found = false; // no early return: every live mark is compared, flat timing
+  for (const [userId, marks] of emergencyMarks) {
+    const live = marks.filter((mark) => mark.expiresAt >= now);
+    if (live.length !== marks.length) storeRemaining(userId, live);
+    for (const mark of live) if (nonceEquals(mark.nonce, nonce)) found = true;
+  }
+  return found;
+}
+
+/** The minimal slice of better-auth's after-hook context this module reads. */
+interface AuthAfterHookContext extends AuthHookRequestSlice {
+  path?: unknown;
+  context?: { returned?: unknown };
 }
 
 /**

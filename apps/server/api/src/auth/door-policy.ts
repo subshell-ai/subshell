@@ -45,7 +45,9 @@ export interface DoorRefusal {
  * table decides is decided HERE, in one ordered cascade, because 1.7.1 has
  * ONE global `user.validateUserInfo` hook (no per-provider hook exists —
  * measured) and every policy question arrives as
- * `{ source: { method, oauth?: { providerId } }, action, profile }`.
+ * `{ user, source: { action, method, oauth?: { providerId, profile? } } }`
+ * — the measured shape, spelled out on {@link DoorValidationData} below;
+ * the caller unpacks it into {@link DoorPolicyInput} before this runs.
  *
  * Order matters and is the spec's own: door (exists + open) → domain →
  * non-approved existing → unverified link → per-action registration.
@@ -167,7 +169,11 @@ export async function evaluateDoorPolicy(
   // one later is a door-policy decision, and reading it as the email door
   // fails toward the door admins can actually see and close.
   const emailRow = await new AuthProvidersRepository(db).getById("email");
-  const door = emailRow === undefined ? null : resolveDoor(emailRow);
+  // `enabled !== 1` is no-door, the SAME reading the oauth branch gives a
+  // disabled row: unreachable today (migration 0037 seeds 1 and nothing
+  // writes 0), but a hand-edited disabled row must read door_closed rather
+  // than opening a door the table says is shut.
+  const door = emailRow === undefined || emailRow.enabled !== 1 ? null : resolveDoor(emailRow);
   const existingState = email === "" ? null : await stateByEmail(db, email);
   return decideDoorPolicy({
     action,

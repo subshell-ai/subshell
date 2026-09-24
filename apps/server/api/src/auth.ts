@@ -18,6 +18,10 @@ import { originRegistry } from "@/services/trusted-origins.js";
 import { normalizeUserName } from "@/services/user-name.js";
 import { logger } from "@/utils/logger.js";
 
+// Built over the lazily-injected app handle (the import-purity invariant
+// above applies to it too); see `@/auth/door-guards` for what it refuses.
+const doorGuardBeforeHook = createDoorGuardBeforeHook(() => appDb);
+
 /**
  * The raw better-auth options, exported for `runAuthMigrations`:
  * `getMigrations` must receive the FULL options (plugins included) to create
@@ -31,8 +35,6 @@ import { logger } from "@/utils/logger.js";
  * first use. Roles do NOT live on the better-auth user; they live in the
  * app's `user_meta` table via the databaseHooks below.
  */
-const doorGuardBeforeHook = createDoorGuardBeforeHook(() => appDb);
-
 export const AUTH_OPTIONS = {
   baseURL: APP_BASE_URL,
   secret: AUTH_SECRET,
@@ -324,6 +326,14 @@ async function signInAllowed(userId: string): Promise<boolean> {
  * contradict §5's policy with §6's queue, and the demote's "only the row the
  * promotion just wrote" claim holds precisely because a fresh arrival is a
  * user with exactly one account.
+ *
+ * Failures are LOGGED, never thrown and never silent: this runs as an
+ * after-TRANSACTION hook, so the account row is already committed by the
+ * time it executes — a miss leaves the arrival approved-but-unmarked with no
+ * later seam to re-fire it (the next knock takes the sign-in path, where no
+ * account row is created). The journal line is what makes that state loud
+ * for an operator; the compensating sweep-check lands with the expiry pass
+ * (Task 10).
  */
 export async function markApprovalDoorArrival(account: {
   id: string;
@@ -331,16 +341,22 @@ export async function markApprovalDoorArrival(account: {
   userId: string;
 }): Promise<void> {
   if (account.providerId === "credential" || !appDb) return;
-  const door = await new AuthProvidersRepository(appDb).getById(account.providerId);
-  if (door === undefined || door.requireApproval !== 1) return;
-  // Raw SQL: better-auth's `account` table, physical camelCase names.
-  const others = await sql<{ n: number }>`
-    SELECT COUNT(*) AS n FROM account WHERE userId = ${account.userId} AND id <> ${account.id}
-  `.execute(appDb);
-  if (Number(others.rows[0]?.n ?? 0) > 0) return; // a link, not an arrival
-  const meta = new UserMetaRepository(appDb);
-  await meta.setApproval(account.userId, "pending", { arrivedAt: new Date().toISOString() });
-  await meta.demoteAdminIfAutoPromoted(account.userId);
+  try {
+    const door = await new AuthProvidersRepository(appDb).getById(account.providerId);
+    if (door === undefined || door.requireApproval !== 1) return;
+    // Raw SQL: better-auth's `account` table, physical camelCase names.
+    const others = await sql<{ n: number }>`
+      SELECT COUNT(*) AS n FROM account WHERE userId = ${account.userId} AND id <> ${account.id}
+    `.execute(appDb);
+    if (Number(others.rows[0]?.n ?? 0) > 0) return; // a link, not an arrival
+    const meta = new UserMetaRepository(appDb);
+    await meta.setApproval(account.userId, "pending", { arrivedAt: new Date().toISOString() });
+    await meta.demoteAdminIfAutoPromoted(account.userId);
+  } catch (err) {
+    logger.error(
+      `door policy: approval marking FAILED for arrival user ${account.userId} on provider ${account.providerId} — the account is committed but unmarked: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 /**

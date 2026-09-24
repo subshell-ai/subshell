@@ -1,13 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { hashPassword } from "better-auth/crypto";
 import { sql } from "kysely";
 import { seedLocalPluginsForTests } from "@/api/__tests__/helpers/auth-tables.js";
 import { authRateLimitRoutes } from "@/api/auth-rate-limit.route.js";
+import { BREAKGLASS_NONCE_HEADER, markEmergencySignIn, resetEmergencySignInMarksForTests } from "@/auth/audit-hooks.js";
 import { createDoorGuardBeforeHook } from "@/auth/door-guards.js";
 import { getAuth, setAuthPolicyDb } from "@/auth.js";
 import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
+import { UsersRepository } from "@/db/repositories/users.repository.js";
 
 /**
  * The E-mail door guard (spec 2026-09-24 §7) and the MEASUREMENT that fixes
@@ -27,16 +30,18 @@ import { AuthProvidersRepository } from "@/db/repositories/auth-providers.reposi
 
 const email = `guarded-${crypto.randomUUID()}@subshell.local`;
 const password = "guarded-pass-1";
+/** Every user id this suite creates (the shared test DB outlives the file). */
+const createdUserIds: string[] = [];
 
 async function setEmailSignIn(on: boolean): Promise<void> {
   await new AuthProvidersRepository(db).update("email", { signInEnabled: on ? 1 : 0 });
 }
 
-async function signInRequest(): Promise<Response> {
+async function signInRequest(extraHeaders: Record<string, string> = {}): Promise<Response> {
   return authRateLimitRoutes.fetch(
     new Request("http://localhost:3080/api/auth/sign-in/email", {
       method: "POST",
-      headers: { "content-type": "application/json", origin: "http://localhost:5173" },
+      headers: { "content-type": "application/json", origin: "http://localhost:5173", ...extraHeaders },
       body: JSON.stringify({ email, password }),
     }),
   );
@@ -62,6 +67,8 @@ beforeAll(async () => {
       }),
     );
     expect(res.status).toBe(200);
+    const body = (await res.json()) as { user?: { id?: string } };
+    if (typeof body.user?.id === "string") createdUserIds.push(body.user.id);
   } finally {
     await reg.update("email", { registrationEnabled: stored ?? null });
   }
@@ -69,7 +76,16 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await setEmailSignIn(true);
-  await sql`DELETE FROM user WHERE email = ${email}`.execute(db);
+  resetEmergencySignInMarksForTests();
+  // Full cleanup like the sibling suite: the sign-up leaves `account` and
+  // `user_meta` rows beside the `user` row, and the break-glass admin's
+  // credential lives in `account` too — deleting only the user strands all
+  // of them in the shared test DB.
+  for (const id of createdUserIds) {
+    await sql`DELETE FROM account WHERE userId = ${id}`.execute(db);
+    await sql`DELETE FROM user_meta WHERE user_id = ${id}`.execute(db);
+    await sql`DELETE FROM user WHERE id = ${id}`.execute(db);
+  }
   await sql`DELETE FROM auth_attempts WHERE email = ${email}`.execute(db);
 });
 
@@ -113,6 +129,41 @@ describe("doorGuardBeforeHook (unit)", () => {
     // through the repository: getById finds nothing, `=== 0` never holds.
     await expect(empty({ path: "/sign-in/email" })).resolves.toBeUndefined();
   });
+
+  test("a live break-glass mark exempts the guarded paths; a forged nonce does not", async () => {
+    const hook = createDoorGuardBeforeHook(() => db);
+    await setEmailSignIn(false);
+    // Simulated mark: exactly what the emergency wrapper mints for an act
+    // whose rewrite fired (hasActiveEmergencyMark reads the same store the
+    // audit dedupe owns — no second store to fake).
+    const nonce = markEmergencySignIn("door-guard-mark-holder");
+    const marked = new Request("http://localhost:3080/api/auth/sign-in/email", {
+      method: "POST",
+      headers: { [BREAKGLASS_NONCE_HEADER]: nonce },
+    });
+    const forged = new Request("http://localhost:3080/api/auth/sign-in/email", {
+      method: "POST",
+      headers: { [BREAKGLASS_NONCE_HEADER]: `forged-${crypto.randomUUID()}` },
+    });
+    const plain = new Request("http://localhost:3080/api/auth/sign-in/email", { method: "POST" });
+    try {
+      for (const path of ["/sign-in/email", "/passkey/verify-authentication"]) {
+        await expect(hook({ path, request: marked })).resolves.toBeUndefined();
+      }
+      // Read-only: the guard's check must NOT consume — the after-hook
+      // spends the same mark moments later on the same request.
+      await expect(hook({ path: "/sign-in/email", request: marked })).resolves.toBeUndefined();
+      for (const req of [forged, plain]) {
+        const err = await hook({ path: "/sign-in/email", request: req }).catch((e: unknown) => e);
+        expect((err as { statusCode?: number }).statusCode).toBe(403);
+      }
+      // Unguarded paths were never the guard's business, mark or not.
+      await expect(hook({ path: "/sign-up/email", request: marked })).resolves.toBeUndefined();
+    } finally {
+      resetEmergencySignInMarksForTests();
+      await setEmailSignIn(true);
+    }
+  });
 });
 
 describe("door guard on the real handler (HTTP)", () => {
@@ -131,6 +182,55 @@ describe("door guard on the real handler (HTTP)", () => {
   test("the open door signs the same credential in (the guard is not a blanket denial)", async () => {
     const res = await signInRequest();
     expect(res.status).toBe(200);
+  });
+
+  test("a forged break-glass header does NOT exempt a closed-door sign-in (HTTP)", async () => {
+    // The wrapper copies incoming headers onto the forwarded request, so a
+    // client CAN put the header there — the point is that a header without
+    // a live server-minted mark changes nothing.
+    await setEmailSignIn(false);
+    try {
+      const res = await signInRequest({ [BREAKGLASS_NONCE_HEADER]: `forged-${crypto.randomUUID()}` });
+      expect(res.status).toBe(403);
+    } finally {
+      await setEmailSignIn(true);
+    }
+  });
+
+  test("the armed break-glass signs an admin in through a CLOSED door (spec §9)", async () => {
+    // The full chain: the wrapper rewrites the admin's credential, mints the
+    // mark, sets the nonce header, and the forwarded sign-in reaches the
+    // REAL hook inside the REAL auth instance — and must not be refused by
+    // the closed door it would otherwise answer 403 to.
+    const envName = "SUBSHELL_EMERGENCY_PASSWORD";
+    const envValue = "door-guard-breakglass-7";
+    const savedEnv = process.env[envName];
+    const adminEmail = `breakglass-${crypto.randomUUID()}@subshell.local`;
+    const adminId = await new UsersRepository(db).createUser({
+      email: adminEmail,
+      name: adminEmail,
+      passwordHash: await hashPassword("forgotten-pass-1"),
+      role: "admin",
+    });
+    createdUserIds.push(adminId);
+    await setEmailSignIn(false);
+    process.env[envName] = envValue;
+    try {
+      const res = await authRateLimitRoutes.fetch(
+        new Request("http://localhost:3080/api/auth/sign-in/email", {
+          method: "POST",
+          headers: { "content-type": "application/json", origin: "http://localhost:5173" },
+          body: JSON.stringify({ email: adminEmail, password: envValue }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("set-cookie")).toContain("better-auth.session_token=");
+    } finally {
+      if (savedEnv === undefined) delete process.env[envName];
+      else process.env[envName] = savedEnv;
+      await setEmailSignIn(true);
+      await db.deleteFrom("authAttempts").where("email", "=", adminEmail).execute();
+    }
   });
 
   test("a closed registration door refuses sign-up at the SERVER with 403 registration_closed", async () => {

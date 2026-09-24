@@ -1,5 +1,6 @@
 import { APIError } from "better-auth/api";
 import type { Kysely } from "kysely";
+import { BREAKGLASS_NONCE_HEADER, hasActiveEmergencyMark, hookRequestHeaders } from "@/auth/audit-hooks.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import type { Database } from "@/db/types/index.js";
 
@@ -34,6 +35,16 @@ import type { Database } from "@/db/types/index.js";
  * and answers only to an explicit `sign_in_enabled = 0`. An ABSENT row (a
  * database predating migration 0037 — no server boots in that state, but the
  * read is defensive) is not an explicit close and passes.
+ *
+ * Break-glass is EXEMPT (spec §9 "break-glass unchanged"): the emergency
+ * wrapper destructively rewrites the admin's credential BEFORE the forwarded
+ * sign-in reaches this hook, so a closed door refusing that forward would
+ * lock the operator out of the account it just took the password of. The
+ * exemption is a live server-held nonce on the forwarded request's
+ * {@link BREAKGLASS_NONCE_HEADER} — set by the wrapper only when the rewrite
+ * fired, minted in-memory and never visible to a client. A forged header
+ * names no mark, fails {@link hasActiveEmergencyMark}, and still hits the
+ * guard.
  */
 const GUARDED_PATHS: readonly string[] = ["/sign-in/email", "/passkey/verify-authentication"];
 
@@ -51,8 +62,11 @@ export function createDoorGuardBeforeHook(
   getDb: () => Kysely<Database> | undefined,
 ): (rawCtx: unknown) => Promise<void> {
   return async (rawCtx: unknown): Promise<void> => {
-    const path = (rawCtx as { path?: unknown } | null | undefined)?.path;
+    const ctx = rawCtx as { path?: unknown; request?: unknown; headers?: unknown } | null | undefined;
+    const path = ctx?.path;
     if (typeof path !== "string" || !GUARDED_PATHS.includes(path)) return;
+    const nonce = hookRequestHeaders(ctx ?? {})?.get(BREAKGLASS_NONCE_HEADER) ?? null;
+    if (hasActiveEmergencyMark(nonce)) return;
     const db = getDb();
     if (!db) return;
     const row = await new AuthProvidersRepository(db).getById("email");
