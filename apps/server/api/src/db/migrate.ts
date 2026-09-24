@@ -35,7 +35,7 @@ import * as setupStepMigration from "@/db/migrations/0032-setup-step.js";
 import * as setupKeyPlaintextMigration from "@/db/migrations/0033-setup-key-plaintext.js";
 import * as favoritesNodeScopeMigration from "@/db/migrations/0034-favorites-node-scope.js";
 import * as pushUrgencyMigration from "@/db/migrations/0035-subshell-push-urgency.js";
-import * as nodeEncryptPublicKeyMigration from "@/db/migrations/0035-node-encrypt-public-key.js";
+import * as nodeEncryptPublicKeyMigration from "@/db/migrations/0036-node-encrypt-public-key.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -102,7 +102,7 @@ export async function runMigrations(): Promise<void> {
           // The node's static X25519 public half for the encrypted /ws/node
           // link; NULL = legacy row, held-updatable until it registers
           // (spec 2026-09-24 §3/§5).
-          "0035-node-encrypt-public-key": nodeEncryptPublicKeyMigration,
+          "0036-node-encrypt-public-key": nodeEncryptPublicKeyMigration,
         };
       },
     },

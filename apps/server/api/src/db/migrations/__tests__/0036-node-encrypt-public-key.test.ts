@@ -5,7 +5,7 @@ import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js"; // no-op when already applied
 import * as initMigration from "@/db/migrations/0001-init.js";
 import * as nodesMigration from "@/db/migrations/0017-nodes.js";
-import * as encryptPublicKeyMigration from "@/db/migrations/0035-node-encrypt-public-key.js";
+import * as encryptPublicKeyMigration from "@/db/migrations/0036-node-encrypt-public-key.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 
@@ -33,7 +33,7 @@ async function encryptColumnExists(fresh: Kysely<any>): Promise<boolean> {
   return cols.some((c) => c.name === "encrypt_public_key");
 }
 
-describe("migration 0035-node-encrypt-public-key", () => {
+describe("migration 0036-node-encrypt-public-key", () => {
   it("adds the column where the typed queries resolve it; every pre-existing row reads NULL", async () => {
     // NULL is the whole migration story (spec 2026-09-24 §5): a node enrolled
     // before this column exists keeps its row untouched and reads NULL —
@@ -76,7 +76,7 @@ describe("migration 0035-node-encrypt-public-key", () => {
     // so ask the migrated database directly what it actually ran.
     await runMigrations();
     const applied = (await sql<{ name: string }>`select name from kysely_migration`.execute(db)).rows;
-    expect(applied.map((r) => r.name)).toContain("0035-node-encrypt-public-key");
+    expect(applied.map((r) => r.name)).toContain("0036-node-encrypt-public-key");
 
     // And the column carries the opaque base64 the enroll path will write,
     // byte for byte, through the repository's typed create/findById.
