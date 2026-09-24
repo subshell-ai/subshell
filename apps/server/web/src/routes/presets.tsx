@@ -1,6 +1,6 @@
 import { apiFetch, Button, confirmAction, errMessage } from "@internal/node-admin";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
+import { Copy, Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorBanner } from "@/components/error-banner";
@@ -10,6 +10,7 @@ import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
 import { PresetListRow } from "@/components/presets/preset-list-row";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useInvalidatePresets, usePresets } from "@/hooks/use-presets";
+import { presetFormFromRow, suggestCloneName } from "@/lib/preset-form";
 import type { PresetRow } from "@/types/preset";
 
 export const Route = createFileRoute("/presets")({
@@ -46,6 +47,9 @@ function PresetsPage() {
   const plugins = pluginData?.plugins ?? [];
 
   const [showCreate, setShowCreate] = useState(false);
+  // The row whose Clone dialog is open; the dialog mounts only while set
+  // (clone-dialog posture), so every open re-seeds from the then-current row.
+  const [cloneSource, setCloneSource] = useState<PresetRow | null>(null);
   // The delete failure belongs on the page — with the row menu closed and no
   // dialog up, anywhere else would render a failed delete nowhere at all.
   const [listError, setListError] = useState<string | null>(null);
@@ -96,6 +100,18 @@ function PresetsPage() {
           workspace dialog, Add a node. The create dialog and the inline one
           in the launch form are the SAME component, unlocked here. */}
       {showCreate && <CreatePresetDialog open onOpenChange={(next) => !next && setShowCreate(false)} />}
+
+      {cloneSource && (
+        <CreatePresetDialog
+          open
+          onOpenChange={(next) => !next && setCloneSource(null)}
+          lockedHarness={cloneSource.harnessId}
+          initialForm={{
+            ...presetFormFromRow(cloneSource),
+            name: suggestCloneName(presets ?? [], cloneSource),
+          }}
+        />
+      )}
 
       {isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
 
@@ -157,6 +173,11 @@ function PresetsPage() {
                         label: "Edit",
                         icon: Pencil,
                         onSelect: () => void navigate({ to: "/presets/$id", params: { id: p.id } }),
+                      },
+                      {
+                        label: "Clone preset",
+                        icon: Copy,
+                        onSelect: () => setCloneSource(p),
                       },
                       {
                         label: "Delete preset",
