@@ -30,6 +30,7 @@ function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
     nextRestartAt: null,
     notify: false,
     waitingSince: null,
+    unseenPush: false,
     access: "owner",
     ...overrides,
   };

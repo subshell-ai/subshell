@@ -27,7 +27,11 @@ describe("runReport", () => {
   it("posts the attention kind to the subshell's own attention endpoint", async () => {
     const { seen, fetchImpl } = recorder();
 
-    await runReport(["attention", "turn_complete"], { env: paneEnv, fetch: fetchImpl });
+    await runReport(["attention", "turn_complete"], {
+      env: paneEnv,
+      fetch: fetchImpl,
+      readStdin: async () => "",
+    });
 
     expect(seen).toHaveLength(1);
     const req = seen[0] as Request;
@@ -71,7 +75,13 @@ describe("runReport", () => {
       throw new Error("ECONNREFUSED");
     }) as unknown as typeof fetch;
 
-    expect(await runReport(["attention", "turn_complete"], { env: paneEnv, fetch: failing })).toBeUndefined();
+    expect(
+      await runReport(["attention", "turn_complete"], {
+        env: paneEnv,
+        fetch: failing,
+        readStdin: async () => "",
+      }),
+    ).toBeUndefined();
   });
 
   it("swallows unparseable stdin rather than throwing into the hook", async () => {
@@ -167,5 +177,69 @@ describe("report exit — the pane's own death (spec 2026-09-19 §4.3)", () => {
       }) as never,
     });
     expect(called).toBe(false);
+  });
+});
+
+describe("turn_complete gating on the Stop payload (spec 2026-09-23)", () => {
+  const paneEnv = {
+    SUBSHELL_API_KEY: "subshell_key123",
+    SUBSHELL_BASE_URL: "http://h:3080",
+    SUBSHELL_ID: "sub_42",
+  } as NodeJS.ProcessEnv;
+
+  /** Runs one report and returns how many POSTs it made. */
+  async function posts(argv: string[], stdin: () => Promise<string>): Promise<number> {
+    let calls = 0;
+    await runReport(argv, {
+      env: paneEnv,
+      readStdin: stdin,
+      fetch: (async () => {
+        calls += 1;
+        return new Response("{}", { status: 200 });
+      }) as never,
+    });
+    return calls;
+  }
+
+  it("reports nothing when the Stop payload names running background work", async () => {
+    expect(
+      await posts(["attention", "turn_complete"], async () =>
+        JSON.stringify({ background_tasks: [{ id: "t1", type: "subagent", status: "running" }] }),
+      ),
+    ).toBe(0);
+  });
+
+  it("reports nothing when a scheduled cron will wake the session", async () => {
+    expect(
+      await posts(["attention", "turn_complete"], async () =>
+        JSON.stringify({ background_tasks: [], session_crons: [{ id: "c1" }] }),
+      ),
+    ).toBe(0);
+  });
+
+  it("reports when both arrays are present and empty (reachable-and-done)", async () => {
+    expect(
+      await posts(["attention", "turn_complete"], async () =>
+        JSON.stringify({ background_tasks: [], session_crons: [] }),
+      ),
+    ).toBe(1);
+  });
+
+  it("reports when the payload predates the fields (older Claude Code)", async () => {
+    expect(await posts(["attention", "turn_complete"], async () => JSON.stringify({ session_id: "x" }))).toBe(1);
+  });
+
+  it("fails toward the push on empty, malformed, and wrong-typed stdin", async () => {
+    for (const raw of ["", "not json at all", JSON.stringify({ background_tasks: {} })]) {
+      expect(await posts(["attention", "turn_complete"], async () => raw)).toBe(1);
+    }
+  });
+
+  it("needs_attention never reads stdin, even one naming a park", async () => {
+    expect(
+      await posts(["attention", "needs_attention"], async () => {
+        throw new Error("stdin must not be read for needs_attention");
+      }),
+    ).toBe(1);
   });
 });

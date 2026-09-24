@@ -220,7 +220,12 @@ subshell report session            # out-of-band reporting from a harness HOOK, 
                                      # contract as `mcp`, but an incomplete env is a
                                      # silent exit 0 rather than a usage error: nobody
                                      # typed this, and a hook's stderr and exit code land
-                                     # in the user's own session. See mcp-core report.ts
+                                     # in the user's own session. A `turn_complete`
+                                     # report reads the hook's stdin payload and stays
+                                     # silent when it names running background work or
+                                     # scheduled crons — a session parked on a subagent
+                                     # does not claim to be done (spec 2026-09-23).
+                                     # See mcp-core report.ts
 subshell version                   # also `--version` / `-v` — aliased in the
                                      # COMMAND slot only, since argv[0] IS the
                                      # command here (`status --version` stays an

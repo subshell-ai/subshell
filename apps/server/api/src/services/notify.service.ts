@@ -18,6 +18,7 @@ import {
   isUnregisteredTicket,
   looksLikeExpoToken,
 } from "@/services/expo-push.js";
+import { publishLive } from "@/services/live-bus.js";
 import { isNodeOffline } from "@/services/nodes/node-registry.js";
 import { logger } from "@/utils/logger.js";
 
@@ -41,6 +42,21 @@ const BODY: Record<NotifyKind, string> = {
   crashed: "Crashed, auto-restarting",
   crashed_final: "Crashed",
   maintenance: "Stopped for node maintenance",
+};
+
+/**
+ * The unseen gate's ladder (spec 2026-09-23): a delivered push silences its
+ * pane's follow-ups until the owner opens the pane, and only an event that
+ * strictly OUTRANKS the unseen one rings through. `crashed_final` tops it —
+ * the restart loop giving up is news even behind an unseen `crashed`.
+ */
+const PUSH_URGENCY: Record<NotifyKind, number> = {
+  turn_complete: 1,
+  needs_attention: 2,
+  exited: 3,
+  crashed: 3,
+  maintenance: 3,
+  crashed_final: 4,
 };
 
 /**
@@ -120,10 +136,11 @@ export function createNotifyService(deps: NotifyServiceDeps) {
    * built without the device transport behaves exactly as it did before the
    * mobile app existed (invariant 2).
    */
-  async function notifyDevices(row: SubshellTable, kind: NotifyKind): Promise<void> {
-    if (!deps.devices) return;
+  /** @returns the number of relay-usable device tokens this fan-out targeted */
+  async function notifyDevices(row: SubshellTable, kind: NotifyKind): Promise<number> {
+    if (!deps.devices) return 0;
     const enrolled = await deps.devices.listByUser(row.userId);
-    if (enrolled.length === 0) return;
+    if (enrolled.length === 0) return 0;
     // One pass partitions relay-usable rows from junk; the junk rows are ones
     // the relay can never use, so they go now rather than on every send.
     const live: typeof enrolled = [];
@@ -133,7 +150,7 @@ export function createNotifyService(deps: NotifyServiceDeps) {
       await deps.devices.deleteByToken(dead.token);
       logger.warn(`pruned invalid device token for user ${dead.userId}`);
     }
-    if (live.length === 0) return;
+    if (live.length === 0) return 0;
     // F1: the badge count must ignore waiting rows whose node is
     // unreachable — the blessed predicate comes from the registry (importing
     // it from subshell-manager would cycle: subshell-manager already imports
@@ -163,6 +180,7 @@ export function createNotifyService(deps: NotifyServiceDeps) {
       // Transport exception is transient BY CONTRACT: every row survives.
       logger.withError(err).warn(`expo push send failed (kept) for ${live.length} device(s)`);
     }
+    return live.length;
   }
 
   return {
@@ -176,6 +194,10 @@ export function createNotifyService(deps: NotifyServiceDeps) {
      * §Push): flipping it takes effect on the next event with nothing to
      * invalidate. A dead web endpoint (403/404/410) or a DeviceNotRegistered
      * ticket prunes its row; every other failure keeps it (transient).
+     * The unseen gate (spec 2026-09-23): with the bell on, an event pushes
+     * only if it outranks the pane's last attempted, still-unseen push; the
+     * owner opening the pane clears the state (see `#rememberSeen` in
+     * `subshells.service.ts` and the attach path in `ws/attach-resolve.ts`).
      */
     async notifySubshell(subshellId: string, kind: NotifyKind): Promise<void> {
       try {
@@ -185,6 +207,12 @@ export function createNotifyService(deps: NotifyServiceDeps) {
         // regardless of any subshell bells. Read of user_meta only; a missing
         // row reads as enabled (getNotifyEnabled defaults to on).
         if (!(await userMetaRepo.getNotifyEnabled(row.userId))) return;
+        // The unseen gate (spec 2026-09-23): one push per unseen interval,
+        // broken only by an escalation. The waiting chip is deliberately NOT
+        // part of this — recordAttention still stamps every event; only the
+        // bell waits.
+        const urgency = PUSH_URGENCY[kind];
+        if ((row.lastPushUrgency ?? 0) >= urgency) return;
         // The transports are independent. Start the device fan-out NOW, before
         // the sequential web-push loop, so a phone never waits behind N HTTPS
         // round-trips to browser push gateways (review, efficiency #6).
@@ -211,7 +239,17 @@ export function createNotifyService(deps: NotifyServiceDeps) {
             }
           }
         }
-        await deviceDelivery;
+        const liveDevices = await deviceDelivery;
+        // The urgency sticks only behind an ATTEMPTED delivery: the condition
+        // is targets existing (a send was made to at least one), not a gateway
+        // accepting it. An owner with no subscription and no enrolled device
+        // received nothing and was attempted nothing — such an owner must not
+        // have the pane's future escalations silenced by an attempt that never
+        // existed.
+        if (subs.length > 0 || liveDevices > 0) {
+          await subshellsRepo.update(subshellId, { lastPushUrgency: urgency });
+          publishLive({ kind: "subshell.changed", id: subshellId });
+        }
       } catch (err) {
         // Notifications must never break the caller (sweep / hook route).
         logger.withError(err).warn(`notifySubshell(${subshellId}, ${kind}) failed`);

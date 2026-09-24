@@ -59,23 +59,29 @@ function input(over: Partial<BuildCommandInput>): BuildCommandInput {
 }
 
 /**
- * The argv with each hook COMMAND replaced by a marker — the one deliberate
- * post-extraction divergence, normalized so the rest of the comparison keeps
- * working.
+ * The argv with each hook COMMAND replaced by a marker, and the Notification
+ * entries' `matcher` dropped — the two deliberate post-extraction divergences,
+ * normalized so the rest of the comparison keeps working.
  *
  * The legacy class runs `bun -e '<inlined JS>'`, which assumed a bun on the
  * pane's PATH; the extracted plugin re-enters the subshell binary instead,
  * because most machines have no bun and every session opened on
- * `bun: command not found`. Everything else about the hooks — which events
- * carry one, their shape, that preset settings merge underneath — still
- * compares exactly, and so does every other argv element.
+ * `bun: command not found`. And since spec 2026-09-23 the plugin's
+ * `Notification` hook carries a matcher so only the notification types that
+ * genuinely need a human ring; the legacy class predates it. Everything else
+ * about the hooks — which events carry one, their shape, that preset settings
+ * merge underneath — still compares exactly, and so does every other argv
+ * element.
  */
 function normalizeHookCommands(argv: string[]): string[] {
   const idx = argv.indexOf("--settings");
   if (idx === -1) return argv;
-  const settings = JSON.parse(argv[idx + 1]) as { hooks?: Record<string, { hooks: { command: string }[] }[]> };
-  for (const entries of Object.values(settings.hooks ?? {})) {
+  const settings = JSON.parse(argv[idx + 1]) as {
+    hooks?: Record<string, { matcher?: string; hooks: { command: string }[] }[]>;
+  };
+  for (const [event, entries] of Object.entries(settings.hooks ?? {})) {
     for (const entry of entries) {
+      if (event === "Notification") delete entry.matcher;
       for (const hook of entry.hooks) hook.command = "<reporter invocation>";
     }
   }

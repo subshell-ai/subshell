@@ -57,6 +57,12 @@ export interface SubshellTable {
   /** ISO ts of the "waiting for you" event (null = not waiting). See migration 0014. */
   waitingSince: string | null;
   /**
+   * Urgency (see notify.service) of the last delivered push attempt the
+   * owner has not answered by opening the pane; NULL = nothing unseen.
+   * See migration 0035.
+   */
+  lastPushUrgency: number | null;
+  /**
    * Harness conversation id pinned for restart-resume (null = pre-feature
    * row, non-resume harness, or nothing pinned yet). See migration 0013.
    */
@@ -97,6 +103,7 @@ export type NewSubshell = Omit<
   | "harnessSessionId"
   | "notify"
   | "waitingSince"
+  | "lastPushUrgency"
   | "nodeId"
   | "terminalReplayLines"
 > & {
@@ -113,6 +120,7 @@ export type NewSubshell = Omit<
   nameLocked?: number;
   notify?: number;
   waitingSince?: string | null;
+  lastPushUrgency?: number | null;
   alive?: number;
   backoffCount?: number;
   restartOnExit?: number;

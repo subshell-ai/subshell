@@ -3,6 +3,10 @@ import { cleanup, render } from "@testing-library/react";
 import { SubshellDot } from "@/components/sidebar/SubshellDot";
 import type { SubshellView } from "@/types/subshell";
 
+// `access: "owner"` is the default because the bell is owner-only: the
+// unseen-push cases below were written before that (final review) and the
+// grantee case overrides it. A missing access would read as "not owner" and
+// silently dim every bell case to no-bell.
 const probe = (overrides: Partial<SubshellView> = {}): SubshellView =>
   ({
     status: "running",
@@ -10,6 +14,7 @@ const probe = (overrides: Partial<SubshellView> = {}): SubshellView =>
     activity: "active",
     nodeOffline: false,
     waitingSince: null,
+    access: "owner",
     ...overrides,
   }) as SubshellView;
 
@@ -70,5 +75,45 @@ describe("SubshellDot — the header's variant (2026-09-20)", () => {
     const dot = document.querySelector('[role="img"]');
     expect(dot?.getAttribute("data-status")).toBe("running");
     expect(dot?.getAttribute("data-alive")).toBe("false");
+  });
+});
+
+describe("SubshellDot — the unseen-notification bell (spec 2026-09-23)", () => {
+  afterEach(cleanup);
+
+  it("swaps the dot for a bell while a push goes unseen, raw pair intact", () => {
+    render(<SubshellDot subshell={probe({ unseenPush: true, waitingSince: "2026-09-23T00:00:00.000Z" })} accessible />);
+    const el = document.querySelector('[role="img"]');
+    expect(el?.querySelector("svg")).toBeTruthy();
+    expect(el?.getAttribute("aria-label")).toBe("unseen notification (waiting for you)");
+    expect(el?.getAttribute("data-status")).toBe("running");
+    expect(el?.getAttribute("data-alive")).toBe("true");
+  });
+
+  it("keeps the indicator's tone on the bell", () => {
+    render(<SubshellDot subshell={probe({ unseenPush: true })} />);
+    expect(document.querySelector("svg")?.getAttribute("class") ?? "").toContain("text-success");
+  });
+
+  it("no bell, no glyph — the dot stays when nothing is unseen", () => {
+    render(<SubshellDot subshell={probe()} />);
+    expect(document.querySelector("svg")).toBeNull();
+  });
+
+  it("the bell is owner-only — a grantee sees the dot, never an unclearable mark", () => {
+    // Every server-side clear (pane open, log tail, attach) requires the
+    // OWNER's cookie, so `unseenPush` on a shared row is owner notification
+    // state; rendered as a bell it would mark a pane this viewer can never
+    // clear (final review, spec 2026-09-23). The dot — the shared state —
+    // stays.
+    render(<SubshellDot subshell={probe({ unseenPush: true, access: "view" })} />);
+    expect(document.querySelector("svg")).toBeNull();
+    const dot = document.querySelector('[aria-hidden="true"]');
+    expect(dot?.getAttribute("class") ?? "").toContain("bg-success");
+  });
+
+  it("`edit` is a grantee too — same dot, same silence", () => {
+    render(<SubshellDot subshell={probe({ unseenPush: true, access: "edit" })} />);
+    expect(document.querySelector("svg")).toBeNull();
   });
 });

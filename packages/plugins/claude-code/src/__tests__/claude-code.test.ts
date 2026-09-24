@@ -291,6 +291,28 @@ describe("ClaudeCodePlugin attention hooks", () => {
     );
   });
 
+  it("narrows the Notification hook to the types that genuinely need a human", () => {
+    const cmd = plugin.buildCommand({
+      binary: "/usr/bin/claude",
+      cwd: "/tmp/ws",
+      preset: emptyPreset(),
+      subshellName: "",
+      reporter,
+    });
+    const idx = cmd.indexOf("--settings");
+    expect(idx).toBeGreaterThan(-1);
+    const settings = JSON.parse(cmd[idx + 1]) as {
+      hooks?: Record<string, [{ matcher?: string; hooks: [{ command: string }] }]>;
+    };
+    // Without the matcher EVERY notification type rings "Needs your
+    // approval": idle_prompt, auth_success, the quota_auto_resume_* family,
+    // and elicitation_complete after the human already answered (spec
+    // 2026-09-23). This string is the whole filter, so it is pinned exactly.
+    expect(settings.hooks?.Notification?.[0]?.matcher).toBe(
+      "permission_prompt|agent_needs_input|elicitation_dialog|elicitation_url_dialog",
+    );
+  });
+
   /**
    * The regression this whole path exists for: the hooks used to be
    * `bun -e '<inlined JS>'`, which assumed a bun on the pane PATH. True of the

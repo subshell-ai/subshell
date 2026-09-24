@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import type { AttachParams } from "@/ws/attach-params.js";
@@ -399,5 +400,71 @@ describe("resolveAttach", () => {
       build: "MISSING",
       wireMode: "json",
     });
+  });
+});
+
+describe("resolveAttach clears the unseen push (spec 2026-09-23)", () => {
+  const email = `attach-unseen-${crypto.randomUUID()}@subshell.local`;
+  const pw = "attach-unseen-pass-1";
+  let userId: string;
+  let cookie: string;
+
+  beforeAll(async () => {
+    userId = await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
+    cookie = await signIn(email, pw);
+  });
+
+  afterAll(async () => {
+    await deleteUserByEmailOrId(email);
+  });
+
+  /** The owner's running row with unseen urgency 2. */
+  async function unseenRow(): Promise<string> {
+    const { repos } = getRequestlessContext();
+    const row = await repos.subshells.create({
+      id: crypto.randomUUID(),
+      userId,
+      presetId: "p-test",
+      harnessId: "shell",
+      name: "attach-unseen",
+      workingDir: "/tmp",
+      tmuxSocket: "subshell-attach-unseen",
+    });
+    await repos.subshells.update(row.id, { lastPushUrgency: 2, alive: 1, status: "running" });
+    return row.id;
+  }
+
+  const urgencyOf = async (id: string) => (await new SubshellsRepository(db).findById(id))?.lastPushUrgency;
+
+  it("the cookie-fallback attach clears it", async () => {
+    const id = await unseenRow();
+    const res = await resolveAttach({
+      url: new URL(`ws://localhost/ws?subshell=${id}`),
+      cookieHeader: `better-auth.session_token=${cookie}`,
+      attachUa: "test-ua",
+    });
+    expect(res.ok).toBe(true);
+    expect(await urgencyOf(id)).toBeNull();
+  });
+
+  it("an UNBOUND (cookie-minted) ws-token attach clears it", async () => {
+    const id = await unseenRow();
+    const token = issueWsToken(userId); // subshellId null = cookie's spelling
+    const res = await resolveAttach(request(`subshell=${id}&token=${token}`));
+    expect(res.ok).toBe(true);
+    expect(await urgencyOf(id)).toBeNull();
+  });
+
+  it("a SCOPED (Bearer-minted) token resolves as the owner but attends nothing", async () => {
+    const id = await unseenRow();
+    const token = issueWsToken(userId, id);
+    const res = await resolveAttach(request(`subshell=${id}&token=${token}`));
+    expect(res.ok).toBe(true);
+    expect(await urgencyOf(id)).toBe(2);
   });
 });

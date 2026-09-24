@@ -26,6 +26,7 @@ function makeSubshell(overrides: Partial<SubshellView> & { id: string }): Subshe
     nextRestartAt: null,
     notify: false,
     waitingSince: null,
+    unseenPush: false,
     access: "owner",
     nodeOffline: false,
     ...overrides,

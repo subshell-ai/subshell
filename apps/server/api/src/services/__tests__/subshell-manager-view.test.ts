@@ -29,6 +29,7 @@ function row(overrides: Partial<Parameters<typeof toSubshellView>[0]> = {}) {
     nameLocked: 0,
     notify: 0,
     waitingSince: null,
+    lastPushUrgency: null,
     ...overrides,
   } satisfies Parameters<typeof toSubshellView>[0];
 }

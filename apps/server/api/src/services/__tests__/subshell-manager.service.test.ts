@@ -19,6 +19,7 @@ import * as sharingMigration from "@/db/migrations/0016-session-sharing.js";
 import * as nodesMigration from "@/db/migrations/0017-nodes.js";
 import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
 import * as presetsMigration from "@/db/migrations/0027-presets.js";
+import * as pushUrgencyMigration from "@/db/migrations/0035-subshell-push-urgency.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -141,6 +142,7 @@ beforeAll(async () => {
   await sharingMigration.up(db); // 0019 renames session_shares
   await subshellRenameMigration.up(db); // renamed schema the code sees
   await presetsMigration.up(db); // profiles → presets (spec 2026-09-13 §6)
+  await pushUrgencyMigration.up(db); // last_push_urgency — #reviveRow clears it on revival (spec 2026-09-23)
   presetsRepo = new PresetsRepository(db);
   subshellsRepo = new SubshellsRepository(db);
   subshellManager = new SubshellManagerService({
@@ -354,6 +356,28 @@ describe("SubshellManagerService restart", () => {
     expect(existsSync(secondFile)).toBe(true);
     expect(await subshellManager.deleteSubshell("u1", second.id)).toBe(true);
     expect(existsSync(secondFile)).toBe(false);
+  });
+
+  it("restartSubshell clears the unseen push — a revived pane opens a fresh interval (spec 2026-09-23)", async () => {
+    // The bell (`notify`) survives a restart, the test above pins that. This
+    // is the OTHER field on the row, and it must NOT survive: a pane that
+    // pushed "Crashed, auto-restarting" (urgency 3, unseen) revives on the
+    // SAME row, so a carried urgency would keep suppressing the revived
+    // pane's `needs_attention` (2 < 3) and its second death (3 vs 3) — a
+    // permission prompt with no push. The revive write clears the column, so
+    // the revived pane's own attention outranks a crash push the owner may
+    // never have seen.
+    const presetId = await seedPresetFor("u1");
+    const id = await seedSubshell("u1", presetId);
+    await subshellsRepo.update(id, { lastPushUrgency: 3 });
+    const restarted = await subshellManager.restartSubshell("u1", id);
+    if (!restarted) throw new Error("expected a restarted subshell");
+    trackTmuxSocket(restarted.tmuxSocket);
+    try {
+      expect((await subshellsRepo.findById(id))?.lastPushUrgency).toBeNull();
+    } finally {
+      await subshellManager.terminateSubshell("u1", id);
+    }
   });
 
   it("restartSubshell keeps the bell on the row (operator monitoring survives a restart)", async () => {
