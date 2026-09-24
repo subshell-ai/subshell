@@ -75,7 +75,7 @@ amber waiting, red unreachable, faint exited, hollow ended).
   only on elements the poll does not rebuild — a rebuilt element replays its
   animation, which is how a done-mark came to pulse forever. A LOOP is admitted
   for a state that genuinely IS ongoing, on an element that never remounts —
-  the input-queue chevrons, the dashboard `StatusPill`, and the working dot's
+  the input-queue chevrons, the terminal's `StatusPill`, and the working dot's
   blink (2026-09-24) are that admitted shape, and each sits behind the same
   motion gate so a reduced-motion user sees the still state instead.
 - Touch targets ≥ 44 where there is touch.
