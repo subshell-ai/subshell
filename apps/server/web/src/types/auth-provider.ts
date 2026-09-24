@@ -17,7 +17,9 @@ export const EMAIL_PROVIDER_ID = "email";
  */
 export const GOOGLE_ISSUER = "https://accounts.google.com";
 
-/** One rendering of `kind` for the badge and the select, so they cannot spell it apart. */
+/** One rendering of `kind` for the badges, so rows cannot spell it apart. The
+ * dialog's kind Select names its options itself: "Generic OIDC" there is the
+ * choice being made, not a second spelling of the badge word. */
 export const KIND_LABELS: Record<AuthProviderKind, string> = {
   email: "Email",
   google: "Google",
@@ -110,12 +112,17 @@ export interface RegistrationDisplay {
 /**
  * The Registration cell's answer for one row. The email row's `null` is not
  * "closed" and not "open" — it is the legacy dynamic gate, and its computed
- * decision (`allowRegistrations` from the settings read) decides the switch,
- * while the label says what the flag actually means.
+ * decision (`allowRegistrations` from the settings read) decides BOTH the
+ * switch and the sentence beside it: a gate the instance has already closed
+ * must not read as open.
  */
 export function registrationDisplay(row: ProviderAdminView, computedOpen: boolean): RegistrationDisplay {
   if (row.registrationEnabled === null) {
-    return { checked: computedOpen, label: "Open until someone registers", computed: true };
+    return {
+      checked: computedOpen,
+      label: computedOpen ? "Open until someone registers" : "Automatically closed once the first account signed up",
+      computed: true,
+    };
   }
   return {
     checked: row.registrationEnabled,

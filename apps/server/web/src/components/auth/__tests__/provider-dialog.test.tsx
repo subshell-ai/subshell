@@ -57,9 +57,13 @@ describe("registrationDisplay", () => {
     expect(open.checked).toBe(true);
     expect(open.computed).toBe(true);
     expect(open.label).toBe("Open until someone registers");
+    // The CLOSED direction is the one that shipped broken: a null flag beside
+    // an already-closed gate must not say "Open until someone registers" —
+    // the label follows the computed decision, not just the switch.
     const closed = registrationDisplay(view({ id: "email", kind: "email", registrationEnabled: null }), false);
     expect(closed.checked).toBe(false);
     expect(closed.computed).toBe(true);
+    expect(closed.label).toBe("Automatically closed once the first account signed up");
   });
   it("renders an explicit flag as itself", () => {
     expect(registrationDisplay(view({ registrationEnabled: true }), false)).toEqual({
@@ -121,22 +125,108 @@ function renderDialog(props: Partial<Parameters<typeof ProviderDialog>[0]> = {})
 
 afterEach(cleanup);
 
+async function pickOption(triggerName: string, optionName: string): Promise<void> {
+  fireEvent.click(screen.getByRole("combobox", { name: triggerName }));
+  await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
+  const option = screen.getByRole("option", { name: optionName });
+  fireEvent.pointerDown(option);
+  fireEvent.pointerUp(option);
+  fireEvent.click(option);
+  await settle();
+}
+
 describe("ProviderDialog", () => {
-  it("the Google preset prefills the issuer", async () => {
+  it("the Google preset is true AT REST, and switching away clears only the preset", async () => {
     const { restore } = mockFetch({ trustedOrigins: ["https://plane.example"], appBaseUrl: "https://plane.example" });
     try {
       renderDialog();
       await settle();
-      const kindSelect = screen.getByRole("combobox", { name: "Provider kind" });
-      fireEvent.click(kindSelect);
-      await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
-      const option = screen.getByRole("option", { name: "Google" });
-      fireEvent.pointerDown(option);
-      fireEvent.pointerUp(option);
-      fireEvent.click(option);
-      await settle();
+      // At rest: no dropdown interaction. A fresh create dialog shows Google
+      // chosen AND its issuer filled, so Save is not held hostage to a click.
+      const issuerInput = () => screen.getByLabelText("Issuer") as HTMLInputElement;
+      expect(issuerInput().value).toBe(GOOGLE_ISSUER);
       expect((screen.getByLabelText("Client ID") as HTMLInputElement).value).toBe("");
-      expect((screen.getByLabelText("Issuer") as HTMLInputElement).value).toBe(GOOGLE_ISSUER);
+      // Switching away retracts the preset the dialog itself wrote…
+      await pickOption("Provider kind", "Generic OIDC");
+      expect(issuerInput().value).toBe("");
+      // …but a hand-entered issuer is the admin's answer, not ours to eat.
+      fireEvent.change(issuerInput(), { target: { value: "https://hand-entered.example" } });
+      await pickOption("Provider kind", "Google");
+      expect(issuerInput().value).toBe("https://hand-entered.example");
+      await pickOption("Provider kind", "Generic OIDC");
+      expect(issuerInput().value).toBe("https://hand-entered.example");
+    } finally {
+      restore();
+    }
+  });
+
+  it("create mode's Other escape stays reachable when the seed exhausts the candidates", async () => {
+    const { restore } = mockFetch({}); // candidates: this browser's origin alone
+    try {
+      renderDialog();
+      await settle();
+      // The create seed IS the only candidate, so Other is all the Select has
+      // left. It must be usable, not gated away with the button.
+      const addButton = () => screen.getByRole("button", { name: "Add" }) as HTMLButtonElement;
+      expect(addButton().disabled).toBe(true); // empty text
+      fireEvent.change(screen.getByLabelText("Other address"), { target: { value: "https://off-registry.example" } });
+      await settle();
+      expect(addButton().disabled).toBe(false);
+      fireEvent.click(addButton());
+      await settle();
+      expect(screen.getByRole("button", { name: "Remove https://off-registry.example" })).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("create pre-adds the app base URL as the canonical entry", async () => {
+    const { restore } = mockFetch({ trustedOrigins: ["https://plane.example"], appBaseUrl: "https://plane.example" });
+    try {
+      renderDialog();
+      await settle();
+      // Spec §5a: position 1 on create is APP_BASE_URL's origin, badged.
+      expect(screen.getByRole("button", { name: "Remove https://plane.example" })).toBeDefined();
+      expect(screen.getByText("Canonical")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("falls back to this browser's origin only while appBaseUrl is unknown", async () => {
+    const { restore } = mockFetch({}); // a server predating the field
+    try {
+      renderDialog();
+      await settle();
+      expect(screen.getByRole("button", { name: `Remove ${window.location.origin}` })).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("the Other escape unlocks Add when every candidate is already an entry", async () => {
+    const { restore } = mockFetch({ trustedOrigins: ["https://plane.example"], appBaseUrl: "https://plane.example" });
+    try {
+      // Edit mode with both candidates (this browser's, the base URL's) already
+      // entries: the case `offered.length === 1` used to deadlock — Add
+      // disabled exactly when Other exists.
+      renderDialog({ provider: view({ entryOrigins: [window.location.origin, "https://plane.example"] }) });
+      await settle();
+      const addButton = () => screen.getByRole("button", { name: "Add" }) as HTMLButtonElement;
+      const otherInput = () => screen.getByLabelText("Other address") as HTMLInputElement;
+      // Empty text: nothing to add yet.
+      expect(addButton().disabled).toBe(true);
+      // Garbage: still disabled, the guard is validity, not presence.
+      fireEvent.change(otherInput(), { target: { value: "not a url" } });
+      await settle();
+      expect(addButton().disabled).toBe(true);
+      // A valid bare origin: Add lives, and the entry lands in the list.
+      fireEvent.change(otherInput(), { target: { value: "https://still-learning.example" } });
+      await settle();
+      expect(addButton().disabled).toBe(false);
+      fireEvent.click(addButton());
+      await settle();
+      expect(screen.getByRole("button", { name: "Remove https://still-learning.example" })).toBeDefined();
     } finally {
       restore();
     }

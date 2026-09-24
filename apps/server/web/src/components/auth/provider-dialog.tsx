@@ -1,6 +1,6 @@
 import { ApiError, Badge, Button, CopyableValue, errMessage, Input, Label, Switch } from "@internal/node-admin";
 import { ArrowDown, ArrowUp, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CopyCommandRow } from "@/components/copy-command-row";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -17,6 +17,9 @@ import {
 
 /** The Select's escape hatch: a free-typed address the registry has not learned. */
 const OTHER = "__other__";
+
+/** The one fallback sentence for a save refusal that carries no server text. */
+const SAVE_ERROR_FALLBACK = "Couldn't save the provider.";
 
 /**
  * Bare-origin validation for an entry point (spec §5a): http(s) scheme, a host,
@@ -121,14 +124,34 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
   const editing = provider !== null;
   const { data: publicSettings } = usePublicSettings();
 
+  // The canonical entry for a fresh dialog (spec §5a, list position 1):
+  // APP_BASE_URL's origin, falling back to this browser's origin ONLY while
+  // appBaseUrl is unknown — the same source order `lib/install-addresses`
+  // documents for its pickers.
+  const canonicalEntry =
+    normalizeOriginEntry(publicSettings?.appBaseUrl ?? "") ?? normalizeOriginEntry(window.location.origin);
+
+  // Create starts with kind "google" AND its issuer seeded: a dialog that
+  // shows Google chosen but demands a paste of the issuer URL pretends the
+  // preset is a click rather than the default.
   const [kind, setKind] = useState<"google" | "oidc">(provider && provider.kind !== "email" ? provider.kind : "google");
   const [name, setName] = useState(provider?.name ?? "");
-  const [issuer, setIssuer] = useState(provider?.issuer ?? "");
+  const [issuer, setIssuer] = useState(provider ? (provider.issuer ?? "") : GOOGLE_ISSUER);
   const [clientId, setClientId] = useState(provider?.clientId ?? "");
   // Edit starts BLANK: the list never carries the secret (§8), and a blank
   // save means "leave stored" — explicit clearing does not exist server-side.
   const [secret, setSecret] = useState("");
-  const [entries, setEntries] = useState<string[]>(provider?.entryOrigins ?? []);
+  // Create pre-adds the canonical entry (spec §5a); the seeded-array identity
+  // lets the effect below tell our untouched seed from a list the admin has
+  // edited (every edit mints a new array).
+  const [entries, setEntries] = useState<string[]>(() =>
+    provider ? [...(provider.entryOrigins ?? [])] : canonicalEntry === null ? [] : [canonicalEntry],
+  );
+  const seededEntries = useRef<string[] | null>(editing ? null : entries);
+  useEffect(() => {
+    if (editing || canonicalEntry === null) return;
+    setEntries((prev) => (prev === seededEntries.current && prev[0] !== canonicalEntry ? [canonicalEntry] : prev));
+  }, [editing, canonicalEntry]);
   const [candidate, setCandidate] = useState<string | null>(null);
   const [otherText, setOtherText] = useState("");
   const [entryError, setEntryError] = useState<string | null>(null);
@@ -221,7 +244,7 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
   /** The refusal's server sentence, shown under the field or block it belongs to. */
   function errorText(codes: string[]): string | null {
     if (!(saveError instanceof ApiError) || !codes.includes(saveError.code ?? "")) return null;
-    return errMessage(saveError, "Couldn't save the provider.");
+    return errMessage(saveError, SAVE_ERROR_FALLBACK);
   }
   /** Anything no code-specific slot claimed. */
   const generalError =
@@ -230,7 +253,7 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
       saveError instanceof ApiError &&
       ["DISCOVERY_FAILED", "SLUG_TAKEN", "LAST_SIGN_IN_DOOR"].includes(saveError.code ?? "")
     )
-      ? errMessage(saveError, "Couldn't save the provider.")
+      ? errMessage(saveError, SAVE_ERROR_FALLBACK)
       : null;
 
   const saveDisabled =
@@ -254,12 +277,18 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
           <Label id="ap-kind-label">Provider kind</Label>
           <Select
             value={kind}
-            // A created row's kind is immutable (the route refuses it too);
-            // Google's preset only makes sense at the first keystrokes.
+            // A created row's kind is immutable (the route refuses it too).
+            // The Google preset seeds the issuer at rest and on switch-back,
+            // and switching away clears ONLY the preset it wrote — a
+            // hand-entered issuer is the admin's answer, not ours to retract.
             onValueChange={(v) => {
               if (v !== "google" && v !== "oidc") return;
               setKind(v);
-              if (v === "google" && (issuer === "" || issuer === GOOGLE_ISSUER)) setIssuer(GOOGLE_ISSUER);
+              if (v === "google") {
+                if (issuer === "" || issuer === GOOGLE_ISSUER) setIssuer(GOOGLE_ISSUER);
+              } else if (issuer === GOOGLE_ISSUER) {
+                setIssuer("");
+              }
             }}
             disabled={editing}
             items={[
@@ -376,6 +405,9 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
             onValueChange={(v) => {
               if (typeof v === "string") setCandidate(v);
             }}
+            // With every candidate already an entry, Other is the only choice
+            // left and already showing; the Select has nothing else to offer.
+            disabled={offered.length === 1}
             items={offered.map((o) => ({ value: o, label: o === OTHER ? "Other…" : o }))}
           >
             <SelectTrigger aria-label="Address to add" className="min-w-0 flex-1">
@@ -389,7 +421,15 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
               ))}
             </SelectContent>
           </Select>
-          <Button type="button" onClick={addEntry} disabled={offered.length === 1}>
+          {/* "Other…" exists exactly for the case where every registry
+              candidate is already an entry, so when it is what is selected,
+              Add keys on the typed text rather than refusing the escape.
+              A chosen candidate is pre-vetted by the candidate builder. */}
+          <Button
+            type="button"
+            onClick={addEntry}
+            disabled={selected === OTHER && normalizeOriginEntry(otherText) === null}
+          >
             Add
           </Button>
         </div>
@@ -415,7 +455,8 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
           <legend className="font-strong text-label">Finish the setup at your provider</legend>
           <p className="text-detail text-muted-foreground">
             Register each redirect URI and JavaScript origin at the provider. A host missing from its list cannot
-            complete its sign-in round trip.
+            complete its sign-in round trip, and removing an entry here breaks that host's door until the provider
+            registration is updated.
           </p>
           <div className="space-y-3">
             {entries.map((origin, i) => (
