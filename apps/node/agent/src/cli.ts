@@ -1,4 +1,4 @@
-import { ATTENTION_KINDS, REPORT_VERBS, readMcpEnv, runReport } from "@internal/mcp-core";
+import { REPORT_VERBS, readMcpEnv, runReport } from "@internal/mcp-core";
 import { appendStdinToLogFile } from "@internal/pane-runtime";
 import { licenseNotice, NODE_PROTOCOL_VERSION, semverLt } from "@internal/subshell-protocol";
 import { configPath, loadConfig, type NodeConfig } from "./config.js";
@@ -126,7 +126,7 @@ usage:
   subshell version        (also --version, -v)
   subshell license        print the copyright and licence and exit
   subshell mcp            (stdio MCP server for a subshell pane, internal)
-  subshell report attention turn_complete|needs_attention
+  subshell report attention turn_complete|needs_attention|resumed
   subshell report session (a pane's state, run by harness hooks — not by hand)
   subshell report exit <status> (the pane died; run by tmux's own hook)
   subshell pane-log --file <path> (append stdin to a pane log, flushing each
@@ -175,20 +175,34 @@ const SUBCOMMANDS: Record<string, string[]> = {
   // Spread for the same reason: a subtoken added in maintenance-cli.ts must
   // not be silently unreachable from the parser that admits it.
   maintenance: [...MAINTENANCE_SUBS],
-  // Spread from mcp-core so the CLI cannot accept a verb the reporter does not
-  // implement — or refuse one it does.
+  // Spread from mcp-core: this list is the set of verbs whose ARGUMENT rules
+  // the parser knows — the typo-guard's authority, not a whitelist of words
+  // the command accepts (`report` is skew-tolerant below, so a verb newer
+  // than this binary is admitted and answered silently by `runReport`).
   report: [...REPORT_VERBS],
 };
 /**
- * Command → subtoken → the values its SECOND positional accepts. A subtoken
- * absent from its command's entry takes no argument at all, and one present
- * requires exactly one: both are usage errors, because a hook that typed the
- * wrong word must fail loudly here rather than report the wrong thing.
+ * Commands whose subtoken slot admits words OUTSIDE the list. The same
+ * exit-2 doctrine the {@link SUBCOMMAND_ARGS} entry for `report` spells out
+ * applies to the verb slot itself: a newer plane legitimately emits a verb
+ * compiled after this binary — a new verb is plane-side data in a generated
+ * hook line exactly as a new kind is — and a refused word would BLOCK the
+ * pane. Presence is still required, and a KNOWN verb keeps its documented
+ * shape: `session extra` stays the usage error it always was, because that
+ * pair is a typo, not skew. Every other command's list stands as typed.
+ */
+const SKEW_TOLERANT_SUBCOMMANDS: ReadonlySet<string> = new Set(["report"]);
+/**
+ * Command → subtoken → its SECOND positional: a value list, or {@link FREE_ARG}
+ * for values this parser must not reject. A subtoken absent from its command's
+ * entry takes no argument at all, and one present requires exactly one —
+ * presence stays a usage error, because a hook command missing its argument is
+ * a plane-side bug; VALUE rejection is the dangerous half (see the `report`
+ * entry: these hooks exit-blocking, so a refused value costs the pane's turn).
  *
- * Only `report attention <kind>` needs the slot today. It exists as a table
- * rather than a special case so the next two-word verb is data, and it stays
- * ONE extra slot deliberately — a general grammar for a CLI with one such
- * command would be more machinery than the CLI.
+ * It exists as a table rather than a special case so the next two-word verb is
+ * data, and it stays ONE extra slot deliberately — a general grammar for a CLI
+ * with one such command would be more machinery than the CLI.
  */
 /**
  * Marks a subtoken whose argument is a VALUE, not one of a fixed set.
@@ -200,12 +214,22 @@ const SUBCOMMANDS: Record<string, string[]> = {
 const FREE_ARG = Symbol("free-argument");
 
 const SUBCOMMAND_ARGS: Record<string, Record<string, readonly string[] | typeof FREE_ARG>> = {
-  // `report exit <status>` takes tmux's own `#{pane_dead_status}`, which is
-  // any exit code or the EMPTY string when tmux has none to give — so it
-  // cannot be a value list. It is still declared, because declaring it is what
-  // makes the argument required, and a generated hook that lost its word must
-  // fail loudly here rather than report a death with no status as a clean one.
-  report: { attention: ATTENTION_KINDS, exit: FREE_ARG },
+  // Both `report` arguments are FREE, and for one reason the value-list shape
+  // could not see: a usage error exits 2, and Claude Code treats a
+  // PreToolUse/UserPromptSubmit exit 2 as BLOCKING — the stderr lands in the
+  // agent's turn as a refusal. So anything this parser rejects with exit 2 is
+  // not a loud typo-guard, it is a broken pane. And the case that actually
+  // happens is not a typo at all: a plane NEWER than this binary legitimately
+  // emits a kind compiled in AFTER it (the `resumed` clear, 2026-09-24), and
+  // version skew must degrade to the pre-fix behaviour — silence — not to a
+  // blocked tool. `runReport` already answers any unknown verb or kind with a
+  // silent exit 0 (its own filter), which is the server twin's posture too:
+  // that CLI never validated these words. PRESENCE is still enforced by
+  // declaring the slot: `report attention` with no kind, or `report exit`
+  // with no status (tmux's `#{pane_dead_status}`, any number or the empty
+  // string, hence free there too — declared because declaring is what makes
+  // it required), stays a plane-side bug worth the loud failure.
+  report: { attention: FREE_ARG, exit: FREE_ARG },
   // `service autostart` is the first two-word service verb: its second slot is
   // the state to arm. A value rather than two subwords (`autostart-on`)
   // because the pair is one act in two moods, exactly like
@@ -340,7 +364,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   const used: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     if (subcommands && sub === undefined && !rest[i].startsWith("--")) {
-      if (!subcommands.includes(rest[i])) {
+      if (!subcommands.includes(rest[i]) && !SKEW_TOLERANT_SUBCOMMANDS.has(command)) {
         throw new UsageError(
           `unknown ${command} subcommand '${rest[i]}': ${command} requires ${subcommands.join(" or ")}`,
         );
@@ -350,11 +374,36 @@ export function parseArgs(argv: string[]): ParsedArgs {
     }
     if (sub !== undefined && arg === undefined && !rest[i].startsWith("--")) {
       const args = SUBCOMMAND_ARGS[command]?.[sub];
-      if (!args) throw new UsageError(`${command} ${sub} takes no argument (got '${rest[i]}')`);
+      if (!args) {
+        // A second word after a SKEW verb: its argument rules are unknowable
+        // here, and guessing wrong with an exit 2 blocks the pane — take the
+        // word and let `runReport` decide, silently. A known verb with no
+        // declared argument keeps its typo-guard: that pair is typed wrong,
+        // not too new.
+        if (SKEW_TOLERANT_SUBCOMMANDS.has(command) && !subcommands?.includes(sub)) {
+          arg = rest[i];
+          continue;
+        }
+        throw new UsageError(`${command} ${sub} takes no argument (got '${rest[i]}')`);
+      }
       if (args !== FREE_ARG && !args.includes(rest[i])) {
         throw new UsageError(`unknown ${command} ${sub} argument '${rest[i]}': requires ${args.join(" or ")}`);
       }
       arg = rest[i];
+      continue;
+    }
+    // A THIRD (or later) bare word under a skew verb: the verb's arity is as
+    // unknowable here as its argument rules, and a future hook line with a
+    // longer shape must not exit 2 into the pane either. `runReport` is ever
+    // handed `[verb, firstArg]` regardless (the dispatch below), so the rest
+    // are dropped rather than guessed at. FLAG slots stay strict in every
+    // state — a word starting `--` is grammar this parser owns.
+    if (
+      !rest[i].startsWith("--") &&
+      SKEW_TOLERANT_SUBCOMMANDS.has(command) &&
+      sub !== undefined &&
+      !subcommands?.includes(sub)
+    ) {
       continue;
     }
     // `--flag=value` is accepted alongside `--flag value` (split on the FIRST

@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { RotateCcw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
-import { RowStatusBadges } from "@/components/subshell-status";
+import { SubshellDot } from "@/components/subshell-dot";
 import { AUTO_RESTART_HELP, describeAutoRestart } from "@/lib/auto-restart";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import { confirmCloseSubshells } from "@/lib/subshell-confirmations";
@@ -95,7 +95,6 @@ export function SubshellManagerTable({ subshells }: { subshells: SubshellView[] 
                 />
               </th>
               <th className="px-3 py-2.5 text-left font-strong">Name</th>
-              <th className="px-3 py-2.5 text-left font-strong">Status</th>
               <th className="px-3 py-2.5 text-left font-strong">Working dir</th>
               <th className="px-3 py-2.5 text-left font-strong">Last output</th>
               <th className="px-3 py-2.5 text-left font-strong">Uptime</th>
@@ -108,15 +107,15 @@ export function SubshellManagerTable({ subshells }: { subshells: SubshellView[] 
           <tbody>
             {subshells.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">
+                <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
                   No subshells yet.
                 </td>
               </tr>
             ) : (
               subshells.map((s) => {
-                // Same `=== true` posture as RowStatusBadges: with the node
-                // down, lastOutputAt/startedAt/alive are last-known facts, so
-                // the two time cells must not assert from them (spec §5.6) —
+                // Same `=== true` posture as the dot's own indicator: with the
+                // node down, lastOutputAt/startedAt/alive are last-known facts,
+                // so the two time cells must not assert from them (spec §5.6) —
                 // "—" is this table's existing nothing-to-say idiom.
                 const offline = s.nodeOffline === true;
                 return (
@@ -130,14 +129,17 @@ export function SubshellManagerTable({ subshells }: { subshells: SubshellView[] 
                         onChange={(e) => toggle(s.id, e.target.checked)}
                       />
                     </td>
-                    <td className="max-w-[200px] truncate px-3 py-2">
-                      <Link to="/subshells/$id" params={{ id: s.id }} className="hover:text-primary">
-                        {s.name}
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-1.5">
-                        <RowStatusBadges subshell={s} />
+                    <td className="max-w-[220px] px-3 py-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <SubshellDot subshell={s} accessible className="mt-0" />
+                        <Link
+                          to="/subshells/$id"
+                          params={{ id: s.id }}
+                          className="truncate hover:text-primary"
+                          title={s.name}
+                        >
+                          {s.name}
+                        </Link>
                       </div>
                     </td>
                     <td className="max-w-[240px] truncate px-3 py-2 text-muted-foreground">{s.workingDir}</td>

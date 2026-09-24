@@ -20,9 +20,9 @@ export interface SubshellNodeGroup {
   label: string;
   /**
    * The header's hover text: the NAME when the registry resolved it, the
-   * full node id otherwise — the same reveal `nodePill` gives a card
-   * (`title={subshell.nodeId}`), and the only way to tell which machine an
-   * "unknown node" or a short-id header actually names.
+   * full node id otherwise — the reveal the cards' retired `nodePill` used
+   * to give (`title={subshell.nodeId}`), and the only way to tell which
+   * machine an "unknown node" or a short-id header actually names.
    */
   title: string;
   /** The rows, in the order they arrived (i.e. the caller's status sort), capped by `limit` */
@@ -41,7 +41,9 @@ export const FALLBACK_NODE_ID = "local";
 
 /**
  * The label (and hover title) for one node id, on the ladder the home card's
- * node pill established, with one widening the pill does not need:
+ * retired `nodePill` established — the same shape now labels the rail's
+ * groups AND the home tiles' machine sections, so it is one ladder for every
+ * surface that names a machine:
  *
  * - the registry resolved the id → the node's NAME, which is what a person
  *   reads and what a rename moves;
@@ -50,10 +52,10 @@ export const FALLBACK_NODE_ID = "local";
  *   a populated cache is NOT this arm — stale-but-cached keeps the name,
  *   which is why the caller's flag is `nodeData === undefined` and not
  *   `isError`. Absence proves nothing yet, and a failed list proves less
- *   than nothing — the card can live because it returns null
- *   for `local` outright, but this header labels EVERY node including the
- *   control-plane host, and a "deleted node" verdict above `local` after a
- *   flaky `/api/nodes` would be a lie about the one machine that cannot be
+ *   than nothing — a header labels EVERY node including the control-plane
+ *   host (the pill could dodge by returning null for `local`; a section
+ *   cannot), and a "deleted node" verdict above `local` after a flaky
+ *   `/api/nodes` would be a lie about the one machine that cannot be
  *   deleted;
  * - the registry ANSWERED without the id → "unknown node". Not "deleted
  *   node": deletion is one cause, but the list is share-filtered, so a revoked

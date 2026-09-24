@@ -663,9 +663,16 @@
       animation: screen-in 220ms ease-out;
     }
   }
-  .checklist li[data-state="active"] .glyph,
-  .tmux-checking .glyph {
-    animation: spin 0.9s linear infinite;
+  /* Inside the gate like its two siblings above — the clause is absolute
+       across this file's surfaces (review 2026-09-24): the row's own label
+       says what is running, so a reduced-motion user loses rotation, not
+       meaning. (The done-mark rule below still holds: this loop is
+       in-progress state, never a rebuild-pop.) */
+  @media (prefers-reduced-motion: no-preference) {
+    .checklist li[data-state="active"] .glyph,
+    .tmux-checking .glyph {
+      animation: spin 0.9s linear infinite;
+    }
   }
   /* NO animation on a done mark. `tick` was a 160ms pop meant to fire once,
        as a row completed — but `render()` rebuilds the checklist on every

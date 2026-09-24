@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { SubshellView } from "@/types/subshell";
-import { filterSubshells, groupSubshells } from "../subshell-filter";
+import { filterByNode, filterSubshells, machineIds, showMachineFilter } from "../subshell-filter";
 
 /** A subshell with only the fields these helpers read. */
 function subshell(overrides: Partial<SubshellView>): SubshellView {
@@ -41,20 +41,51 @@ describe("filterSubshells", () => {
   });
 });
 
-describe("groupSubshells", () => {
-  it("splits running, exited-but-tracked, and terminated", () => {
-    const running = subshell({ name: "run", status: "running", alive: true });
-    const exited = subshell({ name: "exit", status: "running", alive: false });
-    const terminated = subshell({ name: "done", status: "terminated", alive: false });
+describe("machineIds / filterByNode", () => {
+  const rows = [
+    subshell({ name: "a", nodeId: "mac" }),
+    subshell({ name: "b", nodeId: "local" }),
+    subshell({ name: "c", nodeId: "mac" }),
+    // No nodeId at all: an older cached row, bucketed as `local` (same rule as
+    // the sidebar grouping, so the filter and the section headers never disagree).
+    subshell({ name: "d" }),
+  ];
 
-    const groups = groupSubshells([running, exited, terminated]);
-
-    expect(groups.running.map((s) => s.name)).toEqual(["run"]);
-    expect(groups.exited.map((s) => s.name)).toEqual(["exit"]);
-    expect(groups.terminated.map((s) => s.name)).toEqual(["done"]);
+  it("lists the distinct machines in discovery order, absent ids under local", () => {
+    expect(machineIds(rows)).toEqual(["mac", "local"]);
   });
 
-  it("returns three empty groups for no subshells", () => {
-    expect(groupSubshells([])).toEqual({ running: [], exited: [], terminated: [] });
+  it("filters to one machine, folding the id-less row into local", () => {
+    expect(filterByNode(rows, "mac").map((s) => s.name)).toEqual(["a", "c"]);
+    expect(filterByNode(rows, "local").map((s) => s.name)).toEqual(["b", "d"]);
+  });
+
+  it("answers empty for a machine nothing runs on", () => {
+    expect(filterByNode(rows, "nowhere")).toEqual([]);
+  });
+
+  it("empty list has no machines", () => {
+    expect(machineIds([])).toEqual([]);
+  });
+});
+
+describe("showMachineFilter", () => {
+  it("hides a filter with nothing to distinguish: no machines, or only the control-plane host", () => {
+    expect(showMachineFilter([], "all")).toBe(false);
+    expect(showMachineFilter(["local"], "all")).toBe(false);
+  });
+
+  it("shows once a second machine exists, or the sole machine is a real node", () => {
+    expect(showMachineFilter(["local", "mac"], "all")).toBe(true);
+    // A lone AGENT keeps the control: the day a second enrolls, the answer is
+    // news (mirrors the launch form's hideMachineField).
+    expect(showMachineFilter(["mac"], "all")).toBe(true);
+  });
+
+  it("stays visible while a machine is selected — even one that has no rows left", () => {
+    // Hide it while active and the page reads "no subshells" with no control
+    // to clear. A machine whose last row closed is exactly this case.
+    expect(showMachineFilter(["mac"], "mac")).toBe(true);
+    expect(showMachineFilter([], "mac")).toBe(true);
   });
 });

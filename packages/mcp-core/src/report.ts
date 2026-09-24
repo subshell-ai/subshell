@@ -20,16 +20,30 @@ import { readMcpEnv } from "./env.js";
  * The attention signals a harness hook can raise about its own subshell.
  * These spellings ARE the wire values the attention endpoint takes, so the
  * verb a hook types needs no translation on the way out.
+ *
+ * `resumed` is the CLEAR, and it is the only one that reaches every pane:
+ * the plane's idle-watcher clear can only observe a log on the plane's own
+ * disk, so an agent-node pane — whose log lives on the node — had nothing
+ * that could ever take its "waiting for you" back off while it kept working
+ * (operator report + live repro, 2026-09-24). The pane's own hooks know when
+ * work resumed — a prompt submitted, a tool starting after an approval —
+ * and that knowledge has to travel from wherever the pane runs.
  */
-export type AttentionKind = "turn_complete" | "needs_attention";
+export type AttentionKind = "turn_complete" | "needs_attention" | "resumed";
 
 /** Every {@link AttentionKind}, for validating an argv word. */
-export const ATTENTION_KINDS: readonly AttentionKind[] = ["turn_complete", "needs_attention"];
+export const ATTENTION_KINDS: readonly AttentionKind[] = ["turn_complete", "needs_attention", "resumed"];
 
 /**
- * Every verb `report` accepts in its first slot. `attention` takes a second
- * word — an {@link AttentionKind} — and `session` takes none; both CLIs
- * validate against these rather than restating them.
+ * Every verb `report` currently implements. `attention` takes a second word —
+ * an {@link AttentionKind} — and `session` takes none. The NODE CLI's parser
+ * reads this as the set of verbs whose argument rules it knows: the
+ * typo-guard's authority is membership, and a word BEYOND this list is
+ * admitted and answered silently as version skew (a newer plane's verb is
+ * data in a generated hook line, and a refusal would exit 2 into a pane
+ * whose hooks block on 2). The server CLI runs `runReport` unvalidated.
+ * Either way {@link runReport}'s own filter is the backstop: a verb listed
+ * here but not implemented there sends nothing.
  */
 export const REPORT_VERBS: readonly string[] = ["attention", "session", "exit"];
 
@@ -47,9 +61,26 @@ export interface ReportIo {
  * How long a report may take. Deliberately short on both halves: a
  * `SessionStart` hook BLOCKS the harness until it exits, so the budget is the
  * pane's start latency, not the server's convenience.
+ *
+ * `resumed` gets a fraction of it: its hook is PreToolUse, which runs before
+ * EVERY tool call, so a browned-out plane would otherwise add 2 s to every
+ * call of a long run. A lost clear is self-healing — the next prompt or tool
+ * reports again, and the pane-local watcher clears on output wherever it can
+ * see the log.
  */
 const POST_TIMEOUT_MS = 2000;
+const RESUMED_POST_TIMEOUT_MS = 750;
 const STDIN_TIMEOUT_MS = 2000;
+
+/**
+ * The POST budget for one report argv — the whole per-verb decision, as a
+ * pure function so the test can pin the numbers instead of reaching into an
+ * `AbortSignal` for a value Bun does not expose (Node's `.timeout` getter is
+ * non-standard and absent here; measured on bun 1.4.2).
+ */
+export function postTimeoutMs(argv: string[]): number {
+  return argv[0] === "attention" && argv[1] === "resumed" ? RESUMED_POST_TIMEOUT_MS : POST_TIMEOUT_MS;
+}
 
 /**
  * Reads stdin to end, but never waits forever: a hook whose stdin is left
@@ -83,7 +114,9 @@ export async function runReport(argv: string[], io: ReportIo = {}): Promise<void
       method: "POST",
       headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
       body: JSON.stringify(body.json),
-      signal: AbortSignal.timeout(POST_TIMEOUT_MS),
+      // PreToolUse pays the `resumed` budget on EVERY tool call; the rare
+      // event reports keep the full one (see postTimeoutMs).
+      signal: AbortSignal.timeout(postTimeoutMs(argv)),
     });
   } catch {
     // Every failure is a lost report: an unreachable server, a refused POST,
@@ -106,7 +139,10 @@ async function resolveBody(
     // Claude Code hands the hook the arrays that tell the two apart. A
     // `turn_complete` POSTs only for a genuinely-done turn (spec 2026-09-23);
     // `needs_attention` never reads stdin — the plugin's Notification matcher
-    // is its filter.
+    // is its filter. `resumed` never reads it either, and that is a privacy
+    // rule as much as a latency one: UserPromptSubmit's stdin carries the
+    // user's prompt text, PreToolUse's the full tool input — the report is
+    // the fact "work resumed", never what the work is.
     if (kind === "turn_complete" && (await parkedOnBackgroundWork(io))) return undefined;
     return { path: "attention", json: { kind } };
   }

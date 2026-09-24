@@ -1,7 +1,7 @@
 import { cn } from "@internal/node-admin";
 import { ServerCog, Users } from "lucide-react";
 import type { JSX } from "react";
-import { Tooltip } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { TrustNotice, TrustNoticeKind } from "@/lib/trust-notices";
 
 /**
@@ -35,23 +35,31 @@ export interface TrustIndicatorsProps {
 export function TrustIndicators({ notices, className }: TrustIndicatorsProps): JSX.Element | null {
   if (notices.length === 0) return null;
   return (
-    <span className={cn("flex shrink-0 items-center gap-1", className)}>
-      {notices.map((notice) => {
-        const Icon = ICONS[notice.kind];
-        return (
-          <Tooltip key={notice.kind} content={notice.tooltip}>
-            {/* The label is on the icon's own element, not only in the
-                tooltip: a screen reader that never fires a hover still has to
-                be able to reach the disclosure. */}
-            <Icon
-              className="size-3.5 text-amber-600 dark:text-amber-400"
-              aria-label={notice.label}
-              role="img"
-              focusable="false"
-            />
-          </Tooltip>
-        );
-      })}
-    </span>
+    // One Provider for the row: Base UI batches open/close across the
+    // tooltips that share a provider, so sweeping between adjacent icons
+    // behaves as one surface rather than N independent widgets.
+    <TooltipProvider>
+      <span className={cn("flex shrink-0 items-center gap-1", className)}>
+        {notices.map((notice) => {
+          const Icon = ICONS[notice.kind];
+          return (
+            <Tooltip key={notice.kind}>
+              <TooltipTrigger className="inline-flex items-center">
+                {/* The label is on the icon's own element, not only in the
+                    tooltip: a screen reader that never fires a hover still has
+                    to be able to reach the disclosure. */}
+                <Icon
+                  className="size-3.5 text-amber-600 dark:text-amber-400"
+                  aria-label={notice.label}
+                  role="img"
+                  focusable="false"
+                />
+              </TooltipTrigger>
+              <TooltipContent>{notice.tooltip}</TooltipContent>
+            </Tooltip>
+          );
+        })}
+      </span>
+    </TooltipProvider>
   );
 }

@@ -1,6 +1,7 @@
 import { cn } from "@internal/node-admin";
 import { ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 /**
  * One collapsible node heading in the rail's subshell list.
@@ -22,10 +23,15 @@ import type { ReactNode } from "react";
  *   follows: `aria-controls` has to resolve to a real element, and `hidden`
  *   takes the links out of the tab order so a shut group is not a keyboard
  *   trap of invisible stops.
- * - **The label carries a `title`.** When the registry has not resolved the
- *   node the label is a short id or "unknown node", and the full id on hover
- *   is the only thing that says WHICH machine — the reveal `nodePill` gives a
- *   card, for the same reason.
+ * - **The label carries a hover reveal.** When the registry has not resolved
+ *   the node the label is a short id or "unknown node", and the full id on
+ *   hover is the only thing that says WHICH machine — the reveal the cards'
+ *   retired `nodePill` used to give, for the same reason. It is a `ui/tooltip`
+ *   popup rather than a native `title` since 2026-09-24 (the row tooltips'
+ *   zoom reason, same rail), and it appears ONLY when the title would say
+ *   something the label does not — a resolved node's hover used to repeat its
+ *   own name, which is noise that only looked free because native tooltips
+ *   cost nothing to draw.
  */
 export function SubshellNodeGroup({
   nodeId,
@@ -61,25 +67,42 @@ export function SubshellNodeGroup({
   // and a DOM id derived from a name could collide or carry characters that
   // make the `aria-controls` selector unreliable.
   const listId = `sidebar-node-group-${nodeId}`;
+  const headerButton = (
+    <button
+      type="button"
+      onClick={disabled ? undefined : onToggle}
+      disabled={disabled}
+      aria-expanded={open}
+      aria-controls={listId}
+      className={cn(
+        "flex w-full cursor-pointer items-center gap-2 rounded-md py-1 pr-2 pl-3 text-detail text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground",
+        disabled && "pointer-events-none",
+      )}
+    />
+  );
+  const headerBody = (
+    <>
+      <span className="min-w-0 flex-1 truncate text-left font-strong">{label}</span>
+      <span className="shrink-0 tabular-nums opacity-70">{count}</span>
+      <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform duration-200", !open && "-rotate-90")} />
+    </>
+  );
+  // The trigger is the BUTTON, not a span inside it: focus lands on the
+  // button and a nested trigger's handler would never see it — the reveal is
+  // keyboard-reachable only because it merges onto the focusable element.
+  // (Review round 4 caught a span trigger plus a focus test asserting
+  // behavior a browser cannot show.) When the hover would only repeat the
+  // heading there is no content: a trigger with nothing to show stays silent.
   return (
     <div>
-      <button
-        type="button"
-        onClick={disabled ? undefined : onToggle}
-        disabled={disabled}
-        aria-expanded={open}
-        aria-controls={listId}
-        className={cn(
-          "flex w-full cursor-pointer items-center gap-2 rounded-md py-1 pr-2 pl-3 text-detail text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground",
-          disabled && "pointer-events-none",
-        )}
-      >
-        <span className="min-w-0 flex-1 truncate text-left font-strong" title={title}>
-          {label}
-        </span>
-        <span className="shrink-0 tabular-nums opacity-70">{count}</span>
-        <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform duration-200", !open && "-rotate-90")} />
-      </button>
+      <TooltipProvider delay={300}>
+        <Tooltip>
+          <TooltipTrigger disabled={disabled} render={headerButton}>
+            {headerBody}
+          </TooltipTrigger>
+          {title === label ? null : <TooltipContent>{title}</TooltipContent>}
+        </Tooltip>
+      </TooltipProvider>
       <div id={listId} className={cn(!open && "hidden")}>
         {children}
       </div>

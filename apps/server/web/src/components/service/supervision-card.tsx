@@ -210,7 +210,7 @@ export function SupervisionCard({
       </div>
       {settling && (
         <p className="col-span-full flex items-center gap-2 text-sm text-warning">
-          <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
+          <LoaderCircle className="h-4 w-4 motion-safe:animate-spin" aria-hidden />
           <span>Switching to {modeLabel(settling)}… waiting for the server to come back.</span>
         </p>
       )}

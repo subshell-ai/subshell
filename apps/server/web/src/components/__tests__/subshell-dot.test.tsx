@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, render } from "@testing-library/react";
-import { SubshellDot } from "@/components/sidebar/SubshellDot";
+import { SubshellDot } from "@/components/subshell-dot";
 import type { SubshellView } from "@/types/subshell";
 
 // `access: "owner"` is the default because the bell is owner-only: the
@@ -21,18 +21,50 @@ const probe = (overrides: Partial<SubshellView> = {}): SubshellView =>
 describe("SubshellDot", () => {
   it("maps each indicator to its fill and tooltip word", () => {
     const cases: Array<[Partial<SubshellView>, string, string]> = [
+      // GREEN is the alive family since 2026-09-24: printing is full green,
+      // quiet-but-running is dim green. Gray now means NOT running.
       [{ activity: "active" }, "bg-success", "working"],
-      [{ activity: "idle" }, "bg-muted-foreground", "idle"],
+      [{ activity: "idle" }, "bg-success/50", "idle"],
       [{ waitingSince: "2026-09-03T00:00:00.000Z" }, "bg-warning", "waiting for you"],
       [{ alive: false }, "bg-muted-foreground/50", "exited"],
       [{ status: "terminated", alive: false, activity: "terminated" }, "border-muted-foreground", "ended"],
-      [{ nodeOffline: true }, "bg-orange-500", "node unreachable"],
+      // Unreachable is RED, not amber, since 2026-09-24 — the palette's own
+      // error role, deliberately the loudest fill on the dot.
+      [{ nodeOffline: true }, "bg-destructive", "node unreachable"],
     ];
     for (const [overrides, fill, label] of cases) {
       const { unmount } = render(<SubshellDot subshell={probe(overrides)} />);
       const dot = document.querySelector('[aria-hidden="true"]');
       expect(dot?.getAttribute("class") ?? "").toContain(fill);
       expect(dot?.getAttribute("title")).toBe(label);
+      unmount();
+    }
+  });
+});
+
+describe("SubshellDot — the working blink (2026-09-24)", () => {
+  afterEach(cleanup);
+
+  const classOfDot = () => document.querySelector('[aria-hidden="true"]')?.getAttribute("class") ?? "";
+
+  it("the ACTIVE dot carries the blink", () => {
+    render(<SubshellDot subshell={probe({ activity: "active" })} />);
+    expect(classOfDot()).toContain("subshell-dot-blink");
+  });
+
+  it("nothing else blinks — the motion is the difference between working and quiet", () => {
+    // Dim green already says "alive, quiet"; the blink says "printing NOW".
+    // If idle blinked too, the pair would differ only by brightness again.
+    for (const overrides of [
+      { activity: "idle" },
+      { waitingSince: "2026-09-24T00:00:00.000Z" },
+      { alive: false },
+      { nodeOffline: true },
+      { unseenPush: true, activity: "active" }, // the bell stays still
+    ] satisfies Partial<SubshellView>[]) {
+      const { unmount } = render(<SubshellDot subshell={probe(overrides)} />);
+      expect(classOfDot()).not.toContain("subshell-dot-blink");
+      expect(document.querySelector("svg")?.getAttribute("class") ?? "").not.toContain("subshell-dot-blink");
       unmount();
     }
   });

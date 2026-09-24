@@ -134,7 +134,11 @@ describe("AgentRow", () => {
         <AgentRow harness={base} onInstall={() => {}} installing />
       </ul>,
     );
-    expect(container.querySelector(".animate-spin")).toBeTruthy();
+    // Substring match, not `.animate-spin`: the class is `motion-safe:`-gated
+    // (design-system.md gates every animation on reduced-motion, and the
+    // button's own "Installing…" label is the word the still icon keeps
+    // company with), and a CSS class selector must name a whole token.
+    expect(container.querySelector('[class*="animate-spin"]')).toBeTruthy();
   });
 
   it("says what Install will run, without a click", () => {

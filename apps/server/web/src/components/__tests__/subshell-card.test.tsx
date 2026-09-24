@@ -13,12 +13,15 @@ import { SubshellCard } from "@/components/subshell-card";
 import type { SubshellView } from "@/types/subshell";
 
 /**
- * The node pill + offline copy on the home cards (spec 2026-08-31 §6.6/§5.6):
- * a remote subshell names its node on the subtitle line, a vanished node says
- * "deleted node", and a node whose agent has no live connection replaces the
- * corner badge with "node unreachable" — superseding both `exited` and the
- * waiting chip, and with them the "no screen (subshell has exited)" copy,
- * because an offline node makes the process state unobservable, not dead.
+ * The offline copy on the home cards (spec 2026-08-31 §5.6): a node whose
+ * agent has no live connection lands the corner dot on "node unreachable" —
+ * superseding `exited` and the waiting state, and with them the "no screen
+ * (subshell has exited)" copy, because an offline node makes the process
+ * state unobservable, not dead. (The corner badge has been the shared status
+ * dot since 2026-09-24 — accessible, so the state word is its name rather
+ * than a rendered chip. The machine badge that used to sit on the subtitle
+ * line left the same day: the tile grid's section header names it instead,
+ * so these tests assert its ABSENCE.)
  */
 function agent(overrides: Partial<Node> = {}): Node {
   return {
@@ -111,77 +114,44 @@ function renderCard(subshell: SubshellView) {
 
 afterEach(cleanup);
 
-describe("SubshellCard node pill", () => {
-  it("shows no pill for a local subshell", async () => {
+describe("SubshellCard carries no machine badge (2026-09-24)", () => {
+  // The tile grid segments by machine now — the section header names it on
+  // the sidebar's label ladder — so the card must NOT re-say it: a remote
+  // card renders no node name and no deletion verdict, and it asks nothing
+  // of the nodes registry.
+  it("names no node on a remote subshell, resolved or not", async () => {
     const restore = mockNodes([agent()]);
     try {
-      renderCard(makeSubshell());
-      await screen.findByText("subshell");
+      renderCard(makeSubshell({ nodeId: "mac" }));
+      await screen.findByRole("img", { name: "idle" });
       expect(screen.queryByText("mac mini")).toBeNull();
       expect(screen.queryByText("deleted node")).toBeNull();
+      expect(screen.queryByText("gone")).toBeNull();
     } finally {
       restore();
-    }
-  });
-
-  it("names the node on a remote subshell's subtitle line", async () => {
-    const restore = mockNodes([agent()]);
-    try {
-      renderCard(makeSubshell({ nodeId: "mac" }));
-      await screen.findByText("mac mini");
-      expect(screen.queryByText("deleted node")).toBeNull();
-    } finally {
-      restore();
-    }
-  });
-
-  it("says 'deleted node' for an id the registry no longer holds", async () => {
-    const restore = mockNodes([agent()]);
-    try {
-      renderCard(makeSubshell({ nodeId: "gone" }));
-      await screen.findByText("deleted node");
-    } finally {
-      restore();
-    }
-  });
-
-  it("shows the raw id, not 'deleted node', while the nodes query is in flight", async () => {
-    // The cold `/`: /api/nodes never answers, freezing the in-flight window.
-    // A remote card must not flash a deletion verdict the fetch hasn't earned.
-    const original = globalThis.fetch;
-    globalThis.fetch = ((input: unknown) => {
-      const path = new URL(String(input), "http://localhost").pathname;
-      if (path === "/api/nodes") return new Promise<Response>(() => {});
-      if (path === "/api/presets") return Promise.resolve(new Response(JSON.stringify([])));
-      return Promise.resolve(new Response(JSON.stringify({})));
-    }) as typeof fetch;
-    try {
-      renderCard(makeSubshell({ nodeId: "mac" }));
-      await screen.findByText("subshell");
-      expect(screen.queryByText("deleted node")).toBeNull();
-      expect(screen.getByText("mac")).toBeDefined();
-    } finally {
-      globalThis.fetch = original;
     }
   });
 });
 
 describe("SubshellCard node-offline precedence", () => {
-  it("replaces exited + the exit copy with the unreachable badge", async () => {
+  it("replaces exited + the exit copy with the unreachable dot", async () => {
     const restore = mockNodes([agent({ status: "offline" })]);
     try {
       // The worst liar of the states: row says running, alive reads false
       // (the sweep's last-known truth) — all of it unobservable from here.
       renderCard(makeSubshell({ nodeId: "mac", nodeOffline: true, alive: false, exitCode: 1 }));
-      await screen.findByText("node unreachable");
+      // The corner badge is the shared status dot (2026-09-24): the state is
+      // its accessible name, not a rendered word.
+      await screen.findByRole("img", { name: "node unreachable" });
       expect(screen.queryByText("exited")).toBeNull();
       expect(screen.queryByText(/no screen \(subshell has exited\)/)).toBeNull();
       expect(screen.queryByText(/exit: /)).toBeNull();
       expect(screen.getByText(/no screen \(the node is offline\)/)).toBeDefined();
-      // Identity survives: the pill still names the node.
-      expect(screen.getByText("mac mini")).toBeDefined();
-      // And the badge appears exactly once (corner only).
-      expect(screen.getAllByText("node unreachable").length).toBe(1);
+      // The machine is the GRID's section header now, not a badge on the
+      // card: nothing here renders the node's name.
+      expect(screen.queryByText("mac mini")).toBeNull();
+      // And the offline dot appears exactly once (corner only).
+      expect(screen.getAllByRole("img", { name: "node unreachable" }).length).toBe(1);
     } finally {
       restore();
     }
@@ -191,10 +161,34 @@ describe("SubshellCard node-offline precedence", () => {
     const restore = mockNodes([agent()]);
     try {
       renderCard(makeSubshell({ alive: false, exitCode: 2 }));
-      await screen.findByText("exited");
+      await screen.findByRole("img", { name: "exited" });
       expect(screen.getByText(/no screen \(subshell has exited\)/)).toBeDefined();
       expect(screen.getByText(/exit: 2/)).toBeDefined();
-      expect(screen.queryByText("node unreachable")).toBeNull();
+      expect(screen.queryByRole("img", { name: "node unreachable" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("draws the shared dot beside the title, not a text badge (2026-09-24)", async () => {
+    const restore = mockNodes([agent()]);
+    try {
+      // A running, waiting subshell: the state reads as the amber dot whose
+      // accessible name is "waiting for you" — and NOTHING renders the words
+      // as visible text (that was the chip this replaced).
+      renderCard(
+        makeSubshell({
+          status: "running",
+          alive: true,
+          activity: "active",
+          lastOutputAt: new Date().toISOString(),
+          waitingSince: "2026-09-24T00:00:00.000Z",
+        }),
+      );
+      await screen.findByRole("img", { name: "waiting for you" });
+      expect(screen.queryByText("waiting for you")).toBeNull();
+      expect(screen.queryByText("running")).toBeNull();
+      expect(screen.queryByText("working")).toBeNull();
     } finally {
       restore();
     }

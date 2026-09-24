@@ -68,8 +68,10 @@ interface IdleState {
  *   reappearing after pruning — seeds consumed, so it never rings; only an
  *   mtime change re-arms (`fired = false`).
  * - mtime changed (grew) → new output: `clearWaiting` when the row was
- *   waiting (the watcher is the universal waiting-CLEARER, hooked harnesses
- *   included — their hooks only SET waiting), store the new mtime, re-arm.
+ *   waiting (the watcher is the universal waiting-CLEARER WHERE IT CAN SEE —
+ *   the log it stats is a plane-local file, so agent-node rows are skipped at
+ *   the null-mtime guard and their hooked harnesses carry the clear in the
+ *   `resumed` attention report instead), store the new mtime, re-arm.
  * - mtime unchanged AND quiet ≥ {@link IDLE_QUIET_MS} AND not yet fired →
  *   mark fired; hook-less harnesses additionally `notifySubshell(id,
  *   "turn_complete")` + `setWaiting(id)`. Hooked harnesses get nothing from

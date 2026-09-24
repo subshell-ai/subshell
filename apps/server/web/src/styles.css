@@ -256,6 +256,47 @@ body {
   .assistant-enter {
     animation: assistant-in 220ms ease-out;
   }
+
+  /* The working dot's blink (operator request, 2026-09-24, first as a halo
+     pulse then set to blink "like Claude Code's in-progress work"): actively
+     printing gets MOTION, "alive but quiet" stays the still dim green, so
+     the pair no longer differs by brightness alone. A hard on/off square
+     wave, not a fade — the terminal-cursor idiom the ask named; `steps(1)`
+     makes the switch instant and the keyframe stops belt-and-meaningless.
+     A LOOP, with the input-queue badge and StatusPill as its precedent: the
+     design system's one-shot rule exists because a rebuilt element replays
+     its animation forever, and a loop is the honest shape for a state that
+     IS ongoing — on a stable element (the dot's DOM node survives row
+     re-renders: stable keys, structural sharing in the live feed) it replays
+     nothing, it just runs. Under `prefers-reduced-motion` the class does not
+     exist at all: the dot is plain green, and the tooltip still says which
+     is which. */
+  .subshell-dot-blink {
+    animation: subshell-dot-blink 1.6s steps(1) infinite;
+  }
+
+  /* Input queue badge (spec 2026-09-21 Wave A): the three chevrons pulse in a
+     stagger so in-flight keystrokes read as moving, not stuck. One keyframe,
+     three delays. Inside the motion gate like every other animation here —
+     the rule `docs/design-system.md` states absolutely; this rule's original
+     placement outside it was the violation, found by review 2026-09-24. */
+  .input-queue-chevron {
+    animation: input-queue-pulse 0.9s ease-in-out infinite;
+  }
+  .input-queue-chevron:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .input-queue-chevron:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+}
+@keyframes subshell-dot-blink {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
 }
 @keyframes assistant-in {
   from {
@@ -268,9 +309,9 @@ body {
   }
 }
 
-/* Input queue badge (spec 2026-09-21 Wave A): the three chevrons pulse in a
-   stagger so in-flight keystrokes read as moving, not stuck. One keyframe,
-   three delays. */
+/* The keyframe the gated `.input-queue-chevron` rules above consume; inert
+   outside `prefers-reduced-motion: no-preference`, where those rules do not
+   exist and nothing names this name. */
 @keyframes input-queue-pulse {
   0%,
   100% {
@@ -279,13 +320,4 @@ body {
   50% {
     opacity: 1;
   }
-}
-.input-queue-chevron {
-  animation: input-queue-pulse 0.9s ease-in-out infinite;
-}
-.input-queue-chevron:nth-child(2) {
-  animation-delay: 0.15s;
-}
-.input-queue-chevron:nth-child(3) {
-  animation-delay: 0.3s;
 }

@@ -42,8 +42,8 @@ describe("RowStatusBadges", () => {
       />,
     );
     // A downed agent makes alive/waitingSince last-known facts — neither a
-    // status assertion nor a waiting claim may render (subshell-card.tsx
-    // accessoryFor is the sibling implementation this mirrors).
+    // status assertion nor a waiting claim may render (subshell-dot.tsx's
+    // shared indicator is the sibling implementation this mirrors).
     expect(screen.getByText("node unreachable")).toBeDefined();
     expect(screen.queryByText("waiting for you")).toBeNull();
     expect(screen.queryByText("running")).toBeNull();

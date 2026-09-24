@@ -10,12 +10,15 @@ import { SubshellCard } from "@/components/subshell-card";
 import { SubshellManagerTable } from "@/components/subshell-manager-table";
 import { SubshellSearch } from "@/components/subshell-search";
 import { Segmented } from "@/components/ui/segmented";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useCardPreviews } from "@/hooks/use-card-previews";
 import { useClockTick } from "@/hooks/use-clock-tick";
+import { useNodes } from "@/hooks/use-nodes";
 import { useLiveSubshells } from "@/hooks/useLiveSubshells";
-import { filterSubshells, groupSubshells } from "@/lib/subshell-filter";
-import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
-import { needsAttention } from "@/lib/subshell-node-groups";
+import { filterByNode, filterSubshells, machineIds, showMachineFilter } from "@/lib/subshell-filter";
+import { ACTIVITY_TICK_MS, sortByStatus } from "@/lib/subshell-indicator";
+import { groupSubshellsByNode, needsAttention, nodeLabelFor } from "@/lib/subshell-node-groups";
 import { priorityRunning } from "@/lib/subshell-order";
 import type { SubshellView } from "@/types/subshell";
 
@@ -42,7 +45,9 @@ export const Route = createFileRoute("/")({
  * `/subshells` — showing the same subshells with different affordances, which
  * left the same question ("where do I go to do X?") on both. One page with a
  * view switch answers it: tiles for reading state at a glance, the list for
- * acting on many subshells at once. Search applies to both.
+ * acting on many subshells at once. Search and the machine filter apply to
+ * both; since 2026-09-24 the tiles are segmented by machine (the sidebar's
+ * grouping) and status reads as the dot on every card and row.
  */
 function SubshellsPage() {
   const navigate = useNavigate();
@@ -52,6 +57,10 @@ function SubshellsPage() {
   const { view = "tiled" } = Route.useSearch();
   const { subshells, connected, isLoading, isError, refetch } = useLiveSubshells();
   const [query, setQuery] = useState("");
+  // The machine filter is page-level: it narrows BOTH views. It lives in
+  // component state (not the URL) for the same reason the search box does —
+  // it is a viewing preference, not a destination.
+  const [machine, setMachine] = useState("all");
   // No needsSetup guard here on purpose: the root shell's gate owns that
   // redirect. While the shell is navigating to the lazy /setup route, the
   // router keeps the previous match mounted for a frame — a render-phase
@@ -59,7 +68,8 @@ function SubshellsPage() {
   // and the loop saturates the main thread (fresh-instance hang, 2026-09-03;
   // regression: e2e spec 01).
 
-  const filtered = filterSubshells(subshells, query);
+  const searched = filterSubshells(subshells, query);
+  const filtered = machine === "all" ? searched : filterByNode(searched, machine);
   // The cards are the only surface that renders a screen, so they are what
   // asks for one (spec 2026-09-19 §4.4).
   useCardPreviews(filtered.map((s) => s.id));
@@ -67,17 +77,60 @@ function SubshellsPage() {
   // event-driven, nothing arrives to mark the passage of time, so a subshell
   // that simply goes quiet needs a clock to be seen going idle.
   useClockTick(ACTIVITY_TICK_MS);
-  const groups = groupSubshells(filtered);
-  // Bell-on subshells waiting for the operator lead the Running section;
-  // everything else keeps the order the feed gave it.
-  groups.running = priorityRunning(groups.running);
-  // The owner's unanswered pushes, gathered above the status sections
+  // The owner's unanswered pushes, gathered above the machine sections
   // (spec 2026-09-24). `filtered` (not `subshells`) so the page's own search
-  // narrows it exactly as it narrows the three status groups; the selector is
-  // owner-only, so a shared unseen pane is not listed here any more than in
-  // the rail. `TileSection` renders nothing when the list is empty, so the
-  // whole section disappears with the last unseen push — no empty heading.
+  // and machine filter narrow it exactly as they narrow the groups; the
+  // selector is owner-only, so a shared unseen pane is not listed here any
+  // more than in the rail. `TileSection` renders nothing when the list is
+  // empty, so the whole section disappears with the last unseen push — no
+  // empty heading. It stays ABOVE the machine sections rather than folded
+  // into them: the grouping answers "where is it", this answers "who has my
+  // attention", and the unseen cards also reappear inside their own machine
+  // group (the 2026-09-24 rail design's duplication, kept: a card listed only
+  // at the top would vanish from its machine's count-in-context).
   const attention = needsAttention(filtered);
+  // The tiles are segmented by MACHINE (2026-09-24, operator request) the way
+  // the sidebar's recents are: the same grouping and the same label ladder
+  // from lib/subshell-node-groups.ts, so "which section is this" reads
+  // identically in the rail and on the page, and a rename moves both. Status
+  // is what the dots say now — the cards' corner and the list rows' name cell
+  // carry it — so the old Running/Paused/Completed bands left with the chips.
+  // No per-group cap here: the rail caps a group at 8 rows because it is a
+  // rail; the page shows what it has.
+  const { data: nodeData } = useNodes();
+  // Unanswered is `nodeData === undefined`, not `isError` — the ladder's own
+  // rule: a failed BACKGROUND refresh keeps the cache, and relabeling resolved
+  // names on a blip is the bug that shape caused once in the sidebar.
+  const unanswered = nodeData === undefined;
+  // Rail order in, exactly as the sidebar's grouping expects it: status band
+  // first (waiting → working → idle → offline → exited → ended), groups then
+  // ranked by their liveliest member. `priorityRunning` first because the
+  // sort is stable: its ranked rows — bell-on AND currently-waiting — lead
+  // WITHIN their band, the rule that led the flat Running list surviving the
+  // machine segmentation. Distinct from the spotlight above, which selects on
+  // the UNSEEN-PUSH signal: a resumed row clears the waiting stamp without
+  // clearing the bell, so the two lists read different fields (the confusion
+  // `needsAttention`'s own docblock warns about, named here so the ordering
+  // comment is not a second source for it). No memo — `filtered` is a fresh
+  // array every render, so there would be nothing to hit.
+  const machineGroups = groupSubshellsByNode(sortByStatus(priorityRunning(filtered)), nodeData?.nodes, {
+    unanswered,
+  });
+  // Filter options are the machines with rows (the page cannot meaningfully
+  // filter to a machine with nothing on it); a STALE selection is kept in the
+  // list so the control never blanks itself out from under its own value.
+  const machines = machineIds(subshells);
+  const machineOptions = (machine !== "all" && !machines.includes(machine) ? [...machines, machine] : machines).map(
+    (id) => ({ id, label: nodeLabelFor(id, nodeData?.nodes, unanswered).label }),
+  );
+  // Base UI's Value prints the RAW value without this map, and here the value
+  // is a node id while the reader needs a machine name. Labels must match the
+  // SelectItem texts below exactly.
+  const machineItems = [
+    { value: "all", label: "All machines" },
+    ...machineOptions.map((m) => ({ value: m.id, label: m.label })),
+  ];
+  const machineWord = machineOptions.find((m) => m.id === machine)?.label ?? machine;
 
   /** Switches view. Tiled clears the param rather than spelling out the default. */
   function setView(next: SubshellsView) {
@@ -99,6 +152,27 @@ function SubshellsPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <SubshellSearch value={query} onChange={setQuery} />
         <div className="flex items-center gap-3">
+          {/* The machine filter appears once the distinction is real (more
+              than one machine, or a lone non-`local` node); a one-choice
+              dropdown whose only option is "All" is a control with no choice.
+              It narrows BOTH views. Default is All. */}
+          {showMachineFilter(machines, machine) && (
+            <div className="w-40 shrink-0">
+              <Select value={machine} onValueChange={(v) => v !== null && setMachine(v)} items={machineItems}>
+                <SelectTrigger aria-label="Filter by machine" className="text-muted-foreground">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All machines</SelectItem>
+                  {machineOptions.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <LiveStatus connected={connected} />
           <Segmented
             ariaLabel="Subshells view"
@@ -147,29 +221,64 @@ function SubshellsPage() {
       )}
 
       {!isLoading && subshells.length > 0 && filtered.length === 0 && (
-        <p className="text-muted-foreground text-sm">No subshells match “{query}”.</p>
+        <p className="text-muted-foreground text-sm">
+          {query ? (
+            <>No subshells match “{query}”.</>
+          ) : (
+            // The machine filter narrowed everything away — say WHICH machine
+            // came up empty, since its name is what the dropdown now reads.
+            <>No subshells on “{machineWord}”.</>
+          )}
+        </p>
       )}
 
       {!isLoading && filtered.length > 0 && view === "list" && <SubshellManagerTable subshells={filtered} />}
 
       {!isLoading && filtered.length > 0 && view === "tiled" && (
         <>
-          <TileSection title="Needs Attention" subshells={attention} />
-          <TileSection title="Running" subshells={groups.running} />
-          <TileSection title="Paused / exited" subshells={groups.exited} />
-          <TileSection title="Completed" subshells={groups.terminated} />
+          {/* Not a machine, so there is no id to reveal: label and title are
+              one string, and TileSection's equal-title branch renders this
+              heading with no tooltip at all. */}
+          <TileSection label="Needs Attention" title="Needs Attention" subshells={attention} />
+          {machineGroups.map((g) => (
+            <TileSection key={g.nodeId} label={g.label} title={g.title} subshells={g.subshells} />
+          ))}
         </>
       )}
     </main>
   );
 }
 
-/** One status group of subshell tiles; renders nothing when the group is empty. */
-function TileSection({ title, subshells }: { title: string; subshells: SubshellView[] }) {
+/**
+ * One MACHINE's group of subshell tiles — the tile view's segmentation since
+ * 2026-09-24, on the same grouping/labels the sidebar rail uses (see
+ * lib/subshell-node-groups.ts). Renders nothing when the group is empty. The
+ * heading is the node's NAME (a rename moves it), never uppercased: it is a
+ * proper noun the operator chose, not a status band. Its hover reveal is the
+ * full node id whenever the registry could not resolve a name — a `ui/tooltip`
+ * popup, not a native `title` (same 2026-09-24 zoom reason as the rail rows),
+ * and absent entirely when the title would only repeat the heading.
+ */
+function TileSection({ label, title, subshells }: { label: string; title: string; subshells: SubshellView[] }) {
   if (subshells.length === 0) return null;
+  const heading = <h2 className="mb-3 truncate font-strong text-muted-foreground text-sm">{label}</h2>;
   return (
     <section>
-      <h2 className="mb-3 font-strong text-muted-foreground text-sm uppercase">{title}</h2>
+      {title === label ? (
+        heading
+      ) : (
+        <TooltipProvider delay={300}>
+          <Tooltip>
+            {/* The label rides the RENDER element rather than the trigger's
+                children — biome's heading-content rule reads the `h2`
+                itself, and Base UI keeps the element's own children. */}
+            <TooltipTrigger
+              render={<h2 className="mb-3 truncate font-strong text-muted-foreground text-sm">{label}</h2>}
+            />
+            <TooltipContent>{title}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
       {/* Track count follows the container; the card width does not. 240px is
           the floor AND the ceiling, so a tile is the same size on every page
           at every window width and only the number of them per row changes.

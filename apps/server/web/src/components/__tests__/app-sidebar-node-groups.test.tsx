@@ -213,7 +213,12 @@ describe("the rail's subshell list, grouped by node", () => {
         const header = groupHeader("mac-pro-abcdef");
         expect(header.textContent).toContain("mac-pro");
         expect(header.textContent).not.toContain("unknown node");
-        expect(header.querySelector("span")?.getAttribute("title")).toBe("mac-pro-abcdef");
+        // The reveal is a styled tooltip popup since 2026-09-24 (the rows'
+        // zoom reason), and its trigger is the HEADER BUTTON itself — the
+        // focusable element the reveal must be keyboard-reachable on (round-4
+        // review: a span trigger inside the button could never see focus).
+        expect(header.querySelector("span")?.getAttribute("title")).toBeNull();
+        expect(header.hasAttribute("data-base-ui-tooltip-trigger")).toBe(true);
       },
       { failNodes: true },
     );
@@ -251,14 +256,50 @@ describe("the rail's subshell list, grouped by node", () => {
     await withRail([subshell({ id: "a", nodeId: "gone-node-xyz" })], async () => {
       await waitFor(() => expect(groupHeaders()).toHaveLength(1));
       expect(groupHeader("gone-node-xyz").textContent).toContain("unknown node");
-      expect(groupHeader("gone-node-xyz").querySelector("span")?.getAttribute("title")).toBe("gone-node-xyz");
+      // Same popup shape as the cold-failure case: trigger marker on the
+      // button, no leftover native title anywhere in the header.
+      const header = groupHeader("gone-node-xyz");
+      expect(header.getAttribute("title")).toBeNull();
+      expect(header.querySelector("span")?.getAttribute("title")).toBeNull();
+      expect(header.hasAttribute("data-base-ui-tooltip-trigger")).toBe(true);
     });
   });
 
+  it("opens the header reveal on focus, showing the full id", async () => {
+    await withRail([subshell({ id: "a", nodeId: "gone-node-xyz" })], async () => {
+      await waitFor(() => expect(groupHeaders()).toHaveLength(1));
+      // Focus the BUTTON — what a keyboard user actually focuses. This is
+      // real behavior now because the trigger merged onto it via `render`.
+      fireEvent.focus(groupHeader("gone-node-xyz"));
+      // The full id exists in the DOM nowhere else on the rail while shut —
+      // finding it IS the popup.
+      expect(await screen.findByText("gone-node-xyz")).toBeTruthy();
+    });
+  });
+
+  it("gives a RESOLVED header no popup — the hover would repeat its own name", async () => {
+    await withRail([subshell({ id: "a", name: "one", nodeId: "n1" })], async () => {
+      await waitFor(() => expect(groupHeaders()).toHaveLength(1));
+      fireEvent.focus(groupHeader("n1"));
+      // Past the 300 ms open delay: still nothing. The header has no hover
+      // content, because its hover would say only "mac-mini" again.
+      await new Promise((r) => setTimeout(r, 450));
+      expect(document.querySelector("[class*='text-body']")).toBeNull();
+    });
+  });
+
+  // The reveal moved off the native `title` onto the styled tooltip (2026-09-24,
+  // zoom scaling), so these assert the POPUP itself, opened by the keyboard
+  // focus path the tooltip also implements. (Hover needs a pointer stack
+  // happy-dom lacks; focus drives the same popup, and earns keyboard users
+  // the reveal as a side effect.)
   it("gives every row a tooltip naming the node, the agent and the state", async () => {
     await withRail([subshell({ id: "a", name: "one", nodeId: "n1" })], async () => {
       const link = await waitFor(() => screen.getByRole("link", { name: /one/ }));
-      expect(link.getAttribute("title")).toBe(
+      expect(link.getAttribute("title")).toBeNull();
+      fireEvent.focus(link);
+      const popup = await screen.findByText(/Name: one/);
+      expect(popup.textContent).toBe(
         "Name: one\nNode: mac-mini\nAgent: Claude Code\nStatus: idle\nDirectory: /Users/theo",
       );
     });
@@ -268,7 +309,9 @@ describe("the rail's subshell list, grouped by node", () => {
     // A readable slug beats an empty line — the clone dialog makes the same trade.
     await withRail([subshell({ id: "a", name: "one", harnessId: "codex" })], async () => {
       const link = await waitFor(() => screen.getByRole("link", { name: /one/ }));
-      expect(link.getAttribute("title")).toContain("Agent: codex");
+      fireEvent.focus(link);
+      const popup = await screen.findByText(/Name: one/);
+      expect(popup.textContent).toContain("Agent: codex");
     });
   });
 });

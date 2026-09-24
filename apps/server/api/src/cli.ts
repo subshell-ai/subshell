@@ -178,7 +178,7 @@ usage:
   subshell-server service stop       stop it (the definition stays installed)
   subshell-server service restart    restart it (--force to override the live-pane refusal)
   subshell-server mcp                serve the pane-spawned stdio MCP server (spawned by harnesses)
-  subshell-server report attention turn_complete|needs_attention
+  subshell-server report attention turn_complete|needs_attention|resumed
   subshell-server report session     report a pane's state (run by harness hooks, not by hand)
   subshell-server pane-log --file <path>
                                      append stdin to a pane log, flushing each

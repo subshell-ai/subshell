@@ -65,7 +65,10 @@ export function TerminalDropOverlay({
                   <div
                     className={
                       entry.status === "compressing"
-                        ? "h-full w-1/3 animate-pulse rounded-full bg-primary/60"
+                        ? // motion-safe like every other loop (design-system.md):
+                          // the word "compressing…" beside it says the same thing
+                          // to a reduced-motion user.
+                          "h-full w-1/3 rounded-full bg-primary/60 motion-safe:animate-pulse"
                         : "h-full rounded-full bg-primary"
                     }
                     style={entry.status === "compressing" ? undefined : { width: `${pct ?? 0}%` }}

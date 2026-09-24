@@ -180,7 +180,7 @@ export function SupervisionDialog({
             onClick={() => onConfirm(autostart, lethal)}
             disabled={pending}
           >
-            {pending && <LoaderCircle className="animate-spin" aria-hidden />}
+            {pending && <LoaderCircle className="motion-safe:animate-spin" aria-hidden />}
             {pending
               ? "Switching…"
               : lethal

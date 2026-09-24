@@ -534,7 +534,9 @@ export function NetworkPluginCard({
                     )}
                   </p>
                   <Button size="sm" disabled={busy} onClick={() => begin(() => install.mutate({ id: row.id }))}>
-                    {install.isPending && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
+                    {install.isPending && (
+                      <LoaderCircle aria-hidden className="mr-1.5 size-3.5 motion-safe:animate-spin" />
+                    )}
                     {install.isPending ? "Installing…" : "Install"}
                   </Button>
                 </div>
@@ -788,7 +790,9 @@ export function NetworkPluginCard({
                     {row.name} publishes by joining: “{publishLabel}” records its addresses and trusts them for sign-in.
                   </p>
                   <Button size="sm" disabled={busy} onClick={() => begin(() => publish.mutate({ id: row.id }))}>
-                    {publish.isPending && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
+                    {publish.isPending && (
+                      <LoaderCircle aria-hidden className="mr-1.5 size-3.5 motion-safe:animate-spin" />
+                    )}
                     {publish.isPending ? "Publishing…" : publishLabel}
                   </Button>
                 </div>
@@ -809,7 +813,9 @@ export function NetworkPluginCard({
                     allowed.
                   </p>
                   <Button size="sm" disabled={busy} onClick={() => begin(() => publish.mutate({ id: row.id }))}>
-                    {publish.isPending && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
+                    {publish.isPending && (
+                      <LoaderCircle aria-hidden className="mr-1.5 size-3.5 motion-safe:animate-spin" />
+                    )}
                     {publish.isPending ? "Publishing…" : publishLabel}
                   </Button>
                 </div>

@@ -3,15 +3,17 @@ import type { SubshellActivity, SubshellView } from "@/types/subshell";
 
 /**
  * The six coarse states a subshell can be shown in, in the precedence the
- * home cards established (`accessoryFor` in subshell-card.tsx): node-offline
- * outranks everything — with the node down, `alive`/`waitingSince` are
- * last-known facts, not current state (spec 2026-08-31 §5.6); then `exited`;
- * then `waiting`; then activity, derived HERE from `lastOutputAt` rather than
- * taken from the server's `activity` field — see {@link deriveActivity}.
+ * home cards' corner badge established before the dot (2026-09-24):
+ * node-offline outranks everything — with the node down, `alive`/`waitingSince`
+ * are last-known facts, not current state (spec 2026-08-31 §5.6); then
+ * `exited`; then `waiting`; then activity, derived HERE from `lastOutputAt`
+ * rather than taken from the server's `activity` field — see
+ * {@link deriveActivity}.
  *
- * Shared by the card's corner badge and the sidebar status dot (spec
- * 2026-09-03 sidebar-quickadd §1) so one subshell can never read as two
- * different states in two places.
+ * Shared by the status dot (spec 2026-09-03 sidebar-quickadd §1) wherever
+ * one is drawn — the rail, the subshell page header, the cards' corner, the
+ * list rows' name cell — so one subshell can never read as two different
+ * states in two places.
  */
 export type SubshellIndicator = "node-offline" | "exited" | "waiting" | "active" | "idle" | "terminated";
 
@@ -78,16 +80,6 @@ export const INDICATOR_LABEL: Record<SubshellIndicator, string> = {
   active: "working",
   idle: "idle",
   terminated: "ended",
-};
-
-/** The Badge variant each state maps to on the card (the waiting arm renders `WaitingChip`, not a Badge). */
-export const INDICATOR_VARIANT: Record<SubshellIndicator, "success" | "warning" | "muted"> = {
-  "node-offline": "warning",
-  exited: "muted",
-  waiting: "warning",
-  active: "success",
-  idle: "warning",
-  terminated: "muted",
 };
 
 /**

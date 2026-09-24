@@ -130,6 +130,16 @@ const reporterHook = (host: PluginHost, reporter: ReporterSpec, ...verb: string[
  *   answered (spec 2026-09-23). `Stop` reports `turn_complete` blind here:
  *   the reporter reads the hook payload and stays silent for a session
  *   parked on background work (`packages/mcp-core/src/report.ts`).
+ * - `UserPromptSubmit` / `PreToolUse` — the waiting CLEAR (`resumed`). The
+ *   plane's idle-watcher can only clear what it can stat, so an agent-node
+ *   pane — log on the node's disk — stayed "waiting for you" for its whole
+ *   next turn (2026-09-24). The pane knows better: work has resumed when the
+ *   human's prompt is submitted, AND when a tool starts after an approval
+ *   answered in the dialog (approving is not a prompt, so
+ *   UserPromptSubmit alone misses that path). PreToolUse fires on every tool
+ *   call; the endpoint's clear is conditional, so the common stamp-less case
+ *   is a silent no-op. Neither hook's stdin is read — their payloads are the
+ *   prompt text and the tool input, and the report is only ever the fact.
  * - `SessionStart` — conversation identity. The restart-resume pin
  *   (`--session-id` at launch) only survives while the pane keeps that ONE
  *   conversation, but /clear, /resume <other> and /fork start a DIFFERENT
@@ -147,6 +157,8 @@ const attentionHooks = (host: PluginHost, reporter: ReporterSpec) => ({
       hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "needs_attention") }],
     },
   ],
+  UserPromptSubmit: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "resumed") }] }],
+  PreToolUse: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "resumed") }] }],
   SessionStart: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "session") }] }],
 });
 

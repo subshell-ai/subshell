@@ -187,7 +187,7 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
             disabled={updatable.length === 0 || running || nodeUpdate.pendingNodeId !== null}
             onClick={() => void updateAll()}
           >
-            {running && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
+            {running && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 motion-safe:animate-spin" />}
             {running ? "Updating…" : `Update all (${updatable.length})`}
           </Button>
         )}
@@ -244,7 +244,7 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
                 {/* The POST blocks for the node's whole download-and-restart
                     window, up to five minutes, so a bare disabled button reads
                     as nothing happening. */}
-                {updating && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
+                {updating && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 motion-safe:animate-spin" />}
                 {updating ? "Updating…" : "Update"}
               </Button>
             </div>

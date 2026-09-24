@@ -83,7 +83,7 @@ export function ServiceCard({
             {/* The wait is up to a minute and the page is losing its server
                 while it happens, so a static sentence reads as a page that
                 has stopped rather than one that is working. */}
-            <LoaderCircle className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+            <LoaderCircle className="h-4 w-4 shrink-0 motion-safe:animate-spin" aria-hidden />
             <span>
               Restarting… waiting for the server to come back.
               {elsewhere && <ElsewhereLink href={elsewhere} />}

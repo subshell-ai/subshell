@@ -171,10 +171,20 @@ const sessionReportPing = (): string =>
   `body:JSON.stringify({sessionId:j.session_id}),signal:AbortSignal.timeout(2000)})}catch{}` +
   `process.exit(0)'`;
 
-/** The `--settings` hooks object injected into every Claude Code launch. */
+/** The `--settings` hooks object injected into every Claude Code launch.
+ *
+ * `UserPromptSubmit`/`PreToolUse` (the `resumed` waiting-clear) joined on
+ * 2026-09-24 — an intentional behavior change, the one class of difference
+ * this fixture exists to MOVE rather than swallow: an agent-node pane stayed
+ * "waiting for you" forever because the plane's watcher cannot stat the
+ * node's log, and the fix is the pane clearing its own stamp from wherever
+ * it runs (`packages/plugins/claude-code/src/index.ts`). Every accidental
+ * divergence still fails here; this one was understood first. */
 export const ATTENTION_HOOKS = {
   Stop: [{ hooks: [{ type: "command", command: attentionPing("turn_complete") }] }],
   Notification: [{ hooks: [{ type: "command", command: attentionPing("needs_attention") }] }],
+  UserPromptSubmit: [{ hooks: [{ type: "command", command: attentionPing("resumed") }] }],
+  PreToolUse: [{ hooks: [{ type: "command", command: attentionPing("resumed") }] }],
   SessionStart: [{ hooks: [{ type: "command", command: sessionReportPing() }] }],
 } as const;
 
