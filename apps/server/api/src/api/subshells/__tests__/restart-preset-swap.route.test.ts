@@ -328,11 +328,11 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
     expect(await rowPreset(id)).toBe(presetA);
   });
 
-  it("an offline node 409s with the preset untouched (the kill precedes the swap point)", async () => {
+  it("an offline node 409s with the preset untouched (the service pre-gates the swap)", async () => {
     const sim = attachScriptedNode(nodeLive, LIFECYCLE);
     try {
       const id = await createOnLive("swap-offline");
-      sim.detach(); // the row is alive=1 with no connection: the kill fires first and fails
+      sim.detach(); // no live connection: the service refuses a swap-carrying restart before the manager
       const res = await restart(id, { cookie: ownerCookie, body: { presetId: presetB } });
       expect(res.status).toBe(409);
       expect((await errorBody(res)).code).toBe("NODE_OFFLINE");
@@ -344,5 +344,36 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
       // when the body already detached.
       sim.detach();
     }
+  });
+
+  it("a dead row's swap on an offline node is refused before the manager, preset untouched", async () => {
+    // The combination the kill-based ordering could not protect: a TERMINATED
+    // row skips the manager's kill entirely, so without the service's offline
+    // pre-gate the swap write lands, `#reviveRow`'s first node RPC is what
+    // throws, and the 409 answers for a restart whose preset already moved.
+    // (The spec sanctions a DIFFERENT case — a revive that fails AFTER the
+    // swap on a reachable node keeps the preset; an unreachable one must not
+    // have swapped at all.)
+    const id = crypto.randomUUID();
+    createdSubshellIds.push(id);
+    await subshells.create({
+      id,
+      userId: ownerId,
+      presetId: presetA,
+      harnessId: "claude-code",
+      name: "swap-dead-offline",
+      workingDir: "/tmp",
+      tmuxSocket: `swap-sock-${id}`,
+      nodeId: nodeLive,
+      status: "terminated",
+      alive: 0,
+    });
+    // nodeLive has no scripted agent attached — no live connection.
+    const res = await restart(id, { cookie: ownerCookie, body: { presetId: presetB } });
+    expect(res.status).toBe(409);
+    expect((await errorBody(res)).code).toBe("NODE_OFFLINE");
+    expect(await rowPreset(id)).toBe(presetA); // the promise, held for the dead row too
+    const rows = await audits(id);
+    expect(rows.some((r) => r.action === "subshell.preset_switch")).toBe(false);
   });
 });

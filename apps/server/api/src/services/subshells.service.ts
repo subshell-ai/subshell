@@ -724,12 +724,17 @@ export class SubshellsService extends BaseService {
    * Deliberately does NOT re-check harness usability — the gate lives on
    * creation and the auto path; a subshell whose harness was disabled later
    * can still be restarted.
+   * A refusal at the gate, in validation, at maintenance or by the offline
+   * pre-gate writes nothing; a revive that fails after the swap leaves the
+   * row dead keeping the chosen preset (the next Start again uses it).
    * @throws SubshellError 404 when absent/invisible to the caller, or when a
    *         terminate/delete won the restart race (converge on "gone").
    * @throws HttpError 403 when the caller holds only `view`.
    * @throws ApiError 409 NODE_OFFLINE when the row's agent node has no live
-   *         connection (spec §5.6) — the manager has already rolled the
-   *         parked row back and retired the token before this boundary.
+   *         connection (spec §5.6) — a swap-carrying restart is refused here
+   *         before the manager is entered; a plain restart of an alive row
+   *         dies on the manager's kill, which has already rolled the parked
+   *         row back and retired the token before this boundary.
    * @throws ApiError 400 INVALID_PRESET when the swap preset is unknown, not
    *         the caller's, or from another harness (spec 2026-09-23 §2).
    * @param swapPresetTo - the optional preset swap riding this restart
@@ -757,9 +762,10 @@ export class SubshellsService extends BaseService {
         doNotLog: true,
       });
     }
-    // The swap is validated HERE — after the gate and every 409 refusal,
-    // before the manager kills anything — so a refused restart never changes
-    // the preset (spec 2026-09-23 §2). The preset must be the CALLER's (the
+    // The swap is validated HERE — after the gate and the maintenance 409,
+    // before the manager touches anything — so a restart refused on this
+    // side of the manager never changes the preset (spec 2026-09-23 §2). The
+    // preset must be the CALLER's (the
     // same per-user rule create enforces): a pane-token actor resolves through
     // the guard as its row's owner, so its swap lands on the owner's presets;
     // the system service user owns nothing and holds no grants, so the edit
@@ -775,6 +781,22 @@ export class SubshellsService extends BaseService {
           doNotLog: true,
         });
       }
+    }
+    // The offline pre-gate for a swap-carrying restart (final review 2026-09-24).
+    // The manager's kill only protects an ALIVE row: a dead row skips the kill,
+    // the swap write lands, and `#reviveRow`'s first node RPC is what throws
+    // offline — a 409 answering for a restart whose preset already moved.
+    // Refuse the swap HERE, before the manager can write anything. A plain
+    // (no-swap) restart keeps its byte-identical path — for it the 409 from
+    // the manager is honest because nothing was written. Local is not probed:
+    // the control-plane host is never offline, and the alive row's kill still
+    // orders the local path's own failures.
+    if (swapPresetTo !== undefined && node?.kind === "agent" && !getLive(row.nodeId)) {
+      throwApiError({
+        code: BackendErrorCodes.NODE_OFFLINE,
+        message: "The subshell's node has no live connection; it may still be running the subshell there",
+        doNotLog: true,
+      });
     }
     const revived = await this.#manager.restartSubshell(row.userId, id, swapPresetTo).catch(rethrowLaunchRefusal);
     if (!revived) {
