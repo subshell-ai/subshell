@@ -175,10 +175,23 @@ const SUBCOMMANDS: Record<string, string[]> = {
   // Spread for the same reason: a subtoken added in maintenance-cli.ts must
   // not be silently unreachable from the parser that admits it.
   maintenance: [...MAINTENANCE_SUBS],
-  // Spread from mcp-core so the CLI cannot accept a verb the reporter does not
-  // implement — or refuse one it does.
+  // Spread from mcp-core: this list is the set of verbs whose ARGUMENT rules
+  // the parser knows — the typo-guard's authority, not a whitelist of words
+  // the command accepts (`report` is skew-tolerant below, so a verb newer
+  // than this binary is admitted and answered silently by `runReport`).
   report: [...REPORT_VERBS],
 };
+/**
+ * Commands whose subtoken slot admits words OUTSIDE the list. The same
+ * exit-2 doctrine the {@link SUBCOMMAND_ARGS} entry for `report` spells out
+ * applies to the verb slot itself: a newer plane legitimately emits a verb
+ * compiled after this binary — a new verb is plane-side data in a generated
+ * hook line exactly as a new kind is — and a refused word would BLOCK the
+ * pane. Presence is still required, and a KNOWN verb keeps its documented
+ * shape: `session extra` stays the usage error it always was, because that
+ * pair is a typo, not skew. Every other command's list stands as typed.
+ */
+const SKEW_TOLERANT_SUBCOMMANDS: ReadonlySet<string> = new Set(["report"]);
 /**
  * Command → subtoken → its SECOND positional: a value list, or {@link FREE_ARG}
  * for values this parser must not reject. A subtoken absent from its command's
@@ -351,7 +364,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   const used: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     if (subcommands && sub === undefined && !rest[i].startsWith("--")) {
-      if (!subcommands.includes(rest[i])) {
+      if (!subcommands.includes(rest[i]) && !SKEW_TOLERANT_SUBCOMMANDS.has(command)) {
         throw new UsageError(
           `unknown ${command} subcommand '${rest[i]}': ${command} requires ${subcommands.join(" or ")}`,
         );
@@ -361,7 +374,18 @@ export function parseArgs(argv: string[]): ParsedArgs {
     }
     if (sub !== undefined && arg === undefined && !rest[i].startsWith("--")) {
       const args = SUBCOMMAND_ARGS[command]?.[sub];
-      if (!args) throw new UsageError(`${command} ${sub} takes no argument (got '${rest[i]}')`);
+      if (!args) {
+        // A second word after a SKEW verb: its argument rules are unknowable
+        // here, and guessing wrong with an exit 2 blocks the pane — take the
+        // word and let `runReport` decide, silently. A known verb with no
+        // declared argument keeps its typo-guard: that pair is typed wrong,
+        // not too new.
+        if (SKEW_TOLERANT_SUBCOMMANDS.has(command) && !subcommands?.includes(sub)) {
+          arg = rest[i];
+          continue;
+        }
+        throw new UsageError(`${command} ${sub} takes no argument (got '${rest[i]}')`);
+      }
       if (args !== FREE_ARG && !args.includes(rest[i])) {
         throw new UsageError(`unknown ${command} ${sub} argument '${rest[i]}': requires ${args.join(" or ")}`);
       }

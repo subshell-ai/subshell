@@ -45,10 +45,28 @@ describe("subshell report (CLI wiring)", () => {
     expect(parseArgs(["report", "session"])).toEqual({ command: "report", sub: "session", flags: {} });
   });
 
-  test("rejects an unknown verb and a kind after a verb that takes none", () => {
-    expect(() => parseArgs(["report", "nonsense"])).toThrow(/unknown report subcommand/);
-    // `session` takes no second word, so one is an error rather than ignored —
-    // silently dropping it is how a typo'd report reports the wrong thing.
+  test("admits an unknown VERB as version skew, silently", () => {
+    // Same doctrine as the kind slot below: a plane NEWER than this binary
+    // can emit a verb compiled after it, and `report` is invoked by hooks
+    // whose exit 2 BLOCKS the pane. Presence stays required (`report` alone
+    // is still a usage error); `runReport` answers the unknown word with a
+    // silent nothing.
+    expect(parseArgs(["report", "nonsense"])).toEqual({ command: "report", sub: "nonsense", flags: {} });
+    // A skew verb's argument rules are unknowable here — the word is taken,
+    // not judged.
+    expect(parseArgs(["report", "nonsense", "whatever"])).toEqual({
+      command: "report",
+      sub: "nonsense",
+      arg: "whatever",
+      flags: {},
+    });
+    expect(() => parseArgs(["report"])).toThrow(/requires/);
+  });
+
+  test("a KNOWN verb keeps its shape: session takes no second word", () => {
+    // The skew tolerance is for verbs too NEW to know, not a licence to
+    // ignore arguments: `session` is documented to take none, and silently
+    // dropping one is how a typo'd report says the wrong thing.
     expect(() => parseArgs(["report", "session", "extra"])).toThrow(/takes no argument/);
   });
 
@@ -75,6 +93,19 @@ describe("subshell report (CLI wiring)", () => {
     expect(() => parseArgs(["report", "session", "--json"])).toThrow(/not valid for 'report'/);
   });
 
+  test("an unknown verb runs as a silent 0 even with a complete pane env", async () => {
+    // Parse admits it (skew must not block the pane); the reporter's own
+    // filter is what says "nothing to send". Full env so the filter — not
+    // the env — is the reason for the silence.
+    process.env.SUBSHELL_API_KEY = "subshell_key123";
+    process.env.SUBSHELL_BASE_URL = "http://127.0.0.1:1"; // deliberately undialable
+    process.env.SUBSHELL_ID = "sub_report_test";
+    const res = await run(["report", "nonsense"]);
+    expect(res.code).toBe(0);
+    expect(res.out).toBe("");
+    expect(res.err).toBe("");
+  });
+
   test("an incomplete pane env is still a silent exit 0, not a usage error", async () => {
     // Unlike `mcp`, which exits 2 naming the missing variable: that one is a
     // server a human may have misconfigured, this one is a hook nobody typed.
@@ -86,6 +117,23 @@ describe("subshell report (CLI wiring)", () => {
 });
 
 describe("report exit — the pane's own death hook (spec 2026-09-19 §4.3)", () => {
+  // Bun runs a package's test files in ONE process, and the last case below
+  // fills in a complete pane env — without this restore it would leak to
+  // every later file, and any future pane-env-sensitive suite created
+  // alphabetically after this one would inherit a "complete" env and its
+  // silence guarantees would stop proving anything.
+  const saved = new Map<string, string | undefined>();
+  beforeEach(() => {
+    for (const k of PANE_ENV_KEYS) saved.set(k, process.env[k]);
+  });
+  afterEach(() => {
+    for (const [k, v] of saved) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    saved.clear();
+  });
+
   test("accepts any status, because tmux gives a number rather than a word", () => {
     expect(parseArgs(["report", "exit", "7"])).toEqual({ command: "report", sub: "exit", arg: "7", flags: {} });
     expect(parseArgs(["report", "exit", "0"])).toEqual({ command: "report", sub: "exit", arg: "0", flags: {} });

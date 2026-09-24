@@ -213,7 +213,7 @@ subshell update [--check] [--to <v>] [--from <file>] [--force] [--yes] [--json]
 subshell update --rollback [--yes] [--json]
 subshell mcp                       # stdio MCP server for a subshell pane (internal;
                                      # configured purely by the SUBSHELL_* pane env)
-subshell report attention turn_complete|needs_attention
+subshell report attention turn_complete|needs_attention|resumed
 subshell report session            # out-of-band reporting from a harness HOOK, which
                                      # runs on THIS machine — where the only program
                                      # guaranteed to exist is this binary. Same pane-env
@@ -225,6 +225,14 @@ subshell report session            # out-of-band reporting from a harness HOOK, 
                                      # silent when it names running background work or
                                      # scheduled crons — a session parked on a subagent
                                      # does not claim to be done (spec 2026-09-23).
+                                     # `resumed` is the waiting CLEAR and reads NO
+                                     # stdin — its payloads are the prompt text and
+                                     # the tool input (2026-09-24). The verb and kind
+                                     # slots are FREE BY DOCTRINE: an unknown word is
+                                     # answered with a silent 0, never exit 2 — a
+                                     # rejected hook blocks the pane, and a plane
+                                     # newer than this binary legitimately emits words
+                                     # compiled after it. Presence is still enforced.
                                      # See mcp-core report.ts
 subshell version                   # also `--version` / `-v` — aliased in the
                                      # COMMAND slot only, since argv[0] IS the

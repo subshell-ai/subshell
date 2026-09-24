@@ -35,9 +35,15 @@ export type AttentionKind = "turn_complete" | "needs_attention" | "resumed";
 export const ATTENTION_KINDS: readonly AttentionKind[] = ["turn_complete", "needs_attention", "resumed"];
 
 /**
- * Every verb `report` accepts in its first slot. `attention` takes a second
- * word — an {@link AttentionKind} — and `session` takes none; both CLIs
- * validate against these rather than restating them.
+ * Every verb `report` currently implements. `attention` takes a second word —
+ * an {@link AttentionKind} — and `session` takes none. The NODE CLI's parser
+ * reads this as the set of verbs whose argument rules it knows: the
+ * typo-guard's authority is membership, and a word BEYOND this list is
+ * admitted and answered silently as version skew (a newer plane's verb is
+ * data in a generated hook line, and a refusal would exit 2 into a pane
+ * whose hooks block on 2). The server CLI runs `runReport` unvalidated.
+ * Either way {@link runReport}'s own filter is the backstop: a verb listed
+ * here but not implemented there sends nothing.
  */
 export const REPORT_VERBS: readonly string[] = ["attention", "session", "exit"];
 

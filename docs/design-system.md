@@ -58,7 +58,11 @@ everywhere: `background`, `card`, `border`, `foreground`, `muted-foreground`,
 `primary`, `primary-foreground`, `success`, `warning`, `destructive`. Mobile
 uses the same roles in camelCase (`mutedFg`, `primaryFg`) as hex derived from
 the web's oklch — and `lint:design` re-derives every compared colour every run. Status colours
-never carry meaning alone; pair them with a word.
+never carry meaning alone; pair them with a word — and when the surface is too
+small for the word beside the colour, as with the 6px status dot, the word
+travels with it as the accessible name and the tooltip's state line instead
+(2026-09-24: the dot's colour legend is bright-blinking working, dim idle,
+amber waiting, red unreachable, faint exited, hollow ended).
 
 ## Spacing, radius, motion, targets
 
@@ -69,7 +73,11 @@ never carry meaning alone; pair them with a word.
 - Motion: 150ms for micro-feedback, 220ms for a screen or panel entering; every
   animation inside `prefers-reduced-motion: no-preference`. One-shot animations
   only on elements the poll does not rebuild — a rebuilt element replays its
-  animation, which is how a done-mark came to pulse forever.
+  animation, which is how a done-mark came to pulse forever. A LOOP is admitted
+  for a state that genuinely IS ongoing, on an element that never remounts —
+  the input-queue chevrons, the dashboard `StatusPill`, and the working dot's
+  blink (2026-09-24) are that admitted shape, and each sits behind the same
+  motion gate so a reduced-motion user sees the still state instead.
 - Touch targets ≥ 44 where there is touch.
 
 ## Patterns
