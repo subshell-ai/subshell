@@ -12,7 +12,6 @@ import { APP_BASE_URL, NODE_ARTIFACTS_DIR, SERVER_PORT } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
@@ -103,12 +102,12 @@ describe("settings routes (admin cookie only)", () => {
 
   afterAll(async () => {
     // Restore the instance-wide default this suite toggles, then drop
-    // fixtures. Both halves: the PATCH still writes the legacy settings row
-    // (the OIDC plan's Task 9 moves it), while the GATE it feeds the page
-    // from reads the E-mail provider row — and every other suite in the
-    // shared DB depends on that row sitting at its seeded NULL
-    // (closed-by-default-with-users).
-    await new SettingsRepository(db).set("allow_registrations", true);
+    // fixtures. The PATCH writes the E-mail provider row (Task 9), so the
+    // row is the only thing this suite moves — and every other suite in the
+    // shared DB depends on it sitting at its seeded NULL (the legacy window:
+    // closed behind the first account). The legacy `allow_registrations`
+    // settings row is now read and written by nobody; migration 0037 spelled
+    // its key inline once, at upgrade time.
     await new AuthProvidersRepository(db).update("email", { registrationEnabled: null });
     await db.deleteFrom("subshells").where("id", "=", subshellId).execute();
     for (const kid of createdKeyIds) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [kid]);
@@ -128,14 +127,11 @@ describe("settings routes (admin cookie only)", () => {
     const before = (await get.json()) as { allowRegistrations: boolean };
     expect(typeof before.allowRegistrations).toBe("boolean");
 
-    // Transient note (OIDC plan Task 3): the gate reads the E-mail provider
-    // row now while this PATCH still writes the legacy settings row (Task 9
-    // moves the write). The row is therefore seeded to the answer the read
-    // must give; after Task 9 the seeds are redundant and this case asserts
-    // the same round-trip unchanged.
+    // One round-trip per direction: the PATCH writes the E-mail provider row
+    // and the response reads the answer back through `registrationOpen`, so a
+    // write that did not land cannot report itself as a success.
     const emailRow = new AuthProvidersRepository(db);
 
-    await emailRow.update("email", { registrationEnabled: 0 });
     const patch = await app.fetch(
       authedRequest("/api/settings", adminCookie, {
         method: "PATCH",
@@ -144,8 +140,8 @@ describe("settings routes (admin cookie only)", () => {
     );
     expect(patch.status).toBe(200);
     expect(((await patch.json()) as { allowRegistrations: boolean }).allowRegistrations).toBe(false);
+    expect((await emailRow.getById("email"))?.registrationEnabled).toBe(0);
 
-    await emailRow.update("email", { registrationEnabled: 1 });
     const restore = await app.fetch(
       authedRequest("/api/settings", adminCookie, {
         method: "PATCH",
@@ -154,6 +150,7 @@ describe("settings routes (admin cookie only)", () => {
     );
     expect(restore.status).toBe(200);
     expect(((await restore.json()) as { allowRegistrations: boolean }).allowRegistrations).toBe(true);
+    expect((await emailRow.getById("email"))?.registrationEnabled).toBe(1);
     await emailRow.update("email", { registrationEnabled: null });
   });
 
@@ -355,17 +352,15 @@ describe("settings routes (admin cookie only)", () => {
       .where("action", "=", "settings.update")
       .execute();
 
-    // Transient note (OIDC plan Task 3): the route's `before` reads the gate
-    // — now the E-mail provider row — while the PATCH's write still lands on
-    // the legacy settings row (Task 9 moves it). The seeds below stand in for
-    // "what the previous flip decided"; after Task 9 the PATCH writes the row
-    // itself, the seeds become redundant, and the asserted flips are the
-    // same two transitions.
+    // The seed below is the state the flips act on, not a stand-in for a
+    // write: the PATCH now writes the E-mail provider row itself (Task 9), so
+    // starting from open makes the first `patchTo(false)` a real
+    // true→false transition and the second one a real no-op.
     const emailRow = new AuthProvidersRepository(db);
 
     await emailRow.update("email", { registrationEnabled: 1 }); // gate: open
-    await patchTo(false); // flip: the audited one
-    await emailRow.update("email", { registrationEnabled: 0 }); // stand-in for the write
+    await patchTo(false); // flip: the audited one — and it writes the row now
+    expect((await emailRow.getById("email"))?.registrationEnabled).toBe(0);
     await patchTo(false); // no flip — must not add an event
     await patchTo(true); // flip back
 
@@ -406,6 +401,10 @@ describe("settings routes (admin cookie only)", () => {
   });
 
   it("admin-owned subshell token is rejected on GET and PATCH (403, not 500)", async () => {
+    // The switch this PATCH would move lives on the E-mail provider row now,
+    // so "the setting is untouched" is read from that row — around the call,
+    // whatever value the preceding tests left there.
+    const before = (await new AuthProvidersRepository(db).getById("email"))?.registrationEnabled ?? null;
     const get = await app.fetch(bearerRequest("/api/settings", adminSubshellKey));
     expect(get.status).toBe(403);
     const patch = await app.fetch(
@@ -418,9 +417,10 @@ describe("settings routes (admin cookie only)", () => {
     const body = (await patch.json()) as { code: string; statusCode: number };
     expect(body.code).toBe("ACCESS_DENIED");
     expect(body.statusCode).toBe(403);
-    // The setting is untouched: the denial was real, not a serialization mask.
-    const now = await new SettingsRepository(db).get("allow_registrations", true);
-    expect(now).toBe(true);
+    // The denial was real, not a serialization mask: the row still answers what
+    // it answered before the request.
+    const now = (await new AuthProvidersRepository(db).getById("email"))?.registrationEnabled ?? null;
+    expect(now).toBe(before);
   });
 
   it("system key is rejected on GET and PATCH (403)", async () => {
@@ -646,6 +646,7 @@ describe("settings routes (admin cookie only)", () => {
     // is hoisted above every write now; this pins that.
     await db.deleteFrom("settings").where("key", "=", "lockdown").execute();
     await ensureLocalNode(db);
+    const emailRow = new AuthProvidersRepository(db);
     const close = await app.fetch(
       authedRequest("/api/settings", adminCookie, {
         method: "PATCH",
@@ -653,6 +654,9 @@ describe("settings routes (admin cookie only)", () => {
       }),
     );
     expect(close.status).toBe(200);
+    // The PATCH writes the row the read consults (Task 9), so "closed" here
+    // is the real starting state the refused PATCH below must not move.
+    expect((await emailRow.getById("email"))?.registrationEnabled).toBe(0);
     const regAuditsBefore = await db
       .selectFrom("auditEvents")
       .select("id")
@@ -673,7 +677,12 @@ describe("settings routes (admin cookie only)", () => {
       allowRegistrations: boolean;
       lockdown: boolean;
     };
+    // Load-bearing again since the PATCH moved onto this row: a hoisted-
+    // validation regression (the write landing BEFORE the confirm check)
+    // would read back `true` here — during the 3-9 window this assertion
+    // could not have failed.
     expect(after.allowRegistrations).toBe(false);
+    expect((await emailRow.getById("email"))?.registrationEnabled).toBe(0);
     expect(after.lockdown).toBe(false);
     const regAuditsAfter = await db
       .selectFrom("auditEvents")
@@ -684,12 +693,17 @@ describe("settings routes (admin cookie only)", () => {
       .execute();
     expect(regAuditsAfter.length).toBe(regAuditsBefore.length);
 
-    await app.fetch(
+    // And the trailing re-open is an ACT, asserted as one: it lands on the
+    // same row the refusal above was held off writing.
+    const reopen = await app.fetch(
       authedRequest("/api/settings", adminCookie, {
         method: "PATCH",
         body: JSON.stringify({ allowRegistrations: true }),
       }),
     );
+    expect(reopen.status).toBe(200);
+    expect(((await reopen.json()) as { allowRegistrations: boolean }).allowRegistrations).toBe(true);
+    expect((await emailRow.getById("email"))?.registrationEnabled).toBe(1);
     await db
       .deleteFrom("auditEvents")
       .where("actorUserId", "=", adminId)

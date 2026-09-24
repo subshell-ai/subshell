@@ -158,6 +158,47 @@ export class UserMetaRepository extends BaseRepository {
   }
 
   /**
+   * Writes an approval state and its queue timestamp TOGETHER (spec
+   * 2026-09-24 §6): entering `pending` stamps `pendingArrivedAt` (the given
+   * arrival, or now), and leaving `pending` for either outcome clears it —
+   * the two columns answer one question and must never disagree. Upserts for
+   * the same reason {@link setDisabled} does: an account can reach the queue
+   * with no `user_meta` row at all, and `role` falls back to its DB default
+   * on insert only.
+   *
+   * @param userId - better-auth user id
+   * @param state - the state to write ("approved" | "pending" | "rejected")
+   * @param opts.arrivedAt - the arrival stamp for a `pending` write (a repeat
+   *   knock re-stamps it, the §6 dedup); ignored when leaving pending
+   */
+  async setApproval(userId: string, state: ApprovalState, opts?: { arrivedAt?: string | null }): Promise<void> {
+    const arrivedAt = state === "pending" ? (opts?.arrivedAt ?? new Date().toISOString()) : null;
+    await this.db
+      .insertInto("userMeta")
+      .values({ userId, role: "user", approvalState: state, pendingArrivedAt: arrivedAt })
+      .onConflict((oc) => oc.column("userId").doUpdateSet({ approvalState: state, pendingArrivedAt: arrivedAt }))
+      .execute();
+  }
+
+  /**
+   * The account's approval state (spec 2026-09-24 §6). An ABSENT `user_meta`
+   * row — and anything a hand edit put in the column — reads `approved`, via
+   * the same narrowing rule every reader of this column uses: an account
+   * predating approval was never in a queue, and a corrupt value must not
+   * lock someone out of their own account.
+   *
+   * @param userId - better-auth user id
+   */
+  async approvalState(userId: string): Promise<ApprovalState> {
+    const row = await this.db
+      .selectFrom("userMeta")
+      .select("approvalState")
+      .where("userId", "=", userId)
+      .executeTakeFirst();
+    return asApprovalState(row?.approvalState);
+  }
+
+  /**
    * The wizard's resume bookmark for this user (spec 2026-09-16), or `null`
    * when there is none — an absent row, a NULL column, or a stored value
    * outside the {@link SetupStep} enum all read the same way.

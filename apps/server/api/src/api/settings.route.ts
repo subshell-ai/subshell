@@ -3,6 +3,7 @@ import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { isCookieAdmin } from "@/api/user-utils.js";
 import { APP_BASE_URL, emergencyLoginArmed } from "@/constants.js";
 import { db } from "@/db/index.js";
+import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { publishedNodeTargets } from "@/lib/node-artifacts.js";
@@ -14,7 +15,7 @@ import {
   setInstanceName,
 } from "@/services/instance-name.js";
 import { applyLockdown, lockdownEnabled, serverNodeName } from "@/services/lockdown.js";
-import { ALLOW_NODE_ENROLLMENT_KEY, ALLOW_REGISTRATIONS_KEY, registrationOpen } from "@/services/registration-gate.js";
+import { ALLOW_NODE_ENROLLMENT_KEY, registrationOpen } from "@/services/registration-gate.js";
 import { autoFetchEnabled } from "@/services/releases.js";
 import { ALLOW_SERVER_SUBSHELLS_KEY, serverSubshellsEnabled } from "@/services/server-as-node.js";
 import { originRegistry } from "@/services/trusted-origins.js";
@@ -299,19 +300,29 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
       }
       const repo = new SettingsRepository(db);
       if (body.allowRegistrations !== undefined) {
+        // The answer lives on the E-mail provider row now (spec 2026-09-24
+        // §2): this PATCH writes `registration_enabled` 1/0, and every read —
+        // this route's own response included — answers through
+        // `registrationOpen`, so a write that did not land cannot report
+        // itself as a success. The row's existence is migration 0037's
+        // guarantee (it seeds the E-mail door at upgrade time).
         const before = await registrationOpen(db);
-        await repo.set(ALLOW_REGISTRATIONS_KEY, body.allowRegistrations);
+        await new AuthProvidersRepository(db).update("email", {
+          registrationEnabled: body.allowRegistrations ? 1 : 0,
+        });
         // Audited on REAL flips only (best-effort like every audit call):
         // opening sign-up on a live instance is the step a scripted session
         // used to mint a throwaway admin (2026-09-03 deploy-bot incident),
         // and it left no trace. Admin-minted accounts go through POST
-        // /api/users, which already audits `user.create`.
+        // /api/users, which already audits `user.create`. The targetId keeps
+        // spelling the legacy settings key — the trail's vocabulary for this
+        // switch, so rows before and after the move read alike.
         if (before !== body.allowRegistrations) {
           await audit({
             actorUserId: user.id,
             action: "settings.update",
             targetType: "settings",
-            targetId: ALLOW_REGISTRATIONS_KEY,
+            targetId: "allow_registrations",
             metadataJson: JSON.stringify({ from: before, to: body.allowRegistrations }),
           });
         }

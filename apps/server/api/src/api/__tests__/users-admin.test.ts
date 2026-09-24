@@ -80,13 +80,16 @@ describe("users-admin + audit routes", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       viewerIsAdmin: boolean;
-      users: Array<{ id: string; email: string; role: string | null; createdAt: string | null }>;
+      users: Array<{ id: string; email: string; role: string | null; createdAt: string | null; providers: string[] }>;
     };
     expect(body.viewerIsAdmin).toBe(true);
     const adminRow = body.users.find((u) => u.email === adminEmail);
     expect(adminRow?.id).toBe(adminId);
     expect(adminRow?.role).toBe("admin");
     expect(adminRow?.createdAt).toBeTruthy();
+    // Every fixture here signs up with a password, so the providers column the
+    // users page renders (spec 2026-09-24 §7) is exactly the credential door.
+    expect(adminRow?.providers).toEqual(["credential"]);
   });
 
   it("non-admin lists users read-only (200, viewerIsAdmin false)", async () => {

@@ -4,19 +4,6 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { Database } from "@/db/types/index.js";
 
 /**
- * The legacy `settings` row this gate used to read.
- *
- * The GATE no longer reads it (spec 2026-09-24 §2 moved the answer onto the
- * E-mail provider row), and migration 0037 spells the key inline for its
- * copy-forward, historical as of that write. The constant stays because
- * `api/settings.route.ts` still PATCHes this row — its write moves to the
- * provider row in the OIDC plan's Task 9; until then this is the key's one
- * remaining writer, and the route's read already answers through
- * {@link registrationOpen} like every other surface.
- */
-export const ALLOW_REGISTRATIONS_KEY = "allow_registrations";
-
-/**
  * The `settings` row governing who may add a node.
  *
  * Here rather than in `api/settings.route.ts` because two modules read it —
@@ -26,9 +13,10 @@ export const ALLOW_REGISTRATIONS_KEY = "allow_registrations";
  * route module to get a string pulls that route's whole Elysia graph in with
  * it.
  *
- * An ABSENT row means true, like the legacy `allow_registrations` settings
- * row before a user exists: an instance that has never touched this keeps the
- * behaviour it had, where any signed-in user could mint a setup key.
+ * An ABSENT row means true: an instance that has never touched this keeps the
+ * behaviour it had, where any signed-in user could mint a setup key. (The
+ * registration switch this sits beside no longer lives in the `settings`
+ * table at all — {@link registrationOpen} explains where it moved.)
  */
 export const ALLOW_NODE_ENROLLMENT_KEY = "allow_node_enrollment";
 
@@ -61,6 +49,12 @@ export const ALLOW_NODE_ENROLLMENT_KEY = "allow_node_enrollment";
  * open it — a fresh install would be bricked behind a sign-up form that
  * refuses. The door is open exactly until someone walks through it, and
  * closes behind them.
+ *
+ * The legacy `allow_registrations` settings row this gate used to read — and
+ * which the settings PATCH used to write — now has NO reader and no writer:
+ * migration 0037 spells its key inline for the copy-forward and the PATCH
+ * lands on this row (spec 2026-09-24 §2). The audit trail keeps spelling that
+ * key as its `targetId`, as the switch's stable name.
  *
  * @param db - the app database
  */

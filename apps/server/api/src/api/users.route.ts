@@ -1,13 +1,17 @@
+import { BackendErrorCodes } from "@internal/backend-errors";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia, t } from "elysia";
 import { authGuard, requireAdmin } from "@/api/auth-guard.js";
 import { isCookieAdmin } from "@/api/user-utils.js";
 import { SYSTEM_USER_EMAIL } from "@/auth/system-user.js";
 import { db } from "@/db/index.js";
+import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { DEFAULT_USER_ROLE, USER_ROLES } from "@/db/types/user-role.js";
+import { apiErrorBody } from "@/lib/api-error.js";
+import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
 import { disconnectNode, getHeld, getLive, OWNER_DISABLED_CLOSE_CODE } from "@/services/nodes/node-registry.js";
 import { failConnPendings } from "@/services/nodes/node-rpc.js";
@@ -26,6 +30,10 @@ const UserRowSchema = t.Object({
   disabled: t.Boolean({
     description:
       "True when the account is disabled: it cannot sign in and every credential it holds is refused. A user with no user_meta row is enabled",
+  }),
+  providers: t.Array(t.String(), {
+    description:
+      'Auth provider ids this account has sign-in rows for, e.g. ["credential"], ["google"], ["credential","google"]. Drives which management controls make sense (a password reset needs "credential")',
   }),
   manageable: t.Boolean({
     description:
@@ -157,6 +165,47 @@ const DisabledResponseSchema = t.Object({
   }),
 });
 
+/** One queue row: a person a door let through who is not a member yet (spec §6). */
+const PendingUserSchema = t.Object({
+  id: t.String({ description: "User id" }),
+  email: t.String({ description: "The email the door's profile carried" }),
+  name: t.String({ description: "Display name; empty for a door arrival that carried none" }),
+  providerId: t.Nullable(
+    t.String({
+      description: "The door this arrival came through; null for an account with no sign-in row (should not happen)",
+    }),
+  ),
+  providerName: t.Nullable(
+    t.String({
+      description:
+        "The door's current name, resolved live; null when the provider has since been removed, which the queue renders as a removed-provider label",
+    }),
+  ),
+  arrivedAt: t.Nullable(
+    t.String({ description: "ISO 8601 stamp of the last knock while pending; null once the row left pending" }),
+  ),
+  approvalState: t.Union([t.Literal("pending"), t.Literal("rejected")], {
+    description: "Queue state. Approved accounts are members and live in GET /api/users, never here",
+  }),
+});
+
+/** GET /api/users/pending response. */
+const PendingResponseSchema = t.Object({
+  pending: t.Array(PendingUserSchema, { description: "Pending and rejected rows, newest arrival first" }),
+});
+
+const ApprovalStateSchema = t.Union([t.Literal("approved"), t.Literal("rejected")], {
+  description: "The queue decision to record for this person",
+});
+
+const ApprovalBodySchema = t.Object({ approvalState: ApprovalStateSchema });
+
+const ApprovalResponseSchema = t.Object({
+  id: t.String({ description: "User id" }),
+  // The union, not a bare string: the response says what the body accepted.
+  approvalState: ApprovalStateSchema,
+});
+
 /**
  * Loads a user an admin may act on, or throws.
  *
@@ -182,6 +231,7 @@ async function requireManageableUser(id: string): Promise<{ id: string; email: s
 // route-bearing sub-instance composed with requireAdmin for POST.
 const adminOnly = new Elysia()
   .use(requireAdmin)
+  .use(apiModels)
   .post(
     "/",
     async ({ body, user }) => {
@@ -463,6 +513,89 @@ const adminOnly = new Elysia()
         tags: ["users"],
         description:
           "Disables or re-enables a user (admin only, cookie session). A disabled account cannot sign in and every credential it holds is refused; disabling signs out all of its sessions, revokes its outstanding attach tokens, closes its live feed and terminal sockets, and disconnects the nodes it owns — they stay offline until re-enabled. Refuses with 400 on self and with 409 when it would disable the last admin who can still sign in. Re-enabling is never refused",
+      },
+    },
+  )
+  .get(
+    "/pending",
+    async () => {
+      // The queue list. Provider NAMES resolve live, from a read of the door
+      // table, rather than by a JOIN that would vanish the row: a deleted
+      // provider must render as "removed provider" (spec §6) — the queue is
+      // the record of who knocked at a door this instance used to have.
+      const rows = await new UsersRepository(db).listApprovalQueue();
+      const names = new Map((await new AuthProvidersRepository(db).listAll()).map((row) => [row.id, row.name]));
+      return {
+        pending: rows.map((row) => ({
+          ...row,
+          providerName: row.providerId ? (names.get(row.providerId) ?? null) : null,
+        })),
+      };
+    },
+    {
+      response: PendingResponseSchema,
+      detail: {
+        operationId: "listPendingApprovals",
+        tags: ["users"],
+        description:
+          "The approval queue: pending and rejected arrivals, newest first (admin only, cookie session). Members never see it, and it never includes an approved account",
+      },
+    },
+  )
+  .patch(
+    "/:id/approval",
+    async ({ params, body, user, status }) => {
+      // 404 / 403 (system) come first, the same way the other management
+      // PATCHes ask them.
+      const target = await requireManageableUser(params.id);
+      // §8, the load-bearing refusal: APPROVAL moves a row OUT of the queue,
+      // so writing onto an already-approved target is refused rather than
+      // silently rewriting an active member (and `rejected` onto one is
+      // barred the same way — disabling is that switch). Approving yourself
+      // was never pending, so the same 409 covers the self case. This lives
+      // as a RETURNED status, not a throw, because the named code is part of
+      // the wire contract the /pending screen branches on.
+      const current = await new UserMetaRepository(db).approvalState(params.id);
+      if (current === "approved") {
+        return status(
+          409,
+          apiErrorBody({
+            code: BackendErrorCodes.APPROVAL_NOOP,
+            message:
+              "That account is already approved. Approval only answers queue arrivals; to bar a member, disable their account.",
+          }),
+        );
+      }
+      // No session or socket work on either edge: a pending person never had
+      // a session (§9), and rejection of a never-approved arrival has nothing
+      // live to cut. The approve edge is the person's first, minted by their
+      // next sign-in.
+      const meta = new UserMetaRepository(db);
+      await meta.setApproval(params.id, body.approvalState);
+      const providerId = await new UsersRepository(db).primaryProviderId(params.id);
+      await audit({
+        actorUserId: user.id,
+        action: body.approvalState === "approved" ? "user.approve" : "user.reject",
+        targetType: "user",
+        targetId: target.id,
+        // The user-management family names its subject by email, and the
+        // provider says which door this decision was about (spec §8).
+        metadataJson: JSON.stringify({ email: target.email, providerId }),
+      });
+      return { id: target.id, approvalState: body.approvalState } as const;
+    },
+    {
+      params: t.Object({ id: t.String({ description: "User id in the approval queue" }) }),
+      body: ApprovalBodySchema,
+      response: {
+        200: ApprovalResponseSchema,
+        409: "ApiErrorResponse",
+      },
+      detail: {
+        operationId: "setUserApproval",
+        tags: ["users"],
+        description:
+          "Records an approval decision for a queued arrival (admin only, cookie session). Approving makes them a member; rejecting keeps them out of the queue until an admin approves them. Refuses with 409 APPROVAL_NOOP when the target is already approved, so this can only ever move a row out of the queue",
       },
     },
   )

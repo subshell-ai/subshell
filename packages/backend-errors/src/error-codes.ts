@@ -1,5 +1,13 @@
 export enum BackendErrorCodes {
   ACCESS_DENIED = "ACCESS_DENIED",
+  /**
+   * `PATCH /api/users/:id/approval`: the target's account is already
+   * `approved`, so the write is not a queue decision. Approval only ever
+   * moves a row OUT of `pending`/`rejected` (spec 2026-09-24 §8) — refusing
+   * an approved target is what keeps this endpoint from being a state hammer
+   * against active members (barring one is what disable is for).
+   */
+  APPROVAL_NOOP = "APPROVAL_NOOP",
   /** `POST /api/admin/server/autostart`: nothing is installed to start at login, or this server is not run by a service manager at all. */
   AUTOSTART_UNAVAILABLE = "AUTOSTART_UNAVAILABLE",
   BAD_REQUEST = "BAD_REQUEST",
@@ -142,6 +150,10 @@ export const BackendErrorCodeDefs = {
   [BackendErrorCodes.ACCESS_DENIED]: {
     message: "Access denied",
     statusCode: 403,
+  },
+  [BackendErrorCodes.APPROVAL_NOOP]: {
+    message: "That account is already approved",
+    statusCode: 409,
   },
   [BackendErrorCodes.BAD_REQUEST]: {
     message: "Bad request",
