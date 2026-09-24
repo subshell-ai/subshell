@@ -320,8 +320,10 @@ its own log carried on the eventual idle close):
    commit raises it and `apps/node/agent/package.json` to one value, so the
    refusal always names a version that exists (the rule is stated in full
    in `versions.ts`); a floor-only raise is still possible for a behavior
-   the plane needs without a frame change, but every bump shipped since
-   the 2026-09-07 reset has carried the floor with it.
+   the plane needs without a frame change, and every bump since protocol 7
+   has carried the floor with it — the earlier reset-week bumps (1–6)
+   didn't, which is what the rule, now stated in full in `versions.ts`,
+   exists to prevent.
 2. **The protocol, matched EXACTLY.** Any `protocolVersion` differing from
    `NODE_PROTOCOL_VERSION`, in either direction, is refused; the reason names
    both numbers. No compatibility window, no per-feature gating — the server
