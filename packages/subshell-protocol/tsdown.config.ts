@@ -3,6 +3,7 @@ import { defineConfig } from "tsdown";
 export default defineConfig({
   entry: [
     "src/index.ts",
+    "src/node-link-crypto.ts",
     "src/release-artifacts.ts",
     "src/release-signature.ts",
     "src/service-test-safety.ts",

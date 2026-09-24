@@ -1,5 +1,6 @@
 import {
   MIN_NODE_VERSION,
+  NODE_CLOSE_HANDSHAKE_REQUIRED,
   NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
@@ -7,6 +8,7 @@ import {
   nodeVersionSupported,
   parseNodeEvent,
 } from "@internal/subshell-protocol";
+import type { LinkSession } from "@internal/subshell-protocol/node-link-crypto";
 import { HttpError } from "@/api/auth-guard.js";
 import { getAuth } from "@/auth.js";
 import type { NodeReadyReport, NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -15,6 +17,17 @@ import { getRequestlessContext } from "@/lib/context.js";
 import { accountDisabled } from "@/services/account-status.js";
 import { pushAllowedDirsBestEffort } from "@/services/nodes/allowed-dirs-sync.js";
 import { detectOnNodeBestEffort } from "@/services/nodes/inventory.js";
+import {
+  beginLinkUpgrade,
+  HANDSHAKE_TIMEOUT_MS,
+  handleLinkFrame,
+  handshakeIncomplete,
+  type LinkFrame,
+  type LinkMode,
+  type LinkPhase,
+  type LinkSessionDeps,
+} from "@/services/nodes/link-session.js";
+import { loadNodeEncryptionKeys, nodeEncryptionPublicKey } from "@/services/nodes/node-encryption-keys.js";
 import { announceNodePresence, projectNodeOffline } from "@/services/nodes/node-presence-announce.js";
 import { logger } from "@/utils/logger.js";
 import { refireInputHoldsForNode } from "@/ws/input-hold.js";
@@ -32,7 +45,7 @@ import {
   OWNER_DISABLED_CLOSE_CODE,
   releaseHeld,
 } from "./node-registry.js";
-import { failConnPendings, resolveResult } from "./node-rpc.js";
+import { binaryPayload, failConnPendings, resolveResult } from "./node-rpc.js";
 
 /**
  * `/ws/node` — the agent dial-in socket (spec 2026-08-31 §5.3).
@@ -74,6 +87,22 @@ export interface NodeWsIdentity {
    * is mid-handshake, so this is the same fact the pre-socket gate used.
    */
   ownerUserId: string;
+  /**
+   * How the row's encryption state classifies this socket, decided by
+   * {@link beginLinkUpgrade} from the row's pin — no second query. A pinned
+   * row is `"handshake"` (a v14 socket, which never runs on plaintext once
+   * this is set); a pin-less row is `"legacy"` (plaintext until it registers).
+   * Every real frame is routed through the link machine on the strength of
+   * this field; an UNSET `linkMode` is the only shape that bypasses the
+   * machine, and nothing the upgrade hook produces leaves it unset.
+   */
+  linkMode: LinkMode;
+  /**
+   * The row's pinned node static (canonical base64), or null on a legacy row.
+   * Handshake mode compares a `kx` claim against it (spec §4 step 3); legacy
+   * mode never has one. Read off the same row the classification used.
+   */
+  linkEncryptPublicKey: string | null;
 }
 
 /** Per-socket data: the upgrade-stashed identity plus the registry record. */
@@ -82,8 +111,36 @@ export interface NodeWsData {
   apiKeyId?: string;
   /** Part of the stashed identity — see {@link NodeWsIdentity.ownerUserId}. */
   ownerUserId?: string;
+  /**
+   * Part of the stashed link classification ({@link NodeWsIdentity.linkMode}).
+   * The link machine's per-frame decision reads it off the shared data object;
+   * a socket that never ran the upgrade has it undefined, which is how the
+   * unit-fake plaintext path bypasses the machine.
+   */
+  linkMode?: LinkMode;
+  /** Part of the stashed link classification — see {@link NodeWsIdentity.linkEncryptPublicKey}. */
+  linkEncryptPublicKey?: string | null;
+  /**
+   * Handshake progress, machine-owned scratch (absent = `awaiting-kx`). Lives
+   * here because Elysia shares this object across every per-event wrapper.
+   * @internal
+   */
+  linkPhase?: LinkPhase;
+  /**
+   * The derived session once `kx` is accepted, machine-owned scratch. Its
+   * presence is implied by `linkPhase`; {@link handleNodeMessage} also copies
+   * it onto {@link NodeWsData.nodeConn}`.link so the send path seals.
+   * @internal
+   */
+  linkSession?: LinkSession;
   /** Registry connection created at `open`; close teardown fails THIS record. */
   nodeConn?: NodeConnection;
+  /**
+   * Handshake deadline armed by {@link handleNodeOpen} for a `handshake`-mode
+   * socket, cleared once the link establishes or the socket closes. A socket
+   * still awaiting kx/binding when it fires is refused 4410 (spec §6).
+   */
+  handshakeTimer?: ReturnType<typeof setTimeout>;
   /**
    * Tail of this socket's serialized frame queue ({@link handleNodeMessageQueued}).
    * Lives HERE because Elysia builds a fresh wrapper per event but shares this
@@ -153,6 +210,16 @@ export interface NodeWsDeps {
    * Present as a seam so a test can count the kick without a live socket.
    */
   detect?(nodeId: string): void;
+  /**
+   * The link-handshake machine's dependencies, passed straight through to
+   * {@link handleLinkFrame} for every frame on a socket the upgrade classified.
+   * Its `verifyApiKey` is the SAME re-prove the upgrade's `verifyApiKey` is
+   * (the binding re-checks the bearer key inside the encrypted channel), and
+   * its keypair/pin handles reach `node-encryption-keys.ts` and the nodes
+   * repository. Required, not optional: a socket that reached the message
+   * handler was classified at upgrade, so the machine always has what it needs.
+   */
+  link: LinkSessionDeps;
 }
 
 let prodDeps: NodeWsDeps | undefined;
@@ -165,26 +232,38 @@ let prodDeps: NodeWsDeps | undefined;
  */
 export function getNodeWsDeps(): NodeWsDeps {
   if (!prodDeps) {
+    const nodes = getRequestlessContext().repos.nodes;
+    // Shared by the upgrade tier and the binding re-prove (link-session's
+    // `verifyApiKey`): better-auth hashes internally, so BOTH asks are "resolve
+    // a raw key to its live api-key row", and the binding re-RUNS this rather
+    // than comparing a plaintext the plane never holds.
+    const verifyApiKey = async (rawKey: string): Promise<NodeVerifiedKey | null> => {
+      try {
+        const res = (await getAuth().api.verifyApiKey({ body: { key: rawKey } })) as unknown as {
+          valid: boolean;
+          key?: NodeVerifiedKey;
+        };
+        // Disabled/expired keys read as valid:false (or throw) — both refuse,
+        // exactly like the REST guard (spec §5.3: rotation revokes at upgrade).
+        return res.valid && res.key ? { id: res.key.id, metadata: res.key.metadata ?? null } : null;
+      } catch {
+        return null;
+      }
+    };
     prodDeps = {
-      verifyApiKey: async (rawKey) => {
-        try {
-          const res = (await getAuth().api.verifyApiKey({ body: { key: rawKey } })) as unknown as {
-            valid: boolean;
-            key?: NodeVerifiedKey;
-          };
-          // Disabled/expired keys read as valid:false (or throw) — both refuse,
-          // exactly like the REST guard (spec §5.3: rotation revokes at upgrade).
-          return res.valid && res.key ? { id: res.key.id, metadata: res.key.metadata ?? null } : null;
-        } catch {
-          return null;
-        }
-      },
-      nodes: getRequestlessContext().repos.nodes,
+      verifyApiKey,
+      nodes,
       // The one account-disabled function, taken from the requestless graph's
       // db — the same one `authGuard` consults on the bearer path, so the
       // upgrade tier cannot disagree with REST about which accounts are dead.
       accountDisabled: (userId) => accountDisabled(getRequestlessContext().db, userId),
       resolveResult: (conn, event) => resolveResult(conn, event),
+      link: {
+        verifyApiKey,
+        loadNodeEncryptionKeys,
+        nodeEncryptionPublicKey,
+        setEncryptPublicKey: (id, key) => nodes.setEncryptPublicKey(id, key),
+      },
     };
   }
   return prodDeps;
@@ -260,7 +339,21 @@ export async function authenticateNodeUpgrade(
     throw new HttpError(403, "The node's owner account is disabled");
   }
 
-  return { nodeId: meta.nodeId, apiKeyId: row.id, ownerUserId: node.ownerUserId };
+  // Classify the socket for the link machine from the SAME row every other
+  // check above read — no second query. A pinned row must handshake (it will
+  // never speak plaintext `ready`; a kx-less first frame closes 4410); a
+  // pin-less row is legacy (plaintext until it registers, and even then a
+  // would-pass ready is held, not admitted — ledger R3). The result rides the
+  // stashed identity into `ws.data`, which is what lets the message entry route
+  // every frame through `handleLinkFrame` without ever asking the DB again.
+  const { mode } = beginLinkUpgrade(node);
+  return {
+    nodeId: meta.nodeId,
+    apiKeyId: row.id,
+    ownerUserId: node.ownerUserId,
+    linkMode: mode,
+    linkEncryptPublicKey: node.encryptPublicKey ?? null,
+  };
 }
 
 /**
@@ -292,10 +385,23 @@ export async function authenticateNodeUpgrade(
  * failing closed here would evict healthy nodes on any transient the DB has;
  * the next dial-in meets the flag at the pre-socket gate, where the read is
  * load-bearing anyway.
- * @param deps - the one account gate the re-ask reads
+ * @param deps - the one account gate the re-ask reads, plus the optional
+ *   test-only `handshakeTimeoutMs` override of the deadline interval
  * @param ws - the authenticated socket (identity stashed by the upgrade hook)
  */
-export async function handleNodeOpen(deps: Pick<NodeWsDeps, "accountDisabled">, ws: NodeWsSocket): Promise<void> {
+export async function handleNodeOpen(
+  deps: Pick<NodeWsDeps, "accountDisabled"> & {
+    /**
+     * Test-only override of the handshake-deadline interval, so a unit test can
+     * pin that a handshake-mode socket which never establishes is closed with
+     * the GENERIC 4410 when it fires (ruling R12b's I-1 regression: this 4410
+     * must NOT drop the agent's pin). Production wiring omits it →
+     * {@link HANDSHAKE_TIMEOUT_MS}.
+     */
+    handshakeTimeoutMs?: number;
+  },
+  ws: NodeWsSocket,
+): Promise<void> {
   const nodeId = ws.data.nodeId;
   if (!nodeId) {
     // Unreachable behind a correctly-wired upgrade hook; refuse loudly
@@ -304,8 +410,47 @@ export async function handleNodeOpen(deps: Pick<NodeWsDeps, "accountDisabled">, 
     return;
   }
   const conn = attachConnection(nodeId, connectionSocket(ws));
+  // Ruling I-2: this socket's plaintext policy, decided from the SAME
+  // classification every frame is routed on. A HANDSHAKE (protocol-14) row
+  // may never receive a plaintext command — not even in the open→established
+  // window, where `conn.link` is unset: `sendCommand` refuses `offline` there
+  // instead of killing the in-flight handshake with a frame the agent will
+  // refuse anyway. A LEGACY row legitimately runs plaintext until it
+  // registers — which is also how every HELD socket reaches us (a handshake
+  // row's plaintext `ready` never survives to the gates that hold it), so the
+  // frozen `update` rescue keeps its plaintext verbatim.
+  conn.plaintextAllowed = ws.data.linkMode === "legacy";
   ws.data.nodeConn = conn;
   logger.debug(`node ws: ${nodeId} connected`);
+
+  // A handshake-mode socket owes the machine a kx and a binding before it may
+  // do anything. Arm the deadline here — the socket is owned by the handler,
+  // not by the pure machine (which only answers {@link handshakeIncomplete}).
+  // A socket still awaiting-kx or awaiting-binding when this fires is refused
+  // 4410 (spec §6: close, do not wait; the encrypted stream has no resync).
+  // A LEGACY socket arms nothing: it is legitimately plaintext until it
+  // registers, and the plaintext deadline would be the downgrade guard run
+  // backwards. Cleared the moment the link establishes, or by any close.
+  if (ws.data.linkMode === "handshake") {
+    const timer = setTimeout(
+      () => {
+        if (handshakeIncomplete(ws.data)) {
+          try {
+            ws.close(NODE_CLOSE_HANDSHAKE_REQUIRED, "handshake required: no kx/binding within the deadline");
+          } catch {
+            // already gone
+          }
+        }
+      },
+      // Test seam: a unit test drives this at a few-ms interval to pin the
+      // deadline's GENERIC 4410 (not a 4411) firing on a stalled-but-pinned
+      // socket. Omitted in production → the real HANDSHAKE_TIMEOUT_MS.
+      deps.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS,
+    );
+    // Never let an unfinished handshake hold the process (or a test runner).
+    timer.unref?.();
+    ws.data.handshakeTimer = timer;
+  }
 
   if (!ws.data.ownerUserId) return;
   if (await deps.accountDisabled(ws.data.ownerUserId)) {
@@ -339,9 +484,54 @@ export async function handleNodeOpen(deps: Pick<NodeWsDeps, "accountDisabled">, 
   }
 }
 
-/** Byte size of an inbound frame, whichever form Elysia hands us. */
-function frameBytes(raw: string | object): number {
-  return typeof raw === "string" ? Buffer.byteLength(raw) : Buffer.byteLength(JSON.stringify(raw));
+/**
+ * Byte size of an inbound frame, whichever form Elysia hands us.
+ *
+ * **Binary measures natively (ruling R2, spec 2026-09-24 ledger).** Once an
+ * encrypted link exists (task 8 onward), ciphertext arrives as a Buffer /
+ * Uint8Array / ArrayBuffer. The `JSON.stringify` fallback would serialize a
+ * Buffer to its `{"type":"Buffer","data":[1,2,…]}` JSON — an order of
+ * magnitude over the real byte size — so EVERY encrypted frame would read
+ * oversize and this socket would close 1009. The stringify branch therefore
+ * stays for what it was always for: a genuinely pre-parsed object (Elysia
+ * JSON-parses text frames beginning with `{`). The Buffer-view arithmetic on
+ * the Uint8Array arm is the same non-copy window the send side uses (pool
+ * Buffers and subviews report their own span, not the backing store).
+ *
+ * @internal exported for its unit tests — callers use `handleNodeMessage`.
+ */
+export function frameBytes(raw: string | object): number {
+  if (typeof raw === "string") return Buffer.byteLength(raw);
+  if (raw instanceof ArrayBuffer) return raw.byteLength;
+  if (raw instanceof Uint8Array) return Buffer.from(raw.buffer, raw.byteOffset, raw.length).byteLength;
+  return Buffer.byteLength(JSON.stringify(raw));
+}
+
+/**
+ * Shape an inbound frame into the {@link LinkFrame} union the handshake machine
+ * reads, WITHOUT losing information.
+ *
+ * Elysia delivers a `/ws/node` frame in three shapes and the machine accepts
+ * exactly two (`{text}` / `{bytes}`), so the middle one needs a decision:
+ * - a **string** is plaintext, handed to the machine as `{text}` verbatim;
+ * - a **Buffer / Uint8Array / ArrayBuffer** is secretstream ciphertext, handed
+ *   as `{bytes}` (a Buffer is a Uint8Array; an ArrayBuffer is wrapped, no copy
+ *   of the bytes beyond the view);
+ * - a **pre-parsed plain object** is what Elysia produced when it JSON-parsed a
+ *   TEXT frame that began with `{` — it is NOT ciphertext, it is plaintext that
+ *   merely arrived parsed. Re-serializing it to `{text}` is the whole trick: the
+ *   handshake's `kx`/`register` frames are JSON objects, and a socket that gets
+ *   its `kx` pre-parsed must still reach `parseKxFrame` rather than be mistaken
+ *   for bytes and closed 4410. The machine's own `parseJson` round-trips this
+ *   string back to the identical object, so nothing is lost — this pins that
+ *   the pre-parsed form is accepted, which is where a real socket most quietly
+ *   breaks (spec 2026-09-24 §4).
+ */
+function normalizeLinkFrame(raw: string | object): LinkFrame {
+  if (typeof raw === "string") return { text: raw };
+  if (raw instanceof ArrayBuffer) return { bytes: new Uint8Array(raw) };
+  if (raw instanceof Uint8Array) return { bytes: raw };
+  return { text: JSON.stringify(raw) };
 }
 
 /**
@@ -425,7 +615,12 @@ async function holdRefusedNode(
  * frame at a time.
  * @param deps - injected dependencies
  * @param ws - the socket that produced the frame
- * @param raw - frame as Elysia delivered it (JSON text or pre-parsed object)
+ * @param raw - frame as Elysia delivered it: JSON text, a pre-parsed object, or
+ *   a Buffer of link ciphertext. After the size cap it is routed through the
+ *   link machine (spec 2026-09-24 §4) when the upgrade classified this socket;
+ *   the machine either fully owns the frame (a handshake step, a refusal, the
+ *   legacy register answer, the ledger-R3 hold) or hands back the plaintext to
+ *   continue down the untouched path below.
  */
 export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw: string | object): Promise<void> {
   const nodeId = ws.data.nodeId;
@@ -436,7 +631,103 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
     return;
   }
 
-  const event = parseNodeEvent(raw);
+  // ── pre-classify every frame through the link machine (spec §4/§5/§6) ──
+  //
+  // The machine runs BEFORE the held-gate, supersede-probe and switch that
+  // follow, and this is the ordering decision the Task 7 review asked to be
+  // made deliberately. Running it first means a HELD socket — e.g. one held a
+  // moment ago for ledger R3 — can still carry a `register` on the SAME socket:
+  // the machine's legacy path handles the register, writes the pin, and closes
+  // normally so the reconnect is a handshake, which is the self-heal the plain-
+  // text register exists to be. Had the held-gate run first, it would have
+  // dropped that register as "not a result" and the socket would only heal on a
+  // later reconnect. Routing the machine first does NOT touch the held-gate/
+  // supersede/switch themselves — a `{forwarded}` frame continues into them
+  // byte-identically, so every below-floor/protocol-mismatch/superseded/
+  // disconnect behaviour downstream is unchanged.
+  //
+  // The gate on this block is the CLASSIFICATION (the upgrade ran), not the
+  // mode: a `legacy` socket runs the machine too (register self-heal + R3 are
+  // legacy's). Only a socket whose `data` never went through the upgrade hook —
+  // a unit fake — has an unset `linkMode` and so skips to the plaintext path.
+  let resolved: string | object = raw;
+  if (ws.data.linkMode !== undefined) {
+    const outcome = await handleLinkFrame(deps.link, ws, normalizeLinkFrame(raw));
+    if ("close" in outcome) {
+      // The machine owns this socket's refusal (4410 handshake, or a legacy
+      // register it could not validate); the agent relays the reason. Handled.
+      ws.close(outcome.close.code, outcome.close.reason);
+      return;
+    }
+    if ("sendText" in outcome) {
+      // Ruling R7 — the legacy register answer: send the ONE plaintext
+      // `register-ok`, then close NORMALLY (code 1000, not 4410). The agent
+      // reconnects encrypted; its freshly-written pin classifies that socket
+      // `handshake`, so the ordinary path never runs on the same socket (§5).
+      ws.send(outcome.sendText);
+      ws.close();
+      return;
+    }
+    if ("consumed" in outcome) {
+      if ("sendBytes" in outcome) {
+        // The handshake just completed: this is the server's FIRST push, the
+        // sealed `{"t":"ok"}` (secretstream header included). It must leave as a
+        // BINARY frame — a bare Uint8Array would be JSON-stringified to text by
+        // Elysia's `send`, so it goes through the Buffer-view `binaryPayload`
+        // seam (the send-side mirror of ruling R2).
+        ws.send(binaryPayload(outcome.sendBytes));
+      }
+      if ("established" in outcome) {
+        // Key THIS connection's send path on the session so every later
+        // command seals (spec §4); the deadline is no longer owed.
+        const linkConn = ws.data.nodeConn ?? getLive(nodeId);
+        if (linkConn) linkConn.link = outcome.established;
+        if (ws.data.handshakeTimer) {
+          clearTimeout(ws.data.handshakeTimer);
+          ws.data.handshakeTimer = undefined;
+        }
+      }
+      return;
+    }
+    if ("holdEncryptionRequired" in outcome) {
+      // Ledger R3 — a would-pass `ready` on a pin-less (un-encrypted) row. This
+      // is the DOWNGRADE attempt the handshake exists to refuse, NOT a
+      // legitimately-old agent, so the plane must not bless its self-claimed
+      // identity onto the row: `applyReady` (which writes `status: online` and
+      // the machine facts) NEVER runs here — the node is never brought online.
+      // Hold DIRECTLY with the parsed `ready`'s facts for the HELD ENTRY only
+      // (offline for every purpose but `update`, so the Updates page still names
+      // the version through `held`), and return. A below-floor or
+      // protocol-mismatch ready on the same legacy socket is NOT this arm — the
+      // machine FORWARDS those, and they run `applyReady` + hold with their
+      // existing reason exactly as they always have.
+      const refused = parseNodeEvent(raw);
+      if (refused?.type === "ready") {
+        await holdRefusedNode(
+          deps,
+          ws,
+          nodeId,
+          refused,
+          "encryption-required",
+          "this node must pair its encryption key (subshell update + re-register)",
+        );
+      } else {
+        // The machine only signals R3 for a `ready` that passed both gates, so a
+        // non-ready reaching here is an impossible state; refuse the socket
+        // rather than leave it attached and unheld.
+        ws.close(NODE_CLOSE_HANDSHAKE_REQUIRED, "handshake refused: encryption required");
+      }
+      return;
+    } else if ("forwarded" in outcome) {
+      // Plaintext for the untouched path below: the decrypted string of an
+      // established link, or a legacy frame as it arrived (binary included — a
+      // pin-less row has no stream, so binary stays what it always was here:
+      // unrecognized).
+      resolved = outcome.forwarded;
+    }
+  }
+
+  const event = parseNodeEvent(resolved);
   if (!event) {
     logger.debug(`node ws: dropped unrecognized frame from ${nodeId}`);
     return;
@@ -590,6 +881,13 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
         );
         return;
       }
+      // A ready that reaches THIS point (past both gates, about to come online)
+      // has already cleared the ledger-R3 check in the pre-switch machine block
+      // above: a LEGACY row's would-pass plaintext `ready` was held with
+      // `encryption-required` and never got here, and a handshake row's
+      // established link never carries a plaintext `ready` at all. So anything
+      // arriving here is legitimately online-able — a forwarded encrypted ready,
+      // or an unclassified (pre-encryption) agent's ready.
       // Harness detection, now that this node is reachable. NOT the §5.3
       // inventory PULL Task 7 retired — that asked the agent to scan ITSELF
       // and answer with a harness claim, which a post-inversion agent fills
@@ -765,6 +1063,12 @@ export function handleNodeMessageQueued(deps: NodeWsDeps, ws: NodeWsSocket, raw:
 export async function handleNodeClose(deps: NodeWsDeps, ws: NodeWsSocket): Promise<void> {
   const nodeId = ws.data.nodeId;
   if (!nodeId) return;
+  // A handshake that never finished must not fire its 4410 at a socket that has
+  // already gone (the close that lands on the way here IS its going).
+  if (ws.data.handshakeTimer) {
+    clearTimeout(ws.data.handshakeTimer);
+    ws.data.handshakeTimer = undefined;
+  }
   const conn = ws.data.nodeConn;
   const current = getLive(nodeId);
   const mine = connectionSocket(ws);

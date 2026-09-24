@@ -1,12 +1,18 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import {
   MIN_NODE_VERSION,
+  NODE_CLOSE_HANDSHAKE_REQUIRED,
   NODE_CLOSE_SUPERSEDED,
   NODE_CLOSE_UPDATE_REQUIRED,
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
   type NodeEvent,
 } from "@internal/subshell-protocol";
+import {
+  createClientSession,
+  generateLinkKeyPair,
+  type LinkKeyPair,
+} from "@internal/subshell-protocol/node-link-crypto";
 import { HttpError } from "@/api/auth-guard.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
@@ -30,9 +36,10 @@ import {
   OWNER_DISABLED_CLOSE_CODE,
   resetNodeRegistryForTests,
 } from "../node-registry.js";
-import { NodeRpcError } from "../node-rpc.js";
+import { NodeRpcError, resolveResult, sendCommand } from "../node-rpc.js";
 import {
   authenticateNodeUpgrade,
+  frameBytes,
   handleNodeClose,
   handleNodeMessage,
   handleNodeOpen,
@@ -54,9 +61,9 @@ import {
  */
 const OPEN_DEPS: Pick<NodeWsDeps, "accountDisabled"> = { accountDisabled: async () => false };
 
-/** Scripted socket: records sends and closes, carries `data` like ElysiaWS. */
+/** Scripted socket: records sends (text OR binary) and closes, carries `data` like ElysiaWS. */
 interface FakeNodeSocket extends NodeWsSocket {
-  sent: string[];
+  sent: Array<string | Buffer>;
   closed: { code?: number; reason?: string }[];
 }
 
@@ -65,7 +72,7 @@ function fakeSocket(nodeId?: string): FakeNodeSocket {
     data: nodeId ? { nodeId, apiKeyId: "k-n1" } : {},
     sent: [],
     closed: [],
-    send(d: string) {
+    send(d: string | Buffer) {
       this.sent.push(d);
       return d.length;
     },
@@ -100,6 +107,8 @@ interface Harness {
   detects: string[];
   /** when set, deps.detect throws instead of recording */
   detectThrows: boolean;
+  /** pins the link machine's legacy-register seam wrote, in order */
+  pins: { id: string; key: string }[];
 }
 
 function makeHarness(): Harness {
@@ -117,9 +126,12 @@ function makeHarness(): Harness {
     resultMiss: false,
     detects: [],
     detectThrows: false,
+    pins: [],
   } as unknown as Harness;
+  // The re-prove target shared by the upgrade tier and the (default) link seam.
+  const defaultVerifyApiKey = async (rawKey: string) => h.keys.get(rawKey) ?? null;
   h.deps = {
-    verifyApiKey: async (rawKey) => h.keys.get(rawKey) ?? null,
+    verifyApiKey: defaultVerifyApiKey,
     accountDisabled: async (userId) => h.disabledOwners.has(userId),
     nodes: {
       findById: async (id) =>
@@ -129,6 +141,9 @@ function makeHarness(): Harness {
               apiKeyId: h.bindings.get(id) ?? null,
               kind: h.kinds.get(id) ?? "agent",
               ownerUserId: h.owners.get(id) ?? "u-owner",
+              // A pin-less row is the pre-encryption default → `legacy`. The
+              // identity-shape tests below assert this spelling.
+              encryptPublicKey: null,
             } as unknown as NodeTable)
           : undefined,
       applyReady: async (id, report) => {
@@ -155,6 +170,22 @@ function makeHarness(): Harness {
     detect: (nodeId) => {
       if (h.detectThrows) throw new Error(`detect seam blew up for ${nodeId}`);
       h.detects.push(nodeId);
+    },
+    // Link seam defaults: inert. Every EXISTING case drives an unmodelled
+    // socket (`linkMode` unset) so the message entry skips the machine and this
+    // is never touched. The handshake/legacy cases below OVERRIDE `h.deps.link`
+    // with real crypto, exactly as `link-session.test.ts` does.
+    link: {
+      verifyApiKey: defaultVerifyApiKey,
+      loadNodeEncryptionKeys: async (): Promise<LinkKeyPair> => {
+        throw new Error("link seam: loadNodeEncryptionKeys not seamed in this test");
+      },
+      nodeEncryptionPublicKey: async () => {
+        throw new Error("link seam: nodeEncryptionPublicKey not seamed in this test");
+      },
+      setEncryptPublicKey: async (id, key) => {
+        h.pins.push({ id, key });
+      },
     },
   };
   return h;
@@ -240,6 +271,9 @@ describe("authenticateNodeUpgrade (spec §5.3 pre-socket tier)", () => {
       nodeId: "n1",
       apiKeyId: "k1",
       ownerUserId: "u-bob",
+      // The pin-less fake row classifies as legacy at upgrade (no second query).
+      linkMode: "legacy",
+      linkEncryptPublicKey: null,
     });
   });
 
@@ -251,6 +285,33 @@ describe("authenticateNodeUpgrade (spec §5.3 pre-socket tier)", () => {
       nodeId: "n1",
       apiKeyId: "k1",
       ownerUserId: "u-owner",
+      linkMode: "legacy",
+      linkEncryptPublicKey: null,
+    });
+  });
+
+  it("classifies a PINNED row as handshake and stashes its pin (no second query)", async () => {
+    // The mirror of the legacy default above: a row that carries an
+    // `encryptPublicKey` is a v14 socket, and the classification + the pin the
+    // handshake will byte-compare a `kx` claim against BOTH ride the identity
+    // the upgrade hook returns — read off the single row it already looked up.
+    const h = makeHarness();
+    h.keys.set("good", { id: "k1", metadata: { kind: "node", nodeId: "n1" } });
+    h.bindings.set("n1", "k1");
+    h.deps.nodes.findById = async () =>
+      ({
+        id: "n1",
+        apiKeyId: "k1",
+        kind: "agent",
+        ownerUserId: "u-owner",
+        encryptPublicKey: "PIN_B64",
+      }) as unknown as NodeTable;
+    await expect(authenticateNodeUpgrade(h.deps, "Bearer good")).resolves.toEqual({
+      nodeId: "n1",
+      apiKeyId: "k1",
+      ownerUserId: "u-owner",
+      linkMode: "handshake",
+      linkEncryptPublicKey: "PIN_B64",
     });
   });
 });
@@ -1090,7 +1151,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     expect(h.ready).toHaveLength(0);
   });
 
-  it("oversized frames close 1009 — both as text and pre-parsed objects — with no processing", async () => {
+  it("oversized frames close 1009 — text, pre-parsed objects, AND binary — with no processing", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
     await handleNodeMessage(h.deps, ws, "x".repeat(NODE_MAX_FRAME_BYTES + 1));
@@ -1098,13 +1159,67 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     const ws2 = fakeSocket("n1");
     await handleNodeMessage(h.deps, ws2, { type: "heartbeat", ts: "y".repeat(NODE_MAX_FRAME_BYTES) });
     expect(ws2.closed.map((c) => c.code)).toEqual([NODE_CLOSE_TOO_BIG]);
+    // The binary arm (task 6 plumbing; Task 8's ciphertext cap stands on it):
+    // one byte over the cap closes, measured NATIVELY per ruling R2.
+    const ws3 = fakeSocket("n1");
+    await handleNodeMessage(h.deps, ws3, new Uint8Array(NODE_MAX_FRAME_BYTES + 1));
+    expect(ws3.closed.map((c) => c.code)).toEqual([NODE_CLOSE_TOO_BIG]);
     expect(h.touched).toHaveLength(0);
+  });
+
+  it("a binary frame under the cap reaches dispatch and is dropped unrecognized, not closed", async () => {
+    // Pre-R2 this closed 1009: the JSON.stringify branch measured a Buffer at
+    // its `{"type":"Buffer","data":[…]}` length, ~4× over the real byte size.
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    await handleNodeMessage(h.deps, ws, Buffer.alloc(NODE_MAX_FRAME_BYTES - 1024, 7));
+    expect(ws.closed).toHaveLength(0);
+    expect(h.touched).toHaveLength(0);
+    expect(h.ready).toHaveLength(0);
   });
 
   it("frames on a socket without identity are ignored entirely", async () => {
     const h = makeHarness();
     await handleNodeMessage(h.deps, fakeSocket(), JSON.stringify({ type: "heartbeat", ts: "now" }));
     expect(h.touched).toHaveLength(0);
+  });
+});
+
+/* ---------------------------- frameBytes ----------------------------- */
+
+/**
+ * Ruling R2 (spec 2026-09-24 ledger): binary ciphertext frames must measure at
+ * their native byte size. The old `Buffer.byteLength(JSON.stringify(raw))`
+ * fallback serialized a Buffer to `{"type":"Buffer","data":[1,2,…]}` — an
+ * order of magnitude over its real size — so every encrypted frame would read
+ * oversize and close 1009. Task 8's pre-decrypt ciphertext cap depends on
+ * what these shapes measure.
+ */
+describe("frameBytes (ruling R2 — binary measures natively)", () => {
+  it("measures a Buffer by its bytes, not its JSON serialization", () => {
+    const raw = Buffer.alloc(100, 7);
+    expect(frameBytes(raw)).toBe(100);
+    // The bug this pins: the JSON fallback is many times larger.
+    expect(frameBytes(raw)).toBeLessThan(Buffer.byteLength(JSON.stringify(raw)));
+  });
+
+  it("measures a Uint8Array by its own view window, not its backing store", () => {
+    const backing = new Uint8Array(64);
+    const view = backing.subarray(8, 18);
+    expect(frameBytes(view)).toBe(10);
+  });
+
+  it("measures an ArrayBuffer by byteLength", () => {
+    expect(frameBytes(new ArrayBuffer(77))).toBe(77);
+  });
+
+  it("keeps the JSON branch for genuinely-parsed objects", () => {
+    const parsed = { type: "heartbeat", ts: "2026-09-24T00:00:00Z" };
+    expect(frameBytes(parsed)).toBe(Buffer.byteLength(JSON.stringify(parsed)));
+  });
+
+  it("measures strings as UTF-8 bytes", () => {
+    expect(frameBytes("héllo")).toBe(6);
   });
 });
 
@@ -1280,5 +1395,337 @@ describe("ready → the input-hold re-fire (Wave D)", () => {
     await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame({ agentVersion: "0.0.1" })));
     await settle();
     expect(s.inputs).toEqual([]); // still held, still waiting
+  });
+});
+
+/**
+ * Task 8 — the link-handshake acceptor wired INTO `handleNodeMessage`.
+ *
+ * These drive the REAL entry point (not `handleLinkFrame` directly, which
+ * `link-session.test.ts` covers at the unit layer). Every frame is now
+ * pre-classified through the machine before the version gates / held-gate /
+ * supersede-probe / switch run — while the downstream body is UNCHANGED, so
+ * the whole suite above (below-floor, protocol-mismatch, supersede,
+ * disconnect) still passes, reached either directly (unmodelled fakes) or via
+ * the machine's `{forwarded}` (real legacy sockets).
+ *
+ * The discriminator the handler uses is `ws.data.linkMode !== undefined`:
+ * a handshake OR legacy socket runs the machine; only a fake whose `data`
+ * never went through the upgrade hook has it unset and skips straight to the
+ * plaintext path. `authenticateNodeUpgrade` is the sole producer of a real
+ * classification, so no live socket ever bypasses the machine.
+ */
+describe("handleNodeMessage through the link machine (spec 2026-09-24 §4/§5/§6)", () => {
+  beforeEach(() => {
+    resetNodeRegistryForTests();
+  });
+
+  /** The raw node key a binding re-proves to THIS row (fakeSocket's apiKeyId). */
+  const LIVE = "subshell_live_node_key";
+
+  interface Fixture {
+    h: Harness;
+    ws: FakeNodeSocket;
+    client: { session: LinkSessionLike; ephemeralPublicKey: string };
+    nodeStatic: LinkKeyPair;
+    serverStatic: LinkKeyPair;
+  }
+  // Minimal structural view of a client LinkSession (only what these tests use).
+  type LinkSessionLike = { sealFrame(p: string): Uint8Array; openFrame(c: Uint8Array): string | null };
+
+  /**
+   * A handshake-classified socket backed by REAL crypto: `createClientSession`
+   * mints the kx ephemeral and encrypts the binding, so establishment is a
+   * genuine key agreement, not a scripted `consumed`. The socket has gone
+   * through `handleNodeOpen` (so `nodeConn` exists for the established link to
+   * key its send path on, and the handshake deadline is armed).
+   */
+  async function handshakeFixture(): Promise<Fixture> {
+    const h = makeHarness();
+    const serverStatic = await generateLinkKeyPair();
+    const nodeStatic = await generateLinkKeyPair();
+    const client = await createClientSession({ serverStaticPublicKey: serverStatic.publicKey });
+    h.deps.link = {
+      verifyApiKey: async (k) => (k === LIVE ? { id: "k-n1", metadata: { kind: "node", nodeId: "n1" } } : null),
+      loadNodeEncryptionKeys: async () => serverStatic,
+      nodeEncryptionPublicKey: async () => serverStatic.publicKey,
+      setEncryptPublicKey: async (id, key) => {
+        h.pins.push({ id, key });
+      },
+    };
+    const ws = fakeSocket("n1"); // data = { nodeId: "n1", apiKeyId: "k-n1" }
+    Object.assign(ws.data, {
+      linkMode: "handshake",
+      linkEncryptPublicKey: nodeStatic.publicKey,
+      ownerUserId: "u-owner",
+    });
+    await handleNodeOpen(OPEN_DEPS, ws);
+    return { h, ws, client, nodeStatic, serverStatic };
+  }
+
+  const kxText = (f: { client: Fixture["client"]; nodeStatic: LinkKeyPair }) =>
+    JSON.stringify({ t: "kx", eph: f.client.ephemeralPublicKey, pub: f.nodeStatic.publicKey });
+  const bindingBytes = (f: { client: Fixture["client"] }) =>
+    f.client.session.sealFrame(JSON.stringify({ nodeId: "n1", nodeKey: LIVE, protocolVersion: NODE_PROTOCOL_VERSION }));
+
+  it("(a) kx→binding establishes, sets conn.link + emits a BINARY ok, and a ready is processed ONLY after establishment", async () => {
+    const f = await handshakeFixture();
+    const { h, ws, client } = f;
+
+    await handleNodeMessage(h.deps, ws, kxText(f));
+    expect(h.ready).toHaveLength(0); // the kx is not a ready; nothing processed
+    expect(ws.closed).toHaveLength(0); // consumed in silence (R6), not closed
+    expect(ws.data.linkPhase).toBe("awaiting-binding");
+
+    await handleNodeMessage(h.deps, ws, bindingBytes(f));
+    expect(h.ready).toHaveLength(0); // establishment alone still processes no ready
+    // The session is keyed on the connection so `sendCommand` seals (spec §4).
+    expect(ws.data.nodeConn?.link).toBeDefined();
+    // The server's FIRST push left the socket as a BINARY frame, not text…
+    expect(ws.sent).toHaveLength(1);
+    expect(Buffer.isBuffer(ws.sent[0])).toBe(true);
+    // …and it is the sealed `{"t":"ok"}` the genuine client decrypts.
+    expect(client.session.openFrame(ws.sent[0] as Uint8Array)).toBe('{"t":"ok"}');
+
+    // NOW an encrypted ready decrypts and forwards into the untouched path.
+    await handleNodeMessage(h.deps, ws, client.session.sealFrame(JSON.stringify(readyFrame())));
+    expect(h.ready).toHaveLength(1);
+    expect(getLive("n1")).toBeDefined(); // came online, not held
+  });
+
+  it("(b) a plaintext ready as the FIRST frame on a handshake row closes 4410 BEFORE applyReady", async () => {
+    const f = await handshakeFixture();
+    const { h, ws } = f;
+    let applyReadyCalls = 0;
+    h.deps.nodes.applyReady = async (id, report) => {
+      applyReadyCalls += 1;
+      h.ready.push({ id, report });
+      return undefined;
+    };
+    // A ready is NOT a kx → the machine refuses before any gate can run.
+    await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame()));
+    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_HANDSHAKE_REQUIRED); // 4410
+    // The spy proves it died in the machine, not in the downstream ready case.
+    expect(applyReadyCalls).toBe(0);
+    expect(h.ready).toHaveLength(0);
+  });
+
+  it("(b2) the handshake DEADLINE closes a stalled handshake-mode socket with the GENERIC 4410 — never 4411 (I-1's server pin)", async () => {
+    // The exact I-1 trigger from the SERVER side, pinned so the two codes cannot
+    // quietly re-merge: a handshake-mode socket that opens and never completes
+    // is refused at the deadline with 4410. This is the plane's most common
+    // pre-establishment 4410, and it MUST stay generic — a future "simplification"
+    // that fired the deadline as 4411 would drop a healthy agent's control pin on
+    // any transient stall, and its redial's register would be refused forever.
+    const ws = fakeSocket("n1");
+    Object.assign(ws.data, { linkMode: "handshake", linkEncryptPublicKey: "pin", ownerUserId: "u1" });
+    await handleNodeOpen({ accountDisabled: async () => false, handshakeTimeoutMs: 5 }, ws);
+    expect(ws.closed).toHaveLength(0); // not yet — the DEADLINE is what closes it, not the open
+    await new Promise((r) => setTimeout(r, 40));
+    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_HANDSHAKE_REQUIRED); // the generic 4410
+    expect(ws.closed[0]?.code).not.toBe(4411); // explicitly NOT the re-pair signal
+    expect(ws.closed[0]?.reason).toContain("deadline");
+  });
+
+  it("(b3) a LEGACY socket arms NO handshake deadline — it is legitimately plaintext until it registers", async () => {
+    // The other half of the deadline pin: a legacy row is NOT refused for saying
+    // nothing (a plaintext deadline would be the downgrade guard run backwards).
+    const ws = fakeSocket("n1");
+    Object.assign(ws.data, { linkMode: "legacy", linkEncryptPublicKey: null });
+    await handleNodeOpen({ accountDisabled: async () => false, handshakeTimeoutMs: 5 }, ws);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(ws.closed).toHaveLength(0); // legacy never deadline-closes
+    expect(ws.data.handshakeTimer).toBeUndefined();
+  });
+
+  it("(c) legacy + register sends register-ok as TEXT and closes the socket NORMALLY (R7, not 4410)", async () => {
+    const h = makeHarness();
+    const serverStatic = await generateLinkKeyPair();
+    const nodeStatic = await generateLinkKeyPair();
+    h.deps.link = {
+      verifyApiKey: async () => null,
+      loadNodeEncryptionKeys: async () => serverStatic,
+      nodeEncryptionPublicKey: async () => serverStatic.publicKey,
+      setEncryptPublicKey: async (id, key) => {
+        h.pins.push({ id, key });
+      },
+    };
+    const ws = fakeSocket("n1");
+    Object.assign(ws.data, { linkMode: "legacy", linkEncryptPublicKey: null });
+    await handleNodeOpen(OPEN_DEPS, ws); // legacy → NO handshake deadline
+
+    await handleNodeMessage(h.deps, ws, JSON.stringify({ t: "register", pub: nodeStatic.publicKey }));
+    // One plaintext answer, sent as TEXT (not a Buffer).
+    expect(ws.sent).toHaveLength(1);
+    expect(typeof ws.sent[0]).toBe("string");
+    const ok = JSON.parse(ws.sent[0] as string) as { t: string; controlEncryptPublicKey: string };
+    expect(ok.t).toBe("register-ok");
+    expect(ok.controlEncryptPublicKey).toBe(serverStatic.publicKey);
+    // NORMAL close: code undefined (1000), explicitly NOT the 4410 handshake code.
+    expect(ws.closed).toHaveLength(1);
+    expect(ws.closed[0]?.code).toBeUndefined();
+    // The row's pin was written (canonical re-encode owned by the machine).
+    expect(h.pins).toHaveLength(1);
+    expect(h.pins[0]?.id).toBe("n1");
+  });
+
+  it("(d) legacy plaintext frames still reach the existing gates via `forwarded`", async () => {
+    const h = makeHarness();
+    // heartbeat → forwarded → the ordinary `touch` path.
+    const hb = fakeSocket("n1");
+    Object.assign(hb.data, { linkMode: "legacy" });
+    await handleNodeOpen(OPEN_DEPS, hb);
+    await handleNodeMessage(h.deps, hb, JSON.stringify({ type: "heartbeat", ts: "now" }));
+    expect(h.touched).toEqual(["n1"]);
+
+    // A below-floor ready FORWARDS (the machine does NOT intercept it) → the
+    // version floor holds it with its EXISTING reason, exactly as before.
+    resetNodeRegistryForTests();
+    const bf = fakeSocket("n1");
+    Object.assign(bf.data, { linkMode: "legacy" });
+    await handleNodeOpen(OPEN_DEPS, bf);
+    await handleNodeMessage(h.deps, bf, JSON.stringify(readyFrame({ agentVersion: "0.0.1" })));
+    expect(getHeld("n1")).toMatchObject({ reason: "below-floor", agentVersion: "0.0.1" });
+    expect(h.detects).toEqual([]); // held: never kicked
+  });
+
+  it("(e) R3 — legacy + a WOULD-PASS plaintext ready is held encryption-required, applyReady NEVER runs", async () => {
+    const h = makeHarness();
+    let applyReadyCalls = 0;
+    h.deps.nodes.applyReady = async (id, report) => {
+      applyReadyCalls += 1;
+      h.ready.push({ id, report });
+      return undefined;
+    };
+    const ws = fakeSocket("n1");
+    Object.assign(ws.data, { linkMode: "legacy" });
+    await handleNodeOpen(OPEN_DEPS, ws);
+
+    await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame())); // floor + protocol 14
+    // Held with the THIRD reason — never brought online, never kicked.
+    expect(getHeld("n1")).toMatchObject({ reason: "encryption-required", agentVersion: MIN_NODE_VERSION });
+    expect(getLive("n1")).toBeUndefined();
+    expect(isNodeOffline("n1")).toBe(true);
+    expect(ws.closed).toHaveLength(0); // held, not closed
+    expect(h.detects).toEqual([]);
+    // A downgrade attempt gets NO identity written onto the row: applyReady never
+    // runs (unlike the below-floor/protocol holds, which DO persist the old
+    // agent's identity). The held ENTRY carries the version for the page; the
+    // `nodes` row is left untouched, and the hold still drives it offline.
+    expect(applyReadyCalls).toBe(0);
+    expect(h.ready).toHaveLength(0);
+    expect(h.statuses).toContainEqual({ id: "n1", status: "offline" });
+    // And the held PROJECTION (what the page renders) exposes the new reason.
+    expect(listHeld()).toEqual([expect.objectContaining({ nodeId: "n1", reason: "encryption-required" })]);
+
+    // A below-floor ready on a legacy row is STILL forwarded to the existing
+    // path — identity recorded (applyReady RUNS), held with `below-floor`. R3 is
+    // only the would-pass case, never the version floor.
+    resetNodeRegistryForTests();
+    const below = fakeSocket("n2");
+    Object.assign(below.data, { linkMode: "legacy" });
+    await handleNodeOpen(OPEN_DEPS, below);
+    await handleNodeMessage(h.deps, below, JSON.stringify(readyFrame({ agentVersion: "0.0.1" })));
+    expect(getHeld("n2")).toMatchObject({ reason: "below-floor" });
+    expect(applyReadyCalls).toBe(1);
+    expect(h.ready).toHaveLength(1);
+  });
+
+  it("(f) a kx delivered PRE-PARSED as an object is still accepted by the handshake", async () => {
+    // The quiet break this pins: Elysia JSON-parses a text frame that begins
+    // with `{`, so a handshake `kx` arrives as an object, not a string. The
+    // normalization must hand the machine a `{text}` (re-serialized), never
+    // `{bytes}` — a mis-read would 4410 a VALID kx.
+    const f = await handshakeFixture();
+    const { h, ws } = f;
+    const preParsed = { t: "kx", eph: f.client.ephemeralPublicKey, pub: f.nodeStatic.publicKey };
+    await handleNodeMessage(h.deps, ws, preParsed);
+    expect(ws.closed).toHaveLength(0); // NOT closed 4410
+    expect(ws.data.linkPhase).toBe("awaiting-binding"); // the kx was consumed
+    // And the handshake still completes from here.
+    await handleNodeMessage(h.deps, ws, bindingBytes(f));
+    expect(ws.data.nodeConn?.link).toBeDefined();
+  });
+
+  it("(g) established ciphertext decrypts and forwards; oversized binary still closes 1009", async () => {
+    const f = await handshakeFixture();
+    const { h, ws, client } = f;
+    await handleNodeMessage(h.deps, ws, kxText(f));
+    await handleNodeMessage(h.deps, ws, bindingBytes(f)); // established
+    // An encrypted heartbeat decrypts and forwards into the untouched `touch` path.
+    await handleNodeMessage(h.deps, ws, client.session.sealFrame(JSON.stringify({ type: "heartbeat", ts: "now" })));
+    expect(h.touched).toEqual(["n1"]);
+
+    // The size cap runs FIRST (ruling R2), BEFORE normalization and the machine,
+    // so an oversized ciphertext never reaches `openFrame`.
+    const big = fakeSocket("n1");
+    Object.assign(big.data, { linkMode: "handshake", linkEncryptPublicKey: "irrelevant" });
+    await handleNodeMessage(h.deps, big, new Uint8Array(NODE_MAX_FRAME_BYTES + 1));
+    expect(big.closed[0]?.code).toBe(NODE_CLOSE_TOO_BIG);
+  });
+
+  it("(h) the held `update` path traverses the machine untouched: plaintext out, plaintext result in, RPC completes", async () => {
+    // spec 2026-09-24 §5 regression lock ("held update path unregressed"). A
+    // LEGACY below-floor agent is held by the EXISTING floor gate — the
+    // machine forwards its plaintext `ready` and never intercepts — and
+    // `update` is the ONE command this plane still sends to a held sub-14
+    // agent. The held conn has no `link`, so `sendCommand` emits the frame
+    // byte-for-byte as it did before the link existed (the shape frozen in
+    // `node-frames.ts`), and the agent's plaintext `result` traverses the
+    // same classified socket back into the REAL completion feed. After the
+    // Task 8 classifier rewrite, nothing on this rescue path may start
+    // requiring the handshake: the agent being rescued is exactly the one
+    // that cannot speak it.
+    const h = makeHarness();
+    h.deps.resolveResult = resolveResult; // the real feed, not the recording seam
+    const ws = fakeSocket("n1");
+    Object.assign(ws.data, { linkMode: "legacy" });
+    await handleNodeOpen(OPEN_DEPS, ws);
+    await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame({ agentVersion: "0.0.1" })));
+    expect(getHeld("n1")).toMatchObject({ reason: "below-floor", agentVersion: "0.0.1" });
+    expect(getHeld("n1")?.conn.link).toBeUndefined(); // no sealed send path exists
+
+    const done = sendCommand("n1", {
+      type: "update",
+      version: "9.9.9",
+      url: "http://127.0.0.1:1/subshell-node-cli-linux-x64",
+      sha256: "0".repeat(64),
+    });
+
+    // What the agent sees: TEXT carrying the signed envelope — never a Buffer.
+    let first: string | Buffer | undefined;
+    const deadline = Date.now() + 2000;
+    while (first === undefined && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 5));
+      first = ws.sent[0];
+    }
+    expect(typeof first).toBe("string"); // plaintext, the frozen legacy wire shape
+    const { jws } = JSON.parse(first as string) as { jws: string };
+    const claims = JSON.parse(Buffer.from(jws.split(".")[1] ?? "", "base64url").toString()) as {
+      jti: string;
+      aud: string;
+      cmd: { type: string };
+    };
+    expect(claims).toMatchObject({ aud: "node:n1", cmd: { type: "update" } });
+
+    // The held agent's only sanctioned reply, plaintext, on the same socket
+    // the machine classified — and the RPC COMPLETES on it.
+    await handleNodeMessage(
+      h.deps,
+      ws,
+      JSON.stringify({ type: "result", ref: claims.jti, ok: true, data: { status: "updating" } }),
+    );
+    await expect(done).resolves.toEqual({ status: "updating" });
+  });
+
+  it("an UNCLASSIFIED socket (a fake that never ran the upgrade) still speaks plaintext", async () => {
+    // The pass-through that keeps the whole suite above green: no linkMode →
+    // no machine → straight to `parseNodeEvent`. A ready flows to online.
+    const h = makeHarness();
+    const ws = fakeSocket("n1"); // data = { nodeId, apiKeyId } only, NO linkMode
+    await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame()));
+    expect(h.ready).toHaveLength(1);
+    expect(getHeld("n1")).toBeUndefined();
+    expect(ws.closed).toHaveLength(0);
   });
 });

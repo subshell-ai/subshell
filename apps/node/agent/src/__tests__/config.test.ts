@@ -11,6 +11,11 @@ const sample: NodeConfig = {
   controlPublicKey: '{"kty":"EC","crv":"P-256"}',
   dataDir: "/tmp/somewhere",
   name: "workstation",
+  // The link-encryption pair (spec 2026-09-24 §3) rides the round-trip tests
+  // too: `saveConfig → loadConfig` with them present proves the field-by-field
+  // rebuild in `loadConfig` models both (the merge discipline below).
+  encryptKeyPair: { publicKey: "cHViLWJhbGQ", privateKey: "cHJpdi1iYWxk" },
+  controlEncryptPublicKey: "c3J2LXB1Yi1iYWxk",
 };
 
 test("saveConfig → loadConfig round-trip with 0600 file and 0700 dir", async () => {
@@ -99,6 +104,44 @@ test("pane-log retention fields round-trip; junk is dropped to absent like nodeW
   expect(old.logRetentionHours).toBeUndefined();
 });
 
+/**
+ * The link-encryption fields (spec 2026-09-24 §3). The happy round-trip rides
+ * `sample` through every test above; these pin the two edges of the doctrine:
+ * junk never becomes a corruption verdict, and a legacy config (written before
+ * the feature) loads with them absent — REQUIRED_FIELDS does NOT list them, so
+ * the new binary self-heals them on first connect (§5).
+ */
+test("link-keypair fields: a half-keyed or junk shape loads as absent, never corrupt", async () => {
+  newHome();
+  // A half-keyed object cannot complete a handshake and can only come from a
+  // hand-edit or a torn write — re-registration, not a corruption throw.
+  for (const junk of [{ publicKey: "only-one-half" }, { privateKey: "only-one-half" }, "pub-only", 42, null]) {
+    writeFileSync(configPath(), JSON.stringify({ ...sample, encryptKeyPair: junk }));
+    expect((await loadConfig()).encryptKeyPair).toBeUndefined();
+  }
+  // Blank halves are hand-edit junk (enroll never persists them), same class
+  // as a blank nodeWsUrl.
+  writeFileSync(configPath(), JSON.stringify({ ...sample, encryptKeyPair: { publicKey: "", privateKey: "q" } }));
+  expect((await loadConfig()).encryptKeyPair).toBeUndefined();
+  for (const junk of ["", "   ", 42, null]) {
+    writeFileSync(configPath(), JSON.stringify({ ...sample, controlEncryptPublicKey: junk }));
+    expect((await loadConfig()).controlEncryptPublicKey).toBeUndefined();
+  }
+});
+
+test("a config lacking both link-keypair fields loads unchanged (legacy boots, spec §5)", async () => {
+  newHome();
+  const legacy: NodeConfig = { ...sample };
+  delete legacy.encryptKeyPair;
+  delete legacy.controlEncryptPublicKey;
+  writeFileSync(configPath(), JSON.stringify(legacy));
+  const old = await loadConfig();
+  expect(old.encryptKeyPair).toBeUndefined();
+  expect(old.controlEncryptPublicKey).toBeUndefined();
+  // Nothing invented: the loaded shape is exactly the legacy file's fields.
+  expect(old).toEqual(legacy);
+});
+
 test("loadConfig throws an actionable error when no config exists", async () => {
   newHome();
   await expect(loadConfig()).rejects.toThrow(/enroll/);
@@ -170,6 +213,35 @@ describe("updateConfig", () => {
     expect(both.debugLogging).toBe(true);
     expect(both.logRetentionDays).toBe(5);
     expect(alsoStale).not.toEqual(both); // the snapshot really was stale; the merge wasn't
+  });
+
+  /**
+   * THE field-by-field test (spec 2026-09-24 §3): a `debugLogging` write over a
+   * config that carries the link keypair must preserve BOTH new fields. This
+   * only passes because `loadConfig` names `encryptKeyPair` and
+   * `controlEncryptPublicKey` explicitly in its rebuild — a spread of the raw
+   * parse would pass it too, but then the registryUrl-drop doctrine and the
+   * junk guards could not exist, and the next field that needs modelling would
+   * be forgotten the way `debugLogging` was until the retention race forced it.
+   */
+  test("an unrelated debugLogging write preserves the link keypair and the server pin", async () => {
+    newHome();
+    await saveConfig({
+      serverUrl: sample.serverUrl,
+      nodeId: sample.nodeId,
+      nodeKey: sample.nodeKey,
+      controlPublicKey: sample.controlPublicKey,
+      dataDir: sample.dataDir,
+      name: sample.name,
+      encryptKeyPair: { publicKey: "cHViLWJhbGQ", privateKey: "cHJpdi1iYWxk" },
+      controlEncryptPublicKey: "c3J2LXB1Yi1iYWxk",
+    });
+    await updateConfig({ debugLogging: true });
+    const onDisk = await loadConfig();
+    expect(onDisk.encryptKeyPair).toEqual({ publicKey: "cHViLWJhbGQ", privateKey: "cHJpdi1iYWxk" });
+    expect(onDisk.controlEncryptPublicKey).toBe("c3J2LXB1Yi1iYWxk");
+    expect(onDisk.debugLogging).toBe(true);
+    expect(onDisk.nodeKey).toBe(sample.nodeKey); // the neighbouring credential also survives
   });
 
   test("overlap on ONE key is last-writer-wins, and only that key", async () => {

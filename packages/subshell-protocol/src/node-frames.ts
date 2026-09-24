@@ -116,8 +116,14 @@ import type { JsonValue } from "./json.js";
  * agent never gets asked (its plane cannot exist — server and node ship
  * together), and a null or failing answer just means the replay ships
  * without the restore, which is precisely the pre-13 behavior.
+ *
+ * **13 → 14 is the encrypted link (spec 2026-09-24).** The link is encrypted
+ * end-to-end: kx handshake, secretstream frames, the register self-heal,
+ * closes 4410/4411. Hard cutover: protocol-14 nodes never write plaintext frames,
+ * and legacy rows are held-updatable until they register. Not additive in
+ * anything — this one changes the transport itself.
  */
-export const NODE_PROTOCOL_VERSION = 13;
+export const NODE_PROTOCOL_VERSION = 14;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
@@ -162,6 +168,36 @@ export const NODE_CLOSE_UPDATE_REQUIRED = 4406;
  * the backend ever emits them.
  */
 export const NODE_CLOSE_SUPERSEDED = 4409;
+
+/**
+ * Close: the link refused to speak without the encryption handshake
+ * (spec 2026-09-24 §6). Not terminal for the agent: the reason is relayed
+ * to its own log and the existing backoff loop reconnects — the register
+ * self-heal (§5) rides the next dial.
+ *
+ * Generic by design: a wrong-kind frame at the wrong phase, a pin mismatch,
+ * an undecryptable stream, the 10-second handshake deadline. A pre-
+ * establishment 4410 is NOT a re-pair signal (ruling R12b) — the agent stays
+ * fully provisioned and redials, and a healthy handshake under a transient
+ * stall heals on that redial. The re-pair signal is {@link
+ * NODE_CLOSE_REPAIR_REQUIRED}.
+ */
+export const NODE_CLOSE_HANDSHAKE_REQUIRED = 4410;
+
+/**
+ * Close: the row holds no pin the claim matches — present a `register` to
+ * re-pair (ruling R12b, spec 2026-09-24 §5's rotation arc). This is the
+ * ONLY close code on which the agent drops its stale control pin (before
+ * establishment, handshake mode, never self-refused): key rotation cleared
+ * the row's pin, the handshake-mode `kx` claim is refused here by name, and
+ * the redial re-registers the node's SAME static. {@link
+ * NODE_CLOSE_HANDSHAKE_REQUIRED} deliberately does not trigger the drop —
+ * the plane closes pre-establishment sockets with that code for ordinary
+ * transient reasons (the handshake deadline foremost), and dropping the pin
+ * there would turn a network blip into a permanently refused register
+ * against a still-pinned row.
+ */
+export const NODE_CLOSE_REPAIR_REQUIRED = 4411;
 
 /**
  * `result.error` from a `service` verb the agent refused because its service

@@ -2,6 +2,7 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { NODE_NAME_MAX, normalizeNodeName } from "@internal/subshell-protocol";
+import { generateLinkKeyPair } from "@internal/subshell-protocol/node-link-crypto";
 import { clientHome, saveConfig } from "./config.js";
 import { loadOrCreateIdentity } from "./identity.js";
 import { NODE_VERSION } from "./version.js";
@@ -94,6 +95,12 @@ export async function runEnroll(opts: EnrollOptions): Promise<EnrollResult> {
   const dataDir = opts.dataDir ?? join(clientHome(), "data");
   const identity = await loadOrCreateIdentity(dataDir);
 
+  // The link-encryption static (spec 2026-09-24 §3): generated per enroll, a
+  // fresh identity for the encrypted link — the post-14 server compares the
+  // handshake's claim against the public half it stores from THIS body. Its
+  // private half goes only into the 0600 config, like `nodeKey`.
+  const link = await generateLinkKeyPair();
+
   const body = {
     setupKey: opts.setupKey,
     name,
@@ -102,6 +109,7 @@ export async function runEnroll(opts: EnrollOptions): Promise<EnrollResult> {
     hostname: hostname(),
     agentVersion: NODE_VERSION,
     publicKey: identity.publicJwk,
+    encryptPublicKey: link.publicKey,
   };
 
   let res: Response;
@@ -121,7 +129,14 @@ export async function runEnroll(opts: EnrollOptions): Promise<EnrollResult> {
   const nodeId = typeof ok?.nodeId === "string" ? ok.nodeId : undefined;
   const nodeKey = typeof ok?.nodeKey === "string" ? ok.nodeKey : undefined;
   const controlPublicKey = typeof ok?.controlPublicKey === "string" ? ok.controlPublicKey : undefined;
-  if (!nodeId || !nodeKey || !controlPublicKey) {
+  // REQUIRED, not tolerated-absent (ruling R1): this binary speaks protocol 14,
+  // and enrolling without the link pin would silently provision a node that
+  // cannot open an encrypted socket. A plane that omits it is too old to talk
+  // to this agent at all, so its absence reads exactly like a missing
+  // `controlPublicKey` — malformed, key already spent, contact the operator.
+  const controlEncryptPublicKey =
+    typeof ok?.controlEncryptPublicKey === "string" ? ok.controlEncryptPublicKey : undefined;
+  if (!nodeId || !nodeKey || !controlPublicKey || !controlEncryptPublicKey) {
     throw new Error("enroll succeeded but the response was malformed. The setup key is spent; contact the operator");
   }
   // Ledger 17c (P1-T12 carry): persist the SERVER-REPORTED dial URL. Tolerant
@@ -131,7 +146,17 @@ export async function runEnroll(opts: EnrollOptions): Promise<EnrollResult> {
   // dead dial target, while derivation from `serverUrl` at least dials home.
   const nodeWsUrl = typeof ok?.wsUrl === "string" && ok.wsUrl !== "" ? ok.wsUrl : undefined;
 
-  await saveConfig({ serverUrl, nodeId, nodeKey, controlPublicKey, dataDir, name, nodeWsUrl });
+  await saveConfig({
+    serverUrl,
+    nodeId,
+    nodeKey,
+    controlPublicKey,
+    encryptKeyPair: link,
+    controlEncryptPublicKey,
+    dataDir,
+    name,
+    nodeWsUrl,
+  });
   return { nodeId, serverUrl, name, dataDir };
 }
 

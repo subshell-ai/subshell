@@ -31,7 +31,7 @@ import { collectServerUpdateView, type ReleaseRef, releaseRef } from "@/services
 /** Why a stale node is being kept connected for one command. */
 export interface HeldRow {
   nodeId: string;
-  reason: "below-floor" | "protocol-mismatch";
+  reason: "below-floor" | "protocol-mismatch" | "encryption-required";
   agentVersion: string | null;
   protocolVersion: number | null;
   os: string | null;
@@ -64,7 +64,7 @@ const NodeUpdateRowSchema = t.Object({
   online: t.Boolean({ description: "Whether the node holds a live socket right now" }),
   held: t.Nullable(
     t.Object({
-      reason: t.Union([t.Literal("below-floor"), t.Literal("protocol-mismatch")], {
+      reason: t.Union([t.Literal("below-floor"), t.Literal("protocol-mismatch"), t.Literal("encryption-required")], {
         description: "Which gate refused this node",
       }),
     }),

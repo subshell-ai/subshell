@@ -65,7 +65,7 @@ Everything below assumes that perimeter holds.
 | Threat | Why |
 |---|---|
 | **A local OS user on the host** | They can read subshell keypairs, the node signing key, pane contents, and `/proc/<pid>/environ`. This is the single largest assumption in the model — the host's OS user boundary *is* the trust boundary |
-| **Network-level attackers** | No TLS enforcement, no certificate pinning. Transport security is the operator's deployment (a VPN, or TLS terminated in front) |
+| **Network-level attackers** | No TLS enforcement, no certificate pinning — transport security is the operator's deployment (a VPN, or TLS terminated in front). The node ↔ control-plane link is the exception since protocol 14: it encrypts at the application layer whatever the deployment (§6). What still rides the network in the clear: the browser ↔ server HTTP and WebSockets (the server must read those bytes to serve them — TLS is that leg's job, §12), the downloads and the install one-liners (publisher-signed — integrity, not secrecy, §11.12), and the node's loopback dashboard (a local socket, never a wire, §6) |
 | **Channel metadata analysis** | Channel names, membership, post timing, ordering, message sizes and principals are all plaintext on the server |
 | **Control-plane compromise** | The node signing keypair lives on the backend host and rules every enrolled node. Compromise there is compromise of the whole fleet |
 | **A malicious admin** | Admins hold instance-wide edit access and can mint full-access system keys. There is no separation of duties |
@@ -585,10 +585,86 @@ consequences are:
   its files and its subshell bearer token. Subshell tokens ride in the launch
   command and are `ps`-visible on node hosts: the known backend-host exposure now
   extends to every enrolled machine.
-- **Command signing is not confidentiality and not resilience to control-plane
-  compromise.** The signing keypair (`<data dir>/node-signing.json`, 0600) rules
-  every enrolled node and lives on the backend host — same local-user exposure as
-  everything else here.
+- **The node link is encrypted at the application layer** (2026-09-24, protocol
+  14). Every `/ws/node` connection negotiates a per-connection key with
+  `crypto_kx` — the plane pins each node's long-term static on its row
+  (`nodes.encryptPublicKey`), the node pins the plane's in its own 0600 config —
+  and after establishment the socket carries ONLY `secretstream` ciphertext;
+  the ratchet never resyncs, so a broken stream is a 4410 and a redial, never a
+  repair. A node that enrolled before the link existed — its row never
+  provisioned with a pin — pairs through the register self-heal instead (the
+  bearer key is the trust root, exactly as it already authenticates every
+  legacy frame).
+- **Command signing is still not confidentiality — but it remains
+  authorization, freshness, and target** (restated 2026-09-24 now that the link
+  itself is encrypted). A signed envelope proves WHICH node, WHICH command,
+  ONCE, within seconds — and the encrypted binding re-proves the node's bearer
+  INSIDE the channel, so a link never carries a command for a row other than
+  the one its socket authenticated as. Confidentiality moved to the link;
+  these three did not move. What has NOT changed is the sentence that matters:
+  the signing keypair (`<data dir>/node-signing.json`, 0600) still rules every
+  enrolled node and lives on the backend host — same local-user exposure as
+  everything else here, and now the link keypair lives there too. E2EE buys
+  nothing against control-plane compromise; §11's acceptance stands word for
+  word.
+- **A legacy row refuses a kx claim** (2026-09-24, rulings R10 + R12b). Key
+  rotation clears the row's pin (`rotate-node-key.route.ts` step 2), so a node
+  whose config still holds its link identity redials in handshake mode at a row
+  that no longer holds it. The machine answers a real claim (`kx` carrying eph
+  AND pub) with a named **4411** (`NODE_CLOSE_REPAIR_REQUIRED`) — "re-pair via
+  register" — never the silent open-but-unestablished stall it forwarded before,
+  and never a HOLD: pairing is a handshake between the two endpoints, not an act
+  anyone but them can take, so the fail-closed answer is the refusal and the
+  register is the remedy. **4411 is a code distinct from the generic 4410
+  precisely because the code, not prose, is the signal** the agent acts on. The
+  loop is closed on the agent side too (R11, narrowed by R12b): a 4411 the PLANE
+  sends before the socket ever established drops the node's control pin and
+  nothing else — the pair stays, so the next connect registers the SAME static
+  and the row re-pairs. A **generic 4410 no longer drops it**: the plane also
+  emits 4410 for its 10-second handshake deadline on a row that is usually still
+  pinned, and clearing the pin there would send the redial to register against a
+  still-pinned row — a network blip permanently offlining a healthy node (the
+  final review's I-1). An established stream that dies still redials fully
+  provisioned either way.
+- **The re-pair healing has honest limits — read which case it fixes.** 4411
+  heals the **pin-HOLDER's** misfire: a node that still holds its control pin and
+  is cut off by a generic 4410 (the handshake deadline foremost) keeps its pin
+  byte-identical and redials fully provisioned, healing on the next dial's fresh
+  ephemeral. It does NOT heal the **register crash-window** — a node that is
+  already PIN-LESS dialing a row that STILL pins its identity. Two paths reach
+  that state: the PLANE's own keypair replaced (the node's `kx` is still ACCEPTED
+  because the row pin is the node's own key, its binding fails to open, the agent
+  drops its control pin, and the register then hits the still-pinned row); and the
+  pin-before-answer window (the plane persisted the row's pin at
+  `link-session.ts` acceptRegister, then died, or the agent died before persisting
+  its own control pin). Both are a dead register loop — the plane refuses a
+  `register` on a pinned handshake-mode socket with a GENERIC 4410 whose REASON
+  now names the remedy, and the agent's register-mode 4410 log says the same — and
+  4411 will never fire to heal them. The remedy is manual and unchanged: an admin
+  rotates the node's key (clearing the pin so `register` heals), and because
+  rotation disables the old bearer the operator must ALSO run `subshell configure
+  --key <new>` on the machine and restart the agent. A fuller arm that would
+  auto-heal these (accepting a byte-equality-matched plaintext `register` on a
+  pinned handshake-mode socket) was RULED OUT: it accepts a plaintext frame on a
+  protocol-14 connection, against the operator's absolute no-downgrade ruling —
+  loosening that is not a controller's call, so the manual-rotate residue stands.
+  These states must NEVER read as healed by 4411.
+- **A command is never written plaintext onto a v14 socket** (2026-09-24,
+  ruling I-2). A handshake-classified socket carries `plaintextAllowed = false`
+  from the moment it attaches, so `sendCommand` refuses `offline` in the
+  open→established window rather than emit a plaintext command the agent would
+  refuse (killing its own healthy handshake). A LEGACY socket
+  (`plaintextAllowed = true`) still runs plaintext until it registers.
+- **The plaintext carve-out is exactly one command.** `update` still reaches a
+  HELD pre-14 agent as plaintext, because that socket is held precisely for not
+  speaking the current contract — you cannot ask a downgrade to negotiate. Every
+  held socket is a LEGACY classification (a handshake row's plaintext `ready` is
+  refused before the gates ever run), so the frozen rescue rides the
+  `plaintextAllowed = true` arm. The command's wire shape is frozen across
+  protocol bumps for this, and a regression lock pins the full path through the
+  classifier: below-floor plaintext `ready` → held → plaintext `update` out →
+  plaintext `result` in → RPC completes (`node-ws-handler.test.ts`, "(h) the held
+  `update` path…"). Every other command to a held node rejects `offline`.
 - **A node key can do nothing on REST.** Explicit, permanent guard rejection. Its
   entire blast radius is impersonating that node on `/ws/node`.
 - **A disabled owner's node cannot dial in** (2026-09-24). The upgrade chain
@@ -692,12 +768,15 @@ consequences are:
   UI says. It also does not rename: `config.json`'s name never reaches the
   plane outside the enroll body, so the plane owns a node's name.
 
-### What the node discloses to the plane (protocol 10 framing, current through 12)
+### What the node discloses to the plane (protocol 10 framing, current through 14)
 
 Connecting a node is itself a disclosure, and the frames it rides on are
 bounded on purpose. The list below is what protocol 10 established; it is
-also what today's protocol 12 `ready` frame still carries
-(`node-ws-handler.ts:366-402`, `NODE_PROTOCOL_VERSION` = 12):
+also what today's `ready` frame still carries (`handleNodeMessage`'s `ready`
+case in `node-ws-handler.ts`, `NODE_PROTOCOL_VERSION` = 14). Protocol 14's
+handshake adds NOTHING to this list: the `kx` and the sealed binding carry
+only the identity the bearer had already authenticated, and after
+establishment the same `ready` arrives over the encrypted stream.
 
 - **`ready` discloses machine facts**: `agentVersion`, protocol/os/arch,
   `hostname`, the agent's `dataDir` path, its capability set, the
@@ -3039,7 +3118,24 @@ holds and the following are prerequisites, not improvements:
 - [ ] **Rotate and review system API keys.** Treat every holder as an operator.
 - [ ] **Reconsider node enrollment entirely.** Delegating command execution
       across a hostile network is a different problem from delegating it across a
-      VPN, and command signing alone does not close it.
+      VPN, and command signing plus the encrypted link (below) does not close
+      it.
+- [x] **The node link is encrypted** — satisfied 2026-09-24 (protocol 14),
+      and encryption is not identity. §6's link bullets are the record: the
+      app-layer `crypto_kx` + `secretstream` handshake took transport off the
+      node path's list of defenses — a hostile network can no longer read the
+      plane↔node stream just because there is no TLS in front of it, and an
+      unpaired row refuses a kx claim rather than forwarding it (R10). What it
+      did NOT buy is PKI endpoint identity, and that is why this box is honest
+      only about its own half: each side trusts the static it pinned at enroll
+      (or at first register), and the trust root of registration is the bearer
+      the setup key minted. Until the link rides TLS with certificates this
+      deployment validates (or an equivalent identity channel), a
+      man-in-the-middle BEFORE pairing is a different threat from wire
+      eavesdropping, and it rides enrollment: whoever can hand a machine a
+      setup key or a repoint address (§6) picks the host it pairs with. That
+      remainder keeps the enrollment checkbox above open — encryption shrinks
+      what enrollment leaks, not what it delegates.
 - [x] **Sign-in/sign-out audit events** — satisfied 2026-09-23 (§10):
       `auth.sign_in` / `auth.sign_out` let an incident be reconstructed from
       the trail. Deliberately still absent: failed attempts (backoff domain,

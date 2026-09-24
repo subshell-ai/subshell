@@ -56,6 +56,13 @@ export interface NodeTable {
   protocolVersion: number | null;
   /** Agent identity public JWK (pinned at enroll) */
   publicKey: string | null;
+  /**
+   * Base64 X25519 public key pinned for link encryption (spec 2026-09-24 §3);
+   * null = legacy row (held-updatable until it registers — §5). The sibling of
+   * {@link publicKey} and deliberately not derived from it: signing proves
+   * commands, this keys the channel — one key, one job.
+   */
+  encryptPublicKey: string | null;
   /** better-auth apikey id bound to this node (anti-forgery link) */
   apiKeyId: string | null;
   /** JSON array of capability strings from `ready` */

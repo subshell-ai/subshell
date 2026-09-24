@@ -146,8 +146,9 @@ export const NodeViewSchema = t.Object({
   ),
   held: t.Nullable(
     t.Object({
-      reason: t.Union([t.Literal("below-floor"), t.Literal("protocol-mismatch")], {
-        description: "Which gate refused this node: its version, or the wire protocol it speaks",
+      reason: t.Union([t.Literal("below-floor"), t.Literal("protocol-mismatch"), t.Literal("encryption-required")], {
+        description:
+          "Which gate refused this node: its version floor, the wire protocol it speaks, or (spec 2026-09-24 ledger R3) that it passed both but has no encryption pin, so its plaintext `ready` is indistinguishable from a downgrade",
       }),
       agentVersion: t.String({ description: "The version reported on the socket being held" }),
     }),

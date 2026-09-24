@@ -278,11 +278,11 @@ describe("POST /api/nodes/:id/update", () => {
     );
   }
 
-  function fakeSocket(): NodeSocket & { sent: string[]; closed: number[] } {
+  function fakeSocket(): NodeSocket & { sent: Array<string | Buffer>; closed: number[] } {
     return {
       sent: [],
       closed: [],
-      send(data: string) {
+      send(data: string | Buffer) {
         this.sent.push(data);
         return data.length;
       },

@@ -20,7 +20,7 @@ import {
 /* ---------------------------- fakes ----------------------------- */
 
 interface FakeNodeSocket extends NodeWsSocket {
-  sent: string[];
+  sent: Array<string | Buffer>;
   closed: { code?: number; reason?: string }[];
 }
 
@@ -29,7 +29,7 @@ function fakeSocket(nodeId?: string): FakeNodeSocket {
     data: nodeId ? { nodeId, apiKeyId: "k-n1" } : {},
     sent: [],
     closed: [],
-    send(d: string) {
+    send(d: string | Buffer) {
       this.sent.push(d);
       return d.length;
     },
@@ -70,6 +70,19 @@ function makeHarness(): Harness {
       setStatus: async () => {},
     } as unknown as NodeWsDeps["nodes"],
     resolveResult: () => false,
+    // Inert link seam: these order-of-frames cases drive UNCLASSIFIED fakes
+    // (`fakeSocket` sets only `{nodeId, apiKeyId}`), so `handleNodeMessage`
+    // skips the machine and this is never read.
+    link: {
+      verifyApiKey: async () => null,
+      loadNodeEncryptionKeys: async () => {
+        throw new Error("link seam unused in node-events ordering tests");
+      },
+      nodeEncryptionPublicKey: async () => {
+        throw new Error("link seam unused in node-events ordering tests");
+      },
+      setEncryptPublicKey: async () => {},
+    },
   };
   h.releaseTouch = () => {
     for (const r of resolvers.splice(0)) r();

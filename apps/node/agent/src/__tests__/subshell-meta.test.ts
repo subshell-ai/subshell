@@ -65,7 +65,12 @@ describe("SubshellMetaStore", () => {
     } finally {
       restore();
     }
-    expect(lines.length).toBe(1);
+    // The log sink is process-global, so a concurrent subsystem (a daemon redialing
+    // in another test file) can log into this window. The invariant is "exactly one
+    // line ABOUT THIS junk file", not "nothing else in the process logged" — scope
+    // the count to the malformed read, which keeps the teeth (a second log for the
+    // same bad read, or none, still fails).
+    expect(lines.filter((l) => l.includes("bad.meta.json")).length).toBe(1);
     const listed = await store.list();
     expect(listed.map((m) => m.subshellId)).toEqual(["f00d"]);
   });

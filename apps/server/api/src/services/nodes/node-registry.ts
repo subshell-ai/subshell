@@ -1,4 +1,5 @@
 import { NODE_CLOSE_SUPERSEDED, type NodeRuntimeReport } from "@internal/subshell-protocol";
+import type { LinkSession } from "@internal/subshell-protocol/node-link-crypto";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { projectNodeOffline } from "./node-presence-announce.js";
 import type { NodeRpcError } from "./node-rpc.js";
@@ -48,8 +49,14 @@ export const OWNER_DISABLED_CLOSE_CODE = 4403;
  * drive fakes and the Bun ws object satisfies it structurally.
  */
 export interface NodeSocket {
-  /** Send one text frame (the JSON envelope); returns like Bun's `ws.send`. */
-  send(data: string): unknown;
+  /**
+   * Send one frame; returns like Bun's `ws.send`. Text carries the legacy
+   * JSON envelope; a Buffer carries an encrypted link's binary ciphertext —
+   * and it must ARRIVE as a Buffer, not a bare `Uint8Array` (Elysia's
+   * `send` JSON-stringifies any non-Buffer object into a TEXT frame; see
+   * `binaryPayload` in `node-rpc.ts`).
+   */
+  send(data: string | Buffer): unknown;
   /** Close the socket with an optional code/reason. */
   close(code?: number, reason?: string): void;
 }
@@ -153,6 +160,27 @@ export interface NodeConnection {
    * `agent: undefined` and reads as such to every consumer.
    */
   agent?: NodeFacts;
+  /**
+   * The encrypted link negotiated on this socket (spec 2026-09-24), or
+   * `undefined` while the connection speaks the legacy plaintext envelope —
+   * every held socket, every agent that predates the handshake, and every
+   * connection from before its `kx` completed. `node-rpc.sendCommand` seals
+   * outbound commands through it when present; the `/ws/node` handshake
+   * acceptor is its only writer.
+   */
+  link?: LinkSession;
+  /**
+   * Whether a PLAINTEXT frame may be written to this socket at all (ruling
+   * I-2, spec 2026-09-24). `handleNodeOpen` sets it beside the attach: true
+   * for a LEGACY classification (a pin-less row legitimately runs plaintext
+   * until it registers — and every held socket is one), false for HANDSHAKE
+   * (a protocol-14 socket in the open→established window, where `link` is
+   * not yet set). `sendCommand` refuses with `offline` rather than emit
+   * plaintext while `link` is unset and this is false — the frozen held-
+   * `update` rescue rides the `true` arm untouched. UNSET means "never
+   * classified" (a hand-built test conn): never a refusal.
+   */
+  plaintextAllowed?: boolean;
 }
 
 const live = new Map<string, NodeConnection>();
@@ -161,8 +189,20 @@ const live = new Map<string, NodeConnection>();
 /* held connections (spec 2026-09-15 §5.3)                              */
 /* ------------------------------------------------------------------ */
 
-/** Why the plane refused to treat this agent as live. */
-export type HeldReason = "below-floor" | "protocol-mismatch";
+/**
+ * Why the plane refused to treat this agent as live.
+ *
+ * `below-floor` / `protocol-mismatch` are the two version gates (spec
+ * 2026-09-15 §5.3). `encryption-required` is the third and it is a DIFFERENT
+ * kind of refusal: the agent passed BOTH version gates but its row has no
+ * encryption pin, so the only thing it could have sent that passes is the
+ * plaintext `ready` that is indistinguishable from the downgrade attempt
+ * (spec 2026-09-24 ledger R3). It is offline for every purpose but `update`
+ * exactly like the other two, and the remedy reads the same to an operator —
+ * the node updates and re-registers — which is why it holds through the same
+ * machinery rather than a fourth path.
+ */
+export type HeldReason = "below-floor" | "protocol-mismatch" | "encryption-required";
 
 /** One socket the plane refuses for everything except `update`. */
 export interface HeldConnection {

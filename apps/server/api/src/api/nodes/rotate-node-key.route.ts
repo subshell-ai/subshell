@@ -58,8 +58,15 @@ export const rotateNodeKeyRoute = new Elysia()
         },
       })) as unknown as CreatedApiKey;
 
-      // 2. Flip the binding, THEN 3. disable the old key.
-      await new NodesRepository(db).setApiKeyId(gate.row.id, created.id);
+      // 2. Flip the binding, clear the link pin, THEN 3. disable the old key.
+      //    `encrypt_public_key` goes to NULL with the bearer it was trusted
+      //    under (spec 2026-09-24 §5): the row falls back to legacy mode and
+      //    the agent's redial re-provisions a fresh encryption identity
+      //    through the same §5 register self-heal that armed a
+      //    never-registered node. Never copy the old pin across a rotation.
+      const nodes = new NodesRepository(db);
+      await nodes.setApiKeyId(gate.row.id, created.id);
+      await nodes.setEncryptPublicKey(gate.row.id, null);
       if (gate.row.apiKeyId) setApiKeyEnabled(gate.row.apiKeyId, false);
 
       // 4. The live socket authenticated with the OLD key — evict it after
@@ -67,6 +74,10 @@ export const rotateNodeKeyRoute = new Elysia()
       //    Capture the conn BEFORE disconnecting (the map entry dies with it)
       //    and drain its in-flight commands AFTER (P1-T9 carry: an eviction
       //    must failConnPendings itself — no real socket close may ever fire).
+      //    `disconnectNode` closes HELD as well as live sockets, so no link
+      //    outlives the rotation, and the pin cleared in step 2 means the
+      //    agent's redial re-provisions its encryption identity through the
+      //    §5 register self-heal rather than carrying the old one across.
       const evicted = getLive(gate.row.id);
       await disconnectNode(gate.row.id, REVOKED_CLOSE_CODE, "node key rotated");
       if (evicted) failConnPendings(evicted, "offline", "node key rotated");

@@ -165,6 +165,7 @@ function nodeRow(over: Partial<NodeTable> = {}): NodeTable {
     agentVersion: null,
     protocolVersion: null,
     publicKey: null,
+    encryptPublicKey: null,
     apiKeyId: null,
     capabilities: null,
     inventoryJson: null,

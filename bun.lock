@@ -122,7 +122,7 @@
     },
     "apps/node/agent": {
       "name": "@internal/node",
-      "version": "0.16.0",
+      "version": "0.17.0",
       "dependencies": {
         "@clack/prompts": "1.8.1",
         "@internal/backend-errors": "workspace:*",
@@ -580,6 +580,7 @@
       "dependencies": {
         "cbor2": "2.3.0",
         "jose": "6.2.9",
+        "libsodium-wrappers-sumo": "0.8.4",
       },
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
@@ -2412,6 +2413,10 @@
     "lefthook-windows-x64": ["lefthook-windows-x64@2.1.10", "", { "os": "win32", "cpu": "x64" }, "sha512-c/XH8YZtylG4XaxzqFfXluvq2LXq2W/p54Bnzn3+Z7E5X2Fk3JlFJAibulMbIt2+w8T7UI/r97ok5GqE4kGaeA=="],
 
     "leven": ["leven@3.1.0", "", {}, "sha512-qsda+H8jTaUaN/x5vzW2rzc+8Rw4TAQ/4KjB46IwK5VH+IlVeeeje/EoZRpiXvIqjFgK84QffqPztGI3VBLG1A=="],
+
+    "libsodium-sumo": ["libsodium-sumo@0.8.4", "", {}, "sha512-TMtHShQfVVsaxDygyapvUC3o7YsPgXa/hRWeIgzyFz6w5k/1hirGptCxp1U7XwW3rCskaTTYKgV10v86UiGgNw=="],
+
+    "libsodium-wrappers-sumo": ["libsodium-wrappers-sumo@0.8.4", "", { "dependencies": { "libsodium-sumo": "^0.8.0" } }, "sha512-ql7hcgulKZ3ekfa2DGAogcCKsWU0diA/0nArz1CFzh93WQdb46/Kj18ka/Hifq6uA3Ush34Pc6vU/6HXeRwUkg=="],
 
     "lighthouse-logger": ["lighthouse-logger@1.4.2", "", { "dependencies": { "debug": "^2.6.9", "marky": "^1.2.2" } }, "sha512-gPWxznF6TKmUHrOQjlVo2UbaL2EJ71mb2CCeRs/2qBpi4L/g4LUVc9+3lKQ6DTUZwJswfM7ainGrLO1+fOqa2g=="],
 

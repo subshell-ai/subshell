@@ -18,6 +18,8 @@ import {
   type ControlKeyPair,
   generateControlKeys,
   HARNESS_BINARY_PLACEHOLDER,
+  NODE_CLOSE_HANDSHAKE_REQUIRED,
+  NODE_CLOSE_REPAIR_REQUIRED,
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
   type NodeCommandBody,
@@ -26,9 +28,17 @@ import {
   parseNodeEvent,
   signCommand,
 } from "@internal/subshell-protocol";
+import {
+  createServerSession,
+  generateLinkKeyPair,
+  type LinkKeyPair,
+  type LinkSession,
+  parseKxFrame,
+  parseLinkBinding,
+} from "@internal/subshell-protocol/node-link-crypto";
 import { run as runCli } from "../cli.js";
 import { TAIL_POLL_MS } from "../commands/tail.js";
-import { type NodeConfig, saveConfig } from "../config.js";
+import { configPath, type NodeConfig, saveConfig } from "../config.js";
 import {
   type DaemonDeps,
   probeOnline,
@@ -52,10 +62,30 @@ import { captureLogs } from "./helpers/capture-logs.js";
  * options cast works at runtime), and EVERY outbound frame the agent sends is
  * parsed with the real `parseNodeEvent` — that is the wire contract test
  * (the backend's node-ws-handler parses inbound frames the same way).
+ *
+ * Since spec 2026-09-24 the plane is HANDSHAKE-CAPABLE BY DEFAULT and the
+ * default harness config is provisioned (node keypair + server pin), so the
+ * ordinary test runs over the REAL encrypted link: the plane consumes `kx` in
+ * silence (ruling R6), opens the sealed binding with a real `createServerSession`,
+ * answers with the sealed `{t:"ok"}`, and every frame after establishment is
+ * real secretstream bytes in both directions. Pre-encryption tests stay green
+ * WITHOUT learning crypto — `signAndSend` and `plane.sendToAgent` seal when the
+ * socket has a session and send plain text when it does not. It also speaks
+ * §5's register (pin, answer, NORMAL close per R7), which is what makes the
+ * legacy self-heal test run against the same fake.
  */
 
 const NODE_ID = "test-node-1";
 const NODE_KEY = "subshell_node_key_never_printed";
+
+/** The default harness's node static pair and the fake plane's server static — one pair each, shared. */
+const nodeLinkReady: Promise<LinkKeyPair> = generateLinkKeyPair();
+const serverLinkReady: Promise<LinkKeyPair> = generateLinkKeyPair();
+
+/** The `binaryPayload` idiom, plane-side: a Buffer VIEW so Bun frames it binary. */
+function binaryView(bytes: Uint8Array): Buffer {
+  return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+}
 
 /** Thrown by the injected `exit` so `runDaemon` returns instead of killing the test process. */
 class DaemonStopped extends Error {
@@ -69,8 +99,22 @@ const keysReady: Promise<ControlKeyPair> = generateControlKeys();
 const hostileKeysReady: Promise<ControlKeyPair> = generateControlKeys();
 
 interface PlaneSocket {
-  send(data: string): void;
+  send(data: string | Uint8Array | ArrayBuffer): void;
   close(code?: number, reason?: string): void;
+  /** Bun.serve per-connection scratch; the handshake machine lives here (stable across its events). */
+  data: PlaneSockState;
+}
+
+/** Per-socket handshake state on the fake plane — the mirror of `link-session.ts`'s phases. */
+interface PlaneSockState {
+  phase: "init" | "awaiting-binding" | "established";
+  /** Server session under derivation from the node's `kx` eph — the binding event may beat it. */
+  sessionP?: Promise<LinkSession>;
+  session?: LinkSession;
+  /** The kind of the socket's FIRST inbound frame, for the (d) "kx before anything" assertion. */
+  firstFrame?: string;
+  /** The plane closed this socket; later inbound frames are dropped, as on a real gone socket. */
+  dead?: boolean;
 }
 
 interface Plane {
@@ -84,6 +128,70 @@ interface Plane {
   socket?: PlaneSocket;
   /** EVERY currently-open socket — teardown 4409s all of them, probes included. */
   sockets: Set<PlaneSocket>;
+  /**
+   * Set by `afterEach` before it drains the sockets: every NEW socket that opens is
+   * immediately closed 4409. The escape hatch a `closeAllSockets` alone is not —
+   * a never-establishing daemon (a refusal/silent/deadline test that redials at
+   * zero backoff) can sit between dials with no open socket when teardown runs,
+   * and the plain socket-drain then misses it: its loop is abandoned mid-redial,
+   * spams reconnects into the SHARED log sink, and leaks across the file boundary
+   * to contaminate another test's `captureLogs()` window. Closing-on-connect
+   * catches whichever socket the loop holds NEXT, so `h.stopped` always settles.
+   */
+  teardown: boolean;
+  /** Per socket, in open order: the kind of its first inbound frame ("kx" | "register" | "text:<t>" | "bytes"). */
+  firstFrames: string[];
+  /** The close code of every kx REFUSAL the fake sent, in send order (R12b: pin WHICH code the agent saw). */
+  refusalCodes: number[];
+  /** Anything the agent put on the wire that the handshake machine says it may not (spec §6). */
+  violations: string[];
+  /** The node static pinned by a §5 `register` — the kx claim is compared against it once set. */
+  pinnedNodePublicKey?: string;
+  /**
+   * Send a plaintext payload to the CURRENT socket, sealing through its session
+   * when it has one — command frames reach the daemon the way the real plane's
+   * `node-rpc` sends do, sealed once a link is up and plaintext only before
+   * (which the daemon's negotiator would then 4410, but no test needs that).
+   */
+  sendToAgent(text: string): void;
+  /** Seal for the CURRENT socket's session — for pump tests that inject at the daemon's listener. */
+  sealForPump(text: string): Uint8Array;
+}
+
+interface PlaneOpts {
+  /** The fake plane's long-term static (its `register-ok` and every derivation). */
+  serverStatic: LinkKeyPair;
+  /** The kx claim accepted before any §5 register has pinned a different one. */
+  nodePublicKey: string;
+  /** 4410 (generic) EVERY kx with this reason — the pub-mismatch/deadline shape. */
+  refuseKx?: string;
+  /**
+   * 4411 (NODE_CLOSE_REPAIR_REQUIRED, ruling R12b) every kx that arrives
+   * BEFORE the first register pins this fake's node static, then accept
+   * handshakes normally — the R10 rule (an unpaired row refuses claims) and
+   * the plane half of the R11 rotation-heal story. The CODE is the point:
+   * 4411 is what tells the agent to drop its control pin, and this fake must
+   * carry the real refusal's code for the E2E to mean anything.
+   */
+  refuseKxUntilRegister?: string;
+  /**
+   * Accept the kx, then close the socket with the GENERIC 4410 and this
+   * reason — the fake's stand-in for the plane's 10-second handshake deadline
+   * firing mid-handshake on a healthy, still-pinned row (the I-1 state: the
+   * redial must stay handshake mode with a byte-identical config).
+   */
+  deadlineAfterKx?: string;
+  /**
+   * Fires SYNCHRONOUSLY the instant a `register` claim lands, BEFORE its
+   * answer. Non-racy disk-window hook (R11): the daemon's `provisioning` gate
+   * guarantees every config write from the PREVIOUS socket has landed by the
+   * time this socket's frames arrive, so a config.json read inside this hook
+   * is the mid-heal truth — after the refusal's pin-drop, before the
+   * register-ok's own write re-fills the pin.
+   */
+  onRegisterClaim?: () => void;
+  /** Consume the kx and binding but NEVER ack (establishment-never-happens tests). */
+  silentKx?: boolean;
 }
 
 interface Harness {
@@ -91,6 +199,8 @@ interface Harness {
   config: NodeConfig;
   keys: ControlKeyPair;
   hostileKeys: ControlKeyPair;
+  /** The fake plane's server static, so legacy tests can assert the pin the agent stored. */
+  serverLink: LinkKeyPair;
   /** Codes the injected exit() captured (terminal 4409/4406 → 1; SIGINT → 0). */
   exits: number[];
   /** Resolves when runDaemon settles (DaemonStopped expected; anything else is a bug). */
@@ -101,7 +211,7 @@ interface Harness {
 
 let active: Harness | undefined;
 
-function startPlane(): Plane {
+function startPlane(opts: PlaneOpts): Plane {
   const plane: Plane = {
     server: undefined as unknown as ReturnType<typeof Bun.serve>,
     events: [],
@@ -109,6 +219,32 @@ function startPlane(): Plane {
     opens: 0,
     closes: 0,
     sockets: new Set(),
+    teardown: false,
+    firstFrames: [],
+    refusalCodes: [],
+    violations: [],
+    sendToAgent(text: string): void {
+      if (!plane.socket) throw new Error("plane has no live socket");
+      const st = plane.socket.data;
+      if (st.phase === "established" && st.session) plane.socket.send(binaryView(st.session.sealFrame(text)));
+      else plane.socket.send(text);
+    },
+    sealForPump(text: string): Uint8Array {
+      const session = plane.socket?.data.session;
+      if (!session) throw new Error("plane socket has no established session to seal with");
+      return session.sealFrame(text);
+    },
+  };
+  /** One refusal path, mirroring the server machine's `refuse`: 4410 with the reason the agent relays. */
+  const refuseSock = (sock: PlaneSocket, reason: string): void => {
+    plane.violations.push(reason);
+    plane.refusalCodes.push(NODE_CLOSE_HANDSHAKE_REQUIRED);
+    sock.data.dead = true;
+    try {
+      sock.close(NODE_CLOSE_HANDSHAKE_REQUIRED, reason);
+    } catch {
+      /* already gone */
+    }
   };
   plane.server = Bun.serve({
     port: 0,
@@ -117,7 +253,9 @@ function startPlane(): Plane {
       // Mirrors the real upgrade hook: a bad bearer never gets a socket.
       if (req.headers.get("authorization") !== `Bearer ${NODE_KEY}`)
         return new Response("unauthorized", { status: 401 });
-      return server.upgrade(req, { data: {} }) ? undefined : new Response("upgrade failed", { status: 400 });
+      return server.upgrade(req, { data: { phase: "init" } satisfies PlaneSockState })
+        ? undefined
+        : new Response("upgrade failed", { status: 400 });
     },
     websocket: {
       open(ws) {
@@ -125,12 +263,157 @@ function startPlane(): Plane {
         const sock = ws as unknown as PlaneSocket;
         plane.socket = sock;
         plane.sockets.add(sock);
+        // Teardown escape hatch: a loop redialing between dials has no OPEN socket
+        // for `closeAllSockets` to reach; closing THIS one 4409 breaks it for good.
+        if (plane.teardown) {
+          try {
+            sock.close(4409, "test teardown");
+          } catch {
+            /* already gone */
+          }
+        }
       },
-      message(_ws, msg) {
-        const text = typeof msg === "string" ? msg : msg.toString();
-        const ev = parseNodeEvent(text); // the REAL validator — agent frames must be parseable by the backend
-        if (ev) plane.events.push(ev);
-        else plane.unparsed.push(text.slice(0, 200));
+      async message(rawWs, msg) {
+        const ws = rawWs as unknown as PlaneSocket;
+        const st = ws.data;
+        // Post-close frames: the agent's binding is already in flight when a
+        // refusal/deadline closes the socket. A real gone socket delivers
+        // nothing further, so neither does this one — the in-flight frame is
+        // DROPPED, never re-processed into a spurious violation or refusal.
+        if (st.dead) return;
+        const isBytes = typeof msg !== "string";
+        const kind = isBytes ? "bytes" : labelTextFrame(msg);
+        if (st.firstFrame === undefined) {
+          st.firstFrame = kind;
+          plane.firstFrames.push(kind);
+        }
+        if (st.phase === "established") {
+          if (!isBytes) {
+            refuseSock(ws, `plaintext on an established link: ${msg.slice(0, 80)}`);
+            return;
+          }
+          const text = st.session?.openFrame(msg as Uint8Array);
+          if (text === null || text === undefined) {
+            refuseSock(ws, "undecryptable inbound on an established link");
+            return;
+          }
+          const ev = parseNodeEvent(text); // the REAL validator — agent frames must be parseable by the backend
+          if (ev) plane.events.push(ev);
+          else plane.unparsed.push(text.slice(0, 200));
+          return;
+        }
+        if (isBytes) {
+          if (st.phase !== "awaiting-binding") {
+            refuseSock(ws, "ciphertext before the kx was accepted");
+            return;
+          }
+          if (opts.silentKx) return; // consumed, but this plane never acks — establishment must not happen
+          // The binding event may beat the kx handler's derivation — await it.
+          const session = st.session ?? (await st.sessionP);
+          if (!session) {
+            refuseSock(ws, "awaiting-binding without a derivation (fake-plane bug)");
+            return;
+          }
+          st.session = session;
+          const plain = session.openFrame(msg as Uint8Array);
+          if (plain === null || plain === undefined) {
+            refuseSock(ws, "handshake refused: binding undecryptable");
+            return;
+          }
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(plain);
+          } catch {
+            parsed = undefined;
+          }
+          const binding = parseLinkBinding(parsed);
+          if (
+            !binding ||
+            binding.nodeId !== NODE_ID ||
+            binding.nodeKey !== NODE_KEY ||
+            binding.protocolVersion !== NODE_PROTOCOL_VERSION
+          ) {
+            refuseSock(ws, "handshake refused: binding failed the fake plane's checks");
+            return;
+          }
+          st.phase = "established";
+          ws.send(binaryView(session.sealFrame(JSON.stringify({ t: "ok" })))); // the sealed ack, per R6
+          return;
+        }
+        let value: unknown;
+        try {
+          value = JSON.parse(msg);
+        } catch {
+          value = undefined;
+        }
+        const claim = (value as { t?: unknown } | undefined)?.t;
+        if (claim === "register") {
+          // §5 self-heal, R7 shape: pin, answer with the plane's public half, NORMAL close.
+          plane.pinnedNodePublicKey = (value as { pub?: string }).pub;
+          opts.onRegisterClaim?.(); // BEFORE the answer: the mid-heal disk window (R11)
+          ws.send(JSON.stringify({ t: "register-ok", controlEncryptPublicKey: opts.serverStatic.publicKey }));
+          ws.close();
+          return;
+        }
+        if (claim === "kx") {
+          // A flat refusal (generic 4410 — the pub-mismatch/deadline shape),
+          // or the R10-shaped one that lifts once a register has pinned the
+          // node's static. R12b gives the two DIFFERENT codes: the flat/general
+          // arm carries 4410, and the unpaired-row re-pair refusal carries
+          // 4411 (NODE_CLOSE_REPAIR_REQUIRED) — the signal the agent's
+          // `onClosed` acts on, which is what makes the R11 rotation-heal E2E
+          // below exercise the REAL refusal rather than a stand-in.
+          const refusal = opts.refuseKx
+            ? { reason: opts.refuseKx, code: NODE_CLOSE_HANDSHAKE_REQUIRED }
+            : opts.refuseKxUntilRegister && plane.pinnedNodePublicKey === undefined
+              ? { reason: opts.refuseKxUntilRegister, code: NODE_CLOSE_REPAIR_REQUIRED }
+              : undefined;
+          if (refusal) {
+            plane.refusalCodes.push(refusal.code); // a REFUSAL under test, not a violation
+            st.dead = true; // drop the agent's in-flight binding, as a gone socket would
+            try {
+              ws.close(refusal.code, refusal.reason);
+            } catch {
+              /* already gone */
+            }
+            return;
+          }
+          const kx = parseKxFrame(value);
+          if (!kx || kx.pub === undefined) {
+            refuseSock(ws, "handshake required: expected a kx frame with the claim");
+            return;
+          }
+          const expected = plane.pinnedNodePublicKey ?? opts.nodePublicKey;
+          if (kx.pub !== expected) {
+            refuseSock(ws, "handshake refused: pub mismatch");
+            return;
+          }
+          st.phase = "awaiting-binding";
+          if (opts.silentKx) return; // consumed; the binding is consumed too, and nothing is ever acked
+          if (opts.deadlineAfterKx) {
+            // The plane's 10-second handshake deadline, simulated at kx-accept:
+            // it consumed the kx and now closes the STILL-PINNED healthy socket
+            // with the GENERIC 4410. The agent must not treat this as re-pair.
+            // `dead` first: the agent's binding is already in flight and a real
+            // gone socket drops it — this fake must too, not fake up a second
+            // "no derivation" refusal from a frame the wire would never carry.
+            plane.refusalCodes.push(NODE_CLOSE_HANDSHAKE_REQUIRED);
+            st.dead = true;
+            try {
+              ws.close(NODE_CLOSE_HANDSHAKE_REQUIRED, opts.deadlineAfterKx);
+            } catch {
+              /* already gone */
+            }
+            return;
+          }
+          // Consumed in SILENCE (R6) — the node's next frame is already ciphertext.
+          st.sessionP = createServerSession({
+            serverStatic: opts.serverStatic,
+            clientEphemeralPublicKey: kx.eph,
+          });
+          return;
+        }
+        refuseSock(ws, `unexpected pre-establishment plaintext (t=${String(claim)})`);
       },
       close(ws) {
         plane.closes++;
@@ -141,6 +424,17 @@ function startPlane(): Plane {
     },
   });
   return plane;
+}
+
+/** The label for a text frame's first-frame record: its handshake `t`, or `text:<type>`. */
+function labelTextFrame(msg: string): string {
+  try {
+    const v = JSON.parse(msg) as { t?: unknown; type?: unknown };
+    if (typeof v.t === "string") return v.t;
+    return `text:${String(v.type)}`;
+  } catch {
+    return "text:junk";
+  }
 }
 
 /** Terminal-close every open socket (the daemon's escape hatch in tests). */
@@ -174,11 +468,30 @@ async function startDaemon(
       | "retentionMs"
       | "retentionPass"
     >
-  > & { config?: Partial<NodeConfig> } = {},
+  > & {
+    config?: Partial<NodeConfig>;
+    /** Handshake tweaks for the fake plane (refusals, silence, the R11 register window hook). */
+    plane?: {
+      refuseKx?: string;
+      refuseKxUntilRegister?: string;
+      deadlineAfterKx?: string;
+      onRegisterClaim?: () => void;
+      silentKx?: boolean;
+    };
+    /** The harness normally awaits the first `ready`; refusal/legacy tests drive the loop themselves. */
+    skipReady?: boolean;
+    /** Persist the harness config to the agent home BEFORE the daemon starts (the §5 register's `updateConfig` reads it back). */
+    saveConfig?: boolean;
+  } = {},
 ): Promise<Harness> {
-  const { config: configPatch, ...daemonOverrides } = overrides;
-  const [keys, hostileKeys] = await Promise.all([keysReady, hostileKeysReady]);
-  const plane = startPlane();
+  const { config: configPatch, plane: planeOpts, skipReady, saveConfig: persistFirst, ...daemonOverrides } = overrides;
+  const [keys, hostileKeys, nodeLink, serverLink] = await Promise.all([
+    keysReady,
+    hostileKeysReady,
+    nodeLinkReady,
+    serverLinkReady,
+  ]);
+  const plane = startPlane({ serverStatic: serverLink, nodePublicKey: nodeLink.publicKey, ...planeOpts });
   const dataDir = mkdtempSync(join(tmpdir(), "subshell-daemon-"));
   daemonDirs.push(dataDir);
   const config: NodeConfig = {
@@ -192,10 +505,17 @@ async function startDaemon(
     // run deterministic. Removed in the file's afterAll.
     dataDir,
     name: "test-node",
+    // PROVISIONED by default (spec 2026-09-24): the ordinary run is handshake
+    // mode against the handshake-capable plane, so pre-encryption tests get
+    // their frames over the real sealed stream WITHOUT learning crypto.
+    // A test that wants the §5 register path overrides BOTH to undefined.
+    encryptKeyPair: nodeLink,
+    controlEncryptPublicKey: serverLink.publicKey,
     ...configPatch,
   };
+  if (persistFirst) await saveConfig(config);
   const exits: number[] = [];
-  const h: Harness = { plane, config, keys, hostileKeys, exits, stopped: Promise.resolve() };
+  const h: Harness = { plane, config, keys, hostileKeys, serverLink, exits, stopped: Promise.resolve() };
   const promise = runDaemon(config, {
     runtime: null, // no `service status` spawn in tests; the report is Task 11's own suite
     rand: () => 0, // zero-jitter → instant reconnects (tests must not wait out backoff)
@@ -214,8 +534,10 @@ async function startDaemon(
     },
   );
   active = h;
-  await waitForReady(h);
-  if (h.fatal) throw h.fatal;
+  if (!skipReady) {
+    await waitForReady(h);
+    if (h.fatal) throw h.fatal;
+  }
   return h;
 }
 
@@ -272,7 +594,7 @@ async function signAndSend(
   const priv = opts?.hostile ? h.hostileKeys.privateJwk : h.keys.privateJwk;
   const jws = await signCommand(priv, { nodeId: NODE_ID, jti, seq, cmd });
   if (!h.plane.socket) throw new Error("plane has no live socket");
-  h.plane.socket.send(JSON.stringify({ jws }));
+  h.plane.sendToAgent(JSON.stringify({ jws })); // sealed when the socket has a session — the real plane's send shape
   return jti;
 }
 
@@ -302,6 +624,11 @@ afterEach(async () => {
   if (!h) return;
   active = undefined;
   // Drive the daemon out through the terminal path so its loop stops for good.
+  // Arm the close-on-connect hatch FIRST: if the daemon is mid-redial with no open
+  // socket (a never-establish refusal test at zero backoff), the socket-drain below
+  // would miss it and the loop leaks across the file boundary into the next test's
+  // log capture. Whichever socket it opens next is now a terminal 4409.
+  h.plane.teardown = true;
   closeAllSockets(h.plane, 4409, "test teardown");
   await Promise.race([h.stopped, sleep(1500)]);
   h.plane.server.stop(true);
@@ -508,9 +835,9 @@ test("replayed jti (same connection): ONE execution (spy), verify/replay error e
   await waitFor(h, (e) => e.type === "inventory", "connect inventory push"); // P3-T8b: baseline past the connect beat
   const frame = await signEnvelope(h, { type: "inventory" }, "replay-1", 1);
   const invBefore = count(h, (e) => e.type === "inventory");
-  h.plane.socket?.send(frame);
+  h.plane.sendToAgent(frame);
   await waitFor(h, (e) => e.type === "result" && e.ref === "replay-1", "first inventory execution");
-  h.plane.socket?.send(frame);
+  h.plane.sendToAgent(frame);
   await sleep(150); // give a double execution every chance to show up
   expect(count(h, (e) => e.type === "inventory")).toBe(invBefore + 1); // handler spy: executed ONCE
   const errs = eventsAs(h, "error");
@@ -528,7 +855,7 @@ test("per-process jti LRU survives a reconnect: replay on the NEW socket → ver
   await waitFor(h, (e) => e.type === "inventory", "conn-1 connect push"); // P3-T8b: the beat precedes the command
   // conn 1: execute a signed inventory (jti "recon-1").
   const frame = await signEnvelope(h, { type: "inventory" }, "recon-1", 1);
-  h.plane.socket?.send(frame);
+  h.plane.sendToAgent(frame);
   await waitFor(h, (e) => e.type === "result" && e.ref === "recon-1", "conn-1 result");
   expect(count(h, (e) => e.type === "inventory")).toBe(2); // conn-1 push + one command execution
   // NON-terminal close (1001) → the daemon reconnects (rand 0 → immediate).
@@ -537,7 +864,7 @@ test("per-process jti LRU survives a reconnect: replay on the NEW socket → ver
   // The connect push RE-ARMS on the new socket (freshness gate re-applies after a reconnect).
   await waitFor(h, () => count(h, (e) => e.type === "inventory") >= 3, "conn-2 connect push");
   // conn 2: the plane REPLAYS the exact same signed envelope.
-  h.plane.socket?.send(frame);
+  h.plane.sendToAgent(frame);
   await sleep(150);
   // A per-CONNECTION LRU (the mutation this test exists to catch) would pass verify here
   // and produce ZERO error events; the process-wide LRU must produce exactly the replay one.
@@ -624,9 +951,55 @@ test("probeOnline: true against a live plane, false against a refused key / dead
   await expect(probeOnline({ ...h.config, serverUrl: `http://localhost:${deadPort}` })).resolves.toBe(false);
 });
 
-test("a wrong bearer key never gets a socket (upgrade refused)", async () => {
-  const plane = startPlane();
+test("probeOnline: open-then-4410 on a handshake-mode plane still answers online (spec 2026-09-24 §5)", async () => {
+  // A provisioned row means the plane REQUIRES the link handshake, and a
+  // silent socket is refused 4410 when the deadline lands (HANDSHAKE_TIMEOUT_MS
+  // in production; this fake closes on the next tick — a suite cannot wait
+  // ten seconds, and the probe's answer does not depend on the length).
+  // The probe asks "did the dial reach the plane", NOT "did a session
+  // establish" — open happened, so the answer stays true and stays honest.
+  const plane = Bun.serve({
+    port: 0,
+    fetch(req, server) {
+      if (new URL(req.url).pathname !== "/ws/node") return new Response("not found", { status: 404 });
+      if (req.headers.get("authorization") !== `Bearer ${NODE_KEY}`)
+        return new Response("unauthorized", { status: 401 });
+      return server.upgrade(req) ? undefined : new Response("upgrade failed", { status: 400 });
+    },
+    websocket: {
+      open(ws) {
+        // Mirror of the server's handshake deadline: open, silence, refusal.
+        setTimeout(() => {
+          try {
+            ws.close(NODE_CLOSE_HANDSHAKE_REQUIRED, "handshake required: no kx/binding within the deadline");
+          } catch {
+            /* already gone */
+          }
+        }, 0);
+      },
+      message() {},
+      close() {},
+    },
+  });
   const [keys] = await Promise.all([keysReady]);
+  const config: NodeConfig = {
+    serverUrl: `http://localhost:${plane.port}`,
+    nodeId: NODE_ID,
+    nodeKey: NODE_KEY,
+    controlPublicKey: JSON.stringify(keys.publicJwk),
+    dataDir: "/tmp/subshell-test-data",
+    name: "test-node",
+  };
+  try {
+    await expect(probeOnline(config)).resolves.toBe(true);
+  } finally {
+    plane.stop(true);
+  }
+});
+
+test("a wrong bearer key never gets a socket (upgrade refused)", async () => {
+  const [keys, serverLink, nodeLink] = await Promise.all([keysReady, serverLinkReady, nodeLinkReady]);
+  const plane = startPlane({ serverStatic: serverLink, nodePublicKey: nodeLink.publicKey });
   const config: NodeConfig = {
     serverUrl: `http://localhost:${plane.server.port}`,
     nodeId: NODE_ID,
@@ -839,14 +1212,23 @@ const HEX_A = "00000000-0000-4000-8000-00000000000a";
 const HEX_B = "00000000-0000-4000-8000-00000000000b";
 
 /**
+ * The shapes a socket layer can hand a `message` listener: text, and the two
+ * binary spellings (`admitFrame` normalizes both — Bun's client delivers a
+ * Buffer, the WebAPI spelling is an ArrayBuffer).
+ */
+type DeliveredFrame = string | Uint8Array | ArrayBuffer;
+
+/**
  * Wraps the real WebSocket and keeps each socket's `message` listeners, so a
  * test can hand the daemon several frames in ONE event-loop turn.
  *
  * Sending them from the plane does not do that: they cross a real socket and
  * arrive as separate turns, which is exactly the case that already worked.
+ * Frames are text OR bytes (task 6: the binary shapes a real socket delivers,
+ * so the byte guards see what production sees).
  * @param pumps - filled with one entry per socket the daemon opens
  */
-function wrapRealWsWithPump(pumps: Array<{ deliverBurst: (frames: string[]) => void }>): WsConstructor {
+function wrapRealWsWithPump(pumps: Array<{ deliverBurst: (frames: DeliveredFrame[]) => void }>): WsConstructor {
   const Real = globalThis.WebSocket as unknown as new (
     url: string,
     opts?: { headers?: Record<string, string> },
@@ -857,7 +1239,7 @@ function wrapRealWsWithPump(pumps: Array<{ deliverBurst: (frames: string[]) => v
     constructor(url: string, opts?: { headers?: Record<string, string> }) {
       this.inner = new Real(url, opts);
       pumps.push({
-        deliverBurst: (frames: string[]): void => {
+        deliverBurst: (frames: DeliveredFrame[]): void => {
           for (const frame of frames) {
             for (const listener of this.messageListeners) listener({ data: frame });
           }
@@ -867,7 +1249,7 @@ function wrapRealWsWithPump(pumps: Array<{ deliverBurst: (frames: string[]) => v
     get readyState(): number {
       return this.inner.readyState;
     }
-    send(data: string): void {
+    send(data: string | Uint8Array): void {
       this.inner.send(data);
     }
     close(code?: number, reason?: string): void {
@@ -903,7 +1285,7 @@ test("a burst of frames in one turn is verified in ARRIVAL order, not signature-
       sent.push(data);
     },
   } as unknown as TmuxRunner;
-  const pumps: Array<{ deliverBurst: (frames: string[]) => void }> = [];
+  const pumps: Array<{ deliverBurst: (frames: DeliveredFrame[]) => void }> = [];
   const h = await startDaemon({
     tmux: fakeTmux,
     meta: { get: async () => undefined, list: async () => [] } as unknown as SubshellMetaStore,
@@ -922,7 +1304,10 @@ test("a burst of frames in one turn is verified in ARRIVAL order, not signature-
   const pump = pumps.at(-1);
   if (!pump) throw new Error("no socket was opened");
   const closesBefore = h.plane.closes;
-  pump.deliverBurst(frames);
+  // Sealed through the plane's real session: the listener now admits ONLY
+  // ciphertext (spec §6), and this is the socket layer's job — the arrival-
+  // order teeth of the test (five frames, one event-loop turn) are untouched.
+  pump.deliverBurst(frames.map((f) => h.plane.sealForPump(f)));
 
   await waitFor(h, (e) => e.type === "result" && e.ref === `burst-${keystrokes.length}`, "the last input's result");
   // Every one accepted: no verify error, and above all no seq regression.
@@ -944,7 +1329,7 @@ test("an oversize frame is dropped on ARRIVAL, not queued behind the chain", asy
   // returns once the listener has run for both frames, and by then the
   // oversize one must ALREADY be logged even though the input ahead of it is
   // still mid-verify. Chained, nothing would be logged yet.
-  const pumps: Array<{ deliverBurst: (frames: string[]) => void }> = [];
+  const pumps: Array<{ deliverBurst: (frames: DeliveredFrame[]) => void }> = [];
   const h = await startDaemon({
     tmux: { sendInput: async () => {} } as unknown as TmuxRunner,
     meta: { get: async () => undefined, list: async () => [] } as unknown as SubshellMetaStore,
@@ -957,7 +1342,10 @@ test("an oversize frame is dropped on ARRIVAL, not queued behind the chain", asy
 
   const logs = captureLogs();
   try {
-    pump.deliverBurst([input, oversize]);
+    // The input is sealed (established sockets carry ciphertext); the
+    // oversize frame stays RAW on purpose — the size guard is the pre-link
+    // guard and must drop it before the negotiator ever sees it.
+    pump.deliverBurst([h.plane.sealForPump(input), oversize]);
     expect(logs.lines.some((l) => l.includes("oversize frame ignored"))).toBe(true);
   } finally {
     logs.restore();
@@ -965,6 +1353,115 @@ test("an oversize frame is dropped on ARRIVAL, not queued behind the chain", asy
   // …and the connection is unharmed: the input ahead of it still lands.
   await waitFor(h, (e) => e.type === "result" && e.ref === "admit-1", "the input's result");
   expect(h.plane.closes).toBe(0);
+});
+
+/* ------------------------------------------------------------------ */
+/* Task 6: binary frames survive the wire — task 9 sealed what they mean */
+/* ------------------------------------------------------------------ */
+
+test("undecryptable bytes of EVERY admitted binary shape close the link 4410, never the text path", async () => {
+  // Task 6's drop test wore the pre-encryption posture; spec §6 replaced it:
+  // the secretstream is ratcheted, a failed `openFrame` means the link is DEAD,
+  // and resyncing on attacker-chosen bytes is not a recovery. What survives of
+  // the old test verbatim is its shape-normalization pin — Buffer, plain
+  // Uint8Array, and ArrayBuffer each take the BYTES branch of `admitFrame`
+  // (Bun's client delivers whichever its `binaryType` names) — and its sharpest
+  // edge: bytes must never fall into `onFrame`, where a failed JSON.parse would
+  // answer the plane with a `verify: malformed` error event. One shape per
+  // link: the first undecryptable frame kills the stream, so three cycles pin
+  // three admissions, and the three refusals are three non-terminal 4410s.
+  const pumps: Array<{ deliverBurst: (frames: DeliveredFrame[]) => void }> = [];
+  newHome(); // R11 teeth need the real on-disk config (see the assertions at the end)
+  const h = await startDaemon({
+    saveConfig: true,
+    tmux: { sendInput: async () => {} } as unknown as TmuxRunner,
+    meta: { get: async () => undefined, list: async () => [] } as unknown as SubshellMetaStore,
+    WebSocketImpl: wrapRealWsWithPump(pumps),
+  });
+  const shapes: DeliveredFrame[] = [Buffer.alloc(5, 7), new Uint8Array([1, 2, 3]), new ArrayBuffer(4)];
+  const logs = captureLogs();
+  try {
+    for (const [i, shape] of shapes.entries()) {
+      // Established first (a frame before the ack opens would take the
+      // handshake-mode refusal instead — different branch, same close), then
+      // hand THIS socket's pump one garbage frame and watch the non-terminal
+      // 4410 → redial cycle complete before the next shape.
+      await waitFor(h, () => count(h, (e) => e.type === "ready") >= i + 1, `established socket #${i + 1}`);
+      const pump = pumps.at(-1);
+      if (!pump) throw new Error("no socket was opened");
+      pump.deliverBurst([shape]);
+      await waitFor(h, () => h.plane.opens >= i + 2, `reconnect after undecryptable frame #${i + 1}`);
+    }
+    // The refusal line itself, once per shape — NOT the loop's `disconnected`
+    // echo of the close reason (which repeats the text).
+    expect(logs.lines.filter((l) => l.includes("link handshake refused")).length).toBe(3);
+  } finally {
+    logs.restore();
+  }
+  expect(h.exits).toEqual([]); // the agent-initiated 4410 is an ordinary disconnect
+  // No answered error frames — nothing binary was parsed as text.
+  expect(eventsAs(h, "error")).toEqual([]);
+  // R11 teeth: every 4410 here was AGENT-initiated on an ESTABLISHED stream —
+  // the config must be byte-identical. A pin-drop fix that forgot the
+  // `reachedEstablished`/`selfRefused` gates would clear here, and every
+  // reconnect after the first would open with a `register` frame and a file
+  // missing its pin — BOTH assertions below would fail, not just one.
+  expect(h.plane.firstFrames).toEqual(["kx", "kx", "kx", "kx"]); // initial + 3 reconnects, all handshake mode
+  const flipSaved = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
+  expect(flipSaved.controlEncryptPublicKey).toBe(h.serverLink.publicKey); // pin survived, untouched
+});
+
+test("an oversize BINARY frame is refused on ARRIVAL exactly like an oversize text one", async () => {
+  // Same cap, same guards, same shape: measured by `bytes.length`, ignored,
+  // never queued behind the chain — the R2 ruling's agent-side twin.
+  const pumps: Array<{ deliverBurst: (frames: DeliveredFrame[]) => void }> = [];
+  const h = await startDaemon({
+    tmux: { sendInput: async () => {} } as unknown as TmuxRunner,
+    meta: { get: async () => undefined, list: async () => [] } as unknown as SubshellMetaStore,
+    WebSocketImpl: wrapRealWsWithPump(pumps),
+  });
+  const input = await signEnvelope(h, { type: "input", subshellId: HEX_A, data: "x" }, "bigbytes-1", 1);
+  const oversize = new Uint8Array(NODE_MAX_FRAME_BYTES + 10_000);
+  const pump = pumps.at(-1);
+  if (!pump) throw new Error("no socket was opened");
+
+  const logs = captureLogs();
+  try {
+    // Sealed input first (the only command shape an established socket admits),
+    // then the raw oversize blob: the size cap is checked BEFORE the negotiator,
+    // so it drops exactly as it did in the pre-encryption shape.
+    pump.deliverBurst([h.plane.sealForPump(input), oversize]);
+    // Asserted with no await: the drop happened on ARRIVAL, not behind the
+    // chain the input now occupies mid-verify.
+    expect(logs.lines.some((l) => l.includes("oversize frame ignored"))).toBe(true);
+  } finally {
+    logs.restore();
+  }
+  await waitFor(h, (e) => e.type === "result" && e.ref === "bigbytes-1", "the input's result");
+  expect(h.plane.closes).toBe(0);
+});
+
+test("WsLike carries binary sends (the seam task 9's sealed outbound frames need)", () => {
+  // `implements WsLike` makes the fake a COMPILE-TIME check of the widened
+  // `send(data: string | Uint8Array)` — narrowing the interface again fails
+  // right here, in the one suite that will soon drive a real session. The
+  // runtime assertion proves the recording wrapper keeps bytes intact.
+  class Recording implements WsLike {
+    readonly readyState = 1;
+    readonly sends: Array<string | Uint8Array> = [];
+    send(data: string | Uint8Array): void {
+      this.sends.push(data);
+    }
+    close(): void {}
+    addEventListener(): void {}
+  }
+  const sock: WsLike = new Recording();
+  sock.send(JSON.stringify({ type: "heartbeat" }));
+  sock.send(new Uint8Array([9, 8, 7]));
+  expect(sock instanceof Recording).toBe(true);
+  const recorded = (sock as Recording).sends;
+  expect(typeof recorded[0]).toBe("string");
+  expect(recorded[1]).toEqual(new Uint8Array([9, 8, 7]));
 });
 
 test("commands run SERIALLY in arrival order (spec §3.4): the second starts only after the first's promise resolves", async () => {
@@ -1226,13 +1723,16 @@ test("a throwing subshells_report scan is catch-logged, never fatal to the conne
  * after its close? — which plane-side event counts cannot answer (the dead
  * socket delivers nothing).
  */
-function wrapRealWs(sockets: Array<{ sends: string[] }>, state: { throwOnSend: boolean }): WsConstructor {
+function wrapRealWs(
+  sockets: Array<{ sends: Array<string | Uint8Array> }>,
+  state: { throwOnSend: boolean },
+): WsConstructor {
   const Real = globalThis.WebSocket as unknown as new (
     url: string,
     opts?: { headers?: Record<string, string> },
   ) => WsLike;
   class Wrapped {
-    readonly sends: string[] = [];
+    readonly sends: Array<string | Uint8Array> = [];
     private readonly inner: WsLike;
     constructor(url: string, opts?: { headers?: Record<string, string> }) {
       this.inner = new Real(url, opts);
@@ -1241,7 +1741,7 @@ function wrapRealWs(sockets: Array<{ sends: string[] }>, state: { throwOnSend: b
     get readyState(): number {
       return this.inner.readyState;
     }
-    send(data: string): void {
+    send(data: string | Uint8Array): void {
       this.sends.push(data);
       if (state.throwOnSend) throw new Error("ws.send exploded");
       this.inner.send(data);
@@ -1257,25 +1757,25 @@ function wrapRealWs(sockets: Array<{ sends: string[] }>, state: { throwOnSend: b
   return Wrapped as unknown as WsConstructor;
 }
 
-/** How many of a wrapped socket's recorded sends were `inventory` events. */
-function inventorySendCount(sock: { sends: string[] } | undefined): number {
-  if (!sock) return 0;
-  return sock.sends.filter((s) => {
-    try {
-      return (JSON.parse(s) as { type?: string }).type === "inventory";
-    } catch {
-      return false;
-    }
-  }).length;
+/**
+ * How many frames a wrapped socket SENT in total, whatever shape. Since task 9
+ * every post-establishment send is ciphertext, so the per-type question is
+ * answered PLANE-SIDE (`count(h, …)` — the fake plane decrypts before parsing);
+ * the socket-side count answers only the leak question: did anything keep
+ * pushing into this dead connection?
+ */
+function sendCount(sock: { sends: Array<string | Uint8Array> } | undefined): number {
+  return sock?.sends.length ?? 0;
 }
 
 test("periodic inventory: ticks push on the interval; close clears the loop; the reconnect arms exactly one", async () => {
-  const sockets: Array<{ sends: string[] }> = [];
+  const sockets: Array<{ sends: Array<string | Uint8Array> }> = [];
   const h = await startDaemon({ inventoryMs: 40, WebSocketImpl: wrapRealWs(sockets, { throwOnSend: false }) });
   // Connect push + two periodic ticks (T8b pinned the beat's existence and
-  // order; this pins that it REPEATS and lands on the live socket).
+  // order; this pins that it REPEATS and lands on the live socket) — counted
+  // where they are readable: the plane decrypts established inbound.
   await waitFor(h, () => count(h, (e) => e.type === "inventory") >= 3, "two periodic inventory ticks");
-  expect(inventorySendCount(sockets[0])).toBeGreaterThanOrEqual(3);
+  expect(sendCount(sockets[0])).toBeGreaterThanOrEqual(3);
 
   // Non-terminal close → finish() tears the loop down → reconnect re-arms on the NEW socket.
   closeAllSockets(h.plane, 1001, "server restart");
@@ -1284,27 +1784,36 @@ test("periodic inventory: ticks push on the interval; close clears the loop; the
   expect(sockets.length).toBe(2); // exactly one fresh dial armed the second loop
   // Snapshot AFTER the reconnect: the old timer is already cleared by finish(),
   // so this is leak-or-no-more, with no close/tick race window.
-  const staleBefore = inventorySendCount(sockets[0]);
-  const newBefore = inventorySendCount(sockets[1]);
+  const staleBefore = sendCount(sockets[0]);
+  const newBefore = sendCount(sockets[1]);
   await sleep(160); // ≥ 4 tick periods at 40 ms
-  expect(inventorySendCount(sockets[0])).toBe(staleBefore); // cleared on disconnect — no pushing into a dead socket
-  expect(inventorySendCount(sockets[1])).toBeGreaterThan(newBefore); // the new connection's ONE loop is alive
+  expect(sendCount(sockets[0])).toBe(staleBefore); // cleared on disconnect — no pushing into a dead socket
+  expect(sendCount(sockets[1])).toBeGreaterThan(newBefore); // the new connection's ONE loop is alive
 });
 
-test("a throwing send does not kill the periodic loop: later ticks still deliver", async () => {
+test("a throwing send costs a log line, never the process — a lost ciphertext moves the pushes to the NEXT link", async () => {
+  // The honest shape since task 9: `sealFrame` advances the send ratchet BEFORE
+  // the socket write, so a frame that cannot leave leaves the agent ahead of
+  // the plane's pull state — every later frame on THIS stream fails its open
+  // and the plane refuses the dead stream with 4410. That is the secretstream
+  // contract (spec §6: never resync), not a bug this side can paper over; the
+  // recovery is what the pre-encryption test already proved still holds: the
+  // throw is swallowed + logged, the loop survives, and a fresh socket with
+  // fresh streams carries the later ticks.
   const state = { throwOnSend: false };
-  const sockets: Array<{ sends: string[] }> = [];
+  const sockets: Array<{ sends: Array<string | Uint8Array> }> = [];
   const h = await startDaemon({ inventoryMs: 40, WebSocketImpl: wrapRealWs(sockets, state) });
   await waitFor(h, () => count(h, (e) => e.type === "inventory") >= 2, "connect push + first tick");
   const { lines, restore } = captureLogs();
   state.throwOnSend = true;
   await sleep(160); // several ticks whose sends throw — every one must be swallowed + logged
-  const before = count(h, (e) => e.type === "inventory");
   state.throwOnSend = false;
-  await waitFor(h, () => count(h, (e) => e.type === "inventory") > before, "a tick after the send recovered");
+  await waitFor(h, () => count(h, (e) => e.type === "inventory") > 2, "a tick again, after the fresh link");
   restore();
-  expect(h.plane.closes).toBe(0); // a failed push costs a log line, never the connection
+  expect(h.exits).toEqual([]); // never fatal to the daemon
   expect(lines.some((l) => l.includes("send inventory failed"))).toBe(true);
+  expect(h.plane.closes).toBeGreaterThanOrEqual(1); // the desynchronized stream was refused, per §6
+  expect(h.plane.opens).toBeGreaterThanOrEqual(2); // and the loop re-established on a new socket
 });
 
 test("outbound guard: an oversize result is suppressed + logged, never sent; the link survives", async () => {
@@ -1324,6 +1833,219 @@ test("outbound guard: an oversize result is suppressed + logged, never sent; the
   // The daemon is healthy behind the suppressed frame:
   const jti2 = await signAndSend(h, { type: "ping" }, { jti: "after-big", seq: 2 });
   await waitFor(h, (e) => e.type === "result" && e.ref === jti2, "ping after a suppressed capture");
+});
+
+/* ------------------------------------------------------------------ */
+/* Task 9: the agent handshakes the link before any frame              */
+/* ------------------------------------------------------------------ */
+
+describe("the link handshake (spec 2026-09-24 §4/§5)", () => {
+  test("(a) full encrypted attach: kx first, sealed binding, sealed ack, then ready → sealed command → sealed result", async () => {
+    const h = await startDaemon();
+    await waitForReady(h);
+    // The fake plane consumed kx + binding + ack through REAL sessions before
+    // a single event parsed — and it records what arrived first on the socket:
+    expect(h.plane.firstFrames[0]).toBe("kx");
+    expect(h.plane.violations).toEqual([]); // nothing crossed that §6 forbids
+    expect(h.plane.unparsed).toEqual([]);
+    // Command → result over REAL bytes BOTH directions (plane sealed, agent sealed back —
+    // the plane's established path decrypts via a real createServerSession stream).
+    const jti = await signAndSend(h, { type: "ping" }, { jti: "enc-1", seq: 1 });
+    const res = await waitFor(h, (e) => e.type === "result" && e.ref === jti, "sealed ping result");
+    expect(res).toMatchObject({ ok: true });
+    expect(h.plane.violations).toEqual([]);
+  });
+
+  test("(d) no plaintext ready is ever emitted before established, and heartbeats arm only after it", async () => {
+    // The plane consumes kx + binding but NEVER acks. An agent that still sent
+    // `ready` (the pre-encryption first frame) or still armed its heartbeat on
+    // OPEN would trip the plane's plaintext-on-the-wire record or produce
+    // events here; `heartbeatMs: 30` across a 300 ms hold means ~9 ticks the
+    // unestablished daemon must NOT take.
+    const h = await startDaemon({ skipReady: true, plane: { silentKx: true }, heartbeatMs: 30 });
+    await sleep(300); // one whole socket lifetime: kx + binding in, nothing back
+    expect(h.plane.opens).toBe(1); // the socket simply sits waiting for the ack
+    expect(h.plane.events).toEqual([]); // no ready, no heartbeat, nothing
+    // The plane itself saw only what §4 allows: kx, then the sealed binding.
+    expect(h.plane.firstFrames).toEqual(["kx"]);
+    expect(h.plane.violations).toEqual([]);
+  });
+
+  test("(b) a 4410 handshake refusal relays the plane's reason and reconnects — never terminal", async () => {
+    const h = await startDaemon({
+      skipReady: true,
+      plane: { refuseKx: "handshake refused: pub mismatch" },
+      heartbeatMs: 30, // if the refusal were treated as terminal, no exit line would ever appear
+    });
+    const { lines, restore } = captureLogs();
+    try {
+      await waitUntil(() => h.plane.opens >= 3, "reconnects after 4410", 4000);
+      // NON-TERMINAL: the process never exits, and the existing log line carries
+      // the plane's reason verbatim (the §6 relay the operator reads).
+      expect(h.exits).toEqual([]);
+      expect(lines.some((l) => l.includes("code 4410") && l.includes("handshake refused: pub mismatch"))).toBe(true);
+      // And it never progressed to protocol: no ready ever reached the plane.
+      expect(count(h, (e) => e.type === "ready")).toBe(0);
+    } finally {
+      restore();
+    }
+  });
+
+  test("a stale command result does not seal through the fresh link — the live ratchet stays untouched", async () => {
+    // The regression class the encryption introduced: `finish()` does not await
+    // the frame chain, so a command in flight when the socket died RESOLVES
+    // AFTER the reconnect — pre-task-9 that send simply vanished on the dead
+    // socket; sealing would instead advance the NEW stream and every later
+    // frame on the healthy link would fail its open (§6: never resync). The
+    // guard must drop BEFORE `sealFrame`.
+    const { lines, restore } = captureLogs();
+    try {
+      let releaseGate!: () => void;
+      const gate = new Promise<void>((r) => {
+        releaseGate = r;
+      });
+      let started = false;
+      const fakeTmux = {
+        capturePane: async () => {
+          started = true; // parked INSIDE the command, mid-flight across the close
+          await gate;
+          return "screen";
+        },
+      } as unknown as TmuxRunner;
+      const h = await startDaemon({
+        tmux: fakeTmux,
+        meta: { get: async () => undefined, list: async () => [] } as unknown as SubshellMetaStore,
+      });
+      await signAndSend(h, { type: "capture", subshellId: HEX_A, lines: 5 }, { jti: "stale-1", seq: 1 });
+      await waitUntil(() => started, "the capture to start");
+      closeAllSockets(h.plane, 1001, "server restart"); // its socket dies, command IN FLIGHT
+      await waitFor(h, () => h.plane.events.filter((e) => e.type === "ready").length >= 2, "reconnect ready");
+      const closesBefore = h.plane.closes;
+      const opensBefore = h.plane.opens;
+      releaseGate(); // the OLD socket's result resolves against the NEW link
+      await sleep(150); // give a bad seal every chance to desync the fresh stream
+
+      expect(lines.some((l) => l.includes("stale socket"))).toBe(true); // dropped, logged
+      expect(count(h, (e) => e.type === "result" && e.ref === "stale-1")).toBe(0); // never on any link
+      // The healthy proof: a legitimate round trip still openFrames, and neither
+      // close nor open moved in between — the stale send sealed NOTHING.
+      const jti = await signAndSend(h, { type: "ping" }, { jti: "after-stale", seq: 1 });
+      await waitFor(h, (e) => e.type === "result" && e.ref === jti, "ping on the untouched new link");
+      expect(h.plane.closes).toBe(closesBefore);
+      expect(h.plane.opens).toBe(opensBefore);
+      expect(h.plane.violations).toEqual([]);
+    } finally {
+      restore();
+    }
+  });
+
+  test("(c) legacy self-heal: register on connect 1, BOTH keys on disk, handshake on connect 2", async () => {
+    newHome(); // the register's updateConfig reads/writes the agent home
+    const h = await startDaemon({
+      saveConfig: true, // the file the §5 write path merges over
+      config: { encryptKeyPair: undefined, controlEncryptPublicKey: undefined }, // new binary, OLD config
+    });
+    await waitForReady(h); // this ready can only come from the SECOND socket
+    expect(h.plane.firstFrames.slice(0, 2)).toEqual(["register", "kx"]); // R7: register socket closes, redial handshakes
+    expect(count(h, (e) => e.type === "ready")).toBe(1); // the registering socket never reached protocol
+    const saved = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
+    const pair = saved.encryptKeyPair as { publicKey?: string; privateKey?: string } | undefined;
+    expect(typeof pair?.publicKey).toBe("string");
+    expect(typeof pair?.privateKey).toBe("string");
+    expect(saved.controlEncryptPublicKey).toBe(h.serverLink.publicKey); // the pin the register-ok carried
+    // And the self-heal is done: the provisioned config handshakes WITHOUT another register.
+    expect(h.plane.firstFrames.filter((f) => f === "register")).toEqual(["register"]);
+    expect(h.plane.violations).toEqual([]);
+  });
+
+  test("(e) R11 rotation heal: 4411 refused kx drops the CONTROL PIN only, register re-presents the SAME static, next connect handshakes", async () => {
+    // The agent half of the rotation story (spec 2026-09-24 §5 + rulings
+    // R10/R11/R12b): key rotation cleared the row's pin, the plane answers
+    // this node's handshake-mode `kx` with the named RE-PAIR refusal — close
+    // 4411 (NODE_CLOSE_REPAIR_REQUIRED), the code R12b introduced — and the
+    // config must shrink by EXACTLY the control pin — pair and nodeKey
+    // untouched — so the redial registers the SAME static and the row
+    // re-pairs. The mid-file snapshot rides `onRegisterClaim`: the
+    // provisioning gate makes that moment the non-racy window between the
+    // drop and the re-pin (rand→0 reconnects are otherwise FASTER than any poll).
+    newHome(); // the drop's updateConfig merges over the REAL on-disk config
+    const [nodeLink] = await Promise.all([nodeLinkReady]);
+    const midSnapshots: Array<Record<string, unknown>> = [];
+    const h = await startDaemon({
+      saveConfig: true, // provisioned on disk — the state a rotated node's agent carries
+      plane: {
+        refuseKxUntilRegister: "legacy row received a kx claim — re-pair via register",
+        onRegisterClaim: () =>
+          void midSnapshots.push(JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>),
+      },
+    });
+    await waitForReady(h); // only the THIRD socket can reach protocol
+
+    // THE R12b code: the refusal that drove this heal was 4411, not a generic
+    // 4410 — the plane half of the story uses the real code the agent acts on.
+    expect(h.plane.refusalCodes).toEqual([NODE_CLOSE_REPAIR_REQUIRED]);
+
+    // The full arc, in wire order: refused claim → register (pair kept, pin
+    // gone) → encrypted handshake.
+    expect(h.plane.firstFrames.slice(0, 3)).toEqual(["kx", "register", "kx"]);
+    expect(midSnapshots).toHaveLength(1); // one register, exactly — heal, not a loop
+    // THE R11 file truth, captured between the drop and the re-pin:
+    const mid = midSnapshots[0] as Record<string, unknown>;
+    expect("controlEncryptPublicKey" in mid).toBe(false); // explicit undefined dropped the key from the JSON
+    expect((mid.encryptKeyPair as { publicKey: string }).publicKey).toBe(nodeLink.publicKey); // pair KEPT — no re-mint
+    expect(mid.nodeKey).toBe(NODE_KEY); // the bearer untouched — this is not a re-enroll
+    // EXACTLY one field moved: the mid-heal file equals the daemon's own
+    // (post-heal, re-pinned) config minus the pin — pair, bearer, address and
+    // every other field byte-identical through the whole drop-and-re-pin arc.
+    const withoutPin = { ...(h.config as unknown as Record<string, unknown>) };
+    delete withoutPin.controlEncryptPublicKey;
+    expect(mid).toEqual(withoutPin);
+
+    expect(count(h, (e) => e.type === "ready")).toBe(1); // the refused and the registering sockets never reached protocol
+    expect(h.plane.pinnedNodePublicKey).toBe(nodeLink.publicKey); // the plane re-pinned the node's ORIGINAL static
+    const healed = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
+    expect(healed.controlEncryptPublicKey).toBe(h.serverLink.publicKey); // re-pinned by the register-ok — encrypted for good
+    expect(h.exits).toEqual([]); // the 4411 stayed an ordinary disconnect
+    expect(h.plane.violations).toEqual([]);
+  });
+
+  test("(f) a GENERIC 4410 mid-handshake (deadline-style) keeps the pin — the redial is still kx, config byte-identical (R12b, I-1)", async () => {
+    // The incident R12b closes. The plane's 10-second handshake deadline emits
+    // the SAME generic 4410 on a row that is healthy and STILL PINNED. Under
+    // the original broad R11 trigger this transient stalled dial would drop
+    // the control pin; the redial would then register against the still-pinned
+    // row → refused forever → a healthy node permanently offlined by a network
+    // blip. `deadlineAfterKx` reproduces the deadline exactly: consume the kx,
+    // close 4410, do not ack. The agent must redial STILL HANDSHAKE (kx again,
+    // never register) and its config must not move a byte.
+    newHome();
+    const [nodeLink] = await Promise.all([nodeLinkReady]);
+    const h = await startDaemon({
+      saveConfig: true, // provisioned on disk — the healthy, still-pinned state
+      skipReady: true, // this daemon NEVER establishes (every dial is deadline-cut)
+      plane: { deadlineAfterKx: "handshake required: no kx/binding within the deadline" },
+    });
+    // Let several deadline cycles run (rand→0 → instant reconnect; the daemon
+    // NEVER establishes, so it keeps redialing until afterEach stops it).
+    await waitUntil(() => h.plane.opens >= 3, "several redials after the deadline 4410", 4000);
+    await sleep(30); // give any (wrong) config write the deadline must NOT cause its chance to land
+
+    // Every first frame across every redial was a kx — the config never
+    // dropped the pin, so it NEVER fell to register mode. (This is the whole
+    // point: a broad R11 trigger would drop on the first 4410 and the redial
+    // would be a `register`.)
+    expect(h.plane.firstFrames.length).toBeGreaterThanOrEqual(3);
+    expect(h.plane.firstFrames.every((f) => f === "kx")).toBe(true);
+    // Every refusal the fake sent was the GENERIC 4410 — not one 4411.
+    expect(h.plane.refusalCodes.length).toBeGreaterThanOrEqual(3);
+    expect(h.plane.refusalCodes.every((c) => c === NODE_CLOSE_HANDSHAKE_REQUIRED)).toBe(true);
+    // And the on-disk config is byte-identical: BOTH link fields still there.
+    const saved = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
+    expect(saved.controlEncryptPublicKey).toBe(h.serverLink.publicKey); // pin INTACT
+    expect((saved.encryptKeyPair as { publicKey: string }).publicKey).toBe(nodeLink.publicKey); // pair INTACT
+    expect(h.exits).toEqual([]); // the generic 4410 is an ordinary disconnect too
+    expect(h.plane.violations).toEqual([]);
+  });
 });
 
 /* ------------------------------------------------------------------ */

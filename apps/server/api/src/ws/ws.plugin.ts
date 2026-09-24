@@ -93,7 +93,12 @@ wsPlugin.ws("/ws/node", {
     });
   },
   message(ws, message) {
-    // Same JSON pre-parse behavior as /ws: frames arrive as text or objects.
+    // Same JSON pre-parse behavior as /ws: frames arrive as text or as
+    // Elysia's pre-parsed objects — and once a link is encrypted, as Buffers
+    // of secretstream ciphertext (spec 2026-09-24). A Buffer is an object, so
+    // this filter lets it through UNTOUCHED: unlike the browser `/ws` path,
+    // which decodes CBOR at the edge (`decodeIncoming`), the node path does
+    // its own shape work in the handler and this hook must not normalize.
     // Queued variant (P1-T10): frames serialize per socket so an inventory
     // EVENT is stored before its command's result settles the waiting RPC.
     if (typeof message !== "string" && !(message && typeof message === "object")) return;

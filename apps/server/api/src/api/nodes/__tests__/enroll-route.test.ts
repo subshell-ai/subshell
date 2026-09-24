@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
 import { NODE_NAME_MAX } from "@internal/subshell-protocol";
+import { ensureSodium, generateLinkKeyPair } from "@internal/subshell-protocol/node-link-crypto";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { exportJWK, generateKeyPair } from "jose";
@@ -258,6 +259,76 @@ describe("/api/nodes/enroll", () => {
 
     // The very same key still redeems with a good JWK.
     const ok = await enroll(bodyFor(setupKey));
+    expect(ok.status).toBe(201);
+    createdNodeIds.push(((await ok.json()) as { nodeId: string }).nodeId);
+  });
+
+  // ── Link encryption key exchange (spec 2026-09-24 §3): enroll provisions BOTH
+  // directions — the node's static public half lands on the row, the plane's
+  // static public half is pinned by the agent from the response.
+
+  it("valid encryptPublicKey → stored on the row; response carries controlEncryptPublicKey (32-byte base64, stable per instance)", async () => {
+    const link = await generateLinkKeyPair();
+    const setupKey = await makeKey();
+    const res = await enroll(bodyFor(setupKey, { name: "kx-node", encryptPublicKey: link.publicKey }));
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { nodeId: string; controlEncryptPublicKey: string };
+    createdNodeIds.push(body.nodeId);
+
+    expect((await nodes.findById(body.nodeId))?.encryptPublicKey).toBe(link.publicKey);
+
+    // The plane's answer is its OWN static — base64 decoding to 32 bytes, never
+    // the node's key echoed back.
+    const sodium = await ensureSodium();
+    expect(sodium.from_base64(body.controlEncryptPublicKey).length).toBe(32);
+    expect(body.controlEncryptPublicKey).not.toBe(link.publicKey);
+
+    // Static per instance: a second enroll gets the same answer, and the key is
+    // long-term (the node pins it; rotation is manual, spec §3).
+    const second = await enroll(bodyFor(await makeKey(), { name: "kx-node-2", encryptPublicKey: link.publicKey }));
+    expect(second.status).toBe(201);
+    const secondBody = (await second.json()) as { nodeId: string; controlEncryptPublicKey: string };
+    createdNodeIds.push(secondBody.nodeId);
+    expect(secondBody.controlEncryptPublicKey).toBe(body.controlEncryptPublicKey);
+  });
+
+  it("a pre-v14 enroll (no encryptPublicKey) stores null and STILL gets controlEncryptPublicKey", async () => {
+    // The field is optional so an old one-liner still enrolls — the row simply
+    // carries no pin (legacy held mode until §5's first-connect registration).
+    // The response field is NOT optional: a v14 agent must always be able to pin.
+    const setupKey = await makeKey();
+    const res = await enroll(bodyFor(setupKey, { name: "legacy-one" }));
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { nodeId: string; controlEncryptPublicKey: string };
+    createdNodeIds.push(body.nodeId);
+
+    expect((await nodes.findById(body.nodeId))?.encryptPublicKey).toBeNull();
+    expect((await ensureSodium()).from_base64(body.controlEncryptPublicKey).length).toBe(32);
+  });
+
+  it("malformed encryptPublicKey fails BEFORE consume — key stays redeemable", async () => {
+    // THE ordering test for the new field (same position the publicKey checks
+    // hold): a body that cannot be stored must not spend the single-use key.
+    // Both fixtures stay inside the schema's 43-44 char window so they reach
+    // the route's decode check rather than dying at schema validation.
+    const setupKey = await makeKey();
+    const sodium = await ensureSodium();
+
+    const notBase64 = await enroll(bodyFor(setupKey, { encryptPublicKey: "!".repeat(43) }));
+    expect(notBase64.status).toBe(400);
+    expect(((await notBase64.json()) as { message: string }).message).toInclude("encryptPublicKey");
+    expect(await repo.peekValid(setupKey)).toBe(true);
+
+    // Valid base64, wrong byte length (33 → 44 chars, schema-legal).
+    const wrongLength = sodium.to_base64(new Uint8Array(33));
+    expect(wrongLength.length).toBe(44);
+    const badLen = await enroll(bodyFor(setupKey, { encryptPublicKey: wrongLength }));
+    expect(badLen.status).toBe(400);
+    expect(((await badLen.json()) as { message: string }).message).toInclude("encryptPublicKey");
+    expect(await repo.peekValid(setupKey)).toBe(true);
+
+    // The very same key still redeems with a valid key.
+    const ok = await enroll(bodyFor(setupKey, { encryptPublicKey: (await generateLinkKeyPair()).publicKey }));
     expect(ok.status).toBe(201);
     createdNodeIds.push(((await ok.json()) as { nodeId: string }).nodeId);
   });

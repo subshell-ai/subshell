@@ -17,6 +17,25 @@ export interface NodeConfig {
   nodeKey: string;
   /** JSON-serialized control-plane signing public JWK, pinned so commands can be verified. */
   controlPublicKey: string;
+  /**
+   * This node's static X25519 keypair for the encrypted /ws/node link, base64
+   * (spec 2026-09-24 §3): generated at enroll, the public half pinned on the
+   * server's node row, and THIS 0600 file is the private half's ONLY home —
+   * the same doctrine as {@link nodeKey}. Absent on a legacy config: the new
+   * binary registers on its first connect and writes it back (§5's self-heal),
+   * which is why `REQUIRED_FIELDS` deliberately does NOT list it. A junk shape
+   * loads as absent (never a corruption verdict), and a half-keyed object is
+   * junk — a partial identity could only stall the handshake.
+   */
+  encryptKeyPair?: { publicKey: string; privateKey: string };
+  /**
+   * The control plane's static encryption public key (base64), pinned into
+   * this file exactly as {@link controlPublicKey} is (spec 2026-09-24 §3) —
+   * the enroll answer or §5's `register-ok`. Absent means unprovisioned; a
+   * blank string is hand-edit junk and loads as absent like a blank
+   * `nodeWsUrl`.
+   */
+  controlEncryptPublicKey?: string;
   /** Directory holding the identity keypair and runtime state. */
   dataDir: string;
   /**
@@ -183,6 +202,15 @@ export async function loadConfig(): Promise<NodeConfig> {
     // the guard is `>= 0`, not `> 0`.
     logRetentionDays: retentionField(obj.logRetentionDays),
     logRetentionHours: retentionField(obj.logRetentionHours),
+    // Link-encryption fields (spec 2026-09-24 §3), modelled for exactly the
+    // reason `debugLogging` above is: `updateConfig` re-reads through THIS
+    // loader before saving, so a field dropped here would be silently cleared
+    // by an unrelated write — a retention save erasing the node's static
+    // private half, which nothing short of re-enrolling could recover. Absent
+    // is a real state here (a legacy config awaiting §5's self-heal), never a
+    // corruption verdict.
+    encryptKeyPair: encryptKeyPairField(obj.encryptKeyPair),
+    controlEncryptPublicKey: nonBlankString(obj.controlEncryptPublicKey),
     // loadConfig rebuilds field by field, so a field NOT listed here is
     // dropped on its way to the daemon. That is how an older config's
     // `registryUrl` (the phase-3 npm mirror, dead with the node's plugin
@@ -200,4 +228,27 @@ export async function loadConfig(): Promise<NodeConfig> {
  */
 function retentionField(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
+/**
+ * One link keypair (spec 2026-09-24 §3): an object whose `publicKey` AND
+ * `privateKey` halves are non-blank strings, or `undefined` for absent/junk.
+ * A half-keyed object can only come from a hand-edit or a torn write, and it
+ * cannot complete a handshake — so it loads as absent and the §5 registration
+ * re-provisions the whole pair, rather than the daemon carrying a partial
+ * identity into every connect. Halves are returned verbatim (a base64 payload
+ * is not trimmable material); only the blankness GATE reads trimmed.
+ */
+function encryptKeyPairField(value: unknown): { publicKey: string; privateKey: string } | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const pair = value as Record<string, unknown>;
+  const publicKey = nonBlankString(pair.publicKey);
+  const privateKey = nonBlankString(pair.privateKey);
+  if (publicKey === undefined || privateKey === undefined) return undefined;
+  return { publicKey, privateKey };
+}
+
+/** A non-empty-after-trim string, or `undefined` (the blank-`nodeWsUrl` rule). */
+function nonBlankString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }

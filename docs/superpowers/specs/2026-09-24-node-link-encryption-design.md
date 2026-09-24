@@ -88,8 +88,12 @@ but drags the libp2p stack for one pattern); hand-rolled Noise_IK on
    pinned server static was wrong and the socket closes.
 5. Every subsequent frame, both directions, is a binary secretstream message.
    The existing `parseNodeFrame` path runs unchanged behind decryption; WS
-   `maxPayload` plus `NODE_MAX_FRAME_BYTES` still bound sizes (plaintext cap
-   checked post-decrypt, ciphertext cap pre).
+   `maxPayload` plus `NODE_MAX_FRAME_BYTES` still bound sizes — the cap is
+   enforced once, on the RAW frame before the machine runs, and what a decrypt
+   yields is bounded STRUCTURALLY (plaintext ≤ ciphertext − 17 ≤ cap), not
+   re-measured after opening. (Superseded wording, R12 fix: an earlier draft of
+   this line said "plaintext cap checked post-decrypt" — no such second check
+   exists or is needed.)
 
 Properties: mutual authentication anchored on the pinned/provisioned statics
 (an on-path attacker who can't break the pin can't complete the handshake),
@@ -198,4 +202,75 @@ to the other.
   ("use existing libraries"); libsodium chosen per §2's reasoning.
 - Release-signature verifier stays hand-rolled-with-fixtures (no maintained
   library exists for tauri's `ED` armor variant; documented exception).
-```
+
+## Implementation footer (landed 2026-09-24 — the code is the truth)
+
+Where the build refined this spec's prose, it is recorded here:
+
+- **§4's two-message exchange landed as one (ruling R6).** `crypto_kx` is a
+  SINGLE DH — the node's fresh ephemeral against the server's long-term static —
+  and the node already holds the server's pinned public half, so there is no
+  server `eph` to hand back: a correct `kx` is consumed in silence and the
+  server's first push is the sealed `{t:"ok"}` ack. The `pub` claim is checked
+  against the row's pin (constant-time, decoded bytes) BEFORE any derivation.
+- **§5's ordered reality landed as register → close → reconnect (ruling R7).**
+  The plane writes the row's pin, answers ONE plaintext `register-ok`, and
+  closes the socket NORMALLY — not 4410 — because that close is the success
+  path; the agent's backoff redial is classified `handshake` by the pin just
+  written.
+- **The close-code reality (§6), refined by R12b.** There are TWO handshake
+  close codes, both shared and NON-terminal for the agent (backoff redial; the
+  register self-heal rides the next dial) — unlike the terminal 4406/4409.
+  `NODE_CLOSE_HANDSHAKE_REQUIRED = 4410` is the GENERIC refusal (wrong-kind
+  frame for the phase, pin/binding mismatch, undecryptable stream, and the
+  10-second handshake deadline on a classified socket that says nothing).
+  `NODE_CLOSE_REPAIR_REQUIRED = 4411` is the R10 re-pair signal — a `kx` claim
+  at a row with no pin the claim matches — and it is the ONLY code on which the
+  agent's `onClosed` drops its control pin before establishment (all four R11
+  gates held: 4411, not self-refused, handshake mode, never established), so
+  the redial re-registers the node's SAME static. Under R11 as first built, a
+  pre-establishment 4410 dropped the pin; R12b narrowed it to 4411 because the
+  plane's handshake DEADLINE emits a generic 4410 on a row that is usually
+  still pinned — dropping the pin there sent the redial to `register` against a
+  still-pinned row and permanently offlined a healthy node on a transient stall
+  (final review I-1). A generic 4410 now leaves the config byte-identical; the
+  healthy handshake under a stall heals on the next dial's fresh ephemeral. The
+  agent also emits 4410 for its mirror-image failures (pinned control key would
+  not open the ack; stream broken mid-session).
+- **§6's "nothing persisted before register" is aspirational, not the shipped
+  order — and the crash-window it opens is NOT what 4411 heals.** §6's
+  crash-recovery bullet says a server restart mid-handshake persists nothing
+  before registration/`ready`. The plane actually PERSISTS the row's pin INSIDE
+  `acceptRegister` (`link-session.ts` — `setEncryptPublicKey` runs before it
+  answers `register-ok`), so the pin-before-answer window is real: a plane that
+  persisted a node's pin and then died (or an agent that died before storing its
+  own control pin) leaves the node PIN-LESS against a STILL-PINNED row. It dials
+  in `register` mode and the plane refuses that `register` with a GENERIC 4410
+  whose reason names the rotate remedy — deliberately NOT 4411, because a register
+  is not the re-pair signal and this agent has no control pin left to drop. THE
+  DISTINCTION, stated so it never reads as healed: 4411 heals the PIN-HOLDER's
+  misfire (a handshake node cut off by the deadline keeps its pin and redials
+  provisioned); it does NOT heal this register crash-window, which stays a manual
+  admin-rotate loop (`rotate` clears the pin → `register` heals → because rotate
+  also disables the bearer, install the new key with `subshell configure --key` +
+  restart). The fully-closing arm — accepting a byte-equality-matched plaintext
+  `register` on a pinned socket — was declined as a plaintext-on-v14 downgrade,
+  per the absolute no-fallback ruling.
+- **§6's replay sentence is superseded by R6, not by new facts.** It explains
+  replay inertness as "its ephemeral DH differs" — but the single-DH handshake
+  has NO server ephemeral to differ against. Replay of captured bytes is inert
+  for four mechanisms, each independently pinned: the bearer key must pass the
+  upgrade gate before any socket exists; the row's pin refusal lands BEFORE any
+  key derivation (no derivation, no keys); a classified socket refuses
+  "ciphertext before kx" outright, so captured `kx` material cannot pre-empt
+  the phase machine; and the secretstream ratchet makes replayed ciphertext
+  undecryptable and un-attachable to any live session's fresh keys. The
+  conclusion stands — replay is inert by construction, and a test pins it:
+  `apps/server/api/src/services/nodes/__tests__/link-handshake.integration.test.ts`,
+  the "REPLAY: connect #1's captured bytes verbatim onto a fresh socket are
+  refused, and touch no row" case.
+- **The plaintext fallback §5's closing paragraph imagined was NOT built (fail
+  closed, per §6's own doctrine).** A v14 agent whose handshake a server
+  rejects keeps retrying ENCRYPTED; there is no client-side way to tell a
+  pre-14 server from a broken configuration, and guessing wrong is the
+  downgrade this design exists to refuse. The operator updates the server.

@@ -45,6 +45,7 @@ export class NodesRepository extends BaseRepository {
         agentVersion: input.agentVersion ?? null,
         protocolVersion: input.protocolVersion ?? null,
         publicKey: input.publicKey ?? null,
+        encryptPublicKey: input.encryptPublicKey ?? null,
         apiKeyId: input.apiKeyId ?? null,
         capabilities: input.capabilities ?? null,
         inventoryJson: input.inventoryJson ?? null,
@@ -293,6 +294,20 @@ export class NodesRepository extends BaseRepository {
     await this.db
       .updateTable("nodes")
       .set({ apiKeyId, updatedAt: new Date().toISOString() })
+      .where("id", "=", id)
+      .execute();
+  }
+
+  /**
+   * Pin or clear the node's static X25519 public half for the encrypted
+   * /ws/node link (spec 2026-09-24 §3). null puts the row back into legacy
+   * mode — that is exactly what key rotation does, so the encryption identity
+   * re-provisions through the same §5 self-heal as a never-registered node.
+   */
+  async setEncryptPublicKey(id: string, key: string | null): Promise<void> {
+    await this.db
+      .updateTable("nodes")
+      .set({ encryptPublicKey: key, updatedAt: new Date().toISOString() })
       .where("id", "=", id)
       .execute();
   }

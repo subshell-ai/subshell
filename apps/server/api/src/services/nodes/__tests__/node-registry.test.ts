@@ -11,10 +11,10 @@ import {
   resetNodeRegistryForTests,
 } from "../node-registry.js";
 
-/** Minimal fake socket recording frames and close calls. */
+/** Minimal fake socket recording frames (text or binary) and close calls. */
 interface FakeSocket extends NodeSocket {
   /** Payloads passed to `send` in call order */
-  sent: string[];
+  sent: Array<string | Buffer>;
   /** Close calls in call order */
   closed: { code?: number; reason?: string }[];
 }
@@ -23,7 +23,7 @@ function fakeSocket(): FakeSocket {
   return {
     sent: [],
     closed: [],
-    send(data: string) {
+    send(data: string | Buffer) {
       this.sent.push(data);
       return data.length;
     },
@@ -142,8 +142,12 @@ describe("node registry (spec 2026-08-31 §5.3)", () => {
       const sock = fakeSocket();
       const conn = attachConnection("n1", sock);
 
-      await disconnectNode("n1", 4410, "key rotated");
-      expect(sock.closed).toEqual([{ code: 4410, reason: "key rotated" }]);
+      // A code with no protocol meaning — this test proves `disconnectNode`
+      // honours whatever it is handed. 4410 is now RESERVED
+      // (NODE_CLOSE_HANDSHAKE_REQUIRED), so it is no longer a safe arbitrary
+      // fixture; 4451 is unused across the node wire.
+      await disconnectNode("n1", 4451, "key rotated");
+      expect(sock.closed).toEqual([{ code: 4451, reason: "key rotated" }]);
       expect(conn.closing).toBe(true);
 
       // The socket's (simulated) late close event now finds no entry — and a
