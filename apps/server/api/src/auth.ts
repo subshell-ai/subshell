@@ -5,12 +5,15 @@ import { genericOAuth } from "better-auth/plugins";
 import { sql } from "kysely";
 import { auditAuthAfterRequest, auditSessionDeleted } from "@/auth/audit-hooks.js";
 import { authDatabase } from "@/auth/database.js";
+import { createDoorGuardBeforeHook } from "@/auth/door-guards.js";
+import { type DoorValidationData, evaluateDoorPolicy } from "@/auth/door-policy.js";
 import { loadProviderRowsSync, toGenericOAuthConfig } from "@/auth/provider-rows.js";
 import { APP_BASE_URL, AUTH_SECRET } from "@/constants.js";
+import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
+import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { REAL_ACCOUNT_FILTER } from "@/db/repositories/users.repository.js";
 import { FIRST_SETUP_STEP } from "@/db/types/setup-step.js";
-import { accountDisabled } from "@/services/account-status.js";
-import { registrationOpen } from "@/services/registration-gate.js";
+import { accountDisabled, accountPending } from "@/services/account-status.js";
 import { originRegistry } from "@/services/trusted-origins.js";
 import { normalizeUserName } from "@/services/user-name.js";
 import { logger } from "@/utils/logger.js";
@@ -28,11 +31,27 @@ import { logger } from "@/utils/logger.js";
  * first use. Roles do NOT live on the better-auth user; they live in the
  * app's `user_meta` table via the databaseHooks below.
  */
+const doorGuardBeforeHook = createDoorGuardBeforeHook(() => appDb);
+
 export const AUTH_OPTIONS = {
   baseURL: APP_BASE_URL,
   secret: AUTH_SECRET,
   emailAndPassword: {
     enabled: true,
+  },
+  user: {
+    // §3: the one policy seam 1.7.1 offers (measured: there is no
+    // per-provider hook, and no `validateUserInfo` call anywhere on the
+    // email-password SIGN-IN path — that refusal is `door-guards`'s job).
+    // Rejection is a RETURNED `{ error, errorDescription }` — NOT a thrown
+    // string and NOT the literal "reject" (a returned string's `.error` is
+    // undefined ⇒ ALLOWED; assertValidUserInfo reads `result?.error`). The
+    // codes ride out as a 403 APIError whose `code` is exactly this `error`,
+    // which is how `/pending` and the login page map the refusal (§4).
+    validateUserInfo: async (data: DoorValidationData, _ctx: unknown) => {
+      if (!appDb) return undefined; // pre-boot: matches the other policy reads' gap behavior
+      return await evaluateDoorPolicy(appDb, data);
+    },
   },
   account: {
     accountLinking: {
@@ -106,19 +125,19 @@ export const AUTH_OPTIONS = {
     user: {
       create: {
         before: async (newUser: { name?: string }) => {
-          // Registration gate: once the app is set up, the admin can close it.
-          if (!(await registrationAllowed())) {
-            return false;
-          }
-          // ...and the display name is normalized HERE because this is the one
+          // The registration gate USED to refuse here; it now refuses in
+          // `user.validateUserInfo` (above), which 1.7.1 runs before this
+          // hook and on every provisioning path this instance has — see
+          // spec 2026-09-24 §3.
+          // The display name is normalized HERE because this is the one
           // seam every sign-up shares. The first-run wizard calls
           // `signUp.email` directly, so `POST /api/users`'s own normalizer
           // never sees the very first admin's name — and that name is rendered
           // to every other user as a share grantee label and reaches log
           // lines. better-auth 1.7.1 merges a returned `{ data }` over the row
           // it was about to write (`db/with-hooks.mjs`), which is what makes a
-          // rewrite possible at all; `false` still aborts, so the gate above
-          // is unaffected.
+          // rewrite possible at all; `false` still aborts, so this seam
+          // remains able to refuse if a future rule needs one.
           const name = normalizeUserName(newUser.name ?? "");
           // Nothing printable becomes "" rather than a refusal: a refusal here
           // is a failed first run, and "" is the value `displayNamesByIds`
@@ -131,13 +150,20 @@ export const AUTH_OPTIONS = {
         },
       },
     },
+    account: {
+      create: {
+        after: markApprovalDoorArrival,
+      },
+    },
     session: {
       create: {
         before: async (session: { userId: string }) => {
-          // A disabled account may not authenticate. The hook sits on SESSION
-          // creation rather than on the email sign-in endpoint because every
-          // credential kind mints a session here — password and passkey
-          // alike — so one refusal covers both, and whatever is added next.
+          // A disabled or pending account may not authenticate. The hook sits
+          // on SESSION creation rather than on the email sign-in endpoint
+          // because every credential kind mints a session here — password and
+          // passkey alike — so one refusal covers both, and whatever is added
+          // next. Pending lands here for the first-arrival OAuth sign-in and
+          // stays the backstop behind `validateUserInfo` (§4).
           if (await signInAllowed(session.userId)) return undefined;
           return false;
         },
@@ -159,6 +185,10 @@ export const AUTH_OPTIONS = {
   // success and why failures deliberately write nothing. Runs for every
   // better-auth request, so the path table short-circuits everything else.
   hooks: {
+    // The closed E-mail door's sign-in refusal (spec §7) — see
+    // `@/auth/door-guards` for why THIS layer and not `validateUserInfo`
+    // carries it (measured: that hook never fires on the sign-in paths).
+    before: doorGuardBeforeHook,
     after: auditAuthAfterRequest,
   },
 };
@@ -248,23 +278,6 @@ export function setAuthPolicyDb(db: import("kysely").Kysely<import("@/db/types/i
 }
 
 /**
- * Reads the registration gate.
- *
- * Delegates to `services/registration-gate.ts`, which the settings routes
- * read through as well — three surfaces decide things from this answer (this
- * hook refuses the POST, the admin switch draws itself, the sign-in page
- * offers or hides "create an account"), and a second reading of the row is
- * how they come to disagree.
- *
- * `!appDb` is before the database is wired, which is only ever during boot;
- * open there matches the pre-setup window the shared function describes.
- */
-async function registrationAllowed(): Promise<boolean> {
-  if (!appDb) return true;
-  return await registrationOpen(appDb);
-}
-
-/**
  * Whether this user may be given a session at all.
  *
  * Delegates to `services/account-status.ts`, which `authGuard` reads through
@@ -272,12 +285,62 @@ async function registrationAllowed(): Promise<boolean> {
  * credentials already issued, and a second reading of the row is how the two
  * come to disagree.
  *
+ * PENDING joins DISABLED here (spec 2026-09-24 §4): the first-arrival session
+ * refusal for an approval-gated OIDC account, and the backstop behind
+ * `validateUserInfo`. Disabled is asked FIRST and it wins: a pending account
+ * that an admin also disabled is refused for the stronger reason, and neither
+ * answer may leak the other's truth — the user-visible code for this whole
+ * path is better-auth's generic `unable_to_create_session`, deliberately: it
+ * cannot distinguish pending from disabled and neither leaks the other's.
+ *
  * `!appDb` is before the database is wired, which is only ever during boot;
  * allowing there matches what the registration gate does with the same gap.
  */
 async function signInAllowed(userId: string): Promise<boolean> {
   if (!appDb) return true;
-  return !(await accountDisabled(appDb, userId));
+  return !(await accountDisabled(appDb, userId)) && !(await accountPending(appDb, userId));
+}
+
+/**
+ * `databaseHooks.account.create.after` — exported for the hook test; wired
+ * verbatim into {@link AUTH_OPTIONS}.
+ *
+ * The ONLY seam that sees the provider at creation time (user.create.after
+ * fires before the account row exists — measured, review finding 5). Marks
+ * require-approval doors' ARRIVALS pending and undoes the first-admin
+ * promotion that `user.create.after` just wrote for them (§6): an OIDC-arrival
+ * creator can never end up admin, on an instance with no admin yet or one
+ * with an existing admin miscounted as none. The `credential` skip is the
+ * email door (its account rows spell their provider that way — measured,
+ * `dist/api/routes/sign-up.mjs`); the `getById` miss covers every other
+ * non-door providerId (a passkey row says "passkey").
+ *
+ * ARRIVALS ONLY, decided by account count: `linkAccount` runs through the
+ * same adapter create (`db/internal-adapter.mjs` — measured), so an approved
+ * EXISTING user linking an approval door would otherwise be marked pending
+ * and, if they were the sole admin, DEMOTED by the clause below — the
+ * instance losing its last admin to a link. The pure cascade already answers
+ * links (approved links pass; pending/rejected refuse), so marking here would
+ * contradict §5's policy with §6's queue, and the demote's "only the row the
+ * promotion just wrote" claim holds precisely because a fresh arrival is a
+ * user with exactly one account.
+ */
+export async function markApprovalDoorArrival(account: {
+  id: string;
+  providerId: string;
+  userId: string;
+}): Promise<void> {
+  if (account.providerId === "credential" || !appDb) return;
+  const door = await new AuthProvidersRepository(appDb).getById(account.providerId);
+  if (door === undefined || door.requireApproval !== 1) return;
+  // Raw SQL: better-auth's `account` table, physical camelCase names.
+  const others = await sql<{ n: number }>`
+    SELECT COUNT(*) AS n FROM account WHERE userId = ${account.userId} AND id <> ${account.id}
+  `.execute(appDb);
+  if (Number(others.rows[0]?.n ?? 0) > 0) return; // a link, not an arrival
+  const meta = new UserMetaRepository(appDb);
+  await meta.setApproval(account.userId, "pending", { arrivedAt: new Date().toISOString() });
+  await meta.demoteAdminIfAutoPromoted(account.userId);
 }
 
 /**
