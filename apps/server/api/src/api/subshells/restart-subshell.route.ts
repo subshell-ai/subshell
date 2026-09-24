@@ -67,7 +67,7 @@ export const restartSubshellRoute = new Elysia()
         operationId: "restartSubshell",
         tags: ["subshells"],
         description:
-          "Revive this subshell in place: same id and name, new process, conversation resumed when its transcript survived. An optional { presetId } body (string = a preset of yours sharing this subshell's harness, null = presetless) swaps the row's preset before the revive; a refusal at the gate, in validation, at maintenance or by the offline pre-gate writes nothing (a revive that fails after the swap leaves the row dead keeping it), and a body-less POST is the plain restart it has always been",
+          "Revive this subshell in place: same id and name, new process, conversation resumed when its transcript survived. An optional { presetId } body (string = a preset of yours sharing this subshell's harness, null = presetless) swaps the row's preset before the revive; a refusal at the gate, in validation, at maintenance, by the offline pre-gate or because a restart is already running writes nothing (a revive that fails after the swap leaves the row dead keeping it), and a body-less POST is the plain restart it has always been",
       },
     },
   );

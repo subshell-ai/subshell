@@ -9,10 +9,10 @@ import { Elysia } from "elysia";
  * `POST /api/subshells/:id/restart` gained an optional body
  * `{ presetId: string | null }`: the column is written at the manager's swap
  * point (after the kill, before the parked re-read), so every refusal — the
- * gate's 403, the node's 409, the swap validator's 400 — must leave the row's
- * preset byte-identical, and a plain no-body restart must behave exactly as
- * before (that path is what the MCP `restart_subshell` tool and the SPA's
- * Restart item send).
+ * gate's 403, the node's 409, the swap validator's 400, the held lease's 409
+ * RESTART_IN_FLIGHT — must leave the row's preset byte-identical, and a plain
+ * no-body restart must behave exactly as before (that path is what the MCP
+ * `restart_subshell` tool and the SPA's Restart item send).
  *
  * The fixtures are the cross-stack ones: a scripted agent (`test-helpers/
  * scripted-node.ts`) answers the real RemoteLauncher's RPCs, so a restart that
@@ -286,6 +286,46 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
       expect(sim.countOf("kill")).toBe(0); // nothing was even attempted
       expect(sim.cmdTypes()).toEqual(["stat_dir", "launch"]); // the create pair only
     } finally {
+      sim.detach();
+    }
+  });
+
+  // The wire mapping of the manager's lease refusal. The join test in
+  // `subshell-manager.service.test.ts` pins the THROW; this walks the route's
+  // catch chain so the documented 409 cannot silently rot into a 500. The
+  // first restart hangs inside the scripted node's `kill` (the helper awaits
+  // handler results before answering), so the in-flight lease is demonstrably
+  // held when the swap-carrying POST reaches the manager.
+  it("a swap arriving mid-restart is refused 409 RESTART_IN_FLIGHT, preset untouched", async () => {
+    let releaseKill: () => void = () => {};
+    let reachedKill: () => void = () => {};
+    const killGate = new Promise<void>((resolve) => {
+      releaseKill = resolve;
+    });
+    const sawKill = new Promise<void>((resolve) => {
+      reachedKill = resolve;
+    });
+    const sim = attachScriptedNode(nodeLive, {
+      ...LIFECYCLE,
+      kill: async () => {
+        reachedKill();
+        await killGate; // hold the revival — and its lease — open at the kill
+      },
+    });
+    try {
+      const id = await createOnLive("swap-in-flight");
+      const first = restart(id, { cookie: ownerCookie }); // plain restart: hangs at kill
+      await sawKill; // the lease is held by the first caller's revival
+      const res = await restart(id, { cookie: ownerCookie, body: { presetId: null } });
+      expect(res.status).toBe(409);
+      expect((await errorBody(res)).code).toBe("RESTART_IN_FLIGHT");
+      expect(await rowPreset(id)).toBe(presetA); // byte-identical: refused, never joined
+      releaseKill();
+      expect((await first).status).toBe(200); // the first restart lands untouched
+    } finally {
+      // An earlier throw must not strand the gate (which would leave the
+      // first POST hanging) — releasing a settled gate is a no-op.
+      releaseKill();
       sim.detach();
     }
   });

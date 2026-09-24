@@ -413,6 +413,12 @@ describe("SubshellManagerService restart", () => {
     const gate = new Promise<void>((r) => {
       releaseGate = r;
     });
+    // Resolved by A's stub AT the issue, so the test learns A is parked +
+    // mid-revival as an event, not by polling the counter against a 2 s ceiling.
+    let reachedIssueA: () => void = () => {};
+    const sawIssueA = new Promise<void>((r) => {
+      reachedIssueA = r;
+    });
     let aIssues = 0;
     let bIssues = 0;
     const mkManager = (tally: () => void, gateOnIssue = false) =>
@@ -423,7 +429,10 @@ describe("SubshellManagerService restart", () => {
         tokens: {
           issue: async () => {
             tally();
-            if (gateOnIssue) await gate; // hold A inside #reviveRow, post-park
+            if (gateOnIssue) {
+              reachedIssueA();
+              await gate; // hold A inside #reviveRow, post-park
+            }
             return "subshell_stub";
           },
           revoke: async () => {},
@@ -434,7 +443,7 @@ describe("SubshellManagerService restart", () => {
     const b = mkManager(() => bIssues++);
 
     const pA = a.restartSubshell("u1", id); // starts, parks, reaches issue, waits
-    for (let i = 0; aIssues === 0 && i < 2000; i++) await new Promise((r) => setTimeout(r, 1));
+    await sawIssueA;
     expect(aIssues).toBe(1); // A is now parked + mid-revival
 
     // Same owner, DIFFERENT instance → must join A's lease (never spawn).
@@ -530,6 +539,11 @@ describe("SubshellManagerService restart", () => {
     const gate = new Promise<void>((r) => {
       releaseGate = r;
     });
+    // A's arrival at the issue is a signal, not a poll: no 2 s ceiling race.
+    let reachedIssueA: () => void = () => {};
+    const sawIssueA = new Promise<void>((r) => {
+      reachedIssueA = r;
+    });
     let aIssues = 0;
     const mkManager = (gateOnIssue = false) =>
       new SubshellManagerService({
@@ -539,7 +553,10 @@ describe("SubshellManagerService restart", () => {
         tokens: {
           issue: async () => {
             aIssues++;
-            if (gateOnIssue) await gate; // hold A inside #reviveRow, post-park
+            if (gateOnIssue) {
+              reachedIssueA();
+              await gate; // hold A inside #reviveRow, post-park
+            }
             return "subshell_stub";
           },
           revoke: async () => {},
@@ -550,7 +567,7 @@ describe("SubshellManagerService restart", () => {
     const b = mkManager();
 
     const pA = a.restartSubshell("u1", id); // starts, parks, reaches issue, waits
-    for (let i = 0; aIssues === 0 && i < 2000; i++) await new Promise((r) => setTimeout(r, 1));
+    await sawIssueA;
     expect(aIssues).toBe(1); // A is parked + mid-revival; the lease is held
 
     let socketA: string | undefined;
