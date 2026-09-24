@@ -735,8 +735,10 @@ export class SubshellManagerService {
         // service maps to the 409 NODE_OFFLINE of spec §5.6).
         await this.#launcherFor(source.nodeId).killSubshell(source.tmuxSocket, source.id);
       }
-      // The swap point (spec 2026-09-23): written only once the kill proved
-      // the node reachable, and read fresh by #reviveRow's row re-read below.
+      // The swap point (spec 2026-09-23): reached only with reachability
+      // proved — the kill above for an alive row, the service's offline
+      // pre-gate for a dead one — and read fresh by #reviveRow's row
+      // re-read below.
       // A refusal that threw earlier leaves the column untouched; an
       // unchanged target is not a swap (no write, no audit row).
       // The comparison reads `source`, captured before the kill: a concurrent

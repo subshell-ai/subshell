@@ -788,10 +788,12 @@ export class SubshellsService extends BaseService {
     // offline — a 409 answering for a restart whose preset already moved.
     // Refuse the swap HERE, before the manager can write anything. A plain
     // (no-swap) restart keeps its byte-identical path — for it the 409 from
-    // the manager is honest because nothing was written. Local is not probed:
-    // the control-plane host is never offline, and the alive row's kill still
-    // orders the local path's own failures.
-    if (swapPresetTo !== undefined && node?.kind === "agent" && !getLive(row.nodeId)) {
+    // the manager is honest because nothing was written. Local is answered
+    // false by design (`isNodeOffline`), and the alive row's kill still
+    // orders the local path's own failures; a dangling nodeId — the node row
+    // force-deleted under this one — refuses too, exactly as an offline one
+    // does.
+    if (swapPresetTo !== undefined && isNodeOffline(row.nodeId)) {
       throwApiError({
         code: BackendErrorCodes.NODE_OFFLINE,
         message: "The subshell's node has no live connection; it may still be running the subshell there",

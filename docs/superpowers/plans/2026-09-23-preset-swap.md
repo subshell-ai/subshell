@@ -4,7 +4,7 @@
 
 **Goal:** A "Switch preset…" action-menu item on a subshell opens a dialog ("Switch and restart" confirm) that points `subshells.presetId` at another preset of the same harness (or none) and restarts the pane with it.
 
-**Architecture:** No new route. `POST /api/subshells/:id/restart` gains an optional `{ presetId: string | null }` body; the service validates it (caller-owned, same-harness) after the existing edit gate and refusals; the manager writes the column inside the restart pipeline after the kill — before `#reviveRow`'s fresh re-read at `subshell-manager.service.ts:1050`, the line the code already calls the swap point. Every refusal writes nothing; a refused or failed restart therefore never half-swaps. Web: one dialog component owned by `SubshellActionsMenu` (which already owns every menu dialog), reusing the launch form's `Select` grammar.
+**Architecture:** No new route. `POST /api/subshells/:id/restart` gains an optional `{ presetId: string | null }` body; the service validates it (caller-owned, same-harness) after the existing edit gate and refusals; the manager writes the column inside the restart pipeline after the kill — before `#reviveRow`'s fresh re-read at `subshell-manager.service.ts:1050`, the line the code already calls the swap point. Refusals before the swap point (gate, validation, maintenance, offline pre-gate, and an alive row's failed kill) write nothing; a revive that throws after the swap leaves the row dead keeping the chosen preset (spec §2). Web: one dialog component owned by `SubshellActionsMenu` (which already owns every menu dialog), reusing the launch form's `Select` grammar.
 
 **Tech Stack:** Bun + Elysia (`t` schemas), Kysely, TanStack Query + Base UI Select (React 19), `bun test` on both sides.
 

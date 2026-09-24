@@ -376,4 +376,34 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
     const rows = await audits(id);
     expect(rows.some((r) => r.action === "subshell.preset_switch")).toBe(false);
   });
+
+  it("a dead row whose node row was force-deleted refuses the swap the same way (dangling nodeId)", async () => {
+    // The dangling-nodeId state is real, not hypothetical: `subshells.node_id`
+    // carries no FK (migration 0017 added the column bare) and the delete-node
+    // route blocks only RUNNING rows, so a terminated row outlives its node.
+    // `isNodeOffline` answers true for it — no live connection is possible for
+    // a machine that is no longer enrolled — so the pre-gate refuses it exactly
+    // as an offline one.
+    const dangling = crypto.randomUUID();
+    await nodes.create({ id: dangling, ownerUserId: ownerId, name: `swapd-${dangling.slice(0, 8)}`, kind: "agent" });
+    const id = crypto.randomUUID();
+    createdSubshellIds.push(id);
+    await subshells.create({
+      id,
+      userId: ownerId,
+      presetId: presetA,
+      harnessId: "claude-code",
+      name: "swap-dead-dangling",
+      workingDir: "/tmp",
+      tmuxSocket: `swap-sock-${id}`,
+      nodeId: dangling,
+      status: "terminated",
+      alive: 0,
+    });
+    await nodes.deleteById(dangling); // the same row removal the force-delete route performs
+    const res = await restart(id, { cookie: ownerCookie, body: { presetId: presetB } });
+    expect(res.status).toBe(409);
+    expect((await errorBody(res)).code).toBe("NODE_OFFLINE");
+    expect(await rowPreset(id)).toBe(presetA);
+  });
 });
