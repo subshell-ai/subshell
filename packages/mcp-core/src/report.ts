@@ -102,6 +102,12 @@ async function resolveBody(
   if (verb === "attention") {
     const kind = rest[0];
     if (!kind || !(ATTENTION_KINDS as readonly string[]).includes(kind)) return undefined;
+    // The Stop hook fires for a session PARKED on background work too, and
+    // Claude Code hands the hook the arrays that tell the two apart. A
+    // `turn_complete` POSTs only for a genuinely-done turn (spec 2026-09-23);
+    // `needs_attention` never reads stdin — the plugin's Notification matcher
+    // is its filter.
+    if (kind === "turn_complete" && (await parkedOnBackgroundWork(io))) return undefined;
     return { path: "attention", json: { kind } };
   }
 
@@ -129,4 +135,31 @@ async function resolveBody(
   }
 
   return undefined;
+}
+
+/**
+ * True when this Stop hook's own stdin payload says the session will wake
+ * itself: Claude Code documents `background_tasks` / `session_crons`
+ * precisely to distinguish "session is done" from "session is paused waiting
+ * for background work to wake it back up" (spec 2026-09-23).
+ *
+ * Everything the gate cannot read answers false — absent or empty stdin,
+ * malformed JSON, an older Claude Code without the fields, and the docs'
+ * own caveat that an unreachable registry presents as empty arrays. The
+ * gate fails TOWARD the push: a wrong suppression costs silence, a wrong
+ * push costs one notification. The outer `runReport` catch must never be
+ * what swallows a malformed payload here — its own catch is what turns
+ * "unparseable" into "push anyway".
+ */
+async function parkedOnBackgroundWork(io: ReportIo): Promise<boolean> {
+  try {
+    const raw = await (io.readStdin ?? readStdinBounded)();
+    const parsed = JSON.parse(raw) as { background_tasks?: unknown; session_crons?: unknown };
+    return (
+      (Array.isArray(parsed.background_tasks) && parsed.background_tasks.length > 0) ||
+      (Array.isArray(parsed.session_crons) && parsed.session_crons.length > 0)
+    );
+  } catch {
+    return false;
+  }
 }
