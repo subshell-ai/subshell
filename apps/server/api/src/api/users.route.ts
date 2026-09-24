@@ -33,7 +33,7 @@ const UserRowSchema = t.Object({
   }),
   providers: t.Array(t.String(), {
     description:
-      'Auth provider ids this account has sign-in rows for, e.g. ["credential"], ["google"], ["credential","google"]. Drives which management controls make sense (a password reset needs "credential")',
+      'Auth provider ids this account has sign-in rows for, as a SET in unspecified order ("credential" for a password account, plus provider id slugs — a custom slug may be a google-kind door). Drives which management controls make sense (a password reset needs "credential")',
   }),
   manageable: t.Boolean({
     description:
