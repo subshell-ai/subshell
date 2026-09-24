@@ -78,6 +78,22 @@ describe("migration 0037 auth_providers", () => {
       .rows[0];
     expect(row.registrationEnabled).toBe(0);
   });
+  it("copies an existing allow_registrations row forward: true ⇒ 1", async () => {
+    // The third copy-forward branch: an OPEN old gate must land as 1, not the
+    // NULL of "no row" — without this case, truthy parsing would pass for `=== true`.
+    const fresh = new Kysely<any>({
+      dialect: new BunSqliteDialect({ database: async () => openSqliteDatabase(":memory:") }),
+      plugins: [new CamelCasePlugin()],
+    });
+    await initMigration.up(fresh);
+    await sql`INSERT INTO settings (key, value, updated_at) VALUES ('allow_registrations', 'true', datetime('now'))`.execute(
+      fresh,
+    );
+    await authProvidersMigration.up(fresh);
+    const row = (await sql<Row>`SELECT registration_enabled FROM auth_providers WHERE id = 'email'`.execute(fresh))
+      .rows[0];
+    expect(row.registrationEnabled).toBe(1);
+  });
   it("a corrupt old value copies as CLOSED (fail-closed survives the migration)", async () => {
     const fresh = new Kysely<any>({
       dialect: new BunSqliteDialect({ database: async () => openSqliteDatabase(":memory:") }),
