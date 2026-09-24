@@ -112,9 +112,11 @@ selector over its own list.
 calls, 2026-09-24). The cards' corner chip and the list's STATUS column are
 gone — both draw `SubshellDot` beside the title instead, `accessible` because
 there it is the ONLY thing carrying the state word (the rail keeps its dot
-`aria-hidden`; its row text already speaks). Offline is the dot's red
-(`bg-destructive`), an operator reversal of the orange it launched with: a
-machine you cannot reach is an error, not a caution. The tiles are segmented
+`aria-hidden`; its row text already speaks). Two colour calls, both
+2026-09-24: offline is the dot's RED (`bg-destructive`, a reversal of the
+orange it launched with — a machine you cannot reach is an error, not a
+caution), and idle is DIM GREEN (`bg-success/50`, not gray — green is the
+ALIVE family, bright printing / dim quiet; gray may now only mean not-running). The tiles are segmented
 per machine on the RAIL's own machinery — `sortByStatus` into
 `groupSubshellsByNode`/`nodeLabelFor` — with no per-group cap and no collapse
 (a grid of cards is not a rail), and the old Running/Paused/Completed bands

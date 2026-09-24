@@ -6,9 +6,15 @@ import type { SubshellView } from "@/types/subshell";
 /**
  * Fill classes per state, in the rail's own visual language (spec
  * 2026-09-03 sidebar-quickadd §1 note): tone is a sidebar concern, so this
- * table lives with the dot, not in the shared indicator module. Two dead
- * states stay readable at 6px by shape, not just hue — `exited` is a faint
- * fill, `terminated` a hollow ring. The dot never animates, on any surface.
+ * table lives with the dot, not in the shared indicator module. The dot
+ * never animates, on any surface.
+ *
+ * GREEN is the ALIVE family (2026-09-24, operator call): full green is
+ * printing, dim green is quiet-but-running. Idle used to be neutral gray,
+ * which read as "off" — a mid-tool-call agent with a 60s silence looked dead
+ * beside things that are. The two dead states stay readable at 6px by shape
+ * and faintness, not just hue — `exited` is a faint GRAY fill (gray is not
+ * alive), `terminated` a hollow ring.
  *
  * `node-offline` is the palette's RED (2026-09-24, operator call: it read as
  * too gentle as an orange): a machine you cannot reach is an error state, not
@@ -16,7 +22,7 @@ import type { SubshellView } from "@/types/subshell";
  */
 const DOT_CLASS: Record<SubshellIndicator, string> = {
   active: "bg-success",
-  idle: "bg-muted-foreground",
+  idle: "bg-success/50",
   waiting: "bg-warning",
   exited: "bg-muted-foreground/50",
   terminated: "border border-muted-foreground",
@@ -31,7 +37,7 @@ const DOT_CLASS: Record<SubshellIndicator, string> = {
  */
 const BELL_TONE: Record<SubshellIndicator, string> = {
   active: "text-success",
-  idle: "text-muted-foreground",
+  idle: "text-success/50",
   waiting: "text-warning",
   exited: "text-muted-foreground/50",
   terminated: "text-muted-foreground",

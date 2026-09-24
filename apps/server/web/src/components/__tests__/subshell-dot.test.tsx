@@ -21,8 +21,10 @@ const probe = (overrides: Partial<SubshellView> = {}): SubshellView =>
 describe("SubshellDot", () => {
   it("maps each indicator to its fill and tooltip word", () => {
     const cases: Array<[Partial<SubshellView>, string, string]> = [
+      // GREEN is the alive family since 2026-09-24: printing is full green,
+      // quiet-but-running is dim green. Gray now means NOT running.
       [{ activity: "active" }, "bg-success", "working"],
-      [{ activity: "idle" }, "bg-muted-foreground", "idle"],
+      [{ activity: "idle" }, "bg-success/50", "idle"],
       [{ waitingSince: "2026-09-03T00:00:00.000Z" }, "bg-warning", "waiting for you"],
       [{ alive: false }, "bg-muted-foreground/50", "exited"],
       [{ status: "terminated", alive: false, activity: "terminated" }, "border-muted-foreground", "ended"],
