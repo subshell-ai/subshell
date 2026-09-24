@@ -11,6 +11,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./node-link-crypto": {
+      "types": "./dist/node-link-crypto.d.ts",
+      "import": "./dist/node-link-crypto.js"
+    },
     "./release-artifacts": {
       "types": "./dist/release-artifacts.d.ts",
       "import": "./dist/release-artifacts.js"
@@ -41,7 +45,8 @@
   },
   "dependencies": {
     "cbor2": "2.3.0",
-    "jose": "6.2.9"
+    "jose": "6.2.9",
+    "libsodium-wrappers-sumo": "0.8.4"
   },
   "devDependencies": {
     "@types/sprintf-js": "1.1.4",
