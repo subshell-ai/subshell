@@ -95,9 +95,9 @@ this header labels `local` too (the retired card pill could dodge by
 returning null; a section header cannot). The flag is `nodeData === undefined`, not `isError`: TanStack reports
 `isError` on a failed BACKGROUND refresh while keeping the cache, and
 relabeling resolved names on a blip is the bug that shape caused once. A
-row's tooltip carries Name/Node/Agent/Status/Directory — the three asked-for
-facts framed by the two strings the rail truncates, which the PRE-grouping
-title existed to reveal. It is a `ui/tooltip` popup (the shadcn Base UI split
+row's tooltip carries Name/Node/Agent/(Preset — only when the launch has
+one)/Status/Directory — the asked-for facts framed by the two strings the
+rail truncates, which the PRE-grouping title existed to reveal. It is a `ui/tooltip` popup (the shadcn Base UI split
 form, `TooltipTrigger render={...}`) merged onto the row's own `Link` rather
 than a native `title` (2026-09-24 reversal: the browser paints native
 tooltips at the SYSTEM font size, so page zoom grew the rail and left the

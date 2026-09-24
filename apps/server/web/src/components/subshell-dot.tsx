@@ -79,6 +79,7 @@ export function SubshellDot({
   subshell,
   className,
   accessible = false,
+  hideTitle = false,
 }: {
   subshell: SubshellView;
   className?: string;
@@ -92,6 +93,14 @@ export function SubshellDot({
    * beside it says the word.
    */
   accessible?: boolean;
+  /**
+   * Drop the hover `title`. For surfaces that run their OWN styled tooltip
+   * over the same hover — the rail's rows since 2026-09-24 — where the native
+   * one-word popup would draw alongside the row's Status line (two mechanisms,
+   * one word, one cursor). Everywhere the dot stands alone (cards, list rows,
+   * the page header) the title is its only reveal and stays.
+   */
+  hideTitle?: boolean;
 }) {
   const indicator = subshellIndicator(subshell);
   const label = INDICATOR_LABEL[indicator];
@@ -108,7 +117,7 @@ export function SubshellDot({
     return (
       <span
         {...(accessible ? { role: "img", "aria-label": bellLabel } : { "aria-hidden": true })}
-        title={bellLabel}
+        {...(hideTitle ? {} : { title: bellLabel })}
         data-status={subshell.status}
         data-alive={String(subshell.alive)}
         className={cn("mt-px shrink-0", className)}
@@ -120,7 +129,7 @@ export function SubshellDot({
   return (
     <span
       {...(accessible ? { role: "img", "aria-label": label } : { "aria-hidden": true })}
-      title={label}
+      {...(hideTitle ? {} : { title: label })}
       data-status={subshell.status}
       data-alive={String(subshell.alive)}
       className={cn("mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full", DOT_CLASS[indicator], className)}

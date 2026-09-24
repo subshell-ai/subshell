@@ -11,6 +11,7 @@ import { SubshellManagerTable } from "@/components/subshell-manager-table";
 import { SubshellSearch } from "@/components/subshell-search";
 import { Segmented } from "@/components/ui/segmented";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useCardPreviews } from "@/hooks/use-card-previews";
 import { useClockTick } from "@/hooks/use-clock-tick";
 import { useNodes } from "@/hooks/use-nodes";
@@ -249,16 +250,31 @@ function SubshellsPage() {
  * 2026-09-24, on the same grouping/labels the sidebar rail uses (see
  * lib/subshell-node-groups.ts). Renders nothing when the group is empty. The
  * heading is the node's NAME (a rename moves it), never uppercased: it is a
- * proper noun the operator chose, not a status band. Its hover text reveals
- * the full node id whenever the registry could not resolve a name.
+ * proper noun the operator chose, not a status band. Its hover reveal is the
+ * full node id whenever the registry could not resolve a name — a `ui/tooltip`
+ * popup, not a native `title` (same 2026-09-24 zoom reason as the rail rows),
+ * and absent entirely when the title would only repeat the heading.
  */
 function TileSection({ label, title, subshells }: { label: string; title: string; subshells: SubshellView[] }) {
   if (subshells.length === 0) return null;
+  const heading = <h2 className="mb-3 truncate font-strong text-muted-foreground text-sm">{label}</h2>;
   return (
     <section>
-      <h2 className="mb-3 truncate font-strong text-muted-foreground text-sm" title={title}>
-        {label}
-      </h2>
+      {title === label ? (
+        heading
+      ) : (
+        <TooltipProvider delay={300}>
+          <Tooltip>
+            {/* The label rides the RENDER element rather than the trigger's
+                children — biome's heading-content rule reads the `h2`
+                itself, and Base UI keeps the element's own children. */}
+            <TooltipTrigger
+              render={<h2 className="mb-3 truncate font-strong text-muted-foreground text-sm">{label}</h2>}
+            />
+            <TooltipContent>{title}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
       {/* Track count follows the container; the card width does not. 240px is
           the floor AND the ceiling, so a tile is the same size on every page
           at every window width and only the number of them per row changes.

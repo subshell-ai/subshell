@@ -1,6 +1,7 @@
 import { cn } from "@internal/node-admin";
 import { ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 /**
  * One collapsible node heading in the rail's subshell list.
@@ -22,10 +23,15 @@ import type { ReactNode } from "react";
  *   follows: `aria-controls` has to resolve to a real element, and `hidden`
  *   takes the links out of the tab order so a shut group is not a keyboard
  *   trap of invisible stops.
- * - **The label carries a `title`.** When the registry has not resolved the
- *   node the label is a short id or "unknown node", and the full id on hover
- *   is the only thing that says WHICH machine — the reveal the cards' retired
- *   `nodePill` used to give, for the same reason.
+ * - **The label carries a hover reveal.** When the registry has not resolved
+ *   the node the label is a short id or "unknown node", and the full id on
+ *   hover is the only thing that says WHICH machine — the reveal the cards'
+ *   retired `nodePill` used to give, for the same reason. It is a `ui/tooltip`
+ *   popup rather than a native `title` since 2026-09-24 (the row tooltips'
+ *   zoom reason, same rail), and it appears ONLY when the title would say
+ *   something the label does not — a resolved node's hover used to repeat its
+ *   own name, which is noise that only looked free because native tooltips
+ *   cost nothing to draw.
  */
 export function SubshellNodeGroup({
   nodeId,
@@ -74,9 +80,24 @@ export function SubshellNodeGroup({
           disabled && "pointer-events-none",
         )}
       >
-        <span className="min-w-0 flex-1 truncate text-left font-strong" title={title}>
-          {label}
-        </span>
+        {title === label ? (
+          <span className="min-w-0 flex-1 truncate text-left font-strong">{label}</span>
+        ) : (
+          <TooltipProvider delay={300}>
+            <Tooltip>
+              <TooltipTrigger
+                // The tooltip's own inertness follows the header's: while the
+                // rail filters, the header is a static label and its reveal
+                // should not open either.
+                disabled={disabled}
+                render={<span className="min-w-0 flex-1 truncate text-left font-strong" />}
+              >
+                {label}
+              </TooltipTrigger>
+              <TooltipContent>{title}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
         <span className="shrink-0 tabular-nums opacity-70">{count}</span>
         <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform duration-200", !open && "-rotate-90")} />
       </button>

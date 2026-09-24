@@ -13,7 +13,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 afterEach(cleanup);
 
 describe("ui/tooltip", () => {
-  it("renders the popup as a page element at body size", () => {
+  it("renders the popup as a page element at body size", async () => {
     render(
       <TooltipProvider>
         <Tooltip open>
@@ -22,17 +22,22 @@ describe("ui/tooltip", () => {
         </Tooltip>
       </TooltipProvider>,
     );
+    // `findBy*` rather than `getBy`: the popup's positioner measures in an
+    // async effect after mount, and waitFor drives that flush INSIDE act —
+    // a synchronous getBy plus cleanup over a pending update is what made
+    // these cases emit "not wrapped in act" intermittently (review 2026-09-24,
+    // finding 7).
     // Base UI splits the popup into a positioned wrapper (which carries the
     // classes) and an inner content element; walk up from the text.
-    const popup = screen.getByText("the reveal").closest("[class*='text-body']");
-    expect(popup).not.toBeNull();
+    const popup = await screen.findByText("the reveal");
+    expect(popup.closest("[class*='text-body']")).not.toBeNull();
     // The trigger identifier is what merges the tooltip onto the trigger
     // element rather than beside it (see the sidebar row's four-consumer
     // Link for why that matters).
     expect(screen.getByText("hover me").hasAttribute("data-base-ui-tooltip-trigger")).toBe(true);
   });
 
-  it("caller classes merge onto the popup, so multi-line content can ask for pre-line", () => {
+  it("caller classes merge onto the popup, so multi-line content can ask for pre-line", async () => {
     render(
       <TooltipProvider>
         <Tooltip open>
@@ -41,8 +46,8 @@ describe("ui/tooltip", () => {
         </Tooltip>
       </TooltipProvider>,
     );
-    const popup = screen.getByText(/Name: x/).closest(".whitespace-pre-line");
-    expect(popup).not.toBeNull();
-    expect(popup?.textContent).toContain("Node: y");
+    const popup = await screen.findByText(/Name: x/);
+    expect(popup.closest(".whitespace-pre-line")).not.toBeNull();
+    expect(popup.textContent).toContain("Node: y");
   });
 });

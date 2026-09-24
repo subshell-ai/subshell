@@ -392,6 +392,20 @@ export function parseArgs(argv: string[]): ParsedArgs {
       arg = rest[i];
       continue;
     }
+    // A THIRD (or later) bare word under a skew verb: the verb's arity is as
+    // unknowable here as its argument rules, and a future hook line with a
+    // longer shape must not exit 2 into the pane either. `runReport` is ever
+    // handed `[verb, firstArg]` regardless (the dispatch below), so the rest
+    // are dropped rather than guessed at. FLAG slots stay strict in every
+    // state — a word starting `--` is grammar this parser owns.
+    if (
+      !rest[i].startsWith("--") &&
+      SKEW_TOLERANT_SUBCOMMANDS.has(command) &&
+      sub !== undefined &&
+      !subcommands?.includes(sub)
+    ) {
+      continue;
+    }
     // `--flag=value` is accepted alongside `--flag value` (split on the FIRST
     // "=", so a value may itself contain "="); usage text keeps showing the
     // space form.

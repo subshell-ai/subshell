@@ -73,7 +73,10 @@ export function SubshellRecentRow({
             />
           }
         >
-          <SubshellDot subshell={subshell} />
+          {/* The row's own tooltip carries the Status line — a native title on
+              the dot would draw the same word twice, one mechanism at system
+              size (the thing this row just left). */}
+          <SubshellDot subshell={subshell} hideTitle />
           <span className="min-w-0 flex-1">
             <span className="block truncate">{subshell.name}</span>
             {subshell.workingDir ? (

@@ -60,6 +60,17 @@ describe("subshell report (CLI wiring)", () => {
       arg: "whatever",
       flags: {},
     });
+    // And a LONGER shape: the verb's arity is as unknowable as its argument
+    // rules, so extra words are dropped rather than exiting 2 into the pane
+    // (`runReport` is only ever handed [verb, firstArg]).
+    expect(parseArgs(["report", "nonsense", "a", "b"])).toEqual({
+      command: "report",
+      sub: "nonsense",
+      arg: "a",
+      flags: {},
+    });
+    // Flags stay strict in every state — a `--word` is grammar this parser owns.
+    expect(() => parseArgs(["report", "nonsense", "a", "--json"])).toThrow(/not valid for 'report'/);
     expect(() => parseArgs(["report"])).toThrow(/requires/);
   });
 

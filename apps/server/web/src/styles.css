@@ -274,6 +274,21 @@ body {
   .subshell-dot-blink {
     animation: subshell-dot-blink 1.6s steps(1) infinite;
   }
+
+  /* Input queue badge (spec 2026-09-21 Wave A): the three chevrons pulse in a
+     stagger so in-flight keystrokes read as moving, not stuck. One keyframe,
+     three delays. Inside the motion gate like every other animation here —
+     the rule `docs/design-system.md` states absolutely; this rule's original
+     placement outside it was the violation, found by review 2026-09-24. */
+  .input-queue-chevron {
+    animation: input-queue-pulse 0.9s ease-in-out infinite;
+  }
+  .input-queue-chevron:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .input-queue-chevron:nth-child(3) {
+    animation-delay: 0.3s;
+  }
 }
 @keyframes subshell-dot-blink {
   0% {
@@ -294,9 +309,9 @@ body {
   }
 }
 
-/* Input queue badge (spec 2026-09-21 Wave A): the three chevrons pulse in a
-   stagger so in-flight keystrokes read as moving, not stuck. One keyframe,
-   three delays. */
+/* The keyframe the gated `.input-queue-chevron` rules above consume; inert
+   outside `prefers-reduced-motion: no-preference`, where those rules do not
+   exist and nothing names this name. */
 @keyframes input-queue-pulse {
   0%,
   100% {
@@ -305,13 +320,4 @@ body {
   50% {
     opacity: 1;
   }
-}
-.input-queue-chevron {
-  animation: input-queue-pulse 0.9s ease-in-out infinite;
-}
-.input-queue-chevron:nth-child(2) {
-  animation-delay: 0.15s;
-}
-.input-queue-chevron:nth-child(3) {
-  animation-delay: 0.3s;
 }

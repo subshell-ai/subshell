@@ -40,7 +40,11 @@ export function StatusPill({ tone = "primary", children, className }: StatusPill
         className,
       )}
     >
-      <span className={cn("h-2 w-2 animate-pulse rounded-full", DOT_TONES[tone])} aria-hidden />
+      {/* `motion-safe:` because the design system gates EVERY animation on
+          prefers-reduced-motion and this pill's loop is no exception — a
+          reduced-motion user sees the still dot in the same tone, and the
+          pill's own WORDS are the announcement either way. */}
+      <span className={cn("h-2 w-2 rounded-full motion-safe:animate-pulse", DOT_TONES[tone])} aria-hidden />
       {children}
     </div>
   );
