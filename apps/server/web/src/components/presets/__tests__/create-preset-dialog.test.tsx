@@ -13,8 +13,9 @@ import type { PresetRow } from "@/types/preset";
  * the /presets one opens with the Agent select; both post the shared
  * `toPresetPayload` body, feed the list cache from the returned row (the
  * race the launch form's selection depends on), and hand the row out.
- * The third posture is the CLONE: an `initialForm` seed plus the source's
- * locked harness, titled "Clone preset" but still a plain create.
+ * The third posture is the CLONE: an `initialForm` seed ALONE — titled
+ * "Clone preset", still a plain create, and the harness locks itself off the
+ * seed, so no second prop pairs with it.
  */
 const ROW: PresetRow = {
   id: "p-new",
@@ -175,8 +176,9 @@ describe("CreatePresetDialog — clone (initialForm)", () => {
   it("titles Clone preset, seeds the source's values with the suggested name, keeps the locked agent, and posts a plain create", async () => {
     const m = mockFetch();
     try {
+      // `initialForm` ALONE — no `lockedHarness` pairs with it. The lock is
+      // derived from the seed; this test is what pins that guarantee.
       renderDialog({
-        lockedHarness: SOURCE.harnessId,
         initialForm: { ...presetFormFromRow(SOURCE), name: "Work (2)" },
       });
       const dialog = await screen.findByRole("dialog", { name: "Clone preset" });

@@ -105,7 +105,6 @@ function PresetsPage() {
         <CreatePresetDialog
           open
           onOpenChange={(next) => !next && setCloneSource(null)}
-          lockedHarness={cloneSource.harnessId}
           initialForm={{
             ...presetFormFromRow(cloneSource),
             name: suggestCloneName(presets ?? [], cloneSource),

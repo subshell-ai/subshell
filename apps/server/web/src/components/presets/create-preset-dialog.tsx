@@ -22,8 +22,10 @@ import type { PresetRow } from "@/types/preset";
  *
  * A third posture: with `initialForm` the form starts from a seed carried
  * over from an existing preset — a CLONE. The header reads "Clone preset",
- * but the POST is still a plain create, and the caller passes
- * `lockedHarness` = the source's because a preset's harness is immutable.
+ * but the POST is still a plain create, and the harness LOCKS ITSELF off the
+ * seed: a preset's harness is immutable, so a clone always stays with its
+ * agent. `initialForm` alone fully specifies this posture — a caller cannot
+ * seed a clone and forget to lock it, because the lock is derived, not paired.
  *
  * Base UI nests dialogs natively, so mounting this inside the launch dialog
  * works: Escape closes this one first. The mount IS the open (clone-dialog
@@ -43,31 +45,30 @@ export function CreatePresetDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Agent id to lock the form to; absent = the unlocked /presets posture */
+  /** Agent id to lock the form to WITHOUT seeding a clone — the launch
+   * form's nested posture. The clone posture needs neither prop here:
+   * `initialForm` locks itself. */
   lockedHarness?: string;
-  /** The clone posture: form values carried over from an existing preset
-   * (seeded name/env/flags/restart). The caller also passes
-   * `lockedHarness` = the source's, because a preset's harness is immutable
-   * and a clone stays with its agent. The POST is still a plain create. */
+  /** The clone posture, on its own: form values carried over from an
+   * existing preset (name/env/flags/restart), which also LOCK the harness —
+   * a preset's harness is immutable, so the clone's agent is the source's,
+   * read off the seed rather than passed alongside it. The POST is still a
+   * plain create. */
   initialForm?: PresetFormValue;
   /** Called with the created row (after the list invalidation) */
   onCreated?: (row: PresetRow) => void;
 }): JSX.Element {
+  // The lock is DERIVED, not paired with the seed: the clone posture is fully
+  // specified by `initialForm` alone (a stored row's harnessId is never "").
+  const lock = lockedHarness ?? initialForm?.harnessId;
   const [form, setForm] = useState<PresetFormValue>(() =>
-    initialForm !== undefined
-      ? initialForm
-      : lockedHarness
-        ? { ...emptyPresetForm(), harnessId: lockedHarness }
-        : emptyPresetForm(),
+    initialForm !== undefined ? initialForm : lock ? { ...emptyPresetForm(), harnessId: lock } : emptyPresetForm(),
   );
   const create = useCreatePreset();
   // Only for the locked title's agent NAME — the catalog is already cached by
   // whoever raised this dialog, so this reads, it does not fetch twice.
   const { data: pluginData } = useInstancePlugins();
-  const lockedName =
-    lockedHarness !== undefined
-      ? ((pluginData?.plugins ?? []).find((p) => p.id === lockedHarness)?.name ?? lockedHarness)
-      : "";
+  const lockedName = lock !== undefined ? ((pluginData?.plugins ?? []).find((p) => p.id === lock)?.name ?? lock) : "";
   const chosenName =
     form.harnessId !== ""
       ? ((pluginData?.plugins ?? []).find((p) => p.id === form.harnessId)?.name ?? form.harnessId)
@@ -91,20 +92,20 @@ export function CreatePresetDialog({
           <DialogTitle>
             {initialForm !== undefined
               ? "Clone preset"
-              : lockedHarness !== undefined
+              : lock !== undefined
                 ? `New preset for ${lockedName}`
                 : "Create preset"}
           </DialogTitle>
           <DialogDescription>
             Saved flags, env vars and restart policy.
-            {lockedHarness !== undefined
+            {lock !== undefined
               ? ` Every subshell you start with it launches ${lockedName} this way.`
               : chosenName !== null
                 ? ` Every subshell you start with it launches ${chosenName} this way.`
                 : ""}
           </DialogDescription>
         </DialogHeader>
-        <PresetFields value={form} onChange={setForm} lockedHarness={lockedHarness} />
+        <PresetFields value={form} onChange={setForm} lockedHarness={lock} />
         {create.error && <p className="text-destructive text-sm">{errMessage(create.error, "Failed")}</p>}
         <DialogFooter>
           <Button variant="outline" disabled={create.isPending} onClick={() => onOpenChange(false)}>
