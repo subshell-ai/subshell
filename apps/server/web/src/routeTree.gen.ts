@@ -22,6 +22,7 @@ import { Route as WorkspacesRouteImport } from './routes/workspaces'
 import { Route as NodesIdRouteImport } from './routes/nodes_.$id'
 import { Route as PresetsIdRouteImport } from './routes/presets_.$id'
 import { Route as SettingsApiKeysRouteImport } from './routes/settings_.api-keys'
+import { Route as SettingsAuthRouteImport } from './routes/settings_.auth'
 import { Route as SettingsLogsRouteImport } from './routes/settings_.logs'
 import { Route as SettingsNetworkingRouteImport } from './routes/settings_.networking'
 import { Route as SettingsPluginsRouteImport } from './routes/settings_.plugins'
@@ -99,6 +100,11 @@ const SettingsApiKeysRoute = SettingsApiKeysRouteImport.update({
   path: '/settings/api-keys',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsAuthRoute = SettingsAuthRouteImport.update({
+  id: '/settings_/auth',
+  path: '/settings/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsLogsRoute = SettingsLogsRouteImport.update({
   id: '/settings_/logs',
   path: '/settings/logs',
@@ -169,6 +175,7 @@ export interface FileRoutesByFullPath {
   '/nodes/$id': typeof NodesIdRoute
   '/presets/$id': typeof PresetsIdRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
+  '/settings/auth': typeof SettingsAuthRoute
   '/settings/logs': typeof SettingsLogsRoute
   '/settings/networking': typeof SettingsNetworkingRoute
   '/settings/plugins': typeof SettingsPluginsRoute
@@ -195,6 +202,7 @@ export interface FileRoutesByTo {
   '/nodes/$id': typeof NodesIdRoute
   '/presets/$id': typeof PresetsIdRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
+  '/settings/auth': typeof SettingsAuthRoute
   '/settings/logs': typeof SettingsLogsRoute
   '/settings/networking': typeof SettingsNetworkingRoute
   '/settings/plugins': typeof SettingsPluginsRoute
@@ -222,6 +230,7 @@ export interface FileRoutesById {
   '/nodes_/$id': typeof NodesIdRoute
   '/presets_/$id': typeof PresetsIdRoute
   '/settings_/api-keys': typeof SettingsApiKeysRoute
+  '/settings_/auth': typeof SettingsAuthRoute
   '/settings_/logs': typeof SettingsLogsRoute
   '/settings_/networking': typeof SettingsNetworkingRoute
   '/settings_/plugins': typeof SettingsPluginsRoute
@@ -250,6 +259,7 @@ export interface FileRouteTypes {
     | '/nodes/$id'
     | '/presets/$id'
     | '/settings/api-keys'
+    | '/settings/auth'
     | '/settings/logs'
     | '/settings/networking'
     | '/settings/plugins'
@@ -276,6 +286,7 @@ export interface FileRouteTypes {
     | '/nodes/$id'
     | '/presets/$id'
     | '/settings/api-keys'
+    | '/settings/auth'
     | '/settings/logs'
     | '/settings/networking'
     | '/settings/plugins'
@@ -302,6 +313,7 @@ export interface FileRouteTypes {
     | '/nodes_/$id'
     | '/presets_/$id'
     | '/settings_/api-keys'
+    | '/settings_/auth'
     | '/settings_/logs'
     | '/settings_/networking'
     | '/settings_/plugins'
@@ -329,6 +341,7 @@ export interface RootRouteChildren {
   NodesIdRoute: typeof NodesIdRoute
   PresetsIdRoute: typeof PresetsIdRoute
   SettingsApiKeysRoute: typeof SettingsApiKeysRoute
+  SettingsAuthRoute: typeof SettingsAuthRoute
   SettingsLogsRoute: typeof SettingsLogsRoute
   SettingsNetworkingRoute: typeof SettingsNetworkingRoute
   SettingsPluginsRoute: typeof SettingsPluginsRoute
@@ -435,6 +448,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsApiKeysRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings_/auth': {
+      id: '/settings_/auth'
+      path: '/settings/auth'
+      fullPath: '/settings/auth'
+      preLoaderRoute: typeof SettingsAuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings_/logs': {
       id: '/settings_/logs'
       path: '/settings/logs'
@@ -529,6 +549,7 @@ const rootRouteChildren: RootRouteChildren = {
   NodesIdRoute: NodesIdRoute,
   PresetsIdRoute: PresetsIdRoute,
   SettingsApiKeysRoute: SettingsApiKeysRoute,
+  SettingsAuthRoute: SettingsAuthRoute,
   SettingsLogsRoute: SettingsLogsRoute,
   SettingsNetworkingRoute: SettingsNetworkingRoute,
   SettingsPluginsRoute: SettingsPluginsRoute,

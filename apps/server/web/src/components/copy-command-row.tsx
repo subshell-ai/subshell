@@ -52,7 +52,10 @@ export function CopyCommandRow({ text, label, disabled }: { text: string; label?
 
   return (
     <div className="flex items-center gap-2 rounded-md bg-muted p-2">
-      <code className="min-w-0 flex-1 break-all font-mono text-detail">{text}</code>
+      {/* `whitespace-pre-line` so a multi-line paste block (an OIDC
+          registration list, spec §5a) keeps its line breaks on screen; the
+          clipboard always received them. Single-line callers are unchanged. */}
+      <code className="min-w-0 flex-1 whitespace-pre-line break-all font-mono text-detail">{text}</code>
       <Button
         type="button"
         variant="ghost"

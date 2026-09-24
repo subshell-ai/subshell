@@ -7,11 +7,14 @@ import { groupOpen, isNavGroup, visibleNavEntries, visibleNavItems } from "@/com
  *
  * ORDER is part of the assertion: Networking sits after Service because it
  * answers the question that page leaves open — Service says where this server
- * listens, Networking says how anything not on this machine reaches it.
+ * listens, Networking says how anything not on this machine reaches it. Auth
+ * sits after Users because a door is a question about who gets in (spec
+ * 2026-09-24 §7).
  */
 const GROUP_PAGES = [
   "/settings",
   "/settings/users",
+  "/settings/auth",
   "/settings/api-keys",
   "/settings/plugins",
   "/settings/service",

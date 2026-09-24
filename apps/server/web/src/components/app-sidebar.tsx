@@ -17,6 +17,7 @@ import {
   Server,
   ServerCog,
   Settings,
+  Shield,
   SlidersHorizontal,
   Smartphone,
   TerminalSquare,
@@ -106,6 +107,9 @@ const NAV_ENTRIES: NavEntry[] = [
       // on Nodes — three related icons, three different things.
       { to: "/settings", label: "General", icon: Settings, short: "Gen" },
       { to: "/settings/users", label: "Users", icon: Users, short: "Users" },
+      // After Users, because a door is a question about who gets in: the two
+      // pages are the accounts and the ways to reach them (spec 2026-09-24 §7).
+      { to: "/settings/auth", label: "Auth", icon: Shield, short: "Auth" },
       { to: "/settings/api-keys", label: "API keys", icon: KeyRound, short: "Keys" },
       { to: "/settings/plugins", label: "Plugins", icon: Puzzle, short: "Plug" },
       // "Service", not "Server": the control-plane host's own node row is
