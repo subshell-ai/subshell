@@ -4,7 +4,7 @@ import { ensureSodium } from "@internal/subshell-protocol/node-link-crypto";
 import { IS_TEST, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import {
   loadNodeEncryptionKeys,
-  nodeEncryptionPublicKeysJson,
+  nodeEncryptionPublicKey,
   resetNodeEncryptionKeysForTests,
 } from "../node-encryption-keys.js";
 
@@ -81,14 +81,14 @@ describe("node-link encryption keypair store (spec 2026-09-24 §3)", () => {
     expect(statSync(KEY_PATH).mode & 0o077).toBe(0);
   });
 
-  it("publicKeysJson answers the stored public half, as base64 (not a JWK)", async () => {
+  it("publicKey answers the stored public half, as base64 (not a JWK)", async () => {
     const keys = await loadNodeEncryptionKeys();
-    const json = await nodeEncryptionPublicKeysJson();
-    expect(json).toBe(keys.publicKey);
+    const pub = await nodeEncryptionPublicKey();
+    expect(pub).toBe(keys.publicKey);
     // it is the base64 string itself, not a JSON document around it: a real
     // JSON object would parse, raw base64 is not even parseable
-    expect(json.startsWith("{")).toBe(false);
-    expect(() => JSON.parse(json)).toThrow();
-    expect(await decodedLength(json)).toBe(32);
+    expect(pub.startsWith("{")).toBe(false);
+    expect(() => JSON.parse(pub)).toThrow();
+    expect(await decodedLength(pub)).toBe(32);
   });
 });

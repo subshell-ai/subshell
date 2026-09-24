@@ -103,11 +103,11 @@ function decodesTo32(sodium: Sodium, value: string): boolean {
 
 /**
  * The server's public half for the enroll response (agents pin it as
- * `controlEncryptPublicKey`). Despite the `Json` suffix this is the base64
- * string ITSELF — the link's on-text-frame encoding — not a JSON document;
- * unlike signing's JWK there is nothing left to serialize.
+ * `controlEncryptPublicKey`). Returns the base64 public key string itself —
+ * the link's on-text-frame encoding — not a JSON document; unlike signing's
+ * `controlPublicJwkJson` there is nothing left to serialize.
  */
-export async function nodeEncryptionPublicKeysJson(): Promise<string> {
+export async function nodeEncryptionPublicKey(): Promise<string> {
   return (await loadNodeEncryptionKeys()).publicKey;
 }
 
