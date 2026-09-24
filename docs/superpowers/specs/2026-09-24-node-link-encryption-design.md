@@ -198,4 +198,45 @@ to the other.
   ("use existing libraries"); libsodium chosen per §2's reasoning.
 - Release-signature verifier stays hand-rolled-with-fixtures (no maintained
   library exists for tauri's `ED` armor variant; documented exception).
-```
+
+## Implementation footer (landed 2026-09-24 — the code is the truth)
+
+Where the build refined this spec's prose, it is recorded here:
+
+- **§4's two-message exchange landed as one (ruling R6).** `crypto_kx` is a
+  SINGLE DH — the node's fresh ephemeral against the server's long-term static —
+  and the node already holds the server's pinned public half, so there is no
+  server `eph` to hand back: a correct `kx` is consumed in silence and the
+  server's first push is the sealed `{t:"ok"}` ack. The `pub` claim is checked
+  against the row's pin (constant-time, decoded bytes) BEFORE any derivation.
+- **§5's ordered reality landed as register → close → reconnect (ruling R7).**
+  The plane writes the row's pin, answers ONE plaintext `register-ok`, and
+  closes the socket NORMALLY — not 4410 — because that close is the success
+  path; the agent's backoff redial is classified `handshake` by the pin just
+  written.
+- **The close-code reality (§6).** The constant is
+  `NODE_CLOSE_HANDSHAKE_REQUIRED = 4410`, shared, and NON-terminal for the
+  agent (backoff redial; the register self-heal rides the next dial) — unlike
+  the terminal 4406/4409. The agent emits it too (pinned control key would not
+  open the ack; stream broken mid-session), and a pre-establishment plane 4410
+  additionally drops the agent's control pin so the redial re-registers its
+  SAME static (R10 refusal + R11 healing, for rotation's cleared pin). A
+  10-second handshake deadline refuses a classified socket that says nothing.
+- **§6's replay sentence is superseded by R6, not by new facts.** It explains
+  replay inertness as "its ephemeral DH differs" — but the single-DH handshake
+  has NO server ephemeral to differ against. Replay of captured bytes is inert
+  for four mechanisms, each independently pinned: the bearer key must pass the
+  upgrade gate before any socket exists; the row's pin refusal lands BEFORE any
+  key derivation (no derivation, no keys); a classified socket refuses
+  "ciphertext before kx" outright, so captured `kx` material cannot pre-empt
+  the phase machine; and the secretstream ratchet makes replayed ciphertext
+  undecryptable and un-attachable to any live session's fresh keys. The
+  conclusion stands — replay is inert by construction, and a test pins it:
+  `apps/server/api/src/services/nodes/__tests__/link-handshake.integration.test.ts`,
+  the "REPLAY: connect #1's captured bytes verbatim onto a fresh socket are
+  refused, and touch no row" case.
+- **The plaintext fallback §5's closing paragraph imagined was NOT built (fail
+  closed, per §6's own doctrine).** A v14 agent whose handshake a server
+  rejects keeps retrying ENCRYPTED; there is no client-side way to tell a
+  pre-14 server from a broken configuration, and guessing wrong is the
+  downgrade this design exists to refuse. The operator updates the server.

@@ -119,10 +119,13 @@ export type LinkFrame = { text: string | object } | { bytes: Uint8Array };
  *   the frame as it arrived, legacy bytes included — binary there is what
  *   binary on a plaintext socket always was: dropped as unrecognized.
  * - `{ holdEncryptionRequired }` — ledger R3: a legacy row received a
- *   plaintext `ready` that WOULD pass both gates. Task 8 records identity via
- *   `applyReady` and holds with the new `"encryption-required"` reason
- *   exactly as `holdRefusedNode` holds a below-floor agent. The machine does
- *   not write or hold anything itself.
+ *   plaintext `ready` that WOULD pass both gates. Task 8 holds it DIRECTLY
+ *   with `holdRefusedNode` under the new `"encryption-required"` reason —
+ *   `applyReady` NEVER runs on a would-pass legacy `ready`, precisely so a
+ *   downgrade's self-claimed identity is never stamped onto the row. (A
+ *   below-floor or protocol-mismatch `ready` on the same socket is FORWARDED
+ *   and keeps its existing `applyReady` + hold path unchanged.) The machine
+ *   does not write or hold anything itself.
  * - `{ close }` — refuse the socket with `code` (4410 here) and a reason the
  *   agent relays to its own log (spec §6).
  * - `{ sendText, thenClose }` — ruling R7, the legacy register answer: send

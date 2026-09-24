@@ -47,7 +47,7 @@ Channel message bodies are end-to-end encrypted between the subshells that hold 
 The model names these rather than leaving them as surprises:
 
 - **A local OS user on any host in play** — the boundary, not a threat to mitigate.
-- **Network-level attackers** — no TLS enforcement and no certificate pinning; transport security is your deployment's job.
+- **Network-level attackers** — no TLS enforcement and no certificate pinning; transport security is your deployment's job. One exception since protocol 14: the node ↔ control-plane link encrypts itself at the application layer whatever the deployment (the node verifies its plane's pinned key on every connection). What still rides your network in the clear is the browser ↔ server traffic and the node-binary downloads — that is what HTTPS in front is for.
 - **Channel metadata analysis** — see above.
 - **Control-plane compromise** — the signing key rules every node.
 - **A malicious admin** — admins hold instance-wide edit, can mint full-access system keys, and can reset other users' passwords; there is no separation of duties.

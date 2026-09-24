@@ -49,7 +49,7 @@ The failure classes the spec names that no single task's happy-path test will ex
 | `apps/server/api/src/services/nodes/__tests__/link-session.test.ts` | the acceptor's state machine, negative paths, pin rules. |
 | `apps/node/agent/src/link-crypto.ts` | agent-side: own keypair generation/persistence helpers (config-mediated), the client handshake sequence, session state helpers. |
 | `apps/node/agent/src/__tests__/link-crypto.test.ts` | unit coverage of the agent's handshake pieces. |
-| `apps/server/api/src/db/migrations/0035-node-encrypt-public-key.ts` | the add-column migration (+ its map entry — the both-places rule). |
+| `apps/server/api/src/db/migrations/0036-node-encrypt-public-key.ts` | the add-column migration (+ its map entry — the both-places rule). |
 
 **Modified (each in the task that explains the change):** `node-frames.ts` (protocol 14, 4410, handshake type note), `versions.ts` (floor), `apps/node/agent/package.json` (lockstep), `packages/subshell-protocol/{package.json,tsdown.config.ts}`, `db/migrate.ts`, `db/types/nodes.db-types.ts`, `db/repositories/nodes.repository.ts` (`create` mirror + `setEncryptPublicKey`), `services/nodes/control-keys.ts` (doc pointer only if needed), `api/nodes/enroll.route.ts` (+ `api/nodes/__tests__/enroll-route.test.ts`), `api/nodes/rotate-node-key.route.ts` (+ test), `services/nodes/node-ws-handler.ts` (+ test), `services/nodes/node-rpc.ts` (+ test), `services/nodes/node-registry.ts` (`NodeConnection.enc`), `ws/ws.plugin.ts` (message filter accepts binary), `apps/node/agent/src/daemon.ts` (the handshake in `runConnection`, binary admit, send wrap), `apps/node/agent/src/config.ts` (`loadConfig` model + `updateConfig` persistence), `apps/node/agent/src/enroll.ts`, `apps/node/agent/src/status --probe` path if needed (decided Task 10), `api/nodes/node-view.ts` (held reason union + chip), the SPA node detail chip, `docs/security.md`, `.claude/rules/security-context.md`, `docs/security-overview.md`, `apps/docs` (add-node/managing-a-node + reference pages), `.changeset/*`.
 
@@ -284,8 +284,8 @@ export const NODE_CLOSE_HANDSHAKE_REQUIRED = 4410;
 ## Task 4: The column, the rows, the node config field
 
 **Files:**
-- Create: `apps/server/api/src/db/migrations/0035-node-encrypt-public-key.ts`
-- Modify: `apps/server/api/src/db/migrate.ts` (import + map entry `"0035-node-encrypt-public-key"`)
+- Create: `apps/server/api/src/db/migrations/0036-node-encrypt-public-key.ts`
+- Modify: `apps/server/api/src/db/migrate.ts` (import + map entry `"0036-node-encrypt-public-key"`)
 - Modify: `apps/server/api/src/db/types/nodes.db-types.ts` (`encryptPublicKey: string | null` with its JSDoc)
 - Modify: `apps/server/api/src/db/repositories/nodes.repository.ts` (`create()`'s `?? null` mirror + `setEncryptPublicKey`)
 - Test: extend `apps/server/api/src/db/repositories/__tests__/nodes.repository.test.ts` (or the route test that already covers create round-trips)

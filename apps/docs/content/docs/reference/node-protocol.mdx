@@ -1,6 +1,6 @@
 ---
 title: Node Protocol
-description: The wire contract between the control plane and an enrolled node — enrollment, the two connect gates, the signed command envelope, every command and event, close codes, and versioning.
+description: The wire contract between the control plane and an enrolled node — enrollment, the encrypted handshake, the two connect gates, the signed command envelope, every command and event, close codes, and versioning.
 ---
 
 This is the reference for the link between the control plane and a **node**: a machine running the `subshell` daemon. It is written for the operator debugging a node and the contributor implementing something node-side. What the link is *for*, and what it defends against, is [How It Works](/about/how-it-works) and the [Security Model](/about/security-model); the command payloads a node answers with are the concern of [Managing a node](/nodes/managing-a-node). The contract itself lives in the shared protocol package — frames, validators, the envelope, the version gates — and both sides import it, so there is no second copy to drift.
@@ -13,32 +13,62 @@ The trust is asymmetric on purpose:
 
 - **Commands (control plane → node) are signed.** The node verifies every envelope before executing anything. It holds the control plane's public key from enrollment, so a compromised relay cannot forge work for it.
 - **Events (node → control plane) are not signed.** The bearer node key authenticated the socket at upgrade; events inherit exactly that key's trust and nothing more. Signing them would prove nothing the connection did not already.
+- **The link itself is encrypted (protocol 14).** Before any frame is read, the two sides complete a key exchange bound to the long-term identities each pinned at pairing, and after that the socket carries only authenticated ciphertext. A control plane on plain `http://` no longer puts node traffic on the network in the clear; encryption is per-connection and independent of TLS. The handshake and the `register` self-heal are §3, and a link that will not speak them is refused with close code `4410`.
 
-Both directions cap frames at 1 MiB (1,048,576 bytes). Each handler enforces the ceiling by byte length rather than trusting server config — the inbound rule on the control plane closes the socket with `1009`; the node's rule drops the frame and keeps talking (an oversize frame from the plane is a bug to log, not a reason to drop the link).
+Both directions cap frames at 1 MiB (1,048,576 bytes). Each handler enforces the ceiling by byte length rather than trusting server config — the inbound rule on the control plane closes the socket with `1009`; the node's rule drops the frame and keeps talking (an oversize frame from the plane is a bug to log, not a reason to drop the link). The same ceiling binds both spellings of a frame since protocol 14: the raw bytes are capped at the wire (a ciphertext is 17 bytes longer than the plaintext it carries), and a decrypted frame is measured again before dispatch.
 
 ## 2. Enrollment
 
 A node is enrolled once, with a **single-use setup key** — `nsk_…`, valid 24 hours, stored in plaintext and listed in full on the Setup keys page until it is used, expires, or is revoked; revocable, audited. Mint one on the Nodes page ([Add a node](/nodes/add-node)).
 
-1. The node checks for tmux first — an unenrollable box should not burn a setup key — then generates its own **identity keypair** (P-256, for sealed channel delivery; a present-but-corrupt key file is quarantined, never silently rotated).
-2. It posts `POST /api/nodes/enroll` with the setup key, a name (≤ 64 characters), `os`/`arch`/`hostname`/`agentVersion`, and its public JWK. This is the one node route with **no auth guard** — the setup key *is* the credential.
+1. The node checks for tmux first — an unenrollable box should not burn a setup key — then generates its own **identity keypair** (P-256, for sealed channel delivery; a present-but-corrupt key file is quarantined, never silently rotated) **and its link keypair** (X25519, for the encrypted `/ws/node` handshake).
+2. It posts `POST /api/nodes/enroll` with the setup key, a name (≤ 64 characters), `os`/`arch`/`hostname`/`agentVersion`, its public JWK, and its link public key (`encryptPublicKey`). A body without the link key still enrolls — the row simply starts **unpaired**, and its node pairs through §3's `register` self-heal on its first connect. This is the one node route with **no auth guard** — the setup key *is* the credential.
 3. The route peeks the key's state before consuming it, so an invalid, expired, or spent key answers with a specific error rather than a generic one. Consumption itself is a single-winner transaction; the steps after it are not atomic, so a failure past that point honestly reports the key as spent and a new one is needed.
-4. The response carries, exactly once: the assigned `nodeId`, the long-lived bearer `nodeKey` (only its hash is stored server-side), the control plane's command-signing public JWK, and the `wsUrl` the plane says it lives at (persisted, so a reverse-proxy subpath mount is dialed as described rather than re-derived).
-5. The node writes all of it to `config.json` (0600). That file is the node key's only home; no CLI command echoes it, `--json` included.
+4. The response carries, exactly once: the assigned `nodeId`, the long-lived bearer `nodeKey` (only its hash is stored server-side), the control plane's command-signing public JWK, its link-encryption public key (`controlEncryptPublicKey` — the node derives nothing until it holds this), and the `wsUrl` the plane says it lives at (persisted, so a reverse-proxy subpath mount is dialed as described rather than re-derived).
+5. The node writes all of it to `config.json` (0600). That file is the node key's only home, and it also holds the node's private link half; no CLI command echoes either secret, `--json` included.
 
 **A node key can do nothing on the REST API.** The auth guard rejects node-kind bearer keys outright and permanently; its entire blast radius is "impersonate this node on its WebSocket."
 
 ## 3. Connect and the two gates
 
-The node dials `/ws/node` with `Authorization: Bearer <nodeKey>`. The upgrade authenticates before any socket exists: an absent, disabled, expired, or wrong-kind key refuses with HTTP 401; so does a key whose node row has vanished. A valid node key aimed at the **local** node (the control-plane host's own row, which never runs a node daemon) and a key no longer bound to the node row it names (rotation flips the binding; deletion disables it) both refuse with 403. A socket that somehow reaches the handler without a verified identity is closed `4401`.
+The node dials `/ws/node` with `Authorization: Bearer <nodeKey>`. The upgrade authenticates before any socket exists: an absent, disabled, expired, or wrong-kind key refuses with HTTP 401; so does a key whose node row has vanished. A valid node key aimed at the **local** node (the control-plane host's own row, which never runs a node daemon) and a key no longer bound to the node row it names (rotation flips the binding; deletion disables it) both refuse with 403. A socket that somehow reaches the handler without a verified identity is closed `4401`. **Encryption is not the authenticator**: the bearer still decides whose socket this is; the handshake that follows decides what the socket may carry.
 
-The node's first frame is `ready`:
+### The encrypted handshake (protocol 14)
+
+The row's own state — checked at upgrade time — classifies the socket:
+
+- **The row carries an `encryptPublicKey`.** The link is required: no frame is read until the handshake completes, and the `ready` arrives encrypted like everything else.
+- **The row carries none** (every node enrolled before protocol 14 shipped). The row is **legacy**: plaintext is still accepted on it, so an old agent meets the two gates below exactly as it always did — held as below-floor, updatable. A protocol-14 agent finding no pin in its own config does not handshake; it registers first (below).
+
+A provisioned agent — its `config.json` holds both link fields — derives immediately on socket open, without waiting for anything inbound:
+
+1. It mints a fresh **per-connection ephemeral** and derives its side of the session keys against the **pinned control-plane static**: `crypto_kx`, a single X25519 DH plus a hash binding, with independent receive/send keys. Server authentication falls out of that one DH — only a holder of the private half can produce bytes the agent can open.
+2. It sends the text frame `{ "t": "kx", "eph": <ephemeral pubkey>, "pub": <long-term node static> }` and, in the same turn, its first binary frame: the **sealed binding**, `crypto_secretstream` ciphertext of `{ "nodeId": …, "nodeKey": …, "protocolVersion": 14 }` (the stream's 24-byte header rides this first push).
+3. The plane checks the claim before it computes anything: frame shape, 32-byte decodes, then a **constant-time compare of `pub` against the row's pin**. A mismatch never reaches key derivation.
+4. It opens the binding and checks three facts — the `nodeId` names the row the bearer authenticated; the `nodeKey` **re-proves** through the same verification chain the upgrade ran (the plane stores only a hash, so this is a re-verification, never a string compare); and the `protocolVersion` matches exactly. Each refusal names which fact failed, per the two-gates doctrine.
+5. The plane's `kx` answer is silence — a single DH gives it no ephemeral to hand back, and the agent needed none — and then its first push: the sealed `{ "t": "ok" }`. Opening that ack is what makes the link established; `ready` follows immediately.
+
+Anything else at the wrong moment is a refusal: ciphertext before the `kx`, plaintext before the binding, plaintext on an established link, ciphertext that will not open — each closes the socket with **`4410`** and a one-line reason the agent relays into its own log. The ratchet **never resyncs**: a broken stream is a dead link and a redial, because "resync on attacker-chosen bytes" is not a recovery. A socket classified, open, and handshake-less past a **10-second deadline** is refused the same way rather than waited on forever.
+
+`4410` is **not terminal**: unlike `4406`/`4409` the agent never exits on it — the backoff loop simply redials (60 s cap). From the agent it reports the mirror-image failures: the server's first frame would not open (the pinned control key is wrong), or the stream broke mid-session. One close is deliberately *not* a 4410: the normal close that follows a successful `register` (below) — that close is the success path, not a refusal.
+
+### The self-heal: pairing an old row, and re-pairing after rotation
+
+Rows that predate protocol 14 — and rows whose pin a key rotation has just cleared — are brought onto the link by the agent itself, over the socket the bearer key already authenticates (the bearer is the trust root, exactly as it authenticates every legacy frame):
+
+- **First pairing.** An agent with no `controlEncryptPublicKey` in its config sends `{ "t": "register", "pub": <long-term static> }`, generating its keypair and **persisting it before sending the claim** — so a lost reply resumes with the SAME static rather than a mint that can never match the pin. The plane writes the claim into the row's `encryptPublicKey` and answers `{ "t": "register-ok", "controlEncryptPublicKey": … }` in plaintext, then closes the socket normally; the redial is handshake mode under the pin just written.
+- **After key rotation.** `POST /api/nodes/:id/key_rotate` clears the row's encryption pin alongside the key itself, so a provisioned node redials in handshake mode at a row that no longer holds its identity. The plane answers its real `kx` claim with a named 4410 — "re-pair via register" — because pairing is a handshake between the two endpoints, not a thing to be arranged around them, and a named refusal beats the silent stall this state used to be. On the agent side, a 4410 that arrives **before the link established** means exactly that and drops its pinned control key — nothing else, never its own pair — so the next connect is a `register` of the SAME static and the row re-pairs. A stream that established and later died still redials fully provisioned.
+- **A plaintext `ready` wearing 14** on a legacy row is the downgrade attempt this machinery exists to refuse: the plane holds the node under the pairing reason (offline for every purpose but `update`) and **never writes its self-claimed identity** onto the row. What is genuinely old — a below-floor `ready` — keeps the ordinary gates and hold path unchanged.
+
+Replacing **the plane's** link keypair (`<data dir>/node-encryption.json`, 0600, generated on first use) breaks every node's pin at once — nodes land in the re-pair loop above, and the operator's tool is per-node key rotation. Nothing regenerates that file silently: an unreadable keypair is refused loudly, because auto-rotating it would orphan every enrolled node.
+
+The node's first protocol frame on an established link (or, for a legacy plaintext socket, on the socket itself) is `ready`:
 
 ```jsonc
 {
   "type": "ready",
-  "agentVersion": "0.16.0",
-  "protocolVersion": 13,
+  "agentVersion": "0.17.0",
+  "protocolVersion": 14,
   "os": "darwin",              // linux | darwin | unknown
   "arch": "arm64",
   "hostname": "mac-mini",
@@ -56,9 +86,9 @@ The node's first frame is `ready`:
 
 The identity is persisted **before** either gate below, so a refused node still shows its version on the Nodes page instead of being invisible. The row briefly reads online; the refusal then puts it back to offline.
 
-**Gate 1 — the version floor.** `MIN_NODE_VERSION` (currently `0.16.0`): "this server needs subshell ≥ X". Refused when the reported version is lower, unparseable, or absent — a build that cannot say what it is cannot be assumed current. It runs first because it is the gate a person can act on: the refusal names both the required and the found version.
+**Gate 1 — the version floor.** `MIN_NODE_VERSION` (currently `0.17.0`): "this server needs subshell ≥ X". Refused when the reported version is lower, unparseable, or absent — a build that cannot say what it is cannot be assumed current. It runs first because it is the gate a person can act on: the refusal names both the required and the found version.
 
-**Gate 2 — the protocol, matched exactly.** Any `protocolVersion` differing from `NODE_PROTOCOL_VERSION` (currently `13`) fails **in either direction**. No window, no per-feature gating — the pair ships together, so a mismatch is a deployment out of step, not a node to be carried. This gate is a backstop: at or above the floor a node should always speak the current protocol, and if it does not, the floor is set wrong.
+**Gate 2 — the protocol, matched exactly.** Any `protocolVersion` differing from `NODE_PROTOCOL_VERSION` (currently `14`) fails **in either direction**. No window, no per-feature gating — the pair ships together, so a mismatch is a deployment out of step, not a node to be carried. This gate is a backstop: at or above the floor a node should always speak the current protocol, and if it does not, the floor is set wrong.
 
 **Neither gate closes the socket.** A refused node is **held**: moved out of the live registry (so every liveness answer, launch path and tail treats the node as offline exactly as before) but kept connected for exactly one command — `update`, whose wire shape is frozen so any older node can parse it. Only the `result` frame of that command is accepted from a held socket; everything else the node sends is dropped unread. After **ten idle minutes** the plane closes it with `4406` and the refusal reason, so an operator at the machine still reads "update required" in its log — ten minutes later rather than at once, which is the price of the window in which the browser could fix it instead. A held socket is superseded by a newer connection (4409), and evicted by key rotation or node deletion, exactly as a live one is. On the `4406` the node exits; if the refused binary is one it just installed, it first rolls itself back (see §7).
 
@@ -80,7 +110,7 @@ Every command is a **compact JWS** signed ES256 (ECDSA, P-256) by the control pl
 }
 ```
 
-Signing proves **authenticity, freshness and target**. It does not provide confidentiality (that is WSS and your deployment) and not resilience to control-plane compromise (the signing key rules every enrolled node).
+Signing proves **authenticity, freshness and target**. It has never provided confidentiality — that moved to the encrypted link in §3 when protocol 14 shipped, and the sealed binding re-proves the node's bearer *inside* the channel — and it never claimed resilience to control-plane compromise (the signing key rules every enrolled node). Confidentiality and authenticity are separate mechanisms on purpose: a bug in one is not fatal to the other.
 
 Verification order is load-bearing:
 
@@ -205,19 +235,20 @@ Geometry is **confirmed on both paths**: the pane's real grid is asked (`pane_si
 | `4401` | a socket that reached the handler without a verified identity; also the courtesy close when a node's key is rotated or deleted mid-connection | control plane |
 | `4406` | the update-required refusal (below floor, or protocol mismatch) — **carried by the held socket's ten-minute idle close**, and terminal for the node, which logs the reason (and rolls back a just-installed binary) before exiting | control plane |
 | `4409` | newest-wins replace — a second node dialed with this node's identity; terminal for the superseded node | control plane registry |
+| `4410` | the encrypted link refused to speak: a handshake failure or refusal (§3) — wrong-kind frame for the phase, pin mismatch, binding mismatch, undecryptable ciphertext on an established stream, handshake timeout, or a kx claim at an unpaired row. **Not terminal for the agent**: the reason rides into its own log and the backoff loop redials. The agent emits it too, for its mirror-image failures (its pinned control key would not open the server's first frame; the stream broke) | both |
 | `1009` | an inbound frame exceeded 1 MiB | control plane |
 | `1000` | graceful on both ends: the node's own shutdown or seq-regression drop; a control-plane self-restart closes node sockets with a reason the node's reconnect loop treats as ordinary | either |
 
-`4406` and `4409` are shared constants precisely because the node decides *whether to exit* rather than reconnect based on them.
+`4406` and `4409` are shared constants precisely because the node decides *whether to exit* rather than reconnect based on them. `4410` is shared for the opposite decision it drives — always reconnect, and when it arrives from the plane **before** the link established, additionally drop the pinned control key so the redial re-registers (the rotation arc of §3).
 
 ## 11. Versioning
 
 Two numbers with distinct meanings and distinct refusals, raised together, both defined in the shared protocol package:
 
-- **`NODE_PROTOCOL_VERSION`** — bump whenever a frame changes, additive or not, and release both sides. **Server first**: a node that leads the server is refused, and one that lags is refused just as clearly; the Nodes page names which. The numbering **restarted at 1 on 2026-09-09** (the old numbers predated any deployment). Since then: **1 → 2** registry installs; **2 → 3** the inversion — plugins left the wire, `launch` began requiring the plane-built `argv` and its `resolve` rule, `detect` arrived, the inventory event lost its plugin set (the first breaking bump, and the point of exact match); **3 → 4** `ready.selfInvoke` replaced the MCP-specific launch field so `mcp` and `report` compose from one fact; **4 → 5** the node Service surface — `restart` folded into `service`, `agent_log_read` and `set_server_url` added; **5 → 6** `set_log_level`; **6 → 7** the preset rename (`profile` → `preset`, wire-shaped only); **7 → 8** node maintenance (three frames: `ready.maintenance`, the `maintenance` event, `set_maintenance`); **8 → 9** `service.linger` — the Linux fact that decides whether a headless node comes back after a reboot; **9 → 10** the `update` command, whose shape is now frozen; **10 → 12** the signed `update` (the number skips 11 deliberately — a concurrent branch held it, and no build ever spoke 11 on main); **12 → 13** `pane_cursor` — the attach replay ends on the pane's real cursor.
-- **`MIN_NODE_VERSION`** — currently `0.16.0`. Raise it in the same commit as a protocol bump, and raise the node package to the same value alongside, so the refusal an operator sees always names a version that exists.
+- **`NODE_PROTOCOL_VERSION`** — bump whenever a frame changes, additive or not, and release both sides. **Server first**: a node that leads the server is refused, and one that lags is refused just as clearly; the Nodes page names which. The numbering **restarted at 1 on 2026-09-09** (the old numbers predated any deployment). Since then: **1 → 2** registry installs; **2 → 3** the inversion — plugins left the wire, `launch` began requiring the plane-built `argv` and its `resolve` rule, `detect` arrived, the inventory event lost its plugin set (the first breaking bump, and the point of exact match); **3 → 4** `ready.selfInvoke` replaced the MCP-specific launch field so `mcp` and `report` compose from one fact; **4 → 5** the node Service surface — `restart` folded into `service`, `agent_log_read` and `set_server_url` added; **5 → 6** `set_log_level`; **6 → 7** the preset rename (`profile` → `preset`, wire-shaped only); **7 → 8** node maintenance (three frames: `ready.maintenance`, the `maintenance` event, `set_maintenance`); **8 → 9** `service.linger` — the Linux fact that decides whether a headless node comes back after a reboot; **9 → 10** the `update` command, whose shape is now frozen; **10 → 12** the signed `update` (the number skips 11 deliberately — a concurrent branch held it, and no build ever spoke 11 on main); **12 → 13** `pane_cursor` — the attach replay ends on the pane's real cursor; **13 → 14** the encrypted link — the `kx` handshake, sealed frames, the `register` self-heal, close `4410`. This one changed the transport itself: nothing about it is additive, and no frame of a v14 link is ever plaintext.
+- **`MIN_NODE_VERSION`** — currently `0.17.0`. Raise it in the same commit as a protocol bump, and raise the node package to the same value alongside, so the refusal an operator sees always names a version that exists.
 
-The floor rides every protocol bump, so today it rides 13. The command that makes riding it safe is `update`: a refused node is HELD, not dropped, precisely so it can still be rescued from a browser — and a node too old to know the command answers `unsupported`, which the route turns into "update this node by hand".
+The floor rides every protocol bump, so today it rides 14. The command that makes riding it safe is `update`: a refused node is HELD, not dropped, precisely so it can still be rescued from a browser — and a node too old to know the command answers `unsupported`, which the route turns into "update this node by hand".
 
 Settings → Updates lists held nodes and those under the floor in one place, since a refused node otherwise looks like an ordinary offline node.
 

@@ -65,7 +65,7 @@ Everything below assumes that perimeter holds.
 | Threat | Why |
 |---|---|
 | **A local OS user on the host** | They can read subshell keypairs, the node signing key, pane contents, and `/proc/<pid>/environ`. This is the single largest assumption in the model — the host's OS user boundary *is* the trust boundary |
-| **Network-level attackers** | No TLS enforcement, no certificate pinning. Transport security is the operator's deployment (a VPN, or TLS terminated in front) |
+| **Network-level attackers** | No TLS enforcement, no certificate pinning — transport security is the operator's deployment (a VPN, or TLS terminated in front). The node ↔ control-plane link is the exception since protocol 14: it encrypts at the application layer whatever the deployment (§6). What still rides the network in the clear: the browser ↔ server HTTP and WebSockets (the server must read those bytes to serve them — TLS is that leg's job, §12), the downloads and the install one-liners (publisher-signed — integrity, not secrecy, §11.12), and the node's loopback dashboard (a local socket, never a wire, §6) |
 | **Channel metadata analysis** | Channel names, membership, post timing, ordering, message sizes and principals are all plaintext on the server |
 | **Control-plane compromise** | The node signing keypair lives on the backend host and rules every enrolled node. Compromise there is compromise of the whole fleet |
 | **A malicious admin** | Admins hold instance-wide edit access and can mint full-access system keys. There is no separation of duties |
@@ -3087,20 +3087,22 @@ holds and the following are prerequisites, not improvements:
       across a hostile network is a different problem from delegating it across a
       VPN, and command signing plus the encrypted link (below) does not close
       it.
-- [ ] **The node link is encrypted, and encryption is not identity**
-      (2026-09-24, protocol 14; §6). The app-layer `crypto_kx` + `secretstream`
-      handshake took transport off the node path's list of defenses — a hostile
-      network can no longer read the plane↔node stream just because there is
-      no TLS in front of it, and an unpaired row refuses a kx claim rather
-      than forwarding it (R10). What it did NOT buy is PKI endpoint identity:
-      each side trusts the static it pinned at enroll (or at first register),
-      and the trust root of registration is the bearer the setup key minted.
-      Until the link rides TLS with certificates this deployment validates (or
-      an equivalent identity channel), a man-in-the-middle BEFORE pairing is
-      a different threat from wire eavesdropping, and it rides enrollment:
-      whoever can hand a machine a setup key or a repoint address (§6) picks
-      the host it pairs with. Keep the checkbox above open — encryption
-      shrinks what enrollment leaks, not what it delegates.
+- [x] **The node link is encrypted** — satisfied 2026-09-24 (protocol 14),
+      and encryption is not identity. §6's link bullets are the record: the
+      app-layer `crypto_kx` + `secretstream` handshake took transport off the
+      node path's list of defenses — a hostile network can no longer read the
+      plane↔node stream just because there is no TLS in front of it, and an
+      unpaired row refuses a kx claim rather than forwarding it (R10). What it
+      did NOT buy is PKI endpoint identity, and that is why this box is honest
+      only about its own half: each side trusts the static it pinned at enroll
+      (or at first register), and the trust root of registration is the bearer
+      the setup key minted. Until the link rides TLS with certificates this
+      deployment validates (or an equivalent identity channel), a
+      man-in-the-middle BEFORE pairing is a different threat from wire
+      eavesdropping, and it rides enrollment: whoever can hand a machine a
+      setup key or a repoint address (§6) picks the host it pairs with. That
+      remainder keeps the enrollment checkbox above open — encryption shrinks
+      what enrollment leaks, not what it delegates.
 - [x] **Sign-in/sign-out audit events** — satisfied 2026-09-23 (§10):
       `auth.sign_in` / `auth.sign_out` let an incident be reconstructed from
       the trail. Deliberately still absent: failed attempts (backoff domain,

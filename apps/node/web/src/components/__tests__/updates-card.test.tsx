@@ -51,7 +51,7 @@ describe("UpdatesCard", () => {
   test("reads the local /api/self/update and offers an install when a release source exists", async () => {
     stubUpdateInfo({
       currentVersion: "1.9.0",
-      protocolVersion: 13,
+      protocolVersion: 14,
       releaseConfigured: true,
       debugLogging: false,
       pending: null,
@@ -75,7 +75,7 @@ describe("UpdatesCard", () => {
   test("an air-gapped node is told the machine remedy and offered no install button", async () => {
     stubUpdateInfo({
       currentVersion: "1.9.0",
-      protocolVersion: 13,
+      protocolVersion: 14,
       releaseConfigured: false,
       debugLogging: false,
       pending: null,
@@ -90,7 +90,7 @@ describe("UpdatesCard", () => {
   test("a pending update is stated as awaiting its boot-time confirmation", async () => {
     stubUpdateInfo({
       currentVersion: "1.9.0",
-      protocolVersion: 13,
+      protocolVersion: 14,
       releaseConfigured: true,
       debugLogging: false,
       pending: { from: "1.8.0", to: "1.9.0" },
