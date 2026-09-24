@@ -126,7 +126,7 @@ export function ServerLogCard({
           Debug logging writes every request to the log file. It is capped at {Math.round(view.logging.capBytes / 1024)}{" "}
           KB and replaced when full.
         </p>
-        {logs.error && <p className="text-destructive text-sm">The server log could not be read.</p>}
+        {logs.error && <p className="text-destructive text-detail">The server log could not be read.</p>}
         {/* A named, FOCUSABLE scroll box. It was a bare `overflow-auto` `<pre>`,
             which a keyboard-only reader could not scroll at all — there was
             nothing to tab to. `<section>` rather than `role="region"` on the

@@ -106,7 +106,7 @@ export function CreatePresetDialog({
           </DialogDescription>
         </DialogHeader>
         <PresetFields value={form} onChange={setForm} lockedHarness={lock} />
-        {create.error && <p className="text-destructive text-sm">{errMessage(create.error, "Failed")}</p>}
+        {create.error && <p className="text-destructive text-detail">{errMessage(create.error, "Failed")}</p>}
         <DialogFooter>
           <Button variant="outline" disabled={create.isPending} onClick={() => onOpenChange(false)}>
             Cancel

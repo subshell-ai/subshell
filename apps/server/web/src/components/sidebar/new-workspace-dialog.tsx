@@ -176,7 +176,7 @@ export function NewWorkspaceDialog({
           <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
         )}
 
-        {error && <p className="text-destructive text-sm">{error}</p>}
+        {error && <p className="text-destructive text-detail">{error}</p>}
         {!createdId && selected.length > 0 && (
           <p className="text-detail text-muted-foreground">
             {selected.length === 1 ? "1 subshell" : `${selected.length} subshells`} to add

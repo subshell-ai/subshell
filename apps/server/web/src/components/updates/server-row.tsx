@@ -172,7 +172,7 @@ export function ServerRow({
         </p>
       )}
       {update.outcome === "failed" && update.error && (
-        <p className="col-span-full text-destructive text-sm">
+        <p className="col-span-full text-destructive text-detail">
           {update.installing
             ? `The update to ${update.installing} failed and ${view.current} was restored: ${update.error}`
             : update.error}

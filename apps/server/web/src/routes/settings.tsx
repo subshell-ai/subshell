@@ -104,7 +104,7 @@ function SettingsPage() {
     return (
       <>
         {outcome.saved && <span className="text-detail text-success">saved</span>}
-        {outcome.error && <p className="text-destructive text-sm">{outcome.error}</p>}
+        {outcome.error && <p className="text-destructive text-detail">{outcome.error}</p>}
       </>
     );
   }

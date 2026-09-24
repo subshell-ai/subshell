@@ -153,7 +153,7 @@ export function NodeKeyRotate({
             <KeyRound /> {rotate.isPending ? "Rotating…" : "Rotate key"}
           </Button>
           {rotate.isError && (
-            <p role="alert" className="text-destructive text-sm">
+            <p role="alert" className="text-destructive text-detail">
               {errMessage(rotate.error, "Key rotation failed.")}
             </p>
           )}

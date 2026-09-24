@@ -1815,6 +1815,11 @@ Audit events are written, grouped by family:
   `emergency_login.rewrite_credential`, `setup_key.create`,
   `setup_key.revoke`, `settings.update`.
 - **Subshells**: `subshell.create`, `subshell.terminate`, `subshell.restart`,
+  `subshell.preset_switch` (metadata `{ name, presetId }`, the new value
+  `null` included — a restart's carried swap, written only when the swap
+  changed the row, beside the `subshell.restart` row of the same act; the
+  swap row stands alone only when the revive throws mid-flight (the row
+  keeps the new preset) or the row is deleted between park and re-read),
   `subshell.delete`.
 - **Nodes**: `node.enroll`, `node.delete`, `node.rename`, `node.key_rotate`,
   `node.allowed_dirs.update`, `node.config.update`,

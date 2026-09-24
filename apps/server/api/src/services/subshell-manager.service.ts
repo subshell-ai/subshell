@@ -96,6 +96,17 @@ const defaultTokens: SubshellTokenProvider = {
  */
 const restartInFlight = new Map<string, Promise<{ id: string; tmuxSocket: string } | null>>();
 
+/**
+ * Thrown by {@link SubshellManagerService.restartSubshell} when a restart
+ * CARRYING A PRESET SWAP arrives while another restart for the same id holds
+ * the in-flight lease. A plain restart rides the lease by design; a swap
+ * cannot — the joined revival composes the FIRST caller's preset, so reporting
+ * 200 for this caller's swap would be a lie. {@link SubshellsService.restartSubshell}
+ * maps it to the structured 409 RESTART_IN_FLIGHT; the caller may retry once
+ * the running restart finishes.
+ */
+export class RestartInFlightSwapError extends Error {}
+
 /** The app-wide push notifier, used when no sink is injected. */
 const defaultNotify: (subshellId: string, kind: NotifyKind) => Promise<void> = async (id, kind) => {
   // Static import (module-level) — dynamic imports break `bun build --compile`.
@@ -700,14 +711,53 @@ export class SubshellManagerService {
    *         `terminated` + token revoked on the way out, so a failed restart
    *         leaves a dead-and-restartable row, never a `running` zombie the
    *         sweep would auto-revive.
+   * @param swapPresetTo - the optional preset swap of spec 2026-09-23 §2,
+   *         applied at the swap point (after the kill, before `parkForRestart`)
+   *         and read by `#reviveRow`'s fresh re-read below: `null` = swap to
+   *         presetless, `undefined`/unchanged = no swap (no write, no audit).
+   *         A refusal that threw before this point — the service's gate,
+   *         validation, maintenance or offline pre-gate, or an ALIVE row's
+   *         offline kill here — never moves the column. A revive that fails
+   *         AFTER the write leaves the row dead keeping the new preset (spec
+   *         §4); a dead row cannot reach this point on an unreachable node,
+   *         because the service refuses a swap-carrying restart pre-manager.
+   *         A swap-carrying restart that finds the lease HELD does not join —
+   *         it throws {@link RestartInFlightSwapError}, which the service
+   *         maps to 409 RESTART_IN_FLIGHT.
+   * @param actorUserId - the human performing the act, when a viewer is known
+   *         (the service passes it; a bearer token resolves to its owner).
+   *         Both audit rows of this act carry it — falling back to the row's
+   *         owner only for callers with no distinct viewer, so a grantee's
+   *         restart and preset switch are attributed to the grantee.
    */
-  async restartSubshell(userId: string, sourceId: string): Promise<{ id: string; tmuxSocket: string } | null> {
+  async restartSubshell(
+    userId: string,
+    sourceId: string,
+    swapPresetTo?: string | null,
+    actorUserId?: string,
+  ): Promise<{ id: string; tmuxSocket: string } | null> {
+    // The audit subject of BOTH rows of this act: the acting viewer when the
+    // caller knows one, the owner as the legacy/sweep fallback. They move
+    // together on purpose — two rows of one act naming different actors would
+    // read worse than the old uniform owner-attribution.
+    const auditActor = actorUserId ?? userId;
     // Ownership is checked BEFORE consulting the lease, so a foreign caller
     // can never ride another principal's in-flight restart for the id's info.
     const source = await this.#subshells.findById(sourceId);
     if (!source || source.userId !== userId) return null;
     const existing = restartInFlight.get(sourceId);
-    if (existing) return existing; // same owner, already restarting — join it
+    if (existing) {
+      // A swap-carrying restart must NOT join: the in-flight revival composes
+      // the FIRST caller's preset, and a 200 here would report a swap that
+      // never gets applied (final review of spec 2026-09-23). A plain restart
+      // still rides the lease — that is the machinery's whole point.
+      if (swapPresetTo !== undefined) {
+        throw new RestartInFlightSwapError(
+          `restart in flight for ${sourceId}: a swap-carrying restart does not join it`,
+        );
+      }
+      return existing; // same owner, already restarting — join it
+    }
     const run = (async (): Promise<{ id: string; tmuxSocket: string } | null> => {
       if (source.alive === 1 && source.tmuxSocket) {
         // killSubshell swallows "already gone"; the tree dies with its baked
@@ -716,6 +766,25 @@ export class SubshellManagerService {
         // (an offline agent answers NodeRpcError("offline"), which the
         // service maps to the 409 NODE_OFFLINE of spec §5.6).
         await this.#launcherFor(source.nodeId).killSubshell(source.tmuxSocket, source.id);
+      }
+      // The swap point (spec 2026-09-23): reached only with reachability
+      // proved — the kill above for an alive row, the service's offline
+      // pre-gate for a dead one — and read fresh by #reviveRow's row
+      // re-read below.
+      // A refusal that threw earlier leaves the column untouched; an
+      // unchanged target is not a swap (no write, no audit row).
+      // The comparison reads `source`, captured before the kill: a concurrent
+      // preset delete nulling dangling references can make this a no-op write
+      // + audit row; the row stays valid and honest either way.
+      if (swapPresetTo !== undefined && swapPresetTo !== source.presetId) {
+        await this.#subshells.update(source.id, { presetId: swapPresetTo });
+        await this.#audit({
+          actorUserId: auditActor,
+          action: "subshell.preset_switch",
+          targetType: "subshell",
+          targetId: source.id,
+          metadataJson: JSON.stringify({ name: source.name, presetId: swapPresetTo }),
+        });
       }
       // Conditional park: succeeds only if the row is still where we read it.
       // A terminate/delete in the window flips status/alive, so this no-ops
@@ -727,7 +796,7 @@ export class SubshellManagerService {
       );
       if (parkedRows === 0) {
         await this.#audit({
-          actorUserId: userId,
+          actorUserId: auditActor,
           action: "subshell.restart",
           targetType: "subshell",
           targetId: source.id,
@@ -748,6 +817,10 @@ export class SubshellManagerService {
         // zombie. Mirrors createSubshell's spawn-failure rollback.
         await this.#subshells.markTerminated(parked.id, new Date().toISOString());
         await this.#revokeTokenOrUnlink(parked.id);
+        // The rollback CHANGES the row (parked-running → terminated, and after
+        // a swap it also carries a new preset) — an event-only feed must see
+        // this transition like any other; announce before rethrowing.
+        publishLive({ kind: "subshell.changed", id: parked.id });
         throw err;
       }
       // Audit trail: a restart is its own event on the SAME row (create
@@ -755,7 +828,7 @@ export class SubshellManagerService {
       // `racedTerminate` marks the case where the operator killed the
       // subshell mid-restart and we honored it (no pane, no token).
       await this.#audit({
-        actorUserId: userId,
+        actorUserId: auditActor,
         action: "subshell.restart",
         targetType: "subshell",
         targetId: parked.id,

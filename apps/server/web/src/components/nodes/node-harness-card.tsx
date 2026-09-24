@@ -197,7 +197,7 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
           </div>
         )}
         {recheck.isError && (
-          <p role="alert" className="text-destructive text-sm">
+          <p role="alert" className="text-destructive text-detail">
             {errMessage(recheck.error, "Re-check failed. The node may be offline.")}
           </p>
         )}
@@ -325,7 +325,7 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                   // on the fourth of five agents rendered at the bottom of the
                   // card names none of them.
                   <div className="col-span-full space-y-1">
-                    <p className="text-destructive text-sm">{installFailure.message}</p>
+                    <p className="text-destructive text-detail">{installFailure.message}</p>
                     {installFailure.output !== undefined && installFailure.output.trim() !== "" && (
                       <details className="text-sm">
                         <summary className="cursor-pointer text-detail text-muted-foreground">

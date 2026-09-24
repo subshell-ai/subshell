@@ -111,7 +111,7 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
         </div>
         {saved && <p className="text-sm text-success">Saved. {saved}</p>}
         {failure && (
-          <p role="alert" className="text-destructive text-sm">
+          <p role="alert" className="text-destructive text-detail">
             {failure}
           </p>
         )}

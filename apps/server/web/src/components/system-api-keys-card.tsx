@@ -102,7 +102,7 @@ export function SystemApiKeysCard() {
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {error && <p className="text-destructive text-sm">{keyErrorMessage(error)}</p>}
+        {error && <p className="text-destructive text-detail">{keyErrorMessage(error)}</p>}
         {!error && keysLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
         {!error && data?.keys.length === 0 && <p className="text-muted-foreground text-sm">No keys yet.</p>}
         {data?.keys.map((k) => (

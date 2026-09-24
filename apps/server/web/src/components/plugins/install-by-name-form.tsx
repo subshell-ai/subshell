@@ -127,9 +127,9 @@ export function InstallByNameForm({ plugins }: { plugins: InstancePluginRow[] })
               refusal says what to type here.
             </p>
           </div>
-          {fieldError && <p className="text-destructive text-sm">{fieldError}</p>}
+          {fieldError && <p className="text-destructive text-detail">{fieldError}</p>}
           {install.isError && (
-            <p className="text-destructive text-sm">
+            <p className="text-destructive text-detail">
               {errMessage(install.error, "The install failed. Nothing changed.")}
             </p>
           )}

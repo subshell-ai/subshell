@@ -53,7 +53,7 @@ export function UninstallPluginDialog({ plugin, onClose }: { plugin: InstancePlu
         )}
         {error !== null && (
           <div className="flex items-center justify-between gap-3">
-            <p className="text-destructive text-sm">Could not count what uses it. {errMessage(error, "")}</p>
+            <p className="text-destructive text-detail">Could not count what uses it. {errMessage(error, "")}</p>
             <Button
               variant="link"
               size="sm"
@@ -103,7 +103,7 @@ export function UninstallPluginDialog({ plugin, onClose }: { plugin: InstancePlu
         )}
 
         {uninstall.isError && (
-          <p className="text-destructive text-sm">{errMessage(uninstall.error, "Uninstall failed.")}</p>
+          <p className="text-destructive text-detail">{errMessage(uninstall.error, "Uninstall failed.")}</p>
         )}
 
         <DialogFooter>

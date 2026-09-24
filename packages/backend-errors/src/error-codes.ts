@@ -11,6 +11,8 @@ export enum BackendErrorCodes {
   INPUT_VALIDATION_ERROR = "INPUT_VALIDATION_ERROR",
   INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR",
   INVALID_CREDENTIALS = "INVALID_CREDENTIALS",
+  /** `POST /api/subshells/:id/restart` with a `presetId`: the preset is unknown, not the caller's, or belongs to a different harness. Nothing was written and no restart was attempted. */
+  INVALID_PRESET = "INVALID_PRESET",
   /** `PUT /api/admin/server/logging`: `SUBSHELL_DEBUG_LOGGING` is set in the environment, so the setting is read-only. */
   LOGGING_FROM_ENV = "LOGGING_FROM_ENV",
   NOT_FOUND_ERROR = "NOT_FOUND_ERROR",
@@ -63,6 +65,8 @@ export enum BackendErrorCodes {
   NODE_RESTART_KILLS_PANES = "NODE_RESTART_KILLS_PANES",
   NODE_RUNNING_SUBSHELLS = "NODE_RUNNING_SUBSHELLS",
   NODE_UNREACHABLE = "NODE_UNREACHABLE",
+  /** `POST /api/subshells/:id/restart` with a `presetId`: another restart for this subshell already holds the in-flight lease. A plain restart would join it; a swap cannot ride another caller's revival, so nothing was written and the caller may retry once the running restart finishes. */
+  RESTART_IN_FLIGHT = "RESTART_IN_FLIGHT",
   /** `POST /api/admin/server/restart`: the installed service definition would close live panes; pass `force`. */
   RESTART_KILLS_PANES = "RESTART_KILLS_PANES",
   /** `POST /api/admin/server/restart`: this server is not running under a service manager, so exiting would stop it. */
@@ -167,6 +171,10 @@ export const BackendErrorCodeDefs = {
     message: "Invalid credentials",
     statusCode: 401,
   },
+  [BackendErrorCodes.INVALID_PRESET]: {
+    message: "Invalid preset",
+    statusCode: 400,
+  },
   [BackendErrorCodes.NOT_FOUND_ERROR]: {
     message: "Resource not found",
     statusCode: 404,
@@ -241,6 +249,10 @@ export const BackendErrorCodeDefs = {
   },
   [BackendErrorCodes.RESTART_UNAVAILABLE]: {
     message: "This server is not running under a service manager",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.RESTART_IN_FLIGHT]: {
+    message: "Another restart for this subshell is already running",
     statusCode: 409,
   },
   [BackendErrorCodes.SETUP_KEY_CONSUMED]: {

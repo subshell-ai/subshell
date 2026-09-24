@@ -142,7 +142,7 @@ export function CloneSubshellDialog({
             }}
           />
           {create.error && (
-            <p className="text-destructive text-sm">
+            <p className="text-destructive text-detail">
               {createSubshellErrorMessage(create.error, "Failed to launch the clone")}
             </p>
           )}

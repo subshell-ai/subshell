@@ -138,7 +138,7 @@ function NodesPage() {
             </p>
           )}
 
-          {actionError && <p className="text-destructive text-sm">{actionError}</p>}
+          {actionError && <p className="text-destructive text-detail">{actionError}</p>}
 
           {isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
 

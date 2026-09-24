@@ -33,8 +33,9 @@ import { resolveResult } from "@/services/nodes/node-rpc.js";
  * (undefined ⇒ a bare `{ ok: true }` — the no-data commands); a thrown or
  * returned {@link Error} answers `ok:false` with its message (the
  * `NodeRpcError("failed")` class on the caller's side). A handler may also
- * return a promise — the pending's resolve adopts it (the scripted agent
- * "thinking" before answering).
+ * return a promise — the result frame waits for it (the scripted agent
+ * "thinking" before answering; a rejection answers `ok:false` like a throw),
+ * which is what lets a test hold a command in flight on the wire.
  */
 export type ScriptedHandler = (cmd: NodeCommandBody) => unknown | Error;
 
@@ -133,28 +134,32 @@ export function attachScriptedNode(
         return 0;
       }
       wire.push({ seq: claims.seq, jti: claims.jti, cmd });
-      const answer = (): unknown | Error => {
+      const answer = async (): Promise<unknown | Error> => {
         const handler = handlers[cmd.type];
         if (!handler) return new Error(`scripted node: no handler for "${cmd.type}"`);
         try {
-          return handler(cmd);
+          // Awaited, not adopted: a real agent sends its result frame when the
+          // work is DONE, so a promise handler holds the frame (and the RPC
+          // behind it) open — the shape a hanging command needs. A plain
+          // handler's `await` settles on the next microtask.
+          return await handler(cmd);
         } catch (err) {
           return err instanceof Error ? err : new Error(String(err));
         }
       };
-      const settled = answer();
-      if (settled instanceof Error) {
-        resolveResult(conn, { type: "result", ref: claims.jti, ok: false, error: settled.message });
-        return 0;
-      }
-      resolveResult(
-        conn,
-        settled === undefined
-          ? { type: "result", ref: claims.jti, ok: true }
-          : // A promise here is legal at runtime (the pending's resolve adopts
-            // it); the wire type only names the settled shape.
-            { type: "result", ref: claims.jti, ok: true, data: settled as JsonValue },
-      );
+      // `send` keeps the socket's synchronous contract and returns 0 here;
+      // the frame goes out once the handler has settled. Nothing on either
+      // side depends on same-tick resolution — every caller awaits the RPC.
+      void answer().then((settled) => {
+        resolveResult(
+          conn,
+          settled instanceof Error
+            ? { type: "result", ref: claims.jti, ok: false, error: settled.message }
+            : settled === undefined
+              ? { type: "result", ref: claims.jti, ok: true }
+              : { type: "result", ref: claims.jti, ok: true, data: settled as JsonValue },
+        );
+      });
       return 0;
     },
     close: () => {},

@@ -67,7 +67,7 @@ export function SubshellManagerTable({ subshells }: { subshells: SubshellView[] 
 
   return (
     <div className="space-y-3">
-      {lastBulkError && <p className="text-destructive text-sm">{lastBulkError}</p>}
+      {lastBulkError && <p className="text-destructive text-detail">{lastBulkError}</p>}
       {selectedIds.length > 0 && (
         <div className="flex items-center gap-2">
           <span className="mr-2 text-muted-foreground text-sm">{selectedIds.length} selected</span>

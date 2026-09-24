@@ -161,7 +161,7 @@ function LoginPage() {
                 autoComplete="current-password"
               />
             </div>
-            {error && <p className="text-destructive text-sm">{error}</p>}
+            {error && <p className="text-destructive text-detail">{error}</p>}
             <Button type="submit" className="w-full" disabled={busy}>
               {busy ? "Signing in…" : "Sign in"}
             </Button>

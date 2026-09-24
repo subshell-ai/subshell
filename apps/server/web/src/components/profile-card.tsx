@@ -120,7 +120,7 @@ export function ProfileCard({ updateUser = (input) => authClient.updateUser(inpu
                   is not offered here (muted to say so at a glance). */}
               <Input id="profile-email" value={user.email} readOnly className="text-muted-foreground" />
             </div>
-            {error && <p className="text-destructive text-sm">{error}</p>}
+            {error && <p className="text-destructive text-detail">{error}</p>}
           </>
         )}
       </CardContent>

@@ -16,7 +16,11 @@ import { getLive, isNodeOffline } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
-import { readSubshellLogTail, SubshellManagerService } from "@/services/subshell-manager.service.js";
+import {
+  RestartInFlightSwapError,
+  readSubshellLogTail,
+  SubshellManagerService,
+} from "@/services/subshell-manager.service.js";
 import { extendSubshellToken, subshellTokenTtlSeconds } from "@/services/subshell-tokens.js";
 import { logger } from "@/utils/logger.js";
 
@@ -747,17 +751,32 @@ export class SubshellsService extends BaseService {
    * Deliberately does NOT re-check harness usability — the gate lives on
    * creation and the auto path; a subshell whose harness was disabled later
    * can still be restarted.
+   * A refusal at the gate, in validation, at maintenance or by the offline
+   * pre-gate writes nothing; a revive that fails after the swap leaves the
+   * row dead keeping the chosen preset (the next Start again uses it).
    * @throws SubshellError 404 when absent/invisible to the caller, or when a
    *         terminate/delete won the restart race (converge on "gone").
    * @throws HttpError 403 when the caller holds only `view`.
    * @throws ApiError 409 NODE_OFFLINE when the row's agent node has no live
-   *         connection (spec §5.6) — the manager has already rolled the
-   *         parked row back and retired the token before this boundary.
+   *         connection (spec §5.6) — a swap-carrying restart is refused here
+   *         before the manager is entered; a plain restart of an alive row
+   *         dies on the manager's kill, which has already rolled the parked
+   *         row back and retired the token before this boundary.
+   * @throws ApiError 400 INVALID_PRESET when the swap preset is unknown, not
+   *         the caller's, or from another harness (spec 2026-09-23 §2).
+   * @throws ApiError 409 RESTART_IN_FLIGHT when a swap-carrying restart finds
+   *         the id's in-flight lease held: the running revival composes the
+   *         first caller's preset, so this one is refused rather than joined
+   *         into a 200 that would promise a swap that never lands.
+   * @param swapPresetTo - the optional preset swap riding this restart
+   *         (spec 2026-09-23): `null` = swap to presetless, `undefined` = no
+   *         swap. Validated here, written by the manager at the swap point.
    */
   async restartSubshell(
     viewerId: string,
     id: string,
     actor: GuardActor,
+    swapPresetTo?: string | null,
   ): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     const { row } = await this.#gate(viewerId, id, "edit", actor);
     // A restart IS a launch, and this path never touches `resolveLaunchNode`
@@ -774,7 +793,60 @@ export class SubshellsService extends BaseService {
         doNotLog: true,
       });
     }
-    const revived = await this.#manager.restartSubshell(row.userId, id).catch(rethrowLaunchRefusal);
+    // The swap is validated HERE — after the gate and the maintenance 409,
+    // before the manager touches anything — so a restart refused on this
+    // side of the manager never changes the preset (spec 2026-09-23 §2). The
+    // preset must be the CALLER's (the
+    // same per-user rule create enforces): a pane-token actor resolves through
+    // the guard as its row's owner, so its swap lands on the owner's presets;
+    // the system service user owns nothing and holds no grants, so the edit
+    // gate above refuses it before this validation. And one of this row's
+    // harness: a harness switch on a live row would silently resume another
+    // agent's transcript in a different CLI.
+    if (swapPresetTo !== undefined && swapPresetTo !== null) {
+      const preset = await this.repos.presets.findById(swapPresetTo);
+      if (!preset || preset.userId !== viewerId || preset.harnessId !== row.harnessId) {
+        throwApiError({
+          code: BackendErrorCodes.INVALID_PRESET,
+          message: "The preset must exist, belong to you, and match the subshell's harness",
+          doNotLog: true,
+        });
+      }
+    }
+    // The offline pre-gate for a swap-carrying restart (final review 2026-09-24).
+    // The manager's kill only protects an ALIVE row: a dead row skips the kill,
+    // the swap write lands, and `#reviveRow`'s first node RPC is what throws
+    // offline — a 409 answering for a restart whose preset already moved.
+    // Refuse the swap HERE, before the manager can write anything. A plain
+    // (no-swap) restart keeps its byte-identical path — for it the 409 from
+    // the manager is honest because nothing was written. Local is answered
+    // false by design (`isNodeOffline`), and the alive row's kill still
+    // orders the local path's own failures; a dangling nodeId — the node row
+    // force-deleted under this one — refuses too, exactly as an offline one
+    // does.
+    if (swapPresetTo !== undefined && isNodeOffline(row.nodeId)) {
+      throwApiError({
+        code: BackendErrorCodes.NODE_OFFLINE,
+        message: "The subshell's node has no live connection; it may still be running the subshell there",
+        doNotLog: true,
+      });
+    }
+    const revived = await this.#manager
+      .restartSubshell(row.userId, id, swapPresetTo, viewerId)
+      .catch((err) => {
+        // A swap that arrived mid-restart is REFUSED, not joined: the running
+        // revival composes someone else's preset, and a 200 for this swap
+        // would be the lie the final review named. Retry once it lands.
+        if (err instanceof RestartInFlightSwapError) {
+          throwApiError({
+            code: BackendErrorCodes.RESTART_IN_FLIGHT,
+            message: "Another restart for this subshell is already running; try the switch again once it finishes",
+            doNotLog: true,
+          });
+        }
+        throw err;
+      })
+      .catch(rethrowLaunchRefusal);
     if (!revived) {
       throw new SubshellError("not_found", "Subshell not found");
     }
