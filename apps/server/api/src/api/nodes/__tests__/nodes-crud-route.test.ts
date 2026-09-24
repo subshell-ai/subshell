@@ -524,6 +524,27 @@ describe("/api/nodes registry CRUD", () => {
     resetNodeRegistryForTests();
   });
 
+  it("rotate: clears encrypt_public_key so the redial re-provisions the link identity (spec 2026-09-24 §5)", async () => {
+    // Rotation replaces the BEARER credential; the link identity is bound to
+    // the old one's trust, so it goes too — NULL, never the old key. The row
+    // falls back to legacy mode and the agent's next dial re-pins a fresh
+    // encryption identity through the same §5 register self-heal that armed a
+    // never-registered node.
+    const n = await mkNode(aliceId, `rot-link-${crypto.randomUUID().slice(0, 8)}`);
+    await nodes.setEncryptPublicKey(n.id, "AAECzaWRtZXgtcHVibGljLWtleQ");
+    expect((await nodes.findById(n.id))?.encryptPublicKey).toBe("AAECzaWRtZXgtcHVibGljLWtleQ");
+
+    const sock = fakeSocket();
+    attachConnection(n.id, sock);
+    expect((await req("POST", `/${n.id}/rotate-key`, { cookie: aliceCookie })).status).toBe(200);
+
+    expect((await nodes.findById(n.id))?.encryptPublicKey).toBeNull();
+    // The existing eviction contract is unregressed: the live socket still goes.
+    expect(sock.closed.some((c) => c.code === 4401)).toBe(true);
+    expect(getLive(n.id)).toBeUndefined();
+    resetNodeRegistryForTests();
+  });
+
   it("rotate: view-grantee 403, admin on an agent node 403", async () => {
     const n = await mkNode(aliceId, `rot-gate-${crypto.randomUUID().slice(0, 8)}`);
     await nodeShares.replaceForNode(n.id, [{ granteeUserId: bobId, permission: "edit" }], aliceId);

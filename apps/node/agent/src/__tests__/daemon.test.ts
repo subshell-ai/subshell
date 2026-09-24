@@ -850,6 +850,52 @@ test("probeOnline: true against a live plane, false against a refused key / dead
   await expect(probeOnline({ ...h.config, serverUrl: `http://localhost:${deadPort}` })).resolves.toBe(false);
 });
 
+test("probeOnline: open-then-4410 on a handshake-mode plane still answers online (spec 2026-09-24 §5)", async () => {
+  // A provisioned row means the plane REQUIRES the link handshake, and a
+  // silent socket is refused 4410 when the deadline lands (HANDSHAKE_TIMEOUT_MS
+  // in production; this fake closes on the next tick — a suite cannot wait
+  // ten seconds, and the probe's answer does not depend on the length).
+  // The probe asks "did the dial reach the plane", NOT "did a session
+  // establish" — open happened, so the answer stays true and stays honest.
+  const plane = Bun.serve({
+    port: 0,
+    fetch(req, server) {
+      if (new URL(req.url).pathname !== "/ws/node") return new Response("not found", { status: 404 });
+      if (req.headers.get("authorization") !== `Bearer ${NODE_KEY}`)
+        return new Response("unauthorized", { status: 401 });
+      return server.upgrade(req) ? undefined : new Response("upgrade failed", { status: 400 });
+    },
+    websocket: {
+      open(ws) {
+        // Mirror of the server's handshake deadline: open, silence, refusal.
+        setTimeout(() => {
+          try {
+            ws.close(NODE_CLOSE_HANDSHAKE_REQUIRED, "handshake required: no kx/binding within the deadline");
+          } catch {
+            /* already gone */
+          }
+        }, 0);
+      },
+      message() {},
+      close() {},
+    },
+  });
+  const [keys] = await Promise.all([keysReady]);
+  const config: NodeConfig = {
+    serverUrl: `http://localhost:${plane.port}`,
+    nodeId: NODE_ID,
+    nodeKey: NODE_KEY,
+    controlPublicKey: JSON.stringify(keys.publicJwk),
+    dataDir: "/tmp/subshell-test-data",
+    name: "test-node",
+  };
+  try {
+    await expect(probeOnline(config)).resolves.toBe(true);
+  } finally {
+    plane.stop(true);
+  }
+});
+
 test("a wrong bearer key never gets a socket (upgrade refused)", async () => {
   const [keys, serverLink, nodeLink] = await Promise.all([keysReady, serverLinkReady, nodeLinkReady]);
   const plane = startPlane({ serverStatic: serverLink, nodePublicKey: nodeLink.publicKey });

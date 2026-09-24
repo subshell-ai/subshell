@@ -36,7 +36,7 @@ import {
   OWNER_DISABLED_CLOSE_CODE,
   resetNodeRegistryForTests,
 } from "../node-registry.js";
-import { NodeRpcError } from "../node-rpc.js";
+import { NodeRpcError, resolveResult, sendCommand } from "../node-rpc.js";
 import {
   authenticateNodeUpgrade,
   frameBytes,
@@ -1634,6 +1634,60 @@ describe("handleNodeMessage through the link machine (spec 2026-09-24 §4/§5/§
     Object.assign(big.data, { linkMode: "handshake", linkEncryptPublicKey: "irrelevant" });
     await handleNodeMessage(h.deps, big, new Uint8Array(NODE_MAX_FRAME_BYTES + 1));
     expect(big.closed[0]?.code).toBe(NODE_CLOSE_TOO_BIG);
+  });
+
+  it("(h) the held `update` path traverses the machine untouched: plaintext out, plaintext result in, RPC completes", async () => {
+    // spec 2026-09-24 §5 regression lock ("held update path unregressed"). A
+    // LEGACY below-floor agent is held by the EXISTING floor gate — the
+    // machine forwards its plaintext `ready` and never intercepts — and
+    // `update` is the ONE command this plane still sends to a held sub-14
+    // agent. The held conn has no `link`, so `sendCommand` emits the frame
+    // byte-for-byte as it did before the link existed (the shape frozen in
+    // `node-frames.ts`), and the agent's plaintext `result` traverses the
+    // same classified socket back into the REAL completion feed. After the
+    // Task 8 classifier rewrite, nothing on this rescue path may start
+    // requiring the handshake: the agent being rescued is exactly the one
+    // that cannot speak it.
+    const h = makeHarness();
+    h.deps.resolveResult = resolveResult; // the real feed, not the recording seam
+    const ws = fakeSocket("n1");
+    Object.assign(ws.data, { linkMode: "legacy" });
+    await handleNodeOpen(OPEN_DEPS, ws);
+    await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame({ agentVersion: "0.0.1" })));
+    expect(getHeld("n1")).toMatchObject({ reason: "below-floor", agentVersion: "0.0.1" });
+    expect(getHeld("n1")?.conn.link).toBeUndefined(); // no sealed send path exists
+
+    const done = sendCommand("n1", {
+      type: "update",
+      version: "9.9.9",
+      url: "http://127.0.0.1:1/subshell-node-cli-linux-x64",
+      sha256: "0".repeat(64),
+    });
+
+    // What the agent sees: TEXT carrying the signed envelope — never a Buffer.
+    let first: string | Buffer | undefined;
+    const deadline = Date.now() + 2000;
+    while (first === undefined && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 5));
+      first = ws.sent[0];
+    }
+    expect(typeof first).toBe("string"); // plaintext, the frozen legacy wire shape
+    const { jws } = JSON.parse(first as string) as { jws: string };
+    const claims = JSON.parse(Buffer.from(jws.split(".")[1] ?? "", "base64url").toString()) as {
+      jti: string;
+      aud: string;
+      cmd: { type: string };
+    };
+    expect(claims).toMatchObject({ aud: "node:n1", cmd: { type: "update" } });
+
+    // The held agent's only sanctioned reply, plaintext, on the same socket
+    // the machine classified — and the RPC COMPLETES on it.
+    await handleNodeMessage(
+      h.deps,
+      ws,
+      JSON.stringify({ type: "result", ref: claims.jti, ok: true, data: { status: "updating" } }),
+    );
+    await expect(done).resolves.toEqual({ status: "updating" });
   });
 
   it("an UNCLASSIFIED socket (a fake that never ran the upgrade) still speaks plaintext", async () => {

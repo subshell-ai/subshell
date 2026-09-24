@@ -1126,6 +1126,13 @@ export interface OnlineProbeDeps {
  * REST-based `status` reading the node row remains the phase-2 upgrade — see
  * the task report.
  *
+ * The open-without-handshake shape is deliberately compatible with the
+ * handshake-required refusal (spec 2026-09-24 §5): a plane whose row pins an
+ * encryption identity closes this silent socket 4410 once its handshake
+ * deadline (`HANDSHAKE_TIMEOUT_MS`, server-side) lands, and the probe still
+ * answers true — its question is whether the DIAL reached the plane, not
+ * whether a session established.
+ *
  * @param config - the enrolled node's config
  * @param deps - seams for tests
  * @returns true when a socket opened within the cap
