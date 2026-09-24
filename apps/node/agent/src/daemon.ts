@@ -19,12 +19,13 @@ import { dispatchCommand } from "./commands/index.js";
 import { buildSubshellsReport, maybeReportMaintenance, seedMaintenanceMemo } from "./commands/report.js";
 import { stopAllTails } from "./commands/tail.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
-import { loadConfig, type NodeConfig } from "./config.js";
+import { loadConfig, type NodeConfig, updateConfig } from "./config.js";
 import { registerRestart, setDaemonState } from "./dashboard/state.js";
 import { loadAndApplyDebugLogging } from "./debug-logging.js";
 import { mapOs } from "./enroll.js";
 import { reportHomeDir } from "./host-env.js";
 import { buildInventoryEvent } from "./inventory.js";
+import { binaryPayload, createLinkNegotiator, type LinkNegotiator, type LinkNegotiatorArgs } from "./link-crypto.js";
 import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
 import { createRetentionPass, PANE_LOG_RETENTION_PASS_MS, resolveLogRetention } from "./pane-log-retention.js";
@@ -37,6 +38,12 @@ import { NODE_VERSION } from "./version.js";
 
 /**
  * `subshell run` — the signed-frame execution loop (spec 2026-08-31 §7).
+ *
+ * Since spec 2026-09-24 the socket opens ENCRYPTED: `link-crypto.ts` runs the
+ * kx/binding handshake (or §5's register self-heal) before this loop sends or
+ * interprets a single frame, `ready` and everything after it rides the sealed
+ * stream, and a 4410 handshake refusal is an ordinary (retried) disconnect —
+ * NOT added to the terminal close-code list below.
  *
  * Direction of trust: the socket is authenticated by the bearer node key at
  * upgrade (so outbound events are unsigned — §3.3), while every inbound
@@ -180,6 +187,14 @@ export interface DaemonDeps {
    * @internal test seam — production never passes one.
    */
   retentionPass?: () => Promise<unknown>;
+  /**
+   * The per-socket link negotiator factory (default `createLinkNegotiator`).
+   * @internal test seam — the daemon tests drive the REAL negotiator against a
+   * handshake-capable fake plane; this seam exists so the wiring, not the
+   * crypto, is what `runConnection` depends on. There is deliberately no
+   * "plaintext mode": spec §6 forbids a v14 socket ever running unsealed.
+   */
+  link?: (args: LinkNegotiatorArgs) => LinkNegotiator;
 }
 
 interface WsClose {
@@ -550,6 +565,27 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   writeLiveness();
 
   let socket: WsLike | undefined;
+  /**
+   * The CURRENT connection's link negotiator (spec 2026-09-24). Like
+   * {@link currentWs} it routes to whatever socket is live: a command that
+   * finishes while a fresh socket is still handshaking has its result frame
+   * dropped with a log rather than leaked as plaintext on a v14 socket — the
+   * idempotence map re-answers it when the plane re-delivers after
+   * establishment, exactly as a send into a dead socket always did.
+   */
+  let link: LinkNegotiator | undefined;
+  /**
+   * The §5 register's write path, settled (spec 2026-09-24). The PLANE closes
+   * a register socket right after `register-ok` (ruling R7), and that close
+   * resolves the loop's `runConnection` a microtask before `updateConfig`
+   * lands — an ungated redial would read the still-unprovisioned live config
+   * and register a SECOND time. Measured in task 9's test before the gate
+   * existed: connect, provisioned-close, register, register-ok… the loop only
+   * settling once the async write finally raced ahead. This promise is what
+   * the dial awaits between connections; a failed store resolves it too (the
+   * negotiator refused and logged; the retry starts clean).
+   */
+  let provisioning: Promise<void> = Promise.resolve();
   let shuttingDown = false;
   /**
    * Has this process already settled the update transaction, either way?
@@ -606,7 +642,30 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         log(`oversize ${ev.type} event suppressed (${size}B)`);
         return;
       }
-      ws.send(payload);
+      // The stale-socket guard FIRST, and the order is load-bearing: a command
+      // that resolves after its socket died (the per-connection chain is not
+      // awaited by `finish`) must NOT reach `sealFrame` at all — sealing
+      // advances the CURRENT link's ratchet, the bytes die on the dead socket,
+      // and every later frame on the healthy new link fails its open (§6:
+      // never resync). Pre-encryption a stale send just vanished; the
+      // encryption is what makes silence destructive. (Round-1 review finding.)
+      if (ws !== currentWs) {
+        log(`dropped ${ev.type} event (stale socket — its link is gone)`);
+        return;
+      }
+      // Spec 2026-09-24 §6: an established link carries ONLY ciphertext, and a
+      // v14 socket has no plaintext event path at all — every event producer in
+      // this daemon is armed by `onEstablished`, so reaching the drop branch
+      // below means a send raced a reconnect (logged, never fatal: the plane
+      // re-delivers by jti, which the idempotence map answers without
+      // re-execution). The Buffer-view wrap is the `binaryPayload` idiom: a raw
+      // Uint8Array can get text-framed by the send path it meets.
+      const session = link?.established() ? link.session() : undefined;
+      if (!session) {
+        log(`dropped ${ev.type} event (${link ? "link not established" : "no link yet"})`);
+        return;
+      }
+      ws.send(binaryPayload(session.sealFrame(payload)));
     } catch (err) {
       log(`send ${ev.type} failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -803,6 +862,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         if (acceptedTimer !== undefined) clearTimeout(acceptedTimer);
         if (socket === ws) socket = undefined;
         if (currentWs === ws) currentWs = undefined;
+        if (link === connLink) link = undefined; // send() falls to the logged drop, never to a stale seal key
         setDaemonState({ connected: false });
         // Tails push into the socket that just died — stop every pump before
         // the reconnect loop dials again (the control plane re-`tail_start`s
@@ -810,18 +870,66 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         stopAllTails(ctx);
         resolve(close);
       };
-      ws.addEventListener("open", async () => {
+      // The per-socket link negotiator (spec 2026-09-24). It owns the wire
+      // until the ack opens: kx + sealed binding on a provisioned config,
+      // §5's register on a legacy one. Its frames BYPASS `frameChain` and
+      // never consume a `seq` — they are not commands. `persist` writes the
+      // register flow's keys through `updateConfig` (the merge discipline
+      // every writer of the node key's only home goes through) and mirrors
+      // the patch onto the LIVE config object — that write-back is what makes
+      // the provisioning close's redial come up in handshake mode instead of
+      // registering forever off a stale snapshot.
+      function persistLink(patch: Partial<NodeConfig>): Promise<void> {
+        const write = updateConfig(patch).then((next) => {
+          for (const key of Object.keys(patch) as (keyof NodeConfig)[]) {
+            (config as unknown as Record<string, unknown>)[key] = (next as unknown as Record<string, unknown>)[key];
+          }
+        });
+        // Gate the redial on the write (see {@link provisioning}): a FAILED store
+        // settles the gate quietly too — the negotiator's own persist catch
+        // refuses and logs; the gate only needs to be settled, not successful.
+        provisioning = write.then(
+          () => undefined,
+          () => undefined,
+        );
+        return write; // the negotiator must see a rejection to refuse on it
+      }
+      const connLink = (deps.link ?? createLinkNegotiator)({
+        config,
+        log,
+        persist: persistLink,
+        onEstablished: () => arm(),
+      });
+      link = connLink;
+      ws.addEventListener("open", () => {
         attempt = 0; // a successful open resets the backoff ladder
         log(`connected ${wsUrl} as node ${config.nodeId}`);
         setDaemonState({ connected: true });
+        // The handshake is this connection's first turn (ruling R6: no server
+        // reply is awaited — derivation happens against the PINNED control key
+        // and kx + binding go out back-to-back). The catch is a belt: begin
+        // swallows its own failures into a refusal close, and a surprise throw
+        // must never become an unhandled rejection.
+        void connLink.begin(ws).catch((err: unknown) => {
+          log(`link begin failed: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      });
+      /**
+       * Everything the OLD open listener did directly, moved here: an agent
+       * that never established must send no `ready`, heartbeat nothing, and
+       * arm no update timer (spec 2026-09-24: handshake first, protocol
+       * after). Fires exactly once per socket, synchronously inside the
+       * message turn that opened the sealed ack.
+       */
+      function arm(): void {
         // `ready` is built SYNCHRONOUSLY: nothing it reports needs a read
         // (identity is config + OS facts, `selfInvoke` is `selfInvokePrefix`,
         // and the env VALUES the resume paths need answer on the plane's
-        // `detect` round trip, not here). So the send lands in the same
-        // turn the open event fires — a socket cannot die mid-build because
-        // there is no mid. (The census chain below and the ready send stay
-        // LINEAR on purpose: `ready` before `subshells_report` before the
-        // inventory push is pinned order.)
+        // `detect` round trip, not here). So the send lands in the same turn
+        // the sealed ack opened — a socket cannot die mid-build because there
+        // is no mid. (The census chain below and the ready send stay LINEAR on
+        // purpose: `ready` before `subshells_report` before the inventory push
+        // is pinned order.)
         // The mirror is read SYNCHRONOUSLY too, and by the seeder itself: the
         // value `ready` carries and the memo that stops the first heartbeat
         // repeating it are one read, so they cannot disagree.
@@ -870,9 +978,9 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         }, heartbeatMs);
         // Periodic `inventory` push — the "every 5 min" leg of spec §7
         // (P3-T8c). The timer's lifecycle mirrors the heartbeat's — armed
-        // here on open, cleared in finish() — so one push loop per connection
-        // at most, and a reconnect re-arms freshness rather than stacking
-        // loops.
+        // here on establishment, cleared in finish() — so one push loop per
+        // connection at most, and a reconnect re-arms freshness rather than
+        // stacking loops.
         inventory = setInterval(() => {
           // TOTAL per tick (the exit-watcher posture, commands/report.ts): a
           // rejected scan must never become an unhandled rejection, and a
@@ -887,7 +995,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         // acceptance on its own. See UPDATE_ACCEPTED_MS.
         acceptedTimer = setTimeout(markUpdateAccepted, UPDATE_ACCEPTED_MS);
         acceptedTimer.unref?.();
-      });
+      }
       // SERIAL FRAME HANDLER, and the serialization is not a nicety.
       //
       // `verifyCommand` awaits an ES256 `crypto.subtle.verify` BEFORE it
@@ -912,23 +1020,27 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       // The two cheap byte guards run BEFORE the chain (see `admitFrame`), so
       // a frame the daemon has already decided to drop is never retained
       // waiting for its turn.
+      // The negotiator owns EVERY frame from this socket (task 9's rule, the
+      // mirror of the server's machine): text before establishment is handshake
+      // material or a 4410 refusal, and bytes are opened here — the command
+      // loop below only ever sees DECRYPTED envelopes. A plaintext command that
+      // somehow reached an established link never gets a `verify: malformed`
+      // answer; it gets a 4410 close instead (spec §6). The handshake frames the
+      // negotiator itself emits never join `frameChain` and never consume a
+      // `seq` — they are not commands.
       let frameChain: Promise<void> = Promise.resolve();
       ws.addEventListener("message", (ev) => {
         const frame = admitFrame(ev.data);
         if (frame === null) return;
         if ("bytes" in frame) {
-          // Wire plumbing only (task 6): bytes cannot mean anything until an
-          // encrypted link exists, so this is the old blanket non-text drop
-          // wearing its real shape — same ignore-don't-close posture, and
-          // NEVER a fall-through into `onFrame` (bytes parsed as text would
-          // answer the plane with a `verify: malformed` event). Task 9's
-          // client session replaces this drop with `openFrame`.
-          log("ignored binary frame (no encrypted link)");
+          const plaintext = connLink.onBytesFrame(ws, frame.bytes);
+          if (plaintext === null) return; // consumed (the ack), dropped (no stream), or refused (dead stream)
+          frameChain = frameChain
+            .then(() => onFrame(ws, plaintext))
+            .catch((err: unknown) => log(`frame handling error: ${String(err)}`));
           return;
         }
-        frameChain = frameChain
-          .then(() => onFrame(ws, frame.text))
-          .catch((err: unknown) => log(`frame handling error: ${String(err)}`));
+        connLink.onTextFrame(ws, frame.text);
       });
       ws.addEventListener("close", (ev) => finish({ code: ev?.code ?? 1006, reason: ev?.reason ?? "" }));
       ws.addEventListener("error", () => {
@@ -943,6 +1055,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       // Pre-dial check: a signal that landed while detached or during the (sliced)
       // backoff sleep exits 0 here — the first Ctrl-C never waits out a sleep or a dial.
       if (shuttingDown) stop(0);
+      await provisioning; // §5: R7's provisioning close must not redial past its own key write
       const close = await runConnection();
       if (shuttingDown) stop(0); // graceful: the socket closed cleanly on our request
       if (close.code === NODE_CLOSE_SUPERSEDED) {
