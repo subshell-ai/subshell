@@ -1,7 +1,8 @@
 import { apiFetch, Button, Card, CardContent, CardHeader, CardTitle } from "@internal/node-admin";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router";
 import { INSTANCE_NAME_QUERY_KEY } from "@/hooks/use-auth-providers";
+import { useCurrentUser } from "@/lib/auth";
 import type { InstanceSignInRead } from "@/types/auth-provider";
 
 export const Route = createFileRoute("/pending")({
@@ -26,16 +27,28 @@ export const Route = createFileRoute("/pending")({
  * "Sign in again" walks back through `/login`, which is the design: the round
  * trip re-lands HERE while the row is still pending, so the wait re-checks
  * the door for free rather than holding a stale screen.
+ *
+ * A signed-in visitor is NOT waiting: the screen asks the session the same
+ * question login does, and one that exists goes to `/` instead (Task 14
+ * review, minor 2: the bookmarked waiting room, and the approval that lands
+ * while the person is still sitting here).
  */
 function PendingPage() {
   const { email } = Route.useSearch();
   const navigate = useNavigate();
+  const { data: user, isLoading } = useCurrentUser();
   const { data: instance } = useQuery({
     queryKey: INSTANCE_NAME_QUERY_KEY,
     queryFn: () => apiFetch<InstanceSignInRead>("/api/settings/instance"),
     staleTime: 30_000,
   });
   const instanceName = instance?.instanceName;
+
+  // Hold first paint for the session answer, like login does: painting the
+  // waiting card to a signed-in visitor for a frame would BE the stale screen
+  // this guard exists to close.
+  if (isLoading) return null;
+  if (user) return <Navigate to="/" />;
 
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-8 p-6">

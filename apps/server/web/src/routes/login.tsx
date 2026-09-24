@@ -10,8 +10,8 @@ import {
   Label,
 } from "@internal/node-admin";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, Navigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { INSTANCE_NAME_QUERY_KEY } from "@/hooks/use-auth-providers";
 import { getSessionUser, useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
@@ -73,9 +73,25 @@ function LoginPage() {
 
   // The failed round trip better-auth returned us to (`?error=…`, spec §4).
   // A pending identity is not an error to print, it is a screen to move to;
-  // the generic refusal borrows the form's own error line; anything else
+  // the generic refusal gets its own line above the door block; anything else
   // (including a provider's own message) falls through untouched.
-  const authError = mapAuthError({ error: searchError, error_description: searchErrorDescription });
+  //
+  // DECIDED ONCE, from the params as this component MOUNTED with them: the
+  // effect below clears the consumed params out of the URL (Task 14 review,
+  // minor 1: a consumed `unable_to_create_session` was sticky, so a later
+  // mistyped password showed the old refusal beside the new one), and a
+  // decision still riding the live params would blink out together with them.
+  const [authError] = useState(() => mapAuthError({ error: searchError, error_description: searchErrorDescription }));
+  const navigate = useNavigate();
+  useEffect(() => {
+    // Pending is excluded because its <Navigate to="/pending"> already leaves
+    // this URL (replace, carrying the email) — a second replace racing it from
+    // the effect could land the visitor back on a cleaned /login instead of
+    // the waiting room.
+    if (authError.kind === "pending") return;
+    if (searchError === undefined && searchErrorDescription === undefined) return;
+    void navigate({ to: "/login", search: redirect ? { redirect } : {}, replace: true });
+  }, [authError, navigate, redirect, searchError, searchErrorDescription]);
 
   if (isLoading) return null;
   if (user) return <Navigate to={redirect ?? "/"} />;

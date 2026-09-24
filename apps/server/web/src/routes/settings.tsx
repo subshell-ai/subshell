@@ -22,8 +22,10 @@ import { usePublicSettings } from "@/hooks/use-public-settings";
 import { isServerDesktop } from "@/lib/desktop";
 import { SETTINGS_QUERY_KEY } from "@/lib/query-keys";
 
-/** The two instance switches this page owns. Registration is NOT one of them:
- * it lives per door on Settings → Auth now (spec 2026-09-24 §5). */
+/**
+ * The two instance switches this page owns. Registration is NOT one of them:
+ * it lives per door on Settings → Auth now (spec 2026-09-24 §5).
+ */
 type SettingKey = "allowNodeEnrollment" | "allowServerSubshells";
 
 export const Route = createFileRoute("/settings")({
