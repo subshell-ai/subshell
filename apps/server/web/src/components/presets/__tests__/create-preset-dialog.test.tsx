@@ -4,14 +4,17 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { useState } from "react";
 import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
+import { type PresetFormValue, presetFormFromRow } from "@/lib/preset-form";
 import type { PresetRow } from "@/types/preset";
 
 /**
- * The create dialog in both postures (spec 2026-09-13 §5): the launch form's
+ * The create dialog in its postures (spec 2026-09-13 §5): the launch form's
  * NESTED one locks the agent (static text, id on the wire without asking),
  * the /presets one opens with the Agent select; both post the shared
  * `toPresetPayload` body, feed the list cache from the returned row (the
  * race the launch form's selection depends on), and hand the row out.
+ * The third posture is the CLONE: an `initialForm` seed plus the source's
+ * locked harness, titled "Clone preset" but still a plain create.
  */
 const ROW: PresetRow = {
   id: "p-new",
@@ -23,6 +26,22 @@ const ROW: PresetRow = {
   settingsJson: null,
   configIsolation: 0,
   restartOnExit: 0,
+  createdAt: "2026-09-13T00:00:00.000Z",
+  updatedAt: "2026-09-13T00:00:00.000Z",
+};
+
+/** A stored preset with one env var, one flag with a value, auto-restart on —
+ *  the SOURCE a clone posture starts from. */
+const SOURCE: PresetRow = {
+  id: "src-1",
+  harnessId: "claude-code",
+  name: "Work",
+  description: null,
+  envJson: '{"ANTHROPIC_MODEL":"sonnet"}',
+  flagsJson: '["--effort","xhigh"]',
+  settingsJson: null,
+  configIsolation: 0,
+  restartOnExit: 1,
   createdAt: "2026-09-13T00:00:00.000Z",
   updatedAt: "2026-09-13T00:00:00.000Z",
 };
@@ -66,6 +85,7 @@ function mockFetch() {
 
 function renderDialog(props: {
   lockedHarness?: string;
+  initialForm?: PresetFormValue;
   onCreated?: (row: PresetRow) => void;
   onClose?: (o: boolean) => void;
 }) {
@@ -82,6 +102,7 @@ function renderDialog(props: {
           props.onClose?.(next);
         }}
         lockedHarness={props.lockedHarness}
+        initialForm={props.initialForm}
         onCreated={props.onCreated}
       />
     );
@@ -142,6 +163,49 @@ describe("CreatePresetDialog — locked (launch form)", () => {
       );
       await waitFor(() => expect(created.map((r) => r.id)).toEqual(["p-new"]));
       await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    } finally {
+      m.restore();
+    }
+  });
+});
+
+describe("CreatePresetDialog — clone (initialForm)", () => {
+  afterEach(cleanup);
+
+  it("titles Clone preset, seeds the source's values with the suggested name, keeps the locked agent, and posts a plain create", async () => {
+    const m = mockFetch();
+    try {
+      renderDialog({
+        lockedHarness: SOURCE.harnessId,
+        initialForm: { ...presetFormFromRow(SOURCE), name: "Work (2)" },
+      });
+      const dialog = await screen.findByRole("dialog", { name: "Clone preset" });
+      // The seeded name rides the Name field; the source's own name would be
+      // the collision the caller's suggestCloneName just avoided.
+      expect((dialog.querySelector("#preset-name") as HTMLInputElement).value).toBe("Work (2)");
+      // Locked posture: no select, and the agent shows as static text naming
+      // itself — the name comes from the catalog, so it has to have landed.
+      expect(dialog.querySelector("#preset-harness")).toBeNull();
+      expect(await screen.findByText("Claude Code")).toBeDefined();
+
+      fireEvent.click(screen.getByRole("button", { name: "Create preset" }));
+      // The payload is a plain create carrying the seeded fields: harness
+      // preserved, name suggested, env/flags/restart copied from the source.
+      await waitFor(() =>
+        expect(m.calls).toContainEqual({
+          method: "POST",
+          url: "/api/presets",
+          body: {
+            harnessId: "claude-code",
+            name: "Work (2)",
+            env: { ANTHROPIC_MODEL: "sonnet" },
+            flags: ["--effort", "xhigh"],
+            settings: {},
+            configIsolation: false,
+            restartOnExit: true,
+          },
+        }),
+      );
     } finally {
       m.restore();
     }
