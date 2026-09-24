@@ -93,7 +93,19 @@ process.on("uncaughtException", (error) => {
   process.exit(1);
 });
 
-if (bootRequested) void bootServer();
+if (bootRequested) {
+  bootServer().catch((error: unknown) => {
+    // A boot failure reaches stderr SYNCHRONOUSLY, before the exit the
+    // unhandled-rejection handler would have performed: the FATAL log rides
+    // an async destination and `process.exit(1)` truncates it — measured
+    // 2026-09-24, a listener that could not bind died with an EMPTY
+    // server.log and an empty stderr redirect, giving `src/__tests__/
+    // e2e-cross-subshell.test.ts` (and any operator) nothing to read. The
+    // e2e's EADDRINUSE skip keys on this line; the exit code stays 1.
+    console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
+    process.exit(1);
+  });
+}
 
 async function bootServer(): Promise<void> {
   // Decoration, and deliberately separate from the version line below: the
