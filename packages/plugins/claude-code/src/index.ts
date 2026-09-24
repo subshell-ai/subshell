@@ -124,19 +124,28 @@ const reporterHook = (host: PluginHost, reporter: ReporterSpec, ...verb: string[
  * - `Stop` / `Notification` — fire-and-forget attention reporting. The server
  *   gates delivery on the subshell's bell and derives the "waiting for you"
  *   state; a missed event costs one notification, never a broken turn.
+ *   `Notification` carries a matcher because the unfiltered hook rang
+ *   "Needs your approval" for EVERY notification type — `idle_prompt`,
+ *   `auth_success`, `elicitation_complete` after the human had already
+ *   answered (spec 2026-09-23). `Stop` reports `turn_complete` blind here:
+ *   the reporter reads the hook payload and stays silent for a session
+ *   parked on background work (`packages/mcp-core/src/report.ts`).
  * - `SessionStart` — conversation identity. The restart-resume pin
  *   (`--session-id` at launch) only survives while the pane keeps that ONE
  *   conversation, but /clear, /resume <other> and /fork start a DIFFERENT
  *   transcript id in-pane and nothing else tells the server, so the next
  *   restart would resurrect a stale conversation (observed 2026-09-03). This
  *   fires on every such transition (source: startup|resume|clear|compact|fork)
- *   and is the one hook that reads stdin — the reporter forwards `session_id`
+ *   and reads stdin like `Stop` now does — the reporter forwards `session_id`
  *   from that payload and nothing else.
  */
 const attentionHooks = (host: PluginHost, reporter: ReporterSpec) => ({
   Stop: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "turn_complete") }] }],
   Notification: [
-    { hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "needs_attention") }] },
+    {
+      matcher: "permission_prompt|agent_needs_input|elicitation_dialog|elicitation_url_dialog",
+      hooks: [{ type: "command", command: reporterHook(host, reporter, "attention", "needs_attention") }],
+    },
   ],
   SessionStart: [{ hooks: [{ type: "command", command: reporterHook(host, reporter, "session") }] }],
 });
