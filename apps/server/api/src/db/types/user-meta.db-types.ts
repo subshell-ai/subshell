@@ -43,16 +43,29 @@ export interface UserMetaTable {
    * and by `PATCH /api/setup/progress` as the wizard moves. Spec 2026-09-16.
    */
   setupStep: Generated<string | null>;
+  /**
+   * Approval lifecycle (spec 2026-09-24 §6): "approved" | "pending" | "rejected".
+   * `Generated` mirrors NOT NULL DEFAULT 'approved', and an absent meta row
+   * reads approved — narrowing goes through `asApprovalState`.
+   */
+  approvalState: Generated<string>;
+  /** When the row last landed in (or knocked again on) `pending`; NULL otherwise. */
+  pendingArrivedAt: Generated<string | null>;
 }
 
 /**
- * Insert shape. `notifyEnabled`, `disabled` and `setupStep` are optional so
- * registration (which knows only id + role) stays valid; an omitted value
- * takes the DB default (1 = notifications on, 0 = not disabled, NULL = no
- * wizard in progress).
+ * Insert shape. `notifyEnabled`, `disabled`, `setupStep`, `approvalState` and
+ * `pendingArrivedAt` are optional so registration (which knows only id + role)
+ * stays valid; an omitted value takes the DB default (1 = notifications on,
+ * 0 = not disabled, NULL = no wizard in progress, "approved", NULL).
  */
-export type NewUserMeta = Omit<UserMetaTable, "notifyEnabled" | "terminalReplayLines" | "disabled" | "setupStep"> & {
+export type NewUserMeta = Omit<
+  UserMetaTable,
+  "notifyEnabled" | "terminalReplayLines" | "disabled" | "setupStep" | "approvalState" | "pendingArrivedAt"
+> & {
   notifyEnabled?: number;
   terminalReplayLines?: number | null;
   disabled?: number;
+  approvalState?: string;
+  pendingArrivedAt?: string | null;
 };
