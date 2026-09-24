@@ -49,10 +49,24 @@ describe("GET /api/settings/instance (anonymous)", () => {
     // nodeArtifactTargets — none of which may ever appear here. Growing the
     // pin is itself the decision the spec (§7) makes: sign-in needs to know
     // WHICH doors to paint before anyone has a cookie.
-    const body = (await (await app.fetch(anon("/api/settings/instance"))).json()) as Record<string, unknown>;
-    expect(Object.keys(body)).toEqual(["instanceName", "providers", "emailSignIn"]);
-    const providers = body.providers as Record<string, unknown>[];
-    for (const p of providers) expect(Object.keys(p)).toEqual(["id", "name", "kind"]);
+    //
+    // Seed an open door FIRST: the nested pin iterates `providers`, and on the
+    // shared temp DB it can be empty at this point in file order (every other
+    // suite removes its doors in its own finally), which would make the loop
+    // vacuous. With a seeded row the list is determinately non-empty and the
+    // exact-shape check below can fail.
+    const doors = new AuthProvidersRepository(db);
+    const seeded = `si-keys-${crypto.randomUUID().slice(0, 8)}`;
+    await doors.create({ id: seeded, kind: "oidc", name: "Pinned door", position: 60 });
+    try {
+      const body = (await (await app.fetch(anon("/api/settings/instance"))).json()) as Record<string, unknown>;
+      expect(Object.keys(body)).toEqual(["instanceName", "providers", "emailSignIn"]);
+      const providers = body.providers as Record<string, unknown>[];
+      for (const p of providers) expect(Object.keys(p)).toEqual(["id", "name", "kind"]);
+      expect(providers.find((p) => p.id === seeded)).toEqual({ id: seeded, name: "Pinned door", kind: "oidc" });
+    } finally {
+      await doors.remove(seeded);
+    }
   });
 
   it("reflects a stored name with no restart", async () => {

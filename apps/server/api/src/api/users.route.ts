@@ -555,7 +555,8 @@ const adminOnly = new Elysia()
       // was never pending, so the same 409 covers the self case. This lives
       // as a RETURNED status, not a throw, because the named code is part of
       // the wire contract the /pending screen branches on.
-      const current = await new UserMetaRepository(db).approvalState(params.id);
+      const meta = new UserMetaRepository(db);
+      const current = await meta.approvalState(params.id);
       if (current === "approved") {
         return status(
           409,
@@ -570,7 +571,6 @@ const adminOnly = new Elysia()
       // a session (§9), and rejection of a never-approved arrival has nothing
       // live to cut. The approve edge is the person's first, minted by their
       // next sign-in.
-      const meta = new UserMetaRepository(db);
       await meta.setApproval(params.id, body.approvalState);
       const providerId = await new UsersRepository(db).primaryProviderId(params.id);
       await audit({

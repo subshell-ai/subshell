@@ -76,17 +76,25 @@ async function mkQueueUser(
   return id;
 }
 
-function req(method: string, path: string, cookie: string | null, body?: unknown, bearer?: string): Promise<Response> {
+async function req(
+  method: string,
+  path: string,
+  cookie: string | null,
+  body?: unknown,
+  bearer?: string,
+): Promise<Response> {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (cookie) headers.cookie = `better-auth.session_token=${cookie}`;
   if (bearer) headers.authorization = `Bearer ${bearer}`;
+  // Elysia's `fetch` is typed `MaybePromise<Response>`; the async wrapper
+  // awaits it, so no cast is needed to hand callers a `Promise<Response>`.
   return app.fetch(
     new Request(`http://localhost:3080/api/users${path}`, {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
     }),
-  ) as unknown as Promise<Response>;
+  );
 }
 
 interface QueueRow {

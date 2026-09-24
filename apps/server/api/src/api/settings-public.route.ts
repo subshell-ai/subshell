@@ -66,6 +66,10 @@ export const instancePublicRoutes = new Elysia({ prefix: "/api/settings" }).get(
       // doors is the order the buttons wear. The `email` kind can never
       // reach the list: it is the password form, not a button.
       providers: rows.flatMap((row) => {
+        // `asProviderKind` falls back to "oidc" for a value outside the
+        // union, so a hand-edited `kind` column still renders as an oidc
+        // door on this anonymous surface rather than arbitrary text — the
+        // same fail-safe the type's docstring documents for every reader.
         const kind = asProviderKind(row.kind);
         return kind !== "email" && row.enabled === 1 && row.signInEnabled === 1
           ? [{ id: row.id, name: row.name, kind }]

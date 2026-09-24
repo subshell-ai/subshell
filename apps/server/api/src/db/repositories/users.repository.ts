@@ -25,11 +25,14 @@ export interface UserWithRole {
    */
   disabled: boolean;
   /**
-   * The auth providers this account actually has `account` rows for —
-   * e.g. `["credential"]`, `["google"]`, `["credential","google"]`
-   * (spec 2026-09-24 §7). Split from a `GROUP_CONCAT` at this boundary so no
-   * consumer knows SQLite aggregates strings. Empty means no sign-in row at
-   * all, which in practice only the `system` service account is.
+   * The auth providers this account actually has `account` rows for — a SET
+   * in unspecified order (spec 2026-09-24 §7): a two-provider account may
+   * arrive as `["credential","google"]` or the reverse, and consumers must
+   * not rely on the ordering. Split from a `GROUP_CONCAT` at this boundary so
+   * no consumer knows SQLite aggregates strings — and the aggregate's order
+   * is not guaranteed, which is exactly why set semantics is the contract.
+   * Empty means no sign-in row at all, which in practice only the `system`
+   * service account is.
    */
   providers: string[];
 }
