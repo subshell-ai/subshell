@@ -7,9 +7,9 @@ import { choiceToWire, isDirty, storedToChoice, TerminalHistoryCard } from "@/co
  * per-subshell dialog. Two layers are pinned here:
  *
  * - the value mapping (stored ⇄ draft ⇄ wire ⇄ dirty-gate) as pure logic —
- *   happy-dom cannot drive a Base UI Select to commit (probing click/
- *   pointerdown/keyboard all leave `onValueChange` unfired), so the mapping
- *   the select would feed is tested directly instead of through the popup;
+ *   a Base UI Select CAN be driven under happy-dom (see
+ *   `switch-preset-dialog.test.tsx`'s click + pointerdown/up/click helpers),
+ *   but the mapping is cheaper to pin directly than through the popup;
  * - the card's read/adopt/gate render cycle through injected props (the
  *   master-switch card is the precedent).
  *

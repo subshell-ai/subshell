@@ -158,7 +158,7 @@ Read via `GET /api/audit?limit=50` (admin). Sign-in/sign-out ARE audited since 2
 
 - Auth: `auth.sign_in` (method password|passkey, success only), `auth.sign_out` (per session ended).
 - Users/keys: `user.create`, `user.role_change`, `user.password_reset`, `user.disabled_change`, `system-key.create|enable|disable|delete`, `emergency_login.rewrite_credential`, `setup_key.create` (no metadata), `setup_key.revoke`, `settings.update`.
-- Subshells: `subshell.create|terminate|restart|delete`.
+- Subshells: `subshell.create|terminate|restart|preset_switch|delete`.
 - Nodes: `node.enroll|delete|rename|key_rotate`, `node.allowed_dirs.update`, `node.config.update`, `node.maintenance.update`, `node.logging.update`, `node.update`, `node.update.unknown`, `node.shares_set`, `node.local_share_changed`, `node.service` (`{verb, forced}`).
 - Server process: `server.config.update` (`{key, from, to}`), `server.restart`, `server.logging.update`, `server.autostart.update`, `server.update` (start + completing boot with actor `null`), `server.supervision.request` (best-effort, caller-written).
 - Plugins/networks/installers: `plugin.install|enable|disable|uninstall|unpublish`, `network.configure|install|join|publish|unpublish|leave`, `agent.install`, `tmux.install`.
