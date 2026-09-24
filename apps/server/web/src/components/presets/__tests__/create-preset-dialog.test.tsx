@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
@@ -86,7 +86,7 @@ function mockFetch(post: { status?: number; body?: unknown } = {}) {
   return { calls, restore: () => (globalThis.fetch = original) };
 }
 
-function renderDialog(props: {
+async function renderDialog(props: {
   lockedHarness?: string;
   initialForm?: PresetFormValue;
   onCreated?: (row: PresetRow) => void;
@@ -110,14 +110,25 @@ function renderDialog(props: {
       />
     );
   }
-  return {
-    ...render(
-      <QueryClientProvider client={client}>
-        <Harness />
-      </QueryClientProvider>,
-    ),
-    client,
-  };
+  const utils = render(
+    <QueryClientProvider client={client}>
+      <Harness />
+    </QueryClientProvider>,
+  );
+  // The dialog renders before the plugins catalog query lands; its arrival is
+  // what re-renders the Base UI Select. Drain it inside act() before returning.
+  await settle();
+  return { ...utils, client };
+}
+
+/** Flush pending query/effect updates inside act() (the repo-wide pattern
+ *  from new-subshell-form.test.tsx): Base UI's Select defers state updates to
+ *  effects and its own scheduler, so the catalog load's re-render lands
+ *  outside the findByRole retries' act scopes and warns. */
+async function settle(): Promise<void> {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 50));
+  });
 }
 
 afterEach(cleanup);
@@ -129,7 +140,7 @@ describe("CreatePresetDialog — locked (launch form)", () => {
     const m = mockFetch();
     const created: PresetRow[] = [];
     try {
-      const { client } = renderDialog({ lockedHarness: "claude-code", onCreated: (r) => created.push(r) });
+      const { client } = await renderDialog({ lockedHarness: "claude-code", onCreated: (r) => created.push(r) });
       const dialog = await screen.findByRole("dialog", { name: "New preset for Claude Code" });
       expect(
         screen.getByText(
@@ -180,7 +191,7 @@ describe("CreatePresetDialog — clone (initialForm)", () => {
     try {
       // `initialForm` ALONE — no `lockedHarness` pairs with it. The lock is
       // derived from the seed; this test is what pins that guarantee.
-      renderDialog({
+      await renderDialog({
         initialForm: { ...presetFormFromRow(SOURCE), name: "Work (2)" },
       });
       const dialog = await screen.findByRole("dialog", { name: "Clone preset" });
@@ -228,7 +239,7 @@ describe("CreatePresetDialog — clone (initialForm)", () => {
     });
     const closes: boolean[] = [];
     try {
-      renderDialog({
+      await renderDialog({
         initialForm: { ...presetFormFromRow(SOURCE), name: "Work (2)" },
         onClose: (o) => closes.push(o),
       });
@@ -250,7 +261,7 @@ describe("CreatePresetDialog — unlocked (/presets page)", () => {
   it("titles 'Create preset' and offers the Agent select with the frozen copy", async () => {
     const m = mockFetch();
     try {
-      const { container } = renderDialog({});
+      const { container } = await renderDialog({});
       const dialog = await screen.findByRole("dialog", { name: "Create preset" });
       expect(dialog.querySelector("#preset-harness")).not.toBeNull();
       expect(dialog.textContent).toContain("Which agent CLI subshells started with this preset will run.");
