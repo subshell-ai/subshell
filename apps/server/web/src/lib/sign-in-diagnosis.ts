@@ -97,3 +97,47 @@ export function signInDiagnosis(opts: { inServerApp: boolean; protocol: string }
     remedy: "",
   };
 }
+
+/**
+ * What the login page makes of a failed OAuth round trip (spec 2026-09-24 §4).
+ *
+ * better-auth returns to `errorCallbackURL` (this page) with
+ * `?error=<code>&error_description=<text>` appended; the door policy's refusal
+ * codes are stable wire strings, and only two of them earn a special reading
+ * here. Everything else falls through to the form's ordinary error UI, because
+ * a provider's own message ("user denied the request") is the honest answer
+ * and this page must not overwrite it with a guess.
+ */
+export type AuthErrorDecision =
+  /** The identity exists but an admin has not approved it: leave for `/pending`. */
+  | { kind: "pending"; email: string | null }
+  /** A session could not be created and the honest line is the generic one. */
+  | { kind: "generic"; message: string }
+  /** Nothing here maps: the existing error surface handles it. */
+  | { kind: "none" };
+
+/**
+ * The one sentence for every round trip that produced no session but cannot
+ * say which door policy refused it (spec §4's honest line, rewritten to two
+ * sentences: UI copy carries no em dash).
+ */
+export const SIGN_IN_UNABLE =
+  "Sign-in could not complete. Access may be pending approval or disabled, so contact an admin.";
+
+/**
+ * Map the login page's search params onto {@link AuthErrorDecision}.
+ *
+ * Pure by construction: it reads only the params passed in, so the four
+ * shapes are testable without a router, a DOM, or a clock. `error_description`
+ * is the door policy's email ONLY for `pending_approval` — other codes carry
+ * free text nobody may render as an address.
+ */
+export function mapAuthError(params: { error?: string; error_description?: string }): AuthErrorDecision {
+  if (params.error === "pending_approval") {
+    return { kind: "pending", email: params.error_description || null };
+  }
+  if (params.error === "unable_to_create_session") {
+    return { kind: "generic", message: SIGN_IN_UNABLE };
+  }
+  return { kind: "none" };
+}

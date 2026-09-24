@@ -3,7 +3,6 @@ import {
   Button,
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
   errMessage,
@@ -23,8 +22,9 @@ import { usePublicSettings } from "@/hooks/use-public-settings";
 import { isServerDesktop } from "@/lib/desktop";
 import { SETTINGS_QUERY_KEY } from "@/lib/query-keys";
 
-/** The two instance switches this page owns. */
-type SettingKey = "allowRegistrations" | "allowNodeEnrollment" | "allowServerSubshells";
+/** The two instance switches this page owns. Registration is NOT one of them:
+ * it lives per door on Settings → Auth now (spec 2026-09-24 §5). */
+type SettingKey = "allowNodeEnrollment" | "allowServerSubshells";
 
 export const Route = createFileRoute("/settings")({
   component: SettingsPage,
@@ -39,10 +39,11 @@ export const Route = createFileRoute("/settings")({
  * It is the first page of the Server Settings group rather than the whole
  * admin surface (spec 2026-09-11 §4.1): API keys, the audit log, plugins and
  * status are pages the rail reaches directly, and the local-launch switch
- * moved to the `local` node's own page. What is left is the six things this
- * page is named for — the instance's name, registration, who may add nodes,
- * whether the Server is itself a place subshells run, the lockdown, and the
- * reset.
+ * moved to the `local` node's own page. What is left is the five things this
+ * page is named for — the instance's name, who may add nodes, whether the
+ * Server is itself a place subshells run, the lockdown, and the reset.
+ * Registration moved to Settings → Auth, where each door carries its own
+ * switch (spec 2026-09-24 §5).
  */
 function SettingsPage() {
   const queryClient = useQueryClient();
@@ -63,16 +64,14 @@ function SettingsPage() {
     queryKey: SETTINGS_QUERY_KEY,
     queryFn: () =>
       apiFetch<{
-        allowRegistrations: boolean;
         allowNodeEnrollment: boolean;
         allowServerSubshells: boolean;
         // Required in the CURRENT route's schema, so the type says required —
         // but a binary older than a field omits it from its GET, and a cached
         // PWA can outlive its server, so each switch below reads its absent
-        // value with THAT field's server-side default: registrations `?? false`
-        // (closed by default), the other two `?? true` (open by default). Not
-        // one `?? false` for all: an absent field read with the wrong default
-        // makes this card contradict the pages that act on the same setting.
+        // value with THAT field's server-side default: both `?? true` (open
+        // by default). Reading one as closed by default would make this card
+        // contradict the pages that act on the same setting.
         lockdown?: boolean;
         localNodeName?: string;
         // Both optional for the usual absent-field reason: a server older than
@@ -133,7 +132,7 @@ function SettingsPage() {
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
       {/* No action slot: Status and Plugins were buttons here because the rail
           did not list them. The Server Settings group does now. */}
-      <PageHeader title="General" subtitle="Instance name, registration, nodes, and reset (admins)" />
+      <PageHeader title="General" subtitle="Instance name, nodes, and reset (admins)" />
       {/* Gating mirrors the nav rule: these cards hit admin-only endpoints, so
           rendering them for a non-admin would only produce error banners. The
           server-side gates remain the actual enforcement either way. */}
@@ -150,57 +149,25 @@ function SettingsPage() {
 
           <InstanceNameCard />
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Registration</CardTitle>
-              <CardDescription>Allow new users to register on this instance.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center gap-4">
-                {/* Unknown ≠ Open: the switch only claims a state the server
-                    actually reported, and only moves once it has. */}
-                <Switch
-                  checked={settings?.allowRegistrations ?? false}
-                  onCheckedChange={() => void toggle("allowRegistrations", "Couldn't change the registration setting.")}
-                  disabled={busy || !settings}
-                  aria-label="Allow new registrations"
-                />
-                <Label>{settings ? (settings.allowRegistrations ? "Open" : "Closed") : "Unknown"}</Label>
-                {feedbackFor("allowRegistrations")}
-              </div>
-              {settingsError && (
-                <ErrorBanner
-                  message="Couldn't load instance settings."
-                  className="rounded-md border"
-                  action={
-                    <Button
-                      variant="link"
-                      size="sm"
-                      className="h-auto p-0 text-detail text-inherit underline"
-                      onClick={() => void refetchSettings()}
-                    >
-                      Retry
-                    </Button>
-                  }
-                />
-              )}
-            </CardContent>
-          </Card>
-
+          {/* Registration left this page with the OIDC work (spec
+              2026-09-24 §5): the answer lives on each door now, and Settings →
+              Auth carries one switch per provider. The load-failure banner
+              came along to the card that still reads these settings. */}
           <Card>
             <CardHeader>
               <CardTitle>Nodes</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-center gap-4">
-                {/* Same idiom as the switch above, but the same UNKNOWN rule as
-                    the Server switch below: this setting's absent-row default
-                    is OPEN (`repo.get(KEY, true)` server-side), so an absent
-                    field reads as "anyone can add" — reading it as admins-only
-                    would have this card contradict `lib/node-enrollment.ts`
-                    (which reads unknown as allowed and draws the live button)
-                    and the route (which admits every signed-in user) about one
-                    setting, two pages apart. */}
+                {/* Unknown ≠ Open: the switch only claims a state the server
+                    actually reported, and only moves once it has. And the same
+                    UNKNOWN rule as the Server switch below: this setting's
+                    absent-row default is OPEN (`repo.get(KEY, true)`
+                    server-side), so an absent field reads as "anyone can add" —
+                    reading it as admins-only would have this card contradict
+                    `lib/node-enrollment.ts` (which reads unknown as allowed and
+                    draws the live button) and the route (which admits every
+                    signed-in user) about one setting, two pages apart. */}
                 <Switch
                   checked={settings?.allowNodeEnrollment ?? true}
                   onCheckedChange={() => void toggle("allowNodeEnrollment", "Couldn't change the node setting.")}
@@ -252,6 +219,25 @@ function SettingsPage() {
                 Turning this off means you can only start subshells from nodes, not from the server itself. Subshells
                 already running finish on their own.
               </p>
+              {/* The settings read failed: this card is the page's only reader
+                  of that query now, so the banner lives here (it lived in the
+                  Registration card until that moved to Settings → Auth). */}
+              {settingsError && (
+                <ErrorBanner
+                  message="Couldn't load instance settings."
+                  className="rounded-md border"
+                  action={
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-detail text-inherit underline"
+                      onClick={() => void refetchSettings()}
+                    >
+                      Retry
+                    </Button>
+                  }
+                />
+              )}
             </CardContent>
           </Card>
 

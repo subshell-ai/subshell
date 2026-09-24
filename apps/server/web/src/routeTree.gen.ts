@@ -14,6 +14,7 @@ import { Route as AccountRouteImport } from './routes/account'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as NewRouteImport } from './routes/new'
 import { Route as NodesRouteImport } from './routes/nodes'
+import { Route as PendingRouteImport } from './routes/pending'
 import { Route as PreferencesRouteImport } from './routes/preferences'
 import { Route as PresetsRouteImport } from './routes/presets'
 import { Route as SettingsRouteImport } from './routes/settings'
@@ -58,6 +59,11 @@ const NewRoute = NewRouteImport.update({
 const NodesRoute = NodesRouteImport.update({
   id: '/nodes',
   path: '/nodes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PendingRoute = PendingRouteImport.update({
+  id: '/pending',
+  path: '/pending',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PreferencesRoute = PreferencesRouteImport.update({
@@ -167,6 +173,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/new': typeof NewRoute
   '/nodes': typeof NodesRoute
+  '/pending': typeof PendingRoute
   '/preferences': typeof PreferencesRoute
   '/presets': typeof PresetsRoute
   '/settings': typeof SettingsRoute
@@ -194,6 +201,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/new': typeof NewRoute
   '/nodes': typeof NodesRoute
+  '/pending': typeof PendingRoute
   '/preferences': typeof PreferencesRoute
   '/presets': typeof PresetsRoute
   '/settings': typeof SettingsRoute
@@ -222,6 +230,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/new': typeof NewRoute
   '/nodes': typeof NodesRoute
+  '/pending': typeof PendingRoute
   '/preferences': typeof PreferencesRoute
   '/presets': typeof PresetsRoute
   '/settings': typeof SettingsRoute
@@ -251,6 +260,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/new'
     | '/nodes'
+    | '/pending'
     | '/preferences'
     | '/presets'
     | '/settings'
@@ -278,6 +288,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/new'
     | '/nodes'
+    | '/pending'
     | '/preferences'
     | '/presets'
     | '/settings'
@@ -305,6 +316,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/new'
     | '/nodes'
+    | '/pending'
     | '/preferences'
     | '/presets'
     | '/settings'
@@ -333,6 +345,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   NewRoute: typeof NewRoute
   NodesRoute: typeof NodesRoute
+  PendingRoute: typeof PendingRoute
   PreferencesRoute: typeof PreferencesRoute
   PresetsRoute: typeof PresetsRoute
   SettingsRoute: typeof SettingsRoute
@@ -390,6 +403,13 @@ declare module '@tanstack/react-router' {
       path: '/nodes'
       fullPath: '/nodes'
       preLoaderRoute: typeof NodesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pending': {
+      id: '/pending'
+      path: '/pending'
+      fullPath: '/pending'
+      preLoaderRoute: typeof PendingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/preferences': {
@@ -541,6 +561,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   NewRoute: NewRoute,
   NodesRoute: NodesRoute,
+  PendingRoute: PendingRoute,
   PreferencesRoute: PreferencesRoute,
   PresetsRoute: PresetsRoute,
   SettingsRoute: SettingsRoute,

@@ -12,43 +12,82 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { INSTANCE_NAME_QUERY_KEY } from "@/hooks/use-auth-providers";
 import { getSessionUser, useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
 import { isServerDesktop } from "@/lib/desktop";
 import { safeRedirect } from "@/lib/redirect";
-import { SESSION_CHECK_FAILED, signInDiagnosis } from "@/lib/sign-in-diagnosis";
+import { mapAuthError, SESSION_CHECK_FAILED, signInDiagnosis } from "@/lib/sign-in-diagnosis";
 import { passkeysSupported } from "@/lib/webauthn";
+import type { InstanceSignInRead } from "@/types/auth-provider";
 
 export const Route = createFileRoute("/login")({
   // The signed-out guard (__root) sends visitors here with the path they
   // wanted; safeRedirect has already vetoed anything non-same-site.
   // (search.redirect is `unknown` until narrowed — apiFetch-style care.)
-  validateSearch: (search: Record<string, unknown>): { redirect?: string } => {
+  //
+  // `error`/`error_description` are the failed OAuth round trip better-auth
+  // appends to the errorCallbackURL (spec 2026-09-24 §4). Raw strings, only
+  // passed through: `mapAuthError` decides what they MEAN, and anything it
+  // does not recognize falls through to the form's ordinary error surface.
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { redirect?: string; error?: string; error_description?: string } => {
     const r = typeof search.redirect === "string" ? safeRedirect(search.redirect) : null;
-    return r ? { redirect: r } : {};
+    const error = typeof search.error === "string" ? search.error : undefined;
+    const errorDescription = typeof search.error_description === "string" ? search.error_description : undefined;
+    return {
+      ...(r ? { redirect: r } : {}),
+      ...(error !== undefined ? { error } : {}),
+      ...(errorDescription !== undefined ? { error_description: errorDescription } : {}),
+    };
   },
   component: LoginPage,
 });
 
 function LoginPage() {
-  const { redirect } = Route.useSearch();
+  const { redirect, error: searchError, error_description: searchErrorDescription } = Route.useSearch();
   const { data: user, isLoading } = useCurrentUser();
   // Its OWN query rather than a slice of ["setup-status"]: that one is cached
   // with an infinite stale time because `needsSetup` is true exactly once in
   // an instance's life, and a renameable value must not inherit that.
+  // Since the OIDC work (spec 2026-09-24 §7) the same anonymous read answers
+  // WHICH DOORS exist — the login page cannot ask that AFTER it asked for a
+  // password. Both newer fields are optional: an older server omits them and
+  // the page behaves exactly as it always did (form shown, no buttons).
   const { data: instance } = useQuery({
-    queryKey: ["instance-name"],
-    queryFn: () => apiFetch<{ instanceName: string }>("/api/settings/instance"),
+    queryKey: INSTANCE_NAME_QUERY_KEY,
+    queryFn: () => apiFetch<InstanceSignInRead>("/api/settings/instance"),
     staleTime: 30_000,
   });
   const instanceName = instance?.instanceName;
+  const providers = instance?.providers ?? [];
+  // Absent (an older server) reads OPEN, like every other optional field
+  // here: a door this read cannot see is a door this page must not hide.
+  const emailSignIn = instance?.emailSignIn !== false;
+  const noDoors = !emailSignIn && providers.length === 0;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // The failed round trip better-auth returned us to (`?error=…`, spec §4).
+  // A pending identity is not an error to print, it is a screen to move to;
+  // the generic refusal borrows the form's own error line; anything else
+  // (including a provider's own message) falls through untouched.
+  const authError = mapAuthError({ error: searchError, error_description: searchErrorDescription });
+
   if (isLoading) return null;
   if (user) return <Navigate to={redirect ?? "/"} />;
+  // A session beats a stale query: someone who signed in between the refusal
+  // and this render is going in, not to the waiting room.
+  if (authError.kind === "pending") {
+    // The brief's string-concatenation form (`to={"/pending?email=…"}`) does
+    // not typecheck: the router's `to` is the literal path union, and search
+    // is the typed half. The router URL-encodes the value itself, so the
+    // waiting room is addressed by exactly the URL the brief describes.
+    return <Navigate to="/pending" search={authError.email ? { email: authError.email } : {}} replace />;
+  }
 
   /**
    * Leave for the app, unless the session did not actually take.
@@ -138,38 +177,86 @@ function LoginPage() {
           <CardDescription>Manage your agent harness subshells.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={onSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-              />
-            </div>
-            {error && <p className="text-destructive text-detail">{error}</p>}
-            <Button type="submit" className="w-full" disabled={busy}>
-              {busy ? "Signing in…" : "Sign in"}
-            </Button>
-          </form>
+          {/* The generic round-trip refusal lives ABOVE the door block, not in
+              the form: it names what the OAuth trip did, and with the E-mail
+              door closed the form is not on this page to carry the line. The
+              form's own errors (a wrong password, a dropped request) stay
+              where they always were. */}
+          {authError.kind === "generic" && <p className="mb-4 text-destructive text-detail">{authError.message}</p>}
+          {/* No door open at all (spec §7): say so rather than paint an empty
+              card. The email flag's ABSENCE is not "no doors" — an older
+              server answers neither field, and the form stays. */}
+          {noDoors ? (
+            <p className="text-detail text-muted-foreground">No sign-in methods are configured on this instance.</p>
+          ) : (
+            <>
+              {emailSignIn && (
+                <form onSubmit={onSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      autoComplete="email"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Password</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoComplete="current-password"
+                    />
+                  </div>
+                  {error && <p className="text-destructive text-detail">{error}</p>}
+                  <Button type="submit" className="w-full" disabled={busy}>
+                    {busy ? "Signing in…" : "Sign in"}
+                  </Button>
+                </form>
+              )}
+              {/* The OAuth doors, above the passkey block (spec §7): each one
+                  is a full-page redirect, not the fetch-style call the form
+                  makes — the IdP round trip leaves this document and better-
+                  auth returns to errorCallbackURL with the outcome appended
+                  as `?error=…`, which the mapper above reads. The button
+                  label follows the passkey button's spelling; no Google glyph
+                  exists in this repo, so the text is the icon. */}
+              {providers.length > 0 && (
+                <div className={emailSignIn ? "mt-4 space-y-2" : "space-y-2"}>
+                  {providers.map((p) => (
+                    <Button
+                      key={p.id}
+                      type="button"
+                      variant="outline"
+                      className="w-full"
+                      disabled={busy}
+                      onClick={() =>
+                        void authClient.signIn.social({
+                          provider: p.id,
+                          callbackURL: redirect ?? "/",
+                          errorCallbackURL: `${window.location.origin}/login`,
+                        })
+                      }
+                    >
+                      {p.kind === "google" ? "Sign in with Google" : `Sign in with ${p.name}`}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
           {/* Hidden where WebAuthn does not exist — an embedded webview has no
             platform authenticator, so the button could only ever fail. The
-            note goes with it: it explains a control that is not there. */}
-          {passkeysSupported() && (
+            note goes with it: it explains a control that is not there.
+            Hidden with the closed E-mail door too (spec §7): a passkey is a
+            credential account, so it rides the credential door. */}
+          {emailSignIn && passkeysSupported() && (
             <div className="mt-4">
               <Button
                 type="button"

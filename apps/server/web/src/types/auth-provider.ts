@@ -91,6 +91,35 @@ export interface TestProviderResult {
 }
 
 /**
+ * One sign-in door as the ANONYMOUS instance read (`GET /api/settings/instance`)
+ * serves it (spec 2026-09-24 §7): id, name and kind only — never issuer,
+ * client id, or anything secret.
+ */
+export interface InstanceSignInProvider {
+  /** The door's row id — the provider id the OAuth round trip carries */
+  id: string;
+  /** The admin-chosen display name rendered on the sign-in button */
+  name: string;
+  /** The E-mail door is never in this list: it is the password form, not a button */
+  kind: Exclude<AuthProviderKind, "email">;
+}
+
+/**
+ * Shape of `GET /api/settings/instance`, read by the login and pending pages.
+ *
+ * `providers` and `emailSignIn` are OPTIONAL because a server older than the
+ * OIDC work omits both, and a cached PWA can outlive its server: the absence
+ * reads exactly like the old behavior — form shown, no buttons.
+ */
+export interface InstanceSignInRead {
+  instanceName: string;
+  /** Open sign-in doors, in the admin's own arrangement (position order) */
+  providers?: InstanceSignInProvider[];
+  /** Whether the password form may render; an absent field reads OPEN */
+  emailSignIn?: boolean;
+}
+
+/**
  * The exact Redirect URI the IdP registration needs for this entry origin
  * (spec §5a). Byte-for-byte the stored origin plus the fixed callback path —
  * the same string the round trip sends, and the one thing the admin pastes.
