@@ -286,6 +286,47 @@ describe("SubshellActionsMenu — Edit preset (dead-row recovery loop)", () => {
   });
 });
 
+describe("SubshellActionsMenu — Switch preset (spec 2026-09-23)", () => {
+  afterEach(cleanup);
+
+  it("offers 'Switch preset…' directly after Start again on a dead row", async () => {
+    const { restore } = mockFetch();
+    try {
+      await renderMenu(makeSubshell({ alive: false, status: "terminated" }));
+      await openMenu("subshell");
+      const names = screen.getAllByRole("menuitem").map((m) => m.textContent);
+      expect(names).toContain("Switch preset…");
+      expect(names.indexOf("Switch preset…")).toBe(names.indexOf("Start again") + 1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("an edit grantee gets it on a live pane, and clicking opens the dialog", async () => {
+    const { restore } = mockFetch();
+    try {
+      await renderMenu(makeSubshell({ access: "edit" }));
+      await openMenu("subshell");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Switch preset…" }));
+      expect(await screen.findByText("Switch preset")).toBeDefined();
+      expect(screen.getByRole("combobox", { name: "Preset" })).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("a view grantee gets no menu, so no Switch preset either", async () => {
+    const { restore } = mockFetch();
+    try {
+      await renderMenu(makeSubshell({ access: "view" }));
+      expect(screen.queryByRole("button", { name: "Actions for subshell" })).toBeNull();
+      expect(screen.queryByRole("menuitem", { name: "Switch preset…" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
 describe("SubshellActionsMenu — diagnostics toggle (spec 2026-09-21 Wave C)", () => {
   afterEach(cleanup);
 
@@ -327,7 +368,7 @@ describe("SubshellActionsMenu — diagnostics toggle (spec 2026-09-21 Wave C)", 
     try {
       await renderMenu(makeSubshell(), row, { on: true, onToggle: () => {} });
       fireEvent.contextMenu(screen.getByText("the row"));
-      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(6));
+      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(7));
       expect(screen.queryByRole("menuitem", { name: "Diagnostics" })).toBeNull();
     } finally {
       restore();
@@ -347,12 +388,13 @@ describe("SubshellActionsMenu — children mode, sidebar right-click (spec 2026-
       expect(screen.getByText("the row")).toBeDefined();
       expect(screen.queryByRole("button", { name: "Actions for subshell" })).toBeNull();
       fireEvent.contextMenu(screen.getByText("the row"));
-      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(6));
+      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(7));
       // The curated sidebar set after spec 2026-09-03: close, bell, clone,
       // share, edit-title — plus the QR (2026-09-19), which is sidebar-flagged
-      // because "open this one elsewhere" is most often wanted from the rail.
-      // Terminate is gone (Close subsumes it; the alive row has no lifecycle
-      // item at all) — still NOT the dialog-less extras.
+      // because "open this one elsewhere" is most often wanted from the rail,
+      // and Switch preset (2026-09-23). Terminate is gone (Close subsumes it;
+      // the alive row has no lifecycle item at all) — still NOT the
+      // dialog-less extras.
       expect(screen.getByRole("menuitem", { name: "Edit title" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "QR code…" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "Notify when done" })).toBeDefined();

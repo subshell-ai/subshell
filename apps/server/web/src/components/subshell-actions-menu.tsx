@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import {
   Activity,
+  ArrowLeftRight,
   Bell,
   BellOff,
   Copy,
@@ -17,6 +18,7 @@ import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { CloneSubshellDialog } from "@/components/clone-subshell-dialog";
 import { QrLinkDialog } from "@/components/qr-link-dialog";
 import { SharingDialog } from "@/components/sharing-dialog";
+import { SwitchPresetDialog } from "@/components/switch-preset-dialog";
 import { TitleDialog } from "@/components/ui/title-dialog";
 import { usePresets } from "@/hooks/use-presets";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
@@ -61,6 +63,7 @@ export function SubshellActionsMenu({
   const [titleOpen, setTitleOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [cloneOpen, setCloneOpen] = useState(false);
+  const [switchPresetOpen, setSwitchPresetOpen] = useState(false);
   const navigate = useNavigate();
   const { data: presets } = usePresets();
   const { restart, remove, toggleNotify, busy } = useSubshellMutations(subshell.id, subshell, {
@@ -74,12 +77,15 @@ export function SubshellActionsMenu({
   // (Close subsumes it) and no title-pin toggle (a rename IS the pin).
   const canEdit = subshell.access !== "view";
   const isOwner = subshell.access === "owner";
-  // A subshell's preset is fixed at creation, so editing it + starting again
-  // is THE recovery loop for a failed launch (bad key, bad flag…). Only
-  // offered on dead subshells — a running one is past the point where the
-  // preset matters until it starts again — and only when it launched from
-  // one at all: a presetless launch has nothing to edit (spec 2026-09-13 §8).
-  // Hidden until the name resolves, since a bare id would only confuse.
+  // The live-pane path is "Switch preset…" below (spec 2026-09-23), which
+  // restarts the row on another preset of its harness. Editing the preset
+  // DEFINITION + starting again remains the other loop for a failed launch
+  // (bad key, bad flag…), and the definition item is still only offered on
+  // dead subshells — a running one is past the point where editing the
+  // definition does anything until it starts or swaps — and only when it
+  // launched from a preset at all: a presetless launch has nothing to edit
+  // (spec 2026-09-13 §8). Hidden until the name resolves, since a bare id
+  // would only confuse.
   const preset = !subshell.alive ? presets?.find((p) => p.id === subshell.presetId) : undefined;
   const [qrOpen, setQrOpen] = useState(false);
 
@@ -163,6 +169,21 @@ export function SubshellActionsMenu({
           },
         ]
       : []),
+    // Beside the plain restart, and gated exactly like it: a running pane is
+    // revived from the new preset, a dead one is started with it, and it
+    // replaces nothing (spec 2026-09-23). "Edit preset …" edits the
+    // DEFINITION; this changes which one the row uses. Offered on dead
+    // panes too — there it means switch and start.
+    ...(canEdit
+      ? [
+          {
+            icon: ArrowLeftRight,
+            label: "Switch preset…",
+            sidebar: true,
+            onSelect: () => setSwitchPresetOpen(true),
+          },
+        ]
+      : []),
     // Owner-only, adjacent to the launch actions. Spec §2.1 said `canEdit`,
     // but a clone is guaranteed to 404 for a non-owner: the POST re-resolves
     // the SOURCE's preset under the CALLER's account and presets are
@@ -223,6 +244,9 @@ export function SubshellActionsMenu({
           previous attempt would be a wrong prefill — remount-on-open gives the
           fresh state for free (Task 2 review). */}
       {cloneOpen && <CloneSubshellDialog source={subshell} open onOpenChange={setCloneOpen} />}
+      {/* Same mount-while-open posture: every open starts from an unset
+          selection and a cleared POST error. */}
+      {switchPresetOpen && <SwitchPresetDialog subshell={subshell} open onOpenChange={setSwitchPresetOpen} />}
       <QrLinkDialog
         open={qrOpen}
         onOpenChange={setQrOpen}
