@@ -38,19 +38,3 @@ export function machineIds(subshells: readonly SubshellView[]): string[] {
 export function filterByNode(subshells: readonly SubshellView[], nodeId: string): SubshellView[] {
   return subshells.filter((s) => nodeOf(s) === nodeId);
 }
-
-/**
- * Whether the machine filter earns its place on screen.
- *
- * Mirrors the launch form's `hideMachineField` rule (spec 2026-09-13): with
- * nothing but the control-plane host there is no distinction to draw, so a
- * one-choice dropdown is noise; a single AGENT machine KEEPS it, because the
- * day a second one enrolls the answer is news. A filter that is set stays
- * visible whatever the rows do — hide it while it is active and the page
- * shows "no subshells" with nothing on screen to clear (a machine whose last
- * row closed while you were looking at it is exactly this case).
- */
-export function showMachineFilter(ids: readonly string[], selected: string): boolean {
-  if (selected !== "all") return true;
-  return ids.length > 1 || (ids.length === 1 && ids[0] !== FALLBACK_NODE_ID);
-}

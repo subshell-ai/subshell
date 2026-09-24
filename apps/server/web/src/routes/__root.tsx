@@ -8,6 +8,7 @@ import { DesktopNotifications } from "@/components/desktop/desktop-notifications
 import { DesktopSidebar } from "@/components/desktop/desktop-sidebar";
 import { DragStrip, needsStandaloneDragStrip } from "@/components/desktop/drag-strip";
 import { EmergencyLoginBanner } from "@/components/emergency-login-banner";
+import { LockdownBanner } from "@/components/lockdown-banner";
 import { MobileTopBar } from "@/components/mobile-top-bar";
 import { OfflineBanner } from "@/components/offline-banner";
 import { QuickAddProvider } from "@/components/quick-add";
@@ -191,6 +192,10 @@ function Shell() {
         {/* Signed-in only: the pre-auth pages ARE the lockout surface. Above
           the top bar so the warning spans the full width (spec §6 banner). */}
         {user && <EmergencyLoginBanner />}
+        {/* Lockdown is the same shape of news as the line above: instance-wide,
+            true until someone changes it server-side, nobody's page-specific
+            detail (operator ask 2026-09-24). */}
+        {user && <LockdownBanner />}
         {/* The window's title bar on the routes the rail does not cover.
           `shell_ready` takes the native one away on EVERY route — /login and
           /setup included, which is where a first launch lands — but the strip

@@ -84,7 +84,7 @@ export function SubshellRecentRow({
             ) : null}
           </span>
         </TooltipTrigger>
-        <TooltipContent className="whitespace-pre-line break-words">
+        <TooltipContent side="right" arrow className="whitespace-pre-line break-words">
           {subshellRowTooltip(subshell, nodeLabel, agentLabel, presetLabel)}
         </TooltipContent>
       </Tooltip>

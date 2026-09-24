@@ -19,10 +19,12 @@ import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } f
 import { type Access, accessAtLeast, loadSubshellAccess, resolveSubshellAccess } from "@/lib/subshell-access.js";
 import { BaseService, type CommonServiceParams } from "@/services/base.service.js";
 import { publishLive } from "@/services/live-bus.js";
+import { lockdownEnabled } from "@/services/lockdown.js";
 import { getLive, isNodeOffline } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { getNotifyService } from "@/services/notify.service.js";
+import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import {
   RestartInFlightSwapError,
   readSubshellLogTail,
@@ -139,7 +141,8 @@ function rethrowLaunchRefusal(err: unknown): never {
  *    FIRST, so the 403 can only ever name a node already on the caller's own
  *    Nodes page. An AGENT node with no live connection ⇒ 409 NODE_OFFLINE.
  * 2. `local` when its own access check grants launch AND it is not in
- *    maintenance — today's default, and the two switches on it (an admin
+ *    maintenance AND `allow_server_subshells` is on — today's default, and
+ *    the switches on it (an admin
  *    deleting local's Everyone row turns this step off for EVERYONE, admins
  *    included: `nodeCanLaunchOn` reads the granted access there, never the
  *    admin boost, or the one person who can throw the switch would be the one
@@ -173,6 +176,7 @@ export async function resolveLaunchNode(
     userId,
     machineActor,
     requestedNodeId,
+    serverAsNodeEnabled = true,
   }: {
     /** The creating user (bearer actors arrive as their owning user). */
     userId: string;
@@ -180,6 +184,13 @@ export async function resolveLaunchNode(
     machineActor: boolean;
     /** Explicit `body.nodeId` (may name `local`). */
     requestedNodeId?: string;
+    /**
+     * The `allow_server_subshells` setting, pre-read by the caller (it is
+     * given the way `machineActor` is — a fact about the request, not a
+     * lookup inside the rule). Default true: a resolver call that knows
+     * nothing of the setting behaves exactly as it did before it existed.
+     */
+    serverAsNodeEnabled?: boolean;
   },
   deps: NodeAccessDeps,
 ): Promise<{ nodeId: string }> {
@@ -214,7 +225,22 @@ export async function resolveLaunchNode(
     // reaches it through the admin boost. A 403 rather than the 404 above —
     // they can see this node on the Nodes page, and "not found" about a row
     // on their screen reads as a bug rather than as a setting.
-    if (!nodeCanLaunchOn(row.kind, access, granted, row.maintenance === 1)) {
+    //
+    // `local` can be refused two ways now, and they read differently because
+    // the remedies differ: the admin switched the host off (settings), or a
+    // share was removed (sharing). `nodeCanLaunchOn` ANDs both into one
+    // boolean that cannot say which, so the switch is checked first and gets
+    // its own sentence — sending someone to the sharing dialog when an admin
+    // turned the machine off is a dead end, exactly the "offer that ends
+    // nowhere" the launch-form empty state already refuses to be.
+    if (!nodeCanLaunchOn(row.kind, access, granted, row.maintenance === 1, serverAsNodeEnabled)) {
+      if (row.kind === "local" && !serverAsNodeEnabled) {
+        throw new SubshellCreateError(
+          "node_launch_disabled",
+          `Launching on ${row.name} is switched off in server settings. Ask an admin to turn it back on, or pick another machine.`,
+          403,
+        );
+      }
       throw new SubshellCreateError(
         "node_launch_disabled",
         `No one is granted launch access on ${row.name}. Share it with Everyone or with specific people to allow launching.`,
@@ -242,7 +268,7 @@ export async function resolveLaunchNode(
   if (
     local.row &&
     nodeCanLaunch(local.access) &&
-    nodeCanLaunchOn(local.row.kind, local.access, local.granted, local.row.maintenance === 1)
+    nodeCanLaunchOn(local.row.kind, local.access, local.granted, local.row.maintenance === 1, serverAsNodeEnabled)
   ) {
     return { nodeId: LOCAL_NODE_ID };
   }
@@ -333,6 +359,18 @@ export class SubshellsService extends BaseService {
      */
     machineActor: boolean;
   }): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
+    // Lockdown is the FIRST question the instance asks of every create
+    // (operator ask 2026-09-24): it answers valid bodies and invalid ones
+    // alike, before any machine is chosen or any preset is looked up, and it
+    // catches every entry point at once — the REST route, a bearer (pane)
+    // token, and MCP sibling launches all arrive here.
+    if (await lockdownEnabled(this.db)) {
+      throw new SubshellCreateError(
+        "lockdown",
+        "This instance is in lockdown mode, so no new subshells can be started. Ask an admin to end it.",
+        403,
+      );
+    }
     // Gate new subshells here, not inside SubshellManagerService: its own
     // restart path reuses createSubshell, and an existing subshell's harness
     // must keep starting even once its harness is disabled.
@@ -366,7 +404,15 @@ export class SubshellsService extends BaseService {
     // §6.6 precedence BEFORE the per-node harness gate: "where" must be
     // settled first, since "usable" is per-node now (spec §6.2).
     const { nodeId: resolvedNodeId } = await resolveLaunchNode(
-      { userId, machineActor, requestedNodeId: nodeId },
+      {
+        userId,
+        machineActor,
+        requestedNodeId: nodeId,
+        // Read per create, not cached: a PATCH flips it for the NEXT launch,
+        // and the row read is a single indexed SELECT on the same DB this
+        // request already hammers.
+        serverAsNodeEnabled: await serverSubshellsEnabled(this.db),
+      },
       { nodes: this.repos.nodes, shares: this.repos.nodeShares, userMeta: this.repos.userMeta },
     );
     if (!(await harnessUsable(harnessId, resolvedNodeId))) {
@@ -805,6 +851,18 @@ export class SubshellsService extends BaseService {
     swapPresetTo?: string | null,
   ): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     const { row } = await this.#gate(viewerId, id, "edit", actor);
+    // Lockdown is instance-wide, so it is asked before anything machine-shaped
+    // is read. It names no machine, per the restart path's own rule (the row's
+    // owner is the only guaranteed viewer of this refusal). And a stopped row's
+    // auto-restart hook cannot work around it: the terminate revoked its token,
+    // exactly as under maintenance.
+    if (await lockdownEnabled(this.db)) {
+      throw new SubshellCreateError(
+        "lockdown",
+        "This instance is in lockdown mode, so subshells cannot be restarted. Ask an admin to end it.",
+        403,
+      );
+    }
     // A restart IS a launch, and this path never touches `resolveLaunchNode`
     // — the node was decided when the subshell was created. So the
     // maintenance gate is asserted here, or "restart" would be the one way to
@@ -818,6 +876,19 @@ export class SubshellsService extends BaseService {
         message: MAINTENANCE_REFUSAL,
         doNotLog: true,
       });
+    }
+    // Same reasoning as the maintenance check one line above: the host
+    // switched off as a launch target must refuse a restart too, or restart
+    // is the one way onto it. The message names NO machine — the restart
+    // path's own rule (an edit grantee on a shared subshell may not be able
+    // to see the node; the named variant lives behind the visibility 404 in
+    // `resolveLaunchNode`).
+    if (node?.kind === "local" && !(await serverSubshellsEnabled(this.db))) {
+      throw new SubshellCreateError(
+        "node_launch_disabled",
+        "Launching subshells on this machine is switched off in the server settings. Ask an admin to turn it back on.",
+        403,
+      );
     }
     // The swap is validated HERE — after the gate and the maintenance 409,
     // before the manager touches anything — so a restart refused on this

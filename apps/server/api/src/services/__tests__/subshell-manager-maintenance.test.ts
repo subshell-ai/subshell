@@ -24,15 +24,19 @@ import * as pushUrgencyMigration from "@/db/migrations/0035-subshell-push-urgenc
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
+import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { Database } from "@/db/types/index.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { FakeNodeLauncher, nodeOnline } from "@/services/__tests__/helpers/node-fakes.js";
 import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
+import { LOCKDOWN_KEY } from "@/services/lockdown.js";
 import type { LaunchPlan } from "@/services/nodes/node-launcher.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import type { NotifyKind } from "@/services/notify.service.js";
+import { ALLOW_SERVER_SUBSHELLS_KEY } from "@/services/server-as-node.js";
 import { SubshellManagerService, type SubshellTokenProvider } from "@/services/subshell-manager.service.js";
 
 /**
@@ -276,6 +280,68 @@ describe("auto-restart while the node is in maintenance", () => {
       expect((await subshellsRepo.findById(row.id))?.alive).toBe(1);
     } finally {
       off();
+    }
+  });
+});
+
+// The two instance-level switches (operator asks 2026-09-24) reach the SAME
+// hazard the maintenance guard above was written for: a parked row whose
+// revival is silently due one sweep later. Lockdown stops every pane; a
+// respawn through this path would undo the stop minutes later with no machine
+// to blame. The host's off-switch says running panes FINISH — for an
+// auto-restart row, the death IS the finishing; reviving it would be a new
+// launch, which the switched-off host refuses everywhere else.
+describe("auto-restart while the instance is locked down, or the host is switched off", () => {
+  const attempt = (manager: SubshellManagerService, row: SubshellTable): Promise<boolean> =>
+    (manager as unknown as { maybeAutoRestart(r: SubshellTable): Promise<boolean> }).maybeAutoRestart(row);
+
+  it("lockdown defers revival on every machine", async () => {
+    const nodeId = await sharedNode(false);
+    const fake = new FakeNodeLauncher(testDir);
+    const manager = makeManager(fake);
+    const off = nodeOnline(nodeId, ["mcp"]);
+    try {
+      await new SettingsRepository(db).set(LOCKDOWN_KEY, true);
+      expect(await attempt(manager, await parkedRow(nodeId))).toBe(false);
+      expect(fake.plans).toEqual([]);
+    } finally {
+      await db.deleteFrom("settings").where("key", "=", LOCKDOWN_KEY).execute();
+      off();
+    }
+  });
+
+  it("lifting lockdown revives the row — deferred, never given up on", async () => {
+    const nodeId = await sharedNode(false);
+    const fake = new FakeNodeLauncher(testDir);
+    const manager = makeManager(fake);
+    const off = nodeOnline(nodeId, ["mcp"]);
+    try {
+      await new SettingsRepository(db).set(LOCKDOWN_KEY, true);
+      const row = await parkedRow(nodeId);
+      expect(await attempt(manager, row)).toBe(false);
+      await db.deleteFrom("settings").where("key", "=", LOCKDOWN_KEY).execute();
+      // The backoff schedule was written up-front, so the next due attempt
+      // lands: clear the park's `nextRestartAt` the way time otherwise would.
+      await subshellsRepo.update(row.id, { nextRestartAt: null });
+      expect(await attempt(manager, (await subshellsRepo.findById(row.id)) as SubshellTable)).toBe(true);
+      expect(fake.plans).toHaveLength(1);
+    } finally {
+      await db.deleteFrom("settings").where("key", "=", LOCKDOWN_KEY).execute();
+      off();
+    }
+  });
+
+  it("the switched-off Server defers its OWN rows' revival", async () => {
+    const fake = new FakeNodeLauncher(testDir);
+    const manager = makeManager(fake);
+    try {
+      await new SettingsRepository(db).set(ALLOW_SERVER_SUBSHELLS_KEY, false);
+      // LOCAL_NODE_ID is never "offline" (registry rule), so this reaches the
+      // guards; the fake launcher stands in for the host's real one.
+      expect(await attempt(manager, await parkedRow(LOCAL_NODE_ID))).toBe(false);
+      expect(fake.plans).toEqual([]);
+    } finally {
+      await db.deleteFrom("settings").where("key", "=", ALLOW_SERVER_SUBSHELLS_KEY).execute();
     }
   });
 });

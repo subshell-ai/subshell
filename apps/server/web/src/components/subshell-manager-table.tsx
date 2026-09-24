@@ -2,12 +2,13 @@ import { apiFetch, Button, relativeElapsed } from "@internal/node-admin";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { RotateCcw, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDot } from "@/components/subshell-dot";
-import { AUTO_RESTART_HELP, describeAutoRestart } from "@/lib/auto-restart";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import { confirmCloseSubshells } from "@/lib/subshell-confirmations";
+import type { SubshellSection } from "@/lib/subshell-sections";
 import type { SubshellView } from "@/types/subshell";
 
 /**
@@ -16,8 +17,20 @@ import type { SubshellView } from "@/types/subshell";
  * per-subshell endpoints, then invalidates the subshells query so the
  * live-fed list and home page reflect the change. Bulk Terminate was
  * removed with the human-facing action (spec 2026-09-03): Close covers it.
+ *
+ * `sections` draws a subheader band per section (operator ask, 2026-09-24 —
+ * the tiles were segmented and the list was not): the caller passes the SAME
+ * `SubshellSection`s the tile view renders, so one grouping answers "which
+ * machine" or "which state" identically in both views. Omitted, the table
+ * stays the flat list it has always been.
  */
-export function SubshellManagerTable({ subshells }: { subshells: SubshellView[] }) {
+export function SubshellManagerTable({
+  subshells,
+  sections,
+}: {
+  subshells: SubshellView[];
+  sections?: SubshellSection[];
+}) {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<string[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -98,74 +111,103 @@ export function SubshellManagerTable({ subshells }: { subshells: SubshellView[] 
               <th className="px-3 py-2.5 text-left font-strong">Working dir</th>
               <th className="px-3 py-2.5 text-left font-strong">Last output</th>
               <th className="px-3 py-2.5 text-left font-strong">Uptime</th>
-              <th className="px-3 py-2.5 text-left font-strong" title={AUTO_RESTART_HELP}>
-                Auto-restart
-              </th>
               <th className="px-3 py-2.5" />
             </tr>
           </thead>
           <tbody>
             {subshells.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
+                <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
                   No subshells yet.
                 </td>
               </tr>
             ) : (
-              subshells.map((s) => {
-                // Same `=== true` posture as the dot's own indicator: with the
-                // node down, lastOutputAt/startedAt/alive are last-known facts,
-                // so the two time cells must not assert from them (spec §5.6) —
-                // "—" is this table's existing nothing-to-say idiom.
-                const offline = s.nodeOffline === true;
-                return (
-                  <tr key={s.id} className="border-b last:border-0 hover:bg-accent/40">
-                    <td className="px-3 py-2">
-                      <input
-                        type="checkbox"
-                        aria-label={`Select subshell ${s.name}`}
-                        className="h-4 w-4 rounded border border-input bg-background accent-primary"
-                        checked={selectedIds.includes(s.id)}
-                        onChange={(e) => toggle(s.id, e.target.checked)}
-                      />
-                    </td>
-                    <td className="max-w-[220px] px-3 py-2">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <SubshellDot subshell={s} accessible className="mt-0" />
-                        <Link
-                          to="/subshells/$id"
-                          params={{ id: s.id }}
-                          className="truncate hover:text-primary"
-                          title={s.name}
-                        >
-                          {s.name}
-                        </Link>
-                      </div>
-                    </td>
-                    <td className="max-w-[240px] truncate px-3 py-2 text-muted-foreground">{s.workingDir}</td>
-                    <td className="px-3 py-2 text-muted-foreground">
-                      {offline ? "—" : s.lastOutputAt ? `${relativeElapsed(s.lastOutputAt)} ago` : "—"}
-                    </td>
-                    <td className="px-3 py-2 text-muted-foreground">
-                      {!offline && s.status === "running" && s.alive && s.startedAt
-                        ? relativeElapsed(s.startedAt)
-                        : "—"}
-                    </td>
-                    <td className="px-3 py-2 text-muted-foreground" title={AUTO_RESTART_HELP}>
-                      {describeAutoRestart(s, relativeElapsed)}
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex justify-end">
-                        <SubshellActionsMenu subshell={s} disabled={bulkBusy} />
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
+              (sections ? sections : [{ key: "*", label: "", title: "", subshells }]).map((sec) => (
+                <Fragment key={sec.key}>
+                  {/* The section band — same label and same hover reveal
+                      (full node id only when the name did not resolve) as
+                      the tile heading for the same section, so switching
+                      views changes the shape, not the words. */}
+                  {/* The band's own token call, settled by the operator after
+                      three tries (muted/30 washed out, background/70 looked
+                      like a hole, muted/80 too creamy): a `background/80`
+                      strip. */}
+                  {sections && (
+                    <tr className="bg-background/80">
+                      <td colSpan={6} className="px-3 py-1.5">
+                        {/* `block max-w-… truncate`: an inline span cannot
+                            ellipsize, so a long node name would stretch the
+                            row instead of clamping where the name cells do
+                            (the wrapper's overflow-x-auto made that silent). */}
+                        {sec.label === sec.title ? (
+                          <span className="block max-w-[360px] truncate font-strong text-detail text-muted-foreground">
+                            {sec.label}
+                          </span>
+                        ) : (
+                          <TooltipProvider delay={300}>
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={
+                                  <span className="block max-w-[360px] truncate font-strong text-detail text-muted-foreground">
+                                    {sec.label}
+                                  </span>
+                                }
+                              />
+                              <TooltipContent>{sec.title}</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  {sec.subshells.map(renderRow)}
+                </Fragment>
+              ))
             )}
           </tbody>
         </table>
       </div>
     </div>
   );
+
+  function renderRow(s: SubshellView) {
+    // Same `=== true` posture as the dot's own indicator: with the
+    // node down, lastOutputAt/startedAt/alive are last-known facts,
+    // so the two time cells must not assert from them (spec §5.6) —
+    // "—" is this table's existing nothing-to-say idiom.
+    const offline = s.nodeOffline === true;
+    return (
+      <tr key={s.id} className="border-b last:border-0 hover:bg-accent/40">
+        <td className="px-3 py-2">
+          <input
+            type="checkbox"
+            aria-label={`Select subshell ${s.name}`}
+            className="h-4 w-4 rounded border border-input bg-background accent-primary"
+            checked={selectedIds.includes(s.id)}
+            onChange={(e) => toggle(s.id, e.target.checked)}
+          />
+        </td>
+        <td className="max-w-[220px] px-3 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <SubshellDot subshell={s} accessible className="mt-0" />
+            <Link to="/subshells/$id" params={{ id: s.id }} className="truncate hover:text-primary" title={s.name}>
+              {s.name}
+            </Link>
+          </div>
+        </td>
+        <td className="max-w-[240px] truncate px-3 py-2 text-muted-foreground">{s.workingDir}</td>
+        <td className="px-3 py-2 text-muted-foreground">
+          {offline ? "—" : s.lastOutputAt ? `${relativeElapsed(s.lastOutputAt)} ago` : "—"}
+        </td>
+        <td className="px-3 py-2 text-muted-foreground">
+          {!offline && s.status === "running" && s.alive && s.startedAt ? relativeElapsed(s.startedAt) : "—"}
+        </td>
+        <td className="px-3 py-2">
+          <div className="flex justify-end">
+            <SubshellActionsMenu subshell={s} disabled={bulkBusy} />
+          </div>
+        </td>
+      </tr>
+    );
+  }
 }

@@ -1,9 +1,9 @@
 import type { Node } from "@internal/node-admin";
-import { Button } from "@internal/node-admin";
+import { Button, CardTitle } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import type { JSX } from "react";
 import { usePublicSettings } from "@/hooks/use-public-settings";
-import { canAddNode } from "@/lib/node-enrollment";
+import { canAddNode, NODE_ENROLLMENT_OFF_COPY } from "@/lib/node-enrollment";
 import { isOfflineAgent } from "@/lib/node-label";
 
 /**
@@ -20,11 +20,17 @@ import { isOfflineAgent } from "@/lib/node-label";
  * **Every route out is offered to whoever could actually complete it.** Adding
  * a node needs a signed-in cookie AND the instance's `allow_node_enrollment`
  * setting; ending a maintenance window and re-sharing the host are manage acts
- * on those rows. A viewer who cannot take a route gets the sentence naming who
- * can, because an offer that ends in a 403 is worse than no offer. The node
+ * on those rows. An offer that ends in a 403 is worse than no offer. The node
  * button is NOT hidden merely because the settings request has not answered:
  * absent reads as allowed, the same default the server applies to an absent
  * row, so the control does not flicker away on every load.
+ *
+ * *Who gets a sentence.* The maintenance line still names who can end it even
+ * for a viewer who cannot. The ungranted-host case does not: its "; an admin
+ * can share it" was removed by operator ask (2026-09-24), so a non-manager on
+ * an unshared host sees the headline and whichever routes they can actually
+ * take — the card stays short where its answer is "wait for someone else"
+ * either way.
  */
 export function NoLaunchTargets({ nodes, onNavigate }: { nodes: Node[]; onNavigate?: () => void }): JSX.Element {
   const navigate = useNavigate();
@@ -74,7 +80,11 @@ export function NoLaunchTargets({ nodes, onNavigate }: { nodes: Node[]; onNaviga
   return (
     <div className="space-y-4 rounded-lg border border-dashed p-6 text-center">
       <div className="space-y-1">
-        <p className="text-sm">No machine can run a subshell</p>
+        {/* Title level (operator ask 2026-09-24): the SHARED CardTitle, the
+            same component every EmptyState card headlines with — this card
+            is a dashed empty state wearing divs, and it should meet its
+            siblings at the same weight rather than a hand-sized one. */}
+        <CardTitle>No machine can run a subshell</CardTitle>
         {nodes.length === 0 ? (
           <p className="text-muted-foreground text-sm">
             {mayAddNode
@@ -85,11 +95,14 @@ export function NoLaunchTargets({ nodes, onNavigate }: { nodes: Node[]; onNaviga
           </p>
         ) : (
           <div className="space-y-1">
-            {nodes.map((node) => (
-              <p key={node.id} className="text-muted-foreground text-sm">
-                {blockedSentence(node)}
-              </p>
-            ))}
+            {nodes
+              .map((node) => ({ node, line: blockedSentence(node) }))
+              .filter((entry) => entry.line !== null)
+              .map(({ node, line }) => (
+                <p key={node.id} className="text-muted-foreground text-sm">
+                  {line}
+                </p>
+              ))}
           </div>
         )}
       </div>
@@ -110,21 +123,22 @@ export function NoLaunchTargets({ nodes, onNavigate }: { nodes: Node[]; onNaviga
           </Button>
         )}
       </div>
-      {/* Every hidden route owes a sentence naming who can take it — that is
-          the rule this component's docblock states, and the node route was
-          the half not honouring it. */}
+      {/* The enrollment route stays a SENTENCE for a viewer it hides from —
+          unlike the per-host grant case (2026-09-24), this one has no button
+          beside it and no other card says it; it was the half this component
+          once failed to honour. */}
       {!mayAddNode && nodes.length > 0 && (
-        <p className="text-detail text-muted-foreground">
-          Adding nodes is turned off on this instance; an admin can add one.
-        </p>
+        <p className="text-detail text-muted-foreground">{NODE_ENROLLMENT_OFF_COPY}</p>
       )}
     </div>
   );
 }
 
 /**
- * One machine's sentence: what is in the way, and — for a viewer who cannot
- * move it — who can.
+ * One machine's sentence: what is in the way, and — for a viewer who can act
+ * on it — what to do. Returns null when there is nothing this viewer can do
+ * AND the operator does not want the "who can fix it" line shown (the
+ * ungranted-host case below); the caller drops null rows.
  *
  * Maintenance is checked FIRST even on a machine that is also offline. It is
  * the deliberate state, the one with a person behind it, and the one a reader
@@ -132,7 +146,7 @@ export function NoLaunchTargets({ nodes, onNavigate }: { nodes: Node[]; onNaviga
  * maintenance would send them to go and wake a machine that would refuse them
  * anyway.
  */
-function blockedSentence(node: Node): string {
+function blockedSentence(node: Node): string | null {
   if (node.maintenance) {
     if (node.canManage) return `${node.name} is in maintenance.`;
     // The host's manager is an admin rather than an owner: every admin holds
@@ -143,12 +157,13 @@ function blockedSentence(node: Node): string {
   if (!node.canLaunch) {
     // Reworded per spec 2026-09-14 §2: the host's launch switch is no longer
     // a switch at all. What is left on that row is its share set, so the
-    // sentence names grants rather than an on/off nobody can find, and says
-    // what to do in the route's own words (§2's reworded 403) so a person who
-    // meets both does not have to work out that they are one refusal.
+    // sentence names grants rather than an on/off nobody can find. Only the
+    // manager who CAN act gets the sentence; the non-manager's "; an admin can
+    // share it" was removed (operator ask 2026-09-24) — the card and its one
+    // remaining route carry that case instead.
     return node.canManage
       ? `Nobody is granted launch access on ${node.name}. Share it with Everyone or with specific people to allow launching.`
-      : `Nobody is granted launch access on ${node.name}; an admin can share it.`;
+      : null;
   }
   return `${node.name} cannot take a subshell right now.`;
 }

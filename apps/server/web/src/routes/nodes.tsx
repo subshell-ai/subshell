@@ -11,9 +11,10 @@ import { NodeTable } from "@/components/nodes/node-table";
 import { SetupKeysSection } from "@/components/nodes/setup-keys-section";
 import { PageHeader } from "@/components/page-header";
 import { Segmented } from "@/components/ui/segmented";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useDeleteNode, useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
-import { canAddNode } from "@/lib/node-enrollment";
+import { canAddNode, NODE_ENROLLMENT_OFF_COPY } from "@/lib/node-enrollment";
 
 /**
  * The page's three views, keyed in the URL. Order is the tabs' order.
@@ -102,14 +103,47 @@ function NodesPage() {
         title="Nodes"
         subtitle="Nodes allow you to run subshells on other machines"
         action={
-          // Hidden, not disabled: a non-admin on an instance where adding is
-          // off cannot make this work, and a greyed control they can never
-          // use is a worse answer than the sentence below saying who can.
+          // Always drawn (operator ruling 2026-09-24, reversing the earlier
+          // "hidden, not disabled"): a hidden button makes the FEATURE look
+          // missing; a dead one says the feature exists and names, in its
+          // tooltip, who holds the switch. The tooltip's trigger is a wrapper
+          // span rather than the button because the Button variant carries
+          // `disabled:pointer-events-none` (node-admin's buttonVariants) —
+          // that CSS, not a browser law, is what lets the pointer reach the
+          // span beneath. Trim that clause and the tooltip silently dies in
+          // every real browser while these tests stay green. Same `render`
+          // mechanism the sidebar row uses to merge a tooltip onto an
+          // existing element.
           mayAddNode ? (
             <Button onClick={() => setDialogOpen(true)}>
               <Plus /> Add node
             </Button>
-          ) : undefined
+          ) : (
+            <TooltipProvider delay={300}>
+              <Tooltip>
+                {/* Review finding I-1 (2026-09-24): hover alone is not a
+                    carrier. A disabled <button> is not focusable, so the
+                    SPAN takes the tab stop (the dead button cannot receive
+                    focus, the span can, and focus opens the tooltip), and
+                    `aria-describedby` names the sr-only copy for readers —
+                    Base UI marks the trigger element, it does not wire the
+                    association itself. */}
+                {/* biome-ignore lint/a11y/noNoninteractiveTabindex: the real control is a disabled <button>, which HTML removes from the tab order — without this wrapper's tab stop, a keyboard user cannot open the tooltip explaining WHY the button is dead. The span is a trigger carrier, not content. */}
+                <TooltipTrigger render={<span className="inline-flex" tabIndex={0} aria-describedby="add-node-why" />}>
+                  <Button disabled>
+                    <Plus /> Add node
+                  </Button>
+                </TooltipTrigger>
+                {/* Same words the launch form uses for this gate (see
+                    `NODE_ENROLLMENT_OFF_COPY`) — the tooltip is the Nodes
+                    page's copy of that sentence, not a new one. */}
+                <TooltipContent>{NODE_ENROLLMENT_OFF_COPY}</TooltipContent>
+              </Tooltip>
+              <span id="add-node-why" className="sr-only">
+                {NODE_ENROLLMENT_OFF_COPY}
+              </span>
+            </TooltipProvider>
+          )
         }
       />
 
@@ -129,15 +163,11 @@ function NodesPage() {
         <SetupKeysSection />
       ) : (
         <>
-          {/* Only where the list has rows — the empty state says it itself, and
-              two copies of the same sentence on one screen is how a page stops
-              being read. */}
-          {!mayAddNode && nodes.length > 0 && (
-            <p className="text-muted-foreground text-sm">
-              An admin has turned off adding nodes on this instance. Ask one to add a machine for you.
-            </p>
-          )}
-
+          {/* There used to be a PERMANENT sentence here, above every list.
+              Gone (operator ruling 2026-09-24): the dead button's tooltip
+              carries the why, and the empty state below says it to whoever
+              has no rows — touch readers, who cannot hover, meet it there
+              (review finding I-1). */}
           {actionError && <p className="text-destructive text-detail">{actionError}</p>}
 
           {isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
@@ -160,11 +190,12 @@ function NodesPage() {
             />
           )}
 
-          {/* The SECOND opener. Gating only the header button left this one
-              offering the dialog to exactly the viewer the setting targets: a
-              non-admin with no node visible to them sees `nodes.length === 0`,
-              presses "Add your first node", and gets a 403 — which is the thing
-              this page states twice that it does not do. */}
+          {/* The SECOND opener, gated with the first: a non-admin with no node
+              visible to them sees `nodes.length === 0`, and an "Add your first
+              node" button here would offer the dialog to exactly the viewer the
+              setting targets — the bug this page shipped once. The action
+              stays absent rather than disabled: a second dead button on one
+              page is noise, and the header's says the reason. */}
           {!isLoading && !isError && nodes.length === 0 && (
             <EmptyState
               icon={Server}
@@ -172,7 +203,7 @@ function NodesPage() {
               description={
                 mayAddNode
                   ? "Enroll another machine with a setup key to run subshells on it."
-                  : "An admin has turned off adding nodes on this instance. Ask one to add a machine for you."
+                  : NODE_ENROLLMENT_OFF_COPY
               }
               actionLabel={mayAddNode ? "Add your first node" : undefined}
               onAction={mayAddNode ? () => setDialogOpen(true) : undefined}

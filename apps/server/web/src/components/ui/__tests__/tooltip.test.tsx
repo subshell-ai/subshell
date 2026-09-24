@@ -50,4 +50,43 @@ describe("ui/tooltip", () => {
     expect(popup.closest(".whitespace-pre-line")).not.toBeNull();
     expect(popup.textContent).toContain("Node: y");
   });
+
+  it("draws no arrow by default", async () => {
+    render(
+      <TooltipProvider>
+        <Tooltip open>
+          <TooltipTrigger>t</TooltipTrigger>
+          <TooltipContent>plain</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>,
+    );
+    const popup = await screen.findByText("plain");
+    const wrapper = popup.closest("[class*='text-body']");
+    // The arrow lives INSIDE the popup as a sibling of the content, which is
+    // why these walk from the wrapper rather than `closest` from the text.
+    expect(wrapper?.querySelector(".rotate-45")).toBeNull();
+  });
+
+  it("arrow tracks the rendered side, not just the requested one", async () => {
+    render(
+      <TooltipProvider>
+        <Tooltip open>
+          <TooltipTrigger>t</TooltipTrigger>
+          <TooltipContent side="right" arrow>
+            beside
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>,
+    );
+    const popup = await screen.findByText("beside");
+    // The tip is Base UI's own Arrow (aria-hidden, rotated square) sitting in
+    // the popup, and it carries `data-side` — the side the popup ACTUALLY
+    // rendered on. The primitive's arrow classes key off that attribute
+    // rather than the `side` prop, so a flip near a viewport edge drags the
+    // tip (and its two visible faces) along with it.
+    const arrow = popup.closest("[class*='text-body']")?.querySelector(".rotate-45");
+    expect(arrow).not.toBeNull();
+    expect(arrow?.getAttribute("aria-hidden")).toBe("true");
+    expect(arrow?.hasAttribute("data-side")).toBe(true);
+  });
 });

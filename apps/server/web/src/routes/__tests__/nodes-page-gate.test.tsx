@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { NODE_ENROLLMENT_OFF_COPY } from "@/lib/node-enrollment";
 import { Route } from "@/routes/nodes";
 import { setFetchRouter } from "@/test-setup";
 
@@ -70,26 +71,102 @@ function renderNodes() {
   );
 }
 
-/** Every control on this page that opens the add-node dialog. */
-const addOpeners = () => [
-  ...screen.queryAllByRole("button", { name: /Add node/ }),
-  ...screen.queryAllByRole("button", { name: /Add your first node/ }),
-];
+/** Every control on this page that opens the add-node dialog. A DISABLED
+ *  button is not one — it cannot be pressed into opening anything — but it
+ *  must exist, tooltip-wired (operator ruling 2026-09-24: show the control
+ *  dead and explain it, rather than hide the feature's existence). */
+const addOpeners = () =>
+  [
+    ...screen.queryAllByRole("button", { name: /Add node/ }),
+    ...screen.queryAllByRole("button", { name: /Add your first node/ }),
+  ].filter((b) => !b.hasAttribute("disabled"));
 
 afterEach(cleanup);
 
 describe("/nodes add-node gating", () => {
-  it("offers NO opener to a non-admin when the setting is off, with no nodes", async () => {
+  it("shows a non-admin the button DEAD, tooltip-wired, when the setting is off", async () => {
     const restore = stubApi({ nodes: [], allowNodeEnrollment: false, viewerIsAdmin: false });
     try {
       renderNodes();
-      // The empty state is the case that shipped broken: a non-admin with no
-      // node visible to them is precisely the viewer the setting targets.
-      // Wait on the sentence that only appears once BOTH reads have landed,
-      // so "no openers" cannot pass merely because the page is still loading.
-      await waitFor(() => expect(screen.getByText(/No nodes yet/)).toBeTruthy(), { timeout: 4000 });
+      // Wait on the DISABLED state itself (review finding M-5): "No nodes
+      // yet" rides only the nodes read, while the dead button rides the
+      // settings read — a slower settings stub would resolve the old gate
+      // while the button was still enabled.
+      let add: HTMLElement | undefined;
+      await waitFor(
+        () => {
+          add = screen.queryByRole("button", { name: /Add node/ }) ?? undefined;
+          expect(add?.hasAttribute("disabled")).toBe(true);
+        },
+        { timeout: 4000 },
+      );
+      // The tooltip lives (Base UI marks the trigger element; the popup
+      // itself is hover-gated, which happy-dom cannot drive — the
+      // association, not the open popup, is what this can pin). Review
+      // finding I-1: the association must serve readers and tab users too,
+      // so the SPAN carries the tab stop and names the describedby target.
+      const trigger = add?.closest("[data-base-ui-tooltip-trigger]") as HTMLElement | null;
+      expect(trigger).not.toBeNull();
+      expect(trigger?.getAttribute("tabindex")).toBe("0");
+      const describedBy = trigger?.getAttribute("aria-describedby");
+      expect(describedBy).toBeTruthy();
+      expect(document.getElementById(describedBy ?? "")?.textContent).toContain("Adding nodes is turned off");
+      // The touch carrier: the same sentence is VISIBLE in the empty state.
+      // getAll, not get — the sr-only copy above matches the same text, and
+      // a unique-match `getByText` here would pin the two-carrier design
+      // accidentally rather than on purpose.
+      expect(screen.getAllByText(NODE_ENROLLMENT_OFF_COPY).length).toBeGreaterThanOrEqual(2);
+      // Nothing ENABLED opens the dialog, and the empty state keeps no action.
       expect(addOpeners()).toEqual([]);
-      expect(screen.getByText(/Ask one to add a machine for you/)).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /Add your first node/ })).toBeNull();
+      // The old PERMANENT paragraph beside the header stays deleted.
+      expect(screen.queryByText(/Ask one to add a machine for you/)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("with rows listed too: the paragraph sentence is gone and the button stays dead", async () => {
+    const restore = stubApi({
+      nodes: [
+        {
+          id: "a1",
+          name: "AI PC",
+          kind: "agent",
+          os: "linux",
+          arch: "x64",
+          hostname: "ai-pc",
+          status: "online",
+          lastSeenAt: null,
+          agentVersion: "0.15.0",
+          protocolVersion: 12,
+          access: "owner",
+          canManage: true,
+          canLaunch: true,
+          allowedDirs: [],
+          capabilities: [],
+          harnesses: [],
+          inventoryStale: false,
+          maintenance: false,
+          maintenanceAt: null,
+          maintenanceSource: null,
+          held: null,
+        },
+      ],
+      allowNodeEnrollment: false,
+      viewerIsAdmin: false,
+    });
+    try {
+      renderNodes();
+      await waitFor(() => expect(screen.getByText("AI PC")).toBeTruthy(), { timeout: 4000 });
+      expect(screen.queryByText(/Ask one to add a machine for you/)).toBeNull();
+      // Same wait-on-the-assertion shape as the first test (M-5): with rows
+      // listed, the empty-state sentence is absent, so the disabled attribute
+      // is the only settings-dependent fact to gate on.
+      await waitFor(
+        () => expect(screen.getByRole("button", { name: /Add node/ }).hasAttribute("disabled")).toBe(true),
+        { timeout: 4000 },
+      );
     } finally {
       restore();
     }

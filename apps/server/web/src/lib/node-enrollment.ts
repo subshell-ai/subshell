@@ -25,3 +25,12 @@ export function canAddNode(
 ): boolean {
   return settings?.allowNodeEnrollment !== false || settings?.viewerIsAdmin === true;
 }
+
+/**
+ * The ONE sentence that explains a gated "Add node" affordance, wording
+ * settled on the launch form and reused verbatim by the Nodes page's
+ * disabled-button tooltip (operator ask 2026-09-24: "use the same copy as
+ * the subshell page"). Two surfaces, one string — a reworded second copy of
+ * the same gate is how a product starts saying two things about one setting.
+ */
+export const NODE_ENROLLMENT_OFF_COPY = "Adding nodes is turned off on this instance; an admin can add one.";

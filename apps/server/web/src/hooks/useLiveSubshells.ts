@@ -28,7 +28,6 @@ import type { SubshellView } from "@/types/subshell";
  */
 export function useLiveSubshells(): {
   subshells: SubshellView[];
-  connected: boolean;
   isLoading: boolean;
   /** True when the REST list failed AND the live socket has delivered nothing */
   isError: boolean;
@@ -42,7 +41,6 @@ export function useLiveSubshells(): {
   // fallback did, and calling that an error would be a lie of its own.
   return {
     subshells: rest.data ?? [],
-    connected: feed.connected,
     isLoading: rest.isLoading && feed.lastList === null,
     isError: rest.isError && feed.lastList === null,
     refetch: rest.refetch,

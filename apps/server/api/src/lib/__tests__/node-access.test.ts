@@ -260,4 +260,40 @@ describe("nodeCanLaunchOn", () => {
     expect(nodeCanLaunchOn("local", "edit", "edit", true)).toBe(false);
     expect(nodeCanLaunchOn("local", "edit", "edit", false)).toBe(true);
   });
+
+  /**
+   * The `allow_server_subshells` setting (operator ask 2026-09-24): an admin
+   * can switch the control-plane host off as a LAUNCH TARGET without touching
+   * maintenance, which keeps its own word and its pane-killing semantics.
+   * It is a fact about the ONE machine, so it changes nothing for an agent.
+   */
+  describe("nodeCanLaunchOn server-as-node flag", () => {
+    it("defaults to on, so a caller that knows nothing of the setting is unchanged", () => {
+      expect(nodeCanLaunchOn("local", "edit", "edit", false)).toBe(true);
+    });
+
+    it("refuses the control-plane host at every access level when off, owner and admin included", () => {
+      for (const access of ["none", "view", "edit", "owner"] as const) {
+        for (const granted of ["none", "view", "edit", "owner"] as const) {
+          expect(nodeCanLaunchOn("local", access, granted, false, false)).toBe(false);
+        }
+      }
+    });
+
+    it("does not reach across to agent nodes — the flag is about the server, not the fleet", () => {
+      // A live, launched agent keeps answering true with the server off; the
+      // access rules are the ONLY thing that govern it then.
+      expect(nodeCanLaunchOn("agent", "owner", "owner", false, false)).toBe(true);
+      expect(nodeCanLaunchOn("agent", "view", "view", false, false)).toBe(true);
+      // …and `none` is still refused, which is the access rule, not the flag.
+      expect(nodeCanLaunchOn("agent", "none", "none", false, false)).toBe(false);
+    });
+
+    it("ANDs like maintenance: a granted local loses to either switch and wins back with both", () => {
+      expect(nodeCanLaunchOn("local", "edit", "edit", false, true)).toBe(true);
+      expect(nodeCanLaunchOn("local", "edit", "edit", true, true)).toBe(false);
+      expect(nodeCanLaunchOn("local", "edit", "edit", false, false)).toBe(false);
+      expect(nodeCanLaunchOn("local", "edit", "edit", true, false)).toBe(false);
+    });
+  });
 });

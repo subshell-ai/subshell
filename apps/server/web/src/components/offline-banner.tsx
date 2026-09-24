@@ -4,10 +4,13 @@ import { useServerOffline } from "@/hooks/use-server-offline";
 /**
  * App-wide "server unreachable" notice: shown while any active query sits in
  * the NetworkError retry loop (see lib/server-status.ts), and it clears by
- * itself the moment a retry lands — the same transient-state vocabulary as
- * LiveStatus's "Reconnecting…". Fixed to the shell top so every page gets it
- * without owning an offline branch; bare pre-auth pages never mount it (they
- * own their error UX, and a down server there is not a blip to wait out).
+ * itself the moment a retry lands — a flap reads as a transient state, not an
+ * error. It is the app's only LIST-data staleness notice — a pane's own page
+ * keeps its reconnecting pill for its output — since the home page's
+ * "Updating live / Reconnecting…" badge was removed on 2026-09-24 (operator:
+ * not useful). Fixed to the shell top so every page gets it without
+ * owning an offline branch; bare pre-auth pages never mount it (they own
+ * their error UX, and a down server there is not a blip to wait out).
  */
 export function OfflineBanner() {
   const offline = useServerOffline();

@@ -14,7 +14,7 @@ import type { SubshellView } from "@/types/subshell";
 
 /**
  * The offline copy on the home cards (spec 2026-08-31 §5.6): a node whose
- * agent has no live connection lands the corner dot on "node unreachable" —
+ * agent has no live connection lands the status dot on "node unreachable" —
  * superseding `exited` and the waiting state, and with them the "no screen
  * (subshell has exited)" copy, because an offline node makes the process
  * state unobservable, not dead. (The corner badge has been the shared status
@@ -140,8 +140,8 @@ describe("SubshellCard node-offline precedence", () => {
       // The worst liar of the states: row says running, alive reads false
       // (the sweep's last-known truth) — all of it unobservable from here.
       renderCard(makeSubshell({ nodeId: "mac", nodeOffline: true, alive: false, exitCode: 1 }));
-      // The corner badge is the shared status dot (2026-09-24): the state is
-      // its accessible name, not a rendered word.
+      // The status dot is the shared one (2026-09-24): the state is its
+      // accessible name, not a rendered word.
       await screen.findByRole("img", { name: "node unreachable" });
       expect(screen.queryByText("exited")).toBeNull();
       expect(screen.queryByText(/no screen \(subshell has exited\)/)).toBeNull();
@@ -150,7 +150,7 @@ describe("SubshellCard node-offline precedence", () => {
       // The machine is the GRID's section header now, not a badge on the
       // card: nothing here renders the node's name.
       expect(screen.queryByText("mac mini")).toBeNull();
-      // And the offline dot appears exactly once (corner only).
+      // And the offline dot appears exactly once (the title row only).
       expect(screen.getAllByRole("img", { name: "node unreachable" }).length).toBe(1);
     } finally {
       restore();
@@ -189,6 +189,22 @@ describe("SubshellCard node-offline precedence", () => {
       expect(screen.queryByText("waiting for you")).toBeNull();
       expect(screen.queryByText("running")).toBeNull();
       expect(screen.queryByText("working")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("leads the title with the dot, as every other surface does", async () => {
+    const restore = mockNodes([agent()]);
+    try {
+      renderCard(makeSubshell());
+      const dot = await screen.findByRole("img", { name: "idle" });
+      const title = screen.getByText("subshell");
+      // DOM order, not a class check: the operator's ask was that the card
+      // read like the rail rows and the table's name cell, which all draw
+      // the dot BEFORE the name. DOCUMENT_POSITION_FOLLOWING (bit 4) on
+      // `dot`'s view of `title` is exactly that.
+      expect(dot.compareDocumentPosition(title) & 4).toBe(4);
     } finally {
       restore();
     }

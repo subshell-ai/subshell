@@ -272,6 +272,73 @@ describe("resolveLaunchNode — maintenance", () => {
   });
 });
 
+/**
+ * The admin's `allow_server_subshells` off-switch (operator ask 2026-09-24),
+ * shaped on purpose like the maintenance case above and different from it on
+ * purpose: this refusal is a SETTINGS fact, not a window, so it carries the
+ * same 403 shape the narrowed-host case uses rather than NODE_IN_MAINTENANCE.
+ * The flag arrives as a plain option because the resolver is given the
+ * setting the way it is given `machineActor` — pre-read, no DB in the rule.
+ */
+describe("resolveLaunchNode — server switched off as a node", () => {
+  it("names `local` explicitly → 403 that names the settings, never shares", async () => {
+    const err = await grab(() =>
+      resolveLaunchNode(
+        { userId: ownerId, machineActor: false, requestedNodeId: LOCAL_NODE_ID, serverAsNodeEnabled: false },
+        deps,
+      ),
+    );
+    expect(statusOf(err)).toBe(403);
+    expect((err as { code?: string }).code).toBe("node_launch_disabled");
+    // The existing 403 blames missing shares; this one must blame the switch,
+    // or the reader goes to the sharing dialog and finds nothing to change.
+    expect((err as Error).message).toMatch(/switched off/i);
+    expect((err as Error).message).not.toMatch(/[Ss]hare/);
+  });
+
+  it("implicit launch SKIPS the host and falls to NODE_REQUIRED with nothing else", async () => {
+    // Step 2 declines silently, exactly like the maintenance window does —
+    // the caller named no node, and step 3 or NODE_REQUIRED answers.
+    const err = await grab(() =>
+      resolveLaunchNode({ userId: ownerId, machineActor: false, serverAsNodeEnabled: false }, deps),
+    );
+    expect(apiErr(err).code).toBe(BackendErrorCodes.NODE_REQUIRED);
+  });
+
+  it("the lone-online-agent auto-pick still answers with the host off", async () => {
+    const node = await mkNode(ownerId);
+    const off = online(node);
+    try {
+      expect(
+        await resolveLaunchNode({ userId: ownerId, machineActor: false, serverAsNodeEnabled: false }, deps),
+      ).toEqual({ nodeId: node });
+    } finally {
+      off();
+    }
+  });
+
+  it("an explicit AGENT launch is untouched — the flag is about one machine", async () => {
+    const node = await mkNode(ownerId);
+    const off = online(node);
+    try {
+      expect(
+        await resolveLaunchNode(
+          { userId: ownerId, machineActor: false, requestedNodeId: node, serverAsNodeEnabled: false },
+          deps,
+        ),
+      ).toEqual({ nodeId: node });
+    } finally {
+      off();
+    }
+  });
+
+  it("an omitted flag keeps today's host answer — the default is ON", async () => {
+    expect(await resolveLaunchNode({ userId: ownerId, machineActor: false }, deps)).toEqual({
+      nodeId: LOCAL_NODE_ID,
+    });
+  });
+});
+
 describe("resolveLaunchNode — implicit local (step 2) and auto-pick (step 3)", () => {
   it("nothing requested + the local switch ON → local (today's behavior preserved)", async () => {
     expect(await resolveLaunchNode({ userId: ownerId, machineActor: false }, deps)).toEqual({

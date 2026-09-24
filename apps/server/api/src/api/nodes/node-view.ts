@@ -9,6 +9,7 @@ import { type EffectiveHarnessReport, effectiveHarnessStates } from "@/services/
 import { enabledHarnessPlugins } from "@/services/nodes/local-plugins.js";
 import { getHeld, type HeldReason } from "@/services/nodes/node-registry.js";
 import { localPlatform } from "@/services/nodes/seed-local.js";
+import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 
 /**
  * Node registry view schemas + mappers (spec 2026-08-31 §9) — the shared
@@ -320,6 +321,7 @@ function nodeViewBase(
   isAdmin: boolean,
   allowedDirs: string[],
   granted: NodeAccess,
+  serverAsNode = true,
 ) {
   return {
     // Empty = unrestricted (see the schema note). Passed in rather than read
@@ -346,7 +348,7 @@ function nodeViewBase(
     canManage: nodeCanManageFor(row.kind, access, isAdmin),
     // The SAME helper the launch gate calls, for the same reason `canManage`
     // shares one: the picker must not re-derive a rule the server enforces.
-    canLaunch: nodeCanLaunchOn(row.kind, access, granted, row.maintenance === 1),
+    canLaunch: nodeCanLaunchOn(row.kind, access, granted, row.maintenance === 1, serverAsNode),
     maintenance: row.maintenance === 1,
     maintenanceAt: row.maintenanceAt,
     maintenanceSource: row.maintenanceSource,
@@ -380,7 +382,14 @@ export async function toNodeView(
 ): Promise<NodeView> {
   const { harnesses, stale } = await effectiveHarnessStates(row);
   const allowedDirs = await new NodeAllowedDirsRepository(db).listForNode(row.id);
-  return { ...nodeViewBase(row, access, isAdmin, allowedDirs, granted), harnesses, inventoryStale: stale };
+  // The switch only ever speaks about the control-plane host, so only that
+  // row pays the read.
+  const serverAsNode = row.kind === "local" ? await serverSubshellsEnabled(db) : true;
+  return {
+    ...nodeViewBase(row, access, isAdmin, allowedDirs, granted, serverAsNode),
+    harnesses,
+    inventoryStale: stale,
+  };
 }
 
 /**
@@ -400,12 +409,17 @@ export async function toNodeViews(
   // ONE query for every row's rules, not one per row — the same batching the
   // catalog read above gets, for the same reason.
   const dirsBy = await new NodeAllowedDirsRepository(db).listForNodes(entries.map((e) => e.row.id));
+  // ONE read of the switch for the whole list, like the plugin catalog and
+  // the dirs query — lazy because an agent-only caller must not pay for a
+  // setting that cannot describe any of its rows.
+  let serverAsNode: boolean | undefined;
   for (const { row, access, isAdmin, granted } of entries) {
     const allowedDirs = dirsBy.get(row.id) ?? [];
     if (row.kind === "local") {
       localReport ??= await effectiveHarnessStates(row, installed);
+      serverAsNode ??= await serverSubshellsEnabled(db);
       out.push({
-        ...nodeViewBase(row, access, isAdmin, allowedDirs, granted),
+        ...nodeViewBase(row, access, isAdmin, allowedDirs, granted, serverAsNode),
         harnesses: localReport.harnesses,
         inventoryStale: localReport.stale,
       });
