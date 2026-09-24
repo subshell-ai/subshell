@@ -95,6 +95,12 @@ const BUTTON_CLASS =
  * focus, and xterm stops routing keystrokes once its textarea is blurred,
  * so the next hardware key would go missing. `click` still fires normally.
  * In {@link readOnly} mode only the scroll row renders.
+ *
+ * The bottom padding is HALF the home-indicator inset, not all of it. The
+ * indicator floats over the bottom ~21 pt dead-centre; the 44 pt buttons sit
+ * clear of it at half the inset, and the full inset read as a dead card
+ * band below the keys (operator: "huge bottom padding"). The shell adds no
+ * bottom padding under this bar — see `routeOwnsBottomEdge`.
  */
 export function TerminalKeyBar({
   disabled,
@@ -153,7 +159,7 @@ export function TerminalKeyBar({
       <div
         role="toolbar"
         aria-label="Terminal scrolling"
-        className="flex shrink-0 flex-col gap-px border-border border-t bg-card pb-[env(safe-area-inset-bottom)]"
+        className="flex shrink-0 flex-col gap-px border-border border-t bg-card pb-[calc(env(safe-area-inset-bottom)/2)]"
       >
         <div className="flex items-stretch gap-px">{trailingActions}</div>
       </div>
@@ -164,7 +170,7 @@ export function TerminalKeyBar({
     <div
       role="toolbar"
       aria-label="Terminal special keys"
-      className="flex shrink-0 flex-col gap-px border-border border-t bg-card pb-[env(safe-area-inset-bottom)]"
+      className="flex shrink-0 flex-col gap-px border-border border-t bg-card pb-[calc(env(safe-area-inset-bottom)/2)]"
     >
       {KEY_BAR_ROWS.map((row, i) => (
         <div key={row[0].label} className="flex items-stretch gap-px overflow-x-auto">

@@ -134,6 +134,21 @@ describe("TerminalKeyBar", () => {
     expect(jumps).toBe(2);
   });
 
+  it("bottom-pads by HALF the home-indicator inset, both modes", () => {
+    // The full inset read as a dead card band under the keys (operator:
+    // "huge bottom padding"); half keeps the 44 pt buttons clear of the
+    // indicator's centre. Pinned at the class level because happy-dom
+    // resolves no env() — the behavior itself is not observable here.
+    for (const readOnly of [false, true]) {
+      render(<TerminalKeyBar disabled={false} readOnly={readOnly} onBytes={() => {}} />);
+      const bar = readOnly
+        ? screen.getByRole("toolbar", { name: "Terminal scrolling" })
+        : screen.getByRole("toolbar", { name: "Terminal special keys" });
+      expect(bar.className).toContain("pb-[calc(env(safe-area-inset-bottom)/2)]");
+      expect(bar.className).not.toMatch(/pb-\[env\(/);
+    }
+  });
+
   it("scroll buttons trail the second row alongside the image button", () => {
     render(
       <TerminalKeyBar
