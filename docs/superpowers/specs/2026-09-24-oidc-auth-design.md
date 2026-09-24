@@ -57,7 +57,7 @@ New table `auth_providers` — migration `0037-auth-providers.ts` in
 | `issuer` | OIDC issuer; discovery is `{issuer}/.well-known/openid-configuration`. Null for `email` |
 | `client_id` / `client_secret` | Null for `email`. The secret lives in the 0600 DB file — the same posture as setup keys, which are stored in plaintext to their creator |
 | `enabled` | master switch — a disabled provider is not offered and not built |
-| `redirect_origin` | the host this provider's door round-trips through — an origin the admin SELECTED in the dialog (§5a). The callback URL handed to the IdP is `{redirect_origin}/api/auth/callback/{id}`; null on `email` rows |
+| `entry_origins` | the hosts this provider's door can round-trip through — an admin-curated LIST of origins (§5a). Each admits `{origin}/api/auth/callback/{id}`; the first is the canonical fallback. Null on `email` rows |
 | `allowed_domains` | optional comma-separated email domains (`acme.com, acme.io`); null/empty = any. When set, an email outside the list cannot use this door at all — link, sign-in or create (§5) |
 | `sign_in_enabled` | offer the door to existing accounts |
 | `registration_enabled` | allow the door to CREATE accounts |
@@ -195,47 +195,57 @@ returns `reject` for `link-account` when that claim is absent. This goes into
 `docs/security.md` (new subsection under the auth sections) and the working
 summary in `.claude/rules/security-context.md`.
 
-**5a. The entry host, and telling the admin what to give the IdP.** A
-Subshell instance answers at several addresses by design — loopback, LAN,
-`APP_BASE_URL`, mesh addresses published by network plugins — and an OIDC
-app registration is pinned to ONE exact redirect URI. So the provider dialog
-carries a **host selector**, not a free-text URL: the options come from the
-live origin registry (the same set the CORS derivation and the Networking
-page's Addresses card read — `originRegistry().current()`), with
-`APP_BASE_URL`'s origin pre-selected when it is in the list, and an
-"Other…" escape for an address the registry has not learned yet (validated
-bare-origin, no path/query/wildcard — the component-wise rule already used
-for trusted origins, minus wildcards).
+**5a. Entry points, and telling the admin what to give the IdP.** A Subshell
+instance answers at several addresses by design — loopback, LAN,
+`APP_BASE_URL`, mesh addresses published by network plugins — and a person
+may click "Sign in with Google" from any of them. An OIDC app registration
+pins redirect URIs, and IdPs (Google included) accept **multiple** redirect
+URIs on one client, so a provider carries **a list of entry origins**, not
+one:
 
-What the selector does:
-
-- It **pins the flow**: the provider's `redirectURI` is
-  `{chosen}/api/auth/callback/{id}`, and the round trip returns to that
-  origin — the session cookie is set there and the user lands on the SPA
-  *at the chosen host*, even if they clicked from another address (a page on
-  host-B cannot carry host-A's `SameSite=Lax` cookie, so the bounce-through
-  is the honest behavior, and one line of help copy says so).
-- The dialog then shows a **"finish the setup at your provider" panel**:
-  the exact Redirect URI to register, and the Authorized JavaScript origin
-  (the same origin, Google wants both), each in a copy-field. Shown live
-  while filling (the provider id is the name slug) and again in the edit
-  dialog, so re-registering after a host change has an authoritative source
-  in the app rather than in admin memory. Changing `redirect_origin` on an
-  existing provider warns in the confirm line: the door is broken at the
-  IdP until the registration there is updated.
+- The dialog's host selector is a **list editor**: add hosts picked from the
+  live origin registry (the same set the CORS derivation and the Networking
+  page's Addresses card read — `originRegistry().current()`), plus an
+  "Other…" escape for an address the registry has not learned yet. Each
+  entry is validated bare-origin, no path/query/wildcard — the
+  component-wise trusted-origin rule, minus wildcards. `APP_BASE_URL`'s
+  origin is pre-added on create and is the **canonical fallback** (list
+  position 1); the list can be reordered.
+- **The round trip follows the visitor.** A sign-in request originating from
+  a host in the provider's list uses that host's callback URL
+  (`{origin}/api/auth/callback/{id}`) as `redirect_uri`, so the cookie lands
+  where the click happened and the user stays on the address they came from.
+  A request from a host NOT in the list falls back to the canonical entry —
+  the flow still completes, landing the user on that host's SPA (a page on
+  host-B cannot carry host-A's `SameSite=Lax` cookie, so arriving at the
+  fallback host is the honest behavior, not a bug to hide).
+- **The membership test never composes from the request.** The chosen
+  `redirect_uri` is always one of the stored list's strings byte-for-byte —
+  the request's origin is matched against the list, and the only value ever
+  sent to the IdP is the stored entry plus the fixed callback path. This is
+  the same rule that keeps the CORS allowlist from ever trusting the request
+  Host (§8 of the security rules): matching, never derivation.
+- The dialog shows a **"finish the setup at your provider" panel** listing,
+  per entry origin, the exact Redirect URI and the Authorized JavaScript
+  origin (Google wants both kinds), each in a copy-field, plus a
+  copy-all block — so the admin pastes the whole list at the IdP in one
+  pass. Shown live while filling (the provider id is the name slug) and
+  again in the edit dialog. Adding an entry warns it must be registered at
+  the IdP before that host's door works; removing one warns the reverse.
 - A fresh instance's only option is usually `http://127.0.0.1:3080` —
   Google accepts `http://localhost` redirect URIs for development, so the
   selector normalizes the loopback spelling to what the IdP will accept and
   the panel copy says so. Real deployments should point `APP_BASE_URL` at
   the https address before registering production OIDC apps.
 
-Mechanism note for the plan to verify against better-auth 1.7.1: per-provider
-`redirectURI` override in the genericOAuth config entry. The stored origin
-drives the displayed panel regardless; if the config member does not exist,
-the derivation from `baseURL` must be reconciled with the chosen origin
-(same-origin case is already correct — `redirect_origin` = `APP_BASE_URL`'s
-origin is the default), and that reconciliation is a plan-time decision, not
-an open product question.
+Mechanism note for the plan to verify against better-auth 1.7.1: whether the
+genericOAuth `redirectURI` can be chosen per request (config-as-function
+surface or `queryParameters` override). If it cannot, the shipped behavior
+degrades honestly: every round trip uses the canonical entry, and the extra
+list entries exist so the registration panel and the follow-the-visitor
+behavior light up the moment better-auth supports it — the stored list and
+the membership rule are the same either way, so this is a capability
+difference, not a redesign.
 
 The anonymous pre-auth surface grows but stays **one route**: the login page
 learns which buttons to draw from `GET /api/settings/instance`, whose body
@@ -412,10 +422,13 @@ better-auth's code, not ours):
 - Audit: sign-in via OIDC records `method: "oidc:<id>"` on success only.
 - Route-level check that the email row's toggle drives the registration gate
   exactly as the old settings row did (the gate's existing tests move onto it).
-- Entry host: selector options are the live registry origins; "Other"
-  validates bare-origin and refuses paths/queries/wildcards; the panel
-  renders the exact callback URL `{chosen}/api/auth/callback/{id}`; changing
-  the origin on a saved provider warns about the stale IdP registration.
+- Entry points: each stored origin admits its own callback URL; a request
+  from a listed host round-trips through it, one from an unlisted host falls
+  back to the canonical entry; the emitted `redirect_uri` is always a stored
+  list string (a test sends a request from an unlisted Host and asserts the
+  callback URL carries the canonical origin, never the request's); "Other"
+  validates bare-origin and refuses paths/queries/wildcards; the panel lists
+  Redirect URI + JS origin per entry.
 - Domain gate: non-matching email cannot link, create, or land in pending —
   including a previously-linked account once domains are added; empty field
   accepts any.
@@ -458,7 +471,8 @@ files land in the same change, not as a follow-up.
 12. **Providers can be domain-scoped**, and the gate binds the door itself —
     a non-matching email never becomes a pending row, and a linked account
     outside the domains loses that door (§5).
-13. **Each provider pins one entry host**, chosen from the live origin
-    registry, and the dialog hands the admin the exact Redirect URI / JS
-    origin to register at the IdP — the entry URL varies per instance, so
-    the app says which one this provider answers to (§5a).
+13. **Each provider carries a LIST of entry origins**, the round trip
+    follows the visitor among them (canonical fallback otherwise), the
+    emitted redirect URI is always a stored string matched by membership,
+    and the dialog hands the admin the exact Redirect URI / JS origin per
+    entry to register at the IdP (§5a).
