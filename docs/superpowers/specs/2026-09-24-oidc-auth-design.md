@@ -91,8 +91,9 @@ settings row forward when one exists (present ⇒ its parsed boolean lands in
 the column), so an upgraded instance behaves byte-for-byte as before; a fresh
 install simply never writes the column until an admin touches the switch.
 `services/registration-gate.ts` reads the email row instead of the settings
-row; the General page loses its switch; the old key becomes dead data,
-harmless. The Auth page's E-mail toggle displays the gate's **computed**
+row; the General page loses its switch (since #179 that page holds three —
+registrations, node enrollment, Server-as-launch-target — and loses exactly
+one); the old key becomes dead data, harmless. The Auth page's E-mail toggle displays the gate's **computed**
 decision (the column value, or its null-expansion) and persists a real
 boolean on first touch.
 
@@ -508,6 +509,12 @@ convention, provider id).
   disable, as today. (Turning `approved` → `rejected` via the API is refused
   by the 409 in §8 for exactly this reason.)
 - Node tokens, system keys, MCP, WS attach: untouched.
+- **Lockdown (spec #179, landed mid-design) is the pane axis, not the auth
+  axis**: it stops subshells, not sign-ins. OIDC sign-in, the pending queue,
+  and approval all work normally during a lockdown. `pending_approval_
+  expiry_days` follows the same settings-row precedent lockdown and
+  `allowServerSubshells` set (service module, absent row = the documented
+  default, read by more than one surface).
 - The mobile app is out of scope for this spec (the client SDK will see the
   new anonymous field and ignore it).
 
