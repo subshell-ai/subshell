@@ -177,8 +177,20 @@ const live = new Map<string, NodeConnection>();
 /* held connections (spec 2026-09-15 §5.3)                              */
 /* ------------------------------------------------------------------ */
 
-/** Why the plane refused to treat this agent as live. */
-export type HeldReason = "below-floor" | "protocol-mismatch";
+/**
+ * Why the plane refused to treat this agent as live.
+ *
+ * `below-floor` / `protocol-mismatch` are the two version gates (spec
+ * 2026-09-15 §5.3). `encryption-required` is the third and it is a DIFFERENT
+ * kind of refusal: the agent passed BOTH version gates but its row has no
+ * encryption pin, so the only thing it could have sent that passes is the
+ * plaintext `ready` that is indistinguishable from the downgrade attempt
+ * (spec 2026-09-24 ledger R3). It is offline for every purpose but `update`
+ * exactly like the other two, and the remedy reads the same to an operator —
+ * the node updates and re-registers — which is why it holds through the same
+ * machinery rather than a fourth path.
+ */
+export type HeldReason = "below-floor" | "protocol-mismatch" | "encryption-required";
 
 /** One socket the plane refuses for everything except `update`. */
 export interface HeldConnection {

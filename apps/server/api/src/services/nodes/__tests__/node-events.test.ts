@@ -70,6 +70,19 @@ function makeHarness(): Harness {
       setStatus: async () => {},
     } as unknown as NodeWsDeps["nodes"],
     resolveResult: () => false,
+    // Inert link seam: these order-of-frames cases drive UNCLASSIFIED fakes
+    // (`fakeSocket` sets only `{nodeId, apiKeyId}`), so `handleNodeMessage`
+    // skips the machine and this is never read.
+    link: {
+      verifyApiKey: async () => null,
+      loadNodeEncryptionKeys: async () => {
+        throw new Error("link seam unused in node-events ordering tests");
+      },
+      nodeEncryptionPublicKey: async () => {
+        throw new Error("link seam unused in node-events ordering tests");
+      },
+      setEncryptPublicKey: async () => {},
+    },
   };
   h.releaseTouch = () => {
     for (const r of resolvers.splice(0)) r();

@@ -27,6 +27,17 @@ export function rowState(row: NodeUpdateRow, fleet: Pick<NodeUpdates, "minNodeVe
   if (row.held?.reason === "protocol-mismatch") {
     return `needs update: speaks protocol ${row.protocolVersion ?? "?"}, this server speaks ${fleet.protocol}`;
   }
+  // The third refusal (spec 2026-09-24 ledger R3): a node that passed BOTH the
+  // floor and the protocol but has no encryption pin. A held row whose reason is
+  // neither of the two above can only be that one, so the test is a catch-all on
+  // `held` rather than a `=== "encryption-required"` — the client's `HeldReason`
+  // union lives in the Apache `@internal/node-admin` package (out of scope for
+  // this change), and naming the new literal here would be an un-overlapping
+  // comparison against a type that has not grown it. Same remedy the other chips
+  // point at: the node updates and registers.
+  if (row.held) {
+    return "node needs to re-pair its encryption identity";
+  }
   return row.online ? "online" : "offline";
 }
 

@@ -73,7 +73,7 @@ export type NodeResultEvent = Extract<NodeEvent, { type: "result" }>;
  * @param u8 - the sealed ciphertext
  * @returns a Buffer view to hand to `ws.send`
  */
-function binaryPayload(u8: Uint8Array): Buffer {
+export function binaryPayload(u8: Uint8Array): Buffer {
   return Buffer.from(u8.buffer, u8.byteOffset, u8.length);
 }
 

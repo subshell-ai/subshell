@@ -1,11 +1,16 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { MIN_NODE_VERSION, NODE_MAX_FRAME_BYTES, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
+import {
+  createClientSession,
+  generateLinkKeyPair,
+  type LinkKeyPair,
+} from "@internal/subshell-protocol/node-link-crypto";
 import { Elysia } from "elysia";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { getLive, resetNodeRegistryForTests } from "../node-registry.js";
+import { getHeld, getLive, isNodeOffline, resetNodeRegistryForTests } from "../node-registry.js";
 import {
   authenticateNodeUpgrade,
   handleNodeClose,
@@ -35,14 +40,29 @@ const keyStore = new Map<string, { id: string; nodeId: string }>();
 /** user ids answered as disabled (ruling 2026-09-24, the /ws/node half). */
 const disabledOwners = new Set<string>();
 
+// The link machine's server static + a canonical node static, generated once
+// before any socket dials. A handshake-row test pins a row's encryptPublicKey to
+// `nodeStatic.publicKey` and drives a client derived from `serverStatic`.
+let serverStatic: LinkKeyPair;
+let nodeStatic: LinkKeyPair;
+
+const verifyApiKey: NodeWsDeps["verifyApiKey"] = async (rawKey) => {
+  const row = keyStore.get(rawKey);
+  return row ? { id: row.id, metadata: { kind: "node", nodeId: row.nodeId } } : null;
+};
+
 const deps: NodeWsDeps = {
-  verifyApiKey: async (rawKey) => {
-    const row = keyStore.get(rawKey);
-    return row ? { id: row.id, metadata: { kind: "node", nodeId: row.nodeId } } : null;
-  },
+  verifyApiKey,
   nodes,
   accountDisabled: async (userId) => disabledOwners.has(userId),
   resolveResult: () => false, // no RPC in flight in this test
+  link: {
+    // The binding re-prove re-RUNS the same bearer verification the upgrade did.
+    verifyApiKey,
+    loadNodeEncryptionKeys: async () => serverStatic,
+    nodeEncryptionPublicKey: async () => serverStatic.publicKey,
+    setEncryptPublicKey: (id, key) => nodes.setEncryptPublicKey(id, key),
+  },
 };
 
 /**
@@ -123,6 +143,8 @@ function rawHandshake(header: string | null): Promise<Response> {
 
 beforeAll(async () => {
   await runMigrations();
+  serverStatic = await generateLinkKeyPair();
+  nodeStatic = await generateLinkKeyPair();
 });
 
 afterAll(async () => {
@@ -151,7 +173,88 @@ describe("/ws/node over the real ws stack", () => {
     expect(((await missing.json()) as { code?: string }).code).toBe("INVALID_CREDENTIALS");
   });
 
-  it("full lifecycle: authed open → ready marks online → close marks offline", async () => {
+  const readyBody = {
+    type: "ready",
+    agentVersion: MIN_NODE_VERSION,
+    protocolVersion: NODE_PROTOCOL_VERSION,
+    os: "linux",
+    arch: "x64",
+    hostname: "box",
+    dataDir: "/tmp/agent",
+    capabilities: [] as string[],
+  };
+
+  it("full lifecycle (handshake row): open → kx→binding establishes → encrypted ready marks online → close marks offline", async () => {
+    // Since Task 8 every real frame is pre-classified through the link machine,
+    // so a node that comes ONLINE must have negotiated an encrypted link — a
+    // v14 plaintext `ready` on a legacy row is no longer a path to online (it is
+    // ledger R3's held case, asserted separately below). This drives the REAL
+    // handshake over the REAL ws stack with the REAL crypto: the client's
+    // ephemeral derives the same session the server's does, the binding re-proves
+    // the bearer key INSIDE the encrypted channel, and every post-establishment
+    // frame is ciphertext.
+    const nodeId = unique("n");
+    const apiKeyId = unique("k");
+    const key = unique("secret");
+    await nodes.create({
+      id: nodeId,
+      ownerUserId: unique("u"),
+      name: unique("node"),
+      kind: "agent",
+      status: "offline",
+    });
+    await nodes.setApiKeyId(nodeId, apiKeyId);
+    keyStore.set(key, { id: apiKeyId, nodeId });
+    // Pinned BEFORE dial, so the upgrade classifies this socket `handshake`.
+    await nodes.setEncryptPublicKey(nodeId, nodeStatic.publicKey);
+
+    const client = await createClientSession({ serverStaticPublicKey: serverStatic.publicKey });
+    const ws = await connect(`Bearer ${key}`);
+    await waitFor(() => getLive(nodeId)?.ws !== undefined, "registry attach");
+
+    // kx: fresh ephemeral + the row's pinned node static. Consumed in silence
+    // (ruling R6) — the binding that follows is already ciphertext.
+    ws.send(JSON.stringify({ t: "kx", eph: client.ephemeralPublicKey, pub: nodeStatic.publicKey }));
+    // binding: nodeId + the SAME bearer key re-proved + protocol, sealed by the
+    // just-derived session. Establishing sets `conn.link` on the registry record.
+    ws.send(client.session.sealFrame(JSON.stringify({ nodeId, nodeKey: key, protocolVersion: NODE_PROTOCOL_VERSION })));
+    await waitFor(() => getLive(nodeId)?.link !== undefined, "link established (conn.link set)");
+
+    // Encrypted ready → the machine decrypts and forwards into the untouched
+    // `applyReady` path; the row flips online.
+    ws.send(client.session.sealFrame(JSON.stringify(readyBody)));
+    await waitFor(async () => (await nodes.findById(nodeId))?.status === "online", "encrypted ready → online");
+
+    // UNSOLICITED inventory (P3-T8b), now also ciphertext: the handler's
+    // `inventory` case is command-agnostic BY CONSTRUCTION (no RPC correlation on
+    // this path), so the frame lands on the row exactly like a command answer.
+    const old = new Date(Date.now() - 10_000).toISOString();
+    ws.send(
+      client.session.sealFrame(
+        JSON.stringify({ type: "inventory", harnesses: [{ harnessId: "pi", installed: true }], ts: old }),
+      ),
+    );
+    await waitFor(async () => (await nodes.findById(nodeId))?.inventoryJson !== null, "inventory persisted");
+    const stocked = await nodes.findById(nodeId);
+    if (!stocked?.inventoryJson || !stocked.inventoryAt) throw new Error("unreachable: waitFor proved both set");
+    expect(JSON.parse(stocked.inventoryJson)).toEqual([{ harnessId: "pi", installed: true }]);
+    // The row stamps ITS OWN arrival time, never the frame's (stale) ts —
+    // this is what makes the create-time freshness gate read the snapshot as new.
+    expect(Date.parse(stocked.inventoryAt)).toBeGreaterThan(Date.parse(old));
+
+    ws.close();
+    await waitFor(async () => (await nodes.findById(nodeId))?.status === "offline", "close → offline");
+    expect(getLive(nodeId)).toBeUndefined();
+  });
+
+  it("R3 (spec 2026-09-24) — a PIN-LESS row's plaintext ready that passes both gates is HELD encryption-required, never online", async () => {
+    // The whole point of R3 made concrete on the real stack: an agent claiming
+    // protocol 14 at the version floor, but whose row has no encryption pin, has
+    // exactly one legitimate first frame (`register`). A plain `ready` wearing
+    // 14 is indistinguishable from the downgrade the handshake exists to refuse,
+    // so it is held for `update` — offline for every other purpose — and NEVER
+    // brought online. No pin is set on this row, so the upgrade classifies it
+    // `legacy` and the machine applies R3.
     const nodeId = unique("n");
     const apiKeyId = unique("k");
     const key = unique("secret");
@@ -165,40 +268,41 @@ describe("/ws/node over the real ws stack", () => {
     await nodes.setApiKeyId(nodeId, apiKeyId);
     keyStore.set(key, { id: apiKeyId, nodeId });
 
-    const ws = await connect(`Bearer ${key}`);
-    await waitFor(() => getLive(nodeId)?.ws !== undefined, "registry attach");
+    // Spy `applyReady` so "NEVER online" is pinned as "the row's identity write
+    // never runs", not merely "it ends offline." A downgrade attempt must not
+    // get its self-claimed identity persisted onto the row (unlike the
+    // below-floor hold, which does record the genuinely-old agent).
+    const originalApplyReady = deps.nodes.applyReady.bind(deps.nodes);
+    let applyReadyCalls = 0;
+    deps.nodes.applyReady = async (id, report) => {
+      applyReadyCalls += 1;
+      return originalApplyReady(id, report);
+    };
+    try {
+      const ws = await connect(`Bearer ${key}`);
+      await waitFor(() => getLive(nodeId)?.ws !== undefined, "registry attach");
 
-    ws.send(
-      JSON.stringify({
-        type: "ready",
-        agentVersion: MIN_NODE_VERSION,
-        protocolVersion: NODE_PROTOCOL_VERSION,
-        os: "linux",
-        arch: "x64",
-        hostname: "box",
-        dataDir: "/tmp/agent",
-        capabilities: [],
-      }),
-    );
-    await waitFor(async () => (await nodes.findById(nodeId))?.status === "online", "ready → online");
+      ws.send(JSON.stringify(readyBody));
+      await waitFor(
+        async () =>
+          getHeld(nodeId)?.reason === "encryption-required" && (await nodes.findById(nodeId))?.status === "offline",
+        "held encryption-required + row offline",
+      );
 
-    // UNSOLICITED inventory (P3-T8b): no `inventory` command was ever sent — the
-    // agent pushes its first snapshot right after `ready`. The handler's
-    // `inventory` case is command-agnostic BY CONSTRUCTION (no RPC correlation on
-    // this path), so the frame must land on the row exactly like a command answer.
-    const old = new Date(Date.now() - 10_000).toISOString();
-    ws.send(JSON.stringify({ type: "inventory", harnesses: [{ harnessId: "pi", installed: true }], ts: old }));
-    await waitFor(async () => (await nodes.findById(nodeId))?.inventoryJson !== null, "inventory persisted");
-    const stocked = await nodes.findById(nodeId);
-    if (!stocked?.inventoryJson || !stocked.inventoryAt) throw new Error("unreachable: waitFor proved both set");
-    expect(JSON.parse(stocked.inventoryJson)).toEqual([{ harnessId: "pi", installed: true }]);
-    // The row stamps ITS OWN arrival time, never the frame's (stale) ts —
-    // this is what makes the create-time freshness gate read the snapshot as new.
-    expect(Date.parse(stocked.inventoryAt)).toBeGreaterThan(Date.parse(old));
-
-    ws.close();
-    await waitFor(async () => (await nodes.findById(nodeId))?.status === "offline", "close → offline");
-    expect(getLive(nodeId)).toBeUndefined();
+      expect(getHeld(nodeId)).toMatchObject({ reason: "encryption-required", agentVersion: MIN_NODE_VERSION });
+      // Offline for every purpose but `update`: out of the live registry.
+      expect(getLive(nodeId)).toBeUndefined();
+      expect(isNodeOffline(nodeId)).toBe(true);
+      // The row was never brought online, and its identity columns were never
+      // written — applyReady did not run.
+      expect(applyReadyCalls).toBe(0);
+      const row = await nodes.findById(nodeId);
+      expect(row?.status).toBe("offline");
+      expect(row?.agentVersion).toBeNull();
+      ws.close();
+    } finally {
+      deps.nodes.applyReady = originalApplyReady;
+    }
   });
 
   it("key not bound to the node row is refused pre-socket (403 tier)", async () => {
