@@ -24,8 +24,14 @@ import {
 import { extendSubshellToken, subshellTokenTtlSeconds } from "@/services/subshell-tokens.js";
 import { logger } from "@/utils/logger.js";
 
-/** The kinds a harness may self-report through the attention endpoint. */
-export type AttentionKind = Extract<NotifyKind, "turn_complete" | "needs_attention">;
+/**
+ * The kinds a harness may self-report through the attention endpoint.
+ *
+ * `resumed` is the CLEAR and deliberately NOT a `NotifyKind` — resuming is a
+ * state change, nothing rings for it — which is why this is its own union
+ * rather than an `Extract` of the notify kinds.
+ */
+export type AttentionKind = NotifyKind | "resumed";
 
 /** Subshell view shape returned by the manager (single source: toSubshellView). */
 type SubshellView = NonNullable<Awaited<ReturnType<SubshellManagerService["getSubshell"]>>>;
@@ -701,11 +707,13 @@ export class SubshellsService extends BaseService {
   }
 
   /**
-   * A harness reports it needs attention (hook delivery). Sets the waiting
-   * stamp and rings — the bell gate lives inside notifySubshell so this path
-   * is unconditional here.
+   * A harness reports on itself (hook delivery): `turn_complete` /
+   * `needs_attention` SET the waiting stamp and ring (the bell gate lives
+   * inside notifySubshell, so this path is unconditional here); `resumed`
+   * CLEARS the stamp without ringing, and is the only clear that reaches an
+   * agent-node pane — see the branch below.
    *
-   * A DEAD row silently drops the event: a hook POST in flight while the
+   * A DEAD row silently drops every kind: a hook POST in flight while the
    * pane dies arrives after the reconcile sweep cleared `waiting_since`, and
    * stamping then would resurrect a false "waiting for you" chip on a dead
    * (possibly auto-restarting, same-id) row. The caller still sees 200 —
@@ -714,6 +722,24 @@ export class SubshellsService extends BaseService {
   async recordAttention(id: string, kind: AttentionKind): Promise<void> {
     const row = await this.repos.subshells.findById(id);
     if (row?.alive !== 1) return;
+    if (kind === "resumed") {
+      // The hook-side CLEAR (2026-09-24). The idle-watcher clear works only
+      // where the plane can STAT the pane log — `local` panes — so an
+      // agent-node pane stayed "waiting for you" for its entire next turn:
+      // its Stop/Notification stamps arrive from the node, but the watcher
+      // skips the row (`stat` of a file that only exists on the node's disk
+      // → null → nothing to measure) and no other alive-path cleared it.
+      // The pane itself knows work resumed (a prompt was submitted, a tool
+      // is starting after its approval); that fact has to travel.
+      //
+      // Conditional by shape: PreToolUse reports EVERY tool call, so the
+      // common case is a stamp-less no-op — read, see nothing set, write and
+      // publish nothing. Never rings: resuming is not an event.
+      if (row.waitingSince === null) return;
+      await this.repos.subshells.update(id, { waitingSince: null });
+      publishLive({ kind: "subshell.changed", id });
+      return;
+    }
     await this.repos.subshells.update(id, { waitingSince: new Date().toISOString() });
     publishLive({ kind: "subshell.changed", id });
     await getNotifyService().notifySubshell(id, kind);

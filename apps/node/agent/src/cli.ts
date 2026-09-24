@@ -126,7 +126,7 @@ usage:
   subshell version        (also --version, -v)
   subshell license        print the copyright and licence and exit
   subshell mcp            (stdio MCP server for a subshell pane, internal)
-  subshell report attention turn_complete|needs_attention
+  subshell report attention turn_complete|needs_attention|resumed
   subshell report session (a pane's state, run by harness hooks — not by hand)
   subshell report exit <status> (the pane died; run by tmux's own hook)
   subshell pane-log --file <path> (append stdin to a pane log, flushing each

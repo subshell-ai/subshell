@@ -41,6 +41,27 @@ describe("runReport", () => {
     expect(await req.json()).toEqual({ kind: "turn_complete" });
   });
 
+  it("posts `resumed` without reading stdin", async () => {
+    // The UserPromptSubmit / PreToolUse payloads carry the user's prompt text
+    // and full tool input — nothing of them may be read, waited on, or sent.
+    // The POST is the whole report.
+    const { seen, fetchImpl } = recorder();
+    let stdinRead = false;
+
+    await runReport(["attention", "resumed"], {
+      env: paneEnv,
+      fetch: fetchImpl,
+      readStdin: async () => {
+        stdinRead = true;
+        return "{}";
+      },
+    });
+
+    expect(seen).toHaveLength(1);
+    expect(await (seen[0] as Request).json()).toEqual({ kind: "resumed" });
+    expect(stdinRead).toBe(false);
+  });
+
   it("forwards ONLY session_id from the SessionStart payload on stdin", async () => {
     const { seen, fetchImpl } = recorder();
     const payload = JSON.stringify({

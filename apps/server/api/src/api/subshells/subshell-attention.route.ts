@@ -4,8 +4,9 @@ import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 
 const AttentionBodySchema = t.Object({
-  kind: t.Union([t.Literal("turn_complete"), t.Literal("needs_attention")], {
-    description: "What the harness is reporting: the turn finished, or it needs the operator",
+  kind: t.Union([t.Literal("turn_complete"), t.Literal("needs_attention"), t.Literal("resumed")], {
+    description:
+      "What the harness is reporting: the turn finished, it needs the operator, or the operator answered and work resumed (clears the waiting state)",
   }),
 });
 

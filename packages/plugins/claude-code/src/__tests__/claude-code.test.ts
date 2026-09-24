@@ -291,6 +291,31 @@ describe("ClaudeCodePlugin attention hooks", () => {
     );
   });
 
+  it("emits the resume clears — UserPromptSubmit and PreToolUse report `resumed`", () => {
+    // Two resume paths each need their own hook: the human TYPING (next
+    // turn's first event) and an approval answered IN the permission dialog
+    // (approving is not a prompt — the approved tool's PreToolUse is the
+    // first event after it). Without these, a pane whose waiting stamp the
+    // plane cannot observe (an agent-node log the watcher cannot stat) stayed
+    // "waiting for you" while the agent was plainly working.
+    const hooks = hooksOf(
+      plugin.buildCommand({
+        binary: "/usr/bin/claude",
+        cwd: "/tmp/ws",
+        preset: emptyPreset(),
+        subshellName: "",
+        reporter,
+      }),
+    );
+
+    expect(hooks.UserPromptSubmit?.[0].hooks[0].command).toBe(
+      "'/usr/local/bin/subshell-server' 'report' 'attention' 'resumed'",
+    );
+    expect(hooks.PreToolUse?.[0].hooks[0].command).toBe(
+      "'/usr/local/bin/subshell-server' 'report' 'attention' 'resumed'",
+    );
+  });
+
   it("narrows the Notification hook to the types that genuinely need a human", () => {
     const cmd = plugin.buildCommand({
       binary: "/usr/bin/claude",

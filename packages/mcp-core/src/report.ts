@@ -20,11 +20,19 @@ import { readMcpEnv } from "./env.js";
  * The attention signals a harness hook can raise about its own subshell.
  * These spellings ARE the wire values the attention endpoint takes, so the
  * verb a hook types needs no translation on the way out.
+ *
+ * `resumed` is the CLEAR, and it is the only one that reaches every pane:
+ * the plane's idle-watcher clear can only observe a log on the plane's own
+ * disk, so an agent-node pane — whose log lives on the node — had nothing
+ * that could ever take its "waiting for you" back off while it kept working
+ * (operator report + live repro, 2026-09-24). The pane's own hooks know when
+ * work resumed — a prompt submitted, a tool starting after an approval —
+ * and that knowledge has to travel from wherever the pane runs.
  */
-export type AttentionKind = "turn_complete" | "needs_attention";
+export type AttentionKind = "turn_complete" | "needs_attention" | "resumed";
 
 /** Every {@link AttentionKind}, for validating an argv word. */
-export const ATTENTION_KINDS: readonly AttentionKind[] = ["turn_complete", "needs_attention"];
+export const ATTENTION_KINDS: readonly AttentionKind[] = ["turn_complete", "needs_attention", "resumed"];
 
 /**
  * Every verb `report` accepts in its first slot. `attention` takes a second
@@ -106,7 +114,10 @@ async function resolveBody(
     // Claude Code hands the hook the arrays that tell the two apart. A
     // `turn_complete` POSTs only for a genuinely-done turn (spec 2026-09-23);
     // `needs_attention` never reads stdin — the plugin's Notification matcher
-    // is its filter.
+    // is its filter. `resumed` never reads it either, and that is a privacy
+    // rule as much as a latency one: UserPromptSubmit's stdin carries the
+    // user's prompt text, PreToolUse's the full tool input — the report is
+    // the fact "work resumed", never what the work is.
     if (kind === "turn_complete" && (await parkedOnBackgroundWork(io))) return undefined;
     return { path: "attention", json: { kind } };
   }

@@ -215,6 +215,30 @@ describe("subshells attention + notify routes", () => {
     expect(sends).toHaveLength(sendsBefore);
   });
 
+  it("resumed clears the stamp — the hook-side clearer agent-node panes were missing", async () => {
+    // The plane's idle watcher clears waiting only on a log IT can stat, so
+    // `local` panes clear on renewed output while an agent-node pane — whose
+    // log lives on the node's disk — once stamped stayed amber until the
+    // process died. `resumed` (UserPromptSubmit / PreToolUse hooks) is the
+    // clear that works from wherever the pane runs.
+    await req(`/${idB}/attention`, { bearer: keyB, body: { kind: "turn_complete" } });
+    expect((await row(idB)).waitingSince).not.toBeNull();
+
+    const sendsBefore = sends.length;
+    const res = await req(`/${idB}/attention`, { bearer: keyB, body: { kind: "resumed" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect((await row(idB)).waitingSince).toBeNull();
+    // Resuming is a state change, not an event: it never rings.
+    expect(sends).toHaveLength(sendsBefore);
+
+    // PreToolUse reports EVERY tool call, so the common case is a no-op on an
+    // unstamped row: same silent 200, nothing written.
+    const res2 = await req(`/${idB}/attention`, { bearer: keyB, body: { kind: "resumed" } });
+    expect(res2.status).toBe(200);
+    expect((await row(idB)).waitingSince).toBeNull();
+  });
+
   it("PATCH notify toggles the bell both ways and never clears waiting_since; foreign cookie user → 404", async () => {
     // A pending state to protect: muting stops pushes, not the state.
     const stamp = "2026-01-01T00:00:00.000Z";
