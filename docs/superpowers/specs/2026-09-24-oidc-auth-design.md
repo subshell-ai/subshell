@@ -57,11 +57,15 @@ New table `auth_providers` — migration `0037-auth-providers.ts` in
 | `issuer` | OIDC issuer; discovery is `{issuer}/.well-known/openid-configuration`. Null for `email` |
 | `client_id` / `client_secret` | Null for `email`. The secret lives in the 0600 DB file — the same posture as setup keys, which are stored in plaintext to their creator |
 | `enabled` | master switch — a disabled provider is not offered and not built |
+| `allowed_domains` | optional comma-separated email domains (`acme.com, acme.io`); null/empty = any. When set, an email outside the list cannot use this door at all — link, sign-in or create (§5) |
 | `sign_in_enabled` | offer the door to existing accounts |
 | `registration_enabled` | allow the door to CREATE accounts |
 | `require_approval` | accounts this provider CREATES start `pending` (§4) |
 
 Row order is list order. `created_at` / `updated_at` as everywhere else.
+The E-mail row can never be deleted — it is the fallback door and the
+carrier of the bootstrap semantics; it is toggled, not removed. Delete
+offers only OIDC rows.
 
 **The E-mail provider row** (`id = "email"`, `kind = "email"`) is created by
 the migration with defaults mirroring today's world: `enabled`, `sign_in_enabled`
@@ -164,6 +168,19 @@ The link rule is bidirectional-asymmetric, by decision:
   exists does not need a provider name back; it discloses account existence
   to... them, and they already see every email per §3 of the security rules).
 
+**The domain gate.** When `allowed_domains` is set, every callback email is
+matched (case-folded; the email's domain matches if it **equals** an entry
+or **ends with `.` + entry**, so `acme.com` admits `mail.acme.com` and never
+`evilacme.com`; no `*` syntax, entries are validated bare-domain) **before** better-auth's link/create
+decision — `validateUserInfo` sees all three actions per provider, so the
+check rides there and refuses whatever it contradicts: no link, no create,
+no pending row, the generic refusal. That includes a pre-existing linked
+account: a door whose domains stop matching stops letting its own linked
+users in — a door policy, consistent with `sign_in_enabled` turning the same
+door off for everyone. For a Google Workspace company this is the difference
+between "anyone on Earth with a Google account can knock" and "your staff
+can enter," and many instances will prefer it to require-approval.
+
 The cost of the link-straight-in rule, stated plainly: **a generic OIDC
 provider can assert any email it likes, and linking turns that into takeover
 of the matching account.** Adding a provider is therefore the same class of
@@ -206,6 +223,25 @@ The pending list is a separate admin-only read: `GET /api/users/pending`
 pending or rejected, which the admin column shows). Members are never told
 who is pending.
 
+**Pending-row lifecycle** — an open Google door means anyone with a Google
+account can knock, so the tab must not be an unbounded junkyard:
+
+- **Dedup by email.** A callback whose email matches a `pending` or
+  `rejected` row updates that row's `arrived_at` and re-shows the pending
+  screen; it never mints a second row. (An email is unique in the `user`
+  table anyway, so this is better-auth's existing find-or-create behavior
+  with the timestamp touch added.)
+- **Pending expires.** Unactioned `pending` rows older than
+  `pending_approval_expiry_days` (a settings row, admin-set on Settings →
+  Auth, default **30**, `0` = keep forever — the log-retention idiom) are
+  deleted by the existing hourly sweep pass: the `user`, `account` and
+  `user_meta` rows go together. A knocked-and-forgotten person who returns
+  later simply re-arrives.
+- **Rejected never expires.** Rejection is an explicit admin decision and
+  must not silently reopen the door on a timer; rejected rows persist until
+  an admin approves or deletes them. No pile-up risk: dedup keeps knockers
+  on their one row.
+
 ## 7. UI
 
 **Login page** (`routes/login.tsx`): provider buttons above the passkey
@@ -226,13 +262,28 @@ pending from rejected; that is the feature.
 kind badge, sign-in / registration / require-approval toggles per row,
 enabled master switch, edit/delete. The add/edit dialog: kind picker
 (Google preset prefills issuer and shows the Google logo; Generic OIDC shows
-the issuer/client-id/secret form), the three toggles with one sentence of
+the issuer/client-id/secret form), an optional allowed-domains field, the
+three toggles with one sentence of
 help each (design-system rule: every control's self-explanation is `detail`,
 max two sentences), and the discovery-validation error rendered inline on the
 failing field. Deleting a provider stops offering the door; it never touches
 user or account rows — a linked person simply loses that door (email login
 survives if they have a credential). A confirm dialog says so. The dialog
 carries the one-line trust warning from §5.
+
+**Discovery is badge-only, by decision:** a new pending arrival pushes
+nothing to admins — no new push plumbing, and an open Google door would
+otherwise push drive-by knocks. The Pending tab's count badge (and the
+Needs Attention rail, which reads it) is the signal.
+
+**The last door cannot be closed.** A provider write that would leave zero
+enabled providers with `sign_in_enabled` — disabling the last door,
+deleting it, or closing E-mail sign-in while every OIDC door is closed — is
+refused with a **409 naming itself**, before anything is saved; the dialog
+shows the reason. The escape hatch of last resort is unchanged from today:
+`SUBSHELL_EMERGENCY_PASSWORD` + `config.env` from the CLI. (The guard counts
+doors, not users — asking "does any remaining admin have a way in" would
+need per-user join logic for a question the simple form already prevents.)
 
 **Users page** (`routes/settings_.users.tsx`): gains its first tabs —
 **Members** (the existing table + a **Provider** column rendering the linked
@@ -317,6 +368,14 @@ better-auth's code, not ours):
 - Audit: sign-in via OIDC records `method: "oidc:<id>"` on success only.
 - Route-level check that the email row's toggle drives the registration gate
   exactly as the old settings row did (the gate's existing tests move onto it).
+- Domain gate: non-matching email cannot link, create, or land in pending —
+  including a previously-linked account once domains are added; empty field
+  accepts any.
+- Lifecycle: repeat knock on a pending/rejected email updates `arrived_at`
+  without a second row; the sweep deletes expired `pending` (user + account +
+  user_meta together) but never a `rejected` row; `0` disables the timer.
+- Last-door guard: closing the final `sign_in_enabled` door 409s and saves
+  nothing; opening a second door first makes the same edit succeed.
 
 Verification per repo rules: `bun run verify-types`, `bun run lint:check`,
 `bun run test` — and the spec's changes to `docs/security.md` + both rules
@@ -341,3 +400,13 @@ files land in the same change, not as a follow-up.
    and one line of UI copy (§5).
 8. **Email registration refuses a claimed email explicitly**, including
    pending arrivals, with a message that says what to do (§5).
+9. **Pending expires (default 30 days, admin-set); rejected never does** —
+   an open Google door knocks forever, an admin decision must not decay on a
+   timer (§6).
+10. **Admins learn via badge, not push** — drive-by knocks must not page
+    anyone (§7).
+11. **The last sign-in door cannot be closed** (409, break-glass unchanged)
+    — an instance with no way in is a support incident, not a feature (§7).
+12. **Providers can be domain-scoped**, and the gate binds the door itself —
+    a non-matching email never becomes a pending row, and a linked account
+    outside the domains loses that door (§5).
