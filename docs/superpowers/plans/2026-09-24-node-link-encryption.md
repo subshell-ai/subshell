@@ -211,15 +211,15 @@ Derivation detail the session constructors must respect: client side gets `(clie
 
 **Interfaces:**
 - Consumes: `@internal/subshell-protocol/node-link-crypto` (`ensureSodium`, `generateLinkKeyPair`, `LinkKeyPair`), `SUBSHELL_SERVER_DATA_DIR` from `@/constants.js`.
-- Produces: `loadNodeEncryptionKeys(): Promise<LinkKeyPair>`; `nodeEncryptionPublicKeysJson(): Promise<string>` (base64 — the enroll-response value); `resetNodeEncryptionKeysForTests(): void`.
+- Produces: `loadNodeEncryptionKeys(): Promise<LinkKeyPair>`; `nodeEncryptionPublicKey(): Promise<string>` (base64 — the enroll-response value); `resetNodeEncryptionKeysForTests(): void`.
 
-- [ ] **Step 1: write the failing test** mirroring `control-keys.test.ts`'s structure verbatim (same `KEY_PATH` mirror, same `IS_TEST` guard, `rmSync` + reset per case): fresh boot generates the file and pins mode (`statSync(KEY_PATH).mode & 0o077 === 0` at 0600), a corrupt file THROWS naming `node-encryption` and the file survives untouched, a wrong-shape file throws, and `nodeEncryptionPublicKeysJson()` answers the stored pub.
+- [ ] **Step 1: write the failing test** mirroring `control-keys.test.ts`'s structure verbatim (same `KEY_PATH` mirror, same `IS_TEST` guard, `rmSync` + reset per case): fresh boot generates the file and pins mode (`statSync(KEY_PATH).mode & 0o077 === 0` at 0600), a corrupt file THROWS naming `node-encryption` and the file survives untouched, a wrong-shape file throws, and `nodeEncryptionPublicKey()` answers the stored pub.
 
 ```ts
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { IS_TEST, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
-import { loadNodeEncryptionKeys, nodeEncryptionPublicKeysJson, resetNodeEncryptionKeysForTests } from "../node-encryption-keys.js";
+import { loadNodeEncryptionKeys, nodeEncryptionPublicKey, resetNodeEncryptionKeysForTests } from "../node-encryption-keys.js";
 
 const KEY_PATH = `${SUBSHELL_SERVER_DATA_DIR}/node-encryption.json`;
 // … beforeAll guard `if (!IS_TEST) throw …`; beforeEach rmSync(KEY_PATH, {force:true}); reset…();
@@ -335,11 +335,11 @@ export async function down(db: Kysely<any>): Promise<void> {
 - Test: `apps/server/api/src/api/nodes/__tests__/enroll-route.test.ts`, `apps/node/agent/src/__tests__/enroll.test.ts`
 
 **Interfaces:**
-- Consumes: Task 1 (`generateLinkKeyPair` via the agent — the agent imports the subpath), Task 2 (`nodeEncryptionPublicKeysJson()`), Task 4 (column + config fields).
+- Consumes: Task 1 (`generateLinkKeyPair` via the agent — the agent imports the subpath), Task 2 (`nodeEncryptionPublicKey()`), Task 4 (column + config fields).
 - Produces: enroll requests carry `encryptPublicKey` (base64, 43-44 chars); enroll responses carry `controlEncryptPublicKey`; both land persisted (row + `config.json`).
 
 - [ ] **Step 1: server-side failing test** — enroll with a valid `encryptPublicKey` stores it on the row and the 201 response includes `controlEncryptPublicKey` (base64, decodes to 32 bytes); enroll WITHOUT it (a pre-v14 one-liner stays valid) stores null and the response STILL includes the field (agents always pin it); malformed (non-base64/length) → 400 BEFORE the setup key is consumed (the `assertImportablePublicJwk` precedent's position: validation joins the pre-consume block at `enroll.route.ts:136-178`).
-- [ ] **Step 2: implement server side** — `EnrollBodySchema`: `encryptPublicKey: t.Optional(t.String({ minLength: 43, maxLength: 44, description: "…base64 X25519…" }))`; validate by decoding via `ensureSodium().from_base64` (a wrong length → 400 naming the field); `nodes.create({ …, encryptPublicKey: body.encryptPublicKey ?? null })`; response: `controlEncryptPublicKey: await nodeEncryptionPublicKeysJson()`.
+- [ ] **Step 2: implement server side** — `EnrollBodySchema`: `encryptPublicKey: t.Optional(t.String({ minLength: 43, maxLength: 44, description: "…base64 X25519…" }))`; validate by decoding via `ensureSodium().from_base64` (a wrong length → 400 naming the field); `nodes.create({ …, encryptPublicKey: body.encryptPublicKey ?? null })`; response: `controlEncryptPublicKey: await nodeEncryptionPublicKey()`.
 - [ ] **Step 3: agent-side failing test** — a faked-plane enroll generates a keypair (assert the POST body carries `encryptPublicKey`), and the config written afterward holds BOTH the pinned `controlEncryptPublicKey` and the `encryptKeyPair` (private + public); a response MISSING `controlEncryptPublicKey` fails enroll the way the missing `controlPublicKey` does today (malformed-response message; the key is already spent — same honesty).
 - [ ] **Step 4: implement agent side** — `enroll.ts`: `const link = await generateLinkKeyPair();` (after identity load, before POST — a fresh keypair per enroll is the point: it is the node's identity for the link); body gains `encryptPublicKey: link.publicKey`; response parse gains the two fields; `saveConfig({ …, encryptKeyPair: link, controlEncryptPublicKey })`.
 - [ ] **Step 5: gates + commit** `feat(server,node): enroll provisions link keys both directions`
