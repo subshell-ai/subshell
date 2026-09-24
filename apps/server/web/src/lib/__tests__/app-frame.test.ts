@@ -2,7 +2,9 @@ import { describe, expect, it } from "bun:test";
 import { routeOwnsBottomEdge } from "@/lib/app-frame";
 
 describe("routeOwnsBottomEdge", () => {
-  it("is true on the two full-height pages whose key bar pads the safe area itself", () => {
+  it("is true on the two full-height pages, each of which pads its own bottom edge", () => {
+    // Key bar (half inset) on /subshells/$id and the wide dock; terminal
+    // column (full inset) on the narrow tabs view — see lib/app-frame.ts.
     expect(routeOwnsBottomEdge("/subshells/sess_123")).toBe(true);
     expect(routeOwnsBottomEdge("/workspaces/ws_9")).toBe(true);
     // No nested routes exist under either today; anything below a detail
