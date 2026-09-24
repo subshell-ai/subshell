@@ -308,12 +308,17 @@ export function AppSidebar({
       presetId === null ? undefined : (presetData?.find((p) => p.id === presetId)?.name ?? presetId),
     [presetData],
   );
+  // The one filtered list both rail consumers read: the machine groups AND the
+  // Needs Attention spotlight. Deriving it once makes "the spotlight sees the
+  // exact rows the groups see" a fact of the code rather than two identical
+  // expressions kept in sync by a comment.
+  const railRows = q ? filterSubshells(byStatus, subshellQuery) : byStatus;
   // NOT memoised, deliberately: a group's rank re-derives activity against
   // the CLOCK, so a `useMemo` keyed on the data would freeze the group order
   // between feed frames and undo the liveliest-member ordering the 20 s tick
   // exists to maintain. The pass is O(rows) with a Map, per tick and per
   // keystroke — the frame it costs is one the rail re-renders for anyway.
-  const nodeGroups = groupSubshellsByNode(q ? filterSubshells(byStatus, subshellQuery) : byStatus, nodeData?.nodes, {
+  const nodeGroups = groupSubshellsByNode(railRows, nodeData?.nodes, {
     limit: q ? undefined : RECENT_LIMIT,
     // "Unanswered" means NO successful read has ever committed: in flight, or
     // failed with nothing cached. It cannot be `isPending || isError` — a
@@ -324,12 +329,12 @@ export function AppSidebar({
     unanswered: nodeData === undefined,
   });
   // The "Needs Attention" spotlight above the machine groups (spec 2026-09-24):
-  // the SAME status-ordered rows the groups are built from — the live filter
-  // applied identically — narrowed to the owner's unseen pushes. Computed from
-  // the filter set, not from `nodeGroups`, so a match in filter mode shows here
-  // exactly as it shows in the (forced-open) group, and the cap that groups
-  // apply never hides a pane that pushed.
-  const attentionRows = needsAttention(q ? filterSubshells(byStatus, subshellQuery) : byStatus);
+  // `railRows` — the same rows the groups are built from — narrowed to the
+  // owner's unseen pushes. Computed from the filter set, not from `nodeGroups`,
+  // so a match in filter mode shows here exactly as it shows in the
+  // (forced-open) group, and the cap that groups apply never hides a pane that
+  // pushed.
+  const attentionRows = needsAttention(railRows);
   const listedCount = nodeGroups.reduce((sum, group) => sum + group.subshells.length, 0);
   // Which node groups this device has shut. Read once at mount — the rail
   // lives for the session, so re-reading storage on every render would buy

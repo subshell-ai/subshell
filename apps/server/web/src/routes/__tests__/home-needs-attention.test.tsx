@@ -52,7 +52,7 @@ function subshell(over: Partial<SubshellView> = {}): SubshellView {
   } as SubshellView;
 }
 
-function mount(subshells: SubshellView[]): () => void {
+function mount(subshells: SubshellView[], entry = "/"): () => void {
   setFetchRouter(async (input: RequestInfo | URL) => {
     const url = String(input);
     const body = url.includes("/api/subshells")
@@ -85,7 +85,7 @@ function mount(subshells: SubshellView[]): () => void {
   });
   const router = createRouter({
     routeTree: rootRoute.addChildren([homeRoute, subRoute]),
-    history: createMemoryHistory({ initialEntries: ["/"] }),
+    history: createMemoryHistory({ initialEntries: [entry] }),
     defaultPreload: false,
   });
   render(
@@ -152,6 +152,24 @@ describe("home Needs Attention section (spec 2026-09-24)", () => {
       // test's meaning would silently shift if filterSubshells ever dropped
       // non-owner rows before the selector saw them.
       expect(hs).toContain("Running");
+    } finally {
+      restore();
+    }
+  });
+
+  it("does not render in list view — the spotlight is a tiled-view section", async () => {
+    // The whole tiled branch is gated on `view === "tiled"`; this pins that
+    // the new section sits INSIDE that gate rather than beside it, so a
+    // future edit that hoists it out shows up as a failure rather than as
+    // a table page that suddenly grew a card grid. The page rendered at
+    // all is proven by the row's name appearing in the table.
+    const restore = mount([subshell({ id: "a", name: "waiting", unseenPush: true })], "/?view=list");
+    try {
+      await waitFor(() => {
+        expect(document.body.textContent).toContain("waiting");
+      });
+      const hs = [...document.querySelectorAll("h2")].map((h) => h.textContent ?? "");
+      expect(hs).not.toContain("Needs Attention");
     } finally {
       restore();
     }

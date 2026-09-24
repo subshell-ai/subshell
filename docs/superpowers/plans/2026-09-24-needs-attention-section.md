@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- `unseenPush` and `access` are existing optional fields on `SubshellView` (`apps/server/web/src/types/subshell.ts`); read them, never add them. The selector filters `s.unseenPush === true && s.access === "owner"` — `access` other than `"owner"` (a grantee's `view`/`edit`, or `undefined` before any snapshot stamp) is EXCLUDED.
+- `unseenPush` and `access` are existing fields on `SubshellView` (`apps/server/web/src/types/subshell.ts`, both declared required); read them, never add them. The selector filters `s.unseenPush === true && s.access === "owner"` — `access` other than `"owner"` is EXCLUDED, including `undefined`, which is a RUNTIME state (the feed carries no per-viewer access, so a row can arrive before any snapshot stamps it).
 - The section is a **sibling above** the node groups, not a member of `groupSubshellsByNode`; the grouping module, the collapse preference (`sidebar-node-group-pref`), `RECENT_LIMIT`, `SubshellNodeGroup`, and the "No matches." logic stay byte-identical.
 - The rail header is **not collapsible and has no chevron** — no `SubshellNodeGroup`, no `aria-controls`, no localStorage write.
 - Copy is exactly `Needs Attention` (no em dash; design-system copy rule). Type roles: `text-detail` + `font-strong`, colours by shadcn name — pick a role, never a raw size.

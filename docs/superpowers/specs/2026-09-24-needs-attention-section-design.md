@@ -45,7 +45,7 @@ is literal — the signal is a delivered-unseen push, not a waiting chip.
 Between the filter box and the first `SubshellNodeGroup` (the
 `item.to === "/" && !collapsed` region of `app-sidebar.tsx`), render:
 
-- a header — the node-group header's idiom minus its chevron: `text-label
+- a header — the node-group header's idiom minus its chevron: `text-detail
   font-strong`, muted, count right-aligned like the group count — reading
   "Needs Attention";
 - the matching rows, each the same `SubshellRecentRow` the groups render
@@ -65,9 +65,11 @@ which already counts across groups).
 
 `routes/index.tsx` renders `<TileSection title="Needs Attention" ...>`
 before the "Running" section, fed by the same selector over the page's
-already-filtered, already-`priorityRunning` list. `TileSection` already
-renders nothing when its group is empty — the hide-when-empty rule is
-shared, not re-decided.
+already-filtered list (the status groups' own ordering decisions stay
+theirs — `priorityRunning` sorts the Running group, which is not a rule
+the spotlight has any use for). `TileSection` already renders nothing
+when its group is empty — the hide-when-empty rule is shared, not
+re-decided.
 
 ### Self-clearing (asserted, not built)
 
