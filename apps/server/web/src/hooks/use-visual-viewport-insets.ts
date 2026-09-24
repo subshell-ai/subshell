@@ -51,6 +51,13 @@ export function decideFramePin(args: {
 }): VisualViewportInsets | null {
   if (!args.vv) return null;
   const raw = computeInsets(args.vv);
+  // The keyboard test runs BEFORE the standalone branch, so a WebKit that
+  // reported the visual viewport short by MORE than KEYBOARD_UP_PX (120)
+  // with no keyboard would read as "keyboard up" and pin the bogus height.
+  // The standalone chrome error iOS actually ships is ~64 px — under the
+  // threshold — and no safer discriminator exists (a real iOS keyboard can
+  // pan nothing at all: offsetTop 0, height shrunk), so the coupling is
+  // accepted and measured, not ignored.
   if (isKeyboardUp(args.vv.height, args.innerHeight) || raw.offsetYpx > 0) return raw;
   if (args.standalone) return { heightPx: Math.max(0, Math.round(args.innerHeight)), offsetYpx: 0 };
   return null;
@@ -77,7 +84,13 @@ export function useVisualViewportInsets(): VisualViewportInsets | null {
     const standalone =
       window.matchMedia("(display-mode: standalone)").matches ||
       (navigator as unknown as { standalone?: boolean }).standalone === true;
-    const update = () => setInsets(decideFramePin({ vv, innerHeight: window.innerHeight, standalone }));
+    const update = () => {
+      const next = decideFramePin({ vv, innerHeight: window.innerHeight, standalone });
+      // Structural sharing: with the standalone pin always non-null, every
+      // pan and resize would otherwise re-render the whole frame even when
+      // no number changed.
+      setInsets((prev) => (prev?.heightPx === next?.heightPx && prev?.offsetYpx === next?.offsetYpx ? prev : next));
+    };
     update();
     vv.addEventListener("resize", update);
     vv.addEventListener("scroll", update);

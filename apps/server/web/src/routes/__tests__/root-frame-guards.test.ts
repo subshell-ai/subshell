@@ -67,8 +67,12 @@ describe("the root frame's bottom padding", () => {
   const source = readFileSync(ROOT, "utf8");
 
   test("the outlet wrapper's safe-area padding is gated on the bottom-owner check", () => {
-    const line = source.split("\n").find((l) => l.includes("pb-[env(safe-area-inset-bottom)]"));
-    expect(line, "no bottom safe-area padding line in __root.tsx").toBeDefined();
-    expect(line, `bottom padding ungated: ${line?.trim()}`).toContain("bottomOwner");
+    const lines = source.split("\n").filter((l) => l.includes("pb-[env(safe-area-inset-bottom)]"));
+    expect(lines.length, "no bottom safe-area padding line in __root.tsx").toBeGreaterThan(0);
+    // EVERY occurrence, not the first — an ungated second one elsewhere
+    // in the frame is exactly the regression this catches.
+    for (const line of lines) {
+      expect(line, `bottom padding ungated: ${line.trim()}`).toContain("bottomOwner");
+    }
   });
 });

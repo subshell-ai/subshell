@@ -131,11 +131,12 @@ describe("useVisualViewportInsets", () => {
       removeEventListener: () => {},
       dispatchEvent: () => false,
     });
-    // No keyboard (visualViewport ≈ innerHeight), no pan — the browser case
-    // would return null here. Standalone pins, so the cold-start dvh bug
-    // cannot shorten the frame.
+    // The visualViewport sits BELOW innerHeight but inside the keyboard
+    // slack (chrome-reduced, no keyboard — the standalone cold-start shape).
+    // The pin must come from innerHeight, not vv: an implementation that
+    // pinned to vv.height would return 700 and pass nothing else changed.
     w.visualViewport = {
-      height: 768,
+      height: 700,
       offsetTop: 0,
       addEventListener: () => {},
       removeEventListener: () => {},
@@ -144,6 +145,37 @@ describe("useVisualViewportInsets", () => {
       heightPx: (window as unknown as Record<string, number>).innerHeight,
       offsetYpx: 0,
     });
+  });
+
+  it("detects a home-screen install via navigator.standalone alone", () => {
+    // The older iOS spelling: display-mode answers nothing, only
+    // navigator.standalone says true. (iOS ships it on the window object.)
+    w.matchMedia = (q: string) => ({
+      matches: q === "(pointer: coarse)",
+      media: q,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    });
+    const nav = navigator as unknown as Record<string, unknown>;
+    Object.defineProperty(nav, "standalone", { value: true, configurable: true });
+    try {
+      w.visualViewport = {
+        height: 768,
+        offsetTop: 0,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      };
+      expect(renderHook(() => useVisualViewportInsets()).result.current).toEqual({
+        heightPx: (window as unknown as Record<string, number>).innerHeight,
+        offsetYpx: 0,
+      });
+    } finally {
+      delete nav.standalone;
+    }
   });
 
   it("tracks a coarse-pointer visualViewport, resize included", () => {

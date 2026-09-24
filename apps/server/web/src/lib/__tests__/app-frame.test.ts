@@ -5,6 +5,9 @@ describe("routeOwnsBottomEdge", () => {
   it("is true on the two full-height pages whose key bar pads the safe area itself", () => {
     expect(routeOwnsBottomEdge("/subshells/sess_123")).toBe(true);
     expect(routeOwnsBottomEdge("/workspaces/ws_9")).toBe(true);
+    // No nested routes exist under either today; anything below a detail
+    // page still inherits its full-height frame, so the prefix match is
+    // the honest rule.
     expect(routeOwnsBottomEdge("/subshells/sess_123/extra")).toBe(true);
   });
 
