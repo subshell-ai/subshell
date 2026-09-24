@@ -116,7 +116,9 @@ describe("/settings/users page", () => {
       await waitFor(() => expect(screen.getByText("dana@example.com")).toBeDefined());
       expect(screen.getByText("Dana")).toBeDefined();
       expect(screen.getByRole("button", { name: "Add user" })).toBeDefined();
-      expect(screen.getByRole("combobox", { name: "Role for dana@example.com" })).toBeDefined();
+      // The manageable row carries the kebab; its three actions are pinned at
+      // the component level, so the page only proves the lever is offered.
+      expect(screen.getByRole("button", { name: "Actions for dana@example.com" })).toBeDefined();
       // The audit trail is its own page (spec 2026-09-11 §4.4) and must not
       // reappear here.
       expect(screen.queryByText("Audit trail")).toBeNull();
@@ -146,7 +148,7 @@ describe("/settings/users page", () => {
       renderPage();
       await waitFor(() => expect(screen.getByText("system@subshell.local")).toBeDefined());
       expect(screen.getByText("Service account")).toBeDefined();
-      expect(screen.queryByRole("combobox", { name: "Role for system@subshell.local" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Actions for system@subshell.local" })).toBeNull();
     } finally {
       restore();
     }
@@ -161,7 +163,14 @@ describe("/settings/users page", () => {
       renderPage();
       await waitFor(() => expect(screen.getByText("cleo@example.com")).toBeDefined());
       expect(screen.getByText("Disabled")).toBeDefined();
-      expect(screen.getByRole("button", { name: "Enable" })).toBeDefined();
+      // A disabled admin still carries the Admin role badge — the two badges
+      // answer different questions and neither hides the other. Row-scoped
+      // because the viewer's own row also badges Admin.
+      const cleoRow = screen.getByText("cleo@example.com").closest("tr");
+      expect(cleoRow?.textContent).toContain("Admin");
+      // The row is still actionable (the menu's Enable-vs-Disable spelling is
+      // pinned at the component level).
+      expect(screen.getByRole("button", { name: "Actions for cleo@example.com" })).toBeDefined();
     } finally {
       restore();
     }
@@ -173,7 +182,7 @@ describe("/settings/users page", () => {
       renderPage();
       await waitFor(() => expect(screen.getByText("you@example.com")).toBeDefined());
       expect(screen.getByText("Your account")).toBeDefined();
-      expect(screen.queryByRole("combobox", { name: "Role for you@example.com" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Actions for you@example.com" })).toBeNull();
     } finally {
       restore();
     }

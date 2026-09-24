@@ -27,9 +27,15 @@ subshells) uses the shared `ActionsMenu` kebab.
 
 ### The table (`components/users/users-table.tsx`)
 
-- The `Manage` `th` becomes the Nodes table's cell verbatim:
-  `<th className="pb-2 text-right font-strong"><span className="sr-only">Actions</span></th>`
-  — visually headerless, named for screen readers, right-aligned.
+- The `Manage` `th` becomes visually headerless, named for screen readers,
+  right-aligned — but NOT the Nodes table's `<span className="sr-only">`
+  verbatim: an sr-only span is `position:absolute`, and with no positioned
+  ancestor its containing block is the viewport, so it escapes the table's
+  `overflow-x-auto` clip and extends the document's scroll width at phone
+  width (found by the e2e "Add user dialog fits" spec during this PR's CI).
+  The cell is `<th className="pb-2 text-right font-strong" aria-label="Actions" />`.
+  The Nodes table is safe as shipped only because phones get its card view;
+  a follow-up should give it the same `aria-label` shape.
 - The last cell right-aligns its contents too: the two muted labels
   ("Your account", "Service account") and the kebab all sit at the row's
   right edge.
