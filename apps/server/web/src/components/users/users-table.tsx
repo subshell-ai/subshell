@@ -3,6 +3,20 @@ import { UserRowActions } from "@/components/users/user-row-actions";
 import { useCurrentUser } from "@/lib/auth";
 import { asUserRole, USER_ROLE_LABELS } from "@/types/user-role";
 
+/**
+ * The Provider column's word for one better-auth `providerId`. `credential`
+ * is spelled like the Auth table's email kind (`KIND_LABELS.email`) so the
+ * two pages cannot name the same door differently; `google` is the preset's
+ * id and gets the same word. Anything else renders the id itself — a custom
+ * OIDC door's row cannot be resolved to its admin-chosen name from this
+ * payload alone, and guessing a name would be worse than printing the id.
+ */
+export function providerBadgeLabel(providerId: string): string {
+  if (providerId === "credential") return "Email";
+  if (providerId === "google") return "Google";
+  return providerId;
+}
+
 /** One account on the instance, as `GET /api/users` returns it. */
 export interface UserRow {
   /** better-auth user id */
@@ -28,6 +42,27 @@ export interface UserRow {
    * enabled — the state every account was in before this could be set.
    */
   disabled?: boolean;
+  /**
+   * Auth provider ids this account has sign-in rows for — `credential`,
+   * `google`, or a custom door's id. Absent = older payload: the Provider
+   * column renders nothing and the menu keeps Reset password (the server's
+   * 409 stays the truth) rather than guessing from a field that never
+   * arrived.
+   */
+  providers?: string[];
+}
+
+/** One badge per sign-in row, the credential door spelled like the Auth page. */
+function ProviderBadges({ providers }: { providers: readonly string[] }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {providers.map((id) => (
+        <Badge key={id} variant={id === "credential" ? "secondary" : "default"}>
+          {providerBadgeLabel(id)}
+        </Badge>
+      ))}
+    </div>
+  );
 }
 
 /**
@@ -60,6 +95,7 @@ export function UsersTable({
           <tr className="border-b text-left text-muted-foreground">
             <th className="pr-4 pb-2 font-strong">Name</th>
             <th className="pr-4 pb-2 font-strong">Email</th>
+            <th className="pr-4 pb-2 font-strong">Provider</th>
             <th className="pr-4 pb-2 font-strong">Role</th>
             <th className="pr-4 pb-2 font-strong">Created</th>
             {/* No visible title above a column of kebab buttons: a header
@@ -83,6 +119,12 @@ export function UsersTable({
                   legible while scanning the column of names. */}
               <td className={cn("py-2 pr-4", u.disabled && "text-muted-foreground")}>{u.name}</td>
               <td className={cn("py-2 pr-4", u.disabled && "text-muted-foreground")}>{u.email}</td>
+              {/* Absent = an older payload: render nothing rather than guess a
+                  set of doors. An empty list IS the payload's answer — the
+                  `system` account has no sign-in row — and it renders as the
+                  same nothing, which keeps that row exactly as it read
+                  before this column existed. */}
+              <td className="py-2 pr-4">{u.providers && <ProviderBadges providers={u.providers} />}</td>
               <td className="py-2 pr-4">
                 {/* `Badge` renders a div, so the wrapper is one too. */}
                 <div className="flex flex-wrap items-center gap-1">

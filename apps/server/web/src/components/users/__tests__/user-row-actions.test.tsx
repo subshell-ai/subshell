@@ -41,7 +41,7 @@ function mockFetch(response: () => Response): { patches: Patched[]; restore: () 
 const ok = (body: unknown = {}) => new Response(JSON.stringify(body));
 
 function renderRow(
-  over: { id?: string; email?: string; role?: string | null; disabled?: boolean } = {},
+  over: { id?: string; email?: string; role?: string | null; disabled?: boolean; providers?: string[] } = {},
   viewerId: string | null = "me",
   onChanged: () => void = () => {},
 ) {
@@ -54,6 +54,9 @@ function renderRow(
         // `user_meta` row) must REACH the component as null.
         role: over.role === undefined ? "user" : over.role,
         disabled: over.disabled,
+        // Absent stays absent: the old-cache case is a field that never
+        // arrived, not an empty list.
+        providers: over.providers,
       }}
       viewerId={viewerId}
       onChanged={onChanged}
@@ -63,10 +66,11 @@ function renderRow(
 
 const trigger = (email = "someone@example.com") => screen.getByRole("button", { name: `Actions for ${email}` });
 
-/** Opens the kebab the way the Nodes-row tests do. */
-async function openMenu(email?: string): Promise<void> {
+/** Opens the kebab the way the Nodes-row tests do. `count` pins the menu's
+ * size: the reset item's presence is exactly what changes it. */
+async function openMenu(email?: string, count = 3): Promise<void> {
   fireEvent.keyDown(trigger(email), { key: "ArrowDown" });
-  await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(3));
+  await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(count));
 }
 
 async function pick(item: string, email?: string): Promise<void> {
@@ -101,6 +105,34 @@ describe("UserRowActions", () => {
     expect(screen.getByRole("menuitem", { name: "Demote to user" })).toBeDefined();
     expect(screen.queryByRole("menuitem", { name: "Promote to admin" })).toBeNull();
     expect(screen.getByRole("menuitem", { name: "Enable account" })).toBeDefined();
+  });
+
+  it("offers no password reset to a door-only account", async () => {
+    // `providers` present without "credential" means there is no password to
+    // reset: the item is omitted, and the two items that still make sense
+    // stay live. An empty list is the same answer ("no credential row"), not
+    // an absent field.
+    for (const providers of [["google"], ["acme-sso"], []]) {
+      renderRow({ id: `u-${providers.length}-${providers[0] ?? "none"}`, providers });
+      await openMenu("someone@example.com", 2);
+      expect(screen.queryByRole("menuitem", { name: "Reset password" })).toBeNull();
+      expect(screen.getByRole("menuitem", { name: "Promote to admin" })).toBeDefined();
+      cleanup();
+    }
+  });
+
+  it("keeps the reset for a credential account and for a payload without the field", async () => {
+    // Both doors: reset still applies. Absent field = a payload cached before
+    // providers existed; hiding the item there would UNDO a control on the
+    // strength of a field that never arrived, so it stays and the server's
+    // 409 remains the truth.
+    renderRow({ id: "u-both", providers: ["credential", "google"] });
+    await openMenu("someone@example.com", 3);
+    expect(screen.getByRole("menuitem", { name: "Reset password" })).toBeDefined();
+    cleanup();
+    renderRow({ id: "u-old" });
+    await openMenu("someone@example.com", 3);
+    expect(screen.getByRole("menuitem", { name: "Reset password" })).toBeDefined();
   });
 
   it("offers NOTHING but a label on your own row", () => {
