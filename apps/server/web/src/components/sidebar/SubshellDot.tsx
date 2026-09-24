@@ -1,4 +1,5 @@
 import { cn } from "@internal/node-admin";
+import { Bell } from "lucide-react";
 import { INDICATOR_LABEL, type SubshellIndicator, subshellIndicator } from "@/lib/subshell-indicator";
 import type { SubshellView } from "@/types/subshell";
 
@@ -17,6 +18,21 @@ const DOT_CLASS: Record<SubshellIndicator, string> = {
   exited: "bg-muted-foreground/50",
   terminated: "border border-muted-foreground",
   "node-offline": "bg-orange-500",
+};
+
+/**
+ * Bell tone per state (spec 2026-09-23): the glyph says "pushed and you have
+ * not looked", the colour keeps saying what the dot said. Spelled apart from
+ * DOT_CLASS on purpose — those are background fills, an icon colors by
+ * `text-*`.
+ */
+const BELL_TONE: Record<SubshellIndicator, string> = {
+  active: "text-success",
+  idle: "text-muted-foreground",
+  waiting: "text-warning",
+  exited: "text-muted-foreground/50",
+  terminated: "text-muted-foreground",
+  "node-offline": "text-orange-500",
 };
 
 /**
@@ -56,6 +72,23 @@ export function SubshellDot({
 }) {
   const indicator = subshellIndicator(subshell);
   const label = INDICATOR_LABEL[indicator];
+  // The bell REPLACES the dot while a delivered push goes unseen. The raw
+  // data pair rides along: the e2e liveness assertions read this element in
+  // either shape. No em dash in the label — the design-system copy rule.
+  if (subshell.unseenPush) {
+    const bellLabel = `unseen notification (${label})`;
+    return (
+      <span
+        {...(accessible ? { role: "img", "aria-label": bellLabel } : { "aria-hidden": true })}
+        title={bellLabel}
+        data-status={subshell.status}
+        data-alive={String(subshell.alive)}
+        className={cn("mt-px shrink-0", className)}
+      >
+        <Bell size={12} className={BELL_TONE[indicator]} />
+      </span>
+    );
+  }
   return (
     <span
       {...(accessible ? { role: "img", "aria-label": label } : { "aria-hidden": true })}

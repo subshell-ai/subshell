@@ -17,6 +17,7 @@ import { getRequestlessContext } from "@/lib/context.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
 import { type Access, accessAtLeast, loadSubshellAccess } from "@/lib/subshell-access.js";
 import { accountDisabled } from "@/services/account-status.js";
+import { publishLive } from "@/services/live-bus.js";
 import { logger } from "@/utils/logger.js";
 import { type AttachParams, parseAttachParams } from "@/ws/attach-params.js";
 import { consumeWsToken, type WsTokenIdentity } from "@/ws/ws-token.js";
@@ -185,6 +186,7 @@ export async function resolveAttach(input: AttachRequest): Promise<AttachResolve
   if (identity.subshellId === null && identity.userId === row.userId && row.lastPushUrgency !== null) {
     try {
       await repos.subshells.update(row.id, { lastPushUrgency: null });
+      publishLive({ kind: "subshell.changed", id: row.id });
     } catch {
       logger.warn(`unseen-push clear failed for ${row.id} (escalation may double)`);
     }

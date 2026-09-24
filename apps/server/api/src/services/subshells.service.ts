@@ -557,6 +557,7 @@ export class SubshellsService extends BaseService {
   async #rememberSeen(actor: GuardActor, viewerId: string, row: SubshellTable): Promise<void> {
     if (actor !== "cookie" || viewerId !== row.userId || row.lastPushUrgency === null) return;
     await this.repos.subshells.update(row.id, { lastPushUrgency: null });
+    publishLive({ kind: "subshell.changed", id: row.id });
   }
 
   /**

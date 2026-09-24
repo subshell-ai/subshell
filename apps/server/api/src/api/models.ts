@@ -49,6 +49,9 @@ export const SubshellSchema = t.Object({
   nameLocked: t.Boolean({ description: "True = operator-named; false = pane-title auto-naming owns the name" }),
   notify: t.Boolean({ description: "True = pushes and waiting-for-you priority enabled (bell on)" }),
   waitingSince: t.Union([t.String({ description: "ISO ts of the attention event; null = not waiting" }), t.Null()]),
+  unseenPush: t.Boolean({
+    description: "True = a delivered push the owner has not answered by opening the pane (spec 2026-09-23)",
+  }),
   access: t.Union([t.Literal("owner"), t.Literal("edit"), t.Literal("view")], {
     description: "Caller's effective access to this subshell (viewer-relative; never 'none' on a returned row)",
   }),

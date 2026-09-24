@@ -18,6 +18,7 @@ import {
   isUnregisteredTicket,
   looksLikeExpoToken,
 } from "@/services/expo-push.js";
+import { publishLive } from "@/services/live-bus.js";
 import { isNodeOffline } from "@/services/nodes/node-registry.js";
 import { logger } from "@/utils/logger.js";
 
@@ -244,6 +245,7 @@ export function createNotifyService(deps: NotifyServiceDeps) {
         // undelivered event must not silence its pane's future escalations.
         if (subs.length > 0 || liveDevices > 0) {
           await subshellsRepo.update(subshellId, { lastPushUrgency: urgency });
+          publishLive({ kind: "subshell.changed", id: subshellId });
         }
       } catch (err) {
         // Notifications must never break the caller (sweep / hook route).

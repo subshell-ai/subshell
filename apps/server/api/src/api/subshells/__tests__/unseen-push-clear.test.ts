@@ -118,7 +118,7 @@ describe("owner-cookie pane reads clear the unseen urgency", () => {
     expect(await urgencyOf(id)).toBe(2);
   });
 
-  it("the list route the sidebar polls never clears", async () => {
+  it("the list route the sidebar polls never clears, and carries the flag", async () => {
     const { id } = await unseen();
     const res = await app.fetch(
       new Request("http://localhost:3080/api/subshells", {
@@ -126,6 +126,8 @@ describe("owner-cookie pane reads clear the unseen urgency", () => {
       }),
     );
     expect(res.status).toBe(200);
+    // Shape-agnostic: the list body's exact form is another suite's claim.
+    expect(JSON.stringify(await res.json())).toContain('"unseenPush":true');
     expect(await urgencyOf(id)).toBe(2);
   });
 });

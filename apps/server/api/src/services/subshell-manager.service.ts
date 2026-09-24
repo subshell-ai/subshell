@@ -1935,6 +1935,7 @@ export function toSubshellView(
     nameLocked: number;
     notify: number;
     waitingSince: string | null;
+    lastPushUrgency: number | null;
   },
   status: string,
   /** The subshell's current screen, bottom-first-trimmed; empty when not running. */
@@ -1986,6 +1987,9 @@ export function toSubshellView(
     // ISO ts of the attention event that put this subshell in waiting-for-you
     // state (null = not waiting); cleared by the watcher on output-resume/death.
     waitingSince: row.waitingSince,
+    // "A delivered push the owner has not answered by opening the pane"
+    // (spec 2026-09-23) — what turns the rail's dot into a bell.
+    unseenPush: row.lastPushUrgency !== null,
     access,
     // Agent node unreachable right now (see the param doc) — the UI's
     // "node offline" chip; false for every local subshell.

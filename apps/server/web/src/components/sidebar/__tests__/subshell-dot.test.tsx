@@ -72,3 +72,26 @@ describe("SubshellDot — the header's variant (2026-09-20)", () => {
     expect(dot?.getAttribute("data-alive")).toBe("false");
   });
 });
+
+describe("SubshellDot — the unseen-notification bell (spec 2026-09-23)", () => {
+  afterEach(cleanup);
+
+  it("swaps the dot for a bell while a push goes unseen, raw pair intact", () => {
+    render(<SubshellDot subshell={probe({ unseenPush: true, waitingSince: "2026-09-23T00:00:00.000Z" })} accessible />);
+    const el = document.querySelector('[role="img"]');
+    expect(el?.querySelector("svg")).toBeTruthy();
+    expect(el?.getAttribute("aria-label")).toBe("unseen notification (waiting for you)");
+    expect(el?.getAttribute("data-status")).toBe("running");
+    expect(el?.getAttribute("data-alive")).toBe("true");
+  });
+
+  it("keeps the indicator's tone on the bell", () => {
+    render(<SubshellDot subshell={probe({ unseenPush: true })} />);
+    expect(document.querySelector("svg")?.getAttribute("class") ?? "").toContain("text-success");
+  });
+
+  it("no bell, no glyph — the dot stays when nothing is unseen", () => {
+    render(<SubshellDot subshell={probe()} />);
+    expect(document.querySelector("svg")).toBeNull();
+  });
+});
