@@ -125,6 +125,21 @@ export const SIGN_IN_UNABLE =
   "Sign-in could not complete. Access may be pending approval or disabled, so contact an admin.";
 
 /**
+ * The label of one provider's sign-in button (operator contract, 2026-09-24).
+ *
+ * **The name, never the kind.** Several providers of one kind are legal —
+ * `kind` is only the config preset, the admin's chosen NAME is the identity,
+ * and the immutable id is a slug derived from that name. Two rows can both
+ * be `google` ("Google (Acme)" and "Google (Personal)"), and a kind-first
+ * label would render them indistinguishable: a mis-click then sends the
+ * visitor to the wrong IdP's consent screen. The name IS the disambiguator,
+ * so it is what the button wears, for every kind.
+ */
+export function signInButtonLabel(provider: { name: string }): string {
+  return `Sign in with ${provider.name}`;
+}
+
+/**
  * Map the login page's search params onto {@link AuthErrorDecision}.
  *
  * Pure by construction: it reads only the params passed in, so the four

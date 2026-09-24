@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { mapAuthError, SIGN_IN_UNABLE } from "@/lib/sign-in-diagnosis";
+import { mapAuthError, SIGN_IN_UNABLE, signInButtonLabel } from "@/lib/sign-in-diagnosis";
+import type { InstanceSignInProvider } from "@/types/auth-provider";
 
 /**
  * The login page's reading of a failed OAuth round trip (spec 2026-09-24 §4).
@@ -49,5 +50,36 @@ describe("mapAuthError", () => {
       kind: "none",
     });
     expect(mapAuthError({ error_description: "ada@example.com" })).toEqual({ kind: "none" });
+  });
+});
+
+/**
+ * The sign-in button's label (operator contract, 2026-09-24, overriding the
+ * brief's kind-special-case copy): the NAME is worn for every kind, because
+ * same-kind doors are legal and a mis-click between two indistinguishable
+ * "Sign in with Google" buttons lands the visitor on the WRONG IdP's consent
+ * screen. `routes/login.tsx` renders exactly this helper per provider.
+ */
+describe("signInButtonLabel", () => {
+  it("renders two google-kind providers as two distinct labels, from their names", () => {
+    const acme: InstanceSignInProvider = { id: "google-acme", kind: "google", name: "Google (Acme)" };
+    const personal: InstanceSignInProvider = { id: "google-personal", kind: "google", name: "Google (Personal)" };
+    const acmeLabel = signInButtonLabel(acme);
+    const personalLabel = signInButtonLabel(personal);
+    expect(acmeLabel).toBe("Sign in with Google (Acme)");
+    expect(personalLabel).toBe("Sign in with Google (Personal)");
+    // The contract's whole point: distinct, and each named by its row.
+    expect(acmeLabel).not.toBe(personalLabel);
+    expect(acmeLabel).toContain("Google (Acme)");
+    expect(personalLabel).toContain("Google (Personal)");
+  });
+
+  it("labels every kind the same way — no kind special-casing", () => {
+    // The old brief copy would return "Sign in with Google" here, discarding
+    // the admin's chosen name; that reading is superseded.
+    const renamedGoogle: InstanceSignInProvider = { id: "google", kind: "google", name: "Workspace" };
+    const corp: InstanceSignInProvider = { id: "hr", kind: "oidc", name: "Corp SSO" };
+    expect(signInButtonLabel(renamedGoogle)).toBe("Sign in with Workspace");
+    expect(signInButtonLabel(corp)).toBe("Sign in with Corp SSO");
   });
 });

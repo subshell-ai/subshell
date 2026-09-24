@@ -17,7 +17,7 @@ import { getSessionUser, useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
 import { isServerDesktop } from "@/lib/desktop";
 import { safeRedirect } from "@/lib/redirect";
-import { mapAuthError, SESSION_CHECK_FAILED, signInDiagnosis } from "@/lib/sign-in-diagnosis";
+import { mapAuthError, SESSION_CHECK_FAILED, signInButtonLabel, signInDiagnosis } from "@/lib/sign-in-diagnosis";
 import { passkeysSupported } from "@/lib/webauthn";
 import type { InstanceSignInRead } from "@/types/auth-provider";
 
@@ -224,9 +224,12 @@ function LoginPage() {
                   is a full-page redirect, not the fetch-style call the form
                   makes — the IdP round trip leaves this document and better-
                   auth returns to errorCallbackURL with the outcome appended
-                  as `?error=…`, which the mapper above reads. The button
-                  label follows the passkey button's spelling; no Google glyph
-                  exists in this repo, so the text is the icon. */}
+                  as `?error=…`, which the mapper above reads. The label is
+                  the provider's NAME for every kind (operator contract,
+                  2026-09-24): same-kind doors are legal, and a kind-first
+                  label would render two Google rows indistinguishable — a
+                  mis-click lands on the wrong IdP's consent screen.
+                  `signInButtonLabel` owns that copy, tested. */}
               {providers.length > 0 && (
                 <div className={emailSignIn ? "mt-4 space-y-2" : "space-y-2"}>
                   {providers.map((p) => (
@@ -244,7 +247,7 @@ function LoginPage() {
                         })
                       }
                     >
-                      {p.kind === "google" ? "Sign in with Google" : `Sign in with ${p.name}`}
+                      {signInButtonLabel(p)}
                     </Button>
                   ))}
                 </div>
