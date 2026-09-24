@@ -3,7 +3,7 @@
 ## The problem
 
 The bell rings "Done, waiting for you" every time the harness stops producing
-output. For a Claude Code pane that is wrong in two ways:
+output. That is wrong in three ways:
 
 1. The injected `Stop` hook fires whenever the main loop ends its turn —
    **including when the session is merely parked waiting on a spawned
@@ -13,10 +13,13 @@ output. For a Claude Code pane that is wrong in two ways:
    notification type — `idle_prompt`, `auth_success`, the
    `quota_auto_resume_*` family, `elicitation_complete` after the human has
    already answered — pushes "Needs your approval".
+3. **One pane keeps pushing while the human has not looked.** A pane that
+   pushed "waiting for you" rings again every turn until the user comes
+   back — several lock-screen events for one unfinished visit.
 
-Both hooks are self-report surfaces that already exist
-(`POST /api/subshells/:id/attention`); no server route, wire shape, DB or
-transport change is needed.
+The first two live in hooks that already exist and already carry the
+distinguishing data; only the third touches the server (§1, §2, §3). No new
+API surface and no wire-shape change anywhere.
 
 ## Decisions taken in the design conversation
 
@@ -31,6 +34,11 @@ transport change is needed.
 - **No non-pushing "still working" kind.** (Also decided before the pivot; it
   survives as a rejection — the gating makes the agent-side variant
   unnecessary.)
+- **Suppression covers any running background task or scheduled cron**, not
+  just waking types (operator ruling: accept that a never-ending background
+  shell holds that turn's push until a later Stop finds the registry empty).
+- **An unseen push silences its pane until the owner returns to it**,
+  escalating only (operator ruling 2026-09-23): see §3.
 
 ## The mechanism
 
@@ -80,13 +88,59 @@ not this pane's turn — and "Needs your approval" would be the wrong copy),
 `elicitation_complete` / `elicitation_response` (the human already acted),
 `quota_auto_resume_*`.
 
-### 3. What does NOT change
+### 3. The unseen gate in `notifySubshell` (server)
 
-The `attention` route, `recordAttention`, `NotifyKind`, the bell and master
-switch, Expo/web-push transports, the exited/crashed/maintenance paths, the
-20 s idle watcher for hook-less harnesses (terminal / hermes / pi — they have
-no richer signal and are not this complaint), push copy, and the waiting-chip
-clear path in the idle watcher.
+Once a push for a pane is delivered, follow-ups wait until the owner has
+given that pane attention — one notification per unseen interval, broken
+only by an escalation. The gate sits in `notifySubshell`, beside the bell
+and the master switch, still the single policy point above both transports.
+
+**State** is one nullable column on the subshell row, `last_push_urgency`
+(the migration also registers in the `migrate.ts` provider map, per the
+both-places rule). Unseen ⇔ non-null. Urgencies:
+
+| kind | urgency |
+|---|---|
+| `turn_complete` | 1 |
+| `needs_attention` | 2 |
+| `exited`, `crashed`, `maintenance` | 3 |
+| `crashed_final` (the restart loop gave up) | 4 |
+
+**The rule**: a push fires only when the stored urgency is strictly below
+the event's (null passes everything). On a delivered attempt the column
+stores the max of itself and the event's urgency. Consequences: done-after-
+done and approval-after-approval push nothing; approval after done pushes
+once; a death always lands (waiting is moot when the pane is gone); a death
+is a one-way transition so two urgency-3 events never contend on one pane,
+and `crashed_final` sits above any unseen `crashed`. A push with no
+subscribers and no enrolled devices sets nothing — an undelivered event must
+not silence the pane forever.
+
+**Clearing** happens when the subshell's **owner reads the pane as a human
+session** — cookie principal, `userId` equal to the row's: the pane detail
+GET, the pane log GET, or the live-terminal attach (any of the owner's
+clients; a push tap that opens the pane clears it). It deliberately is NOT
+cleared by:
+
+- the pane-scoped list GET (the sidebar polls it constantly);
+- shared viewers or admins — pushes are owner-targeted;
+- **machine credentials**: a subshell token or system key resolves as the
+  owner with the boost, so an agent polling `get_subshell` over MCP would
+  clear the flag every call and a prompt-injected pane could re-arm
+  notifications against its owner. Only cookie sessions clear.
+
+`waitingSince` and the dashboard chip are untouched by this gate — the chip
+still marks every waiting event; only the push waits.
+
+### 4. What does NOT change
+
+The `attention` route and its self-scope, `recordAttention`, `NotifyKind`,
+the bell and master switch, the Expo/web-push transports, the 20 s idle
+watcher for hook-less harnesses (terminal / hermes / pi — they get no richer
+signal, though the unseen gate rings their second turn_complete down too),
+push copy, and the waiting-chip set/clear paths. Every one of these keeps
+its mechanism; §1 decides whether a stopped turn *reports*, and §3 decides
+whether a report *rings*.
 
 ## Failure modes
 
@@ -100,6 +154,9 @@ clear path in the idle watcher.
   unknown pushes).
 - **The report stays fire-and-forget.** Every path still exits 0 and prints
   nothing; a gate misreading cannot break a turn.
+- **Unseen is per pane, not per device.** A push the phone received silences
+  the laptop's follow-ups too until any one owner session opens the pane.
+  The pane has one owner and one unfinished visit; the state matches that.
 
 ## Tests
 
@@ -108,7 +165,11 @@ clear path in the idle watcher.
   each unknown-shape row, and that `needs_attention` never touches stdin.
 - `packages/plugins/claude-code`: the emitted `--settings` JSON pins the
   narrowed matcher string.
-- No server-side tests change; the route's contract is untouched.
+- Server notify tests: the urgency table end to end — done-after-done
+  silent, approval-after-done fires, approval-after-approval silent, death
+  fires over any unseen state, no-subscriber attempt sets nothing.
+- Clear-path tests: owner cookie detail/log/attach clears; viewer, admin,
+  subshell token, and system key do NOT; the list route never clears.
 
 ## Surfaces this ships through
 
