@@ -223,7 +223,11 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
           else void navigate({ to: "/", replace: true });
         }}
       />
-      <div className="flex min-h-0 flex-1 flex-col bg-terminal-canvas">
+      {/* This view owns the page's bottom edge (the shell skips its own
+        safe-area padding on /workspaces/$id): the tabs presentation carries
+        no key bar — that is the WIDE dock's pane chrome — so the terminal
+        column pads the home indicator itself, in the canvas colour. */}
+      <div className="flex min-h-0 flex-1 flex-col bg-terminal-canvas pb-[env(safe-area-inset-bottom)]">
         {error && (
           <ErrorBanner
             message={error}

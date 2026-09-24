@@ -23,6 +23,47 @@ export function computeInsets(vv: { height: number; offsetTop: number }): Visual
 }
 
 /**
+ * The pure decision behind the pin, exported for unit tests.
+ *
+ * Keyboard up (or a residual pan): shrink to the visible viewport and ride
+ * the pan — that is what keeps the key bar above the keyboard.
+ *
+ * Otherwise it depends on the display mode, and the two answers exist
+ * because the two failure modes are opposite:
+ *
+ * - **Standalone home-screen install:** pin to `window.innerHeight`. iOS
+ *   computes `dvh`/`svh`/`lvh` in a standalone web app as if Safari's
+ *   collapsed bottom toolbar still existed, so the CSS fallback frame ends
+ *   ~64 px short on cold start and only corrects itself after a rotation —
+ *   the dead band under the key bar in the PWA-height report. `innerHeight`
+ *   is not derived from that computation: on the WKWebView it IS the window.
+ *   It also sidesteps the older cut of the same bug, where pinning to
+ *   `visualViewport.height` with the keyboard down reproduced the band
+ *   because that reading is chrome-reduced too.
+ * - **Browser tab:** null, so the CSS `h-dvh` answers. There the toolbar
+ *   choreography is real and `dvh` tracks it live; a fixed `innerHeight` px
+ *   would re-introduce a band every time the toolbar collapses.
+ */
+export function decideFramePin(args: {
+  vv: { height: number; offsetTop: number } | null;
+  innerHeight: number;
+  standalone: boolean;
+}): VisualViewportInsets | null {
+  if (!args.vv) return null;
+  const raw = computeInsets(args.vv);
+  // The keyboard test runs BEFORE the standalone branch, so a WebKit that
+  // reported the visual viewport short by MORE than KEYBOARD_UP_PX (120)
+  // with no keyboard would read as "keyboard up" and pin the bogus height.
+  // The standalone chrome error iOS actually ships is ~64 px — under the
+  // threshold — and no safer discriminator exists (a real iOS keyboard can
+  // pan nothing at all: offsetTop 0, height shrunk), so the coupling is
+  // accepted and measured, not ignored.
+  if (isKeyboardUp(args.vv.height, args.innerHeight) || raw.offsetYpx > 0) return raw;
+  if (args.standalone) return { heightPx: Math.max(0, Math.round(args.innerHeight)), offsetYpx: 0 };
+  return null;
+}
+
+/**
  * Tracks `window.visualViewport` on coarse-pointer devices and returns the
  * insets a full-height page should apply; null everywhere else (desktop,
  * browsers without the API) so callers fall back to their CSS `h-dvh`.
@@ -37,25 +78,30 @@ export function useVisualViewportInsets(): VisualViewportInsets | null {
       setInsets(null);
       return;
     }
+    // Fixed for the life of the document: a tab does not become a
+    // home-screen install while open. `display-mode` is the standard query
+    // (Chrome, iOS 15.4+); `navigator.standalone` is the older iOS spelling.
+    const standalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      (navigator as unknown as { standalone?: boolean }).standalone === true;
     const update = () => {
-      const raw = computeInsets(vv);
-      // Apply the pin ONLY while the keyboard genuinely covers the viewport
-      // or the page is panned. With the keyboard closed, fall back to the
-      // CSS h-dvh full-height frame: iOS visualViewport can report a height
-      // short by toolbar chrome even with no keyboard, and applying that to
-      // the shell left a dead black band under the key bar (the "view does
-      // not use the full height" report). Residual pans keep the pin until
-      // the scroll pin (subshell-terminal) zeroes them, after which this
-      // flips back to full height.
-      const active = isKeyboardUp(vv.height, window.innerHeight) || raw.offsetYpx > 0;
-      setInsets(active ? raw : null);
+      const next = decideFramePin({ vv, innerHeight: window.innerHeight, standalone });
+      // Structural sharing: with the standalone pin always non-null, every
+      // pan and resize would otherwise re-render the whole frame even when
+      // no number changed.
+      setInsets((prev) => (prev?.heightPx === next?.heightPx && prev?.offsetYpx === next?.offsetYpx ? prev : next));
     };
     update();
     vv.addEventListener("resize", update);
     vv.addEventListener("scroll", update);
+    // The standalone pin reads `window.innerHeight`, which only the WINDOW's
+    // own resize can change (rotation) — no visualViewport event is
+    // guaranteed to accompany it.
+    window.addEventListener("resize", update);
     return () => {
       vv.removeEventListener("resize", update);
       vv.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
     };
   }, [coarse]);
 
