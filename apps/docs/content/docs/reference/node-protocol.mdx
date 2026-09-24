@@ -37,8 +37,8 @@ The node's first frame is `ready`:
 ```jsonc
 {
   "type": "ready",
-  "agentVersion": "0.9.0",
-  "protocolVersion": 10,
+  "agentVersion": "0.16.0",
+  "protocolVersion": 13,
   "os": "darwin",              // linux | darwin | unknown
   "arch": "arm64",
   "hostname": "mac-mini",
@@ -56,9 +56,9 @@ The node's first frame is `ready`:
 
 The identity is persisted **before** either gate below, so a refused node still shows its version on the Nodes page instead of being invisible. The row briefly reads online; the refusal then puts it back to offline.
 
-**Gate 1 — the version floor.** `MIN_NODE_VERSION` (currently `0.9.0`): "this server needs subshell ≥ X". Refused when the reported version is lower, unparseable, or absent — a build that cannot say what it is cannot be assumed current. It runs first because it is the gate a person can act on: the refusal names both the required and the found version.
+**Gate 1 — the version floor.** `MIN_NODE_VERSION` (currently `0.16.0`): "this server needs subshell ≥ X". Refused when the reported version is lower, unparseable, or absent — a build that cannot say what it is cannot be assumed current. It runs first because it is the gate a person can act on: the refusal names both the required and the found version.
 
-**Gate 2 — the protocol, matched exactly.** Any `protocolVersion` differing from `NODE_PROTOCOL_VERSION` (currently `10`) fails **in either direction**. No window, no per-feature gating — the pair ships together, so a mismatch is a deployment out of step, not a node to be carried. This gate is a backstop: at or above the floor a node should always speak the current protocol, and if it does not, the floor is set wrong.
+**Gate 2 — the protocol, matched exactly.** Any `protocolVersion` differing from `NODE_PROTOCOL_VERSION` (currently `13`) fails **in either direction**. No window, no per-feature gating — the pair ships together, so a mismatch is a deployment out of step, not a node to be carried. This gate is a backstop: at or above the floor a node should always speak the current protocol, and if it does not, the floor is set wrong.
 
 **Neither gate closes the socket.** A refused node is **held**: moved out of the live registry (so every liveness answer, launch path and tail treats the node as offline exactly as before) but kept connected for exactly one command — `update`, whose wire shape is frozen so any older node can parse it. Only the `result` frame of that command is accepted from a held socket; everything else the node sends is dropped unread. After **ten idle minutes** the plane closes it with `4406` and the refusal reason, so an operator at the machine still reads "update required" in its log — ten minutes later rather than at once, which is the price of the window in which the browser could fix it instead. A held socket is superseded by a newer connection (4409), and evicted by key rotation or node deletion, exactly as a live one is. On the `4406` the node exits; if the refused binary is one it just installed, it first rolls itself back (see §7).
 
@@ -214,10 +214,10 @@ Geometry is **confirmed on both paths**: the pane's real grid is asked (`pane_si
 
 Two numbers, changed on different schedules, both defined in the shared protocol package:
 
-- **`NODE_PROTOCOL_VERSION`** — bump whenever a frame changes, additive or not, and release both sides. **Server first**: a node that leads the server is refused, and one that lags is refused just as clearly; the Nodes page names which. The numbering **restarted at 1 on 2026-09-09** (the old numbers predated any deployment). Since then: **1 → 2** registry installs; **2 → 3** the inversion — plugins left the wire, `launch` began requiring the plane-built `argv` and its `resolve` rule, `detect` arrived, the inventory event lost its plugin set (the first breaking bump, and the point of exact match); **3 → 4** `ready.selfInvoke` replaced the MCP-specific launch field so `mcp` and `report` compose from one fact; **4 → 5** the node Service surface — `restart` folded into `service`, `agent_log_read` and `set_server_url` added; **5 → 6** `set_log_level`; **6 → 7** the preset rename (`profile` → `preset`, wire-shaped only); **7 → 8** node maintenance (three frames: `ready.maintenance`, the `maintenance` event, `set_maintenance`); **8 → 9** `service.linger` — the Linux fact that decides whether a headless node comes back after a reboot; **9 → 10** the `update` command, whose shape is now frozen.
-- **`MIN_NODE_VERSION`** — currently `0.9.0`. Raise it in the same commit as a protocol bump that changes what a node must do or report, and raise the node package to the same value alongside, so the refusal an operator sees always names a version that exists.
+- **`NODE_PROTOCOL_VERSION`** — bump whenever a frame changes, additive or not, and release both sides. **Server first**: a node that leads the server is refused, and one that lags is refused just as clearly; the Nodes page names which. The numbering **restarted at 1 on 2026-09-09** (the old numbers predated any deployment). Since then: **1 → 2** registry installs; **2 → 3** the inversion — plugins left the wire, `launch` began requiring the plane-built `argv` and its `resolve` rule, `detect` arrived, the inventory event lost its plugin set (the first breaking bump, and the point of exact match); **3 → 4** `ready.selfInvoke` replaced the MCP-specific launch field so `mcp` and `report` compose from one fact; **4 → 5** the node Service surface — `restart` folded into `service`, `agent_log_read` and `set_server_url` added; **5 → 6** `set_log_level`; **6 → 7** the preset rename (`profile` → `preset`, wire-shaped only); **7 → 8** node maintenance (three frames: `ready.maintenance`, the `maintenance` event, `set_maintenance`); **8 → 9** `service.linger` — the Linux fact that decides whether a headless node comes back after a reboot; **9 → 10** the `update` command, whose shape is now frozen; **10 → 12** the signed `update` (the number skips 11 deliberately — a concurrent branch held it, and no build ever spoke 11 on main); **12 → 13** `pane_cursor` — the attach replay ends on the pane's real cursor.
+- **`MIN_NODE_VERSION`** — currently `0.16.0`. Raise it in the same commit as a protocol bump that changes what a node must do or report, and raise the node package to the same value alongside, so the refusal an operator sees always names a version that exists.
 
-The current floor rides protocol 10: a node below `0.9.0` speaks no `update`, which is the one thing a refused node must be able to hear — the plane holds such a socket precisely so it can still be rescued from a browser, and a node too old to know the command answers `unsupported`, which the route turns into "update this node by hand".
+The floor rides every protocol bump, so today it rides 13. The command that makes riding it safe is `update`: a refused node is HELD, not dropped, precisely so it can still be rescued from a browser — and a node too old to know the command answers `unsupported`, which the route turns into "update this node by hand".
 
 Settings → Updates lists held nodes and those under the floor in one place, since a refused node otherwise looks like an ordinary offline node.
 
