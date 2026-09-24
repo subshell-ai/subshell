@@ -16,8 +16,11 @@ import type { SubshellView } from "@/types/subshell";
 /**
  * The home page's Needs Attention section (spec 2026-09-24): the same
  * `needsAttention` rule the rail uses, rendered through the page's existing
- * TileSection ahead of "Running", and absent when nothing is unseen. The
- * selector itself is pinned in lib; what lives here is the page wiring —
+ * TileSection AHEAD OF THE MACHINE SECTIONS (the tile grid segments by
+ * machine the same day — the mock registry answers with ZERO nodes, so the
+ * one machine section carries the ladder's `unknown node` fallback), and
+ * absent when nothing is unseen.
+ * The selector itself is pinned in lib; what lives here is the page wiring —
  * ordering, the owner-only exclusion, and hide-when-empty.
  */
 
@@ -112,7 +115,7 @@ async function headings(): Promise<string[]> {
 afterEach(cleanup);
 
 describe("home Needs Attention section (spec 2026-09-24)", () => {
-  it("renders above Running and holds the unseen owner rows", async () => {
+  it("renders above the machine sections and holds the unseen owner rows", async () => {
     const restore = mount([
       subshell({ id: "a", name: "waiting", unseenPush: true }),
       subshell({ id: "b", name: "seen", unseenPush: false }),
@@ -120,7 +123,7 @@ describe("home Needs Attention section (spec 2026-09-24)", () => {
     try {
       const hs = await headings();
       expect(hs[0]).toBe("Needs Attention");
-      expect(hs).toContain("Running");
+      expect(hs).toContain("unknown node");
       const attention = [...document.querySelectorAll("section")].find(
         (s) => s.querySelector("h2")?.textContent === "Needs Attention",
       );
@@ -136,7 +139,7 @@ describe("home Needs Attention section (spec 2026-09-24)", () => {
     try {
       const hs = await headings();
       expect(hs).not.toContain("Needs Attention");
-      expect(hs).toContain("Running");
+      expect(hs).toContain("unknown node");
     } finally {
       restore();
     }
@@ -147,11 +150,11 @@ describe("home Needs Attention section (spec 2026-09-24)", () => {
     try {
       const hs = await headings();
       expect(hs).not.toContain("Needs Attention");
-      // The row itself is still a viewer-visible Running card — what the
-      // selector excludes is the SPOTLIGHT, not the pane. Without this the
-      // test's meaning would silently shift if filterSubshells ever dropped
-      // non-owner rows before the selector saw them.
-      expect(hs).toContain("Running");
+      // The row itself is still a viewer-visible card in its machine group —
+      // what the selector excludes is the SPOTLIGHT, not the pane. Without
+      // this the test's meaning would silently shift if filterSubshells ever
+      // dropped non-owner rows before the selector saw them.
+      expect(hs).toContain("unknown node");
     } finally {
       restore();
     }
