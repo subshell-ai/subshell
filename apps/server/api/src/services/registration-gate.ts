@@ -1,8 +1,19 @@
 import type { Kysely } from "kysely";
+import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { Database } from "@/db/types/index.js";
 
-/** The `settings` row; absent has a meaning of its own — see below. */
+/**
+ * The legacy `settings` row this gate used to read.
+ *
+ * The GATE no longer reads it (spec 2026-09-24 §2 moved the answer onto the
+ * E-mail provider row), and migration 0037 spells the key inline for its
+ * copy-forward, historical as of that write. The constant stays because
+ * `api/settings.route.ts` still PATCHes this row — its write moves to the
+ * provider row in the OIDC plan's Task 9; until then this is the key's one
+ * remaining writer, and the route's read already answers through
+ * {@link registrationOpen} like every other surface.
+ */
 export const ALLOW_REGISTRATIONS_KEY = "allow_registrations";
 
 /**
@@ -15,71 +26,65 @@ export const ALLOW_REGISTRATIONS_KEY = "allow_registrations";
  * route module to get a string pulls that route's whole Elysia graph in with
  * it.
  *
- * An ABSENT row means true, like `allow_registrations` before a user exists:
- * an instance that has never touched this keeps the behaviour it had, where
- * any signed-in user could mint a setup key.
+ * An ABSENT row means true, like the legacy `allow_registrations` settings
+ * row before a user exists: an instance that has never touched this keeps the
+ * behaviour it had, where any signed-in user could mint a setup key.
  */
 export const ALLOW_NODE_ENROLLMENT_KEY = "allow_node_enrollment";
 
 /**
- * Whether this instance currently accepts a new sign-up.
+ * Whether this instance currently accepts a NEW E-MAIL sign-up — i.e. the
+ * E-mail provider row's `registration_enabled` (spec 2026-09-24 §2). NULL on
+ * that row means the legacy dynamic window: open exactly while no real
+ * account exists, closed behind the first one. OIDC doors answer their own
+ * `registration_enabled` in `auth/door-policy.ts`; this function is the one
+ * answer three surfaces share (the sign-up hook, the settings read, the
+ * Auth page's E-mail row).
  *
- * **One function, because three surfaces have to agree**: better-auth's own
+ * **One function, because those surfaces have to agree**: better-auth's own
  * `before` hook refuses the POST, `GET /api/settings` draws the admin's
  * switch, and `GET /api/settings/public` decides whether the sign-in page
  * offers a "create an account" link. Reading the row independently is how a
  * page ends up saying "Open" on an instance that refuses every sign-up.
  *
- * It FAILS CLOSED (security audit 2026-08, F6a): only a parseable JSON `true`
- * opens it. An unparseable or non-boolean value reads as closed, because
- * treating corruption as open turns a damaged settings row into silently
- * re-opened registration on a locked-down instance.
+ * It FAILS CLOSED (security audit 2026-08, F6a, carried across): only the
+ * value 1 opens; anything else stored — 0, a hand-edited non-number — reads
+ * closed, because treating corruption as open turns a damaged row into
+ * silently re-opened registration on a locked-down instance.
  *
- * **An absent row is CLOSED, except while the instance has no users at all**
- * (2026-09-13). The default used to be open unconditionally, so every
- * instance shipped accepting sign-ups from anyone who could reach it until an
- * admin noticed. The permissive state should be the one an operator chooses.
- *
- * The exception is what makes that default possible rather than a softening
- * of it: the FIRST account registered becomes the admin, so a closed instance
- * with nobody in it could never mint the one person able to open it — a fresh
- * install would be bricked behind a sign-up form that refuses. The door is
- * open exactly until someone walks through it, and closes behind them.
+ * **NULL is CLOSED, except while the instance has no users at all** (the
+ * 2026-09-13 default, which the NULL-means-legacy encoding preserves, so a
+ * static default could not freeze the first-run window open — migration
+ * 0037 §2). The exception is what makes that default possible rather than a
+ * softening of it: the FIRST account registered becomes the admin, so a
+ * closed instance with nobody in it could never mint the one person able to
+ * open it — a fresh install would be bricked behind a sign-up form that
+ * refuses. The door is open exactly until someone walks through it, and
+ * closes behind them.
  *
  * @param db - the app database
  */
 export async function registrationOpen(db: Kysely<Database>): Promise<boolean> {
-  const row = await db
-    .selectFrom("settings")
-    .select("value")
-    .where("key", "=", ALLOW_REGISTRATIONS_KEY)
-    .executeTakeFirst();
-  // The row is only consulted for users when it is ABSENT, so the count is
-  // not paid on an instance that has answered the question.
-  return registrationDecision(row?.value, row ? false : await hasAnyUser(db));
+  const row = await new AuthProvidersRepository(db).getById("email");
+  const stored = row?.registrationEnabled ?? null;
+  if (stored !== null) return emailRegistrationDecision(stored, false);
+  // The legacy window: the count is paid only when nothing answers.
+  return emailRegistrationDecision(null, await hasAnyUser(db));
 }
 
 /**
- * The rule itself, with no database in it.
+ * The rule with no database in it — same parallel-state reasoning as the
+ * settings-row rule it replaced: the suite shares one database across files,
+ * so a test asserting "no users" against the real count passes alone and
+ * fails beside any test that registers someone. Take the fact as an argument.
  *
- * Split out so it is testable without a users table: the suite shares one
- * database across files, so a test asserting "no users" against the real
- * count passes alone and fails beside any test that registers someone. That
- * is the same parallel-global-state trap that has bitten this repo twice
- * already, and the fix is the same — take the fact as an argument.
- *
- * @param stored - the raw `settings.value`, or undefined when no row exists
- * @param hasUsers - whether anyone has registered; read only when `stored` is
- *                   undefined, and ignored otherwise
+ * @param stored - the E-mail provider row's `registration_enabled`, or null
+ *                 when it answers nothing (the legacy dynamic window)
+ * @param hasUsers - whether anyone has registered; read only when `stored`
+ *                   is null, and ignored otherwise
  */
-export function registrationDecision(stored: string | undefined, hasUsers: boolean): boolean {
-  if (stored !== undefined) {
-    try {
-      return (JSON.parse(stored) as unknown) === true;
-    } catch {
-      return false;
-    }
-  }
+export function emailRegistrationDecision(stored: number | null, hasUsers: boolean): boolean {
+  if (stored !== null) return stored === 1; // 0 and anything-not-1 read closed
   return !hasUsers;
 }
 

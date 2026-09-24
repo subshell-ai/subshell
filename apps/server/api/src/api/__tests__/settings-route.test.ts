@@ -10,6 +10,7 @@ import { ensureSystemUser } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
 import { APP_BASE_URL, NODE_ARTIFACTS_DIR, SERVER_PORT } from "@/constants.js";
 import { db } from "@/db/index.js";
+import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -101,8 +102,14 @@ describe("settings routes (admin cookie only)", () => {
   });
 
   afterAll(async () => {
-    // Restore the instance-wide default this suite toggles, then drop fixtures.
+    // Restore the instance-wide default this suite toggles, then drop
+    // fixtures. Both halves: the PATCH still writes the legacy settings row
+    // (the OIDC plan's Task 9 moves it), while the GATE it feeds the page
+    // from reads the E-mail provider row — and every other suite in the
+    // shared DB depends on that row sitting at its seeded NULL
+    // (closed-by-default-with-users).
     await new SettingsRepository(db).set("allow_registrations", true);
+    await new AuthProvidersRepository(db).update("email", { registrationEnabled: null });
     await db.deleteFrom("subshells").where("id", "=", subshellId).execute();
     for (const kid of createdKeyIds) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [kid]);
     await db.deleteFrom("userMeta").where("userId", "=", adminId).execute();
@@ -121,6 +128,14 @@ describe("settings routes (admin cookie only)", () => {
     const before = (await get.json()) as { allowRegistrations: boolean };
     expect(typeof before.allowRegistrations).toBe("boolean");
 
+    // Transient note (OIDC plan Task 3): the gate reads the E-mail provider
+    // row now while this PATCH still writes the legacy settings row (Task 9
+    // moves the write). The row is therefore seeded to the answer the read
+    // must give; after Task 9 the seeds are redundant and this case asserts
+    // the same round-trip unchanged.
+    const emailRow = new AuthProvidersRepository(db);
+
+    await emailRow.update("email", { registrationEnabled: 0 });
     const patch = await app.fetch(
       authedRequest("/api/settings", adminCookie, {
         method: "PATCH",
@@ -130,6 +145,7 @@ describe("settings routes (admin cookie only)", () => {
     expect(patch.status).toBe(200);
     expect(((await patch.json()) as { allowRegistrations: boolean }).allowRegistrations).toBe(false);
 
+    await emailRow.update("email", { registrationEnabled: 1 });
     const restore = await app.fetch(
       authedRequest("/api/settings", adminCookie, {
         method: "PATCH",
@@ -138,6 +154,7 @@ describe("settings routes (admin cookie only)", () => {
     );
     expect(restore.status).toBe(200);
     expect(((await restore.json()) as { allowRegistrations: boolean }).allowRegistrations).toBe(true);
+    await emailRow.update("email", { registrationEnabled: null });
   });
 
   it("admin cookie round-trips the instance name", async () => {
@@ -338,10 +355,21 @@ describe("settings routes (admin cookie only)", () => {
       .where("action", "=", "settings.update")
       .execute();
 
-    await patchTo(false);
+    // Transient note (OIDC plan Task 3): the route's `before` reads the gate
+    // — now the E-mail provider row — while the PATCH's write still lands on
+    // the legacy settings row (Task 9 moves it). The seeds below stand in for
+    // "what the previous flip decided"; after Task 9 the PATCH writes the row
+    // itself, the seeds become redundant, and the asserted flips are the
+    // same two transitions.
+    const emailRow = new AuthProvidersRepository(db);
+
+    await emailRow.update("email", { registrationEnabled: 1 }); // gate: open
+    await patchTo(false); // flip: the audited one
+    await emailRow.update("email", { registrationEnabled: 0 }); // stand-in for the write
     await patchTo(false); // no flip — must not add an event
     await patchTo(true); // flip back
 
+    await emailRow.update("email", { registrationEnabled: null });
     const events = await db
       .selectFrom("auditEvents")
       .select(["action", "targetType", "targetId", "metadataJson"])

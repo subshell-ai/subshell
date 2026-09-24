@@ -2,11 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { MIN_NODE_VERSION, NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { sql } from "kysely";
 import { adminStatusRoutes } from "@/api/admin-status.route.js";
 import { AUTH_SECRET, PLACEHOLDER_AUTH_SECRET } from "@/constants.js";
 import { db } from "@/db/index.js";
+import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
@@ -256,7 +257,7 @@ describe("GET /api/admin/status", () => {
   });
 
   /**
-   * The posture must be the EFFECTIVE gate, not the stored row.
+   * The posture must be the EFFECTIVE gate, not the stored column.
    *
    * This route used to answer with `settings.get("allow_registrations", true)`
    * — the raw row under an open-by-default fallback. That agreed with
@@ -265,44 +266,46 @@ describe("GET /api/admin/status", () => {
    * it did not: a plain instance that has never touched the setting refuses
    * every sign-up while this card rendered an amber "open".
    *
+   * Spec 2026-09-24 §2 moved the stored answer onto the E-mail provider row,
+   * where the same trap keeps its shape: the column's NULL is not "open" and
+   * a hand-edited non-number is not "open" either — the gate, not the raw
+   * column, is what this card must render.
+   *
    * The direction was the mild one — it cried wolf rather than reassuring —
    * but this is the one card whose whole design is that the alarming state is
    * the loud one, and a card that cries wolf gets skimmed past.
    *
-   * The row is saved and restored because the settings table is shared by
+   * The row is saved and restored because the provider table is shared by
    * every suite in this `bun test` process, exactly like the app rows above.
    */
-  it("reports the EFFECTIVE registration gate, not the raw setting row", async () => {
-    const settings = new SettingsRepository(db);
-    const before = await db
-      .selectFrom("settings")
-      .select("value")
-      .where("key", "=", "allow_registrations")
-      .executeTakeFirst();
+  it("reports the EFFECTIVE registration gate, not the raw provider column", async () => {
+    const gate = new AuthProvidersRepository(db);
+    const storedBefore = (await gate.getById("email"))?.registrationEnabled ?? null;
     try {
-      // Absent row, and this suite has registered users — so the gate is
-      // CLOSED, and the old fallback would have said open.
-      await db.deleteFrom("settings").where("key", "=", "allow_registrations").execute();
+      // NULL on the row, and this suite has registered users — so the legacy
+      // window is CLOSED, and a raw-truthy fallback would have said open.
+      await gate.update("email", { registrationEnabled: null });
       const closed = await app.fetch(authedRequest("/api/admin/status", adminCookie));
       const closedBody = (await closed.json()) as { security: { registrationsOpen: boolean } };
       expect(closedBody.security.registrationsOpen).toBe(false);
 
       // And it still reports an instance that really is open, so the fix is
       // not "always false".
-      await settings.set("allow_registrations", true);
+      await gate.update("email", { registrationEnabled: 1 });
       const open = await app.fetch(authedRequest("/api/admin/status", adminCookie));
       const openBody = (await open.json()) as { security: { registrationsOpen: boolean } };
       expect(openBody.security.registrationsOpen).toBe(true);
 
       // A corrupt value fails CLOSED here as it does at the gate, rather than
-      // falling back to the permissive default.
-      await db.updateTable("settings").set({ value: "not json" }).where("key", "=", "allow_registrations").execute();
+      // falling back to a permissive default. Raw SQL: the column's INTEGER
+      // affinity stores what a hand edit gives it, and the typed patch
+      // cannot express the corruption.
+      await sql`UPDATE auth_providers SET registration_enabled = 'not json' WHERE id = 'email'`.execute(db);
       const corrupt = await app.fetch(authedRequest("/api/admin/status", adminCookie));
       const corruptBody = (await corrupt.json()) as { security: { registrationsOpen: boolean } };
       expect(corruptBody.security.registrationsOpen).toBe(false);
     } finally {
-      await db.deleteFrom("settings").where("key", "=", "allow_registrations").execute();
-      if (before) await settings.set("allow_registrations", JSON.parse(before.value) as unknown);
+      await gate.update("email", { registrationEnabled: storedBefore });
     }
   });
 
