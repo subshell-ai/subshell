@@ -1,81 +1,16 @@
-import { ApiError, Badge, Button, CopyableValue, errMessage, Input, Label, Switch } from "@internal/node-admin";
-import { ArrowDown, ArrowUp, X } from "lucide-react";
+import { ApiError, Button, errMessage, Input, Label, Switch } from "@internal/node-admin";
 import { useEffect, useRef, useState } from "react";
-import { CopyCommandRow } from "@/components/copy-command-row";
+import { entryOriginCandidates, normalizeOriginEntry } from "@/components/auth/entry-origins";
+import { EntryPointsEditor } from "@/components/auth/entry-points-editor";
+import { RegistrationPanel } from "@/components/auth/registration-panel";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCreateAuthProvider, usePatchAuthProvider, useTestAuthProvider } from "@/hooks/use-auth-providers";
 import { usePublicSettings } from "@/hooks/use-public-settings";
-import { isLoopbackUrl } from "@/lib/loopback";
-import {
-  callbackUrlFor,
-  EMAIL_PROVIDER_ID,
-  GOOGLE_ISSUER,
-  type ProviderAdminView,
-  previewProviderId,
-} from "@/types/auth-provider";
-
-/** The Select's escape hatch: a free-typed address the registry has not learned. */
-const OTHER = "__other__";
+import { EMAIL_PROVIDER_ID, GOOGLE_ISSUER, type ProviderAdminView, previewProviderId } from "@/types/auth-provider";
 
 /** The one fallback sentence for a save refusal that carries no server text. */
 const SAVE_ERROR_FALLBACK = "Couldn't save the provider.";
-
-/**
- * Bare-origin validation for an entry point (spec §5a): http(s) scheme, a host,
- * no path/query/fragment/credentials, wildcards refused — the component-wise
- * trusted-origin rule, minus wildcards, mirrored here so a bad paste is caught
- * at the form. Returns the canonical `URL.origin` spelling or null; the route
- * validates again (the server is the boundary, this is the courtesy).
- */
-export function normalizeOriginEntry(raw: string): string | null {
-  const s = raw.trim();
-  if (!s || /[*?\s]/.test(s) || s.includes("@")) return null;
-  try {
-    const u = new URL(s);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-    if (u.username || u.password) return null;
-    if (u.pathname !== "" && u.pathname !== "/") return null;
-    if (u.search || u.hash) return null;
-    return u.origin === "null" ? null : u.origin;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The addresses to OFFER as entry points, best first: this browser's, then
- * `appBaseUrl`, then the trusted-origin list, deduped to canonical origins.
- * The same three sources the Add-node and mobile pickers merge
- * (`lib/install-addresses`), with that helper's loopback DROP undone on
- * purpose: this picker is for the round trips of browsers ON THIS plane, and
- * a fresh instance's only address is loopback (spec §5a). An unparseable
- * entry is dropped rather than rendered, exactly as there.
- */
-export function entryOriginCandidates(sources: {
-  here: string;
-  baseUrl: string | undefined;
-  trustedOrigins: string[] | undefined;
-}): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  const add = (raw: string | undefined): void => {
-    const origin = raw ? normalizeOriginEntry(raw) : null;
-    if (!origin || seen.has(origin)) return;
-    seen.add(origin);
-    out.push(origin);
-  };
-  add(sources.here);
-  add(sources.baseUrl);
-  for (const origin of sources.trustedOrigins ?? []) add(origin);
-  return out;
-}
-
-/** Per-entry lines of the copy-all block, in the order an IdP form wants them. */
-function registrationBlock(entries: readonly string[], id: string): string {
-  const uris = entries.map((origin) => callbackUrlFor(origin, id));
-  return `Redirect URIs:\n${uris.join("\n")}\n\nAuthorized JavaScript origins:\n${entries.join("\n")}`;
-}
 
 /**
  * The add/edit dialog for one OIDC door (spec §7). The email row never opens
@@ -86,6 +21,12 @@ function registrationBlock(entries: readonly string[], id: string): string {
  * open starts from the row it was opened on (Base UI unmounts hidden content;
  * a form living in `ProviderDialog` itself would carry the previous row's
  * half-typed issuer across closes).
+ *
+ * The two entry-point blocks are siblings, not sections of this file (review
+ * Minor 5): `entry-origins.ts` holds the pure origin rules,
+ * `entry-points-editor.tsx` the list editor, `registration-panel.tsx` the
+ * IdP copy panel. This file is the form that owns their state and the fields
+ * around them.
  */
 export function ProviderDialog({
   open,
@@ -152,9 +93,6 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
     if (editing || canonicalEntry === null) return;
     setEntries((prev) => (prev === seededEntries.current && prev[0] !== canonicalEntry ? [canonicalEntry] : prev));
   }, [editing, canonicalEntry]);
-  const [candidate, setCandidate] = useState<string | null>(null);
-  const [otherText, setOtherText] = useState("");
-  const [entryError, setEntryError] = useState<string | null>(null);
   const [signInEnabled, setSignInEnabled] = useState(provider?.signInEnabled ?? true);
   const [registrationEnabled, setRegistrationEnabled] = useState(provider?.registrationEnabled ?? false);
   const [requireApproval, setRequireApproval] = useState(provider?.requireApproval ?? false);
@@ -176,32 +114,6 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
     baseUrl: publicSettings?.appBaseUrl,
     trustedOrigins: publicSettings?.trustedOrigins,
   });
-  const offered = [...candidates.filter((c) => !entries.includes(c)), OTHER];
-  const selected = offered.find((c) => c === candidate) ?? offered[0];
-
-  function addEntry(): void {
-    setEntryError(null);
-    const raw = selected === OTHER ? otherText : selected;
-    const origin = normalizeOriginEntry(raw ?? "");
-    if (!origin) {
-      setEntryError("Enter a full http(s) address with no path, like https://plane.example.");
-      return;
-    }
-    if (!entries.includes(origin)) setEntries((prev) => [...prev, origin]);
-    setOtherText("");
-  }
-
-  function move(index: number, delta: -1 | 1): void {
-    setEntries((prev) => {
-      const next = [...prev];
-      const to = index + delta;
-      const moved = next[index];
-      if (to < 0 || to >= next.length || moved === undefined) return prev;
-      next[index] = next[to] as string;
-      next[to] = moved;
-      return next;
-    });
-  }
 
   async function save(): Promise<void> {
     setSaveError(null);
@@ -352,136 +264,9 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
         </div>
       </div>
 
-      {/* Entry points (spec §5a): a list editor over the live origin registry
-          plus a typed escape. Order matters and is shown: position 1 is the
-          canonical fallback the round trip lands on when the visitor's host is
-          not on the list. */}
-      <div className="space-y-2">
-        <Label>Entry points</Label>
-        <p className="text-detail text-muted-foreground">
-          The addresses people will sign in from. Each one needs its callback registered at the provider.
-        </p>
-        <ul className="space-y-1">
-          {entries.map((origin, i) => (
-            <li key={origin} className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate font-mono text-detail">{origin}</span>
-              {i === 0 && <Badge variant="secondary">Canonical</Badge>}
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Move ${origin} up`}
-                disabled={i === 0}
-                onClick={() => move(i, -1)}
-              >
-                <ArrowUp className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Move ${origin} down`}
-                disabled={i === entries.length - 1}
-                onClick={() => move(i, 1)}
-              >
-                <ArrowDown className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Remove ${origin}`}
-                onClick={() => setEntries((prev) => prev.filter((o) => o !== origin))}
-              >
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            </li>
-          ))}
-          {entries.length === 0 && <li className="text-detail text-muted-foreground">No entry points yet.</li>}
-        </ul>
-        <div className="flex items-start gap-2">
-          <Select
-            value={selected ?? null}
-            onValueChange={(v) => {
-              if (typeof v === "string") setCandidate(v);
-            }}
-            // With every candidate already an entry, Other is the only choice
-            // left and already showing; the Select has nothing else to offer.
-            disabled={offered.length === 1}
-            items={offered.map((o) => ({ value: o, label: o === OTHER ? "Other…" : o }))}
-          >
-            <SelectTrigger aria-label="Address to add" className="min-w-0 flex-1">
-              <SelectValue placeholder="Choose an address" />
-            </SelectTrigger>
-            <SelectContent>
-              {offered.map((o) => (
-                <SelectItem key={o} value={o}>
-                  <span className="truncate">{o === OTHER ? "Other…" : o}</span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {/* "Other…" exists exactly for the case where every registry
-              candidate is already an entry, so when it is what is selected,
-              Add keys on the typed text rather than refusing the escape.
-              A chosen candidate is pre-vetted by the candidate builder. */}
-          <Button
-            type="button"
-            onClick={addEntry}
-            disabled={selected === OTHER && normalizeOriginEntry(otherText) === null}
-          >
-            Add
-          </Button>
-        </div>
-        {selected === OTHER && (
-          <Input
-            aria-label="Other address"
-            value={otherText}
-            onChange={(e) => setOtherText(e.target.value)}
-            placeholder="https://still-learning.example"
-          />
-        )}
-        {entryError && (
-          <p role="alert" className="text-destructive text-detail">
-            {entryError}
-          </p>
-        )}
-      </div>
+      <EntryPointsEditor entries={entries} setEntries={setEntries} candidates={candidates} />
 
-      {/* The registration-info copy panel (§5a): the whole list in one pass,
-          per entry the two strings Google-style IdPs ask for by name. */}
-      {entries.length > 0 && displayId !== "" && (
-        <fieldset className="space-y-3 rounded-md border p-3">
-          <legend className="font-strong text-label">Finish the setup at your provider</legend>
-          <p className="text-detail text-muted-foreground">
-            Register each redirect URI and JavaScript origin at the provider. A host missing from its list cannot
-            complete its sign-in round trip, and removing an entry here breaks that host's door until the provider
-            registration is updated.
-          </p>
-          <div className="space-y-3">
-            {entries.map((origin, i) => (
-              <div key={origin} className="space-y-1">
-                {i === 0 && <Badge variant="secondary">Canonical fallback</Badge>}
-                <div className="flex items-baseline gap-2">
-                  <Label className="w-40 shrink-0 text-detail">Redirect URI</Label>
-                  <CopyableValue value={callbackUrlFor(origin, displayId)} label="Redirect URI" />
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <Label className="w-40 shrink-0 text-detail">JavaScript origin</Label>
-                  <CopyableValue value={origin} label="JavaScript origin" />
-                </div>
-              </div>
-            ))}
-          </div>
-          <CopyCommandRow text={registrationBlock(entries, displayId)} label="registration block" />
-          {entries.some((origin) => isLoopbackUrl(origin)) && (
-            <p className="text-detail text-muted-foreground">
-              Google accepts http://localhost redirect URIs for development. Set APP_BASE_URL to your public https
-              address before registering production apps.
-            </p>
-          )}
-        </fieldset>
-      )}
+      <RegistrationPanel entries={entries} providerId={displayId} />
 
       {/* The three door half-switches (spec §7), each with one or two
           sentences of help at `detail`. */}

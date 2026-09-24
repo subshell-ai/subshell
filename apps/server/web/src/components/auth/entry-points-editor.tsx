@@ -1,0 +1,152 @@
+import { Badge, Button, Input, Label } from "@internal/node-admin";
+import { ArrowDown, ArrowUp, X } from "lucide-react";
+import { type Dispatch, type SetStateAction, useState } from "react";
+import { normalizeOriginEntry } from "@/components/auth/entry-origins";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+/** The Select's escape hatch: a free-typed address the registry has not learned. */
+const OTHER = "__other__";
+
+/**
+ * The entry-points list editor (spec §5a), split out of `provider-dialog.tsx`
+ * by review Minor 5: a list over the live origin registry plus a typed
+ * escape. Order matters and is shown: position 1 is the canonical fallback
+ * the round trip lands on when the visitor's host is not on the list. The
+ * entries themselves live in the form (it saves them); the pick, the typed
+ * Other text and the refusal are this editor's own state.
+ */
+export function EntryPointsEditor({
+  entries,
+  setEntries,
+  candidates,
+}: {
+  entries: string[];
+  setEntries: Dispatch<SetStateAction<string[]>>;
+  /** The registry's addresses, best first (`entryOriginCandidates`). */
+  candidates: string[];
+}) {
+  const [candidate, setCandidate] = useState<string | null>(null);
+  const [otherText, setOtherText] = useState("");
+  const [entryError, setEntryError] = useState<string | null>(null);
+
+  const offered = [...candidates.filter((c) => !entries.includes(c)), OTHER];
+  const selected = offered.find((c) => c === candidate) ?? offered[0];
+
+  function addEntry(): void {
+    setEntryError(null);
+    const raw = selected === OTHER ? otherText : selected;
+    const origin = normalizeOriginEntry(raw ?? "");
+    if (!origin) {
+      setEntryError("Enter a full http(s) address with no path, like https://plane.example.");
+      return;
+    }
+    if (!entries.includes(origin)) setEntries((prev) => [...prev, origin]);
+    setOtherText("");
+  }
+
+  function move(index: number, delta: -1 | 1): void {
+    setEntries((prev) => {
+      const next = [...prev];
+      const to = index + delta;
+      const moved = next[index];
+      if (to < 0 || to >= next.length || moved === undefined) return prev;
+      next[index] = next[to] as string;
+      next[to] = moved;
+      return next;
+    });
+  }
+
+  return (
+    <div className="space-y-2">
+      <Label>Entry points</Label>
+      <p className="text-detail text-muted-foreground">
+        The addresses people will sign in from. Each one needs its callback registered at the provider.
+      </p>
+      <ul className="space-y-1">
+        {entries.map((origin, i) => (
+          <li key={origin} className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate font-mono text-detail">{origin}</span>
+            {i === 0 && <Badge variant="secondary">Canonical</Badge>}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Move ${origin} up`}
+              disabled={i === 0}
+              onClick={() => move(i, -1)}
+            >
+              <ArrowUp className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Move ${origin} down`}
+              disabled={i === entries.length - 1}
+              onClick={() => move(i, 1)}
+            >
+              <ArrowDown className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Remove ${origin}`}
+              onClick={() => setEntries((prev) => prev.filter((o) => o !== origin))}
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </li>
+        ))}
+        {entries.length === 0 && <li className="text-detail text-muted-foreground">No entry points yet.</li>}
+      </ul>
+      <div className="flex items-start gap-2">
+        <Select
+          value={selected ?? null}
+          onValueChange={(v) => {
+            if (typeof v === "string") setCandidate(v);
+          }}
+          // With every candidate already an entry, Other is the only choice
+          // left and already showing; the Select has nothing else to offer.
+          disabled={offered.length === 1}
+          items={offered.map((o) => ({ value: o, label: o === OTHER ? "Other…" : o }))}
+        >
+          <SelectTrigger aria-label="Address to add" className="min-w-0 flex-1">
+            <SelectValue placeholder="Choose an address" />
+          </SelectTrigger>
+          <SelectContent>
+            {offered.map((o) => (
+              <SelectItem key={o} value={o}>
+                <span className="truncate">{o === OTHER ? "Other…" : o}</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {/* "Other…" exists exactly for the case where every registry
+            candidate is already an entry, so when it is what is selected,
+            Add keys on the typed text rather than refusing the escape.
+            A chosen candidate is pre-vetted by the candidate builder. */}
+        <Button
+          type="button"
+          onClick={addEntry}
+          disabled={selected === OTHER && normalizeOriginEntry(otherText) === null}
+        >
+          Add
+        </Button>
+      </div>
+      {selected === OTHER && (
+        <Input
+          aria-label="Other address"
+          value={otherText}
+          onChange={(e) => setOtherText(e.target.value)}
+          placeholder="https://still-learning.example"
+        />
+      )}
+      {entryError && (
+        <p role="alert" className="text-destructive text-detail">
+          {entryError}
+        </p>
+      )}
+    </div>
+  );
+}
