@@ -28,10 +28,14 @@
  * release-signature precedent): mobile imports the barrel and never needs
  * this, and WASM weight should not ride a barrel it cannot use.
  *
- * Base64 (libsodium's `to_base64`, the standard alphabet) is the on-file and
- * on-text-frame encoding for every key here — consistent with how the rest of
- * the link serializes (JWK JSON strings); binary frames themselves are raw
- * bytes, never base64.
+ * Base64 here is libsodium's `to_base64` DEFAULT: URL-safe, no padding —
+ * `-_` instead of `+/`, and no trailing `=` (43 chars for a 32-byte key),
+ * which is the spelling `from_base64` round-trips. It is the on-file and
+ * on-text-frame encoding for every key here, and {@link LINK_KEY_B64_RE}
+ * validates exactly it — not the shared padded-standard `BASE64_RE`, which
+ * is right for the package's Buffer/btoa payloads and wrong for these keys.
+ * Consistent with how the rest of the link serializes (JWK JSON strings);
+ * binary frames themselves are raw bytes, never base64.
  *
  * The wiring direction is the part a reader must NOT "fix" from intuition:
  * libsodium-wrappers' `sharedRx`/`sharedTx` names are faithful to the C
@@ -42,7 +46,16 @@
  * key, and its send key the client's receive key — is the whole point of kx.
  */
 import _sodium from "libsodium-wrappers-sumo";
-import { BASE64_RE, isInt, isRecord, isStr } from "./guards.js";
+import { isInt, isRecord, isStr } from "./guards.js";
+
+/**
+ * URL-safe, no-padding base64 — libsodium-wrappers-sumo's `to_base64` DEFAULT,
+ * which is what every key in this module is encoded with. Distinct from the
+ * shared `BASE64_RE` (padded standard), which stays correct for the package's
+ * Buffer/btoa payloads (chunk_b64, manifest, data_b64) and is WRONG for these
+ * key fields: it rejects every key this module emits.
+ */
+const LINK_KEY_B64_RE = /^[A-Za-z0-9_-]+={0,2}$/;
 
 /** The ready libsodium handle. Tasks 7/9 need `from_base64` for frame-field length checks. */
 export type Sodium = typeof _sodium;
@@ -257,13 +270,15 @@ export type LinkBinding = { nodeId: string; nodeKey: string; protocolVersion: nu
 export type LinkAck = { t: "ok" };
 
 /**
- * A base64-shaped string of at least one byte. SHAPE only, like every
- * validator here: a 32-byte length check needs a decode, and the callers
- * (tasks 7/9) do it against their own `ensureSodium()` handle once they have
- * decided the frame is worth decoding at all.
+ * A link-key-shaped string of at least one byte: URL-safe, no-padding base64
+ * — the alphabet {@link LINK_KEY_B64_RE} names, i.e. what `to_base64` emits.
+ * SHAPE only, like every validator here: a 32-byte length check needs a
+ * decode, and the callers (tasks 7/9) do it against their own
+ * `ensureSodium()` handle once they have decided the frame is worth decoding
+ * at all.
  */
 function isB64(value: unknown): value is string {
-  return isStr(value) && value.length > 0 && BASE64_RE.test(value);
+  return isStr(value) && value.length > 0 && LINK_KEY_B64_RE.test(value);
 }
 
 /** A `kx` frame, or null. `pub` is optional (only the first connect carries the claim). */

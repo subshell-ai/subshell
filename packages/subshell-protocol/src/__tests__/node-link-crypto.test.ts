@@ -17,6 +17,16 @@ import {
 } from "../node-link-crypto.js";
 
 /**
+ * A REAL key encoded by the module's own encoder — the exact spelling that
+ * ships on the wire (libsodium's `to_base64` DEFAULT: URL-safe, no padding).
+ * The hand-written padded-standard fixture this replaces is what hid the R5
+ * bug: the old validators tested the shared padded `BASE64_RE`, which rejects
+ * every key this module actually emits. Derived, never typed, so it cannot
+ * drift from the encoder again.
+ */
+const { publicKey: sodiumB64 } = await generateLinkKeyPair();
+
+/**
  * A pinned node static pair for the seal/open tests — this is the SERVER
  * static's stand-in (one DH, ephemeral×static: the kx derivation never sees a
  * node static, per the module header).
@@ -226,8 +236,6 @@ describe("node-link-crypto", () => {
   });
 
   describe("validators", () => {
-    const sodiumB64 = "V/VqXxmCx2LDcpGk7IhQ+5TYOhcaZ8nTJv9TxpmOSCU="; // standard-alphabet base64 of 32 bytes
-
     it("parseKxFrame accepts the two legal shapes and nothing else", async () => {
       await ensureSodium();
       expect(parseKxFrame({ t: "kx", eph: sodiumB64 })).toEqual({ t: "kx", eph: sodiumB64 });
@@ -284,6 +292,22 @@ describe("node-link-crypto", () => {
       ]) {
         expect(parseRegisterOkFrame(junk)).toBeNull();
       }
+    });
+
+    it("a real generated key must validate — this is the exact spelling on the wire", async () => {
+      // A hand-written padded fixture let the old bug through: the validators
+      // once tested the shared padded-standard `BASE64_RE`, which rejects
+      // EVERY key `to_base64` emits. Only the encoder's own output can pin
+      // the alphabet, so this test derives live keys rather than typing one.
+      const pair = await generateLinkKeyPair();
+      expect(pair.publicKey).toMatch(/^[A-Za-z0-9_-]+$/); // libsodium's default: URL-safe, no padding
+      expect(parseKxFrame({ t: "kx", eph: pair.publicKey, pub: pair.publicKey })).not.toBeNull();
+      expect(parseRegisterFrame({ t: "register", pub: pair.publicKey })).not.toBeNull();
+      expect(parseRegisterOkFrame({ t: "register-ok", controlEncryptPublicKey: pair.publicKey })).not.toBeNull();
+      // the production path's eph field goes through the same check
+      const serverStatic = await generateLinkKeyPair();
+      const { ephemeralPublicKey } = await createClientSession({ serverStaticPublicKey: serverStatic.publicKey });
+      expect(parseKxFrame({ t: "kx", eph: ephemeralPublicKey })).not.toBeNull();
     });
 
     it("parseLinkBinding requires the three binding fields", () => {
