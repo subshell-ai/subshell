@@ -1,4 +1,4 @@
-import type { Generated } from "kysely";
+import type { Generated, Selectable } from "kysely";
 
 /** Auth door kind; "email" is the reserved credential-provider row (§2). */
 export type AuthProviderKind = "email" | "google" | "oidc";
@@ -30,5 +30,16 @@ export interface AuthProviderTable {
   updatedAt: Generated<string>;
 }
 
+/**
+ * The plain-value row a SELECT returns. `Generated` is insert-time optionality
+ * and lives on the table interface only — readers and callers deal in this.
+ */
+export type AuthProviderRow = Selectable<AuthProviderTable>;
+
+/**
+ * Insert shape (the `NewUserMeta` precedent): `id`/`kind`/`name` required,
+ * every DB-defaulted column an optional PLAIN value — an insert caller must
+ * not have to name the `Generated` wrapper.
+ */
 export type NewAuthProvider = Pick<AuthProviderTable, "id" | "kind" | "name"> &
-  Partial<Omit<AuthProviderTable, "id" | "kind" | "name">>;
+  Partial<Omit<AuthProviderRow, "id" | "kind" | "name">>;
