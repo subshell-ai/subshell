@@ -413,6 +413,119 @@ describe("legacy register self-heal (spec §5)", () => {
   });
 });
 
+describe("onClosed — R11: a plane 4410 BEFORE establishment drops the control pin", () => {
+  /** Handshake-mode harness: kx + binding on the wire, ack never opened. */
+  async function provisionedSocket() {
+    const serverStatic = await serverFixture();
+    const pair = await generateLinkKeyPair();
+    const config = baseConfig({ encryptKeyPair: pair, controlEncryptPublicKey: serverStatic.publicKey });
+    const h = makeHarness({ config });
+    const ws = new FakeWs();
+    await h.negotiator.begin(ws);
+    return { config, pair, serverStatic, h, ws };
+  }
+
+  test("handshake mode + plane-initiated 4410 + never established → persist EXACTLY {controlEncryptPublicKey: undefined}", async () => {
+    const { config, pair, h } = await provisionedSocket();
+    expect(h.negotiator.established()).toBe(false);
+
+    h.negotiator.onClosed(NODE_CLOSE_HANDSHAKE_REQUIRED); // the R10 refusal, or the handshake timeout
+
+    expect(h.patches).toHaveLength(1);
+    const patch = h.patches[0] as Record<string, unknown>;
+    // THE ruling, as a key set: the PIN only — the pair is not in the patch
+    // at all, because §5's continuation rule reads pair-without-pin as
+    // "register with what is already stored".
+    expect(Object.keys(patch)).toEqual(["controlEncryptPublicKey"]);
+    expect("controlEncryptPublicKey" in patch).toBe(true); // EXPLICIT undefined — the clear signal
+    expect(patch.controlEncryptPublicKey).toBeUndefined();
+    // The daemon mirrors patches onto the live config; the next begin() must
+    // therefore classify register (pair kept, pin gone).
+    expect(config.encryptKeyPair).toEqual(pair);
+    expect(config.controlEncryptPublicKey).toBeUndefined();
+    expect(h.logs.some((l) => l.includes("R11") || l.includes("registers this node's SAME static"))).toBe(true);
+  });
+
+  test("establishment WAS reached → no write at all: a dead established stream redials fully provisioned (RF#3)", async () => {
+    const serverStatic = await serverFixture();
+    const pair = await generateLinkKeyPair();
+    const config = baseConfig({ encryptKeyPair: pair, controlEncryptPublicKey: serverStatic.publicKey });
+    const h = makeHarness({ config });
+    const ws = new FakeWs();
+    await h.negotiator.begin(ws);
+    const kx = parseKxFrame(JSON.parse(ws.sends[0] as string));
+    if (!kx) throw new Error("begin() sent no kx");
+    const session = await createServerSession({ serverStatic, clientEphemeralPublicKey: kx.eph });
+    h.negotiator.onBytesFrame(ws, session.sealFrame(JSON.stringify({ t: "ok" })));
+    expect(h.negotiator.established()).toBe(true);
+
+    // The stream later dies with a 4410 — from the plane, or from this side's
+    // own ratchet-refuse; either way `reachedEstablished` gates the clear: the
+    // byte-flip recovery (RF#3) redials FULLY PROVISIONED and must not be
+    // downgraded into a register.
+    h.negotiator.onClosed(NODE_CLOSE_HANDSHAKE_REQUIRED);
+    expect(h.patches).toEqual([]);
+    expect(config.controlEncryptPublicKey).toBe(serverStatic.publicKey); // byte-identical
+  });
+
+  test("our OWN refusal keeps the config byte-identical (ratchet desync, junk pin, wrong-kind frames)", async () => {
+    // The sharpest gate: mode is handshake, established was never reached, and
+    // the close code IS 4410 — `selfRefused` is the only thing standing between
+    // this state and an unrequested pin drop.
+    const s = await provisionedSocket();
+    s.h.negotiator.onTextFrame(s.ws, JSON.stringify({ type: "heartbeat" })); // the negotiator itself refuses with 4410
+    expect(s.ws.closes[0]?.code).toBe(NODE_CLOSE_HANDSHAKE_REQUIRED);
+    s.h.negotiator.onClosed(NODE_CLOSE_HANDSHAKE_REQUIRED); // finish() feeds the close back
+    expect(s.h.patches).toEqual([]);
+    expect(s.config.controlEncryptPublicKey).toBeDefined();
+  });
+
+  test("register mode never clears: a refused register must not erase the pair it continues with", async () => {
+    const ws = new FakeWs();
+    const config = baseConfig();
+    const h = makeHarness({ config });
+    await h.negotiator.begin(ws); // register mode — the pair's own store lands HERE
+    const before = h.patches.length;
+    h.negotiator.onClosed(NODE_CLOSE_HANDSHAKE_REQUIRED);
+    expect(h.patches).toHaveLength(before); // no clear patch added…
+    expect(h.patches.some((p) => "controlEncryptPublicKey" in p)).toBe(false); // …and never one naming the pin
+    expect(config.encryptKeyPair).toBeDefined(); // the pair survives to continue the registration
+  });
+
+  test("every non-4410 close keeps the config byte-identical", async () => {
+    const a = await provisionedSocket();
+    a.h.negotiator.onClosed(1006);
+    expect(a.h.patches).toEqual([]);
+    const b = await provisionedSocket();
+    b.h.negotiator.onClosed(1012);
+    expect(b.h.patches).toEqual([]);
+  });
+
+  test("idempotent: a second onClosed persists nothing further", async () => {
+    const { h } = await provisionedSocket();
+    h.negotiator.onClosed(NODE_CLOSE_HANDSHAKE_REQUIRED);
+    h.negotiator.onClosed(NODE_CLOSE_HANDSHAKE_REQUIRED);
+    expect(h.patches).toHaveLength(1);
+  });
+
+  test("a FAILED pin-drop is logged loudly, never swallowed (this file is the identity's half)", async () => {
+    const serverStatic = await serverFixture();
+    const pair = await generateLinkKeyPair();
+    const config = baseConfig({ encryptKeyPair: pair, controlEncryptPublicKey: serverStatic.publicKey });
+    const h = makeHarness({
+      config,
+      persist: async () => {
+        throw new Error("disk full");
+      },
+    });
+    const ws = new FakeWs();
+    await h.negotiator.begin(ws);
+    h.negotiator.onClosed(NODE_CLOSE_HANDSHAKE_REQUIRED);
+    await new Promise((r) => setTimeout(r, 20)); // the rejection must surface, not hang or crash the run
+    expect(h.logs.some((l) => l.includes("could not drop") && l.includes("disk full"))).toBe(true);
+  });
+});
+
 describe("the legacy-mode classification and the wire helpers", () => {
   test("register-ok validation uses the protocol parser's exact shape", async () => {
     const s = await ensureSodium();

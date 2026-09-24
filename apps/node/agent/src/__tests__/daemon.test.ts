@@ -149,6 +149,21 @@ interface PlaneOpts {
   nodePublicKey: string;
   /** 4410 EVERY kx with this reason (refusal-path tests). */
   refuseKx?: string;
+  /**
+   * 4410 every kx that arrives BEFORE the first register pins this fake's
+   * node static, then accept handshakes normally — the R10 rule (an unpaired
+   * row refuses claims) and the plane half of the R11 rotation-heal story.
+   */
+  refuseKxUntilRegister?: string;
+  /**
+   * Fires SYNCHRONOUSLY the instant a `register` claim lands, BEFORE its
+   * answer. Non-racy disk-window hook (R11): the daemon's `provisioning` gate
+   * guarantees every config write from the PREVIOUS socket has landed by the
+   * time this socket's frames arrive, so a config.json read inside this hook
+   * is the mid-heal truth — after the refusal's pin-drop, before the
+   * register-ok's own write re-fills the pin.
+   */
+  onRegisterClaim?: () => void;
   /** Consume the kx and binding but NEVER ack (establishment-never-happens tests). */
   silentKx?: boolean;
 }
@@ -291,14 +306,22 @@ function startPlane(opts: PlaneOpts): Plane {
         if (claim === "register") {
           // §5 self-heal, R7 shape: pin, answer with the plane's public half, NORMAL close.
           plane.pinnedNodePublicKey = (value as { pub?: string }).pub;
+          opts.onRegisterClaim?.(); // BEFORE the answer: the mid-heal disk window (R11)
           ws.send(JSON.stringify({ t: "register-ok", controlEncryptPublicKey: opts.serverStatic.publicKey }));
           ws.close();
           return;
         }
         if (claim === "kx") {
-          if (opts.refuseKx) {
+          // A flat refusal, or the R10-shaped one that lifts once a register
+          // has pinned the node's static (the unpaired row refuses claims).
+          const refusal = opts.refuseKx
+            ? opts.refuseKx
+            : opts.refuseKxUntilRegister && plane.pinnedNodePublicKey === undefined
+              ? opts.refuseKxUntilRegister
+              : undefined;
+          if (refusal) {
             try {
-              ws.close(NODE_CLOSE_HANDSHAKE_REQUIRED, opts.refuseKx); // a REFUSAL under test, not a violation
+              ws.close(NODE_CLOSE_HANDSHAKE_REQUIRED, refusal); // a REFUSAL under test, not a violation
             } catch {
               /* already gone */
             }
@@ -380,8 +403,8 @@ async function startDaemon(
     >
   > & {
     config?: Partial<NodeConfig>;
-    /** Handshake tweaks for the fake plane (refusals, silence). */
-    plane?: { refuseKx?: string; silentKx?: boolean };
+    /** Handshake tweaks for the fake plane (refusals, silence, the R11 register window hook). */
+    plane?: { refuseKx?: string; refuseKxUntilRegister?: string; onRegisterClaim?: () => void; silentKx?: boolean };
     /** The harness normally awaits the first `ready`; refusal/legacy tests drive the loop themselves. */
     skipReady?: boolean;
     /** Persist the harness config to the agent home BEFORE the daemon starts (the §5 register's `updateConfig` reads it back). */
@@ -1270,7 +1293,9 @@ test("undecryptable bytes of EVERY admitted binary shape close the link 4410, ne
   // link: the first undecryptable frame kills the stream, so three cycles pin
   // three admissions, and the three refusals are three non-terminal 4410s.
   const pumps: Array<{ deliverBurst: (frames: DeliveredFrame[]) => void }> = [];
+  newHome(); // R11 teeth need the real on-disk config (see the assertions at the end)
   const h = await startDaemon({
+    saveConfig: true,
     tmux: { sendInput: async () => {} } as unknown as TmuxRunner,
     meta: { get: async () => undefined, list: async () => [] } as unknown as SubshellMetaStore,
     WebSocketImpl: wrapRealWsWithPump(pumps),
@@ -1298,6 +1323,14 @@ test("undecryptable bytes of EVERY admitted binary shape close the link 4410, ne
   expect(h.exits).toEqual([]); // the agent-initiated 4410 is an ordinary disconnect
   // No answered error frames — nothing binary was parsed as text.
   expect(eventsAs(h, "error")).toEqual([]);
+  // R11 teeth: every 4410 here was AGENT-initiated on an ESTABLISHED stream —
+  // the config must be byte-identical. A pin-drop fix that forgot the
+  // `reachedEstablished`/`selfRefused` gates would clear here, and every
+  // reconnect after the first would open with a `register` frame and a file
+  // missing its pin — BOTH assertions below would fail, not just one.
+  expect(h.plane.firstFrames).toEqual(["kx", "kx", "kx", "kx"]); // initial + 3 reconnects, all handshake mode
+  const flipSaved = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
+  expect(flipSaved.controlEncryptPublicKey).toBe(h.serverLink.publicKey); // pin survived, untouched
 });
 
 test("an oversize BINARY frame is refused on ARRIVAL exactly like an oversize text one", async () => {
@@ -1844,6 +1877,52 @@ describe("the link handshake (spec 2026-09-24 §4/§5)", () => {
     expect(saved.controlEncryptPublicKey).toBe(h.serverLink.publicKey); // the pin the register-ok carried
     // And the self-heal is done: the provisioned config handshakes WITHOUT another register.
     expect(h.plane.firstFrames.filter((f) => f === "register")).toEqual(["register"]);
+    expect(h.plane.violations).toEqual([]);
+  });
+
+  test("(e) R11 rotation heal: refused kx drops the CONTROL PIN only, register re-presents the SAME static, next connect handshakes", async () => {
+    // The agent half of the rotation story (spec 2026-09-24 §5 + rulings
+    // R10/R11): key rotation cleared the row's pin, the plane answers this
+    // node's handshake-mode `kx` with the named 4410, and the config must
+    // shrink by EXACTLY the control pin — pair and nodeKey untouched — so the
+    // redial registers the SAME static and the row re-pairs. The mid-file
+    // snapshot rides `onRegisterClaim`: the provisioning gate makes that
+    // moment the non-racy window between the drop and the re-pin (rand→0
+    // reconnects are otherwise FASTER than any poll).
+    newHome(); // the drop's updateConfig merges over the REAL on-disk config
+    const [nodeLink] = await Promise.all([nodeLinkReady]);
+    const midSnapshots: Array<Record<string, unknown>> = [];
+    const h = await startDaemon({
+      saveConfig: true, // provisioned on disk — the state a rotated node's agent carries
+      plane: {
+        refuseKxUntilRegister: "legacy row received a kx claim — re-pair via register",
+        onRegisterClaim: () =>
+          void midSnapshots.push(JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>),
+      },
+    });
+    await waitForReady(h); // only the THIRD socket can reach protocol
+
+    // The full arc, in wire order: refused claim → register (pair kept, pin
+    // gone) → encrypted handshake.
+    expect(h.plane.firstFrames.slice(0, 3)).toEqual(["kx", "register", "kx"]);
+    expect(midSnapshots).toHaveLength(1); // one register, exactly — heal, not a loop
+    // THE R11 file truth, captured between the drop and the re-pin:
+    const mid = midSnapshots[0] as Record<string, unknown>;
+    expect("controlEncryptPublicKey" in mid).toBe(false); // explicit undefined dropped the key from the JSON
+    expect((mid.encryptKeyPair as { publicKey: string }).publicKey).toBe(nodeLink.publicKey); // pair KEPT — no re-mint
+    expect(mid.nodeKey).toBe(NODE_KEY); // the bearer untouched — this is not a re-enroll
+    // EXACTLY one field moved: the mid-heal file equals the daemon's own
+    // (post-heal, re-pinned) config minus the pin — pair, bearer, address and
+    // every other field byte-identical through the whole drop-and-re-pin arc.
+    const withoutPin = { ...(h.config as unknown as Record<string, unknown>) };
+    delete withoutPin.controlEncryptPublicKey;
+    expect(mid).toEqual(withoutPin);
+
+    expect(count(h, (e) => e.type === "ready")).toBe(1); // the refused and the registering sockets never reached protocol
+    expect(h.plane.pinnedNodePublicKey).toBe(nodeLink.publicKey); // the plane re-pinned the node's ORIGINAL static
+    const healed = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
+    expect(healed.controlEncryptPublicKey).toBe(h.serverLink.publicKey); // re-pinned by the register-ok — encrypted for good
+    expect(h.exits).toEqual([]); // the 4410 stayed an ordinary disconnect
     expect(h.plane.violations).toEqual([]);
   });
 });

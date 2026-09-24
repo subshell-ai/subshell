@@ -33,7 +33,11 @@
  * only the other half-state (pin without pair) is unrepairable by definition
  * — nothing local can derive with a missing private half — so it logs and
  * closes. After `register-ok` lands the socket closes NORMALLY (ruling R7):
- * the next dial is handshake mode.
+ * the next dial is handshake mode. **R11** extends the entry to that
+ * continuation: a 4410 the PLANE sends before establishment (key rotation
+ * cleared the row's pin — R10 refuses the claim) drops the CONTROL PIN from
+ * the config via `onClosed`, so the next `begin()` registers the SAME static
+ * instead of re-refusing forever. The pair is never dropped here.
  *
  * 4410 (`NODE_CLOSE_HANDSHAKE_REQUIRED`) is NON-TERMINAL for this process —
  * `runDaemon`'s close loop treats it like an ordinary disconnect; unlike
@@ -104,6 +108,23 @@ export interface LinkNegotiator {
    * ack), dropped it, or closed the socket.
    */
   onBytesFrame(ws: LinkWs, bytes: Uint8Array): string | null;
+  /**
+   * The socket CLOSED with `code` — the daemon's `finish()` feeds every close
+   * here, exactly once per socket (idempotent even if called twice).
+   *
+   * **R11 (spec 2026-09-24 §5, ruling 2026-09-24):** a 4410 the PLANE sends
+   * before this socket ever established means the row no longer pairs with
+   * the pinned identity — key rotation clears `encrypt_public_key`
+   * server-side, and the R10 rule then refuses this config's handshake-mode
+   * `kx` by name. The answer is to drop the CONTROL PIN and nothing else:
+   * the next `begin()` sees pair-without-pin, which §5's continuation rule
+   * already reads as "register with what is stored", so the node re-presents
+   * the SAME static and the row re-pairs. Every other close keeps the config
+   * byte-identical — above all a stream that ESTABLISHED and died, which
+   * redials fully provisioned exactly as before (RF#3's byte-flip recovery
+   * and the never-resync doctrine depend on it).
+   */
+  onClosed(code: number): void;
   established(): boolean;
   /** The session to seal outbound frames with — only meaningful once {@link established} is true. */
   session(): LinkSession | undefined;
@@ -151,10 +172,17 @@ export function createLinkNegotiator(args: LinkNegotiatorArgs): LinkNegotiator {
   let session: LinkSession | undefined;
   /** Set at `begin()` classification. Drives the bytes-drop-vs-refuse split below. */
   let mode: "handshake" | "register" | "incomplete" | undefined;
+  /** R11: this socket's own `refuse()` fired — a close it caused clears nothing. */
+  let selfRefused = false;
+  /** R11: the sealed ack opened here — a stream that PROVED the pair redials provisioned, whatever closes it. */
+  let reachedEstablished = false;
+  /** R11: `onClosed` decides once per socket; later calls are inert (the daemon's finish is settled-once; this is the belt). */
+  let closedDecided = false;
 
   const refuse = (ws: LinkWs, reason: string): void => {
     if (phase === "dead") return;
     phase = "dead";
+    selfRefused = true; // R11: the 4410 finish() will see came from HERE, not the plane
     args.log(`link handshake refused: ${reason}`);
     try {
       ws.close(NODE_CLOSE_HANDSHAKE_REQUIRED, reason);
@@ -318,6 +346,7 @@ export function createLinkNegotiator(args: LinkNegotiatorArgs): LinkNegotiator {
           return null;
         }
         phase = "established";
+        reachedEstablished = true; // R11: from here on, NO close may clear the pin — the pair is proven live
         args.onEstablished();
         return null;
       }
@@ -332,6 +361,38 @@ export function createLinkNegotiator(args: LinkNegotiatorArgs): LinkNegotiator {
       // is not merely noise — it is the wrong kind at the wrong phase.
       refuse(ws, "ciphertext before the kx was sent");
       return null;
+    },
+
+    onClosed: (code: number): void => {
+      if (closedDecided) return; // one decision per socket
+      closedDecided = true;
+      // R11 — ALL four gates, else the config stays byte-identical:
+      // the plane said 4410; WE did not cause the close; this socket dialed
+      // in handshake mode; and it NEVER established. The last two are the
+      // load-bearing pair: a stream that established redials fully
+      // provisioned (RF#3's recovery is the whole "4410-and-redial, never
+      // resync" design), and a refused REGISTER must not erase the pair it
+      // is continuing with. What IS left standing — a plane 4410 on a
+      // handshake-mode socket that never established — is precisely the
+      // post-rotation state R10 named: row unpaired, claim refused.
+      if (code !== NODE_CLOSE_HANDSHAKE_REQUIRED || selfRefused || mode !== "handshake" || reachedEstablished) {
+        return;
+      }
+      args.log(
+        "plane refused the handshake before establishment (4410) — dropping the pinned control key only, so the next connect re-registers this node's SAME static (R11)",
+      );
+      // The PIN only — never the pair. §5's continuation rule (begin():
+      // pair-without-pin) turns the redial into a register of what is already
+      // stored; the daemon's persist mirrors onto the live config and gates
+      // the redial on the write, so no dial can race past this. A failed drop
+      // stays LOUD (config.json is the identity's home).
+      void args
+        .persist({ controlEncryptPublicKey: undefined })
+        .catch((err: unknown) =>
+          args.log(
+            `could not drop the control pin after a pre-establishment 4410 (R11): ${err instanceof Error ? err.message : String(err)}`,
+          ),
+        );
     },
 
     established: (): boolean => phase === "established",

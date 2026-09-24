@@ -591,9 +591,10 @@ consequences are:
   (`nodes.encryptPublicKey`), the node pins the plane's in its own 0600 config —
   and after establishment the socket carries ONLY `secretstream` ciphertext;
   the ratchet never resyncs, so a broken stream is a 4410 and a redial, never a
-  repair. Rows enroll never provisioned pair through the register self-heal
-  instead (the bearer key is the trust root, exactly as it already
-  authenticates every legacy frame).
+  repair. A node that enrolled before the link existed — its row never
+  provisioned with a pin — pairs through the register self-heal instead (the
+  bearer key is the trust root, exactly as it already authenticates every
+  legacy frame).
 - **Command signing is still not confidentiality — but it remains
   authorization, freshness, and target** (restated 2026-09-24 now that the link
   itself is encrypted). A signed envelope proves WHICH node, WHICH command,
@@ -614,11 +615,15 @@ consequences are:
   open-but-unestablished stall it forwarded before, and never a HOLD: pairing
   is a handshake between the two endpoints, not an act anyone but them can
   take, so the fail-closed answer is the refusal and the register is the
-  remedy. (Recorded honestly: the landed agent treats every 4410 as an
-  ordinary disconnect and has no path that drops a keypair the plane no
-  longer pins, so today the refusal makes the rotation visible and retrying
-  rather than complete — closing that loop is an agent-side follow-up, not a
-  claim of this one.)
+  remedy. The loop is closed on the agent side too (ruling R11): a 4410 the
+  PLANE sends before the socket ever established drops the node's control pin
+  and nothing else — the pair stays, so the next connect registers the SAME
+  static and the row re-pairs; an established stream that dies still redials
+  fully provisioned, exactly as before. Accepted residue: if the PLANE's own
+  keypair is replaced, the node's binding fails pre-establishment the same
+  way, the pin drop lands it in the register-refused loop against its
+  still-pinned row, and the operator remedy is rotating the node key — which
+  clears the pin and lets register heal.
 - **The plaintext carve-out is exactly one command.** `update` still reaches a
   HELD pre-14 agent as plaintext, because that socket is held precisely for not
   speaking the current contract — you cannot ask a downgrade to negotiate. The

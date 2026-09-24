@@ -864,6 +864,14 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         if (currentWs === ws) currentWs = undefined;
         if (link === connLink) link = undefined; // send() falls to the logged drop, never to a stale seal key
         setDaemonState({ connected: false });
+        // R11: the negotiator decides what this close means for the CONFIG —
+        // a plane-initiated 4410 before establishment drops the pinned
+        // control key so the redial re-registers the node's SAME static
+        // (key rotation's self-heal; see link-crypto.ts). Its persist rides
+        // the provisioning gate, so the next `await provisioning` below
+        // cannot dial past the write. Every other close keeps the file
+        // byte-identical.
+        connLink.onClosed(close.code);
         // Tails push into the socket that just died — stop every pump before
         // the reconnect loop dials again (the control plane re-`tail_start`s
         // on the new connection with its own cursors; spec §3.4).
