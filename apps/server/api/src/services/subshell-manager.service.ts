@@ -704,8 +704,12 @@ export class SubshellManagerService {
    *         applied at the swap point (after the kill, before `parkForRestart`)
    *         and read by `#reviveRow`'s fresh re-read below: `null` = swap to
    *         presetless, `undefined`/unchanged = no swap (no write, no audit).
-   *         A refusal that threw before this point — the service's, or the
-   *         offline kill here — never moves the column.
+   *         A refusal that threw before this point — the service's gate,
+   *         validation, maintenance or offline pre-gate, or an ALIVE row's
+   *         offline kill here — never moves the column. A revive that fails
+   *         AFTER the write leaves the row dead keeping the new preset (spec
+   *         §4); a dead row cannot reach this point on an unreachable node,
+   *         because the service refuses a swap-carrying restart pre-manager.
    */
   async restartSubshell(
     userId: string,

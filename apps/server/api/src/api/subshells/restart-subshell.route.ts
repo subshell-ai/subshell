@@ -22,14 +22,19 @@ const RestartBodySchema = t.Object(
       ),
     ),
   },
-  { description: "Optional preset swap applied inside this restart; a refusal writes nothing." },
+  {
+    description:
+      "Optional preset swap applied inside this restart. A refusal at the gate, in validation, at maintenance or by the offline pre-gate writes nothing; a revive that fails after the swap leaves the row dead keeping the chosen preset.",
+  },
 );
 
 /**
  * `POST /api/subshells/:id/restart` — revives this subshell in place (same id):
  * new process, same row, conversation resumed when its transcript survived.
  * The optional `{ presetId }` body (null = presetless) swaps the row's preset
- * at the restart's swap point; every refusal leaves the preset untouched.
+ * at the restart's swap point. A refusal at the gate, in validation, at
+ * maintenance or by the offline pre-gate writes nothing; a revive that fails
+ * after the swap leaves the row dead keeping the chosen preset (spec §4).
  */
 export const restartSubshellRoute = new Elysia()
   .use(contextPlugin)
@@ -52,14 +57,16 @@ export const restartSubshellRoute = new Elysia()
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
         // Spec §5.6: the row's agent node has no live connection (409
-        // NODE_OFFLINE); the parked row is rolled back before the 409.
+        // NODE_OFFLINE) — refused here before the manager when the restart
+        // carries a swap; otherwise the kill fails and the parked row is
+        // rolled back before the 409.
         409: "ApiErrorResponse",
       },
       detail: {
         operationId: "restartSubshell",
         tags: ["subshells"],
         description:
-          "Revive this subshell in place: same id and name, new process, conversation resumed when its transcript survived. An optional { presetId } body (string = a preset of yours sharing this subshell's harness, null = presetless) swaps the row's preset before the revive; a refusal of any kind writes nothing, and a body-less POST is the plain restart it has always been",
+          "Revive this subshell in place: same id and name, new process, conversation resumed when its transcript survived. An optional { presetId } body (string = a preset of yours sharing this subshell's harness, null = presetless) swaps the row's preset before the revive; a refusal at the gate, in validation, at maintenance or by the offline pre-gate writes nothing (a revive that fails after the swap leaves the row dead keeping it), and a body-less POST is the plain restart it has always been",
       },
     },
   );

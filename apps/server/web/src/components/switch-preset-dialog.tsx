@@ -31,8 +31,9 @@ const NONE = "none";
  * The dialog owns its mutation the clone dialog owns its create, rather than
  * reaching through `useSubshellMutations`: that hook's restart carries no
  * body, and a preset-carrying twin would be a second restart implementation
- * for one caller. The server refuses every invalid preset (400) before it
- * kills anything, so a refused swap writes nothing and the row keeps working.
+ * for one caller. A refusal at the gate, in validation, at maintenance or by
+ * the offline pre-gate writes nothing and the row keeps working; only a revive
+ * that fails after the swap leaves the row dead keeping the chosen preset.
  */
 export function SwitchPresetDialog({
   subshell,
@@ -112,7 +113,7 @@ export function SwitchPresetDialog({
           </p>
         )}
         {swap.error && (
-          <p className="text-destructive text-sm">{(swap.error as Error).message || "Failed to switch preset"}</p>
+          <p className="text-destructive text-detail">{(swap.error as Error).message || "Failed to switch preset"}</p>
         )}
         <DialogFooter>
           <Button variant="outline" disabled={swap.isPending} onClick={() => onOpenChange(false)}>

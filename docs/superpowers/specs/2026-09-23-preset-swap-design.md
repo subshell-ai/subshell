@@ -40,7 +40,7 @@ restart already enforces — a `view` grantee is refused as today, a foreign row
 404s as today.
 
 **Preset validation**, in `subshells.service.restartSubshell`, after the gate
-and the maintenance/offline refusals and before anything is killed:
+and the maintenance refusal and before anything is killed:
 `presetId` must be `null`, or a preset that **belongs to the calling viewer**
 (`presets.userId === viewer.id`) and whose `harnessId` equals the row's. This
 mirrors the create-time rule the clone comment documents (presets are strictly
@@ -115,9 +115,17 @@ already exist.
 |---|---|
 | row not visible to viewer | 404 (unchanged) |
 | `view` access | refused by the gate (unchanged) |
-| node offline / maintenance | 409 (unchanged), preset untouched |
+| node offline / maintenance | 409, preset untouched — refused before the manager (maintenance always was; offline since the amendment below) |
 | preset unknown, not the caller's, or wrong harness | 400 `INVALID_PRESET`, nothing written |
 | revive fails after the swap | row ends `terminated` with the new preset kept |
+
+**Amendment 2026-09-24 (final review).** The offline row originally leaned on
+the manager's kill, which sits before the swap point only for an ALIVE row: a
+dead row skipped the kill, committed the swap, and `#reviveRow`'s first node
+RPC was what threw — a 409 answering for a restart whose preset had already
+moved. The service now refuses a swap-carrying restart before the manager when
+the row's agent node has no live connection, so the table above is what
+ships; a plain no-swap restart keeps its pre-existing path untouched.
 
 ## 5. Tests
 
