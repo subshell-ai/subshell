@@ -469,6 +469,24 @@ export async function readPaneGeometry(
 }
 
 /**
+ * The pane's cursor, or null — the same no-throw grammar as
+ * {@link readPaneGeometry}. Null ships the replay without its cursor restore,
+ * which is the pre-`pane_cursor` behavior: degraded for a cursor near the top
+ * of the grid, never a wrong guess.
+ */
+export async function readPaneCursor(
+  launcher: NodeLauncher,
+  socket: string,
+  subshellId: string,
+): Promise<{ x: number; y: number } | null> {
+  try {
+    return await launcher.paneCursor(socket, subshellId);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Adds a socket to the set watching `subshellId`.
  *
  * MUST be called after `Object.assign(ws.data, data)`: the map is keyed by

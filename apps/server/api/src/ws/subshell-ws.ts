@@ -24,6 +24,7 @@ import {
   detachViewer,
   paneStreams,
   persistOutputFor,
+  readPaneCursor,
   readPaneGeometry,
   registerViewer,
   sendFrame,
@@ -32,6 +33,16 @@ import {
   type WsData,
   type WsSocket,
 } from "@/ws/viewers.js";
+
+/** How often the fresh-pane log wait re-stats the file (one syscall per tick). */
+const LOG_FILE_POLL_MS = 25;
+/**
+ * How long a fresh pane's log may take to appear before the attach settles
+ * for the poll fallback. Generous against the real interval (the capture
+ * child exec's in ms) and cheap for the rows that legitimately have no log:
+ * a one-time 1.5 s on an attach that was already going to be degraded.
+ */
+const LOG_FILE_WAIT_MS = 1_500;
 
 /**
  * WebSocket attach endpoint: streams a subshell's live output to the client
@@ -181,13 +192,35 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // contains the frames the stream replays) is self-healing on the next
   // frame — replays of full-row repaints are idempotent; skipped diffs are
   // forever. Hence: size sampled first, never a gap.
+  // A terminal opened straight from CREATE attaches here BEFORE the pane's
+  // capture child has exec'd and created the log file — on a fast client the
+  // SPA beats it by single-digit ms. That decision used to be final for the
+  // life of the socket: no log ⇒ pane-poll forever, and pane-poll re-prints
+  // the WHOLE grid on every tick, which strands the client's cursor at the
+  // bottom of the screen while the still-booting shell's prompt lives near
+  // the top (2026-09-23: "prompt at top, typing off-screen", replay=78B,
+  // attach 4 ms after pane birth). Wait briefly for the file instead — it
+  // appears in ms — and keep the poll as the true fallback for a running row
+  // whose log genuinely never shows (swept, deleted by hand).
   let logStart = 0;
-  let hasLog = true;
-  try {
-    logStart = (await Bun.file(data.logFile).stat()).size;
-  } catch {
-    hasLog = false;
+  let hasLog = false;
+  for (let waitedMs = 0; ; waitedMs += LOG_FILE_POLL_MS) {
+    try {
+      logStart = (await Bun.file(data.logFile).stat()).size;
+      hasLog = true;
+      break;
+    } catch {
+      if (detached || waitedMs >= LOG_FILE_WAIT_MS) break;
+      await Bun.sleep(LOG_FILE_POLL_MS);
+    }
   }
+
+  // No readable log bytes at the join, or bytes only from the row's PREVIOUS
+  // life while the current boot is inside the grace — a fresh or restarted
+  // shell mid-init. It has no settled frame to protect, so the fit dance must
+  // not provoke it (below), and its viewer must not be handed the boot byte
+  // stream it is about to receive a capture OF (see `discardQueued`).
+  const booting = paneReadsAsBooting(logStart, row.startedAt);
 
   // Attach to the subshell's shared pump BEFORE the pane is read. The
   // subscription starts QUEUED, so nothing is delivered until the replay has
@@ -198,9 +231,9 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     row.id,
     () =>
       hasLog
-        ? // An empty log tails from 0 like any other size; a log that appears
-          // LATER is out of reach here (both the stat and the watcher need a
-          // file) — the poll fallback covers that pre-existing gap as before.
+        ? // An empty log tails from 0 like any other size. A log that appears
+          // at all gets here through the wait above — the poll source is now
+          // only the never-has-a-log fallback it always was underneath.
           createLogTailSource({ logFile: data.logFile, fromByte: logStart, onOutput: () => persistOutputFor(row.id) })
         : createPanePollSource({
             launcher,
@@ -256,12 +289,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
       const outcome = await fitPaneAndRepaint(launcher, socket, row.id, fit, sizeOf, {
         baseline: logStart,
         canNudge: () => hasLog && !detached,
-        // No readable log bytes at the join, or bytes only from the row's
-        // PREVIOUS life while this boot is inside the grace — a fresh or
-        // restarted shell mid-init. Neither has a settled frame to protect,
-        // and the winch storm duplicates a still-booting prompt (the stray
-        // prompt-at-top on fresh terminals, operator report 2026-09-23).
-        booting: paneReadsAsBooting(logStart, row.startedAt),
+        booting,
       });
       repainted = outcome.repainted;
       nudged = outcome.nudged;
@@ -270,6 +298,15 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
       await Bun.sleep(RESIZE_SETTLE_MS);
     }
   }
+
+  // A booting viewer's replay is about to capture the whole current screen,
+  // so the boot bytes queued behind it are not a gap to preserve — they are
+  // the same frames twice. Drop what is queued NOW; everything from this mark
+  // on flushes at open. Safe in one direction only, and it holds: the capture
+  // is taken after the mark, so every dropped byte is inside the capture's
+  // state (see {@link Subscription.discardQueued} for why replaying them was
+  // painting a second prompt).
+  if (booting) stream.discardQueued();
 
   // Replay = visible grid + the last N reflowed history rows, in ONE paint.
   // N is the OWNER's per-user setting (Account → Terminal history), falling
@@ -281,6 +318,14 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // very next diff, which the client is guaranteed to receive.
   const cap = replayLineCap(await getRequestlessContext().repos.userMeta.getTerminalReplayLines(row.userId));
   const text = await captureStable(launcher, socket, row.id, cap);
+  // The cursor is read immediately after the capture: the replay must END on
+  // the pane's cursor row, and without it the client's cursor sits after the
+  // last row painted — the bottom of the grid — while a fresh terminal's
+  // cursor is just under the prompt near the TOP, so every echo since has
+  // painted at the wrong row (2026-09-23, "prompt at top, typing off
+  // screen"). Null (pane gone / unanswerable) ships the replay without the
+  // restore, exactly the older behavior.
+  const cursor = text !== null ? await readPaneCursor(launcher, socket, row.id) : null;
   // The pane's CONFIRMED grid, announced to every viewer before the
   // replay so the capture is painted onto a grid they already agree
   // with. Null means the pane died between the fit and here, and a
@@ -291,7 +336,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     broadcastToViewers(row.id, { type: "geometry", cols: attachGeometry.cols, rows: attachGeometry.rows });
   }
 
-  const replay = text != null ? captureToReplayText(text) : null;
+  const replay = text != null ? captureToReplayText(text, cursor ?? undefined) : null;
   if (replay != null) {
     sendFrame(ws, { type: "replay", data: replay });
     recordAttachPaint({ subshellId: row.id, preResize, replay, repainted, nudged });

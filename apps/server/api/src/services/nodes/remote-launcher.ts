@@ -5,6 +5,7 @@ import {
   type NodeProbeEntry,
   parseNodeCaptureResult,
   parseNodeLogReadResult,
+  parseNodePaneCursorResult,
   parseNodePaneSizeResult,
   parseNodePathExistsResult,
   parseNodeProbeEntries,
@@ -418,6 +419,27 @@ export class RemoteLauncher implements NodeLauncher {
         logger.debug(`pane_size failed for ${id} on node ${this.#nodeId}: ${err.message}`);
       } else {
         logger.withError(err).warn(`pane_size failed unexpectedly for ${id}`);
+      }
+      return null;
+    }
+  }
+
+  /**
+   * The pane's cursor, from the agent's `pane_cursor` command.
+   *
+   * The attach replay uses it to END on the row the pane's cursor is on;
+   * null (pane gone, node unanswerable) ships the replay without the restore.
+   * Debug-level failure logging like {@link paneSize}: an ordinary node drop
+   * must not howl, and this sits on the hot first-paint path.
+   */
+  async paneCursor(_socket: string, id: string): Promise<{ x: number; y: number } | null> {
+    try {
+      return parseNodePaneCursorResult(await this.#send({ type: "pane_cursor", subshellId: id }, PANE_SIZE_TIMEOUT_MS));
+    } catch (err) {
+      if (err instanceof NodeRpcError) {
+        logger.debug(`pane_cursor failed for ${id} on node ${this.#nodeId}: ${err.message}`);
+      } else {
+        logger.withError(err).warn(`pane_cursor failed unexpectedly for ${id}`);
       }
       return null;
     }

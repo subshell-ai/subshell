@@ -119,6 +119,7 @@ Every command is dispatched with a `ref` (its `jti`) and answered by exactly one
 | `resize` | Set the pane grid. |
 | `capture` | Pane snapshot; optional `lines` prepends reflowed history for attach replay. |
 | `pane_size` | The pane's **real** grid as tmux reports it. Answering `null` (pane gone) is a legal result, distinct from an error. |
+| `pane_cursor` | The pane's cursor in viewport coordinates (`x`, `y`, 0-based), since protocol 13. The attach replay ends with an absolute move to it so the first live byte lands on the right row; `null` (pane gone) ships the replay without the restore. |
 | `log_read` | Byte-ranged read of the pane log. |
 | `tail_start` / `tail_stop` | Subscribe/unsubscribe a byte-offset tail, keyed by `subId`. |
 

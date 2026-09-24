@@ -336,6 +336,34 @@ export function parseNodePaneSizeResult(data: unknown): NodePaneSizeResult | nul
   return { cols, rows };
 }
 
+/** The pane's cursor, in viewport coordinates (0-based, as tmux reports it). */
+export interface NodePaneCursorResult {
+  /** Column within the visible grid. */
+  x: number;
+  /** Row within the visible grid. */
+  y: number;
+}
+
+/**
+ * Validates and narrows a `pane_cursor` command's `result{data}`.
+ *
+ * Same three-answer grammar as {@link parseNodePaneSizeResult}: a cursor, a
+ * legal null (pane gone), or a parse failure that collapses into null. Null
+ * means the replay ships WITHOUT its cursor restore — the pre-`pane_cursor`
+ * behavior, which is degraded for a cursor near the top of the grid and fine
+ * everywhere the capture's last row is the cursor's row.
+ *
+ * @param data - the `data` member of a successful result frame
+ * @returns the cursor, or null when absent/malformed
+ */
+export function parseNodePaneCursorResult(data: unknown): NodePaneCursorResult | null {
+  if (!isRecord(data)) return null;
+  const { x, y } = data as { x?: unknown; y?: unknown };
+  if (!isInt(x) || !isInt(y)) return null;
+  if (x < 0 || y < 0) return null;
+  return { x, y };
+}
+
 /* ------------------------------------------------------------------ */
 /* agent_log_read                                                      */
 /* ------------------------------------------------------------------ */

@@ -41,6 +41,7 @@ const launcherOriginals = {
   capture: defaultLocalLauncher.capture,
   resize: defaultLocalLauncher.resize,
   paneSize: defaultLocalLauncher.paneSize,
+  paneCursor: defaultLocalLauncher.paneCursor,
   signalPaneWinch: defaultLocalLauncher.signalPaneWinch,
 };
 /** Counts `capture` calls — the pane-poll branch's observable heartbeat. */
@@ -73,6 +74,7 @@ function stubLauncher(): void {
   // own "the tmux CLI is not a bun test dependency" claim quietly broken.
   // Cases that want the frame override this.
   defaultLocalLauncher.paneSize = async () => null;
+  defaultLocalLauncher.paneCursor = async () => null;
   defaultLocalLauncher.signalPaneWinch = async () => {
     order.push("winch");
     return false;
@@ -88,6 +90,7 @@ afterEach(() => {
   defaultLocalLauncher.capture = launcherOriginals.capture;
   defaultLocalLauncher.resize = launcherOriginals.resize;
   defaultLocalLauncher.paneSize = launcherOriginals.paneSize;
+  defaultLocalLauncher.paneCursor = launcherOriginals.paneCursor;
   defaultLocalLauncher.signalPaneWinch = launcherOriginals.signalPaneWinch;
   captureCalls = 0;
   captureLinesArg = undefined;
@@ -199,6 +202,66 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     // RED today: the watcher and its timer outlived the disconnect and stream
     // the appended bytes on the dead socket.
     expect(sent.slice(framesAtDisconnect)).toEqual([]);
+  });
+
+  it("waits for a fresh pane's log to appear and then TAILS it — not the whole-grid poll", async () => {
+    // A terminal opened straight from CREATE attaches before pipe-pane's
+    // child has even exec'd (measured: 4 ms on a local client). The decision
+    // used to be made at that instant and stuck for the socket's life: no
+    // log ⇒ pane-poll, which re-prints the ENTIRE grid each tick and strands
+    // the client's cursor at the bottom while the prompt boots near the top
+    // — the operator's "prompt at top, typing off-screen" (replay=78B of
+    // blank). The wait catches the file moments later, and the tail then
+    // carries the pane's real byte stream: distinguishable here because the
+    // stubbed `capture` answers "SCREEN" — log bytes can only arrive via
+    // the tail.
+    stubLauncher();
+    const row = await seedLocalRow(); // deliberately NO log file yet
+    const attaching = attach(row.userId, row.id);
+    await Bun.sleep(60); // …the pipe-pane child exec's, opening the log…
+    await Bun.write(subshellLogPath(row.id), "boot frame\n");
+    const { sent } = await attaching;
+
+    appendFileSync(subshellLogPath(row.id), "typed echo\n");
+    await Bun.sleep(1300); // fs.watch fires ~instantly; the backstop covers twice
+    expect(sent.some((f) => f.includes("typed echo"))).toBe(true);
+  });
+
+  it("a booting viewer is not handed the boot bytes its replay already shows", async () => {
+    // The ghost-prompt mechanism (browser-verified, 2026-09-23): a fresh
+    // viewer joins at byte 0, receives a capture of the booted screen, and
+    // THEN the queued boot stream — a shell's scroll-region/line-insert
+    // prompt sequences are not idempotent re-applied, so the client paints a
+    // SECOND prompt where its own cursor sits (the bottom). The booting
+    // attach marks its queue before the capture; this pins both halves: the
+    // bytes the capture subsumed are dropped, and bytes after the mark still
+    // stream.
+    stubLauncher();
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), ""); // live row, empty log ⇒ booting
+    const attaching = attach(row.userId, row.id, "&cols=100&rows=50");
+    await Bun.sleep(40); // the shell paints mid-dance…
+    appendFileSync(subshellLogPath(row.id), "boot frame\n");
+    const { sent } = await attaching; // …the watch sees it, the mark drops it
+
+    appendFileSync(subshellLogPath(row.id), "live byte\n");
+    await Bun.sleep(1300);
+    expect(sent.some((f) => f.includes("boot frame"))).toBe(false);
+    expect(sent.some((f) => f.includes("live byte"))).toBe(true);
+  });
+
+  it("still falls back to pane-poll when the log never appears at all", async () => {
+    // The wait is bounded so a row whose log genuinely never shows (swept,
+    // hand-deleted) attaches rather than hangs — and the poll fallback still
+    // feeds the viewer the grid.
+    stubLauncher();
+    const row = await seedLocalRow();
+    const t0 = performance.now();
+    const viewer = await attach(row.userId, row.id);
+    expect(performance.now() - t0).toBeGreaterThanOrEqual(1000); // it waited
+    expect(viewer.closed).toEqual([]); // …then attached, not refused
+    await Bun.sleep(700); // at least one poll tick beyond the first frame
+    expect(viewer.sent.some((f) => f.includes('"type":"output"'))).toBe(true);
   });
 
   it("a SECOND attach joins instead of evicting: both viewers get the same bytes", async () => {
@@ -369,10 +432,44 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     const { repos } = getRequestlessContext();
     await repos.subshells.update(row.id, { startedAt: new Date().toISOString() });
 
-    const viewer = await attach(row.userId, row.id, "&cols=100&rows=50");
+    const _viewer = await attach(row.userId, row.id, "&cols=100&rows=50");
 
     expect(resizeCalls).toEqual([{ cols: 100, rows: 50 }]);
     expect(order).not.toContain("winch");
+  });
+
+  it("ends the replay on the PANE's cursor — the restore every live byte leans on", async () => {
+    // Without it the client's cursor sits after the replay's last row (the
+    // bottom of the grid) while a fresh shell's cursor is under its prompt
+    // near the TOP — 16 rows apart on an 18-row pane, so every echo painted
+    // at the bottom and the operator had to scroll up to type (2026-09-23
+    // browser report). The relay twin lives in remote-subshell-ws.test.ts;
+    // this pins the local attach actually READS `paneCursor` and hands it to
+    // the replay builder.
+    stubLauncher();
+    defaultLocalLauncher.paneCursor = async () => ({ x: 4, y: 2 });
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const viewer = await attach(row.userId, row.id);
+
+    // tmux cursor coords are 0-based, CUP is 1-based: (4,2) -> ESC[3;5H.
+    const replay = JSON.parse(viewer.sent[0]) as { type: string; data: string };
+    expect(replay.type).toBe("replay");
+    expect(replay.data.endsWith("SCREEN\x1b[3;5H")).toBe(true);
+  });
+
+  it("ships the replay WITHOUT a cursor restore when the cursor cannot be read", async () => {
+    // Null is the degraded path, never a guess: a wrong CUP strands every
+    // later byte worse than no CUP.
+    stubLauncher(); // default: paneCursor -> null
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n");
+
+    const viewer = await attach(row.userId, row.id);
+
+    const replay = JSON.parse(viewer.sent[0]) as { type: string; data: string };
+    expect(replay.data).toBe("SCREEN");
 
     cleanupSubshellWs(viewer.ws);
   });

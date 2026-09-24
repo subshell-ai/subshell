@@ -81,6 +81,10 @@ export class FakeNodeLauncher implements NodeLauncher {
   async paneSize(): Promise<{ cols: number; rows: number } | null> {
     return null;
   }
+  /** Null for the same reason as {@link paneSize}: no cursor, no restore. */
+  async paneCursor(): Promise<{ x: number; y: number } | null> {
+    return null;
+  }
   /**
    * False: the fake "cannot deliver a bare SIGWINCH", so the attach path's
    * repaint repair exercises the ±1 resize fallback exactly as before the

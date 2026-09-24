@@ -106,8 +106,18 @@ import type { JsonValue } from "./json.js";
  * concurrent zero-touch work bumps 10→11 for its `ready` fields, and taking
  * 12 here keeps this bump valid in either merge order — while no build ever
  * spoke 11 on main, so nothing deployed is skipped over.
+ *
+ * **12 → 13 is `pane_cursor`.** The attach replay must end with the client's
+ * cursor ON the pane's cursor — a capture otherwise leaves it after the last
+ * row it wrote, and a fresh terminal's cursor sits near the TOP of the grid,
+ * so every later live byte (every echo) painted at the wrong row: the
+ * 2026-09-23 "prompt-at-top, typing-off-screen" browser report. Additive in
+ * shape, and breaking anyway, because the gate is exact-match; a below-13
+ * agent never gets asked (its plane cannot exist — server and node ship
+ * together), and a null or failing answer just means the replay ships
+ * without the restore, which is precisely the pre-13 behavior.
  */
-export const NODE_PROTOCOL_VERSION = 12;
+export const NODE_PROTOCOL_VERSION = 13;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
@@ -599,6 +609,19 @@ export type NodeCommandBody =
        * result, distinct from an error.
        */
       type: "pane_size";
+      subshellId: string;
+    }
+  | {
+      /**
+       * The pane's cursor, in viewport coordinates (0-based, as tmux reports
+       * it) — the remote twin of `pane_size` for the same reason: the attach
+       * replay must END on the row the pane's cursor is on, or every later
+       * live byte paints at a row the pane and the client disagree about
+       * (the 2026-09-23 "prompt-at-top, typing-off-screen" browser report).
+       * Null (pane gone) is a legal result; the caller then ships the replay
+       * without a cursor restore, exactly as it did before this command.
+       */
+      type: "pane_cursor";
       subshellId: string;
     }
   | { type: "probe"; subshellIds: string[] }
@@ -1138,6 +1161,10 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
     case "pane_size": {
       if (typeof value.subshellId !== "string") return null;
       return { type: "pane_size", subshellId: value.subshellId };
+    }
+    case "pane_cursor": {
+      if (typeof value.subshellId !== "string") return null;
+      return { type: "pane_cursor", subshellId: value.subshellId };
     }
     case "capture": {
       if (!isStr(value.subshellId)) return null;

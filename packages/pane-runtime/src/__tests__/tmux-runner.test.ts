@@ -574,6 +574,30 @@ echo "server exited unexpectedly" >&2; exit 1
     runner.killSubshell(socket, "s1");
   });
 
+  it("paneCursor: reads the pane's viewport cursor, and answers null for a gone pane/socket", async () => {
+    // The replay's cursor restore is only as true as this read: it must land
+    // the client's cursor where the pane's actually is (the 2026-09-23
+    // typing-off-screen report came from it being 16 rows away).
+    const socket = freshSocket("panecursor");
+    // Prints only AFTER a beat, so the first read sees a genuinely blank
+    // pane: rows `a`, `b`, then `xyz` on row 2 leaves the cursor at x=3, y=2.
+    runner.newSubshell(socket, "s1", "/tmp", "sh -c 'sleep 0.3; printf \"a\\nb\\nxyz\"; sleep 30'");
+    expect(await runner.paneCursor(socket, "s1")).toEqual({ x: 0, y: 0 });
+
+    await Bun.sleep(450);
+    expect(await runner.paneCursor(socket, "s1")).toEqual({ x: 3, y: 2 });
+
+    // GONE means gone: killed first (the server exits with its last session).
+    // A bogus -t against a LIVE server is deliberately NOT tested as null —
+    // tmux's display-message falls back to the current pane for formats that
+    // need no window context, and the real callers never present that case
+    // (one session per socket, and the cursor is read right behind a
+    // capture that already named the same target).
+    runner.killSubshell(socket, "s1");
+    expect(await runner.paneCursor(socket, "s1")).toBeNull();
+    expect(await runner.paneCursor(freshSocket("panecursor-absent"), "s1")).toBeNull();
+  });
+
   describe("cleanSocket", () => {
     it("unlinks under TMUX_TMPDIR, which is where tmux put it", async () => {
       // The bug this pins: the old code joined process.env.TMPDIR, which on

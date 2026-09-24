@@ -401,9 +401,13 @@ Three invariants on that path are load-bearing and easy to regress:
   cursor name the wrong row. Every later relative-positioned frame then lands
   on the wrong rows — the long-running "reopen a subshell and it is garbled"
   report. Verify with `apps/server/web/scripts/probe-replay.ts`.
-  `captureToReplayText` still accepts an optional cursor and appends an
-  absolute CUP; **no caller passes one today** (that was the quiet join's
-  half). It is kept, and tested, for whatever replaces it.
+  `captureToReplayText` takes the pane's cursor and appends an absolute CUP,
+  so the replay ENDS where the pane is, not at the bottom of the grid. Both
+  attach paths read it via `readPaneCursor` (remote: the `pane_cursor`
+  command, protocol 13; a null cursor ships the replay without the restore —
+  the pre-13 behavior, degraded only for a cursor near the top). Without the
+  restore every live byte after a replay painted one row too low — the
+  2026-09-23 "prompt at the top, typing off-screen" report.
 
 ### Error contract
 

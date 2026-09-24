@@ -57,6 +57,21 @@ export interface Subscription {
    * after the replay has been sent — see the module docstring.
    */
   open(): void;
+  /**
+   * Drops everything queued so far; bytes arriving after the mark still
+   * flush on {@link open}. For a BOOTING viewer only, taken immediately
+   * BEFORE its replay capture: the capture (which is the pane's absolute
+   * state) will therefore contain every dropped byte, and the flush carries
+   * only what the replay has not painted. Without the mark, a fresh viewer
+   * of a booting pane is handed the whole boot byte stream AFTER the capture
+   * of the same screen — full-row repaints re-apply harmlessly, but the
+   * transitional sequences a shell prints once (p10k's scroll-region +
+   * line-insert prompt dance) re-apply as a second, misplaced prompt (the
+   * 2026-09-23 ghost-prompt-at-bottom). Other viewers on the same pump still
+   * receive everything: the drop is per-viewer, the pump's join point
+   * unchanged.
+   */
+  discardQueued(): void;
   /** Detaches this viewer. Idempotent, and safe to call after a later attach. */
   close(): void;
 }
@@ -152,6 +167,9 @@ export function createPaneStreamRegistry(): PaneStreamRegistry {
               // See above — a failed flush is a gone socket, not a stream fault.
             }
           }
+        },
+        discardQueued() {
+          viewer.queued.length = 0;
         },
         close() {
           // Guard on the CAPTURED stream, not the current one: a stale handle

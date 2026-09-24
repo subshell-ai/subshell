@@ -1040,6 +1040,37 @@ describe("paneSize — the pane's confirmed grid, or nothing", () => {
   });
 });
 
+describe("paneCursor — the pane's confirmed cursor, or nothing", () => {
+  it("asks the agent and returns the viewport cursor", async () => {
+    const h = makeHarness();
+    h.answer("pane_cursor", { x: 4, y: 2 });
+    expect(await h.launcher.paneCursor("sock", "s1")).toEqual({ x: 4, y: 2 });
+    expect(h.calls.at(-1)?.cmd).toEqual({ type: "pane_cursor", subshellId: "s1" });
+  });
+
+  it("answers null for a pane the agent says is gone", async () => {
+    const h = makeHarness();
+    h.answer("pane_cursor", null);
+    expect(await h.launcher.paneCursor("sock", "s1")).toBeNull();
+  });
+
+  it("answers null rather than throwing when the node drops mid-question", async () => {
+    const h = makeHarness();
+    h.answer("pane_cursor", () => {
+      throw new Error("node offline");
+    });
+    expect(await h.launcher.paneCursor("sock", "s1")).toBeNull();
+  });
+
+  it("refuses a malformed cursor instead of passing it on as a position", async () => {
+    // The replay's CUP pins every later live byte's row; a negative or a
+    // fraction would strand the client's cursor somewhere the pane cannot be.
+    const h = makeHarness();
+    h.answer("pane_cursor", { x: -1, y: 2 });
+    expect(await h.launcher.paneCursor("sock", "s1")).toBeNull();
+  });
+});
+
 /* ------------------------------------------------------------------ */
 /* Task 7 fix round (I1): the PRODUCTION default of the detect kick.   */
 /* The unit seams above prove WHEN it fires; this proves it sends a    */

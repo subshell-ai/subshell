@@ -104,6 +104,21 @@ export async function execPaneSize(ctx: CommandContext, cmd: Cmd<"pane_size">): 
   return { ok: true, data: await ctx.tmux.paneSize(socket, cmd.subshellId) };
 }
 
+/**
+ * `pane_cursor`: the pane's cursor in viewport coordinates, or null when the
+ * pane is gone.
+ *
+ * The attach replay must END on the row the pane's cursor is on — a capture
+ * paints the grid and leaves the browser's cursor after the last row it wrote,
+ * which for a fresh terminal (cursor under a prompt near the TOP) misplaces
+ * every later live byte. The control plane falls back to the pre-command
+ * behavior on a null, so an unreachable pane costs only the restore.
+ */
+export async function execPaneCursor(ctx: CommandContext, cmd: Cmd<"pane_cursor">): Promise<CommandResult> {
+  const socket = await resolveSocket(ctx, cmd.subshellId);
+  return { ok: true, data: await ctx.tmux.paneCursor(socket, cmd.subshellId) };
+}
+
 /** `capture` (spec §6.3): the pane's screen as a bare string (contract: `parseNodeCaptureResult`). Optional `lines` prepends reflowed history rows (attach replay). */
 export async function execCapture(ctx: CommandContext, cmd: Cmd<"capture">): Promise<CommandResult> {
   const socket = await resolveSocket(ctx, cmd.subshellId);

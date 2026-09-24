@@ -166,7 +166,7 @@ describe("remote attach through the real handleSubshellWs dispatch", () => {
       // `pane_size` closes the list even though this attach carries NO size:
       // the pane has a grid whether or not this client declared one, and the
       // client is told it either way.
-      expect(sim.cmdTypes()).toEqual(["probe", "log_read", "tail_start", "capture", "pane_size"]);
+      expect(sim.cmdTypes()).toEqual(["probe", "log_read", "tail_start", "capture", "pane_cursor", "pane_size"]);
       expect(sim.cmdsOf("capture")).toEqual([{ type: "capture", subshellId: id, lines: 100 }]);
       expect(sim.cmdsOf("tail_start")).toEqual([
         { type: "tail_start", subshellId: id, subId: expect.any(String), fromByte: LOG.length },
