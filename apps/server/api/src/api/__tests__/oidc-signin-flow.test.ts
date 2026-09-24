@@ -22,8 +22,11 @@ import { type FakeIdp, startFakeIdp } from "./helpers/fake-oidc.js";
  * receives (`/login?error=<code>[&error_description=…]`), not as a unit-level
  * call of the policy function. Cases name the spec section they prove.
  *
- * What the matrix deliberately does NOT assert: the `auth.sign_in` audit
- * invariant (Task 11), and anything about the UI mapping of a code.
+ * What the matrix deliberately does NOT assert: anything about the UI
+ * mapping of a code. The `auth.sign_in` audit invariant (spec §4: exactly one
+ * row per OIDC success, none per refusal, and the password path keeps
+ * spelling itself `password`) IS asserted, per case, with the target user's
+ * rows cleared before each flow so the counts are exact.
  *
  * Shared-DB discipline: the per-process temp database is shared by every test
  * file in the invocation, so this file creates its doors and users with random
@@ -187,6 +190,47 @@ async function sessionCount(userId: string): Promise<number> {
   return Number(rows[0]?.n ?? 0);
 }
 
+interface SignInRow {
+  actorUserId: string | null;
+  targetType: string | null;
+  targetId: string | null;
+  metadataJson: string | null;
+}
+
+/** The file's audit lens: every `auth.sign_in` row whose actor is `userId`. */
+async function signInRows(userId: string): Promise<SignInRow[]> {
+  return (await db
+    .selectFrom("auditEvents")
+    .select(["actorUserId", "targetType", "targetId", "metadataJson"])
+    .where("action", "=", "auth.sign_in")
+    .where("actorUserId", "=", userId)
+    .execute()) as unknown as SignInRow[];
+}
+
+/**
+ * Drops one user's `auth.sign_in` rows so the next flow's count is exact.
+ * Shared-DB discipline: scoped to the actor, never a blanket delete — other
+ * suites sign in constantly against the same per-process database.
+ */
+async function clearSignInRows(userId: string): Promise<void> {
+  await db.deleteFrom("auditEvents").where("action", "=", "auth.sign_in").where("actorUserId", "=", userId).execute();
+}
+
+/** Instance-wide `auth.sign_in` count, for refusals that name no user at all. */
+async function countSignInRows(): Promise<number> {
+  const row = await db
+    .selectFrom("auditEvents")
+    .select((eb) => eb.fn.count("id").as("n"))
+    .where("action", "=", "auth.sign_in")
+    .executeTakeFirst();
+  return Number(row?.n ?? 0);
+}
+
+/** Parses a row's metadata, failing loudly (not silently) on a null row. */
+function metaOf(row: SignInRow | undefined): Record<string, unknown> {
+  return JSON.parse(row?.metadataJson ?? "null") as Record<string, unknown>;
+}
+
 async function purgeByEmail(email: string): Promise<void> {
   const id = await userIdFor(email);
   if (id) {
@@ -229,7 +273,11 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
   });
 
   // Case 1 — §4 bullet 1: a new email at a plain approved door is created and
-  // signed in on first arrival. (The `auth.sign_in` audit row is Task 11's.)
+  // signed in on first arrival — and the arrival writes EXACTLY ONE
+  // `auth.sign_in` (spec §4): the actor/target is the signed-in user's id
+  // (the cookie→session-table lookup resolving to the RIGHT user is the
+  // proof, not merely that some row appeared), the method names the door, and
+  // the never-values rule holds on the serialized row.
   it("1. create through an approved door lands a session", async () => {
     const door = await mkDoor();
     const email = emailN("create");
@@ -240,6 +288,17 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     expect(id).toBeTruthy();
     expect(await meta.approvalState(id)).toBe("approved");
     expect(await accountProviders(id)).toEqual([door]);
+
+    const rows = await signInRows(id); // the user is new: any row is THIS flow's
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.targetType).toBe("user");
+    expect(rows[0]?.targetId).toBe(id);
+    expect(metaOf(rows[0])).toEqual({ method: `oidc:${door}`, userId: id });
+    const serialized = JSON.stringify(rows);
+    expect(serialized).not.toContain(email);
+    expect(serialized).not.toContain(r.token ?? " ");
+    expect(serialized).not.toContain((r.token ?? "").split(".")[0]); // the raw token, not just the signed cookie
+
     await purgeByEmail(email);
   });
 
@@ -260,10 +319,18 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     });
     expect(await emailVerifiedFlag(id)).toBe(0);
 
+    await clearSignInRows(id); // a pre-existing user: start the count at zero
     const r = await runFlow(door, profileFor(email));
     expect(r.kind).toBe("session");
     expect(await accountProviders(id)).toContain(door);
     expect(await emailVerifiedFlag(id)).toBe(1);
+
+    // The LINK arrival is one sign-in too — and its row names this user,
+    // proving the callback's session-token lookup lands on the right account.
+    const rows = await signInRows(id);
+    expect(rows).toHaveLength(1);
+    expect(metaOf(rows[0])).toEqual({ method: `oidc:${door}`, userId: id });
+
     await purgeByEmail(email);
   });
 
@@ -294,8 +361,10 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
       .executeTakeFirstOrThrow();
     expect(m.approvalState).toBe("pending");
     expect(m.pendingArrivedAt).not.toBeNull();
-    // No session was minted behind the refusal.
+    // No session was minted behind the refusal — and §4's audit half: the
+    // refusal writes no `auth.sign_in` either (the session-hook shape).
     expect(await sessionCount(approvalUserId)).toBe(0);
+    expect(await signInRows(approvalUserId)).toHaveLength(0);
   });
 
   // Case 4 — §6: the pending arrival is invisible to the members roster, and
@@ -326,10 +395,13 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     const stale = "2026-01-01T00:00:00.000Z";
     await meta.setApproval(approvalUserId, "pending", { arrivedAt: stale });
 
+    await clearSignInRows(approvalUserId);
     const r = await runFlow(approvalDoor, approvalProfile);
     expect(r.kind).toBe("error");
     expect(r.code).toBe("pending_approval");
     expect(r.description).toBe(approvalEmail);
+    // The hook-code refusal shape writes no audit row either.
+    expect(await signInRows(approvalUserId)).toHaveLength(0);
 
     const m = await db
       .selectFrom("userMeta")
@@ -351,9 +423,17 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
   // case pins.
   it("6. after an admin approval the next arrival signs straight in", async () => {
     await meta.setApproval(approvalUserId, "approved");
+    await clearSignInRows(approvalUserId);
     const r = await runFlow(approvalDoor, approvalProfile);
     expect(r.kind).toBe("session");
     expect(r.token).toBeTruthy();
+
+    // §4's invariant on the SAME actor across the lifecycle: the two refused
+    // arrivals (cases 3/5) wrote nothing, so this success is the user's only
+    // sign_in row — one row per SUCCESS, none per refusal, cumulatively.
+    const rows = await signInRows(approvalUserId);
+    expect(rows).toHaveLength(1);
+    expect(metaOf(rows[0])).toEqual({ method: `oidc:${approvalDoor}`, userId: approvalUserId });
   });
 
   // Case 7 — §4's indistinguishability: a rejected person gets the PENDING
@@ -361,12 +441,16 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
   // NOT re-stamped (§6: it answers the queue's view only while pending).
   it("7. rejection answers the identical pending wire, and does not re-enter the queue", async () => {
     await meta.setApproval(approvalUserId, "rejected");
+    await clearSignInRows(approvalUserId);
     expect((await runFlow(approvalDoor, approvalProfile)).code).toBe("pending_approval");
 
     const r = await runFlow(approvalDoor, approvalProfile);
     expect(r.kind).toBe("error");
     expect(r.code).toBe("pending_approval");
     expect(r.description).toBe(approvalEmail);
+    // A rejected person's refused knocks write no audit row (three flows in
+    // this case: two refusals here, case 6's success was cleared above).
+    expect(await signInRows(approvalUserId)).toHaveLength(0);
     const m = await db
       .selectFrom("userMeta")
       .selectAll()
@@ -386,11 +470,15 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     const door = await mkDoor({ registrationEnabled: 0 });
     const email = emailN("closed");
     const before = await realUserCount();
+    const signInBefore = await countSignInRows();
     const r = await runFlow(door, profileFor(email));
     expect(r.kind).toBe("error");
     expect(r.code).toBe("registration_closed");
     expect(await userIdFor(email)).toBeUndefined();
     expect(await realUserCount()).toBe(before);
+    // No actor exists to scope an audit assertion to, so the instance-wide
+    // count is the lens: the refusal added no `auth.sign_in` anywhere.
+    expect(await countSignInRows()).toBe(signInBefore);
   });
 
   // Case 9 — §5's link gate, first layer: an UNVERIFIED profile email may not
@@ -409,12 +497,14 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
       passwordHash: await hashPassword("t7-pass-1"),
       role: "user",
     });
+    await clearSignInRows(id);
     const r = await runFlow(door, profileFor(email, { email_verified: undefined }));
     expect(r.kind).toBe("error");
     expect(r.code).toBe("account_not_linked");
     expect(await sessionCount(id)).toBe(0);
     expect(await accountProviders(id)).toEqual(["credential"]);
     expect(await emailVerifiedFlag(id)).toBe(0);
+    expect(await signInRows(id)).toHaveLength(0); // better-auth's own gate still writes no audit row
     await purgeByEmail(email);
   });
 
@@ -432,11 +522,13 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     fixtureEmails.push(email);
     const before = await realUserCount();
 
+    await clearSignInRows(id);
     const r = await runFlow(door, profileFor(email));
     expect(r.kind).toBe("error");
     expect(r.code).toBe("domain_not_allowed");
     expect(await accountProviders(id)).toEqual(["credential"]);
     expect(await realUserCount()).toBe(before);
+    expect(await signInRows(id)).toHaveLength(0); // refused before the link/create decision, and before any row
     await purgeByEmail(email);
   });
 
@@ -447,7 +539,7 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
   // because the config build reads the table too.
   it("11. closing the E-mail door 403s password sign-in; the OIDC door keeps working", async () => {
     const email = emailN("pw-door");
-    await users.createUser({
+    const pwId = await users.createUser({
       email,
       name: email,
       passwordHash: await hashPassword("t7-pass-1"),
@@ -462,7 +554,14 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
         }),
       ) as unknown as Promise<Response>;
 
+    // Audit seam: the password path must keep spelling itself `password`
+    // even after the same after-hook grew the OIDC `/callback/` branch — a
+    // `/sign-in/email` act can never be claimed by an `oidc:` row.
+    await clearSignInRows(pwId);
     expect((await signIn()).status).toBe(200); // precondition: the credential works while the door is open
+    let pwRows = await signInRows(pwId);
+    expect(pwRows).toHaveLength(1);
+    expect(metaOf(pwRows[0])).toEqual({ method: "password" });
 
     await sql`UPDATE auth_providers SET sign_in_enabled = 0 WHERE id = 'email'`.execute(db);
     invalidateAuth();
@@ -470,17 +569,35 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     expect(closed.status).toBe(403);
     const body = (await closed.json().catch(() => null)) as { message?: string } | null;
     expect(String(body?.message ?? "")).toContain("disabled");
+    expect(await signInRows(pwId)).toHaveLength(1); // the refused password act writes nothing
 
     // The refusal is the E-mail door's, not a blanket auth outage.
     const oidc = await mkDoor();
     const okEmail = emailN("oidc-after-email-closed");
     const r = await runFlow(oidc, profileFor(okEmail));
     expect(r.kind).toBe("session");
+    const okId = (await userIdFor(okEmail)) ?? "";
+    expect(okId).toBeTruthy();
+    expect(await signInRows(okId)).toEqual([
+      {
+        actorUserId: okId,
+        targetType: "user",
+        targetId: okId,
+        metadataJson: JSON.stringify({ method: `oidc:${oidc}`, userId: okId }),
+      },
+    ]); // exactly one, right actor, right method — while the closed E-mail door is irrelevant to it
+    // ...and the password user is still holding ONLY its own password row.
+    pwRows = await signInRows(pwId);
+    expect(pwRows).toHaveLength(1);
+    expect(metaOf(pwRows[0])).toEqual({ method: "password" });
     await purgeByEmail(okEmail);
 
     await sql`UPDATE auth_providers SET sign_in_enabled = 1 WHERE id = 'email'`.execute(db);
     invalidateAuth();
     expect((await signIn()).status).toBe(200);
+    pwRows = await signInRows(pwId);
+    expect(pwRows).toHaveLength(2);
+    expect(pwRows.every((row) => metaOf(row).method === "password")).toBe(true); // two genuine acts, neither mislabeled
     await purgeByEmail(email);
   });
 
@@ -493,6 +610,7 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     invalidateAuth();
     const email = emailN("signup-closed");
     const before = await realUserCount();
+    const signInBefore = await countSignInRows();
     const res = (await app.fetch(
       new Request(`${ORIGIN}/api/auth/sign-up/email`, {
         method: "POST",
@@ -504,6 +622,7 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     expect(((await res.json()) as { code?: string }).code).toBe("registration_closed");
     expect(await userIdFor(email)).toBeUndefined();
     expect(await realUserCount()).toBe(before);
+    expect(await countSignInRows()).toBe(signInBefore); // a refused sign-up is no sign-in act
 
     // Back to the seeded default the sibling suites assume (NULL = legacy
     // dynamic window), NOT to 1 — the shared DB's gate posture belongs to the

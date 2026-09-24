@@ -1,4 +1,6 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
+import { sql } from "kysely";
+import { db } from "@/db/index.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import { logger } from "@/utils/logger.js";
 
@@ -15,6 +17,12 @@ import { logger } from "@/utils/logger.js";
  *   otherwise spam the trail that exists to reconstruct incidents, and
  *   failures already live in the login-backoff domain (`authAttempts` +
  *   the rate-limit route's log lines).
+ *   OIDC provider sign-ins ride the SAME hook through a dedicated
+ *   `/callback/` branch (spec 2026-09-24 §4): their success is a thrown FOUND
+ *   redirect whose result payload names no user, so the actor is looked up in
+ *   the `session` table against the raw token carried by the response's own
+ *   `session_token` cookie, and the metadata is `{ method, userId }` —
+ *   `method` spelled `oidc:<provider id>`.
  * - `auth.sign_out` — written from `databaseHooks.session.delete.after`,
  *   which fires exactly when a session row is ACTUALLY deleted (the hook runs
  *   per found entity, so a sign-out against an already-dead cookie deletes
@@ -29,8 +37,13 @@ import { logger } from "@/utils/logger.js";
  * the same rule).
  */
 
-/** How the credential was presented, recorded in `auth.sign_in` metadata. */
-export type SignInMethod = "password" | "passkey";
+/**
+ * How the credential was presented, recorded in `auth.sign_in` metadata.
+ * The `oidc:` arm carries the `auth_providers` row id of the door that signed
+ * the user in — an id only, never the door's name, issuer, or the person's
+ * address (the auth-family never-values rule above).
+ */
+export type SignInMethod = "password" | "passkey" | `oidc:${string}`;
 
 /**
  * The endpoint paths whose successful completion is an audited sign-in, with
@@ -222,7 +235,124 @@ export function hasActiveEmergencyMark(nonce: string | null): boolean {
 /** The minimal slice of better-auth's after-hook context this module reads. */
 interface AuthAfterHookContext extends AuthHookRequestSlice {
   path?: unknown;
-  context?: { returned?: unknown };
+  /** Route params; the callback branch reads `id` (the door row id). */
+  params?: unknown;
+  context?: {
+    returned?: unknown;
+    /**
+     * The response headers dispatch merged before running the after hooks
+     * (better-auth `dist/api/dispatch.mjs`); for the callback's thrown FOUND
+     * redirect these are the redirect's own headers — Location and the
+     * freshly minted session cookies alike (measured in flow-matrix probes).
+     */
+    responseHeaders?: unknown;
+  };
+}
+
+/** Where better-auth mounts every OAuth2 provider callback (spec §4's seam). */
+const OAUTH_CALLBACK_PREFIX = "/callback/";
+
+/**
+ * Both spellings of better-auth's session cookie name — the `__Secure-` arm
+ * is what `advanced.useSecureCookies` (set when the baseURL is https) prepends;
+ * the plain spelling is what loopback http tests carry. The chunked
+ * `<name>.<n>` variants never apply here: a signed session token is ~90 chars,
+ * far under the chunking threshold.
+ */
+const SESSION_TOKEN_COOKIE_NAMES = new Set(["better-auth.session_token", "__Secure-better-auth.session_token"]);
+
+/**
+ * Pull the raw session token out of the callback response's own Set-Cookie
+ * headers — the actor proof for an OIDC sign-in.
+ *
+ * The cookie value is NOT the raw token: better-call signs every cookie it
+ * sets (`signCookieValue`: `encodeURIComponent("<value>.<base64 HMAC>")`), so
+ * the wire value is `<raw token>.<signature>`, percent-encoded. The signature
+ * contains no dot and `encodeURIComponent` never encodes one, so the LAST dot
+ * splits the pair, and only the left half needs decoding back to what the
+ * `session` table stores. The signature is deliberately NOT verified here:
+ * the DB lookup against the token IS the verification — a forged cookie
+ * resolves to no session row and writes no row.
+ */
+function sessionTokenFromResponse(headers: Headers): string | undefined {
+  // Headers.getSetCookie is the only way to see MULTIPLE Set-Cookie entries
+  // (`get("set-cookie")` folds them); present on Bun/undici, guarded anyway.
+  const lines = typeof headers.getSetCookie === "function" ? headers.getSetCookie() : [];
+  for (const line of lines) {
+    const pair = line.split(";")[0] ?? "";
+    const eq = pair.indexOf("=");
+    if (eq < 1 || !SESSION_TOKEN_COOKIE_NAMES.has(pair.slice(0, eq))) continue;
+    // An EXPIRED entry (delete-session-cookie writes the name with an empty
+    // value) carries no token; `continue` rather than return so a later
+    // fresh entry still wins.
+    const value = pair.slice(eq + 1);
+    if (value === "") continue;
+    const dot = value.lastIndexOf(".");
+    const raw = dot > 0 ? value.slice(0, dot) : value;
+    // A percent-mangling this decoder cannot reverse is, conservatively, no
+    // token at all — the catch falls through to the next cookie entry.
+    try {
+      const token = decodeURIComponent(raw);
+      if (token !== "") return token;
+    } catch {}
+  }
+  return undefined;
+}
+
+/**
+ * The `/callback/` branch of the after hook (spec 2026-09-24 §4): one
+ * `auth.sign_in` row per SUCCESSFUL OIDC sign-in, none for any refusal.
+ *
+ * Why a dedicated branch: the callback's success is a THROWN `FOUND` APIError
+ * (`c.redirect`), so there is no JSON payload and `context.returned.user`
+ * — the password/passkey success test — does not exist here. The measured
+ * shapes (all proven by the flow matrix):
+ *
+ * - success: `location` to the callback URL (no `error=`), AND a fresh
+ *   `session_token` cookie whose raw token exists in the `session` table;
+ * - every refusal — both the generic session-hook one (`unable_to_create_
+ *   session`) and the hook-code ones (`pending_approval`, `registration_
+ *   closed`, `domain_not_allowed`, `account_not_linked`) — puts `error=` in
+ *   the Location query and mints no session cookie;
+ * - the form-POST→GET relay also answers a clean Location but mints no
+ *   session, and the DB lookup refuses to name an actor for it.
+ *
+ * The provider id comes from the ROUTE PARAM, not the brief's path slice:
+ * measured in the after-hook context, `path` carries the endpoint PATTERN
+ * (`/callback/:id` — better-call's own context field), so `params.id` is the
+ * only site that holds the concrete door id.
+ *
+ * Every failure inside — a throwing sql, a throwing sink — is caught by the
+ * caller's outer handler and warns: audit never breaks a sign-in.
+ */
+async function auditOidcCallbackSignIn(ctx: AuthAfterHookContext): Promise<void> {
+  const params = ctx.params as { id?: unknown } | undefined;
+  const providerId = typeof params?.id === "string" ? params.id : "";
+  if (providerId === "") return;
+  const response = ctx.context?.responseHeaders;
+  if (!(response instanceof Headers)) return;
+  const location = response.get("location");
+  if (!location) return; // not a redirect ⇒ nothing this branch recognizes as a completed sign-in
+  const q = location.indexOf("?");
+  const query = q === -1 ? "" : location.slice(q + 1);
+  if (/(?:^|&)error=/.test(query)) return; // both refusal shapes carry error= in the query (measured)
+  const token = sessionTokenFromResponse(response);
+  if (!token) return;
+  // Raw SQL: better-auth's `session` table is outside the typed Database
+  // (camelCase physical columns, same spelling the flow matrix queries with).
+  const { rows } = await sql<{ userId: string }>`SELECT userId FROM session WHERE token = ${token}`.execute(db);
+  const userId = typeof rows[0]?.userId === "string" ? rows[0].userId : "";
+  if (userId === "") return; // a cookie matching no live session row is no sign-in
+  const method: SignInMethod = `oidc:${providerId}`;
+  await writeAudit({
+    actorUserId: userId,
+    action: "auth.sign_in",
+    targetType: "user",
+    targetId: userId,
+    // ids only: the door id and the user id — never the email, the token, or
+    // a cookie value (the auth-family never-values rule).
+    metadataJson: JSON.stringify({ method, userId }),
+  });
 }
 
 /**
@@ -274,7 +404,17 @@ export function setAuditWriterForTests(writer: AuditWriter | null): void {
 export async function auditAuthAfterRequest(rawCtx: unknown): Promise<object> {
   try {
     const ctx = (rawCtx ?? {}) as AuthAfterHookContext;
-    const method = typeof ctx.path === "string" ? SIGN_IN_ENDPOINT_METHODS[ctx.path] : undefined;
+    const path = typeof ctx.path === "string" ? ctx.path : "";
+    // OIDC callbacks are an endpoint-shape the table below cannot express (the
+    // success is a thrown FOUND redirect, its actor names nobody but the
+    // response cookies), so they are decided here and RETURN — the table
+    // lookup can never see a `/callback/` request, and no password/passkey
+    // act can ever land here. (spec 2026-09-24 §4)
+    if (path.startsWith(OAUTH_CALLBACK_PREFIX)) {
+      await auditOidcCallbackSignIn(ctx);
+      return {};
+    }
+    const method = SIGN_IN_ENDPOINT_METHODS[path];
     if (!method) return {};
     // On success better-auth leaves the endpoint's JSON payload in
     // `context.returned`; on failure it leaves the APIError there instead. The
