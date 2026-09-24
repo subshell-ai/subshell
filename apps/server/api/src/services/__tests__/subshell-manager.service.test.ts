@@ -669,10 +669,17 @@ describe("reconcile notifications", () => {
 });
 
 describe("buildHarnessCommand", () => {
+  /** The claude plugin this build ships; getHarness's undefined answer is the miss. */
+  function claudePlugin() {
+    const plugin = getHarness("claude-code");
+    if (!plugin) throw new Error("harness claude-code missing");
+    return plugin;
+  }
+
   /** Builds a claude command with the given preset env (injection tests). */
   const cmdWithEnv = (env: Record<string, string>) =>
     buildHarnessCommand(
-      getHarness("claude-code")!,
+      claudePlugin(),
       "/usr/bin/claude",
       "/tmp/ws",
       { name: "p", env, flags: [], settings: null, configIsolation: false },
@@ -680,7 +687,7 @@ describe("buildHarnessCommand", () => {
     );
 
   it("curates env and quotes argv pieces", () => {
-    const plugin = getHarness("claude-code")!;
+    const plugin = claudePlugin();
     const cmd = buildHarnessCommand(
       plugin,
       "/usr/bin/claude",

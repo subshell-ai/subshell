@@ -51,11 +51,13 @@ function seedKey(handle: Database, row: { id: string; metadata: string; permissi
 
 /** Reads back the two JSON columns the rewrite touches. */
 function readKey(handle: Database, id: string): { metadata: string | null; permissions: string | null } {
-  return handle
+  const row = handle
     .prepare<{ metadata: string | null; permissions: string | null }, [string]>(
       "SELECT metadata, permissions FROM apikey WHERE id = ?",
     )
-    .get(id)!;
+    .get(id);
+  if (!row) throw new Error(`apikey row ${id} missing`);
+  return row;
 }
 
 /** The exact legacy shape `up()` rewrites (pre-rename session-tokens mint). */
@@ -70,14 +72,15 @@ describe("migration 0019-subshell-rename: apikey rewrite", () => {
     await renameMigration.up(db);
 
     const row = readKey(handle, "k-legacy");
+    if (!row.metadata || !row.permissions) throw new Error("apikey columns missing on k-legacy");
     // Parse-compare (json_patch preserves unrelated keys; may reorder others).
-    expect(JSON.parse(row.metadata!)).toEqual({
+    expect(JSON.parse(row.metadata)).toEqual({
       name: "sess:legacy", // untouched keys survive the patch
       kind: "subshell", // auth-guard's discriminator (meta.kind === "subshell")
       subshellId: "sess-123", // auth-guard's id read (typeof meta.subshellId === "string")
     });
     // requirePerm's resource vocabulary: `subshells`, not `sessions`.
-    expect(JSON.parse(row.permissions!)).toEqual({
+    expect(JSON.parse(row.permissions)).toEqual({
       channels: ["read", "write"],
       subshells: ["read", "write"],
     });
@@ -114,19 +117,22 @@ describe("migration 0019-subshell-rename: apikey rewrite", () => {
 
     // Back to exactly what the pre-rename mint wrote.
     const reverted = readKey(handle, "k-legacy");
-    expect(JSON.parse(reverted.metadata!)).toEqual({ name: "sess:legacy", kind: "session", sessionId: "sess-123" });
-    expect(JSON.parse(reverted.permissions!)).toEqual({ channels: ["read", "write"], sessions: ["read", "write"] });
+    if (!reverted.metadata || !reverted.permissions) throw new Error("apikey columns missing on k-legacy");
+    expect(JSON.parse(reverted.metadata)).toEqual({ name: "sess:legacy", kind: "session", sessionId: "sess-123" });
+    expect(JSON.parse(reverted.permissions)).toEqual({ channels: ["read", "write"], sessions: ["read", "write"] });
     // The down() metadata pass is gated on kind === "subshell" — a system key
     // must never gain a phantom sessionId.
     expect(readKey(handle, "k-system")).toEqual({ metadata: '{"kind":"system"}', permissions: '{"*":["*"]}' });
 
     await renameMigration.up(db);
-    expect(JSON.parse(readKey(handle, "k-legacy").metadata!)).toEqual({
+    const reupped = readKey(handle, "k-legacy");
+    if (!reupped.metadata || !reupped.permissions) throw new Error("apikey columns missing on k-legacy");
+    expect(JSON.parse(reupped.metadata)).toEqual({
       name: "sess:legacy",
       kind: "subshell",
       subshellId: "sess-123",
     });
-    expect(JSON.parse(readKey(handle, "k-legacy").permissions!)).toEqual({
+    expect(JSON.parse(reupped.permissions)).toEqual({
       channels: ["read", "write"],
       subshells: ["read", "write"],
     });

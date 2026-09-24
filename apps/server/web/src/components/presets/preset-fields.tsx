@@ -7,8 +7,8 @@ import { Segmented } from "@/components/ui/segmented";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useHarnessSchema } from "@/hooks/use-harness-schema";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
+import { parseEnvPaste, parseFlagsPaste } from "@/lib/preset-command";
 import type { PresetFormValue } from "@/lib/preset-form";
-import { parseEnvPaste, parseFlagsPaste } from "@/lib/preset-form";
 import { buildAgentOptions } from "@/lib/subshell-compat";
 
 /**

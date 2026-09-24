@@ -351,7 +351,6 @@ describe("normalizePaneTitle", () => {
   it("drops 8-bit C1 controls, which the escape sweep cannot see", () => {
     expect(norm("\u009b31mhello")).toBe("31mhello");
     expect(norm("\u009dtitle\u009c")).toBe("title");
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting none survive
     expect(norm("a\u0080\u009fb")).not.toMatch(/[\u0080-\u009f]/);
   });
 

@@ -25,7 +25,7 @@ test.use({ storageState: ADMIN_STATE });
  * Swept by name rather than by clearing the table, so a preset another spec
  * seeded for itself is never collateral.
  */
-const CREATED_BY_THIS_SPEC = ["E2E shell", "Inline shell"];
+const CREATED_BY_THIS_SPEC = ["E2E shell", "Inline shell", "E2E clone source", "E2E clone source (2)"];
 
 test.afterEach(async ({ page }) => {
   const res = await page.request.get("/api/presets");
@@ -152,4 +152,47 @@ test("the launch form's + creates a preset inline and selects it", async ({ page
   const row = rows.find((r) => r.name === "Inline shell");
   if (!row) throw new Error("the inline create must persist a real row");
   expect((await page.request.delete(`/api/presets/${row.id}`)).ok()).toBe(true);
+});
+
+test("clone a preset from the row's action menu", async ({ page }) => {
+  await page.goto("/presets");
+  await page.getByRole("button", { name: "New preset" }).click();
+  await page.locator("#preset-harness").click();
+  await page.getByRole("option", { name: "pi", exact: true }).click();
+  await page.fill("#preset-name", "E2E clone source");
+  await page.getByRole("button", { name: "Create preset" }).click();
+  await expect(page.getByText("E2E clone source", { exact: true })).toBeVisible();
+
+  // The row menu's Clone opens the create dialog SEEDED: same agent (locked,
+  // so no #preset-harness here), suggested collision-free name.
+  await page.getByRole("button", { name: "Actions for E2E clone source" }).click();
+  await page.getByRole("menuitem", { name: "Clone preset" }).click();
+  await expect(page.getByRole("heading", { name: "Clone preset" })).toBeVisible();
+  await expect(page.locator("#preset-name")).toHaveValue("E2E clone source (2)");
+  await expect(page.locator("#preset-harness")).toHaveCount(0);
+  await page.getByRole("button", { name: "Create preset" }).click();
+  await expect(page.getByText("E2E clone source (2)", { exact: true })).toBeVisible();
+
+  // Both rows persisted, same harness, distinct names.
+  const stored = await page.evaluate(async () => {
+    const rows = (await (await fetch("/api/presets")).json()) as { name: string; harnessId: string }[];
+    return rows
+      .filter((r) => r.name.startsWith("E2E clone source"))
+      .map((r) => [r.name, r.harnessId] as const)
+      .sort((a, b) => a[0].localeCompare(b[0]));
+  });
+  expect(stored).toEqual([
+    ["E2E clone source", "pi"],
+    ["E2E clone source (2)", "pi"],
+  ]);
+
+  // A SECOND Clone re-seeds against the list that just gained the (2) row:
+  // the suggestion advances to "(3)" instead of replaying the "(2)" the
+  // first dialog opened on ("mount IS the open" re-deriving the seed).
+  await page.getByRole("button", { name: "Actions for E2E clone source", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Clone preset" }).click();
+  await expect(page.locator("#preset-name")).toHaveValue("E2E clone source (3)");
+  // Cancel, not create: no third row is added, so the sweep list stays as-is.
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByText("E2E clone source (3)", { exact: true })).toHaveCount(0);
 });

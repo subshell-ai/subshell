@@ -1,17 +1,21 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
+import { type PresetFormValue, presetFormFromRow } from "@/lib/preset-form";
 import type { PresetRow } from "@/types/preset";
 
 /**
- * The create dialog in both postures (spec 2026-09-13 §5): the launch form's
+ * The create dialog in its postures (spec 2026-09-13 §5): the launch form's
  * NESTED one locks the agent (static text, id on the wire without asking),
  * the /presets one opens with the Agent select; both post the shared
  * `toPresetPayload` body, feed the list cache from the returned row (the
  * race the launch form's selection depends on), and hand the row out.
+ * The third posture is the CLONE: an `initialForm` seed ALONE — titled
+ * "Clone preset", still a plain create, and the harness locks itself off the
+ * seed, so no second prop pairs with it.
  */
 const ROW: PresetRow = {
   id: "p-new",
@@ -27,7 +31,23 @@ const ROW: PresetRow = {
   updatedAt: "2026-09-13T00:00:00.000Z",
 };
 
-function mockFetch() {
+/** A stored preset with one env var, one flag with a value, auto-restart on —
+ *  the SOURCE a clone posture starts from. */
+const SOURCE: PresetRow = {
+  id: "src-1",
+  harnessId: "claude-code",
+  name: "Work",
+  description: null,
+  envJson: '{"ANTHROPIC_MODEL":"sonnet"}',
+  flagsJson: '["--effort","xhigh"]',
+  settingsJson: null,
+  configIsolation: 0,
+  restartOnExit: 1,
+  createdAt: "2026-09-13T00:00:00.000Z",
+  updatedAt: "2026-09-13T00:00:00.000Z",
+};
+
+function mockFetch(post: { status?: number; body?: unknown } = {}) {
   const calls: { method: string; url: string; body: unknown }[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown, init?: RequestInit) => {
@@ -55,7 +75,9 @@ function mockFetch() {
         ),
       );
     }
-    if (url.pathname === "/api/presets" && method === "POST") return Promise.resolve(new Response(JSON.stringify(ROW)));
+    if (url.pathname === "/api/presets" && method === "POST") {
+      return Promise.resolve(new Response(JSON.stringify(post.body ?? ROW), { status: post.status ?? 200 }));
+    }
     // The list a page with a live usePresets() would read — an ARRAY, like
     // the real endpoint; the {} fallthrough below is for the schema route.
     if (url.pathname === "/api/presets" && method === "GET") return Promise.resolve(new Response(JSON.stringify([])));
@@ -64,8 +86,9 @@ function mockFetch() {
   return { calls, restore: () => (globalThis.fetch = original) };
 }
 
-function renderDialog(props: {
+async function renderDialog(props: {
   lockedHarness?: string;
+  initialForm?: PresetFormValue;
   onCreated?: (row: PresetRow) => void;
   onClose?: (o: boolean) => void;
 }) {
@@ -82,18 +105,30 @@ function renderDialog(props: {
           props.onClose?.(next);
         }}
         lockedHarness={props.lockedHarness}
+        initialForm={props.initialForm}
         onCreated={props.onCreated}
       />
     );
   }
-  return {
-    ...render(
-      <QueryClientProvider client={client}>
-        <Harness />
-      </QueryClientProvider>,
-    ),
-    client,
-  };
+  const utils = render(
+    <QueryClientProvider client={client}>
+      <Harness />
+    </QueryClientProvider>,
+  );
+  // The dialog renders before the plugins catalog query lands; its arrival is
+  // what re-renders the Base UI Select. Drain it inside act() before returning.
+  await settle();
+  return { ...utils, client };
+}
+
+/** Flush pending query/effect updates inside act() (the repo-wide pattern
+ *  from new-subshell-form.test.tsx): Base UI's Select defers state updates to
+ *  effects and its own scheduler, so the catalog load's re-render lands
+ *  outside the findByRole retries' act scopes and warns. */
+async function settle(): Promise<void> {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 50));
+  });
 }
 
 afterEach(cleanup);
@@ -105,7 +140,7 @@ describe("CreatePresetDialog — locked (launch form)", () => {
     const m = mockFetch();
     const created: PresetRow[] = [];
     try {
-      const { client } = renderDialog({ lockedHarness: "claude-code", onCreated: (r) => created.push(r) });
+      const { client } = await renderDialog({ lockedHarness: "claude-code", onCreated: (r) => created.push(r) });
       const dialog = await screen.findByRole("dialog", { name: "New preset for Claude Code" });
       expect(
         screen.getByText(
@@ -148,13 +183,85 @@ describe("CreatePresetDialog — locked (launch form)", () => {
   });
 });
 
+describe("CreatePresetDialog — clone (initialForm)", () => {
+  afterEach(cleanup);
+
+  it("titles Clone preset, seeds the source's values with the suggested name, keeps the locked agent, and posts a plain create", async () => {
+    const m = mockFetch();
+    try {
+      // `initialForm` ALONE — no `lockedHarness` pairs with it. The lock is
+      // derived from the seed; this test is what pins that guarantee.
+      await renderDialog({
+        initialForm: { ...presetFormFromRow(SOURCE), name: "Work (2)" },
+      });
+      const dialog = await screen.findByRole("dialog", { name: "Clone preset" });
+      // The seeded name rides the Name field; the source's own name would be
+      // the collision the caller's suggestCloneName just avoided.
+      expect((dialog.querySelector("#preset-name") as HTMLInputElement).value).toBe("Work (2)");
+      // Locked posture: no select, and the agent shows as static text naming
+      // itself — the name comes from the catalog, so it has to have landed.
+      expect(dialog.querySelector("#preset-harness")).toBeNull();
+      expect(await screen.findByText("Claude Code")).toBeDefined();
+
+      fireEvent.click(screen.getByRole("button", { name: "Create preset" }));
+      // The payload is a plain create carrying the seeded fields: harness
+      // preserved, name suggested, env/flags/restart copied from the source.
+      await waitFor(() =>
+        expect(m.calls).toContainEqual({
+          method: "POST",
+          url: "/api/presets",
+          body: {
+            harnessId: "claude-code",
+            name: "Work (2)",
+            env: { ANTHROPIC_MODEL: "sonnet" },
+            flags: ["--effort", "xhigh"],
+            settings: {},
+            configIsolation: false,
+            restartOnExit: true,
+          },
+        }),
+      );
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("surfaces a duplicate-name 409 inline and keeps the dialog open", async () => {
+    // The raced collision the clone posture is built to expect: the suggestion
+    // was computed against a cache another tab had not written yet. The
+    // server's shape is `{ message }`, which `apiFetch` lifts into an
+    // ApiError's message, so `create.error` renders it verbatim — and the
+    // dialog stays open on the mutation error so the name can be edited and
+    // the same button pressed again.
+    const m = mockFetch({
+      status: 409,
+      body: { message: 'You already have a claude-code preset named "Work (2)"' },
+    });
+    const closes: boolean[] = [];
+    try {
+      await renderDialog({
+        initialForm: { ...presetFormFromRow(SOURCE), name: "Work (2)" },
+        onClose: (o) => closes.push(o),
+      });
+      const dialog = await screen.findByRole("dialog", { name: "Clone preset" });
+      fireEvent.click(screen.getByRole("button", { name: "Create preset" }));
+      await screen.findByText(/You already have a claude-code preset named "Work \(2\)"/);
+      // Still open: the same dialog node, and `onOpenChange(false)` never fired.
+      expect(screen.getByRole("dialog")).toBe(dialog);
+      expect(closes).not.toContain(false);
+    } finally {
+      m.restore();
+    }
+  });
+});
+
 describe("CreatePresetDialog — unlocked (/presets page)", () => {
   afterEach(cleanup);
 
   it("titles 'Create preset' and offers the Agent select with the frozen copy", async () => {
     const m = mockFetch();
     try {
-      const { container } = renderDialog({});
+      const { container } = await renderDialog({});
       const dialog = await screen.findByRole("dialog", { name: "Create preset" });
       expect(dialog.querySelector("#preset-harness")).not.toBeNull();
       expect(dialog.textContent).toContain("Which agent CLI subshells started with this preset will run.");
