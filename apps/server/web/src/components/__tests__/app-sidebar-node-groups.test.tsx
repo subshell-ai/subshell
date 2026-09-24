@@ -386,17 +386,17 @@ describe("the rail's Needs Attention spotlight (spec 2026-09-24)", () => {
       async () => {
         await waitFor(() => expect(groupHeaders()).toHaveLength(2));
         const region = attentionRegion();
-        expect(region).not.toBeNull();
-        expect(region?.textContent).toContain("waiting");
-        expect(region?.textContent).not.toContain("seen");
+        if (!region) throw new Error("the rail rendered no Needs Attention region");
+        expect(region.textContent).toContain("waiting");
+        expect(region.textContent).not.toContain("seen");
         // Above every machine group: the region precedes the first group header
         // in document order, whatever the group sort did with the unseen row's
         // own node.
-        const firstButton = groupHeaders()[0]!;
-        expect(
-          (region!.compareDocumentPosition(firstButton) & Node.DOCUMENT_POSITION_FOLLOWING) ===
-            Node.DOCUMENT_POSITION_FOLLOWING,
-        ).toBe(true);
+        const firstButton = groupHeaders()[0];
+        if (!firstButton) throw new Error("the rail rendered no group header to order against");
+        expect(region.compareDocumentPosition(firstButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+          Node.DOCUMENT_POSITION_FOLLOWING,
+        );
       },
     );
   });
