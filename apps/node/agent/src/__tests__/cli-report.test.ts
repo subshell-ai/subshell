@@ -45,12 +45,26 @@ describe("subshell report (CLI wiring)", () => {
     expect(parseArgs(["report", "session"])).toEqual({ command: "report", sub: "session", flags: {} });
   });
 
-  test("rejects an unknown verb, an unknown kind, and a kind after a verb that takes none", () => {
+  test("rejects an unknown verb and a kind after a verb that takes none", () => {
     expect(() => parseArgs(["report", "nonsense"])).toThrow(/unknown report subcommand/);
-    expect(() => parseArgs(["report", "attention", "made_up"])).toThrow(/unknown report attention argument/);
     // `session` takes no second word, so one is an error rather than ignored —
     // silently dropping it is how a typo'd report reports the wrong thing.
     expect(() => parseArgs(["report", "session", "extra"])).toThrow(/takes no argument/);
+  });
+
+  test("does NOT reject an unknown attention kind — exit 2 would block the tool", () => {
+    // A plane NEWER than this binary legitimately emits kinds compiled after
+    // it (`resumed` arrived exactly this way, 2026-09-24). PreToolUse and
+    // UserPromptSubmit treat exit 2 as a BLOCKING error, so a parse-time
+    // refusal turns version skew into a pane that cannot run tools. The kind
+    // is the reporter's business: `runReport` answers any unknown kind with
+    // a silent nothing (pinned in mcp-core's report tests).
+    expect(parseArgs(["report", "attention", "made_up"])).toEqual({
+      command: "report",
+      sub: "attention",
+      arg: "made_up",
+      flags: {},
+    });
   });
 
   test("a verb that requires an argument refuses to be given none", () => {
@@ -91,7 +105,17 @@ describe("report exit — the pane's own death hook (spec 2026-09-19 §4.3)", ()
     expect(() => parseArgs(["report", "exit"])).toThrow(/requires a value/);
   });
 
-  test("does not loosen the verbs that take a fixed word", () => {
-    expect(() => parseArgs(["report", "attention", "nonsense"])).toThrow(/unknown report attention argument/);
+  test("an unknown kind runs as a silent 0 even with a complete pane env", async () => {
+    // The parse accepts it (skew must not block the pane); the reporter's own
+    // filter is what decides "nothing to send". The full env matters here:
+    // with an incomplete one the env filter would be the reason for silence,
+    // and this test would pass without proving the kind path.
+    process.env.SUBSHELL_API_KEY = "subshell_key123";
+    process.env.SUBSHELL_BASE_URL = "http://127.0.0.1:1"; // deliberately undialable
+    process.env.SUBSHELL_ID = "sub_report_test";
+    const res = await run(["report", "attention", "made_up"]);
+    expect(res.code).toBe(0);
+    expect(res.out).toBe("");
+    expect(res.err).toBe("");
   });
 });

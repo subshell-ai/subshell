@@ -24,8 +24,8 @@ import type { ReactNode } from "react";
  *   trap of invisible stops.
  * - **The label carries a `title`.** When the registry has not resolved the
  *   node the label is a short id or "unknown node", and the full id on hover
- *   is the only thing that says WHICH machine — the reveal `nodePill` gives a
- *   card, for the same reason.
+ *   is the only thing that says WHICH machine — the reveal the cards' retired
+ *   `nodePill` used to give, for the same reason.
  */
 export function SubshellNodeGroup({
   nodeId,

@@ -55,9 +55,26 @@ export interface ReportIo {
  * How long a report may take. Deliberately short on both halves: a
  * `SessionStart` hook BLOCKS the harness until it exits, so the budget is the
  * pane's start latency, not the server's convenience.
+ *
+ * `resumed` gets a fraction of it: its hook is PreToolUse, which runs before
+ * EVERY tool call, so a browned-out plane would otherwise add 2 s to every
+ * call of a long run. A lost clear is self-healing — the next prompt or tool
+ * reports again, and the pane-local watcher clears on output wherever it can
+ * see the log.
  */
 const POST_TIMEOUT_MS = 2000;
+const RESUMED_POST_TIMEOUT_MS = 750;
 const STDIN_TIMEOUT_MS = 2000;
+
+/**
+ * The POST budget for one report argv — the whole per-verb decision, as a
+ * pure function so the test can pin the numbers instead of reaching into an
+ * `AbortSignal` for a value Bun does not expose (Node's `.timeout` getter is
+ * non-standard and absent here; measured on bun 1.4.2).
+ */
+export function postTimeoutMs(argv: string[]): number {
+  return argv[0] === "attention" && argv[1] === "resumed" ? RESUMED_POST_TIMEOUT_MS : POST_TIMEOUT_MS;
+}
 
 /**
  * Reads stdin to end, but never waits forever: a hook whose stdin is left
@@ -91,7 +108,9 @@ export async function runReport(argv: string[], io: ReportIo = {}): Promise<void
       method: "POST",
       headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
       body: JSON.stringify(body.json),
-      signal: AbortSignal.timeout(POST_TIMEOUT_MS),
+      // PreToolUse pays the `resumed` budget on EVERY tool call; the rare
+      // event reports keep the full one (see postTimeoutMs).
+      signal: AbortSignal.timeout(postTimeoutMs(argv)),
     });
   } catch {
     // Every failure is a lost report: an unreachable server, a refused POST,

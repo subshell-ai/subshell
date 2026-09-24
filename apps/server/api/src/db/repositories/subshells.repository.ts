@@ -182,6 +182,30 @@ export class SubshellsRepository extends BaseRepository {
   }
 
   /**
+   * Take a "waiting for you" stamp off, but ONLY while one is set, and answer
+   * whether this caller did it.
+   *
+   * The `resumed` clear arrives on every tool call, so an unconditional write
+   * would re-publish the row constantly; and a read-check-write cannot make
+   * "publish only when the state actually moved" true against a concurrent
+   * set (an approval stamp landing between the read and the write would be
+   * erased unannounced or announced without cause). One conditional statement
+   * decides it, same shape as {@link updateIfAlive}, same answer contract:
+   * 1 for the mover, 0 for everyone racing after.
+   * @returns rows updated — 0 means there was no stamp to clear
+   */
+  async clearWaitingIfSet(id: string): Promise<number> {
+    const res = await this.db
+      .updateTable("subshells")
+      .set({ waitingSince: null })
+      .where("id", "=", id)
+      .where("waitingSince", "is not", null)
+      .executeTakeFirst();
+    const counts = res as unknown as { numUpdated?: number | bigint; numUpdatedRows?: number | bigint };
+    return Number(counts.numUpdatedRows ?? counts.numUpdated ?? 0);
+  }
+
+  /**
    * CLAIM the alive→dead transition: applies the patch only while the row is
    * still a LIVE running one, and answers whether this caller is the one that
    * moved it.

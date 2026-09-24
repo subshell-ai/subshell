@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { runReport } from "../report.js";
+import { postTimeoutMs, runReport } from "../report.js";
 
 /**
  * The out-of-band reporting verb both binaries expose (`<self> report …`).
@@ -39,6 +39,19 @@ describe("runReport", () => {
     expect(req.method).toBe("POST");
     expect(req.headers.get("authorization")).toBe("Bearer subshell_key123");
     expect(await req.json()).toEqual({ kind: "turn_complete" });
+  });
+
+  it("gives `resumed` the short POST budget and every other report the full one", () => {
+    // PreToolUse runs the resumed report before EVERY tool call: a 2 s stall
+    // per call during a plane brownout is the failure this budget exists to
+    // avoid. A lost clear self-heals on the next prompt or tool. Pinned on
+    // the pure decision — Bun's AbortSignal.timeout exposes no `.timeout`
+    // to read back off the wire.
+    expect(postTimeoutMs(["attention", "resumed"])).toBe(750);
+    expect(postTimeoutMs(["attention", "needs_attention"])).toBe(2000);
+    expect(postTimeoutMs(["attention", "turn_complete"])).toBe(2000);
+    expect(postTimeoutMs(["session"])).toBe(2000);
+    expect(postTimeoutMs(["exit", "0"])).toBe(2000);
   });
 
   it("posts `resumed` without reading stdin", async () => {

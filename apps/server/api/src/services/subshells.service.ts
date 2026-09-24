@@ -1,4 +1,11 @@
 import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
+// The attention kinds are imported from the reporter that SPEAKS them rather
+// than restated here: the old local `Extract<NotifyKind, …>`, widened once to
+// `NotifyKind | "resumed"`, admitted push kinds (`crashed`, `maintenance`, …)
+// the endpoint takes from no one — only the route's schema was holding the
+// line. `resumed` is deliberately NOT a `NotifyKind` in either file: resuming
+// is a state change, nothing rings for it.
+import type { AttentionKind } from "@internal/mcp-core";
 import { getHarness } from "@internal/pane-runtime";
 import { NODE_RESULT_MAINTENANCE } from "@internal/subshell-protocol";
 import type { GuardActor } from "@/api/auth-guard.js";
@@ -15,7 +22,7 @@ import { publishLive } from "@/services/live-bus.js";
 import { getLive, isNodeOffline } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
-import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
+import { getNotifyService } from "@/services/notify.service.js";
 import {
   RestartInFlightSwapError,
   readSubshellLogTail,
@@ -23,15 +30,6 @@ import {
 } from "@/services/subshell-manager.service.js";
 import { extendSubshellToken, subshellTokenTtlSeconds } from "@/services/subshell-tokens.js";
 import { logger } from "@/utils/logger.js";
-
-/**
- * The kinds a harness may self-report through the attention endpoint.
- *
- * `resumed` is the CLEAR and deliberately NOT a `NotifyKind` — resuming is a
- * state change, nothing rings for it — which is why this is its own union
- * rather than an `Extract` of the notify kinds.
- */
-export type AttentionKind = NotifyKind | "resumed";
 
 /** Subshell view shape returned by the manager (single source: toSubshellView). */
 type SubshellView = NonNullable<Awaited<ReturnType<SubshellManagerService["getSubshell"]>>>;
@@ -732,12 +730,14 @@ export class SubshellsService extends BaseService {
       // The pane itself knows work resumed (a prompt was submitted, a tool
       // is starting after its approval); that fact has to travel.
       //
-      // Conditional by shape: PreToolUse reports EVERY tool call, so the
-      // common case is a stamp-less no-op — read, see nothing set, write and
-      // publish nothing. Never rings: resuming is not an event.
+      // Never rings: resuming is not an event. The read above is the cheap
+      // gate for the common case (PreToolUse reports EVERY tool call); the
+      // conditional write is what makes "publish only when it actually moved"
+      // true against a concurrent approval-stamp rather than only against the
+      // snapshot this call read.
       if (row.waitingSince === null) return;
-      await this.repos.subshells.update(id, { waitingSince: null });
-      publishLive({ kind: "subshell.changed", id });
+      const cleared = await this.repos.subshells.clearWaitingIfSet(id);
+      if (cleared > 0) publishLive({ kind: "subshell.changed", id });
       return;
     }
     await this.repos.subshells.update(id, { waitingSince: new Date().toISOString() });

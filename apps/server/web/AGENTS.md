@@ -120,9 +120,9 @@ ALIVE family; gray may now only mean not-running). The printing dot BLINKS
 — a hard on/off square wave (`subshell-dot-blink`, defined in `styles.css`
 beside the motion gate; the operator's "like Claude Code's in-progress
 work", first built as a halo pulse and deliberately replaced): the alive
-pair now differs by motion as well as brightness, the loop is the app's
-only one (legal because the dot's DOM node never remounts — stable keys plus
-the feed's structural sharing), and under `prefers-reduced-motion` the class
+pair now differs by motion as well as brightness, the loop being honest
+only because the dot's DOM node never remounts — stable keys plus the
+feed's structural sharing — and under `prefers-reduced-motion` the class
 carries nothing, so the dot is plainly green. The bell never blinks. The tiles are segmented
 per machine on the RAIL's own machinery — `sortByStatus` into
 `groupSubshellsByNode`/`nodeLabelFor` — with no per-group cap and no collapse

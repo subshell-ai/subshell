@@ -1,4 +1,4 @@
-import { ATTENTION_KINDS, REPORT_VERBS, readMcpEnv, runReport } from "@internal/mcp-core";
+import { REPORT_VERBS, readMcpEnv, runReport } from "@internal/mcp-core";
 import { appendStdinToLogFile } from "@internal/pane-runtime";
 import { licenseNotice, NODE_PROTOCOL_VERSION, semverLt } from "@internal/subshell-protocol";
 import { configPath, loadConfig, type NodeConfig } from "./config.js";
@@ -180,15 +180,16 @@ const SUBCOMMANDS: Record<string, string[]> = {
   report: [...REPORT_VERBS],
 };
 /**
- * Command → subtoken → the values its SECOND positional accepts. A subtoken
- * absent from its command's entry takes no argument at all, and one present
- * requires exactly one: both are usage errors, because a hook that typed the
- * wrong word must fail loudly here rather than report the wrong thing.
+ * Command → subtoken → its SECOND positional: a value list, or {@link FREE_ARG}
+ * for values this parser must not reject. A subtoken absent from its command's
+ * entry takes no argument at all, and one present requires exactly one —
+ * presence stays a usage error, because a hook command missing its argument is
+ * a plane-side bug; VALUE rejection is the dangerous half (see the `report`
+ * entry: these hooks exit-blocking, so a refused value costs the pane's turn).
  *
- * Only `report attention <kind>` needs the slot today. It exists as a table
- * rather than a special case so the next two-word verb is data, and it stays
- * ONE extra slot deliberately — a general grammar for a CLI with one such
- * command would be more machinery than the CLI.
+ * It exists as a table rather than a special case so the next two-word verb is
+ * data, and it stays ONE extra slot deliberately — a general grammar for a CLI
+ * with one such command would be more machinery than the CLI.
  */
 /**
  * Marks a subtoken whose argument is a VALUE, not one of a fixed set.
@@ -200,12 +201,22 @@ const SUBCOMMANDS: Record<string, string[]> = {
 const FREE_ARG = Symbol("free-argument");
 
 const SUBCOMMAND_ARGS: Record<string, Record<string, readonly string[] | typeof FREE_ARG>> = {
-  // `report exit <status>` takes tmux's own `#{pane_dead_status}`, which is
-  // any exit code or the EMPTY string when tmux has none to give — so it
-  // cannot be a value list. It is still declared, because declaring it is what
-  // makes the argument required, and a generated hook that lost its word must
-  // fail loudly here rather than report a death with no status as a clean one.
-  report: { attention: ATTENTION_KINDS, exit: FREE_ARG },
+  // Both `report` arguments are FREE, and for one reason the value-list shape
+  // could not see: a usage error exits 2, and Claude Code treats a
+  // PreToolUse/UserPromptSubmit exit 2 as BLOCKING — the stderr lands in the
+  // agent's turn as a refusal. So anything this parser rejects with exit 2 is
+  // not a loud typo-guard, it is a broken pane. And the case that actually
+  // happens is not a typo at all: a plane NEWER than this binary legitimately
+  // emits a kind compiled in AFTER it (the `resumed` clear, 2026-09-24), and
+  // version skew must degrade to the pre-fix behaviour — silence — not to a
+  // blocked tool. `runReport` already answers any unknown verb or kind with a
+  // silent exit 0 (its own filter), which is the server twin's posture too:
+  // that CLI never validated these words. PRESENCE is still enforced by
+  // declaring the slot: `report attention` with no kind, or `report exit`
+  // with no status (tmux's `#{pane_dead_status}`, any number or the empty
+  // string, hence free there too — declared because declaring is what makes
+  // it required), stays a plane-side bug worth the loud failure.
+  report: { attention: FREE_ARG, exit: FREE_ARG },
   // `service autostart` is the first two-word service verb: its second slot is
   // the state to arm. A value rather than two subwords (`autostart-on`)
   // because the pair is one act in two moods, exactly like

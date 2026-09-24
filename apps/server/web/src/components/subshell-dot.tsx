@@ -14,7 +14,7 @@ import type { SubshellView } from "@/types/subshell";
  * beside things that are. The pair's difference is MOTION, not brightness
  * alone (same-day operator ask): ACTIVE carries the hard on/off blink
  * defined in `styles.css` (`subshell-dot-blink`, "like Claude Code's
- * in-progress work") — the app's one looping animation, on a node that
+ * in-progress work") — a loop, which is only honest on a node that
  * structurally never remounts — and under `prefers-reduced-motion` the loop
  * does not exist and the dot is plain green. Every other state, and the
  * bell, is still.
