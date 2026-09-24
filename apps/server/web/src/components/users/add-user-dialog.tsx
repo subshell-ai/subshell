@@ -118,8 +118,9 @@ export function AddUserDialog({
                 onValueChange={(v) => v !== null && setRole(v as UserRole)}
                 // Base UI's Value prints the raw value without this map, so
                 // the closed trigger read "user" under an item reading "User".
-                // Shared with the per-row select: two role controls on one
-                // page must spell the same value the same way.
+                // Shared with the per-row action menu's flip item (which reads
+                // the same labels): the two role controls on one page must
+                // spell the same value the same way.
                 items={USER_ROLE_OPTIONS}
               >
                 <SelectTrigger id="new-user-role">

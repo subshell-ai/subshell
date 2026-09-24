@@ -62,7 +62,17 @@ export function UsersTable({
             <th className="pr-4 pb-2 font-strong">Email</th>
             <th className="pr-4 pb-2 font-strong">Role</th>
             <th className="pr-4 pb-2 font-strong">Created</th>
-            <th className="pb-2 font-strong">Manage</th>
+            {/* No visible title above a column of kebab buttons: a header
+                over rows whose only content is "Your account" or "Service
+                account" reads as a control that failed to render, not as the
+                statement that the row is not manageable. The name is
+                `aria-label`, deliberately NOT the Nodes table's `<span
+                className="sr-only">`: sr-only is `position:absolute`, and
+                with no positioned ancestor the span's containing block is the
+                viewport, so it escapes this table's own `overflow-x-auto`
+                clip and extends the DOCUMENT's scroll width at phone width —
+                the e2e "Add user dialog fits" spec caught exactly that. */}
+            <th className="pb-2 text-right font-strong" aria-label="Actions" />
           </tr>
         </thead>
         <tbody>
@@ -88,7 +98,7 @@ export function UsersTable({
               <td className="py-2 pr-4 text-muted-foreground">
                 {u.createdAt ? new Date(u.createdAt).toLocaleString() : "—"}
               </td>
-              <td className="py-2">
+              <td className="py-2 text-right">
                 {u.manageable === false ? (
                   <span className="text-detail text-muted-foreground">Service account</span>
                 ) : (
