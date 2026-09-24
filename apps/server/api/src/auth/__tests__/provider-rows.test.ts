@@ -44,25 +44,26 @@ describe("toGenericOAuthConfig", () => {
       tokenUrl: "https://id.acme/token",
       userInfoUrl: "https://id.acme/userinfo",
       redirectURI: "https://sub.acme/api/auth/callback/acme",
-      disableSignUp: false,
       scopes: ["openid", "email", "profile"],
     });
     // The belt-and-suspenders half of §3: a config that could fall back to
     // discovery would carry a discoveryUrl, and a dead issuer would then throw
     // at build. There is none.
     expect(cfg.discoveryUrl).toBeUndefined();
+    // And no config-level sign-up gate either (Task 7 finding, §4):
+    // genericOAuth's `disableSignUp` short-circuits the create path with the
+    // generic `signup_disabled` BEFORE `user.validateUserInfo` runs, which
+    // would swap the spec's named `registration_closed` for a code the login
+    // page does not map. The door policy is the ONE registration seam.
+    expect(cfg.disableSignUp).toBeUndefined();
   });
 
-  test("registration_enabled false maps to disableSignUp true (§3 belt-and-suspenders)", () => {
-    expect(toGenericOAuthConfig(row({ registrationEnabled: false }), "https://sub.acme")).toMatchObject({
-      disableSignUp: true,
-    });
-  });
-
-  test("an explicitly-NULL registration decision does NOT disable sign-up (legacy dynamic gate is the door policy's, not the plugin's)", () => {
-    expect(toGenericOAuthConfig(row({ registrationEnabled: null }), "https://sub.acme")).toMatchObject({
-      disableSignUp: false,
-    });
+  test("registrationEnabled false/NULL both leave the config gate unset — the hook decides (§4)", () => {
+    // The refusal itself is the door policy's, and it is pinned where it lives
+    // (`door-policy.test.ts`); what this file pins is that the BUILD does not
+    // shadow that seam whatever the stored registration decision says.
+    expect(toGenericOAuthConfig(row({ registrationEnabled: false }), "https://sub.acme").disableSignUp).toBeUndefined();
+    expect(toGenericOAuthConfig(row({ registrationEnabled: null }), "https://sub.acme").disableSignUp).toBeUndefined();
   });
 
   test("mapProfileToUser takes emailVerified ONLY from the verified claim (§5)", () => {

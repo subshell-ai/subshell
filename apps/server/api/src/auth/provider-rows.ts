@@ -213,7 +213,15 @@ export function toGenericOAuthConfig(row: StoredProviderRow, canonicalOrigin: st
     }),
     redirectURI: `${canonicalOrigin}/api/auth/callback/${row.id}`,
     scopes: ["openid", "email", "profile"],
-    disableSignUp: row.registrationEnabled === false,
+    // `disableSignUp` is deliberately NOT set from registrationEnabled, and
+    // that is a MEASURED decision (spec 2026-09-24 §4, Task 7 finding): the
+    // callback's create path checks the config flag BEFORE it reaches
+    // internalAdapter.createUser, so a config-level belt would answer
+    // `signup_disabled` — a code the login page does not map — and the door
+    // policy's `registration_closed` (§4's named refusal) would never reach
+    // the browser. The one seam the spec puts per-door registration on is
+    // `user.validateUserInfo` (`door-policy.ts`), and it fires on every path
+    // that could create a user.
     mapProfileToUser: (p) => ({
       // §5: the provider's verified claim, never the mere presence of an email.
       email: String(p.email ?? ""),
