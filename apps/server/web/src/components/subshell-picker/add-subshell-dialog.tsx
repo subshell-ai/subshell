@@ -181,7 +181,7 @@ export function AddSubshellDialog({
           <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
         )}
 
-        {error && <p className="text-destructive text-sm">{error}</p>}
+        {error && <p className="text-destructive text-detail">{error}</p>}
 
         {mode === "new" && (
           <DialogFooter>

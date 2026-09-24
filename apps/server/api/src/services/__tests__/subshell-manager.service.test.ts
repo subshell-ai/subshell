@@ -27,6 +27,7 @@ import type { Database } from "@/db/types/index.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { FakeNodeLauncher, nodeOnline } from "@/services/__tests__/helpers/node-fakes.js";
 import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
+import { subscribeLive } from "@/services/live-bus.js";
 import { LocalLauncher } from "@/services/nodes/local-launcher.js";
 import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
@@ -38,7 +39,11 @@ import {
 } from "@/services/nodes/preview-cache.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { EMPTY_PRESET, parsePreset } from "@/services/preset-definition.js";
-import { defaultSubshellName, SubshellManagerService } from "@/services/subshell-manager.service.js";
+import {
+  defaultSubshellName,
+  RestartInFlightSwapError,
+  SubshellManagerService,
+} from "@/services/subshell-manager.service.js";
 
 let dbCleanup: (() => void) | undefined;
 let subshellManager: SubshellManagerService;
@@ -463,6 +468,111 @@ describe("SubshellManagerService restart", () => {
     const row = await subshellsRepo.findById(id);
     expect(row?.status).toBe("terminated"); // NOT left running
     expect(row?.alive).toBe(0);
+  });
+
+  // Follow-up (final review of spec 2026-09-23): the rollback CHANGES the row
+  // (parked-running → terminated, and after a swap it also carries a new
+  // preset). An event-only feed learns of nothing else, so the rollback must
+  // announce itself like every other transition.
+  it("restartSubshell announces the rolled-back dead state on the live bus", async () => {
+    const id = await seedSubshell("u1", "no-such-preset"); // reviveRow throws: preset gone
+    await subshellsRepo.update(id, { status: "terminated", alive: 0, exitCode: 1 });
+    let sawDead = 0;
+    const unsubscribe = subscribeLive((event) => {
+      if (event.kind === "subshell.changed" && event.id === id) sawDead++;
+    });
+    try {
+      await expect(subshellManager.restartSubshell("u1", id)).rejects.toThrow(/preset/);
+    } finally {
+      unsubscribe();
+    }
+    expect(sawDead).toBe(1); // the rollback's own transition, announced once
+  });
+
+  // Follow-up (final review of spec 2026-09-23): both audit rows of the act
+  // name the ACTING viewer, not the row's owner — a grantee's restart and
+  // preset switch are the grantee's acts. They move together (the two rows of
+  // one act naming different actors would read worse than uniform owner
+  // attribution ever did).
+  it("restartSubshell attributes BOTH audit rows of the act to the passed actor", async () => {
+    const presetId = await seedPresetFor("u1");
+    const id = await seedSubshell("u1", presetId);
+    const captured: { action: string; actorUserId: string | null }[] = [];
+    const mgr = new SubshellManagerService({
+      subshells: subshellsRepo,
+      presets: presetsRepo,
+      tmux: new TmuxRunner(),
+      tokens: { issue: async () => "subshell_stub", revoke: async () => {} },
+      audit: async (event) => {
+        captured.push({ action: event.action, actorUserId: event.actorUserId });
+      },
+    });
+    const restarted = await mgr.restartSubshell("u1", id, null, "grantee-9"); // swap to presetless
+    try {
+      if (restarted) trackTmuxSocket(restarted.tmuxSocket);
+      expect(captured.find((c) => c.action === "subshell.preset_switch")?.actorUserId).toBe("grantee-9");
+      expect(captured.find((c) => c.action === "subshell.restart")?.actorUserId).toBe("grantee-9");
+    } finally {
+      await mgr.terminateSubshell("u1", id);
+    }
+  });
+
+  // Follow-up (final review of spec 2026-09-23): a swap-carrying restart never
+  // RIDES another caller's in-flight lease — the running revival composes the
+  // FIRST caller's preset, so a joined swap would be reported as a 200 that
+  // never happened. It is refused (the service maps it to 409
+  // RESTART_IN_FLIGHT); plain restarts keep joining, as the test above pins.
+  it("restartSubshell carrying a swap refuses to join a held lease; plain restarts still join", async () => {
+    const presetId = await seedPresetFor("u1");
+    const id = await seedSubshell("u1", presetId);
+
+    let releaseGate: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      releaseGate = r;
+    });
+    let aIssues = 0;
+    const mkManager = (gateOnIssue = false) =>
+      new SubshellManagerService({
+        subshells: subshellsRepo,
+        presets: presetsRepo,
+        tmux: new TmuxRunner(),
+        tokens: {
+          issue: async () => {
+            aIssues++;
+            if (gateOnIssue) await gate; // hold A inside #reviveRow, post-park
+            return "subshell_stub";
+          },
+          revoke: async () => {},
+        },
+        audit: async () => {},
+      });
+    const a = mkManager(true);
+    const b = mkManager();
+
+    const pA = a.restartSubshell("u1", id); // starts, parks, reaches issue, waits
+    for (let i = 0; aIssues === 0 && i < 2000; i++) await new Promise((r) => setTimeout(r, 1));
+    expect(aIssues).toBe(1); // A is parked + mid-revival; the lease is held
+
+    let socketA: string | undefined;
+    try {
+      // Same owner's SWAP while A runs: refused at the lease, never joined.
+      await expect(b.restartSubshell("u1", id, null)).rejects.toBeInstanceOf(RestartInFlightSwapError);
+      // The refused swap wrote nothing: A's swap-free revival is still the one
+      // in flight and the column is untouched.
+      expect((await subshellsRepo.findById(id))?.presetId).toBe(presetId);
+
+      // A plain restart still joins A's lease (machinery unchanged).
+      const pB = b.restartSubshell("u1", id);
+      releaseGate();
+      const [ra, rb] = await Promise.all([pA, pB]);
+      socketA = ra?.tmuxSocket; // A spawned a real pane; reap it in the finally
+      expect(ra?.id).toBe(id);
+      expect(rb?.id).toBe(id);
+    } finally {
+      releaseGate();
+      if (socketA) trackTmuxSocket(socketA);
+      await a.terminateSubshell("u1", id);
+    }
   });
 
   it("restartSubshell rejects a foreign userId (404 path)", async () => {

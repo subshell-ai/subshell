@@ -70,7 +70,7 @@ export function LaunchSubshellDialog({
           <DialogDescription>Launch an agent in a working directory.</DialogDescription>
         </DialogHeader>
         <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
-        {error && <p className="text-destructive text-sm">{error}</p>}
+        {error && <p className="text-destructive text-detail">{error}</p>}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={create.isPending}>
             Cancel

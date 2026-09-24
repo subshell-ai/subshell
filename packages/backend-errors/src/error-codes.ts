@@ -67,6 +67,8 @@ export enum BackendErrorCodes {
   NODE_UNREACHABLE = "NODE_UNREACHABLE",
   /** `POST /api/admin/server/restart`: the installed service definition would close live panes; pass `force`. */
   RESTART_KILLS_PANES = "RESTART_KILLS_PANES",
+  /** `POST /api/subshells/:id/restart` with a `presetId`: another restart for this subshell already holds the in-flight lease. A plain restart would join it; a swap cannot ride another caller's revival, so nothing was written and the caller may retry once the running restart finishes. */
+  RESTART_IN_FLIGHT = "RESTART_IN_FLIGHT",
   /** `POST /api/admin/server/restart`: this server is not running under a service manager, so exiting would stop it. */
   RESTART_UNAVAILABLE = "RESTART_UNAVAILABLE",
   /**
@@ -247,6 +249,10 @@ export const BackendErrorCodeDefs = {
   },
   [BackendErrorCodes.RESTART_UNAVAILABLE]: {
     message: "This server is not running under a service manager",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.RESTART_IN_FLIGHT]: {
+    message: "Another restart for this subshell is already running",
     statusCode: 409,
   },
   [BackendErrorCodes.SETUP_KEY_CONSUMED]: {

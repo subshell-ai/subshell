@@ -42,11 +42,11 @@ export function RestartStrip({ view, restart }: { view: ServerDeployment; restar
   const elsewhere = resumeElsewhere(view);
 
   if (restart.error) {
-    return <p className="col-span-full text-destructive text-sm">{restart.error}</p>;
+    return <p className="col-span-full text-destructive text-detail">{restart.error}</p>;
   }
   if (restart.outcome === "timeout") {
     return (
-      <p className="col-span-full text-destructive text-sm">
+      <p className="col-span-full text-destructive text-detail">
         The server has not come back. Check the service where it runs.
         {elsewhere && <ElsewhereLink href={elsewhere} />}
       </p>

@@ -139,7 +139,7 @@ export function AddUserDialog({
                 without it a screen-reader user submitting a duplicate email
                 gets a dialog that appears to do nothing at all. */}
             {error && (
-              <p role="alert" className="text-destructive text-sm">
+              <p role="alert" className="text-destructive text-detail">
                 {error}
               </p>
             )}

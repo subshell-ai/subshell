@@ -79,7 +79,7 @@ export function ExistingSubshellList({
 
       <div className="max-h-80 min-h-32 overflow-y-auto rounded-md border">
         {loadFailed ? (
-          <p className="p-3 text-destructive text-sm">Couldn't load subshells.</p>
+          <p className="p-3 text-destructive text-detail">Couldn't load subshells.</p>
         ) : loading ? (
           <p className="p-3 text-muted-foreground text-sm">Loading subshells…</p>
         ) : subshells.length === 0 ? (

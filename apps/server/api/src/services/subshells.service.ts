@@ -16,7 +16,11 @@ import { getLive, isNodeOffline } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
-import { readSubshellLogTail, SubshellManagerService } from "@/services/subshell-manager.service.js";
+import {
+  RestartInFlightSwapError,
+  readSubshellLogTail,
+  SubshellManagerService,
+} from "@/services/subshell-manager.service.js";
 import { extendSubshellToken, subshellTokenTtlSeconds } from "@/services/subshell-tokens.js";
 import { logger } from "@/utils/logger.js";
 
@@ -760,6 +764,10 @@ export class SubshellsService extends BaseService {
    *         row back and retired the token before this boundary.
    * @throws ApiError 400 INVALID_PRESET when the swap preset is unknown, not
    *         the caller's, or from another harness (spec 2026-09-23 §2).
+   * @throws ApiError 409 RESTART_IN_FLIGHT when a swap-carrying restart finds
+   *         the id's in-flight lease held: the running revival composes the
+   *         first caller's preset, so this one is refused rather than joined
+   *         into a 200 that would promise a swap that never lands.
    * @param swapPresetTo - the optional preset swap riding this restart
    *         (spec 2026-09-23): `null` = swap to presetless, `undefined` = no
    *         swap. Validated here, written by the manager at the swap point.
@@ -823,7 +831,22 @@ export class SubshellsService extends BaseService {
         doNotLog: true,
       });
     }
-    const revived = await this.#manager.restartSubshell(row.userId, id, swapPresetTo).catch(rethrowLaunchRefusal);
+    const revived = await this.#manager
+      .restartSubshell(row.userId, id, swapPresetTo, viewerId)
+      .catch((err) => {
+        // A swap that arrived mid-restart is REFUSED, not joined: the running
+        // revival composes someone else's preset, and a 200 for this swap
+        // would be the lie the final review named. Retry once it lands.
+        if (err instanceof RestartInFlightSwapError) {
+          throwApiError({
+            code: BackendErrorCodes.RESTART_IN_FLIGHT,
+            message: "Another restart for this subshell is already running; try the switch again once it finishes",
+            doNotLog: true,
+          });
+        }
+        throw err;
+      })
+      .catch(rethrowLaunchRefusal);
     if (!revived) {
       throw new SubshellError("not_found", "Subshell not found");
     }

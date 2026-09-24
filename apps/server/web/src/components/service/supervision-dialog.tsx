@@ -147,7 +147,7 @@ export function SupervisionDialog({
         </p>
         {error && (
           <div className="space-y-2">
-            <p className="text-destructive text-sm">{error}</p>
+            <p className="text-destructive text-detail">{error}</p>
             {/* The chain is destructive in order, so a failure at step three
                 means steps one and two already happened — and step one of
                 App→Service is "stop the server this app was running". The

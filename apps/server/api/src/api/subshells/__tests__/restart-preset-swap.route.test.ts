@@ -241,6 +241,38 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
     }
   });
 
+  // Follow-up (final review of spec 2026-09-23): the audit trail names the
+  // ACTING viewer. End-to-end through the service, an edit grantee's swap
+  // leaves BOTH rows of the act attributed to the grantee — the guard resolves
+  // `user.id` to them, and the service passes that viewer to the manager.
+  it("an edit grantee's swap names the GRANTEE as actor on both audit rows", async () => {
+    const sim = attachScriptedNode(nodeLive, LIFECYCLE);
+    try {
+      const id = await createOnLive("swap-by-grantee");
+      await shares.replaceForSubshell(id, [{ granteeUserId: granteeId, permission: "edit" }], ownerId);
+      // presetForeign is the GRANTEE's own claude-code preset — valid for them
+      // (validation is caller-owned), which is exactly the case whose actor
+      // used to be recorded as the owner.
+      const res = await restart(id, { cookie: granteeCookie, body: { presetId: presetForeign } });
+      expect(res.status).toBe(200);
+      expect(await rowPreset(id)).toBe(presetForeign);
+
+      const rows = await db
+        .selectFrom("auditEvents")
+        .where("targetId", "=", id)
+        .select(["action", "actorUserId"])
+        .execute();
+      const switchRows = rows.filter((r) => r.action === "subshell.preset_switch");
+      expect(switchRows.length).toBe(1);
+      expect(switchRows[0]?.actorUserId).toBe(granteeId);
+      const restartRows = rows.filter((r) => r.action === "subshell.restart");
+      expect(restartRows.length).toBe(1);
+      expect(restartRows[0]?.actorUserId).toBe(granteeId);
+    } finally {
+      sim.detach();
+    }
+  });
+
   it("unknown, foreign, and wrong-harness targets all 400 INVALID_PRESET and restart nothing", async () => {
     const sim = attachScriptedNode(nodeLive, LIFECYCLE);
     try {

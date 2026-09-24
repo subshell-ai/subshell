@@ -470,7 +470,7 @@ function SetupPage() {
           }}
         >
           <NewAccountFields value={account} onChange={setAccount} autoFocus />
-          {regError && <p className="text-destructive text-sm">{regError}</p>}
+          {regError && <p className="text-destructive text-detail">{regError}</p>}
         </form>
       </SetupAssistant>
     );
@@ -679,7 +679,7 @@ function SetupPage() {
         }}
       />
       {create.error && (
-        <p className="mt-3 text-destructive text-sm">
+        <p className="mt-3 text-destructive text-detail">
           {createSubshellErrorMessage(create.error, "Failed to start the subshell")}
         </p>
       )}

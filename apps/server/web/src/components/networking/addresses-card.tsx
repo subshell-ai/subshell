@@ -383,7 +383,7 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
         <RestartStrip view={view} restart={restart} />
 
         {update.error && !fieldFailure && (
-          <p className="text-destructive text-sm">
+          <p className="text-destructive text-detail">
             {errMessage(update.error, "The configuration could not be saved.")}
           </p>
         )}

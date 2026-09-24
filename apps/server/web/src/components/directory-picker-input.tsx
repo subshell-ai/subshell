@@ -282,7 +282,7 @@ export function DirectoryPickerInput({
                 </p>
               </div>
             ) : (
-              <div className="flex h-56 items-center px-2 text-destructive text-sm">
+              <div className="flex h-56 items-center px-2 text-destructive text-detail">
                 Couldn&apos;t browse this path.
               </div>
             )

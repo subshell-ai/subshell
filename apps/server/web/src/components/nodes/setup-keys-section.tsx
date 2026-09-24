@@ -152,7 +152,7 @@ export function SetupKeysSection() {
             <Label>List every account's setup keys</Label>
           </div>
         )}
-        {q.error && <p className="text-destructive text-sm">Couldn't load setup keys.</p>}
+        {q.error && <p className="text-destructive text-detail">Couldn't load setup keys.</p>}
         {!q.error && q.isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
         {!q.error && rows?.length === 0 && (
           <p className="text-muted-foreground text-sm">

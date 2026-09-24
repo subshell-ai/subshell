@@ -97,7 +97,7 @@ export function ChangePasswordCard() {
               onChange={(e) => setConfirmPassword(e.target.value)}
             />
           </div>
-          {pwError && <p className="text-destructive text-sm">{pwError}</p>}
+          {pwError && <p className="text-destructive text-detail">{pwError}</p>}
           {pwSaved && <p className="text-detail text-success">Password updated</p>}
           <Button type="submit" disabled={pwBusy}>
             {pwBusy ? "Updating…" : "Update password"}

@@ -156,7 +156,7 @@ export function NotificationsCard({
           </p>
         )}
         {error && (
-          <p role="alert" className="text-destructive text-sm">
+          <p role="alert" className="text-destructive text-detail">
             {error}
           </p>
         )}

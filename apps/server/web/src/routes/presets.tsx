@@ -91,7 +91,7 @@ function PresetsPage() {
         }
       />
 
-      {listError && <p className="text-destructive text-sm">{listError}</p>}
+      {listError && <p className="text-destructive text-detail">{listError}</p>}
 
       {/* A dialog rather than a card that pushes the list down the page
           (user report 2026-09-11): creating a preset is a decision with an

@@ -199,7 +199,7 @@ export function NodeServiceCard({
           </p>
         )}
         {wait.outcome === "timeout" && (
-          <p className="text-destructive text-sm">The node has not come back. Check the node on that machine.</p>
+          <p className="text-destructive text-detail">The node has not come back. Check the node on that machine.</p>
         )}
         {/* Updating the node BINARY is a different act from driving its
             service manager, and it lives in one place for the whole fleet
@@ -215,7 +215,7 @@ export function NodeServiceCard({
         </p>
         {done && <p className="whitespace-pre-wrap text-muted-foreground text-sm">{done}</p>}
         {failure && (
-          <p role="alert" className="text-destructive text-sm">
+          <p role="alert" className="text-destructive text-detail">
             {failure}
           </p>
         )}

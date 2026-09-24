@@ -66,7 +66,7 @@ function WorkspacesPage() {
         }
       />
 
-      {error && <p className="text-destructive text-sm">{error}</p>}
+      {error && <p className="text-destructive text-detail">{error}</p>}
       {dropNote && <p className="text-muted-foreground text-sm">{dropNote}</p>}
 
       {isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}

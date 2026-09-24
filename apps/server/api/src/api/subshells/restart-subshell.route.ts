@@ -24,7 +24,7 @@ const RestartBodySchema = t.Object(
   },
   {
     description:
-      "Optional preset swap applied inside this restart. A refusal at the gate, in validation, at maintenance or by the offline pre-gate writes nothing; a revive that fails after the swap leaves the row dead keeping the chosen preset.",
+      "Optional preset swap applied inside this restart. A refusal at the gate, in validation, at maintenance, by the offline pre-gate or because a restart is already running writes nothing; a revive that fails after the swap leaves the row dead keeping the chosen preset.",
   },
 );
 
@@ -33,7 +33,8 @@ const RestartBodySchema = t.Object(
  * new process, same row, conversation resumed when its transcript survived.
  * The optional `{ presetId }` body (null = presetless) swaps the row's preset
  * at the restart's swap point. A refusal at the gate, in validation, at
- * maintenance or by the offline pre-gate writes nothing; a revive that fails
+ * maintenance, by the offline pre-gate, or with 409 RESTART_IN_FLIGHT when the
+ * id's in-flight lease is already held, writes nothing; a revive that fails
  * after the swap leaves the row dead keeping the chosen preset (spec §4).
  */
 export const restartSubshellRoute = new Elysia()

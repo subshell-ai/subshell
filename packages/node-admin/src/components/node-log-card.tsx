@@ -256,12 +256,12 @@ export function NodeLogCard({
           </p>
         )}
         {setDebug.error && (
-          <p role="alert" className="text-destructive text-sm">
+          <p role="alert" className="text-destructive text-detail">
             {errMessage(setDebug.error, "Could not change debug logging on this node")}
           </p>
         )}
         {failure && (
-          <p role="alert" className="text-destructive text-sm">
+          <p role="alert" className="text-destructive text-detail">
             {failure}
           </p>
         )}

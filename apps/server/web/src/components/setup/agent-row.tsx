@@ -97,7 +97,7 @@ export function AgentRow({
       )}
       {failure && (
         <div className="pb-3 pl-9">
-          <p className="text-destructive text-sm">{failure.message}</p>
+          <p className="text-destructive text-detail">{failure.message}</p>
           {failure.output !== undefined && failure.output.trim() !== "" && (
             <details className="mt-1 text-sm">
               <summary className="cursor-pointer text-detail text-muted-foreground">What the installer printed</summary>

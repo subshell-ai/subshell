@@ -215,7 +215,7 @@ export function SupervisionCard({
         </p>
       )}
       {supervision.timedOut && (
-        <p className="col-span-full text-destructive text-sm">
+        <p className="col-span-full text-destructive text-detail">
           The server has not come back. Check the Subshell Server app on that machine.
         </p>
       )}

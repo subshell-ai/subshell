@@ -139,7 +139,7 @@ export function PasskeysCard() {
             ))}
           </ul>
         )}
-        {error && <p className="text-destructive text-sm">{error}</p>}
+        {error && <p className="text-destructive text-detail">{error}</p>}
       </CardContent>
     </Card>
   );

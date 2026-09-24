@@ -89,7 +89,7 @@ export function NotificationsMasterCard({
           <Label>{enabled === null ? "Unknown" : enabled ? "On" : "Off"}</Label>
         </div>
         {error && (
-          <p role="alert" className="text-destructive text-sm">
+          <p role="alert" className="text-destructive text-detail">
             {error}
           </p>
         )}

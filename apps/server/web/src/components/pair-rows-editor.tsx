@@ -156,7 +156,7 @@ export function PairRowsEditor({
             aria-label={`Paste ${firstLabel.toLowerCase()}s in bulk`}
             className="font-mono text-detail"
           />
-          {(parsed.error || error) && <p className="text-destructive text-sm">{parsed.error ?? error}</p>}
+          {(parsed.error || error) && <p className="text-destructive text-detail">{parsed.error ?? error}</p>}
           <div className="flex justify-end">
             <Button
               type="button"

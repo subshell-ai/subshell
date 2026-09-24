@@ -22,7 +22,8 @@ that point, continue. Everything downstream is untouched machinery — env/argv
 layering locally, the full plane-built launch frame (argv + preset + env +
 mcp + resolve) re-sent to the node for remote panes, MCP token rotation,
 `publishLive({kind:"subshell.changed"})`, the `restartInFlight` lease joining
-concurrent restarts.
+concurrent restarts (plain ones — a swap arriving mid-restart is refused, see
+§4's amendment).
 
 ## 2. Server
 
@@ -117,6 +118,7 @@ already exist.
 | `view` access | refused by the gate (unchanged) |
 | node offline / maintenance | 409, preset untouched — refused before the manager (maintenance always was; offline since the amendment below) |
 | preset unknown, not the caller's, or wrong harness | 400 `INVALID_PRESET`, nothing written |
+| a swap arrives while a restart is in flight | 409 `RESTART_IN_FLIGHT`, nothing written — refused, not joined (amendment below) |
 | revive fails after the swap | row ends `terminated` with the new preset kept |
 
 **Amendment 2026-09-24 (final review).** The offline row originally leaned on
@@ -126,6 +128,15 @@ RPC was what threw — a 409 answering for a restart whose preset had already
 moved. The service now refuses a swap-carrying restart before the manager when
 the row's agent node has no live connection, so the table above is what
 ships; a plain no-swap restart keeps its pre-existing path untouched.
+
+The same review closed the lease hole the implementation had documented rather
+than fixed: a swap that arrives while the `restartInFlight` lease is held is
+now REFUSED (409 `RESTART_IN_FLIGHT`) instead of joining — the running revival
+composes the first caller's preset, and a joined 200 would have promised a
+swap that never lands. Plain restarts keep joining (that is the lease's
+purpose). The audit rows of the act (both `subshell.restart` and
+`subshell.preset_switch`) now name the ACTING viewer, not the row's owner —
+moved together, the final review's condition.
 
 ## 5. Tests
 
