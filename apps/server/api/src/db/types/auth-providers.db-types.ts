@@ -4,6 +4,16 @@ import type { Generated, Selectable } from "kysely";
 export type AuthProviderKind = "email" | "google" | "oidc";
 
 /**
+ * Narrows the text column to the union (the `asApprovalState` precedent).
+ * The "oidc" fallback is INERT in practice — rows are only ever written
+ * through the route's validated kinds — and exists so a hand edit of the
+ * column cannot break a read, which is why the column is text at all.
+ */
+export function asProviderKind(value: string | null | undefined): AuthProviderKind {
+  return value === "email" || value === "google" || value === "oidc" ? value : "oidc";
+}
+
+/**
  * One admin-managed sign-in door. Booleans are 0/1 integers (SQLite);
  * `registrationEnabled` NULL means the legacy dynamic gate (§2) and is only
  * legal on the `email` row — OIDC rows always carry an explicit 0/1.

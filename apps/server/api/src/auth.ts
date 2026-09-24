@@ -1,9 +1,11 @@
 import { apiKey } from "@better-auth/api-key";
 import { passkey } from "@better-auth/passkey";
 import { betterAuth } from "better-auth";
+import { genericOAuth } from "better-auth/plugins";
 import { sql } from "kysely";
 import { auditAuthAfterRequest, auditSessionDeleted } from "@/auth/audit-hooks.js";
 import { authDatabase } from "@/auth/database.js";
+import { loadProviderRowsSync, toGenericOAuthConfig } from "@/auth/provider-rows.js";
 import { APP_BASE_URL, AUTH_SECRET } from "@/constants.js";
 import { REAL_ACCOUNT_FILTER } from "@/db/repositories/users.repository.js";
 import { FIRST_SETUP_STEP } from "@/db/types/setup-step.js";
@@ -11,6 +13,7 @@ import { accountDisabled } from "@/services/account-status.js";
 import { registrationOpen } from "@/services/registration-gate.js";
 import { originRegistry } from "@/services/trusted-origins.js";
 import { normalizeUserName } from "@/services/user-name.js";
+import { logger } from "@/utils/logger.js";
 
 /**
  * The raw better-auth options, exported for `runAuthMigrations`:
@@ -30,6 +33,21 @@ export const AUTH_OPTIONS = {
   secret: AUTH_SECRET,
   emailAndPassword: {
     enabled: true,
+  },
+  account: {
+    accountLinking: {
+      // Spec §5, measured: 1.7.1's implicit link gate demands the LOCAL user's
+      // emailVerified by default, and every account this instance writes has
+      // it FALSE — the spec's core linking requirement would die with a
+      // generic "account not linked". The inversion makes the PROVIDER's
+      // verified claim the link defense; that claim's enforcement (door-policy
+      // + mapProfileToUser) is what pays for it, and docs/security.md §5
+      // accounting lands with it (final docs task). 1.7.1 marks the member
+      // deprecated ("gate becomes unconditional"); upgrading better-auth
+      // therefore re-arms the default this line removes, and the upgrade is a
+      // spec-§5 decision, not a dependency bump.
+      requireLocalEmailVerified: false,
+    },
   },
   // The FUNCTION form, which better-auth 1.7.1 re-invokes per request
   // (`dist/auth/base.mjs` getTrustedOrigins(options, request); the origin
@@ -153,23 +171,65 @@ export const AUTH_OPTIONS = {
  * subcommand's lifetime; pinned by auth-import-purity.test.ts). The auth
  * database is the same bun:sqlite file as the app (better-auth's bundled
  * dialect handles it).
+ *
+ * `genericOAuth` joins the plugin list HERE and not in `AUTH_OPTIONS`:
+ * AUTH_OPTIONS also feeds `runAuthMigrations`, which receives the FULL
+ * options — a door row that made plugin init throw (a bad config, a discovery
+ * fallback) would then crash-loop BOOT, since migrations run before anything
+ * listens (spec §3). genericOAuth registers no tables of its own, so the
+ * migration path never needs it, and a broken door costs the auth instance
+ * only — which {@link getAuth}'s last-known-good rule then papers over.
+ * The email row is a door for POLICY purposes (§2) and never an OAuth one:
+ * it is filtered here, before the config array is built.
  */
 function buildAuth() {
-  return betterAuth({ ...AUTH_OPTIONS, database: authDatabase() });
+  const doors = loadProviderRowsSync().filter((r) => r.kind !== "email");
+  const config = doors.map((r) => toGenericOAuthConfig(r, r.entryOrigins[0] ?? APP_BASE_URL)); // canonical = list position 0 (§5a)
+  return betterAuth({
+    ...AUTH_OPTIONS,
+    database: authDatabase(),
+    plugins: config.length > 0 ? [...AUTH_OPTIONS.plugins, genericOAuth({ config })] : AUTH_OPTIONS.plugins,
+  });
 }
 
 type Auth = ReturnType<typeof buildAuth>;
 let instance: Auth | undefined;
+/** The last instance that built cleanly, for the fallback below. */
+let lastGood: Auth | undefined;
 
 /**
  * The better-auth instance (singleton per the code-style rule), built on
  * FIRST USE. Everything that needs auth does so at boot or per-request —
  * both well after module evaluation — so the laziness is invisible in
  * behavior and visible only in the absence of import-time side effects.
+ *
+ * A rebuild that THROWS serves the last known-good configuration rather than
+ * taking the instance down: an admin saving a junk provider row must not
+ * sign every existing user out mid-edit (spec §3). The first-ever build
+ * failing still throws — there is no known-good to serve, and a silent
+ * stand-in would be a fake.
  */
 export function getAuth(): Auth {
-  instance ??= buildAuth();
+  if (instance) return instance;
+  try {
+    instance = buildAuth();
+    lastGood = instance;
+  } catch (err) {
+    logger.withError(err).error("building the auth instance failed; serving the last known-good configuration");
+    if (!lastGood) throw err; // first build can still fail loudly
+    instance = lastGood;
+  }
   return instance;
+}
+
+/**
+ * Drops the memoized instance so the next {@link getAuth} rebuilds from the
+ * CURRENT `auth_providers` table (spec §3). Called by the provider route
+ * after every successful write — no process restart; same sibling semantics
+ * as {@link resetAuthForTests}, which stays @internal and unchanged.
+ */
+export function invalidateAuth(): void {
+  instance = undefined;
 }
 
 /**
