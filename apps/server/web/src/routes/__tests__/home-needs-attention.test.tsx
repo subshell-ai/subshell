@@ -147,6 +147,11 @@ describe("home Needs Attention section (spec 2026-09-24)", () => {
     try {
       const hs = await headings();
       expect(hs).not.toContain("Needs Attention");
+      // The row itself is still a viewer-visible Running card — what the
+      // selector excludes is the SPOTLIGHT, not the pane. Without this the
+      // test's meaning would silently shift if filterSubshells ever dropped
+      // non-owner rows before the selector saw them.
+      expect(hs).toContain("Running");
     } finally {
       restore();
     }
