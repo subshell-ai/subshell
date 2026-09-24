@@ -37,7 +37,10 @@ resolved by provider id. The **genericOAuth plugin** is the right shape:
 `{baseURL}/api/auth/callback/:providerId`, per-provider `providerId` +
 `clientId` + `clientSecret` + discovery (`discoveryUrl`, or explicit
 authorization/token/userInfo URLs for non-discovering issuers), and
-`mapProfileToUser` / `getUserInfo` / `validateUserInfo` hooks.
+`mapProfileToUser` / `getUserInfo` profile hooks. Door policy is NOT
+per-provider: 1.7.1 has no `validateUserInfo` on the genericOAuth config
+(measured — the member does not exist); the gate is the **global**
+`user.validateUserInfo` (§3).
 
 Decision: **genericOAuth**. The SSO plugin's `ssoProvider` table would sit
 beside our own provider table as a second source of truth and buy nothing we
@@ -60,29 +63,40 @@ New table `auth_providers` — migration `0037-auth-providers.ts` in
 | `entry_origins` | the hosts this provider's door can round-trip through — an admin-curated LIST of origins (§5a). Each admits `{origin}/api/auth/callback/{id}`; the first is the canonical fallback. Null on `email` rows |
 | `allowed_domains` | optional comma-separated email domains (`acme.com, acme.io`); null/empty = any. When set, an email outside the list cannot use this door at all — link, sign-in or create (§5) |
 | `sign_in_enabled` | offer the door to existing accounts |
-| `registration_enabled` | allow the door to CREATE accounts |
+| `registration_enabled` | allow the door to CREATE accounts; nullable on the `email` row only — null = the legacy "open while no users exist" dynamic (§2) |
 | `require_approval` | accounts this provider CREATES start `pending` (§4) |
 
-Row order is list order. `created_at` / `updated_at` as everywhere else.
-The E-mail row can never be deleted — it is the fallback door and the
-carrier of the bootstrap semantics; it is toggled, not removed. Delete
-offers only OIDC rows.
+`position` (integer) governs list order — SQLite's natural order is not a
+promise — and the dialog's list editor reorders it. `created_at` /
+`updated_at` as everywhere else. The E-mail row can never be deleted — it is
+the fallback door and the carrier of the bootstrap semantics; it is toggled,
+not removed. Delete offers only OIDC rows.
+
+**`registration_enabled` is nullable, and null means "legacy dynamic".** Its
+value **replaces** the global `allow_registrations` settings row as the gate's
+storage, with exactly its decision table: a stored boolean is parsed with the
+same fail-closed read `registrationDecision` uses today (corrupt ⇒ closed);
+null means open iff no real accounts exist — the deliberate
+"open-exactly-until-someone-arrives" bootstrap, which closes itself behind
+the first user. A static `true` default would have **frozen that window
+open**: the 2026-09-13 fail-closed change would silently regress on every
+fresh install, leaving the email door LAN-open after the wizard until an
+admin noticed. (Operator ruling 2026-09-24, upholding the old gate's meaning
+through the migration.)
 
 **The E-mail provider row** (`id = "email"`, `kind = "email"`) is created by
-the migration with defaults mirroring today's world: `enabled`, `sign_in_enabled`
-and `registration_enabled` true. Its `registration_enabled` **replaces** the
-global `allow_registrations` settings row: `services/registration-gate.ts`
-reads the email row instead, keeping its fail-closed semantics (a corrupt read
-means closed), and the "absent row means open only while no users exist"
-bootstrap is untouched — it keys off `hasAnyUser`, not the row. The row on
-Settings → General loses its switch; the key becomes dead data, harmless.
+the migration with `enabled` and `sign_in_enabled` true and
+`registration_enabled` **NULL**. The 0037 migration also copies the old
+settings row forward when one exists (present ⇒ its parsed boolean lands in
+the column), so an upgraded instance behaves byte-for-byte as before; a fresh
+install simply never writes the column until an admin touches the switch.
+`services/registration-gate.ts` reads the email row instead of the settings
+row; the General page loses its switch; the old key becomes dead data,
+harmless. The Auth page's E-mail toggle displays the gate's **computed**
+decision (the column value, or its null-expansion) and persists a real
+boolean on first touch.
 
-Migration note: the 0037 migration inserts the email row unconditionally, and
-its initial `registration_enabled` copies the live meaning of the old gate —
-row present → its boolean; row absent → open iff no real accounts exist.
-That keeps a freshly upgraded instance behaving exactly as before.
-
-## 3. How the config reaches better-auth
+## 3. How the config reaches better-auth, and where door policy lives
 
 `AUTH_OPTIONS.plugins` gains `genericOAuth`. Its `config` is a **static array
 built when the auth instance is constructed** — the docs show no per-request
@@ -93,64 +107,116 @@ Instead: `buildAuth()` filters `auth_providers` (`enabled` rows with
 `resetAuthForTests()` — that drops the memoized singleton so the next request
 rebuilds. Every successful write to the table calls it. No process restart.
 
-Consequence that must be handled: genericOAuth fetches discovery metadata at
-instance build, and a provider with broken discovery is silently skipped (or
-sours the rebuild). Therefore **the admin dialog validates before saving**:
-the create/update route fetches `{issuer}/.well-known/openid-configuration`
-and refuses (400) an issuer whose document is unreachable, malformed, or
-missing the endpoints genericOAuth needs. A save that would produce a
-vanishing button is refused loudly instead.
+**Providers are built fail-tolerant (measured on the installed 1.7.1).** A
+provider whose discovery fetch fails **throws at plugin init** unless
+`accountIssuer` is set ("Provider initialization stopped to keep its account
+issuer stable"), and `AUTH_OPTIONS` is also handed to `runAuthMigrations` —
+which runs before listen. So one drifted issuer would crash-loop the **whole
+plane, boot and migrations included**, not just one door. Three defenses:
+every config entry sets `accountIssuer` = the stored issuer; the save path
+persists the discovery-resolved `authorizationUrl` / `tokenUrl` /
+`userInfoUrl` alongside it, so a rebuild never re-fetches a dead issuer (an
+endpoint-complete provider degrades to a log-and-skip); and the dialog's
+validate-before-save (create/update fetches
+`{issuer}/.well-known/openid-configuration`, refusing a bad one with 400)
+stays, so most failure modes never get stored. A rebuild that throws anyway
+falls back to the last-good instance rather than taking requests down.
 
-Registration gating per provider rides **`validateUserInfo`**, which
-genericOAuth calls per provider with the action in play
-(`create-user | link-account | sign-in`): a provider whose
-`registration_enabled` is false returns `reject` on `create-user` and passes
-the others. The email path keeps the existing `user.create.before`
-registration-gate hook, now consulting the email row (§2). Linking relies on
-better-auth's own rule plus §5's verified-email condition.
+**Door policy is one global seam: `user.validateUserInfo` (measured).** The
+hook is `options.user.validateUserInfo`, **not** per-provider — 1.7.1's
+genericOAuth config has no such member. It receives `{ source, action,
+profile }`: `action` is `create-user | link-account | sign-in`;
+`source.method` is `"oauth"` (with `source.oauth.providerId` and the raw
+profile — better-auth refuses a source missing them) or `"email-password"`.
+Rejection shape: **return `{ error, errorDescription }`** — the string
+becomes the 403 `code`, and on the OAuth path the callback redirects with
+`?error=<code>&error_description=<msg>`; return nothing to allow; **a throw
+inside the hook fails closed** (`validation_failed` 403). Everything the
+provider table decides rides here, branching on method + providerId + action:
+
+- per-door **registration** — `create-user` consults that door's
+  `registration_enabled` (the email row's null-dynamic included);
+- the **domain gate** (§5) — all three actions;
+- **pending / rejected** (§4) — `sign-in` and `link-account`, reading the
+  email-matched user's `approval_state` from the app DB;
+- the E-mail door's **`sign_in_enabled`** (§7) — `email-password` +
+  `sign-in`, so a closed door refuses at the API, not just in the UI.
+
+**`user.create.before` keeps only name normalization** — its current
+registration-gate refusal MUST move to the hook above. The hook cannot stay
+as the email gate: it receives the user row with **no method or provider**
+(measured) and fires for OAuth-created users too, so "consult the email row"
+there would refuse every Google-provisioned account the moment an admin
+closed email registration — the natural OIDC-only configuration would zero
+out the very door it configured. Admin `POST /api/users` is unaffected
+either way (direct insert, never the sign-up route).
 
 ## 4. Sign-in, creation, and approval
 
-The flow on `GET /api/auth/callback/:providerId`:
+The flow on `GET /api/auth/callback/:providerId`, with the enforcement seam
+named at each step (all measured on the installed 1.7.1):
 
 - **Email matches an existing account** → better-auth links the account row
   and mints a session. `require_approval` does **not** apply here — the admin
   already admitted this person somehow. A pending/rejected arrival counts as
   an existing account for this check (its user row exists; §6 keeps it out of
-  member lists, not out of existence).
-- **New email, provider `registration_enabled`** → user + account created
-  through the normal better-auth flow. `require_approval` on ⇒ mark the new
-  user `approval_state = pending` and **refuse the session**; off ⇒ the user
-  is a plain approved member.
-- **New email, registration off** → refused with the same generic error the
-  closed registration gate returns today; nothing leaks about why.
-- **A `rejected` person signing in again** → identical pending screen
-  (§7). Deliberately indistinguishable; the admin side keeps the truth (§6).
-- **`disabled`** still wins over everything: `session.create.before` already
-  refuses it and is unchanged.
-
-Session refusal is enforced in **`session.create.before`** — the same seam
-where `disabled` is refused today (`auth.ts` `signInAllowed`) — extended to
-refuse `approval_state = pending | rejected`. The OAuth callback then
-redirects the browser to `/pending?email=…`; the email is echo-only display,
-never an authorization. **Measurement for the plan to run first:** whether a
-refused session at the OAuth callback surfaces as a browser redirect with an
-error parameter or as a JSON body at the callback endpoint. If it is not
-already a redirect to our `/pending`, the callback's after-side must issue
-that redirect itself (better-auth supports post-callback redirect control;
-the exact member is a plan detail). The user-visible contract — a pending
-person's OAuth round trip lands on `/pending`, never on `/login` with a
-mystery error — is the requirement; the mechanism is what the measurement
-decides.
+  member lists, not out of existence) — but its `approval_state` is then
+  refused at the re-arrival bullet's seam, which fires before any of this
+  happens; what must not happen is treating pending as "needs approval
+  again" once an admin approved it.
+- **First arrival at a `require_approval` provider** (new email, or an
+  email whose user does not exist) → the account IS created (the queue needs
+  a row), and `databaseHooks.account.create.after` — the only OAuth seam
+  carrying `providerId` at creation time (`user.create.after` fires before
+  the account row exists, door-blind) — marks the new user
+  `approval_state = pending` and undoes any first-admin promotion the
+  creation just wrote (§6). The session then fails at
+  `session.create.before` (extended to pending), which surfaces as a
+  redirect to the start request's `errorCallbackURL` with the **generic**
+  `?error=unable_to_create_session`. That is the one arrival that cannot get
+  the bespoke screen — the redirect cannot distinguish pending from
+  `disabled` and carries no email — so `/login` renders a single honest line
+  for that code: sign-in could not complete; access may be pending approval
+  or disabled; contact an admin. It reads true for both.
+- **Every later arrival while pending or rejected** → refused in
+  `validateUserInfo` (action `sign-in` / `link-account`, §3) with the named
+  code `pending_approval` and the account email in `errorDescription`. The
+  callback redirects to `errorCallbackURL` (persisted in the OAuth state —
+  we pass `/login`, so no new bare frame is needed) with
+  `?error=pending_approval&error_description=…`, and `/login` maps that code
+  onto the `/pending` screen; the email shown is echo-only, never an
+  authorization. Pending and rejected render the identical screen (§7) —
+  deliberately indistinguishable; the admin side keeps the truth (§6). This
+  seam, not `session.create.before`, is what gives re-arrivals their
+  distinguishable outcome; the hook is app code and touches the queue row's
+  `arrived_at` when it refuses (§6).
+- **New email, registration off** → refused in `validateUserInfo`
+  (`create-user`) with the same generic error the closed registration gate
+  returns today; nothing leaks about why.
+- **`disabled`** still wins over everything: `session.create.before` refuses
+  it unchanged. That seam keeps refusing `pending` too — it is what actually
+  stops the first-arrival session (bullet 2) and stays the backstop for any
+  race on re-arrival — but it is never what a returning visitor hits, because
+  `validateUserInfo` answers them first with the distinguishable code.
+  `rejected` is refused only at `validateUserInfo` (a rejected person was
+  never going to get a session-creation attempt past the queue check).
 
 Approval is **creation-only, per the operator's ruling**: it gates account
 CREATION by that provider. It is a future-boundary tool like `allow_registrations`
 — turning it on never strands people who already signed in.
 
-Audit: `SIGN_IN_ENDPOINT_METHODS` in `auth/audit-hooks.ts` gains the OAuth
-callback path with method `oidc:<providerId>` (success rows only, per the
-existing rule). Refusals — registration closed, pending, rejected, bad state
-— write **nothing**, the same anti-spam rule as failed logins.
+**Audit needs a different seam than the existing table (measured).**
+`SIGN_IN_ENDPOINT_METHODS` is exact-path-keyed and its success test reads
+`context.returned.user.id`; the OAuth callback path is dynamic
+(`/callback/{id}`) and its success response is a **redirect** with no user
+body — a table entry would write nothing. The invariant the plan must
+implement and pin: **exactly one `auth.sign_in` row per successful OIDC
+sign-in, with `method: "oidc:<providerId>"`, and none for any refusal**
+(pending, rejected, registration-closed, disabled — the same anti-spam rule
+as failed logins). Candidate seams (plan picks one, tests pin the invariant):
+the session-create path where the session actually mints, or an after-hook
+prefix-matching `/callback/` and inspecting the redirect's destination —
+the latter is brittle to better-auth's redirect shape, so prefer the former.
 
 ## 5. Linking, and its security accounting
 
@@ -172,28 +238,49 @@ The link rule is bidirectional-asymmetric, by decision:
 **The domain gate.** When `allowed_domains` is set, every callback email is
 matched (case-folded; the email's domain matches if it **equals** an entry
 or **ends with `.` + entry**, so `acme.com` admits `mail.acme.com` and never
-`evilacme.com`; no `*` syntax, entries are validated bare-domain) **before** better-auth's link/create
-decision — `validateUserInfo` sees all three actions per provider, so the
-check rides there and refuses whatever it contradicts: no link, no create,
-no pending row, the generic refusal. That includes a pre-existing linked
+`evilacme.com`; no `*` syntax, entries are validated bare-domain) **before**
+better-auth's link/create decision — the global `validateUserInfo` (§3) sees
+all three actions and carries `source.oauth.providerId`, so the check rides
+there and refuses whatever it contradicts: no link, no create, no pending
+row, the generic refusal. That includes a pre-existing linked
 account: a door whose domains stop matching stops letting its own linked
 users in — a door policy, consistent with `sign_in_enabled` turning the same
 door off for everyone. For a Google Workspace company this is the difference
 between "anyone on Earth with a Google account can knock" and "your staff
 can enter," and many instances will prefer it to require-approval.
 
+**The link gate, measured (1.7.1 `oauth2/link-account.mjs:82-83`), forces a
+config inversion.** Implicit linking requires
+`(trusted provider ∨ profile emailVerified) ∧ (local user emailVerified ∨
+accountLinking.requireLocalEmailVerified === false)` — and the default is
+`true`, while **every account this instance writes has `emailVerified =
+false`** (the wizard's sign-up, admin-created rows, the system user).
+`AUTH_OPTIONS` therefore gains `accountLinking: { requireLocalEmailVerified:
+false }`, or the spec's core requirement — link to the existing account —
+dies with a generic "account not linked" for every existing user. Also
+measured: `trustedProviders` defaults to **empty** and a genericOAuth
+provider merely *named* `google` is not trusted by name, so the
+verified-claim requirement below is load-bearing for Google too (Google's
+`email_verified` claim satisfies it through the default profile mapping).
+
 The cost of the link-straight-in rule, stated plainly: **a generic OIDC
 provider can assert any email it likes, and linking turns that into takeover
-of the matching account.** Adding a provider is therefore the same class of
-trust decision as installing a plugin — admin-only, audited, and the dialog
-says so in one line of help text. Google's verified-email assertion is
-trustworthy; an issuer the admin pastes in at 2am might not be. Linking
-requires the provider's profile to mark the email **verified**
-(`mapProfileToUser` sets `emailVerified` only from the provider's verified
-claim, never from the mere presence of an email), and `validateUserInfo`
-returns `reject` for `link-account` when that claim is absent. This goes into
-`docs/security.md` (new subsection under the auth sections) and the working
-summary in `.claude/rules/security-context.md`.
+of the matching account.** With the inversion, the provider's verified claim
+is not an extra check — it is the link defense itself. Adding a provider is
+therefore the same class of trust decision as installing a plugin —
+admin-only, audited, and the dialog says so in one line of help text. Google's
+verified-email assertion is trustworthy; an issuer the admin pastes in at 2am
+might not be. Second layer: linking requires the provider's profile to mark
+the email **verified** (`mapProfileToUser` sets `emailVerified` only from the
+provider's verified claim, never from the mere presence of an email), and
+`validateUserInfo` — the global hook — returns
+`{ error: "unverified_email" }` for `link-account` when that claim is absent
+(§3's rejection shape), on top of better-auth's own gate. One side effect to
+own: on a verified match, better-auth flips the local user's
+`emailVerified` to true (same file, :133) — a one-time, provider-granted
+fact the security accounting should mention rather than discover. All of
+this goes into `docs/security.md` (new subsection under the auth sections)
+and the working summary in `.claude/rules/security-context.md`.
 
 **5a. Entry points, and telling the admin what to give the IdP.** A Subshell
 instance answers at several addresses by design — loopback, LAN,
@@ -240,12 +327,14 @@ one:
 
 Mechanism note for the plan to verify against better-auth 1.7.1: whether the
 genericOAuth `redirectURI` can be chosen per request (config-as-function
-surface or `queryParameters` override). If it cannot, the shipped behavior
-degrades honestly: every round trip uses the canonical entry, and the extra
-list entries exist so the registration panel and the follow-the-visitor
-behavior light up the moment better-auth supports it — the stored list and
-the membership rule are the same either way, so this is a capability
-difference, not a redesign.
+surface or `queryParameters` override). Either way `redirectURI` is set
+**explicitly** = the canonical entry — the unset fallback derives from the
+static `baseURL`, which would silently disagree with a reordered list. If
+per-request choice is not available, the shipped behavior degrades honestly:
+every round trip uses the canonical entry, and the extra list entries exist
+so the registration panel and the follow-the-visitor behavior light up the
+moment better-auth supports it — the stored list and the membership rule are
+the same either way, so this is a capability difference, not a redesign.
 
 The anonymous pre-auth surface grows but stays **one route**: the login page
 learns which buttons to draw from `GET /api/settings/instance`, whose body
@@ -256,19 +345,28 @@ say the read is one route that also names the doors.
 
 ## 6. Pending state, and what must not see it
 
-`user_meta` gains `approval_state` (migration, text, default
-`"approved"`; an absent row reads `approved`, mirroring how absent reads
-`disabled = false` today). Values: `approved | pending | rejected`, exported
-as a union + runtime array per the code-style rule.
+`user_meta` gains `approval_state` (its own migration **0038** — 0037 is the
+provider table; text, default `"approved"`; an absent row reads `approved`,
+mirroring how absent reads `disabled = false` today). Values:
+`approved | pending | rejected`, exported as a union + runtime array per the
+code-style rule.
 
-The load-bearing exclusion: `REAL_ACCOUNT_FILTER` in
-`db/repositories/users.repository.ts` — which counts real accounts for
-`hasAnyUser` and feeds `GET /api/users` — additionally excludes
-`pending`/`rejected`. Without this, the first OIDC arrival at an
-unconfigured instance would trip `promoteFirstUserToAdmin` through the
-`user.create.after` hook and hand admin to a person no one approved. Pinned
-by two tests: first-admin promotion skips a pending creator; the bootstrap
-window stays open past a pending arrival.
+**The first-admin protection is a promotion gate, not the filter.**
+(Measured correction to this spec's first draft.)
+`promoteFirstUserAtomically` (`auth.ts:286-302`) decides by probing OTHER
+rows (`id <> creator`, strict-older), so excluding pending/rejected from
+`REAL_ACCOUNT_FILTER` says nothing about the **creator's own** pending state
+— on an instance with no admin yet, a pending creator would still be
+promoted, and the filter would then hide the new admin from `GET /api/users`
+(an invisible admin — worse than the hole). The enforcement is the seam §4
+names: `account.create.after` marks pending (the only hook at creation that
+sees the provider) and **demotes back to `user` any role `admin` that seam
+just wrote for a row it marked pending** — an OIDC-arrival creator can never
+end up first admin. (The `setup_step` the same atomic write sets stays; it
+is inert without a session, which a pending person never gets.)
+`REAL_ACCOUNT_FILTER`'s pending/rejected exclusion is kept as
+**defense-in-depth** (list and count hygiene), not as the admin guard.
+Pinned by tests re-anchored to the real mechanism (§10).
 
 `GET /api/users` keeps its shape for members and gains nothing unapproved.
 The pending list is a separate admin-only read: `GET /api/users/pending`
@@ -287,9 +385,14 @@ account can knock, so the tab must not be an unbounded junkyard:
 - **Pending expires.** Unactioned `pending` rows older than
   `pending_approval_expiry_days` (a settings row, admin-set on Settings →
   Auth, default **30**, `0` = keep forever — the log-retention idiom) are
-  deleted by the existing hourly sweep pass: the `user`, `account` and
-  `user_meta` rows go together. A knocked-and-forgotten person who returns
-  later simply re-arrives.
+  deleted by the existing hourly sweep pass. Each deletion is ONE
+  transaction removing `user_meta`, `account` and `user` rows together, and
+  defensively also any `session`/`verification` rows for the id — a pending
+  person never had sessions, but the sweep must not depend on that being
+  true. A knocked-and-forgotten person who returns later simply re-arrives.
+  Deleting a provider never deletes its queue rows; `GET /api/users/pending`
+  renders a provider id with no live row as "removed provider" rather than
+  falling over.
 - **Rejected never expires.** Rejection is an explicit admin decision and
   must not silently reopen the door on a timer; rejected rows persist until
   an admin approves or deletes them. No pile-up risk: dedup keeps knockers
@@ -299,10 +402,17 @@ account can knock, so the tab must not be an unbounded junkyard:
 
 **Login page** (`routes/login.tsx`): provider buttons above the passkey
 block, following its pattern (the OAuth round trip is a full-page redirect,
-not the fetch-style call — `authClient.signIn.social({ provider, callbackURL })`).
-E-mail sign-in itself is hidden when the email row's `sign_in_enabled` is off;
-the passkey button hides with it, since passkeys are credential accounts.
-If NO door is open, the page says so rather than showing an empty card.
+not the fetch-style call — `authClient.signIn.social({ provider, callbackURL,
+errorCallbackURL })`; the error target is `/login`, which maps
+`?error=pending_approval` onto `/pending` per §4). E-mail sign-in itself is
+hidden when the email row's `sign_in_enabled` is off, and the passkey button
+hides with it, since passkeys are credential accounts. A hidden door is not
+a closed one: the flag is enforced at the API through `validateUserInfo`
+(§3), and the plan must verify the passkey-verify path obeys it too — if
+`validateUserInfo` does not fire there, a path-specific `hooks.before` guard
+consulting the same row is mandatory, not optional (the invariant: a closed
+E-mail door refuses `sign-in/email` and passkey verify at the server). If NO
+door is open, the page says so rather than showing an empty card.
 
 **`/pending?email=…`**: a third bare frame beside `/login` and `/setup`
 (`__root.tsx`): instance name, "Your sign-in is awaiting approval", the email,
@@ -365,8 +475,12 @@ machine credentials never manage auth), the same gate as `/api/users`:
   changes no issuer-bearing field skips the probe), each invalidates the auth
   singleton on success, each audited.
 - `POST /test` — optional in-dialog "verify credentials" that runs the
-  discovery probe and a client-credentials token-endpoint check without
-  saving. Cuts a half-broken provider before it exists. Cheap; include.
+  discovery probe without saving. Cuts a half-broken provider before it
+  exists. The token-endpoint check rides as a client-credentials probe ONLY
+  where offered — Google web clients refuse that grant, so for the Google
+  preset (and any issuer whose metadata omits the grant) it is skipped and
+  the discovery result is the whole answer, reported as such rather than as
+  a failure.
 
 `GET /api/users/pending` and `PATCH /api/users/:id/approval` (body
 `{ "approvalState": "approved" | "rejected" }`). Cookie-admin, same
@@ -408,18 +522,38 @@ better-auth's code, not ours):
   successful write invalidates the singleton (assert the rebuild re-reads the
   table).
 - Sign-in matrix: link-existing (including pending-existing) straight in;
-  create-approved straight in; create-pending → session refused → redirect
-  carries to `/pending`; rejected-again → same refusal; registration off →
+  create-approved straight in; first arrival at a require-approval provider
+  → session refused, redirect carries the generic `unable_to_create_session`
+  code and NO session exists afterward; second arrival →
+  `?error=pending_approval` redirect, and `/login` maps it to `/pending`;
+  rejected-again → the same `pending_approval` outcome; registration off →
   generic refusal, no audit row; provider disabled → endpoint refuses.
+- Link gate (both layers): a verified profile links an existing
+  `emailVerified=false` user (`requireLocalEmailVerified: false` is doing
+  its job); an UNVERIFIED profile email refuses `link-account` via the hook
+  and creates nothing; a verified match flips the local user's
+  `emailVerified` (pin the §5 side effect so it is known, not discovered).
+- Door-policy hook shape: rejection returns `{ error }` and surfaces that
+  code; a throwing hook fails closed; the branch is keyed on
+  `source.method` + `providerId` (a test drives email-password and two
+  providers and asserts each got its own door's rules).
+- Closed E-mail door refuses `POST /api/auth/sign-in/email` at the SERVER,
+  not just the UI; passkey verify refuses too (whichever seam §7 chose).
+- Boot resilience: with a stored provider whose issuer has stopped answering
+  discovery, the server still boots, migrates, and signs people in by
+  password (the `accountIssuer` + persisted-endpoints defense, §3).
 - Email registration refused for an email held by an OIDC account, pending or
   approved; refusal message names the provider.
-- `REAL_ACCOUNT_FILTER`: pending creator does NOT become first admin;
-  bootstrap stays open past a pending arrival; `GET /api/users` never shows
-  pending rows.
+- First admin: the first OIDC arrival at an empty instance ends with NO
+  admin existing (the §6 demote-undo), and the bootstrap stays open past the
+  arrival; `GET /api/users` never shows pending rows (filter, defense in
+  depth).
 - `PATCH /:id/approval`: pending→approved lets the next OAuth session mint;
   →rejected keeps refusing; approved-target 409.
 - Login `providers` key-set test (anonymous body, nested shape).
-- Audit: sign-in via OIDC records `method: "oidc:<id>"` on success only.
+- Audit invariant (the seam is the plan's to pick, §4): exactly one
+  `auth.sign_in` row per successful OIDC sign-in with
+  `method: "oidc:<providerId>"`, and none for any refusal.
 - Route-level check that the email row's toggle drives the registration gate
   exactly as the old settings row did (the gate's existing tests move onto it).
 - Entry points: each stored origin admits its own callback URL; a request
@@ -448,15 +582,18 @@ files land in the same change, not as a follow-up.
    enterprise SSO (§1).
 2. **Provider toggles replace the global registration switch** — one mental
    model, E-mail is a row like any other (§2).
-3. **Config array + singleton invalidation** — genericOAuth has no
-   per-request provider function; rebuilding is near-free and matches the
-   existing lazy-singleton seam (§3).
+3. **Config array + singleton invalidation, built fail-tolerant** —
+   genericOAuth has no per-request provider function; a drifted issuer
+   throws at plugin init and would crash-loop boot, so `accountIssuer` and
+   the resolved endpoints are stored and the rebuild has a last-good
+   fallback (§3).
 4. **Approval gates creation only; existing email links straight in** — the
    admin already admitted them (§4).
 5. **Rejected looks identical to pending from the outside** — the operator's
    explicit ask; the truth lives in the admin tab (§4, §7).
-6. **Pending rows are excluded from `REAL_ACCOUNT_FILTER`** — otherwise an
-   unapproved arrival wins admin at an unconfigured instance (§6).
+6. **An OIDC-arrival creator can never become first admin** — enforced by
+   the pending-marking seam's demote-undo, with the `REAL_ACCOUNT_FILTER`
+   exclusion as hygiene beneath it (§6).
 7. **Adding a provider is an admin-only trust decision**, priced in the docs
    and one line of UI copy (§5).
 8. **Email registration refuses a claimed email explicitly**, including
@@ -476,3 +613,12 @@ files land in the same change, not as a follow-up.
     emitted redirect URI is always a stored string matched by membership,
     and the dialog hands the admin the exact Redirect URI / JS origin per
     entry to register at the IdP (§5a).
+14. **`accountLinking.requireLocalEmailVerified: false`** — without the
+    inversion no linking happens at all (every local account has
+    `emailVerified = false`, measured); the price is that the provider's
+    verified claim becomes THE link defense, which is why it, the domain
+    gate, and the admin-only trust decision stand together (§5).
+15. **All door policy lives in one global `user.validateUserInfo` hook** —
+    1.7.1 has no per-provider hook and `user.create.before` is door-blind
+    (both measured); the hook branches on method + providerId + action, and
+    its throw-fails-closed shape is relied on, not rediscovered (§3).
