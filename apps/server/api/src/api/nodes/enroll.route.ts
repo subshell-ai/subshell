@@ -219,15 +219,18 @@ export const enrollRoute = new Elysia().use(apiModels).post(
         displayName: name,
       });
       // Node key: long-lived (no expiresIn — revocation is delete-node,
-      // spec §5.4), least-privilege, and kind-tagged so REST refuses it
-      // (auth-guard) and only /ws/node accepts it.
+      // spec §5.4) and kind-tagged so REST refuses it (auth-guard) and only
+      // /ws/node accepts it. Deliberately NO permissions map (security-
+      // actionable item 10): the kind guard rejects every node key before any
+      // permission is read, and `/ws/node`'s chain reads metadata only — a
+      // grant list here is a map nothing consults, and worse than nothing,
+      // because widening that guard would silently activate it.
       const metadata: NodeKeyMetadata = { kind: "node", nodeId };
       const created = (await getAuth().api.createApiKey({
         body: {
           name: `node:${nodeId}`,
           userId: keyRow.ownerUserId,
           metadata,
-          permissions: { nodes: ["read", "write"] },
         },
       })) as unknown as CreatedApiKey;
       await nodes.setApiKeyId(nodeId, created.id);

@@ -55,6 +55,11 @@ const WsTokenResponseSchema = t.Object({
  *   (docs/security.md §2), and containment sits in the SCOPED token — one
  *   pane, 30 s, single-use, never `/ws/live` — rather than in refusing to
  *   mint at all.
+ *
+ * Both paths share the store's cap: past `MAX_PENDING_WS_TOKENS` outstanding
+ * tokens the mint answers 503 rather than growing memory on a script-rate
+ * caller's schedule (audit 2026-09, item 8). The throw rides the global error
+ * handler like every other status-bearing class.
  */
 export const wsTokenRoutes = new Elysia({ prefix: "/api/auth" })
   .use(authGuard)
@@ -92,12 +97,13 @@ export const wsTokenRoutes = new Elysia({ prefix: "/api/auth" })
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
+        503: "ApiErrorResponse",
       },
       detail: {
         operationId: "issueWsToken",
         tags: ["auth"],
         description:
-          "Issues a single-use, 30s WebSocket attach token. Cookie mints are unscoped; Bearer-key mints MUST name a subshell and are bound to it (a subshell key may name only its own).",
+          "Issues a single-use, 30s WebSocket attach token. Cookie mints are unscoped; Bearer-key mints MUST name a subshell and are bound to it (a subshell key may name only its own). Answers 503 when the instance already holds more outstanding tokens than the store's cap.",
       },
     },
   );

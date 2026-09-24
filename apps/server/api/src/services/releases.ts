@@ -296,6 +296,157 @@ export const releaseSeams = {
   verifyManifest: verifyReleaseManifest,
 };
 
+// ---------------------------------------------------------------------------
+// Egress pinning (round-3 sweep C12, 2026-09-24)
+// ---------------------------------------------------------------------------
+
+/**
+ * The hosts this module may fetch release bytes FROM, beyond the one host the
+ * operator configured as the source itself.
+ *
+ * The shipped default IS GitHub (`SUBSHELL_RELEASE_URL` defaults to
+ * `DEFAULT_RELEASE_API` on api.github.com, and a GitHub release asset's
+ * `browser_download_url` is github.com, which redirects to
+ * objects.githubusercontent.com), so for the default configuration the list
+ * is trivially "GitHub plus what the operator configured" — and that is the
+ * point. The list exists for the OTHER configuration: an operator pointing
+ * `SUBSHELL_RELEASE_URL` at a mirror of their own. The mirror then chooses
+ * every `browser_download_url` the plane is asked to fetch, and without this
+ * list it could point this process's egress at link-local internals
+ * (169.254.169.254 and friends). The signed manifest already decides WHAT may
+ * run (§11.12); this decides WHERE the plane will knock.
+ *
+ * `raw.githubusercontent.com` is deliberately ABSENT: no release asset URL
+ * this pipeline publishes is served from there (assets live on github.com and
+ * redirect to objects.githubusercontent.com), and an allowlist entry nothing
+ * uses is an egress door held open for no one.
+ *
+ * What the pin gates (C12, extended by the 2026-09-24 review): the URL the
+ * source named AND every hop it redirects to. That second clause is what
+ * makes the claim true — byte-trust is not egress-trust. Bun's `fetch`
+ * follows 302s by default, so gating only the first URL left every
+ * source-named fetch one redirect away from anywhere on the planet: the
+ * mirror can serve an on-list URL that answers 302 → 169.254.169.254, and
+ * the pin as originally written waved it through. The module therefore
+ * fetches with `redirect: "manual"` and walks the chain itself
+ * ({@link fetchWithPinnedEgress}), re-running this predicate on each
+ * `Location` before fetching it, bounded by {@link MAX_REDIRECT_HOPS}. The
+ * list fetch in {@link resolveReleases} is the one exempt read, and the
+ * exemption is structural: its URL is the string the OPERATOR configured,
+ * not a field the source publishes.
+ */
+const ALLOWED_FETCH_HOSTS: ReadonlySet<string> = new Set([
+  "api.github.com",
+  "github.com",
+  "objects.githubusercontent.com",
+]);
+
+/** A fetch the release egress allowlist refuses. Carries the rejected host. */
+export class ReleaseFetchHostRefused extends Error {
+  /** The host that was refused, lowercase, exactly as the URL named it. */
+  readonly host: string;
+
+  constructor(host: string) {
+    super(`${host} is neither a GitHub release host nor the configured release source's host`);
+    this.name = "ReleaseFetchHostRefused";
+    this.host = host;
+  }
+}
+
+/**
+ * Whether `url` names an origin this module may fetch from: a GitHub release
+ * host, or the exact origin of the configured `SUBSHELL_RELEASE_URL`. The
+ * list-fetch itself always targets the configured source, so this is the
+ * guard on everything the list points at — binaries, manifests, signatures,
+ * and every redirect hop between those URLs and the bytes.
+ *
+ * An unparsable URL is refused, never fetched. A disabled source allows
+ * nothing beyond GitHub's hosts — nothing in the module reaches this with a
+ * disabled source (every entry point refuses first), and the belt costs one
+ * comparison.
+ */
+export function releaseFetchAllowed(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (ALLOWED_FETCH_HOSTS.has(host)) return true;
+  const api = releaseApiUrl();
+  if (api === null) return false;
+  try {
+    return parsed.origin === new URL(api).origin;
+  } catch {
+    return false;
+  }
+}
+
+/** The named refusal every fetch of source-named bytes passes through. */
+function assertReleaseFetchAllowed(url: string): void {
+  if (releaseFetchAllowed(url)) return;
+  let host = url;
+  try {
+    host = new URL(url).host;
+  } catch {
+    /* the raw value is the most honest host-shaped thing there is */
+  }
+  const error = new ReleaseFetchHostRefused(host);
+  getLogger().warn(`release egress refused: ${error.message}`);
+  throw error;
+}
+
+/**
+ * Redirect hops {@link fetchWithPinnedEgress} will walk for one source-named
+ * URL. A GitHub asset is ONE hop (github.com → objects.githubusercontent.com),
+ * so five is headroom for any honest chain and short enough that an endless
+ * loop fails the fetch rather than hanging the caller — the same reasoning as
+ * {@link METADATA_TIMEOUT_MS} applied to hops instead of seconds.
+ */
+export const MAX_REDIRECT_HOPS = 5;
+
+/** Statuses the Fetch spec defines as redirects (300 and 304 are not one). */
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/**
+ * Fetch a URL the release source named, re-pinning EVERY hop of the chain.
+ *
+ * This is the module's only fetch of source-named bytes, and it exists
+ * because the default `redirect: "follow"` made {@link releaseFetchAllowed}
+ * a check of the first hop only: an allowlisted mirror answers `302 →
+ * http://169.254.169.254/...` and Bun would have walked straight there.
+ * `redirect: "manual"` hands each hop's response back, and the loop re-runs
+ * the pin on every `Location` before fetching it. A `Location` that cannot
+ * be resolved against the current hop is refused (unfollowable is
+ * unchecked), and a chain longer than {@link MAX_REDIRECT_HOPS} is refused
+ * rather than followed. A redirect status with NO `Location` header is not a
+ * redirect by the spec's definition — it is returned to the caller, whose
+ * `!response.ok` check turns it into the ordinary "answered 30x" error.
+ */
+async function fetchWithPinnedEgress(url: string, init?: RequestInit): Promise<Response> {
+  let target = url;
+  for (let hop = 0; ; hop++) {
+    assertReleaseFetchAllowed(target);
+    const response = await fetch(target, { ...init, redirect: "manual" });
+    const location = REDIRECT_STATUSES.has(response.status) ? response.headers.get("location") : null;
+    if (location === null) return response;
+    // The hop's body is not this fetch's answer; release the connection
+    // before walking on, whatever happens to the hop count.
+    await response.body?.cancel().catch(() => {});
+    if (hop >= MAX_REDIRECT_HOPS) {
+      throw new Error(`${url} redirected more than ${MAX_REDIRECT_HOPS} times`);
+    }
+    let next: URL;
+    try {
+      next = new URL(location, target);
+    } catch {
+      throw new Error(`${target} named an unparseable redirect target`);
+    }
+    target = next.href;
+  }
+}
+
 /**
  * That release's `release-manifest.json` AND its signature: fetched once,
  * verified once, memoized on the index entry.
@@ -317,9 +468,14 @@ export async function checkReleaseManifest(release: ResolvedRelease): Promise<Ma
   const sigUrl = release.assets.get(RELEASE_MANIFEST_SIG_NAME);
   if (sigUrl === undefined) return remember(release, { kind: "unsigned" });
   try {
+    // The tiny reads get the SAME egress pin as the 80 MB one, hop for hop —
+    // a manifest hosted off-list, or redirecting off-list, is refused before
+    // it can name a digest (C12). The throw lands in the `failed` arm below
+    // like any unreachable manifest: the release is not offered, and the
+    // reason names the host.
     const [manifestRes, sigRes] = await Promise.all([
-      fetch(manifestUrl, { signal: AbortSignal.timeout(METADATA_TIMEOUT_MS) }),
-      fetch(sigUrl, { signal: AbortSignal.timeout(METADATA_TIMEOUT_MS) }),
+      fetchWithPinnedEgress(manifestUrl, { signal: AbortSignal.timeout(METADATA_TIMEOUT_MS) }),
+      fetchWithPinnedEgress(sigUrl, { signal: AbortSignal.timeout(METADATA_TIMEOUT_MS) }),
     ]);
     if (!manifestRes.ok)
       return remember(release, { kind: "failed", reason: `${RELEASE_MANIFEST_NAME} answered ${manifestRes.status}` });
@@ -659,7 +815,13 @@ async function fetchArtifactUncoordinated(target: NodeTarget, cache: boolean): P
     throw new Error(`${release.tag}'s signed manifest names no ${names.binary}`);
   }
 
-  const upstream = await fetch(binaryUrl);
+  // C12. The lazy-fetch egress: `browser_download_url` is the release source's
+  // choice, and a mirror the operator configured can name any host — or name
+  // an allowed host that redirects to any other. The digest proves the bytes
+  // are what the release says they are, it does not prove where the plane was
+  // told to knock. An off-list URL, or an off-list hop, is refused here,
+  // before the connection, with the host named and logged.
+  const upstream = await fetchWithPinnedEgress(binaryUrl);
   if (!upstream.ok || upstream.body === null) {
     throw new Error(`${binaryUrl} answered ${upstream.status}`);
   }
@@ -797,7 +959,11 @@ export interface DownloadVerifiedInput {
  */
 export async function downloadVerified(input: DownloadVerifiedInput): Promise<string> {
   const tmp = join(input.destDir, `${input.destName}.download-${process.pid}`);
-  const response = await fetch(input.url);
+  // The server's own update passes a URL read from the release list — the
+  // same untrusted field the lazy fetch pins (C12), hops included, so the
+  // pin belongs here too: this download writes a file and the CALLER
+  // EXECUTES it.
+  const response = await fetchWithPinnedEgress(input.url);
   if (!response.ok || response.body === null) throw new Error(`${input.url} answered ${response.status}`);
   const lengthHeader = response.headers.get("content-length");
   const total = lengthHeader === null ? null : Number.parseInt(lengthHeader, 10);

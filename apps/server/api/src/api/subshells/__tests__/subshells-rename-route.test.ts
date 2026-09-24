@@ -102,6 +102,32 @@ describe("PATCH /api/subshells/:id/name", () => {
     expect(res.status).toBe(400);
   });
 
+  it("an ESC-bearing name lands sanitized — the row is what the journal interpolates", async () => {
+    // `subshell-manager.service.ts` logs `(${parked.name})` on every in-place
+    // restart, and the rename feeds such rows. A name written raw would put
+    // ESC bytes into the operator's journal (pretty transport, info level);
+    // the row holding exactly what such a line prints is the end-to-end
+    // assertion, because that row IS the logged value.
+    const s = await subshellWithToken();
+    const res = await patch(s.id, { name: "x\u001B[2K\u000Dbad" }, { cookie: `better-auth.session_token=${token}` });
+    expect(res.status).toBe(200);
+    const row = await new SubshellsRepository(db).findById(s.id);
+    expect(row?.name).toBe("x [2K bad"); // normalizeLabel: C0 -> space, collapse
+    // The logged value carries neither ESC nor CR — one regex over the whole
+    // row says it, no control byte and nothing above DEL.
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting they are GONE
+    expect(row?.name).not.toMatch(/[\u0000-\u001F\u007F-\u009F]/);
+  });
+
+  it("a name that is nothing but control/format characters -> 400 (and the old name stays)", async () => {
+    // This is the case `.trim()` was blind to: ESC/DEL/RLO are neither trim
+    // nor whitespace, so a name of pure invisibles used to STORE — an empty
+    // label wearing bytes, and the very payload the journal sink needs.
+    const s = await subshellWithToken();
+    const res = await patch(s.id, { name: "\u001B\u007F\u202E" }, { cookie: `better-auth.session_token=${token}` });
+    expect(res.status).toBe(400);
+    expect((await new SubshellsRepository(db).findById(s.id))?.name).toBe("rename-me");
+  });
   it("unknown subshell -> 404", async () => {
     const res = await patch(crypto.randomUUID(), { name: "x" }, { cookie: `better-auth.session_token=${token}` });
     expect(res.status).toBe(404);

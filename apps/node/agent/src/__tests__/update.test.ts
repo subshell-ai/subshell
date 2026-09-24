@@ -20,13 +20,16 @@ import {
   applyUpdate,
   completeUpdate,
   failedMarkerPath,
+  keepPrevious,
   pendingMarkerPath,
+  ROLLBACK_PROBE_TIMEOUT_MS,
   readMarker,
   redactUrl,
   releaseApiUrl,
   resolveNodeBinary,
   resolveNodeRelease,
   revertAfterRefusal,
+  rollbackBinaryRuns,
   rollbackUpdate,
   type UpdateFailure,
   type UpdateManifestSource,
@@ -688,7 +691,11 @@ describe("the 4406 rollback", () => {
       probeVersion: async () => "0.9.4",
     });
 
-    const failure = await revertAfterRefusal(dataDir, "protocol v11 required (this node speaks v10)");
+    const failure = await revertAfterRefusal(
+      dataDir,
+      "protocol v11 required (this node speaks v10)",
+      async () => true, // the fixture `.previous` is text; the probe's own wiring is pinned below
+    );
     expect(failure).toMatchObject({ to: "0.9.4", reason: "protocol v11 required (this node speaks v10)" });
     expect(await readFile(binary, "utf8")).toBe("OLD BINARY");
     expect(await Bun.file(`${binary}.previous`).exists()).toBe(false);
@@ -774,7 +781,7 @@ describe("rollbackUpdate", () => {
       dataDir,
       probeVersion: async () => "0.9.7",
     });
-    const back = await rollbackUpdate(dataDir, NO_SERVICE_DEFINITION);
+    const back = await rollbackUpdate(dataDir, NO_SERVICE_DEFINITION, async () => true);
     expect(back.binary).toBe(binary);
     expect(back.to).toBe(applied.from);
     expect(await readFile(binary, "utf8")).toBe("OLD BINARY");
@@ -808,10 +815,163 @@ describe("rollbackUpdate", () => {
     });
     const beforeIno = statSync(binary).ino;
     const previousIno = statSync(`${binary}.previous`).ino;
-    await rollbackUpdate(dataDir, NO_SERVICE_DEFINITION);
+    await rollbackUpdate(dataDir, NO_SERVICE_DEFINITION, async () => true);
     // The destination path held a file throughout; what changed is WHICH file.
     expect(statSync(binary).ino).toBe(previousIno);
     expect(statSync(binary).ino).not.toBe(beforeIno);
+  });
+});
+
+/**
+ * The rollback PROBE (round-3 review, finding 2), against the DEFAULT probe —
+ * no seam — with a real executable stub as the good copy and the suite's
+ * plain-text `.previous` as the bad one. `rename(2)` is unconditional, so a
+ * truncated copy (the shape an interrupted pre-atomic copy-fallback left)
+ * would otherwise land at the path the service manager EXECs.
+ */
+describe("the rollback probe", () => {
+  /** Install `bytes` so the running binary is NEW and `.previous` is the fixture. */
+  async function installedSwap(): Promise<{ binary: string; dataDir: string; bytes: string }> {
+    const { binary, dataDir } = await installedNode();
+    pretendInstalledAt(binary);
+    const bytes = "INSTALLED 0.9.9";
+    const artifact = serveArtifact(bytes);
+    try {
+      await applyUpdate({
+        binaryDeps: NO_SERVICE_DEFINITION,
+        source: {
+          kind: "url",
+          url: artifact.url,
+          sha256: sha256(bytes),
+          manifest: signedManifest(sha256(bytes), "0.9.9"),
+        },
+        version: "0.9.9",
+        restart: false,
+        origin: "cli",
+        dataDir,
+        probeVersion: async () => "0.9.9",
+      });
+    } finally {
+      artifact.stop();
+    }
+    return { binary, dataDir, bytes };
+  }
+
+  it("`--rollback` refuses a .previous that cannot run and touches nothing", async () => {
+    const { binary, dataDir, bytes } = await installedSwap();
+    // The fixture `.previous` is plain text — a regular file the old code
+    // would have renamed onto the live path; the probe asks it first.
+    await expect(rollbackUpdate(dataDir, NO_SERVICE_DEFINITION)).rejects.toMatchObject({
+      detail: NODE_RESULT_NOT_COMPILED,
+      message: expect.stringContaining("did not answer `version`"),
+    });
+    expect(await readFile(binary, "utf8")).toBe(bytes); // the running install stays
+    expect(await Bun.file(`${binary}.previous`).exists()).toBe(true); // copy kept as evidence
+    expect(await readMarker(pendingMarkerPath(dataDir))).not.toBeNull(); // the open transaction survives
+  });
+
+  it("`--rollback` installs a .previous that answers version — the real probe, no seam", async () => {
+    const { binary, dataDir } = await installedSwap();
+    const stub = '#!/bin/sh\necho "subshell 0.0.1"\n';
+    await writeFile(`${binary}.previous`, stub);
+    await chmod(`${binary}.previous`, 0o755);
+    const back = await rollbackUpdate(dataDir, NO_SERVICE_DEFINITION);
+    expect(back.binary).toBe(binary);
+    expect(await readFile(binary, "utf8")).toBe(stub);
+    expect(await Bun.file(`${binary}.previous`).exists()).toBe(false);
+  });
+
+  it("the automatic 4406 revert records instead of swapping in an unbootable copy", async () => {
+    // The divergence from `--rollback` is the human: mid-boot nobody can act
+    // on a refusal, so the revert keeps the bootable (if refused) new binary,
+    // keeps the copy as evidence, consumes the marker, and records the remedy.
+    const { binary, dataDir, bytes } = await installedSwap();
+    const failure = await revertAfterRefusal(dataDir, "protocol v99 required");
+    expect(failure?.reason).toContain("cannot be run");
+    expect(failure?.reason).toContain("reinstall by hand");
+    expect(await readFile(binary, "utf8")).toBe(bytes); // NOT the truncated copy
+    expect(await Bun.file(`${binary}.previous`).exists()).toBe(true);
+    expect(await readMarker(pendingMarkerPath(dataDir))).toBeNull(); // next boot converges on "too old"
+    const recorded = await readMarker<UpdateFailure>(failedMarkerPath(dataDir));
+    expect(recorded?.reason).toContain("cannot be run");
+  });
+
+  /**
+   * Finding 4: the probe's OWN bound. An unbounded `await proc.exited` turns
+   * "refuse the rename" into "hang before the `exit(1)` the 4406 revert owes
+   * the service manager" — termination is mandatory exactly on that path, so
+   * the probe may take any amount of time except unlimited. Server twin:
+   * `spawnSync(..., timeout: 10_000)`.
+   */
+  it("a probe whose binary never exits answers FALSE at the bound, not at the sleep", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "subshell-probe-bound-"));
+    const hang = join(dir, "hang-binary");
+    await writeFile(hang, "#!/bin/sh\nexec sleep 30\n");
+    await chmod(hang, 0o755);
+    const t0 = Date.now();
+    expect(await rollbackBinaryRuns(hang, 300)).toBe(false);
+    const elapsed = Date.now() - t0;
+    expect(elapsed).toBeLessThan(5_000); // the bound fired, not the 30 s sleep
+    expect(elapsed).toBeGreaterThanOrEqual(250); // …and it actually waited for it
+    // The production default IS the server twin's number — the two probes ask
+    // one question and must give up on it together.
+    expect(ROLLBACK_PROBE_TIMEOUT_MS).toBe(10_000);
+  });
+
+  it("the probe still reads the exit code it always read: 0 runs, nonzero does not", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "subshell-probe-code-"));
+    const good = join(dir, "good");
+    const bad = join(dir, "bad");
+    await writeFile(good, "#!/bin/sh\nexit 0\n");
+    await writeFile(bad, "#!/bin/sh\nexit 1\n");
+    await chmod(good, 0o755);
+    await chmod(bad, 0o755);
+    expect(await rollbackBinaryRuns(good, 5_000)).toBe(true);
+    expect(await rollbackBinaryRuns(bad, 5_000)).toBe(false);
+    // A binary that CHATTES must not deadlock the probe on an undrained pipe
+    // either — stdout is piped and drained now, and 200 KB exceeds any pipe.
+    const chatty = join(dir, "chatty");
+    await writeFile(chatty, "#!/bin/sh\nyes 2>/dev/null | head -c 200000\nexit 0\n");
+    await chmod(chatty, 0o755);
+    expect(await rollbackBinaryRuns(chatty, 5_000)).toBe(true);
+  });
+});
+
+/**
+ * The copy-fallback's ATOMICITY (same finding): an interrupted copy may cost
+ * a stray `.tmp-<pid>` at most — never a TRUNCATED `.previous` standing where
+ * the rollback paths look for a working binary.
+ */
+describe("keepPrevious", () => {
+  const strayTmps = (binDir: string): string[] => [...new Bun.Glob("*.previous.tmp-*").scanSync(binDir)].sort();
+
+  it("copies atomically when links are refused: full bytes at .previous, no tmp", async () => {
+    const { binary, binDir } = await installedNode();
+    await keepPrevious(binary, {
+      link: async () => {
+        throw Object.assign(new Error("link refused"), { code: "EXDEV" });
+      },
+    });
+    expect(await readFile(`${binary}.previous`, "utf8")).toBe("OLD BINARY");
+    expect(strayTmps(binDir)).toEqual([]); // renamed INTO place, not left behind
+  });
+
+  it("a copy that throws mid-write leaves NOTHING at .previous and sweeps the tmp", async () => {
+    const { binary, binDir } = await installedNode();
+    await writeFile(`${binary}.previous`, "stale copy from an earlier swap");
+    await expect(
+      keepPrevious(binary, {
+        link: async () => {
+          throw new Error("no links here");
+        },
+        copy: async (_from, to) => {
+          await writeFile(to, "OLD"); // partway, then the disk filled
+          throw Object.assign(new Error("No space left on device"), { code: "ENOSPC" });
+        },
+      }),
+    ).rejects.toThrow(/No space left/);
+    expect(await Bun.file(`${binary}.previous`).exists()).toBe(false); // stale cleared, partial never landed
+    expect(strayTmps(binDir)).toEqual([]);
   });
 });
 

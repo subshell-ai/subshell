@@ -85,8 +85,12 @@ wsPlugin.ws("/ws/node", {
   open(ws) {
     // `ws.data` already carries the identity (the adapter built it by
     // spreading the context the upgrade hook mutated) — cast to the typed
-    // view and attach.
-    handleNodeOpen(ws as unknown as NodeWsSocket);
+    // view and attach. The attach is synchronous; the async tail is the
+    // post-attach owner re-check that closes the disable race (see
+    // `handleNodeOpen`). A throwing re-check logs, it cannot un-attach.
+    void handleNodeOpen(getNodeWsDeps(), ws as unknown as NodeWsSocket).catch((err: unknown) => {
+      logger.withError(err).warn("node ws: open re-check failed");
+    });
   },
   message(ws, message) {
     // Same JSON pre-parse behavior as /ws: frames arrive as text or objects.

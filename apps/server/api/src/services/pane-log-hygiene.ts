@@ -13,8 +13,10 @@ import { logger } from "@/utils/logger.js";
  * are all in there verbatim. Two properties follow, and neither was true
  * before this module existed:
  *
- * 1. **They are not world-readable.** New logs are created 0600 by the umask
- *    in the pipe-pane command itself (`TmuxRunner.pipePane`); this module
+ * 1. **They are not world-readable.** New logs are created 0600 by the
+ *    `pane-log` capture child's own open (`TmuxRunner.pipePane` runs the
+ *    self-invoked verb); its `umask 077` covers only the `cat >>` no-child
+ *    fallback, where tmux's shell is what creates the file. This module
  *    retro-tightens the directory and any log written before that fix, which
  *    a boot sweep would otherwise leave at the 0644 the old code produced.
  * 2. **They do not live forever.** A subshell's log used to be unlinked only
@@ -80,11 +82,25 @@ export interface SweepOptions {
   /** Age in days after which a non-running subshell's log is removed; 0 = keep forever. */
   retentionDays: number;
   /**
-   * Ids of subshells that are RUNNING right now. Their logs are never swept,
-   * whatever the file's mtime says — a long-lived agent that has printed
-   * nothing for months still has viewers replaying from that file.
+   * Ids of subshells that are RUNNING at snapshot time. Their logs are never
+   * swept, whatever the file's mtime says — a long-lived agent that has
+   * printed nothing for months still has viewers replaying from that file.
    */
   runningIds: ReadonlySet<string>;
+  /**
+   * Fresh liveness answer for one id, asked PER FILE immediately before that
+   * file's unlink. The snapshot above is taken once, and a restart landing
+   * after it reuses the same log path append-only with the old mtime intact
+   * (pane-runtime's `pane-log.ts` opens `a`, never `w`) — the sweep would then
+   * unlink a live transcript and the capture child would keep writing the dead
+   * inode, leaving the live view broken until a relaunch.
+   *
+   * Per file rather than one re-snapshot before the loop, so the stale window
+   * is the milliseconds between one probe and its own unlink, not the whole
+   * loop. A predicate that throws counts as RUNNING — the node sweep's
+   * "unknown is not dead" rule, inherited.
+   */
+  isStillRunning?: (id: string) => boolean | Promise<boolean>;
   /** Clock, injectable so the boundary is testable. */
   nowMs?: number;
 }
@@ -100,15 +116,17 @@ export interface SweepResult {
  *
  * A log is eligible when its subshell is not in `runningIds` — terminated, or
  * an orphan whose row is gone and whose unlink failed at delete time — AND its
- * mtime is strictly older than the retention window. Liveness is taken from
- * the caller's set rather than from the row's `status` column so that an
- * orphaned file (no row at all) is swept rather than skipped.
+ * mtime is strictly older than the retention window AND {@link
+ * SweepOptions.isStillRunning} (when supplied) still says it is not running,
+ * asked per file immediately before that file's unlink. Liveness is taken from
+ * the caller rather than from a row's `status` column so that an orphaned file
+ * (no row at all) is swept rather than skipped.
  *
  * Deliberately NOT delete-on-terminate: the UI shows a terminated subshell's
  * transcript, and destroying it the instant the pane dies would trade a real
  * feature for a security gain this age-out already delivers.
  */
-export function sweepExpiredPaneLogs(opts: SweepOptions): SweepResult {
+export async function sweepExpiredPaneLogs(opts: SweepOptions): Promise<SweepResult> {
   const { retentionDays, runningIds } = opts;
   const dir = opts.dir ?? subshellLogDir();
   const removed: string[] = [];
@@ -124,6 +142,22 @@ export function sweepExpiredPaneLogs(opts: SweepOptions): SweepResult {
     const file = join(dir, name);
     try {
       if (statSync(file).mtime.getTime() >= cutoffMs) continue;
+    } catch (err) {
+      logger.withError(err).debug(`pane log hygiene: could not stat ${name}`);
+      continue;
+    }
+    // The snapshot went stale the moment a restart reused this path; ask again,
+    // now, before anything is destroyed. A probe that cannot answer is skipped
+    // exactly as the node sweep's census treats one: unknown is not dead.
+    if (opts.isStillRunning) {
+      try {
+        if (await opts.isStillRunning(id)) continue;
+      } catch (err) {
+        logger.withError(err).debug(`pane log hygiene: liveness re-check failed for ${name}; keeping it`);
+        continue;
+      }
+    }
+    try {
       unlinkSync(file);
       removed.push(id);
     } catch (err) {

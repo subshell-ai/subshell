@@ -1,5 +1,6 @@
+import { normalizeLabel } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { authGuard } from "@/api/auth-guard.js";
+import { authGuard, HttpError } from "@/api/auth-guard.js";
 import { WorkspaceSchema } from "@/api/models.js";
 import { requireCookieActor } from "@/api/workspaces/require-cookie-actor.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
@@ -23,7 +24,17 @@ export const updateWorkspaceRoute = new Elysia()
     "/:id",
     async ({ params, body, actor, user, ctx }) => {
       requireCookieActor(actor);
-      return await ctx.services.workspaces.updateWorkspace(user.id, params.id, body);
+      // The label rule create gained on 2026-09-23 applies HERE too, or a
+      // workspace could be created clean and renamed dirty — same name, same
+      // unique index, same renders. `updateWorkspace` treats an absent name
+      // as "leave it", so only a PRESENT name is normalized, and one that
+      // empties out answers the same 400 create gives.
+      let name = body.name;
+      if (name !== undefined) {
+        name = normalizeLabel(name, 120);
+        if (!name) throw new HttpError(400, "Workspace name cannot be blank");
+      }
+      return await ctx.services.workspaces.updateWorkspace(user.id, params.id, { ...body, name });
     },
     {
       body: UpdateWorkspaceBodySchema,

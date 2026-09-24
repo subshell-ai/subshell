@@ -134,6 +134,9 @@ export function UpdatesCard(): React.ReactNode {
                 Force (allow a downgrade)
               </label>
             </div>
+            <p className="text-detail text-muted-foreground">
+              A downgrade the control plane will not accept is reversed automatically after about ten minutes offline.
+            </p>
             <div className="flex flex-wrap items-center gap-3">
               <div className="w-40">
                 <Input

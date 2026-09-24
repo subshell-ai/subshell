@@ -32,6 +32,8 @@ const nodes = new NodesRepository(db);
 
 // raw bearer key → bound (apiKeyId, nodeId) — the fake better-auth store.
 const keyStore = new Map<string, { id: string; nodeId: string }>();
+/** user ids answered as disabled (ruling 2026-09-24, the /ws/node half). */
+const disabledOwners = new Set<string>();
 
 const deps: NodeWsDeps = {
   verifyApiKey: async (rawKey) => {
@@ -39,6 +41,7 @@ const deps: NodeWsDeps = {
     return row ? { id: row.id, metadata: { kind: "node", nodeId: row.nodeId } } : null;
   },
   nodes,
+  accountDisabled: async (userId) => disabledOwners.has(userId),
   resolveResult: () => false, // no RPC in flight in this test
 };
 
@@ -53,7 +56,9 @@ const app = new Elysia()
       Object.assign(context as Record<string, unknown>, identity);
     },
     open(ws) {
-      handleNodeOpen(ws as unknown as NodeWsSocket);
+      // `attachConnection` still lands synchronously (before the first await);
+      // the async tail is the post-attach owner re-check (the disable race).
+      void handleNodeOpen(deps, ws as unknown as NodeWsSocket);
     },
     message(ws, message) {
       if (typeof message === "string" || (message && typeof message === "object")) {
@@ -204,5 +209,33 @@ describe("/ws/node over the real ws stack", () => {
     const body = (await res.json()) as { code?: string; statusCode?: number };
     expect(body.code).toBe("ACCESS_DENIED");
     expect(body.statusCode).toBe(403);
+  });
+
+  it("a disabled owner's node key is refused pre-socket, and re-enabling is the whole recovery", async () => {
+    // Ruling 2026-09-24 over the REAL wire stack: the refusal is a pre-socket
+    // HTTP 403 the agent's backoff loop sees as a failed dial — no socket,
+    // nothing half-authenticated — and the moment the account is re-enabled
+    // the very next dial succeeds on the same, untouched key.
+    const owner = unique("u");
+    const nodeId = unique("n");
+    const apiKeyId = unique("k");
+    const key = unique("secret");
+    await nodes.create({ id: nodeId, ownerUserId: owner, name: unique("node"), kind: "agent", status: "offline" });
+    await nodes.setApiKeyId(nodeId, apiKeyId);
+    keyStore.set(key, { id: apiKeyId, nodeId });
+
+    disabledOwners.add(owner);
+    await expect(connect(`Bearer ${key}`)).rejects.toThrow("handshake refused");
+    const res = await rawHandshake(`Bearer ${key}`);
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { message?: string };
+    expect(body.message).toContain("disabled");
+    expect(getLive(nodeId)).toBeUndefined();
+
+    disabledOwners.delete(owner); // what the admin's PATCH does to the flag
+    const ws = await connect(`Bearer ${key}`);
+    await waitFor(() => getLive(nodeId)?.ws !== undefined, "registry attach after re-enable");
+    ws.close();
+    await waitFor(async () => (await nodes.findById(nodeId))?.status === "offline", "close → offline");
   });
 });

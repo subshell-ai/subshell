@@ -1,3 +1,4 @@
+import { normalizeLabel } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, HttpError, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
@@ -33,9 +34,14 @@ export const updateSubshellNameRoute = new Elysia()
       if (body.name === undefined) {
         throw new HttpError(400, "Provide a name");
       }
-      // minLength only rejects ""; whitespace is trimmed here, and a name
-      // that empties out is invalid — unlike notes, a subshell must have one.
-      const name = body.name.trim();
+      // minLength only rejects ""; the name is normalized here (the shared
+      // label rule — control bytes, format characters, whitespace collapse,
+      // code-point cap) rather than merely trimmed, and a name that empties
+      // out is invalid — unlike notes, a subshell must have one. A hand-typed
+      // name otherwise reaches `logger.info` on every restart of the row and
+      // every viewer's sidebar; the harness auto-title path is sanitized by
+      // `normalizePaneTitle` and must not be run through this gate twice.
+      const name = normalizeLabel(body.name, 120);
       if (!name) {
         throw new HttpError(400, "Subshell name cannot be blank");
       }

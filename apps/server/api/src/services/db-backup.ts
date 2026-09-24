@@ -25,13 +25,14 @@
  *   ciphertext: it is the most sensitive single file this app writes.
  * - **The snapshot's own `journal_mode` is `delete`, not WAL.** That is what
  *   makes it a single file with no sidecars, and it is also why
- *   {@link restoreDatabase} deletes `-wal`/`-shm` before copying one back:
- *   leaving the old WAL beside a restored main file is a database that
- *   disagrees with itself.
+ *   {@link restoreDatabase} checkpoints the replaced file and then deletes
+ *   its `-wal`/`-shm` before renaming the snapshot in: a stale sidecar beside
+ *   a restored main file is NOT inert — it is replayed (measured, in
+ *   {@link restoreDatabase}'s doc comment).
  */
 import { Database } from "bun:sqlite";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { DATABASE_PATH, SUBSHELL_DB_BACKUPS_KEEP, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { SERVER_VERSION } from "@/version.js";
 
@@ -253,16 +254,33 @@ function prune(dir: string, keep: number): string[] {
  * stopped. Restoring under a live handle would leave that handle holding a
  * deleted inode and writing into nothing.
  *
- * The `-wal` and `-shm` sidecars are deleted as part of the swap. They belong
- * to the file being replaced, and a WAL left beside a restored main file is a
- * database that disagrees with itself: SQLite would replay transactions the
- * snapshot never had.
+ * The `-wal` and `-shm` sidecars are deleted as part of the swap (2026-09-24,
+ * round-3 sweep C8). They belong to the file being replaced, and stale ones
+ * are NOT inert: measured on bun 1.4.2 / this repo's SQLite, a self-consistent
+ * WAL left beside a restored snapshot IS replayed onto it on the next open
+ * (a snapshot read expecting 10 rows answered 12), even though the snapshot
+ * itself is a `journal_mode=delete` database. So they go before the rename —
+ * but only after the file being replaced has had its own WAL CHECKPOINTED,
+ * which is what closes the window this function used to leave open: the old
+ * order unlinked the sidecars first, and a crash before the rename left the
+ * not-yet-replaced main file missing its uncheckpointed tail, the next open
+ * silently succeeding onto the truncated state — a quiet data loss where the
+ * revert was supposed to be the loud kind. With the checkpoint first, every
+ * crash between the unlink and the rename leaves a live database that is
+ * whole (tail folded in), the revert simply re-runs on the next boot.
  *
  * Either the whole restore happens or none of it does — see the staging
- * comment in the body for why a half-done one is worse than a failed one.
+ * comment in the body for why a half-done one is worse than a failed one. A
+ * crash before the rename leaves only a `<db>.restore-<pid>` staging file,
+ * which the next entry sweeps.
  */
 export function restoreDatabase(backupPath: string, databasePath: string = DATABASE_PATH): void {
   if (!existsSync(backupPath)) throw new Error(`the backup ${backupPath} is not there`);
+
+  // Sweep the staging file a previously-crashed restore left behind. This is
+  // the entry point a crashed boot comes back through, and the name carries
+  // the dead process's pid, so nothing would ever remove it otherwise.
+  sweepStagedRestores(databasePath);
 
   // STAGE BESIDE THE TARGET, THEN RENAME. Never `rmSync(databasePath)` before
   // the replacement bytes are on disk: the caller that matters here is
@@ -282,14 +300,47 @@ export function restoreDatabase(backupPath: string, databasePath: string = DATAB
   try {
     copyFileSync(backupPath, staged);
     chmodSync(staged, 0o600);
-    // The sidecars belong to the file being replaced, and a WAL left beside a
-    // restored main file is a database that disagrees with itself. They go
-    // only once the replacement is staged and the swap cannot fail for want
-    // of disk.
+    // Fold the file being replaced's own WAL into it BEFORE dropping the
+    // sidecars (see the doc comment for the crash arithmetic). Only worth an
+    // open when there ARE sidecars; a plain file needs no ceremony, and this
+    // runs on paths where the database file may not exist at all.
+    if (existsSync(databasePath) && (existsSync(`${databasePath}-wal`) || existsSync(`${databasePath}-shm`))) {
+      const live = new Database(databasePath);
+      try {
+        live.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+      } finally {
+        live.close();
+      }
+    }
     for (const sidecar of ["-wal", "-shm"]) rmSync(`${databasePath}${sidecar}`, { force: true });
     renameSync(staged, databasePath);
   } catch (error) {
     rmSync(staged, { force: true });
     throw error;
+  }
+}
+
+/**
+ * Delete every leftover staging file for this database (`<db>.restore-<pid>`,
+ * from any pid) — the debris of a restore that died before its rename.
+ * Best-effort by construction: a leftover this process cannot remove must not
+ * be why a rollback refuses to run.
+ */
+function sweepStagedRestores(databasePath: string): void {
+  const dir = dirname(databasePath);
+  const prefix = `${basename(databasePath)}.restore-`;
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!name.startsWith(prefix)) continue;
+    try {
+      rmSync(join(dir, name), { force: true });
+    } catch {
+      // Leave it; the next restore retries. It is inert by construction.
+    }
   }
 }

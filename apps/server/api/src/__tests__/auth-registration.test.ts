@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { CamelCasePlugin, Kysely, sql } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
 import { seedLocalPluginsForTests } from "@/api/__tests__/helpers/auth-tables.js";
+import { SYSTEM_USER_EMAIL } from "@/auth/system-user.js";
 import { AUTH_OPTIONS, getAuth, promoteFirstUserAtomically, setAuthPolicyDb } from "@/auth.js";
 import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
@@ -97,13 +98,40 @@ const USER_META_DDL = `CREATE TABLE user_meta (
   setup_step TEXT
 )`;
 
-/** A private in-memory DB with the real `user_meta` DDL from migration 0001. */
-function scratchDb(): Kysely<Database> {
+/**
+ * better-auth's `user` table, in the subset the promotion statement reads
+ * (audit item 9: first-user-ness is decided from ACCOUNTS, so the scratch
+ * needs the accounts). Only the columns the statement's probes and the
+ * fixtures below touch; `"createdAt"` is the order the older-than probe
+ * compares.
+ */
+const USER_DDL = `CREATE TABLE user (
+  id TEXT PRIMARY KEY,
+  name TEXT,
+  email TEXT NOT NULL,
+  emailVerified INTEGER NOT NULL DEFAULT 0,
+  image TEXT,
+  "createdAt" TEXT NOT NULL,
+  "updatedAt" TEXT
+)`;
+
+async function insertUser(dbHandle: Kysely<Database>, id: string, email: string, createdAt: string): Promise<void> {
+  await sql`
+    INSERT INTO user (id, name, email, "createdAt", "updatedAt")
+    VALUES (${id}, ${email}, ${email}, ${createdAt}, ${createdAt})
+  `.execute(dbHandle);
+}
+
+/** A private in-memory DB with the DDLs the promotion statement needs. */
+async function newScratch(): Promise<Kysely<Database>> {
   const scratch = new Kysely<{ userMeta: { userId: string; role: string; setupStep: string | null } }>({
     dialect: new BunSqliteDialect({ database: openSqliteDatabase(":memory:") }),
     plugins: [new CamelCasePlugin()],
   });
-  return scratch as unknown as Kysely<Database>;
+  const handle = scratch as unknown as Kysely<Database>;
+  await sql.raw(USER_META_DDL).execute(handle);
+  await sql.raw(USER_DDL).execute(handle);
+  return handle;
 }
 
 beforeAll(async () => {
@@ -137,8 +165,7 @@ describe("cookieCache bound (F5)", () => {
 
 describe("first-admin promotion is atomic (F6b)", () => {
   it("two concurrent promotions of an EMPTY user_meta mint exactly one admin", async () => {
-    const scratch = scratchDb();
-    await sql.raw(USER_META_DDL).execute(scratch);
+    const scratch = await newScratch();
 
     const u1 = crypto.randomUUID();
     const u2 = crypto.randomUUID();
@@ -153,8 +180,7 @@ describe("first-admin promotion is atomic (F6b)", () => {
   });
 
   it("re-running the promotion never flips an existing admin (no role-overwrite)", async () => {
-    const scratch = scratchDb();
-    await sql.raw(USER_META_DDL).execute(scratch);
+    const scratch = await newScratch();
 
     const first = crypto.randomUUID();
     await promoteFirstUserAtomically(scratch, first);
@@ -192,6 +218,83 @@ describe("first-admin promotion is atomic (F6b)", () => {
 });
 
 /**
+ * Security-actionable 2026-09 item 9: adminhood is decided from the same
+ * "has anybody registered" notion the registration gate uses
+ * (`registration-gate.ts:101-103` → `countRealAccounts`), not from emptiness
+ * of the `user_meta` ROLE side-table. The gate's own comment records the
+ * divergence as a fixed bug on its side; these are the promotion-side pins.
+ */
+describe("first-user promotion counts accounts, not meta rows (item 9)", () => {
+  it("an older real account with NO meta row means the new sign-up is not the first user", async () => {
+    // The divergence made concrete: `user_meta` is written by this very
+    // statement in the `after` hook, so a row the hook never reached leaves
+    // an instance with a registered human and an empty role table. The old
+    // emptiness probe read that as "nobody yet" and minted the NEXT account
+    // admin, bookmarking it on the first-run wizard.
+    const scratch = await newScratch();
+    await insertUser(scratch, crypto.randomUUID(), "orphan@subshell.local", "2020-01-01T00:00:00.000Z");
+    const next = crypto.randomUUID();
+    await insertUser(scratch, next, "next@subshell.local", "2020-01-02T00:00:00.000Z");
+
+    await promoteFirstUserAtomically(scratch, next);
+
+    const row = await scratch
+      .selectFrom("userMeta")
+      .select(["role", "setupStep"])
+      .where("userId", "=", next)
+      .executeTakeFirstOrThrow();
+    // Neither half of the promotion lands: the earlier account owns the
+    // first-user prize even though it never claimed it.
+    expect(row).toEqual({ role: "user", setupStep: null });
+  });
+
+  it("the `system` service row does not make a human the second user", async () => {
+    // The mirror of the exclusion `countRealAccounts` documents: boot writes
+    // the service `user` row (`index.ts` → `ensureSystemUser`) BEFORE any
+    // human exists, so counting it would deny the first human the admin role
+    // — a fresh instance with nobody who can administer it. The scratch uses
+    // the constant rather than retyping the address so the rule is pinned to
+    // the one string production excludes.
+    const scratch = await newScratch();
+    await insertUser(scratch, crypto.randomUUID(), SYSTEM_USER_EMAIL, "2020-01-01T00:00:00.000Z");
+    const first = crypto.randomUUID();
+    await insertUser(scratch, first, "human@subshell.local", "2020-01-02T00:00:00.000Z");
+
+    await promoteFirstUserAtomically(scratch, first);
+
+    const row = await scratch
+      .selectFrom("userMeta")
+      .select(["role", "setupStep"])
+      .where("userId", "=", first)
+      .executeTakeFirstOrThrow();
+    expect(row).toEqual({ role: "admin", setupStep: "network" });
+  });
+
+  it("an existing ADMIN still decides for later accounts, whatever the accounts table holds", async () => {
+    // Clause one of the probe, with a fresh `user` row to confuse it: a
+    // later sign-up is later, full stop — an admin already exists, so this
+    // one is a member no matter what the account count says about ROWS
+    // (the concurrency proof above covers same-moment races; this covers the
+    // steady state the statement answers on every ordinary sign-up).
+    const scratch = await newScratch();
+    const admin = crypto.randomUUID();
+    await insertUser(scratch, admin, "admin@subshell.local", "2020-01-01T00:00:00.000Z");
+    await scratch.insertInto("userMeta").values({ userId: admin, role: "admin" }).execute();
+
+    const later = crypto.randomUUID();
+    await insertUser(scratch, later, "later@subshell.local", "2020-01-02T00:00:00.000Z");
+    await promoteFirstUserAtomically(scratch, later);
+
+    const row = await scratch
+      .selectFrom("userMeta")
+      .select(["role", "setupStep"])
+      .where("userId", "=", later)
+      .executeTakeFirstOrThrow();
+    expect(row).toEqual({ role: "user", setupStep: null });
+  });
+});
+
+/**
  * The wizard's resume bookmark is written by the SAME statement that decides
  * who is admin (spec 2026-09-16 § 2.2).
  *
@@ -204,8 +307,7 @@ describe("first-admin promotion is atomic (F6b)", () => {
  */
 describe("the first user is bookmarked on the wizard's Network step", () => {
   it("writes 'network' for the first user and NULL for the second", async () => {
-    const scratch = scratchDb();
-    await sql.raw(USER_META_DDL).execute(scratch);
+    const scratch = await newScratch();
 
     const first = crypto.randomUUID();
     const second = crypto.randomUUID();
@@ -220,8 +322,7 @@ describe("the first user is bookmarked on the wizard's Network step", () => {
   });
 
   it("gives the bookmark to the WINNER of two concurrent first promotions, and only them", async () => {
-    const scratch = scratchDb();
-    await sql.raw(USER_META_DDL).execute(scratch);
+    const scratch = await newScratch();
 
     await Promise.all([
       promoteFirstUserAtomically(scratch, crypto.randomUUID()),

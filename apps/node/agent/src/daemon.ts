@@ -19,7 +19,7 @@ import { dispatchCommand } from "./commands/index.js";
 import { buildSubshellsReport, maybeReportMaintenance, seedMaintenanceMemo } from "./commands/report.js";
 import { stopAllTails } from "./commands/tail.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
-import type { NodeConfig } from "./config.js";
+import { loadConfig, type NodeConfig } from "./config.js";
 import { registerRestart, setDaemonState } from "./dashboard/state.js";
 import { loadAndApplyDebugLogging } from "./debug-logging.js";
 import { mapOs } from "./enroll.js";
@@ -27,6 +27,8 @@ import { reportHomeDir } from "./host-env.js";
 import { buildInventoryEvent } from "./inventory.js";
 import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
+import { createRetentionPass, PANE_LOG_RETENTION_PASS_MS, resolveLogRetention } from "./pane-log-retention.js";
+import { noteSweepScheduled } from "./retention-settings.js";
 import { collectRuntime } from "./runtime.js";
 import { selfInvokePrefix } from "./self-invoke.js";
 import { SubshellMetaStore } from "./subshell-meta.js";
@@ -165,6 +167,14 @@ export interface DaemonDeps {
    * @internal test seam — pass `null` to skip the `service status` spawn.
    */
   runtime?: NodeRuntimeReport | null;
+  /** Pane-log retention pass period, ms (default {@link PANE_LOG_RETENTION_PASS_MS}). */
+  retentionMs?: number;
+  /**
+   * The pane-log retention pass (default: {@link sweepExpiredPaneLogs} bound
+   * to this node's data dir, meta store and tmux runner).
+   * @internal test seam — production never passes one.
+   */
+  retentionPass?: () => Promise<unknown>;
 }
 
 interface WsClose {
@@ -445,6 +455,61 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // Startup sweep for upload temps orphaned by a crash mid-stream (spec §3.4).
   // Never throws by contract — a broken sweep must not cost the node its connection.
   await cleanupStaleUploads(ctx);
+
+  // Pane-log retention (2026-09-23): the node ages out its own transcripts.
+  // The plane's hourly sweep never reaches this disk, and the only node-side
+  // deletion before this was `remove_paths` AT DELETE TIME — so an offline
+  // node kept typed transcripts indefinitely. Boot resolves env > config.json
+  // > 1 day, with `0 + 0` the keep-forever pair; an unusable env spelling is
+  // a warn line and the next layer, never a failed start. Boot pass + hourly
+  // after it, LOCAL by construction: it does not wait for the plane and keeps
+  // running while the plane is unreachable — the offline window is exactly
+  // when a missed delete used to persist.
+  //
+  // The boot resolution decides the SCHEDULE (forever schedules nothing, the
+  // documented skip); the pass itself RE-RESOLVES the stored layer from
+  // `config.json` every run, which is the live-effect half of the dashboard's
+  // setter (R3): with a pass scheduled, a window written while this daemon
+  // runs lands on the next hourly sweep without a restart. The honest
+  // boundary is the other boot shape: a node that booted keep-forever armed no
+  // timer, so LEAVING forever waits for the restart that arms one. Which
+  // shape this is cannot be read off disk (round-3 review, finding 5) — the
+  // memo below is how the retention endpoints tell the card, whose copy must
+  // promise only what a scheduled pass can deliver.
+  const retention = resolveLogRetention(process.env, config);
+  noteSweepScheduled(!retention.forever);
+  for (const problem of retention.problems) log(`pane log retention: ${problem}`);
+  const retentionPass =
+    deps.retentionPass ??
+    createRetentionPass({
+      boot: config,
+      meta: ctx.meta,
+      tmux: ctx.tmux,
+      readCurrent: () => loadConfig(),
+      onReadError: (message) => log(message),
+    });
+  if (!retention.forever) {
+    const logSweepFailure = (err: unknown): void => {
+      log(`pane log retention pass failed: ${err instanceof Error ? err.message : String(err)}`);
+    };
+    // Fire-and-forget, scheduled before the first dial but NOT awaited
+    // (round-3 review, finding 2): the census is one tmux probe per meta
+    // record, and on a wedged host that is minutes of tmux timeouts — paid
+    // serially, an AWAITED boot pass stalled the node's first connection for
+    // the sweep's entire wall-time. A transcript one hourly beat late is a
+    // bounded cost; a node that cannot answer its plane at all is not. What
+    // the boot pass could not finish (its census slow, its dir locked), the
+    // next tick re-attempts with fresh state — the pass is total and its own
+    // swallow-and-log posture already covers the missed case.
+    void retentionPass().catch(logSweepFailure);
+    // Unref'd: the socket and heartbeat keep the process alive, a sweep must
+    // not be what holds one open (and must not hold a test process, whose
+    // daemon unwinds through the injected `exit` rather than the process).
+    const retentionTimer = setInterval(() => {
+      void retentionPass().catch(logSweepFailure);
+    }, deps.retentionMs ?? PANE_LOG_RETENTION_PASS_MS);
+    retentionTimer.unref?.();
+  }
   // SERIAL command executor (spec §3.4): verified commands queue here so pane
   // effects land in arrival order across the whole daemon life — surviving
   // reconnects. A command verified pre-`seqTracker.reset` executing post-reset

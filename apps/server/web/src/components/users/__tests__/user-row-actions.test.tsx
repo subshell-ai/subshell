@@ -118,8 +118,12 @@ describe("UserRowActions", () => {
       fireEvent.click(disableButton());
       const dialog = await screen.findByRole("dialog");
       expect(dialog.textContent).toContain("dana@example.com");
-      // The two facts a disabled account does not announce for itself.
+      // The facts a disabled account does not announce for itself: the
+      // sign-out, the node fallout the 2026-09-24 ruling added, and the
+      // silence that follows.
       expect(dialog.textContent).toMatch(/every device/i);
+      expect(dialog.textContent).toMatch(/nodes they enrolled disconnect/i);
+      expect(dialog.textContent).toMatch(/stay offline until they are re-enabled/i);
       expect(dialog.textContent).toMatch(/not notified/i);
       // Nothing has been sent yet — opening the dialog is not the act.
       expect(patches).toEqual([]);

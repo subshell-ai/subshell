@@ -370,40 +370,17 @@ const INPUT_FIELD_FOR_KEY = {
   TRUSTED_ORIGINS: "trustedOrigins",
 } as const satisfies Record<ConfigKey, keyof ApplyConfigInput>;
 
+/** One planning pass of {@link applyConfig}: the merged file content, or the refusal. */
+type ConfigPlan =
+  | { ok: true; values: Record<string, string>; warnings: string[]; changed: ConfigChange[] }
+  | { ok: false; kind: "invalid"; key: ConfigKey; reason: string };
+
 /**
- * THE config.env writer: merge the input over the stored values (or the
- * built-in defaults), validate every key with `validateValue`, canonicalize
- * the origins, compute the two advisory warnings, and write the file
- * atomically, carrying every key this tool does not own forward verbatim.
- *
- * Shared by `configure`/`init` and by `PATCH /api/admin/server/config`, so
- * the CLI and the SPA cannot disagree about what a valid file is. No prompt,
- * no exit, no output: the caller renders the result.
- *
- * A value BYTE-IDENTICAL to what is already stored is kept (with a warning)
- * rather than refused — the CLI's long-standing leniency, so a hand-written
- * wildcard in `TRUSTED_ORIGINS` does not wedge a port change. Only a CHANGED
- * value has to satisfy the validator.
- *
- * `changed` reports only keys the CALLER named. A key the input omits is
- * resolved from the file or the built-in default, so materializing it (an
- * absent `HOST` becoming the `HOST=0.0.0.0` line it already meant) is not a
- * change anyone made, and an audit log that claimed otherwise would describe
- * a decision nobody took.
+ * Resolve, validate and merge against ONE read of the file. Extracted from
+ * {@link applyConfig} because the write re-plans against a FRESH read (see
+ * there); the two plans must be the same rules, not two implementations.
  */
-export function applyConfig(input: ApplyConfigInput, configDir: string): ApplyConfigResult {
-  let existing: Record<string, string>;
-  try {
-    existing = readExistingConfig(configDir);
-  } catch (err) {
-    const path = join(configDir, "config.env");
-    return {
-      ok: false,
-      kind: "unreadable",
-      path,
-      reason: `refusing to rewrite ${path}: ${(err as Error).message}`,
-    };
-  }
+function planConfigWrite(existing: Record<string, string>, input: ApplyConfigInput, configDir: string): ConfigPlan {
   const warnings: string[] = [];
   /** Resolve + validate one key: given value, else the stored one, else the built-in. */
   const pick = (
@@ -518,8 +495,109 @@ export function applyConfig(input: ApplyConfigInput, configDir: string): ApplyCo
     if (input[INPUT_FIELD_FOR_KEY[key]] === undefined) continue;
     if (existing[key] !== values[key]) changed.push({ key, from: existing[key], to: values[key] });
   }
-  const path = writeConfigEnv(configDir, values);
-  return { ok: true, path, values, warnings, changed };
+  return { ok: true, values, warnings, changed };
+}
+
+/** Test seam for {@link applyConfig}'s read→rename window. @internal */
+export interface ApplyConfigSeams {
+  /**
+   * Runs between the first read/plan and the pre-rename re-read — exactly
+   * where a concurrent writer lands. Production passes nothing; the
+   * concurrency tests do.
+   */
+  beforeReread?: () => void;
+}
+
+/** True when two reads of the file hold exactly the same keys and values. */
+function sameContents(a: Record<string, string>, b: Record<string, string>): boolean {
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  return ka.every((k) => a[k] === b[k]);
+}
+
+/**
+ * THE config.env writer: merge the input over the stored values (or the
+ * built-in defaults), validate every key with `validateValue`, canonicalize
+ * the origins, compute the advisory warnings, and write the file atomically,
+ * carrying every key this tool does not own forward verbatim.
+ *
+ * Shared by `configure`/`init` and by `PATCH /api/admin/server/config`, so
+ * the CLI and the SPA cannot disagree about what a valid file is. No prompt,
+ * no exit, no output: the caller renders the result.
+ *
+ * A value BYTE-IDENTICAL to what is already stored is kept (with a warning)
+ * rather than refused — the CLI's long-standing leniency, so a hand-written
+ * wildcard in `TRUSTED_ORIGINS` does not wedge a port change. Only a CHANGED
+ * value has to satisfy the validator.
+ *
+ * `changed` reports only keys the CALLER named. A key the input omits is
+ * resolved from the file or the built-in default, so materializing it (an
+ * absent `HOST` becoming the `HOST=0.0.0.0` line it already meant) is not a
+ * change anyone made, and an audit log that claimed otherwise would describe
+ * a decision nobody took.
+ *
+ * **Concurrent writers are merged, not clobbered.** The read above and the
+ * atomic rename below are not one step, and two surfaces write this file (the
+ * dashboard's PATCH and the CLI; two dashboard PATCHes). A writer that
+ * renamed straight from its first read would silently revert everything the
+ * other one changed — every foreign key included — while both audit rows
+ * claimed success. So immediately before the write the file is re-read, and
+ * the merge is planned AGAINST THE FRESH CONTENT: this writer's named keys
+ * land as it intended (per-key last-writer-wins — only a key BOTH writers
+ * named still clobbers, and the writer that renames last is the winner), and
+ * every key it did not name takes the value actually on disk, foreign keys
+ * included. A file that vanished between the reads is the original empty-merge
+ * path; a file that became unreadable is a refusal, same as at the top. Two
+ * narrow refusals can appear only because of what a concurrent write did: a
+ * caller value that passed only by byte-identical leniency and no longer
+ * matches the fresh content, or a key whose FRESH stored value fails
+ * validation where the stale one passed. Both write NOTHING — the caller
+ * re-sends against the file as it now is.
+ */
+/**
+ * The ONE spelling of the unreadable-file refusal {@link applyConfig} answers
+ * with. Its two reads (the opening one and the re-read before the rename) must
+ * refuse identically or the second becomes a fact about a different bug; one
+ * block is also the point of this function's own `planConfigWrite` extraction.
+ */
+function unreadableConfigRefusal(
+  err: unknown,
+  configDir: string,
+): Extract<ApplyConfigResult, { ok: false; kind: "unreadable" }> {
+  const path = join(configDir, "config.env");
+  return {
+    ok: false,
+    kind: "unreadable",
+    path,
+    reason: `refusing to rewrite ${path}: ${(err as Error).message}`,
+  };
+}
+
+export function applyConfig(input: ApplyConfigInput, configDir: string, seams?: ApplyConfigSeams): ApplyConfigResult {
+  let existing: Record<string, string>;
+  try {
+    existing = readExistingConfig(configDir);
+  } catch (err) {
+    return unreadableConfigRefusal(err, configDir);
+  }
+  const first = planConfigWrite(existing, input, configDir);
+  if (!first.ok) return first;
+  seams?.beforeReread?.();
+  // Re-read immediately before the write and re-plan on what is ACTUALLY on
+  // disk. Unchanged content (the overwhelmingly common case) takes the first
+  // plan verbatim; anything else replans, so the second writer's keys survive.
+  // The residual window — this read through the rename a few fs calls later —
+  // is the same class of millisecond gap the pane-log sweeps accept per file.
+  let fresh: Record<string, string>;
+  try {
+    fresh = readExistingConfig(configDir);
+  } catch (err) {
+    return unreadableConfigRefusal(err, configDir);
+  }
+  const plan = sameContents(existing, fresh) ? first : planConfigWrite(fresh, input, configDir);
+  if (!plan.ok) return plan;
+  const path = writeConfigEnv(configDir, plan.values);
+  return { ok: true, path, values: plan.values, warnings: plan.warnings, changed: plan.changed };
 }
 
 /**

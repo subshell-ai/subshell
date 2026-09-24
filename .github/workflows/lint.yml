@@ -103,3 +103,38 @@ jobs:
       # Read-only: `lint` writes fixes and would pass on unformatted code.
       - name: Run linting
         run: bun run lint:check
+
+  # Dependency advisories, gated. `bun audit` on its own is informational: it
+  # prints advisories and would have left this file green through every one of
+  # them. dep-audit requires the live advisory set to be a subset of
+  # scripts/dep-audit.ignore.json, so a NEW advisory fails the job naming its
+  # GHSA id, and an allowlisted entry that has since been fixed warns, which is
+  # what keeps the file recording reasons rather than history. A separate job
+  # rather than a step: the audit is a statement about the lockfile, and it
+  # fails for reasons no amount of linting fixes.
+  dep-audit:
+    name: Dependency audit
+    # Bare like the lint job above: bun and the lockfile are the whole input.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Use Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+
+      - name: Cache Bun install
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Audit dependencies
+        run: bun run audit:deps

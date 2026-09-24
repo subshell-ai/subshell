@@ -6,11 +6,22 @@ import { usersRoutes } from "@/api/users.route.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { setAuthPolicyDb } from "@/auth.js";
 import { db } from "@/db/index.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { subscribeLive } from "@/services/live-bus.js";
+import {
+  attachConnection,
+  getLive,
+  type NodeSocket,
+  OWNER_DISABLED_CLOSE_CODE,
+  resetNodeRegistryForTests,
+} from "@/services/nodes/node-registry.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { registerLiveSocket, resetLiveRegistryForTests } from "@/ws/live-registry.js";
+import { registerViewer, resetLiveViewersForTests, type WsSocket } from "@/ws/viewers.js";
+import { clearWsTokensForTests, consumeWsToken, issueWsToken } from "@/ws/ws-token.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 /**
@@ -49,6 +60,7 @@ describe("admin user management", () => {
 
   const users = new UsersRepository(db);
   const meta = new UserMetaRepository(db);
+  const nodes = new NodesRepository(db);
 
   async function mkUser(email: string, role: "admin" | "user"): Promise<string> {
     return await users.createUser({ email, name: email, passwordHash: await hashPassword(pw), role });
@@ -401,6 +413,260 @@ describe("admin user management", () => {
       expect(await meta.isDisabled(memberId)).toBe(true);
     });
 
+    it("drops the user's live sockets, so a disabled account stops streaming", async () => {
+      // The gap the demotion test above closes, on the STRONGER act: a live
+      // socket authenticates at connect and is never re-checked, so revoking
+      // the session rows left an open dashboard tab streaming its whole feed.
+      // The registry mechanism is tested in isolation; this pins that the
+      // DISABLE route reaches it — the seam that drifts while both halves
+      // stay green.
+      resetLiveRegistryForTests();
+      const closes: number[] = [];
+      registerLiveSocket(memberId, {
+        data: {},
+        send: () => 1,
+        close: (code?: number) => {
+          closes.push(code ?? 0);
+        },
+      });
+
+      const res = await req("PATCH", `/${memberId}/disabled`, adminCookie, { disabled: true });
+      expect(res.status).toBe(200);
+      expect(closes).toHaveLength(1);
+      // BELOW 4000, like the demotion drop: the client reads the 4xxx range
+      // as a refusal to report and anything under it as a connection to
+      // retry. The retry cannot get far while the flag is set — minting a
+      // ws-token runs through authGuard, which 401s a disabled account — so
+      // this drop plus that gate is the whole closure.
+      expect(closes[0]).toBeLessThan(4000);
+      resetLiveRegistryForTests();
+    });
+
+    /**
+     * A fake open terminal attach, registered the way both attach paths do
+     * it: `registerViewer` with a `viewerId`, and the `attachUserId` the
+     * attach resolved (see `ws/attach-resolve.ts`). The close records instead
+     * of tearing down — the walk under test only needs to reach the socket.
+     */
+    function terminalViewer(userId: string, viewerId: string) {
+      const closed: { code?: number; reason?: string }[] = [];
+      const ws = {
+        data: { viewerId, attachUserId: userId },
+        send: () => 1,
+        close: (code?: number, reason?: string) => {
+          closed.push({ code, reason });
+        },
+      } as unknown as WsSocket;
+      return { ws, closed };
+    }
+
+    it("closes the user's open TERMINAL attaches too, shared panes included", async () => {
+      // The live-feed drop above left a gap: a browser terminal authenticates
+      // at connect and is never re-checked either, and it lives in
+      // `liveViewers`, not the feed registry. A disabled member with a pane
+      // open kept streaming it. The walk is keyed by WHO attached, so it
+      // finds the socket on a pane the member does not own (the shared one
+      // below) and leaves the OTHER viewer of the member's own pane attached
+      // — the disable is the member's, not the bystander's.
+      resetLiveViewersForTests();
+      const ownPane = terminalViewer(memberId, "um-tv-own");
+      const sharedPane = terminalViewer(memberId, "um-tv-shared");
+      const bystander = terminalViewer(adminId, "um-tv-bystander");
+      registerViewer(ownPane.ws, "um-sub-member-x");
+      registerViewer(bystander.ws, "um-sub-member-x");
+      registerViewer(sharedPane.ws, "um-sub-admin-x");
+      try {
+        const res = await req("PATCH", `/${memberId}/disabled`, adminCookie, { disabled: true });
+        expect(res.status).toBe(200);
+        expect(ownPane.closed).toEqual([{ code: 1012, reason: "account disabled" }]);
+        expect(sharedPane.closed).toEqual([{ code: 1012, reason: "account disabled" }]);
+        expect(bystander.closed).toEqual([]);
+
+        const rows = await db
+          .selectFrom("auditEvents")
+          .select(["metadataJson"])
+          .where("action", "=", "user.disabled_change")
+          .where("targetId", "=", memberId)
+          .execute();
+        expect(rows.at(-1)?.metadataJson ?? "").toContain('"terminalSocketsClosed":2');
+      } finally {
+        resetLiveViewersForTests();
+        await req("PATCH", `/${memberId}/disabled`, adminCookie, { disabled: false });
+      }
+    });
+
+    it("revokes ws-tokens minted before the disable, so a redemption cannot rebuild the socket", async () => {
+      // The second half of the same gap: the sweep closes what is open, but a
+      // token minted inside its 30 s life and redeemed AFTER the sweep would
+      // re-create exactly the attach the disable ended. Redemption must fail
+      // like any unknown token's — and a token naming a DIFFERENT account
+      // (here the admin's) stays good.
+      const memberToken = issueWsToken(memberId);
+      const memberScoped = issueWsToken(memberId, "um-sub-member-x");
+      const adminToken = issueWsToken(adminId);
+      try {
+        const res = await req("PATCH", `/${memberId}/disabled`, adminCookie, { disabled: true });
+        expect(res.status).toBe(200);
+        expect(consumeWsToken(memberToken)).toBeNull();
+        expect(consumeWsToken(memberScoped)).toBeNull();
+        expect(consumeWsToken(adminToken)).not.toBeNull();
+
+        const rows = await db
+          .selectFrom("auditEvents")
+          .select(["metadataJson"])
+          .where("action", "=", "user.disabled_change")
+          .where("targetId", "=", memberId)
+          .execute();
+        expect(rows.at(-1)?.metadataJson ?? "").toContain('"tokensRevoked":2');
+      } finally {
+        clearWsTokensForTests();
+        await req("PATCH", `/${memberId}/disabled`, adminCookie, { disabled: false });
+      }
+    });
+
+    it("drops no terminal sockets and no tokens on RE-ENABLING — parity with the feed rule", async () => {
+      // The re-enable edge drops live sockets (the test above pins it) and
+      // the same reasoning covers the new two: while the flag stood the
+      // account could not mint a ws-token, so nothing is open or outstanding
+      // that a re-enable could invalidate. Pinning WHICH edge drops keeps the
+      // rule deliberate on all three stores.
+      resetLiveViewersForTests();
+      await req("PATCH", `/${memberId}/disabled`, adminCookie, { disabled: true });
+      const open = terminalViewer(memberId, "um-tv-back");
+      registerViewer(open.ws, "um-sub-member-x");
+      const minted = issueWsToken(memberId);
+      try {
+        const res = await req("PATCH", `/${memberId}/disabled`, adminCookie, { disabled: false });
+        expect(res.status).toBe(200);
+        expect(open.closed).toEqual([]);
+        expect(consumeWsToken(minted)).not.toBeNull();
+
+        const rows = await db
+          .selectFrom("auditEvents")
+          .select(["metadataJson"])
+          .where("action", "=", "user.disabled_change")
+          .where("targetId", "=", memberId)
+          .execute();
+        const meta = rows.at(-1)?.metadataJson ?? "";
+        // The disable-edge counts are ABSENT from the re-enable row, exactly
+        // as `nodesDisconnected` is — the keys belong to the act that cuts.
+        expect(meta).not.toContain("terminalSocketsClosed");
+        expect(meta).not.toContain("tokensRevoked");
+      } finally {
+        clearWsTokensForTests();
+        resetLiveViewersForTests();
+      }
+    });
+
+    it("disconnects the user's enrolled nodes with the named close, and nobody else's", async () => {
+      // Operator ruling 2026-09-24: disabling an account takes its enrolled
+      // nodes offline too. This is the LIVE half — `authenticateNodeUpgrade`
+      // (pinned in `node-ws-handler.test.ts` and the integration wire test)
+      // keeps them out until re-enable, and the agent's own backoff loop
+      // reconnects within one interval (≤ 60 s) once the flag clears. Here the
+      // seam that could drift while both halves stay green is the ROUTE
+      // reaching the registry: the close code, the reason, the eviction, and
+      // the refusal to touch another owner's node.
+      resetNodeRegistryForTests();
+      const mine = `um-node-${crypto.randomUUID()}`;
+      const theirs = `um-node-${crypto.randomUUID()}`;
+      await nodes.create({ id: mine, ownerUserId: memberId, name: "um-mine", kind: "agent", status: "online" });
+      await nodes.create({ id: theirs, ownerUserId: adminId, name: "um-theirs", kind: "agent", status: "online" });
+      const closes: { code?: number; reason?: string }[] = [];
+      const mineSocket: NodeSocket = {
+        send: () => 1,
+        close: (code?: number, reason?: string) => {
+          closes.push({ code, reason });
+        },
+      };
+      const theirsSocket: NodeSocket = { send: () => 1, close: () => {} };
+      attachConnection(mine, mineSocket);
+      attachConnection(theirs, theirsSocket);
+      try {
+        const res = await req("PATCH", `/${memberId}/disabled`, adminCookie, { disabled: true });
+        expect(res.status).toBe(200);
+        // The close reason the agent relays to its own log — the machine says
+        // WHY it is sitting outside.
+        expect(closes).toEqual([{ code: OWNER_DISABLED_CLOSE_CODE, reason: "the node's owner account is disabled" }]);
+        expect(getLive(mine)).toBeUndefined();
+        // The other owner's socket is not the disable's business.
+        expect(getLive(theirs)).toBeDefined();
+      } finally {
+        await db.deleteFrom("nodes").where("id", "in", [mine, theirs]).execute();
+        resetNodeRegistryForTests();
+      }
+    });
+
+    it("projects the disconnected node offline at once, and re-announces its running panes", async () => {
+      // The close + eviction is only HALF of "takes its nodes offline": the
+      // registry entry dies BEFORE the socket's close event lands, so the
+      // close handler's identity guard skips and the projection it owns —
+      // the `nodes.status` write and the presence announce — never happened.
+      // The Nodes page stayed green and the live feed kept claiming healthy
+      // panes until the stale sweep (~105 s), contradicting this dialog's
+      // own copy. The fix is at the shared seam (`disconnectNode` projects);
+      // this pins that the disable route gets it: the row flips offline by
+      // the RESPONSE — no timer waiting — and the running pane is announced.
+      resetNodeRegistryForTests();
+      const mine = `um-node-${crypto.randomUUID()}`;
+      await nodes.create({ id: mine, ownerUserId: memberId, name: "um-mine", kind: "agent", status: "online" });
+      const pane = await new SubshellsRepository(db).create({
+        id: `um-pane-${crypto.randomUUID()}`,
+        userId: memberId,
+        presetId: "p",
+        harnessId: "claude-code",
+        name: "um-pane",
+        workingDir: "/tmp",
+        tmuxSocket: null,
+        nodeId: mine,
+        status: "running",
+      });
+      const changed: string[] = [];
+      const off = subscribeLive((e) => {
+        if (e.kind === "subshell.changed") changed.push(e.id);
+      });
+      attachConnection(mine, { send: () => 1, close: () => {} });
+      try {
+        const res = await req("PATCH", `/${memberId}/disabled`, adminCookie, { disabled: true });
+        expect(res.status).toBe(200);
+        // The projection is awaited inside `disconnectNode`, which the route
+        // awaits: by the time the answer is 200, the row says offline.
+        expect((await nodes.findById(mine))?.status).toBe("offline");
+        // The announce is best-effort and never awaited by the eviction —
+        // the same rule the socket paths keep — so a tick is its whole delay.
+        await new Promise((r) => setTimeout(r, 20));
+        expect(changed).toContain(pane.id);
+      } finally {
+        off();
+        await db.deleteFrom("subshells").where("id", "=", pane.id).execute();
+        await db.deleteFrom("nodes").where("id", "=", mine).execute();
+        resetNodeRegistryForTests();
+        await req("PATCH", `/${memberId}/disabled`, adminCookie, { disabled: false });
+      }
+    });
+
+    it("drops no sockets on RE-ENABLING — the drop belongs to the disable edge", async () => {
+      // Re-enabling re-grants nothing a socket could hold wrongly: while the
+      // flag was set the account could not mint a ws-token, so no live socket
+      // survives to invalidate. Pinning WHICH edge drops keeps the rule
+      // deliberate rather than a blind both-ways call.
+      resetLiveRegistryForTests();
+      const closes: number[] = [];
+      await req("PATCH", `/${memberId}/disabled`, adminCookie, { disabled: true });
+      registerLiveSocket(memberId, {
+        data: {},
+        send: () => 1,
+        close: (code?: number) => {
+          closes.push(code ?? 0);
+        },
+      });
+
+      const res = await req("PATCH", `/${memberId}/disabled`, adminCookie, { disabled: false });
+      expect(res.status).toBe(200);
+      expect(closes).toEqual([]);
+      resetLiveRegistryForTests();
+    });
+
     it("stops the user signing in, and re-enabling brings them back", async () => {
       await req("PATCH", `/${memberId}/disabled`, adminCookie, { disabled: true });
 
@@ -518,7 +784,7 @@ describe("admin user management", () => {
       }
     });
 
-    it("audits the change with the email and the new state", async () => {
+    it("audits the change naming the subject — the management family's convention", async () => {
       await req("PATCH", `/${memberId}/disabled`, adminCookie, { disabled: true });
       const rows = await db
         .selectFrom("auditEvents")
@@ -527,8 +793,17 @@ describe("admin user management", () => {
         .where("targetId", "=", memberId)
         .execute();
       expect(rows.length).toBeGreaterThan(0);
+      // The user-management family (create/role/reset/disable) names its
+      // subject by email — admins already see every email via
+      // `GET /api/users`, so the trail's audience gains nothing new and
+      // answers "who" without a join. The never-values rule belongs to the
+      // credential family: key text and auth-event values, never metadata.
       expect(rows.at(-1)?.metadataJson ?? "").toContain(memberEmail);
       expect(rows.at(-1)?.metadataJson ?? "").toContain('"disabled":true');
+      // The socket drop is counted in the audit row, exactly as the
+      // demotion's is — "an operator can reconstruct what was cut" is the
+      // whole reason these rows exist.
+      expect(rows.at(-1)?.metadataJson ?? "").toContain('"droppedSockets"');
     });
 
     it("404s an unknown user", async () => {

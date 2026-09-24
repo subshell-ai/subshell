@@ -12,7 +12,7 @@ Three kinds of credential exist, and where each is accepted is a rule, not a con
 | Credential | Who holds it | Where it works |
 |---|---|---|
 | **Session cookie** | your browser, after password or passkey sign-in | Everything you have access to — and the **only** credential admin surfaces accept. |
-| **Subshell token** | a running pane (minted at launch, baked into its environment) | That subshell's own surface — and only its owner's subshells. Shared grants and the admin boost are switched off for bearer actors, so a pane can never act on a subshell merely shared with its owner. |
+| **Subshell token** | a running pane (minted at launch, baked into its environment) | That subshell's own surface — and only its owner's subshells. Shared grants and the admin boost are switched off for bearer actors, so a pane can never act on a subshell merely shared with its owner. It can mint a terminal attach token only for its own subshell. |
 | **System API key** | your scripts and tooling | General API use. Never management — see below. Mint and revoke under Settings → API keys ([System API Keys](/automation/system-api-keys)). |
 
 Bearer keys go in an `Authorization: Bearer subshell_…` header. On top of the table, three refusals are deliberate and will bite a first script:
@@ -21,7 +21,7 @@ Bearer keys go in an `Authorization: Bearer subshell_…` header. On top of the 
 - **Sharing is a browser act.** The routes that grant or revoke access to a subshell are cookie-only.
 - **A [node](/nodes)'s agent key does nothing on REST** — presented to the API it is refused by name. Its entire job is authenticating that machine's WebSocket to the control plane.
 
-The terminal WebSocket doesn't take your credential on the socket either: you mint a short-lived, single-use attach token through a **cookie-session** REST call — bearer keys are refused at the mint — and hand the socket that.
+The terminal WebSocket doesn't take your credential on the socket either: you mint a short-lived, single-use attach token (`POST /api/auth/ws-token`) and hand the socket that. A browser-session mint is unrestricted — the token attaches wherever your own access reaches. A bearer key may mint as well, but only a *bound* token: it names one subshell at issue and is refused at redemption on every other pane (a system key may name any subshell; a running pane's own token may name only itself), and it is refused on the whole-user live feed outright.
 
 ## The route families
 

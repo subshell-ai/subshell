@@ -9,6 +9,9 @@ import {
   CopyableValue,
   confirmAction,
   errMessage,
+  Label,
+  type SetupKeyRow,
+  Switch,
 } from "@internal/node-admin";
 import { useState } from "react";
 import { NodeKeySetup } from "@/components/nodes/node-key-setup";
@@ -20,7 +23,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useDeleteSetupKey, useSetupKeys } from "@/hooks/use-nodes";
+import { type SetupKeyOwnerFields, useAllSetupKeys, useDeleteSetupKey, useSetupKeys } from "@/hooks/use-nodes";
+import { usePublicSettings } from "@/hooks/use-public-settings";
+
+/** A listed row: the owner-scoped shape, plus the creator's label on the admin read. */
+type CardKeyRow = SetupKeyRow & Partial<SetupKeyOwnerFields>;
 
 /**
  * The instructions for ONE key this card already lists.
@@ -70,9 +77,25 @@ function keyState(usedAt: string | null, expiresAt: string): "used" | "expired" 
  * only be CLOSED, never re-read, so the remedy was revoke and re-mint. That is why the
  * card also still carries what it always carried — `usedAt` and `expiresAt` decide
  * `keyState`, and a used or expired row's key is inert on sight.
+ *
+ * The third act here arrived with the 2026-09-23 audit fix (item 4): an
+ * ADMIN's switch to "All instance keys". Before it, a non-admin's outstanding
+ * key was a door no admin could close early — the list was owner-scoped and
+ * the delete owner-filtered. The switch is gated on the server's own
+ * `viewerIsAdmin` (never re-derived here), the read names each row's creator,
+ * and the same Revoke button now closes a foreign row.
  */
 export function SetupKeysSection() {
-  const { data, error, isLoading } = useSetupKeys();
+  const { data: settings } = usePublicSettings();
+  const isAdmin = settings?.viewerIsAdmin === true;
+  const [showAll, setShowAll] = useState(false);
+  // One query per shape, each `enabled` only while it answers the screen —
+  // the admin read is a widening and must not fire for a viewer who cannot
+  // use it, nor for an admin who never asked.
+  const own = useSetupKeys(!showAll);
+  const every = useAllSetupKeys(isAdmin && showAll);
+  const q = showAll ? every : own;
+  const rows: CardKeyRow[] | undefined = showAll ? every.data?.keys : own.data?.keys;
   const remove = useDeleteSetupKey();
   const [rowError, setRowError] = useState<Record<string, string>>({});
   // The key whose setup steps are open, or null. Held as the KEY TEXT rather than the
@@ -123,10 +146,20 @@ export function SetupKeysSection() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {error && <p className="text-destructive text-sm">Couldn't load setup keys.</p>}
-        {!error && isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
-        {!error && data?.keys.length === 0 && <p className="text-muted-foreground text-sm">No setup keys yet.</p>}
-        {data?.keys.map((k) => {
+        {isAdmin && (
+          <div className="flex items-center gap-2">
+            <Switch checked={showAll} onCheckedChange={setShowAll} aria-label="List every account's setup keys" />
+            <Label>List every account's setup keys</Label>
+          </div>
+        )}
+        {q.error && <p className="text-destructive text-sm">Couldn't load setup keys.</p>}
+        {!q.error && q.isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
+        {!q.error && rows?.length === 0 && (
+          <p className="text-muted-foreground text-sm">
+            {showAll ? "No setup keys on any account yet." : "No setup keys yet."}
+          </p>
+        )}
+        {rows?.map((k) => {
           const state = keyState(k.usedAt, k.expiresAt);
           return (
             <div key={k.id} className="space-y-2 rounded-lg border p-3">
@@ -147,6 +180,8 @@ export function SetupKeysSection() {
                     {k.consumedNodeId
                       ? ` · enrolled ${k.consumedNodeId}`
                       : ` · expires ${new Date(k.expiresAt).toLocaleString()}`}
+                    {/* The admin read's one addition: whose door this row is. */}
+                    {k.ownerLabel ? ` · by ${k.ownerLabel}` : ""}
                   </p>
                 </div>
                 <Badge variant={state === "unused" ? "success" : state === "expired" ? "warning" : "muted"}>

@@ -4,9 +4,11 @@
  *
  * The whole verb is ten steps and nine of them are refusals: what makes an
  * update safe is almost entirely what it declines to do. The one irreversible
- * moment is the pair of renames in step 7, and even that is undone by the
- * NEXT boot rather than by this process — see `services/update-transaction.ts`
- * for why the transaction has to be shaped that way.
+ * moment is the swap in step 7 — keep the running binary as `.previous`,
+ * then one rename onto the live path, which never moves it out from under
+ * the unit (round-3 sweep C5) — and even that is undone by the NEXT boot
+ * rather than by this process; see `services/update-transaction.ts` for why
+ * the transaction has to be shaped that way.
  *
  * **It is ASYNC, and that is the third named exception to the sync-exit house
  * style** (`cli.ts`'s header; `apps/server/api/AGENTS.md` lists it beside `init`
@@ -38,6 +40,7 @@ import {
 import {
   beginUpdate,
   clearPending,
+  keepPreviousBinary,
   type PendingUpdate,
   readFailed,
   readPending,
@@ -354,25 +357,32 @@ async function runInstall(opts: UpdateOpts, deps: UpdateDeps): Promise<number> {
     error(`subshell-server: ${err instanceof Error ? err.message : String(err)}`);
     return 1;
   }
+  // 7. The swap: keep the RUNNING binary as `.previous` first, then ONE
+  //    rename onto the live path (measured safe over a running image, spec
+  //    §12.2). The old shape — rename aside, rename in — left a window where
+  //    the path the unit names held nothing, and a kill or power loss inside
+  //    it meant a hand at a keyboard on a deliberately headless machine.
+  //    A crash HERE, after the copy and before the rename, leaves the old
+  //    binary at ExecStart: bootable, and its boot records the failed
+  //    marker. (`update --rollback` reads exactly this `.previous` — the
+  //    contract is unchanged, the path it travels is not.)
   try {
-    renameSync(binary, previousBinary);
+    keepPreviousBinary(binary);
   } catch (err) {
     clearPending();
     rmSync(tmp, { force: true });
-    error(`subshell-server: could not move ${binary} aside: ${err instanceof Error ? err.message : String(err)}`);
+    error(
+      `subshell-server: could not keep a rollback copy of ${binary}: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return 1;
   }
   try {
     renameSync(tmp, binary);
   } catch (err) {
-    // Between the two renames is the only window where this host has no
-    // binary at all. Put it back before saying anything else.
-    try {
-      renameSync(previousBinary, binary);
-    } catch {
-      // Both renames failed: say so below and leave the marker, which names
-      // `.previous` for a hand repair.
-    }
+    // The live path was never moved — the old binary is still exactly where
+    // the service definition points it. Undo the marker and the copy, and
+    // the host stands where it started.
+    rmSync(previousBinary, { force: true });
     clearPending();
     rmSync(tmp, { force: true });
     error(`subshell-server: could not install ${binary}: ${err instanceof Error ? err.message : String(err)}`);
@@ -465,6 +475,21 @@ async function runRollback(opts: UpdateOpts, deps: UpdateDeps): Promise<number> 
   const previousBinary = `${binary}.previous`;
   if (!existsSync(previousBinary)) {
     error(`subshell-server: there is nothing to roll back to (${previousBinary} is not there)`);
+    return 1;
+  }
+  // A `.previous` that cannot run is not a rollback target (round-3 review,
+  // finding 2). `rename(2)` below is unconditional — whatever lands at the
+  // path the unit names is what the service manager tries to EXEC, and a
+  // truncated copy (the shape an interrupted copy-fallback left before the
+  // copy became atomic, or one a hand produced since) buys a crash loop with
+  // no journal line. So ask the copy the question every other install path
+  // asks a candidate — `version`, exit 0 — BEFORE confirming, stopping the
+  // service, restoring a database, or moving a byte. The refusal names the
+  // file; the running binary and the marker stay exactly where they are.
+  if ((deps.probeVersion ?? defaultProbeVersion)(previousBinary) === null) {
+    error(
+      `subshell-server: ${previousBinary} did not answer \`version\`, so it cannot be installed back; the running ${SERVER_VERSION} was left in place — install a fresh binary by hand (\`update --from <file>\`)`,
+    );
     return 1;
   }
   const marker = readPending() ?? readFailed();

@@ -1,5 +1,6 @@
+import { normalizeLabel } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { authGuard } from "@/api/auth-guard.js";
+import { authGuard, HttpError } from "@/api/auth-guard.js";
 import { WorkspaceSchema } from "@/api/models.js";
 import { requireCookieActor } from "@/api/workspaces/require-cookie-actor.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
@@ -31,9 +32,16 @@ export const createWorkspaceRoute = new Elysia()
     "/",
     async ({ body, actor, user, ctx }) => {
       requireCookieActor(actor);
+      // The shared label rule (control bytes, format characters, collapse,
+      // code-point cap) — the name renders in every pane header a workspace
+      // is shared into and the per-user unique index compares it. An empty
+      // result means nothing printable was entered; a workspace always has
+      // one, so that is a 400.
+      const name = normalizeLabel(body.name, 120);
+      if (!name) throw new HttpError(400, "Workspace name cannot be blank");
       return await ctx.services.workspaces.createWorkspace({
         userId: user.id,
-        name: body.name,
+        name,
         draft: body.draft,
         subshellId: body.subshellId,
       });

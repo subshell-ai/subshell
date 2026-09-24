@@ -794,8 +794,36 @@ describe("POST /api/nodes/:id/update", () => {
     expect(await codeOf(res)).toBe("NODE_RESTART_KILLS_PANES");
     resetNodeRegistryForTests();
 
+    // The CERTAIN case now needs the honest fixture: a definition that
+    // answered `kills`. (The old default carried `keeps` — the pre-inversion
+    // rule gave it the certain sentence because `keeps` merely failed the
+    // `=== "unknown"` test, not because anything read a kill.)
+    const kills: NodeRuntimeReport = { ...runtime, service: { ...runtime.service, paneSafety: "kills" } };
     const id2 = await mkNode();
-    const second = await updateWithAnswer(id2, aliceCookie, {}, { ok: false, error: NODE_RESULT_KILLS_PANES });
+    const second = await updateWithAnswer(
+      id2,
+      aliceCookie,
+      {},
+      { ok: false, error: NODE_RESULT_KILLS_PANES },
+      "live",
+      kills,
+    );
     expect(((await second.res.json()) as { message: string }).message).toContain("would close every subshell");
+    resetNodeRegistryForTests();
+
+    // And the case the finding named: NO frozen runtime report at all (the
+    // agent connected but its `ready` facts are absent) — `undefined` is a
+    // different absence of an answer than `unknown`, and the sentence must
+    // not upgrade it into a promise about panes dying.
+    const id3 = await mkNode();
+    const third = await updateWithAnswer(
+      id3,
+      aliceCookie,
+      {},
+      { ok: false, error: NODE_RESULT_KILLS_PANES },
+      "live",
+      null,
+    );
+    expect(((await third.res.json()) as { message: string }).message).toMatch(/could not be read/i);
   });
 });

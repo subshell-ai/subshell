@@ -169,6 +169,80 @@ describe("applyConfig — the LAN-bind sign-in warning", () => {
  * disagreeing about a configuration both can see. The CLI was widened to match,
  * because the checklist was the more correct half.
  */
+/**
+ * C7 — the lost update. `applyConfig` reads, merges, and renames; two writers
+ * (dashboard PATCH + CLI, or two PATCHes) can interleave so the second merge
+ * runs against a stale read and silently reverts the first writer's changes
+ * while BOTH audit rows claim success. The fix is a re-read and re-merge
+ * against the FRESH content immediately before the rename; the tests drive it
+ * through the `beforeReread` seam, which is the read→rename window itself.
+ */
+describe("applyConfig — concurrent writers", () => {
+  it("a second write landing between the read and the rename survives — disjoint keys both stick", () => {
+    const d = dir();
+    writeFileSync(join(d, "config.env"), "BETTER_AUTH_SECRET=keepme\nSERVER_PORT=3080\n");
+    // Writer B lands after A's first read: it changes HOST and adds a foreign
+    // key. A's stale read saw neither, and the old merge would have rewritten
+    // the file from that stale map and silently reverted both.
+    const r = applyConfig({ port: "3090" }, d, {
+      beforeReread: () =>
+        writeFileSync(
+          join(d, "config.env"),
+          "BETTER_AUTH_SECRET=keepme\nSERVER_PORT=3080\nHOST=127.0.0.1\nSOME_OTHER_TOOL=hello\n",
+        ),
+    });
+    expect(r.ok).toBe(true);
+    const text = readFileSync(join(d, "config.env"), "utf8");
+    expect(text).toContain("SERVER_PORT=3090"); // A's intent
+    expect(text).toContain("HOST=127.0.0.1"); // B's change, kept
+    expect(text).toContain("SOME_OTHER_TOOL=hello"); // B's foreign key, kept
+    expect(text).toContain("BETTER_AUTH_SECRET=keepme");
+    if (r.ok) expect(r.changed).toEqual([{ key: "SERVER_PORT", from: "3080", to: "3090" }]);
+  });
+
+  it("truly-overlapping keys still clobber, per-key last-writer-wins — only that key", () => {
+    const d = dir();
+    writeFileSync(join(d, "config.env"), "SERVER_PORT=3080\nDATABASE_PATH=/var/db/old.db\n");
+    // A names port AND host; B (mid-A) rewrites port too. A renames last, so
+    // A wins the overlap — but B's DATABASE_PATH must NOT ride A's stale map.
+    const r = applyConfig({ port: "3090", host: "0.0.0.0" }, d, {
+      beforeReread: () => writeFileSync(join(d, "config.env"), "SERVER_PORT=4100\nDATABASE_PATH=/var/db/new.db\n"),
+    });
+    expect(r.ok).toBe(true);
+    const text = readFileSync(join(d, "config.env"), "utf8");
+    expect(text).toContain("SERVER_PORT=3090"); // overlap: this writer won
+    expect(text).toContain("DATABASE_PATH=/var/db/new.db"); // B's key survived
+    if (r.ok) {
+      expect(r.changed).toContainEqual({ key: "SERVER_PORT", from: "4100", to: "3090" });
+      expect(r.changed).toContainEqual({ key: "HOST", from: undefined, to: "0.0.0.0" });
+    }
+  });
+
+  it("a file vanished between the reads falls to the original empty-merge path", () => {
+    const d = dir();
+    writeFileSync(join(d, "config.env"), "SERVER_PORT=3080\n");
+    const r = applyConfig({ port: "3090" }, d, {
+      beforeReread: () => rmSync(join(d, "config.env")),
+    });
+    expect(r.ok).toBe(true);
+    const text = readFileSync(join(d, "config.env"), "utf8");
+    expect(text).toContain("SERVER_PORT=3090");
+    expect(text).toContain("HOST=0.0.0.0"); // defaults, as on a fresh install
+    if (r.ok) expect(r.changed).toEqual([{ key: "SERVER_PORT", from: undefined, to: "3090" }]);
+  });
+
+  it("no concurrent write changes nothing observable — the unchanged fast path", () => {
+    const d = dir();
+    writeFileSync(join(d, "config.env"), "BETTER_AUTH_SECRET=keepme\nSERVER_PORT=3080\n");
+    const r = applyConfig({ port: "3090" }, d, { beforeReread: () => {} });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.changed).toEqual([{ key: "SERVER_PORT", from: "3080", to: "3090" }]);
+      expect(r.values.SERVER_PORT).toBe("3090");
+    }
+  });
+});
+
 describe("the LAN-bind warning and an explicitly loopback origin list", () => {
   it("warns when every configured origin is loopback, not only when none is set", () => {
     const r = applyConfig(

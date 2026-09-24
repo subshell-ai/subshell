@@ -15,6 +15,7 @@ import {
 import type { verifyReleaseManifest } from "@internal/subshell-protocol/release-signature";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
+import { execUpdate } from "../commands/update.js";
 
 /**
  * A machine with NO service definition, whatever the host has.
@@ -34,6 +35,7 @@ const NO_SERVICE_DEFINITION = {
 } as const;
 
 import { updateSeams } from "../update.js";
+import { NODE_VERSION } from "../version.js";
 
 /** The same fake verifier `update.test.ts` uses: accepts the TEST-ARMOR pair only. */
 const acceptSigned: typeof verifyReleaseManifest = async (bytes, sig, _pub, expected) => {
@@ -112,10 +114,15 @@ async function ctxWith(runtime: NodeRuntimeReport | null, onRestart: () => void)
   };
 }
 
-/** A URL nothing serves — reaching it is the failure these cases are guarding. */
+/**
+ * A URL nothing serves — reaching it is the failure these cases are guarding.
+ * The version is NEWER than this runner's `NODE_VERSION` on purpose: the
+ * executor's version floor (C13) refuses non-newer offers before anything
+ * else, and these cases are about the gates behind it.
+ */
 const unreachable = {
   type: "update" as const,
-  version: "0.9.9",
+  version: "99.9.9",
   url: "http://127.0.0.1:1/never",
   sha256: "0".repeat(64),
 };
@@ -179,6 +186,43 @@ describe("execUpdate refusals", () => {
     });
   });
 
+  it("refuses a downgrade order before anything is downloaded — the node's own floor", async () => {
+    // C13. The plane gates downgrades and up-to-date offers
+    // (`update-node.route.ts`) before it signs anything; this is the second
+    // gate, for a control plane that is confused or compromised. The sentence
+    // mirrors the CLI's, and reaching the unreachable URL would prove the
+    // guard came too late.
+    let restarts = 0;
+    const ctx = await ctxWith(runtimeReport(), () => restarts++);
+    expect(await dispatchCommand(ctx, { ...unreachable, version: "0.0.1" })).toEqual({
+      ok: false,
+      error: `0.0.1 is older than the running ${NODE_VERSION}`,
+    });
+    expect(restarts).toBe(0);
+  });
+
+  it("refuses an equal version even under force — nothing to install is nothing to install", async () => {
+    // `force` answers the pane-safety refusal and the downgrade; re-swapping
+    // ~70 MB for a byte-identical binary is not what it has ever meant.
+    const ctx = await ctxWith(runtimeReport(), () => undefined);
+    expect(await dispatchCommand(ctx, { ...unreachable, version: NODE_VERSION, force: true })).toEqual({
+      ok: false,
+      error: `already at subshell ${NODE_VERSION}`,
+    });
+  });
+
+  it("lets force past the version floor, the way the loopback dashboard's downgrade offer needs", async () => {
+    // The dashboard passes `force` for its explicit "allow a downgrade" — a
+    // local keyboard act. The floor must not eat that offer: it proceeds to
+    // `applyUpdate` and fails THERE on this runner (an interpreter), exactly
+    // like the pane-force case above.
+    const ctx = await ctxWith(runtimeReport(), () => undefined);
+    expect(await dispatchCommand(ctx, { ...unreachable, version: "0.0.1", force: true })).toEqual({
+      ok: false,
+      error: NODE_RESULT_NOT_COMPILED,
+    });
+  });
+
   it("does not ask the daemon to exit when the update did not happen", async () => {
     // The ordering that makes a plane-driven update legible: `requestRestart`
     // fires only after the swap, so a refused update leaves a live agent on
@@ -187,6 +231,77 @@ describe("execUpdate refusals", () => {
     const ctx = await ctxWith(runtimeReport(), () => restarts++);
     await dispatchCommand(ctx, unreachable);
     expect(restarts).toBe(0);
+  });
+});
+
+/**
+ * The boot-window seam (round-3 review, finding 5): the loopback dashboard
+ * has no socket and no frozen report during boot (or after a failed boot-time
+ * service read), and it answers supervision with one live manager query. That
+ * proof must be the executor's answer — the null it just disproven must not
+ * 409 the supervised node — while a caller WITHOUT a proof (the plane path)
+ * keeps the old refusal verbatim. Every case here lands either at a wire
+ * constant or at `applyUpdate`'s NOT_COMPILED on this runner (an interpreter),
+ * exactly like the force cases above: "reached the installer" is what passing
+ * both gates looks like without running it.
+ */
+describe("execUpdate supervision proof", () => {
+  it("refuses on a null runtime with NO proof — the plane-commanded path is unchanged", async () => {
+    const ctx = await ctxWith(null, () => undefined);
+    expect(await execUpdate(ctx, unreachable)).toEqual({ ok: false, error: NODE_RESULT_NOT_SUPERVISED });
+  });
+
+  it("a proof of supervision answers the null and reaches the installer", async () => {
+    const ctx = await ctxWith(null, () => undefined);
+    expect(
+      await execUpdate({ ...ctx, supervisedProof: { supervised: true, paneSafety: "keeps" } }, unreachable),
+    ).toEqual({ ok: false, error: NODE_RESULT_NOT_COMPILED });
+  });
+
+  it("the same query's `kills` still refuses, and force past it proceeds like any kills refusal", async () => {
+    const ctx = await ctxWith(null, () => undefined);
+    expect(
+      await execUpdate({ ...ctx, supervisedProof: { supervised: true, paneSafety: "kills" } }, unreachable),
+    ).toEqual({ ok: false, error: NODE_RESULT_KILLS_PANES });
+    expect(
+      await execUpdate(
+        { ...ctx, supervisedProof: { supervised: true, paneSafety: "kills" } },
+        {
+          ...unreachable,
+          force: true,
+        },
+      ),
+    ).toEqual({ ok: false, error: NODE_RESULT_NOT_COMPILED });
+  });
+
+  it("a proof of supervision ALONE fails closed on pane safety — no answer is still no evidence", async () => {
+    const ctx = await ctxWith(null, () => undefined);
+    expect(await execUpdate({ ...ctx, supervisedProof: { supervised: true } }, unreachable)).toEqual({
+      ok: false,
+      error: NODE_RESULT_KILLS_PANES,
+    });
+  });
+
+  it("a proof that did NOT confirm supervision is the plain refusal", async () => {
+    const ctx = await ctxWith(null, () => undefined);
+    expect(
+      await execUpdate({ ...ctx, supervisedProof: { supervised: false, paneSafety: "keeps" } }, unreachable),
+    ).toEqual({ ok: false, error: NODE_RESULT_NOT_SUPERVISED });
+  });
+
+  it("the frozen report OUTRANKS a proof, in both directions", async () => {
+    // Supervision cannot change while the pid does not, so a caller's fresher-
+    // looking query cannot un-say the boot's own answer — and a report that
+    // DOES exist needs no proof beside it.
+    const unsupervised = await ctxWith(runtimeReport({ supervised: false }), () => undefined);
+    expect(
+      await execUpdate({ ...unsupervised, supervisedProof: { supervised: true, paneSafety: "keeps" } }, unreachable),
+    ).toEqual({ ok: false, error: NODE_RESULT_NOT_SUPERVISED });
+    const supervised = await ctxWith(runtimeReport(), () => undefined);
+    expect(await execUpdate({ ...supervised, supervisedProof: { supervised: false } }, unreachable)).toEqual({
+      ok: false,
+      error: NODE_RESULT_NOT_COMPILED,
+    });
   });
 });
 
@@ -203,7 +318,7 @@ describe("execUpdate success", () => {
     const binary = join(root, "subshell");
     await writeFile(binary, "#!/bin/sh\necho 'subshell 0.8.0 (node protocol v9)'\n");
     await chmod(binary, 0o755);
-    const next = "#!/bin/sh\necho 'subshell 0.9.9 (node protocol v12)'\n";
+    const next = "#!/bin/sh\necho 'subshell 99.9.9 (node protocol v12)'\n";
     const server = Bun.serve({ port: 0, fetch: () => new Response(next) });
     const digest = new Bun.CryptoHasher("sha256").update(next).digest("hex");
     const host = hostReleaseTarget(process.platform, process.arch);
@@ -211,7 +326,7 @@ describe("execUpdate success", () => {
     const hostAsset = releaseAssetNames("cli-node", host).binary;
     const manifestBytes = JSON.stringify({
       component: "cli-node",
-      version: "0.9.9",
+      version: "99.9.9",
       nodeProtocol: 12,
       minNodeVersion: "0.11.0",
       commit: "0".repeat(40),
@@ -226,7 +341,7 @@ describe("execUpdate success", () => {
       const ctx = await ctxWith(runtimeReport(), () => restarts++);
       const result = await dispatchCommand(ctx, {
         type: "update",
-        version: "0.9.9",
+        version: "99.9.9",
         url: `http://127.0.0.1:${server.port}/agent`,
         sha256: digest,
         manifest: Buffer.from(manifestBytes, "utf8").toString("base64"),
@@ -255,7 +370,7 @@ describe("execUpdate success", () => {
     const binary = join(root, "subshell");
     await writeFile(binary, "#!/bin/sh\necho 'subshell 0.8.0 (node protocol v11)'\n");
     await chmod(binary, 0o755);
-    const next = "#!/bin/sh\necho 'subshell 0.9.9 (node protocol v12)'\n";
+    const next = "#!/bin/sh\necho 'subshell 99.9.9 (node protocol v12)'\n";
     const server = Bun.serve({ port: 0, fetch: () => new Response(next) });
     const digest = new Bun.CryptoHasher("sha256").update(next).digest("hex");
     const execPathBefore = process.execPath;
@@ -264,7 +379,7 @@ describe("execUpdate success", () => {
       const ctx = await ctxWith(runtimeReport(), () => undefined);
       const result = await dispatchCommand(ctx, {
         type: "update",
-        version: "0.9.9",
+        version: "99.9.9",
         url: `http://127.0.0.1:${server.port}/agent`,
         sha256: digest,
       });

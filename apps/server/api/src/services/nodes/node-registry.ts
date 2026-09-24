@@ -1,5 +1,6 @@
 import { NODE_CLOSE_SUPERSEDED, type NodeRuntimeReport } from "@internal/subshell-protocol";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import { projectNodeOffline } from "./node-presence-announce.js";
 import type { NodeRpcError } from "./node-rpc.js";
 
 /**
@@ -27,6 +28,19 @@ import type { NodeRpcError } from "./node-rpc.js";
  * 4401 mirrors the REST 401 the same dead key would get on an upgrade.
  */
 export const REVOKED_CLOSE_CODE = 4401;
+
+/**
+ * Close sent when the node's OWNER account was disabled (ruling 2026-09-24) —
+ * the disable route's counterpart to the upgrade-time refusal, which is the
+ * pre-socket half of the same rule. Deliberately NOT {@link REVOKED_CLOSE_CODE}:
+ * the key row survives a disable untouched (re-enabling must restore the
+ * node's access with no second act), so this is not "the credential died" —
+ * it is the account behind it frozen, and 4403 mirrors the HTTP 403 the same
+ * socket now gets from `authenticateNodeUpgrade`. The agent logs the reason
+ * and keeps dialing on its backoff loop, so re-enabling brings the node back
+ * within one reconnect interval (≤ 60 s).
+ */
+export const OWNER_DISABLED_CLOSE_CODE = 4403;
 
 /**
  * Minimal structural socket shim — same discipline as `WsSocket` in
@@ -433,23 +447,56 @@ export function listOnline(): string[] {
  * disconnecting and call `failConnPendings(conn, ...)` AFTER (see the
  * rotate/delete routes). On a real socket the close event drains them too —
  * the second drain is a no-op.
+ *
+ * **A successful eviction OWNS the status projection**, which is the one
+ * thing the drain note above cannot delegate. The entry leaves the map
+ * BEFORE the socket's close event lands, so `handleNodeClose`'s
+ * `current.ws === mine` guard skips its offline write — by design for a
+ * superseded socket, and the exact hole for every forced eviction: the
+ * disable route, rotate, delete, and the post-attach eviction each closed
+ * the socket while the row went on projecting online and the live feed went
+ * on claiming its panes healthy until the stale sweep. The close path can
+ * only be trusted to project when the close is what took the entry; when
+ * THIS function takes it, `projectNodeOffline` runs here — the same two
+ * acts `holdRefusedNode` performs for the hold that never closes (the row
+ * goes offline, the node's running panes are re-announced). Awaited: the
+ * caller answers in a world where the node is offline, and by then the row
+ * says so. That is why it is `async` — every forced-eviction caller awaits
+ * this call, and none of them projects separately, so the guard's skip is
+ * also what keeps the projection single when the real close lands later.
+ * The two maps hold AT MOST ONE record for one node (a new attach supersedes
+ * a held entry exactly as it supersedes a live one — the held-first branch of
+ * {@link attachConnection}), but the branches below do NOT early-return on
+ * `held`: with a target (`only`) the held-first return would skip checking the
+ * live map for THAT socket, and without one, a pair that can no longer form
+ * still costs nothing to walk. The projection fires once, after whatever was
+ * actually evicted.
+ *
  * @param nodeId - node id (no `node:` prefix)
  * @param code - close code (default {@link REVOKED_CLOSE_CODE})
  * @param reason - close reason sent on the wire
- * @returns true when a live connection existed and was evicted
+ * @param only - evict ONLY this connection's records (the post-attach disable
+ *   re-ask). Without it a node's every record goes; with it, a socket that a
+ *   newer one already replaced finds nothing to evict — the replacement asked
+ *   this same question about itself and is not this eviction's property.
+ * @returns true when at least one connection (held or live) was evicted
  */
-export function disconnectNode(
+export async function disconnectNode(
   nodeId: string,
   code: number = REVOKED_CLOSE_CODE,
   reason = "node access revoked",
-): boolean {
+  only?: NodeConnection,
+): Promise<boolean> {
+  let evicted = false;
   // Held sockets are evicted too, and they have to be: a rotated or deleted
   // key must not leave a socket open just because the plane was refusing to
   // talk to it for a different reason. The `update` command is the ONE thing
   // it could still have carried, and that is precisely what a revoked
-  // credential must no longer be able to do.
+  // credential must no longer be able to do. The row already reads offline
+  // from the hold's own projection; projecting again is the idempotent
+  // no-op this seam prefers over a branch that has to know why it was held.
   const heldEntry = held.get(nodeId);
-  if (heldEntry) {
+  if (heldEntry && (!only || heldEntry.conn === only)) {
     if (heldEntry.timer) clearTimeout(heldEntry.timer);
     held.delete(nodeId);
     heldEntry.conn.closing = true;
@@ -458,17 +505,23 @@ export function disconnectNode(
     } catch {
       // already dead — the eviction above is the point
     }
-    return true;
+    evicted = true;
   }
   const conn = live.get(nodeId);
-  if (!conn) return false;
-  conn.closing = true;
-  try {
-    conn.ws.close(code, reason);
-  } catch {
-    // already dead — nothing to close; the eviction below still matters
+  if (conn && (!only || conn === only)) {
+    conn.closing = true;
+    try {
+      conn.ws.close(code, reason);
+    } catch {
+      // already dead — nothing to close; the eviction below still matters
+    }
+    // Identity-guarded: a socket replaced between the two reads detaches
+    // nothing and owns no projection — the current entry answers for itself.
+    if (detachConnection(nodeId, conn.ws)) evicted = true;
   }
-  return detachConnection(nodeId, conn.ws);
+  if (!evicted) return false;
+  await projectNodeOffline(nodeId);
+  return true;
 }
 
 /**
@@ -478,13 +531,15 @@ export function disconnectNode(
  * than a revocation: 1012 Service Restart tells the agent why its socket went
  * away instead of leaving it to discover a dropped connection. In-flight
  * commands drain through each socket's close event, as with
- * {@link disconnectNode} on a live socket.
+ * {@link disconnectNode} on a live socket — and each eviction projects its
+ * row offline with its panes announced, which is honest here: for however
+ * long the restart takes, this plane cannot reach those machines.
  *
  * @returns how many connections were closed
  */
-export function disconnectAllNodes(code: number, reason: string): number {
+export async function disconnectAllNodes(code: number, reason: string): Promise<number> {
   let closed = 0;
-  for (const id of listOnline()) if (disconnectNode(id, code, reason)) closed++;
+  for (const id of listOnline()) if (await disconnectNode(id, code, reason)) closed++;
   return closed;
 }
 

@@ -80,13 +80,13 @@ principals; the fourth is a websocket credential and nothing else.
 
 | | Session cookie | System key | Subshell token | Node key |
 |---|---|---|---|---|
-| Form | `better-auth.session_token`, HttpOnly, `SameSite=Lax`, `secure` in prod | `Bearer subshell_…` | `Bearer subshell_…` | `Bearer` on `/ws/node` only |
+| Form | `better-auth.session_token`, HttpOnly, `SameSite=Lax` always; `Secure` only when `APP_BASE_URL` is https — better-auth derives the marking from the base URL, NOT from `NODE_ENV`, so a production instance served over plain http on the LAN gets no `Secure` cookie (`auth.ts:54-59`; §11.11a's 2026-09-19 note) | `Bearer subshell_…` | `Bearer subshell_…` | `Bearer` on `/ws/node` only |
 | `actor` | `cookie` | `system-key` | `subshell-key` | — (rejected on REST) |
 | `principal` | `user:<id>` | `user:<systemUserId>` | `sess:<subshellId>` | — |
 | Minted by | sign-up / sign-in / passkey | admin, Server Settings → API keys | the server at subshell start | `POST /api/nodes/enroll` |
 | Scope | the user's own data; **the only actor admin surfaces accept**; the only actor that may mint an UNBOUND WS attach token | full access, no permission map; may mint a WS attach token bound to ANY single subshell | permission grant map (`channels`, `subshells` × `read`/`write`); may mint a WS attach token only for its OWN subshell | open `/ws/node` as that node |
 | Lifetime | better-auth session | until disabled or deleted | 7 days, self-extending while the MCP child runs | long-lived |
-| Revocation | sign-out / password change | instant | **instant** on terminate/delete; rotated on auto-restart | delete the node |
+| Revocation | sign-out / password change / account disable (see "Disabling an account" below) | instant | **instant** on terminate/delete; rotated on auto-restart | delete the node |
 | Stored as | session row | hash only | hash only | hash only |
 
 Plaintext keys are shown exactly once, at creation, and never again.
@@ -179,6 +179,92 @@ Three related rules, each tested:
   string `LIKE`, so an upstream serialization change cannot silently make a
   full-access key un-disable-able.
 
+### Disabling an account
+
+`PATCH /api/users/:id/disabled` (admin cookie, audited `user.disabled_change`)
+flips the flag in **ONE transaction** that also counts admins and revokes every
+session the target holds (`users.route.ts:319-379`,
+`user-meta.repository.ts:122-140`); the response carries the session count, so
+the revocation is visible, not just claimed. Disabling the last admin who can
+still sign in is refused 409 from inside that transaction, and disabling your
+own account is refused with 400 for the same reason — a single-admin instance
+that disables itself has nobody left to undo it. The refusal reaches new
+sessions and machine credentials alike: the before-hook on session creation
+rejects a disabled user whatever minted the credential — password and passkey
+(`auth.ts:115-126`) — and the bearer path refuses too (`auth-guard.ts:154-171`),
+so **a running subshell's own token dies with its disabled owner**.
+
+A disable also ends everything the account still holds live, in three
+sweeps beside the flag write: its dashboard feed sockets
+(`dropLiveSocketsFor`, as a demotion does), its open TERMINAL attaches
+(`dropTerminalSocketsFor` — the walk is keyed by WHO attached, so a pane
+shared INTO the account is reached, and a bystander watching the target's
+own pane is left attached), and its OUTSTANDING ws-tokens
+(`dropUserTokensFor` — redemption once consulted the token store alone, and
+a token minted inside its 30 s life moments before the disable would, after
+the socket sweeps, re-create exactly the attach the disable existed to end;
+the drop closes that shape, and the one race a walk of the store cannot —
+a mint whose insert lands AFTER the sweep — is closed at redemption, which
+re-asks `accountDisabled` after consuming (§8, "WS attach")). Revoking
+session rows does not reach a WebSocket, which authenticates at connect and
+is never re-checked (§11.5, §11.14), so before the drops a disabled account
+with a tab open kept streaming until the tab closed. The drops are on the
+DISABLE edge only, and every count lands in the audit row like the
+demotion's — while the flag is set the account cannot even mint a ws-token
+(the mint runs through `authGuard`, and EVERY door that consumes one re-asks
+`accountDisabled` — the cookie fallback on the session, the terminal token
+branch on the identity it consumed, and `/ws/live`'s redemption the same,
+failing CLOSED on a throw because a feed socket is never re-checked after it
+opens), so a re-enable has no
+stale socket or token left to invalidate and drops nothing.
+
+And since 2026-09-24 a disable takes the account's **enrolled nodes**
+offline, in two halves: the disable route closes every live socket of a
+node the target owns — close 4403 with the reason `the node's owner
+account is disabled`, which the agent relays into its own log so the
+machine says why it is sitting outside — and `authenticateNodeUpgrade`
+refuses every further dial pre-socket (HTTP 403, `services/nodes/
+node-ws-handler.ts`) while the flag stands. Between those two halves sits
+the handshake, and the flag can land inside it — the upgrade reads the
+owner as enabled, the disable and its sweep run (finding no socket, because
+this one has not attached yet), and `open` then attaches anyway — so
+`handleNodeOpen` RE-ASKS `accountDisabled` immediately after attaching,
+against the owner id the upgrade stashed with the identity, and evicts a
+socket the sweep missed with the same `disconnectNode` + 4403 the route
+uses. Every such eviction OWNS its projection: `disconnectNode` writes the
+row `offline` and re-announces the node's running panes before the route
+answers — the socket's own close event lands only after the registry entry
+is gone, and the close handler's identity guard then correctly skips, so
+the projection is single — which is what makes the Nodes page and the live
+feed tell the truth with the response rather than at the stale sweep. The
+same seam gives key rotation and node deletion the projection their
+evictions used to miss. Re-enabling is the whole
+recovery: the agent's backoff loop never stopped dialing (full-jitter
+exponential, capped at 60 s), so the node is back within about a minute
+and on the SAME key — a disable freezes the account, it does not revoke
+the credential, which stays rotate/delete's 4401 business. The refusal is
+deliberately NOT the version-floor hold (§5.3): `update` cannot
+un-disable an owner, so a held socket would exist to carry a command
+that cannot fix the reason for the hold — a refused-and-hidden node
+rather than a refused-and-visible one.
+
+What still differs from the password reset, recorded as CURRENT behavior:
+better-auth's 5-minute `cookieCache` (`auth.ts:40-53`) lets a copied
+session cookie keep answering better-auth's OWN session endpoints for up to
+5 minutes after the flag lands. Route freshness is unaffected — `authGuard`
+reads the database every request.
+
+### The mobile app's credential
+
+`apps/client/mobile` holds no cookie jar the way a browser does: the session
+token lives in `expo-secure-store` (Keychain on iOS, Keystore on Android) and
+is sent as a `Cookie` header, so the server sees an ordinary session
+(`secure-token-store.ts`, `lib/cookie.ts`). Face ID gates **USE** of the token,
+not its storage — attaching a socket or firing an action asks first, and a
+device with no biometric enrollment degrades to allowed rather than locked out
+(`biometric.ts:5-9`). `AsyncStorage`, the unprotected half of the phone's
+storage, holds only the non-secret instance registry and the last push token.
+
 ## 3. Authorization
 
 Three independent axes, and confusing them is how authorization bugs happen here.
@@ -201,17 +287,41 @@ Two hard rules on top:
   non-cookie actor with 403 — `/api/users`, `/api/system-keys`,
   `/api/admin/status`, the `/api/admin/server` group (§11.11), and the sharing
   routes.
-- **Machine credentials get no boost and no grants.** On every per-subshell
-  route, a bearer actor runs with the admin boost and shared grants switched
-  **off**. A subshell's own token can therefore act only on its owner's
-  subshells — never a foreign one, never one merely shared with its owner.
-  The WS attach path is the one place a machine credential resolves access
-  through the FULL human gate — as the subshell's OWNER — and it is contained
-  structurally instead of by the permission map: the token is bound to one
-  subshell at mint, the bind is checked at redemption BEFORE access is ever
-  resolved, and the token can name no second pane (see §2). The rule still
-  holds of every REST surface; do not read the WS carve-out as licence to
-  resolve a bearer actor with the boost on a route.
+- **A subshell's own token gets no boost and no grants.** The switch-off is
+  keyed on WHICH machine credential, not on bearer-ness: the per-subshell
+  gate runs the admin boost and shared grants only for an actor other than a
+  subshell's own key (`subshells.service.ts:531-541`). A pane's own token can
+  therefore act only on its owner's OWN subshells — never a foreign one,
+  never one merely shared with its owner. A **system key is not switched
+  off**: it resolves through the full human gate, exactly as a signed-in
+  caller does, as the `system` service user it authenticates as — which in
+  practice resolves nowhere, because that user owns no subshells and is
+  shared with nothing, but a deliberate grant WOULD reach it. The
+  boost-and-grants switch-off was therefore never what kept system keys off
+  other people's rows. What keeps machine credentials off the instance
+  itself is the separate cookie-only guard above.
+- **The LIST route resolves shares for every caller, machine tokens
+  included — KEPT by decision, pinned by test (operator ruling 2026-09-23).**
+  `GET /api/subshells` passes no actor to the resolver
+  (`list-subshells.route.ts:15-20`), so a subshell's own MCP token can
+  ENUMERATE the subshells shared with its owner — names, status, activity.
+  Acting on any of them still 404s through the gate above (invisible, not
+  forbidden). The enumeration is deliberate, not an oversight to close: it is
+  what lets a pane's `list_subshells` name the siblings its own human can
+  see, which is the MCP coordination posture this section opens with. Two
+  tests declare the boundary — `enumerate-ok` (the token's list carries the
+  explicit AND Everyone grants, never a stranger's private row) and
+  `act-denied` (the same token 404s a merely-shared row while its owner's own
+  still reads 200) — in
+  `apps/server/api/src/api/subshells/__tests__/subshells-list-visibility.test.ts`,
+  beside a comment at the route's call site. Tightening the read to the
+  `allowAdminAndShares: false` the gate uses would be a real behavior change
+  and must move this paragraph and those tests together, not silently. The WS
+  attach path likewise resolves a bearer-minted token as the subshell's OWNER
+  through the full human gate — contained structurally instead of by the
+  permission map: the token is bound to one subshell at mint, the bind is
+  checked at redemption BEFORE access is ever resolved, and the token can name
+  no second pane (see §2).
 
 **The roster READ is not admin-gated, and it carries display names.** Writes to
 `/api/users` are cookie-admin; `GET /api/users` is deliberately instance-wide —
@@ -263,13 +373,45 @@ never reach the agent. Preset env vars merge on top, then the MCP wiring env
 last, so a preset cannot silently drop a subshell's comms by setting
 `OPENCODE_CONFIG` itself.
 
-**Argv is built from parts.** `buildCommand` assembles an argv array; there is no
-shell string to inject into.
+**Argv is built from parts — and the quoting that carries them is
+load-bearing.** `buildCommand` assembles an argv array, but the local launch
+does end up as a shell string: `assembleHarnessCommand` renders the whole
+`env -i K=V… <argv>` body (`packages/pane-runtime/src/launch.ts:73-81`) and
+hands it to `tmux new-session`, which runs it through a shell — and
+`pipe-pane` and `set-hook` are shell strings too
+(`tmux-runner.ts:442-470,536`). The defense is therefore NOT the absence of
+a shell: it is `shellQuote` on EVERY token of that string, plus the refusal
+of `' " \ #` in hook-carried credential values, which cross a SECOND parser
+layer that shell quoting does not survive (§11.14, `exit-hook.ts:91`). A
+future caller must keep the quoting discipline; "there is no shell string to
+inject into" was never the invariant, and is not the one to reason from.
 
 **The subshell's own bearer token does reach the pane** — that is how the agent
 talks as itself. It is scoped, revoked on death, and rotated on restart. It is
 also visible to any local process that can read `/proc/<pid>/environ`, `ps`
 output, or tmux pane metadata. Accepted (§11).
+
+**What that token actually carries.** `permissions: { channels: ["read",
+"write"], subshells: ["read", "write"] }` (`services/subshell-tokens.ts:31`) —
+the map is a coarse scope gate, not a row fence. The MCP tools self-restrict
+the pane to its own row for reporting, but the raw REST surface resolves the
+token as its OWNER with the boost and shares switched off (§3), which means a
+prompt-injected pane can create, restart and **terminate** the owner's OTHER
+subshells — terminate gates at `edit`, and the owner holds `edit` on its own
+rows by definition (`subshells.service.ts:765-772`). This is the first
+written accounting of the sibling surface the "other panes are agents"
+coordination posture rests on, and it is stated plainly for that reason:
+intra-instance coordination is trusted at the same altitude as the harness
+itself (§11).
+
+**The harness self-report class.** A handful of routes exist for the pane to
+report its OWN state, and each accepts only that pane's own key: `POST
+/:id/attention`, `POST /:id/harness-session`, `POST /:id/exit` — the exit
+route checks `principal === sess:<id>` explicitly
+(`subshell-exit.route.ts:49`) — plus the token self-extension route. A
+harness can report about itself, never about another subshell; a forged
+session id merely selects an existing transcript the pane's own user could
+already read.
 
 **The filesystem picker is browser-only.** `/api/files/explore` returns 403 to
 machine credentials. A running harness holding its own token must not be able to
@@ -326,10 +468,34 @@ a value read out of a `.env`.
   terminated-but-kept subshell used to hold its full transcript for the life of
   the instance.
 - **Running subshells are never swept**, whatever the file's age: the log is
-  the live replay buffer.
-- **A remote node's logs are its own.** Deleting a subshell whose node is
-  offline cannot name the paths to remove, so those files age out with the node
-  rather than at delete time (§5.6).
+  the live replay buffer. And liveness is re-checked per file immediately
+  before unlinking (both sides), because the sweep's snapshot goes stale the
+  moment a restart lands — a restarted subshell reuses the same path
+  append-only with the old mtime intact, and an unlink of that file would let
+  the capture child keep writing a dead inode, blanking the live view until a
+  relaunch. A re-check that cannot answer counts the pane running: unknown is
+  not dead at the unlink moment either.
+- **A remote node sweeps its own disk** (`apps/node/agent/src/pane-log-retention.ts`,
+  shipped 2026-09-23). `remove_paths` at delete time is the prompt removal,
+  not the only one: a node that was OFFLINE for a delete now ages the typed
+  transcript out itself — one pass at boot and an hourly pass after it, over
+  `<dataDir>/subshells/`, with no dependence on the plane being reachable.
+  The window is configured **on the node**, per field, environment winning:
+  `SUBSHELL_LOG_RETENTION_DAYS` / `SUBSHELL_LOG_RETENTION_HOURS`, else the
+  `logRetentionDays` / `logRetentionHours` fields of `config.json` (editable
+  from the node's own loopback dashboard, which refuses a write to a field the
+  environment is forcing, the debug-logging rule), else the default. That default is **1 day** — shorter than the plane's 30, because a
+  node is not where transcripts should accrete, and because the previous
+  node-side answer was *forever* — and `0` days + `0` hours together is the
+  keep-forever pair (the server's `0`-disables convention, widened with an
+  hours half). A pane the node's tmux census finds **live** is never swept;
+  a census that cannot answer (a tmux timeout) counts the pane **running** —
+  a sweep deletes, so unknown is not dead. Only files whose names are a
+  valid subshell id plus `.log`, inside the dir, accepted by the same
+  `pathAllowed` rule `remove_paths` uses, are ever touched — a symlink is
+  refused, not followed. (The mode-repair half of the server's hygiene,
+  `tightenPaneLogModes`, still runs on the server only; the node's files are
+  created 0600/0700 by the `pane-log` verb and `launch`'s dir ensure.)
 
 **Typed input also transits argv.** Input reaches the pane as
 `tmux send-keys -t <id> -l -- <input>`, one process per client frame — and a
@@ -344,7 +510,12 @@ A subshell is private by default. The owner may grant, via
 users:
 
 - **view** — list, detail, pane log, and a read-only live terminal.
-- **edit** — view, plus terminal input, rename, and restart.
+- **edit** — view, plus terminal input, rename, restart, and terminate.
+  (The 2026-09-03 close-vocabulary spec shed the terminate BUTTON from every
+  human surface — Close = delete subsumes it — while `POST /:id/terminate`
+  stayed live at `edit`, because the MCP tool and the internals drive the
+  same service path: spec
+  2026-09-03-close-vocabulary-user-terminal-history-design.md §4.)
 
 **Owner-only, never conferred by a grant and not held by admins either:**
 delete, managing the shares themselves, and the notification bell.
@@ -381,6 +552,21 @@ devices, gated by a per-user master switch (`user_meta.notify_enabled`) and the
 per-subshell bell (`subshells.notify`). Sharing widens who can see and act; it
 never widens who gets pushed.
 
+**What owner-targeting does not decide is WHERE the metadata goes, and the
+answer is third-party relays outside the §0 perimeter** — stated here because
+it had never been written down. The Expo sender posts to `exp.host`,
+anonymously unless `EXPO_PUSH_ACCESS_TOKEN` is set, and each message carries
+the device token, the event kind, the opaque subshell id, and
+`origin: APP_BASE_URL` (`expo-push.ts:136,166-186`). The web-push payload
+carries the subshell's DISPLAY NAME as the notification title, out to the
+browser push service and then onto a lock screen
+(`notify.service.ts:53`). And `device_tokens` are stored in plaintext and are
+globally unique — a token re-enrolled under another user MOVES that mailbox
+to the new owner, because the token IS the device's mailbox
+(`device-tokens.repository.ts:6-9`). None of this widens WHO receives; the
+audience rule above is unchanged. What is new here is only the naming of the
+relays the bytes ride.
+
 ## 6. Nodes
 
 Registering a node **delegates arbitrary command execution under that machine's
@@ -405,6 +591,17 @@ consequences are:
   everything else here.
 - **A node key can do nothing on REST.** Explicit, permanent guard rejection. Its
   entire blast radius is impersonating that node on `/ws/node`.
+- **A disabled owner's node cannot dial in** (2026-09-24). The upgrade chain
+  ends with the owner's account state — a node whose owner is disabled is
+  refused pre-socket (HTTP 403) and, at the moment of the disable itself, its
+  live socket is closed with 4403; see "Disabling an account" in §2 for the
+  recovery bound (the agent's 60 s backoff). This is the availability half of
+  "disabled means untrue of the account": the machine is reachable by no
+  command, carries no launched work, and the key it authenticates with is
+  untouched — re-enabling the person restores the node, not re-enrolling the
+  machine. `local` is outside all of it: its kind is refused before the owner
+  check, and its owner is the system service user, which no route can
+  disable.
 - **The plane drives a node's service manager** (2026-09-12). `POST
   /api/nodes/:id/service` sends a signed `service` command carrying one of five
   verbs — start, stop, restart, install, uninstall. `restart` is the verb this
@@ -495,10 +692,12 @@ consequences are:
   UI says. It also does not rename: `config.json`'s name never reaches the
   plane outside the enroll body, so the plane owns a node's name.
 
-### What the node discloses to the plane (protocol 10)
+### What the node discloses to the plane (protocol 10 framing, current through 12)
 
 Connecting a node is itself a disclosure, and the frames it rides on are
-bounded on purpose:
+bounded on purpose. The list below is what protocol 10 established; it is
+also what today's protocol 12 `ready` frame still carries
+(`node-ws-handler.ts:366-402`, `NODE_PROTOCOL_VERSION` = 12):
 
 - **`ready` discloses machine facts**: `agentVersion`, protocol/os/arch,
   `hostname`, the agent's `dataDir` path, its capability set, the
@@ -609,16 +808,32 @@ subshell may only be launched in one of them or beneath it.
 
   **It does not revoke what is outstanding.** Flipping it off means "stop
   handing these out", not "invalidate the ones already minted" — the same
-  semantics as closing registrations, which signs nobody out. An unconsumed key
-  stays usable until it expires (24 h) or an admin deletes it, which is the act
-  that revokes and is separately audited. The switch bounds the FUTURE; the
-  ≤24 h window it leaves is closed by deleting keys.
+  semantics as closing registrations, which signs nobody out. An unconsumed
+  key stays usable until it expires (24 h), until it is DELETED, or until an
+  admin deletes it. The delete is owner-filtered first — `deleteById(id,
+  user.id)`, the 404 a stranger gets is the filter answering — and only a
+  cookie ADMIN whose own-row delete affected nothing may then delete ANY row
+  (`deleteByIdUnscoped`, audit 2026-09 item 4); that foreign revoke reuses the
+  one action name with `{ foreign: true, ownerUserId }` metadata so the trail
+  says whose door it was, and the row names ids, never the key text. The same
+  audit fix gave admins the matching view: `GET /api/nodes/setup-keys?all=1`
+  lists every key in the instance with its creator's label, and a plain
+  non-admin asking for it gets a 403 rather than a silently-narrowed list. So
+  the doors that revoke are expiry, the creator's own delete, and the admin's
+  foreign one — and an admin seeing an outstanding key they cannot close is
+  no longer a thing. The switch bounds the FUTURE; the ≤24 h window it leaves
+  is closable from the Setup keys card by the creator or by an admin.
 
   It governs ADDING a node only. Who may launch on one they were shared, and
   what a share confers, are the unchanged axes above.
 - **Artifacts are never anonymous.** Prebuilt binaries and their `.sha256`
-  digests (`GET /api/downloads/node/*`) require a session cookie **or** a valid
-  unconsumed setup key. `GET /install.sh` renders a usage script for an
+  digests (`GET /api/downloads/node/*`) require one of three credentials (the
+  route's `DownloadCredential`): a session cookie, **or** a valid unconsumed
+  setup key, **or** a `?update_token=` — a spent-once token minted inside a
+  node's own signed `update` command, which is itself an authenticated
+  credential and unlocks exactly one thing: the release-coherent serving
+  path for the file and triple it names (§11.12; the token never reaches the
+  `.sha256` routes). `GET /install.sh` renders a usage script for an
   invalid/absent key — it is never a binary oracle — and the script it renders
   digest-verifies the download before the first `chmod +x`. The render also
   accepts `server=<origin>`, the address the node will dial forever (the
@@ -655,7 +870,11 @@ the digest bought, and what was traded against it:
   expired row's key is inert on sight, and the card says which state each row is in.
   The list is owner-scoped and cookie-only: a bearer credential cannot enumerate
   enrollment doors (`GET /api/nodes/setup-keys` answers 403 to a machine token), and
-  one caller sees its own rows and nobody else's.
+  one caller sees its own rows and nobody else's. The one widening is the admin
+  view (audit 2026-09 item 4): `?all=1` is cookie-ADMIN only and lists every
+  row with its creator's label — the same plaintext, gated like every other
+  instance-wide admin read, and it exists so an outstanding foreign key is
+  something an admin can SEE and close rather than only wait out.
 - **The `label` went with it.** The mint dialog's "Node name" became only this column,
   because the one-liner ran `subshell setup` with no `--name` and the node was named
   by its own hostname whatever had been typed. Naming moved to the machine that knows
@@ -696,19 +915,31 @@ posture:
   the download route's 404 branch. A plane whose nodes are all one platform
   never spends a byte on the others, and a plane nobody enrolls against never
   reaches the network at all. The request that triggers a fetch is already
-  authenticated (cookie or unconsumed setup key), so this is not a way for an
-  anonymous caller to make the plane fetch anything.
+  authenticated (cookie, unconsumed setup key, or `?update_token=`, per the
+  credential list above), so this is not a way for an anonymous caller to
+  make the plane fetch anything.
 - **The bytes are streamed through and hashed on the way past**, against the
-  digest from the release's own `.sha256` asset, which is fetched first. A
-  mismatch ERRORS the response mid-flight, so the node sees a truncated
-  download; nothing unverified is ever cached. What makes streaming sound
-  rather than merely fast is the check that was already there: `install.sh`
-  verifies the digest itself before the first `chmod +x`, so the node never
-  trusts the plane's word for what it received.
-- **The digest only proves the bytes match what that release published** —
-  over the default GitHub HTTPS endpoint that is GitHub's assurance, and over
-  an operator-set `SUBSHELL_RELEASE_URL` it is their own network. The
-  same sentence the plugin registry carries, for the same reason.
+  digest taken from the signed manifest's `assets` map — the binary's
+  `.sha256` sidecar is never fetched; since 2026-09-17 it is WRITTEN from
+  that digest (`releases.ts:648-660,717-720`), and the manifest itself is
+  verified before a single byte of the binary is requested. A mismatch ERRORS
+  the response mid-flight, so the node sees a truncated download; nothing
+  unverified is ever cached. The stream is bounded mid-flight by
+  `MAX_ARTIFACT_BYTES` (300 MB) — an endless body cannot fill the disk
+  (`releases.ts:81,690-694,810-813`). What makes streaming sound rather than
+  merely fast is the check that was already there: `install.sh` verifies the
+  digest itself before the first `chmod +x`, so the node never trusts the
+  plane's word for what it received.
+- **Authenticity is the publisher's key, not the channel's** (2026-09-17).
+  The fetch verifies `release-manifest.json.sig` against the compiled-in
+  `RELEASE_PUBKEY` and takes the digest from the signed payload; a
+  compromised release source — or an operator-set `SUBSHELL_RELEASE_URL` —
+  can withhold or replay any release the publisher ever signed, and nothing
+  else. TLS is delivery only. (§11.12 carries the full rule for every update
+  path. The plugin registry above keeps the older, weaker sentence — its
+  hash proves only that bytes match what the same registry published —
+  because a registry install carries no publisher key, and that is stated
+  where it applies.)
 - **`SUBSHELL_RELEASE_URL` was `SUBSHELL_NODE_RELEASE_URL` until 2026-09-15**,
   and the rename is not cosmetic: the same list now answers for the server's
   own `update` and both desktop apps' too (§11.12), so the setting stopped
@@ -828,8 +1059,12 @@ plane session or a terminal for. It has **no login**, and that is the design,
 not an oversight: the access control is the listen address plus the OS user.
 Whoever can reach this port is whoever can run `subshell` as this user, and
 every act the dashboard performs (service stop, maintenance, repoint, binary
-update) is an act that same user can type at the keyboard. The dashboard
-grants nothing new; it *removes the terminal* from the path.
+update, the debug-logging toggle at `dashboard/routes.ts:349`, and the
+self-update rollback `POST /api/self/update/rollback` at `routes.ts:474`) is
+an act that same user can type at the keyboard — the newest two under the
+same guards, and under the same "the audit-free agent log is the record"
+accounting as the rest. The dashboard grants nothing new; it *removes the
+terminal* from the path.
 
 The browser, however, is new, and three refusals cover it (`dashboard/guards.ts`):
 
@@ -935,13 +1170,28 @@ Two sentences about the channel rather than the code:
   gone: a node fetches nothing.)
 - **A plugin id is claimed by the manifest inside the tarball, so id collisions
   are refused against what is installed** — a second package claiming a
-  directory another package owns is refused naming both (§2.4). A registry
-  package claiming a BUILT-IN id is logged once and never loaded: the compiled
-  copy always answers for its own id. Across an uninstall there is nothing to
-  collide with, and that is honest: removing the directory is the operator
-  saying the slot is free. An id switch is not a privilege hop, either: both
+  directory another package owns is refused naming both (§2.4). Know the
+  ORDER of that refusal: the claim check reads the installed target's
+  `install.json`/`package.json` and fires BEFORE the load-check, so a
+  squatter is refused without its module ever being imported or its factory
+  called in the control-plane process (`assertIdClaim`, `plugins-dir.ts`) —
+  neither the disk nor the process is touched by code that will not be
+  accepted. The same check runs a second time inside `installStaged`
+  immediately before the swap, the last gate against a concurrent install
+  changing the target in between. A registry package claiming a BUILT-IN id is logged once and never
+  loaded: the compiled copy always answers for its own id. Across an
+  uninstall there is nothing to collide with, and that is honest: removing
+  the directory is the operator saying the slot is free. An id switch is not a privilege hop, either: both
   the old and the new code run in the control-plane process with the same
   visibility.
+
+**One plugin-chosen byte stream reaches a browser on the session's origin**:
+`GET /api/plugins/:pluginId/icon` serves the icon file the plugin's manifest
+names, to any authenticated reader. It is hardened as an untrusted-content
+read — the Content-Type comes from the file extension and is never sniffed,
+the resolved path is re-checked to sit under the plugin's own directory, and
+the response carries `CSP: default-src 'none'; sandbox` plus `nosniff`
+(`plugins.route.ts:247-282,332-339`).
 
 ## 7. Encrypted channels
 
@@ -988,17 +1238,25 @@ server-side ever parses `ct`. Channel slugs match
 `^[a-z0-9][a-z0-9-]{0,63}$`. Long-poll waits are clamped to 600 s so a client
 cannot pin a socket indefinitely.
 
-**Nudges never press Enter.** A nudge types a fixed, Enter-less line into the
-tmux panes of running recipients. It never auto-submits anything into a shell,
-and it never fails the post.
+**Nudges carry no peer content, and one of their two lines presses Enter.** A
+nudge to a pane MID-TURN types a fixed, Enter-less cue — submitting into a
+busy harness would corrupt its turn. A pane WAITING at its prompt is woken
+with the line SUBMITTED, so the agent reads the post without being told to
+poll (`channels.service.ts:217-233`, `nudge.ts:8-16`). The surviving
+invariant, which is what the old blanket sentence was reaching for: every
+line a nudge types is server-fixed text naming the channel and the
+`read_channel` tool — never the message body. The CONTENT stays PULL either
+way (AGENTS.md and `use/channels.mdx` state the two-tier rule). A nudge never
+fails the post.
 
 ## 8. Network boundary
 
 **Binding.** `HOST=0.0.0.0` by default — the LAN bind. A loopback socket is
 unreachable from every other machine, and remote nodes and client devices are
-the point of a control plane, so since 2026-09-07 a fresh install listens on
-all interfaces; `HOST=127.0.0.1` in `config.env` restores loopback-only. This
-sits inside the trusted-network posture of this section, not against it: every
+the point of a control plane, so since 2026-09-08 (0e617633) a fresh install
+listens on all interfaces; `HOST=127.0.0.1` in `config.env` restores
+loopback-only. This sits inside the trusted-network posture of this section,
+not against it: every
 `/api/*` route still requires a session or key. It does mean a first-run
 instance is reachable from the local network before an operator touches
 anything — registration is open by default, and a dev-mode (`NODE_ENV` unset)
@@ -1162,9 +1420,37 @@ credential the agent CLI needs inside its pane — that stays in the node's own
 environment, where the control plane never sees it (inversion spec §9.1) —
 and nothing in it is encrypted today because there is nothing in it today.
 
-**WS attach.** Requires a short-lived (30 s), single-use token minted through an
-authenticated REST call, cookie-session only. Replay-resistant: a second use
-closes with `4001 unauthorized`.
+**WS attach.** Requires a short-lived (30 s), single-use token minted through
+an authenticated REST call (`POST /api/auth/ws-token`). It has not been
+"cookie-session only" since #159: a cookie mints an UNBOUND token; a system
+key may mint one bound to any named subshell; a subshell's own key only its
+own, and the `sess:` equality is checked BEFORE the row lookup, so a bad id
+cannot enumerate which subshells exist (`ws-token.route.ts:59-86`). The store
+of outstanding tokens is CAPPED (`MAX_PENDING_WS_TOKENS`, 10 000): a mint past
+the cap sweeps expired entries first and then answers a named 503 rather than
+growing memory on script-rate machine mints (audit 2026-09 item 8; the mints
+that made this worth bounding are the bearer ones #159 opened). The token
+carries the subshell's OWNER, not the machine actor, and the containment is
+the bind rather than the identity — redemption CONSUMES the token and only
+then checks the bind, so a wrong-subshell attempt burns it and gets the same
+`4001 unauthorized` a bad token gets, and `/ws/live` refuses scoped tokens
+outright (§2). Replay-resistant: a second use closes the same way. The
+consumption is followed by one re-ask of the ACCOUNT (the same post-check
+doctrine that evicts a node socket whose owner's disable landed mid-
+handshake — §2, "Disabling an account"): the store drop cannot reach a
+token that lands after it, so the redeem that races it refuses with the
+uniform `4001` and still burns the token. The rule covers BOTH redemption
+sites — the terminal attach's resolve and `/ws/live`'s open — since review
+iteration 5 found the feed was the one path trusting the store alone; a
+throwing re-ask fails CLOSED there, the asymmetry against the node socket
+being that a node re-asks at its next dial while a feed socket is never
+re-checked again. **The
+fallback, stated because this file long described a stricter door than
+exists:** with no token parameter, the upgrade resolves the SESSION COOKIE
+directly, exactly as a REST request does (`attach-resolve.ts:85-91`) —
+which is what same-host WebSockets run on; `SameSite=Lax` suppresses the
+cross-site upgrade, so it widens nothing, but the rule is the cookie gate,
+not the token.
 
 **Rate limiting.** Login only, per email: no delay on a clean record, then
 `2^n` seconds capped at 30 s. Emails are attributed lowercased and trimmed.
@@ -1195,19 +1481,24 @@ gets, and the difference follows from whether its origin can be known ahead of
 time.
 
 **Subshell Server — two trusted origins, seven commands.** Its `main` window
-opens on `http://127.0.0.1:<port>`: the SPA served by the very server this app
-manages. Until 2026-09-18 that was the whole story — the window could go
-nowhere else, and the capability's loopback scope was the boundary. It is not
-any more (spec 2026-09-18 § 15, §11.11a below): the window may NAVIGATE
-anywhere http(s), because a control plane behind an OAuth proxy cannot be
-signed into otherwise, and what bounds the seven commands is a runtime guard
-instead.
+opens on `Probe::window_origin`: the instance's configured `APP_BASE_URL`
+when that is https, and the SPA served by the very server this app manages
+at `http://127.0.0.1:<port>` otherwise. The https case is why the default
+moved (2026-09-19): an https plane marks the session cookie `Secure` and a
+loopback http page cannot hold it, so loopback-on-https meant a dashboard
+that could not sign in to its own server — §11.11a's 2026-09-19 extension
+carries the argument and is not re-litigated here. Until 2026-09-18 loopback
+was the whole story — the window could go nowhere else, and the capability's
+loopback scope was the boundary. It is not any more (spec 2026-09-18 § 15,
+§11.11a below): the window may NAVIGATE anywhere http(s), because a control
+plane behind an OAuth proxy cannot be signed into otherwise, and what bounds
+the seven commands is a runtime guard instead.
 
 | Gate | What it does |
 | --- | --- |
 | `capabilities/main.json` | grants only `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, `desktop_set_supervision` and window dragging, to one window (`local: false`, `windows: ["main"]`). Its `remote.urls` is a WILDCARD and no longer bounds anything |
 | `src/trust.rs` | refuses every command invoked from that window unless the page is on one of TWO origins: this machine's loopback (either spelling, http, any port) or the instance's configured `APP_BASE_URL`. Recomputed for every page the window COMMITS to, so a redirect chain cannot leave it true |
-| `Probe::origin` | builds the URL the window OPENS on from a VALIDATED port and a loopback host, never from `APP_BASE_URL`'s own scheme or port |
+| `Probe::origin` | builds the loopback URL the app PROBES to decide whether the server is READY — a validated port and a loopback host, never `APP_BASE_URL`'s own scheme or port. Since 2026-09-19 it is NOT what the window opens on (`Probe::window_origin` is, above); "Open in browser" joins its path onto the origin the window has COMMITTED to (`control.rs:371,507-516,2667-2676,2929-2942`) |
 | `open_main` | points the window at those same two origins and refuses every other — so reaching a third one is always a page's doing, never the app's |
 | `on_navigation` | refuses any scheme the OS would act on (`file:`, a custom handler) and nothing else. It arms nothing: it runs at REQUEST time and fires for subframes, so a navigation that never commits — and an embedded iframe — would otherwise move a flag that belongs to the document on screen |
 | `on_page_load` | recomputes the flag, on `PageLoadEvent::Started` — raised from `didCommitNavigation:` (macOS) and `LoadEvent::Committed` (GTK), main-frame only, after the document is really this window's |
@@ -1355,9 +1646,11 @@ true of this command in BOTH apps:
 
 Two consequences a person will notice, neither of which the command tries to
 fix: the browser carries no session cookie from the webview, so they sign in
-again; and the server app opens its LOOPBACK origin, where a passkey works only
-if `APP_BASE_URL` is loopback too (§ `TRUSTED_ORIGINS`: `APP_BASE_URL` is
-better-auth's passkey rpID).
+again; and a passkey works only on the address `APP_BASE_URL` names, because
+that is better-auth's passkey rpID (§ `TRUSTED_ORIGINS`) — which since
+2026-09-19 is exactly where the server app opens an https instance
+(§11.11a), while every http configuration still opens on loopback, where
+the passkey works only if `APP_BASE_URL` is loopback too.
 
 **The assistant, and the reset behind it.** The `wizard` window is the app's
 one bundled page and holds every command that changes this machine, the
@@ -1381,6 +1674,18 @@ does NOT reach enrolled remote nodes or a same-machine `subshell` node agent,
 which keep their credentials and processes — the confirmation screen says so
 verbatim, because a person wiping the signing keypair is making a fleet-wide
 statement.
+
+**The client app's bundled node page holds the other privileged half**, and
+until now this authoritative document was silent about it. The rule is the
+same one this subsection has stated all along, applied to the second app:
+`apps/client/desktop`'s node window is a BUNDLED page, and it carries every
+command that changes this machine — `node_reset`, `node_enroll`,
+`node_unenroll`, `node_service`, `node_install_agent`, and the plane
+add/remove verbs (`apps/client/desktop/src-tauri/capabilities/node.json`).
+Its remote window still holds its single path-argument command and nothing
+more (§ above). The boundary is window KIND in both apps, not app identity —
+which is exactly why the second app's privileged surface belongs in this
+model's prose and not only in its capability file.
 
 Two limits worth stating rather than implying. Each `csp` in `tauri.conf.json`
 applies to that app's bundled page **only** — a remote window's page carries
@@ -1452,10 +1757,22 @@ by xterm, never as HTML.
 hand-rolled validator in `node-results.ts`, never cast. A node's answer is input
 like any other.
 
-**Ids that reach paths are structurally gated.** Subshell ids are interpolated
-into node-side paths, so both sides check `isNodeSubshellId` — hex and hyphen,
-≤ 64 chars. A hostile `../../../../x` never reaches path interpolation on either
-side of the link.
+**Ids that reach paths are structurally gated — on BOTH sides.** Both sides
+check every subshell id before interpolating it against `isNodeSubshellId` —
+hex and hyphen, ≤ 64 chars — so a hostile `../../../../x` never reaches
+interpolation on either machine. The agent has checked from the start
+(`subshell-meta.ts`, aliasing the protocol guard). The backend gates via the
+same guard since 2026-09-23 (audit 2026-09 item 7):
+`assertNodePathId` (`services/nodes/node-path-id.ts`) throws on a
+non-conforming id at every composition site — `RemoteLauncher.logPath`,
+`metaArtifactPath`, `mcpArtifactPath` (and through them `subshellArtifacts`)
+and the launch-side `planRemoteSubshellMcp` — before any path is composed or
+frame is sent. It is stated as an INVARIANT throw, not input handling: every
+real id is a server-minted uuid, and a non-conforming one reaching these
+sites means a row that was never minted through the create path, which is a
+500 and a bug report rather than a user-facing answer. The protocol comment
+that used to promise a mirror which did not exist now describes one that
+does.
 
 **Sibling output is data, never instructions.** Anything an agent reads from
 another subshell — channel posts, `get_subshell` output — is untrusted content.
@@ -1465,31 +1782,93 @@ another subshell — channel posts, `get_subshell` output — is untrusted conte
 These are choices, not oversights, and they follow from §0:
 
 - **No string length limits on log or subshell free-text fields.** They vary
-  legitimately and capping them would break real use.
+  legitimately and capping them would break real use. The claim holds for
+  logs and bodies; LABELS are the qualified half — every label is capped and
+  normalized, and a subshell rename enforces 120 chars
+  (`update-subshell-name.route.ts`). Since 2026-09-23 that sentence covers
+  EVERY name path, not only the auto ones: the rename route, the create path
+  (`subshell-manager.service.ts`, the choke point every caller crosses) and
+  both workspace doors run the human-typed name through the shared
+  `normalizeLabel` (NFC, control bytes, format characters, cap), because a
+  name reaches the restart journal line and other users' renders just like a
+  device label does. The journal fields beside it are clamped to the same
+  spirit — the per-attach line's UA (`attach-resolve.ts`) and build id
+  (`attach-params.ts`) each drop everything a real value never carries, so
+  no client-supplied string can close a quoted field or forge a record.
 - **No pagination on small per-user lists** (distinct services, channels) —
   expected to be small on a local instance.
 
 ## 10. Audit and observability
 
-Audit events are written for: `user.create`, `system-key.create`,
-`system-key.delete`, `subshell.create`, `subshell.terminate`, `subshell.restart`,
-`subshell.delete`, `node.enroll`, `node.delete`, `node.rename`,
-`node.key_rotate`, `node.allowed_dirs.update`, `setup_key.create`,
-`setup_key.revoke`, `settings.update`, `user.role_change`,
-`user.password_reset`, `emergency_login.rewrite_credential`,
-`server.config.update`, `server.restart`, `server.logging.update`, and
-`node.service` (with `{ verb: "restart", forced }` metadata — the restart
-verb shares its action with the rest of the service surface).
+Audit events are written, grouped by family:
+
+- **Authentication**: `auth.sign_in` (metadata `{ method: "password" |
+  "passkey" }`), `auth.sign_out` — seams, dedupe and deliberate exclusions in
+  the paragraph at the end of this section.
+- **Users and keys**: `user.create`, `user.role_change`,
+  `user.password_reset`, `user.disabled_change` (metadata `{ email,
+  disabled, droppedSockets }`, plus — on the DISABLE edge only, the keys
+  simply absent on a re-enable — `tokensRevoked`, `terminalSocketsClosed`
+  and `nodesDisconnected`; counts of what the act cut, never their
+  content), `system-key.create`,
+  `system-key.enable`, `system-key.disable`, `system-key.delete`,
+  `emergency_login.rewrite_credential`, `setup_key.create`,
+  `setup_key.revoke`, `settings.update`.
+- **Subshells**: `subshell.create`, `subshell.terminate`, `subshell.restart`,
+  `subshell.delete`.
+- **Nodes**: `node.enroll`, `node.delete`, `node.rename`, `node.key_rotate`,
+  `node.allowed_dirs.update`, `node.config.update`,
+  `node.maintenance.update`, `node.logging.update`, `node.update`,
+  `node.update.unknown`, `node.shares_set`, `node.local_share_changed`, and
+  `node.service` (with `{ verb: "restart", forced }` metadata — the restart
+  verb shares its action with the rest of the service surface).
+- **The server process**: `server.config.update`, `server.restart`,
+  `server.logging.update`, `server.autostart.update`, `server.update`, and
+  `server.supervision.request` — the last one best-effort and written by the
+  caller rather than by the act (§11.11).
+- **Plugins, networks and installers**: `plugin.install`, `plugin.enable`,
+  `plugin.disable`, `plugin.uninstall`, `plugin.unpublish`,
+  `network.configure`, `network.install`, `network.join`, `network.publish`,
+  `network.unpublish`, `network.leave`, `agent.install`, `tmux.install`.
 
 Timer- and probe-driven trusted-origin refreshes are observations and write no
-row; the acts that change plugin state (`network.join|publish|unpublish|leave`,
-`plugin.enable|disable|uninstall`) are the audited events — join and enable are
-trust-EARNING, not just trust-shedding.
+row; the acts that change plugin and network state are the audited events —
+join and enable are trust-EARNING, not just trust-shedding. Boot writes its
+own `network.publish` row with actor `null`
+(`services/network/prepare.ts:409-420`), the same "what happened, not who
+asked" shape as `server.update`'s completing row (§11.12).
 
 Read them with `GET /api/audit?limit=50` (admin).
 
-**Sign-in and sign-out are NOT audited** — the auth flow is a better-auth
-passthrough. Session lifecycle and `user.create` are. This is a known gap.
+**Sign-in and sign-out are audited** (the gap this section used to call
+"known"; shipped 2026-09-23, audit item R1): `auth.sign_in` and `auth.sign_out`,
+from the better-auth integration in `src/auth.ts`. A successful sign-in writes
+one row per act, keyed by the endpoint's RESULT — never the request body — with
+metadata carrying only `{ method: "password" | "passkey" }`; the paths that
+count are `/sign-in/email` and the passkey plugin's
+`/passkey/verify-authentication`. A FAILED sign-in writes nothing:
+credential-stuffing would otherwise spam the trail this exists to reconstruct
+incidents from, and failures already live in the login-backoff domain
+(`authAttempts` + the rate-limit route's log lines). An emergency (break-glass)
+login writes ONE row — `emergency_login.rewrite_credential` wins the act and
+the sign-in hook suppresses its `auth.sign_in` for that same request. The mark
+that does the suppressing binds to the ACT, not to the user's next sign-in
+(2026-09-24 review): the wrapper mints a one-time nonce, sets it on the
+forwarded request's `x-subshell-breakglass` header, and the hook consumes the
+mark only when the user AND that header match — a genuine sign-in that merely
+interleaves with an armed mark is audited like any other act, and a failed
+forward's mark is disarmed rather than left to expire.
+`auth.sign_out` rides the session-delete database hook and fires once per
+session row ACTUALLY deleted (sign-out, `/revoke-session(s)`, self-service
+password-change revocations); an anonymous sign-out deletes nothing and writes
+nothing, and the admin-side revocations stay under their own
+`user.password_reset` / `user.disabled_change` rows because they delete through
+raw SQL — no act is recorded twice, and no name is ever paired with a token:
+these rows carry ids and the method, nothing else. The per-attach journal line
+(`ws/attach-resolve.ts`'s info-log with geometry, build id and a UA slice —
+the two client-supplied fields clamped to safe alphabets and the UA sliced
+AFTER the clamp, §9) remains log-only by decision 2026-09-23: it diagnoses
+stale clients, and audit is for acts while the log is for diagnostics.
 
 **Attach diagnostics can contain secrets.** `SUBSHELL_ATTACH_DEBUG=1` dumps real
 pane contents to `/tmp/subshell-attach-debug/`. It is off by default and should
@@ -1538,8 +1917,10 @@ deletes it with the data directory.
   reach. What it adds is a NEW READER of that text, in a new place, and it is
   named as one rather than left to be discovered. The polled routes
   (`/api/admin/status`, the `/api/admin/server` group, `/api/setup/status`,
-  `/api/settings/public`, `/ws` and `/ws/node`) are excluded, or a debug
-  session would fill the 200 KB cap with the Service page asking after itself.
+  `/api/settings/public`, `/api/nodes/:id/logs` — a regex, because the id is
+  in the path — `/api/auth/ws-token`, `/ws` and `/ws/node`) are excluded, or
+  a debug session would fill the 200 KB cap with the Service page asking
+  after itself (`context.plugin.ts:32-46`).
 
 **The switch is an instance setting, applied live.** `PUT
 /api/admin/server/logging` flips the FILE transport's level with no restart;
@@ -1557,7 +1938,11 @@ running on a node the viewer does not own, or one that is shared, carries a
 permanent amber icon in its header (with the reason on hover) plus a one-time
 banner. The banner can be dismissed and switched off per device; the icon
 cannot be turned off, because it is the part that answers "is it safe to type
-this here?".
+this here?". The control-plane host's own `local` node deliberately raises NO
+node disclosure (`subshell-card.tsx`): every non-admin already holds `edit`
+there through the seeded Everyone grant, so the notice would fire for every
+pane on the instance and be learned as noise — silence on `local` is the
+decision, not an oversight to fix.
 
 ## 11. Accepted risks
 
@@ -1615,7 +2000,11 @@ Recorded so they are decisions rather than surprises:
      re-resolves it.
 
    A password reset is therefore a credential rotation, not a session-kill
-   switch for every path into the account.
+   switch for every path into the account. Disabling one IS that switch —
+   `dropLiveSocketsFor` and `dropTerminalSocketsFor` close both socket doors
+   and `dropUserTokensFor` destroys the single-use tokens that could
+   otherwise walk an attach back in inside their 30 s (§2, "Disabling an
+   account") — and a reset keeping neither is the asymmetry, kept on purpose.
 6. **System keys are bearer-equals-full-access** and long-lived. Every holder is
    effectively an operator.
 7. **No DoS protection** beyond login backoff.
@@ -1787,7 +2176,11 @@ validation and canonicalization that §8 leans on — no wildcards, no schemeles
 entries, `URL.origin` on the way in — is the same code on both paths. That
 shared call, not a test, is what keeps §8's static-allowlist claim true of this
 writer rather than true only of the CLI: there is no second implementation to
-drift. What the route's own test pins is narrower and worth knowing exactly —
+drift — and because it is one write point, the concurrent-write fix lives there
+too: immediately before the atomic rename, `applyConfig` re-reads the file and
+re-merges against the fresh content, so a PATCH and a CLI run (or two PATCHes)
+that interleave each survive on the keys they named; only a key both writers
+touched still takes the last rename. What the route's own test pins is narrower and worth knowing exactly —
 that the write lands, that every key this tool does not own is carried forward
 verbatim (the once-generated `BETTER_AUTH_SECRET` above all), and that the
 audit metadata does not contain the secret. It does not diff the result against
@@ -1988,7 +2381,13 @@ who runs the server. So:
   cleared when the window is destroyed. A navigation that is merely asked for
   moves nothing — which is what stops an untrusted page arming all seven
   commands by aiming at a loopback port that refuses the connection, and stops
-  an embedded iframe arming them without the top frame moving at all.
+  an embedded iframe arming them without the top frame moving at all. One
+  second writer exists, and it only ever JUDGES the committed URL: when an
+  operator SETS `APP_BASE_URL` to the origin the window has already committed
+  to, the URL watch revalidates the flag with no new page load
+  (`trust.rs:217-224`, `windows.rs:350`) — the flag still names a committed
+  document; only the trusted list moved underneath it. `trust.rs:404-463`
+  pins that this is all the watch does.
 - **`open_main` accepts exactly those two origins** and refuses the rest, using
   the same predicate. The app therefore never POINTS the window anywhere
   untrusted; reaching a third origin is always a page's doing, and the guard
@@ -2066,7 +2465,27 @@ never from the release source's `.sha256` sidecar. So a compromised release
 source — or a `SUBSHELL_RELEASE_URL` pointed at an attacker — can withhold
 updates or replay any release the publisher ever signed, but it can no longer
 put code on a machine merely by being the host that served it. Authenticity is
-the publisher's key now; TLS is only delivery. The check runs at every update
+the publisher's key now; TLS is only delivery. **And since the 2026-09-24
+round-3 sweep (C12) it can no longer point this process's egress wherever it
+likes either:** every fetch of a source-named URL — the binary, the manifest,
+the signature, including the `downloadVerified` path the server's own update
+writes through — must target a GitHub release host (`api.github.com`,
+`github.com`, `objects.githubusercontent.com`, which is exactly what the
+shipped default needs) or the configured source's own origin; anything else is
+refused before the connection, logged with the host named. For the default
+configuration the allowlist is trivially "GitHub plus what the operator
+configured", and that is the point: the pin guards the MIRROR configuration,
+where the list the plane trusts can name link-local internals as
+download URLs. The digest still decides what runs; the pin decides where the
+plane knocks. The check re-runs on EVERY redirect hop (2026-09-24 review):
+the module fetches with `redirect: "manual"` and walks the chain itself,
+re-pinning each `Location` before fetching it, bounded at five hops — an
+allowlisted mirror answering `302 → 169.254.169.254` is refused before that
+hop is ever connected to, because byte-trust was never egress-trust. (The
+releases-LIST fetch is the one hop-unchecked read, and the exemption is
+structural: its URL is the string the operator configured, not a field a
+source publishes.)
+The check runs at every update
 path: the server's own `update`, the downloads route's lazy agent fetch, the
 Updates page's release selection (a release with no manifest, no signature, or
 a signature that does not verify is refused BY NAME, never offered), and each
@@ -2113,7 +2532,27 @@ version being installed) before it replaces anything; a binary that cannot
 answer does not get installed. Seven refusals precede all of it, and the one
 that matters structurally is `RESTART_UNAVAILABLE`: a swap with no manager to
 respawn the process would leave an old server running beside a new file, so
-there is no way to update a server into nothing.
+there is no way to update a server into nothing. The route also holds exactly
+ONE job slot, and since the 2026-09-24 round-3 sweep (C4) the slot is taken by
+a single synchronous claim — check-and-set with no await inside it, re-reading
+the on-disk marker as it goes — because the early `UPDATE_IN_PROGRESS` refusal
+sits behind awaits (the release lookup, the audit) that let two concurrent
+POSTs both reach the job and share one `<name>.download-<pid>` temp file. A
+second press is refused the moment the first one's claim lands, whatever the
+early check said. And the swap itself (all three swappers — the dashboard job,
+the CLI verb, and the node's own update; round-3 sweep C5) no longer moves the
+live path: `<binary>.previous` is made a second name for the RUNNING binary
+first (a hardlink, or — where links are refused — a copy that goes temp +
+fsync + ONE rename, so a crash mid-copy leaves a stray tmp and never a
+TRUNCATED `.previous`, which is a boot target, not a backup), and ONE
+`rename` lands the new bytes on the path — over the running image, measured
+safe by spec §12.2. The old rename-aside-then-rename-in had an interval in
+which the file the service definition names held NOTHING, and the boot-revert
+lives inside that file, so a kill or power loss there meant a hand at a
+keyboard on deliberately headless machines. Every crash state now has a
+bootable binary at the unit's path: crash before the rename and the OLD
+version boots, its marker-vs-version mismatch recorded as a failed update and
+the transaction re-runnable; crash at no other moment differs from before.
 
 **An `edit` grantee can now replace a node's binary.** `POST /api/nodes/:id/update`
 carries the gate `service restart` carries (`nodeCanConfigure`, cookie only,
@@ -2127,7 +2566,20 @@ INSIDE the signed command (protocol 12, spec 2026-09-17 §6) — and the node
 re-verifies that signature against its own compiled-in pubkey before it
 replaces anything, so a node's trust is the publisher's, not merely the
 plane's: even a control plane persuaded (or compromised) after composing the
-command cannot get the node to install bytes the publisher did not sign.
+command cannot get the node to install bytes the publisher did not sign. Since
+the 2026-09-24 round-3 sweep (C13) the node's own executor refuses the command
+outright if it does not name a version NEWER than the running agent — the
+plane's up-to-date and downgrade gates live on the plane's side of the wire,
+and a guard that exists on only one side is a guard that depends on the other
+being correct — and an EQUAL version is refused even with `force`, because
+re-swapping ~70 MB for a byte-identical binary is not what force has ever
+meant. `force` does answer the downgrade refusal, deliberately: the node's own
+loopback dashboard (§6) offers an explicit "allow a downgrade" install through
+the same executor, which is the keyboard act, while a well-behaved plane never
+pairs `force` with a non-newer version. This refusal is not a `NODE_RESULT_*`
+wire constant (those names are protocol and each means one fixed sentence the
+plane maps); it arrives as the generic node-update failure with the agent's
+own sentence, which is exactly right for the only caller that can produce it.
 Agents older than protocol 12 PARSE the command but IGNORE those two fields,
 so this plane refuses to send one an update at all — the refusal says so and
 names the by-hand verb.
@@ -2136,9 +2588,14 @@ names the by-hand verb.
 do nothing on REST (§5.5) and that stays true: the agent presents a `nut_…`
 token, never its key. The token is minted per `update` command, held **in
 memory only** (hashed, never in the database), lives ten minutes, works
-**once**, and is bound to one node and one platform triple — a token minted for
-`linux-x64` cannot fetch the darwin binary. It buys exactly one download of one
-file the release source publishes publicly anyway, and it is refused on the
+**once**, and at consumption is checked against the platform TRIPLE — plus
+the digest it names, its single use, and its ten-minute clock. A token minted
+for `linux-x64` cannot fetch the darwin binary. The "one node" half of the
+binding is by DELIVERY rather than by check: the URL travels only inside that
+node's own signed `update` command (`update-tokens.ts:113-135`), so no other
+agent ever holds a token that would work for it. It buys exactly one download
+of one file the release source publishes publicly anyway, and it is refused
+on the
 `.sha256` routes outright: the agent already holds the digest from the command,
 so spending a single-use token on 65 bytes would leave nothing for the binary.
 A server restart forgets every outstanding token, which is the correct
@@ -2192,7 +2649,24 @@ not know, measured), the binary second, the marker last, so a crash anywhere in
 there leaves a marker the next boot still acts on. A `pending.json` naming a
 version that is not the one booting is RECORDED as a failure rather than
 ignored, which is also what stops a stuck marker refusing every later update
-forever.
+forever. Whatever renames `.previous` back onto the path the service definition
+names PROBEs it first — `<previous> version` must exit 0 (round-3 review,
+finding 2): the operator's `update --rollback` refuses outright when the copy
+cannot run, and the automatic reverts (the server's boot revert, the node's
+4406 revert) record the failure and LEAVE the bootable-but-refused new binary
+in place rather than burying an unbootable copy at the ExecStart path, where
+the manager cannot exec it and no log line explains the silence. Restoring one
+follows the same discipline in the file itself (round-3
+sweep C8): the replaced database's WAL is CHECKPOINTED into its main file
+before the `-wal`/`-shm` sidecars are dropped and the snapshot renamed in —
+stale sidecars beside a restored main file are NOT inert (measured on bun
+1.4.2: a self-consistent WAL replays its frames onto the snapshot, a 10-row
+read answering 12), and the old order of unlinking them first left a worse
+crash window, in which the not-yet-replaced database lost its uncheckpointed
+committed tail while the next open succeeded silently. Now every crash state
+is a whole database: either the checkpointed live file (a revert that
+re-runs), or the snapshot with nothing beside it. A staging file left by a
+restore that died mid-flight is swept on the next entry.
 
 **One update act now spans a relaunch, and a consent travels with it** (spec
 2026-09-18). Each desktop bundle ships the CLI it wraps, so updating the app
@@ -2280,9 +2754,17 @@ this project did not write.
   it is worth saying rather than filing under "plugins are trusted". A
   third-party network plugin's commands are exactly as trusted as its install
   was. The bounds are the existing ones, not second copies: the
-  `INSTALLER_ENV_KEYS` allowlist (so `BETTER_AUTH_SECRET` and the database path
-  are not in the child's environment), stdin closed, the 64 KiB output cap, a
-  30 s default deadline capped at ten minutes, and a refusal of any `argv[0]`
+  `CHILD_ENV_KEYS` allowlist (so `BETTER_AUTH_SECRET` and the database path
+  are not in the child's environment — with two wrinkles worth knowing:
+  every `LC_*` variable passes through, and a caller's or plugin's `extra`
+  may add variables but never PATH, `run-bounded.ts:104-116`), stdin closed
+  UNLESS the plugin supplies it (`PluginHost.run` forwards `opts.stdin`,
+  `plugin-host.ts:229` — the sudo argument survives because a password
+  prompt would go to the child's own tty, not to a pipe the server holds),
+  the 64 KiB output cap PER STREAM (stdout and stderr each, so joined
+  installer output can reach ~128 KiB, `run-bounded.ts:40,310-312`,
+  `agent-install.service.ts:163-169`), a 30 s default deadline capped at ten
+  minutes, and a refusal of any `argv[0]`
   that is not absolute or whose basename is `sudo`, `doas` or `pkexec`.
 - **Plugins now make outbound requests from the control plane.** §11.9 already
   granted the network; the Cloudflare Access pre-flight is the first built-in
@@ -2356,8 +2838,16 @@ this project did not write.
   Nothing is written to config.env: until 2026-09-16 a publish unioned its
   addresses into `TRUSTED_ORIGINS` and an unpublish subtracted them by value,
   both through §11.11's writer; both writers are gone. Disable, uninstall and
-  leave forget the plugin's contribution. The join-is-the-publish rule for a
-  `publishImplicit` network stands — the join records the publish, which
+  leave forget the plugin's contribution — and an in-flight probe cannot
+  resurrect what was just forgotten: a `status()` completing as the act lands
+  is checked TWICE, with no await between the checks and the registry write
+  (the enabled flag, the overlay's resolvability, the built-in tombstone), and
+  the persisted records are cleared too, so neither the completing probe nor a
+  crash-reboot brings the addresses back
+  (`services/network/origins.ts:128-131,183-199`,
+  `plugins.route.ts:476-481,593-609`, `state.ts:209-211`).
+  The join-is-the-publish rule for a `publishImplicit` network stands — the
+  join records the publish, which
   trusts its addresses at once, and audits its own `network.publish` row
   (`by: join`); it was always the same act one press earlier, not a new
   surface. None of this touches the passkey rpID: that is `APP_BASE_URL`,
@@ -2367,7 +2857,19 @@ this project did not write.
   field NAMES, never values. **`network.install` is the §11.10-class act in
   that list**: it runs a plugin manifest's install command as the server's own
   OS user, with the plugin id as the only caller input, and is reachable for
-  exactly the plugins whose installer needs no root.
+  exactly the plugins whose installer needs no root. That guarantee is NOT
+  this route passing the bullet's first-word check — the route never traverses
+  `PluginHost.run`; it hands the line to `sh -c`
+  (`install-network.route.ts`). The gate is therefore the manifest parser: an
+  `install.command` is refused at load when `sudo`, `doas` or `pkexec` runs AS
+  A COMMAND at any shell boundary — line start, or after `&&`, `||`, `;`, `|`,
+  `&` or a newline, leading env-assignments stripped, the first word compared
+  by basename — not merely a command that BEGINS with one
+  (`needsPrivileges`, `manifest.ts`; a line-start-only regex was the first gate
+  and `apt-get update && sudo …` walked past it). It is a conservative
+  line-split, not a shell parser: `sudo` inside a quoted argument is accepted,
+  the same limit as the first-word check above, accepted for the same reason —
+  a plugin whose code loads can already run anything here (§11.9).
 
 **What gets better.**
 
@@ -2432,15 +2934,20 @@ it was UNDIFFED duplication.
 that makes it safe** and the fan-out should go back to resolving per
 subscriber. It is not a unit test among others; it is the control.
 
-**A role change drops that user's sockets.** A socket chooses its topics ONCE,
-at connect, and nothing else closes it — a WebSocket authenticates at connect
-and is never re-checked, exactly as `/ws` does (§11.5's "Live WebSockets").
-So an admin demoted with a dashboard tab open would have gone on receiving
-every subshell on the instance for as long as that tab lived. `PATCH
-/api/users/:id/role` therefore closes that user's live sockets, counted in the
-audit row; the client reconnects on its own and re-derives what it may
-subscribe to. A password reset still does NOT do this — it is a credential
-rotation, not a session-kill switch, and that asymmetry is deliberate.
+**A role change or an account disable drops that user's sockets.** A socket
+chooses its topics ONCE, at connect, and nothing else closes it — a WebSocket
+authenticates at connect and is never re-checked, exactly as `/ws` does
+(§11.5's "Live WebSockets"). So an admin demoted with a dashboard tab open
+would have gone on receiving every subshell on the instance for as long as
+that tab lived. `PATCH /api/users/:id/role` therefore closes that user's
+live sockets, counted in the audit row; the client reconnects on its own and
+re-derives what it may subscribe to. `PATCH /:id/disabled` does the same on
+the disable edge (the drop that used to be the gap this section recorded),
+and disabling is the stronger act: the account it drops can no longer even
+mint a reconnect token, because the mint runs through `authGuard`
+(§2, "Disabling an account"). A password reset still does NOT do this — it
+is a credential rotation, not a session-kill switch, and that asymmetry is
+deliberate.
 
 **The hook's credential values are REFUSED rather than escaped when they
 carry `'`, `"`, `\` or `#`.** A `set-hook` value is re-parsed by tmux's own
@@ -2528,8 +3035,10 @@ holds and the following are prerequisites, not improvements:
 - [ ] **Reconsider node enrollment entirely.** Delegating command execution
       across a hostile network is a different problem from delegating it across a
       VPN, and command signing alone does not close it.
-- [ ] **Add sign-in/sign-out audit events** before anyone needs to reconstruct an
-      incident.
+- [x] **Sign-in/sign-out audit events** — satisfied 2026-09-23 (§10):
+      `auth.sign_in` / `auth.sign_out` let an incident be reconstructed from
+      the trail. Deliberately still absent: failed attempts (backoff domain,
+      not audit) and any value beside ids and the sign-in method.
 - [ ] **Separate admin duties**, or accept that any admin compromise is total —
       admin password reset (§11.5) makes that compromise one click from any
       other account.

@@ -30,7 +30,8 @@ in the browser on the plane, unmodified. The page calls the endpoints with
 needs a bootstrap id.
 
 That mirror is what makes the whole app small: there are **no components of our
-own** beyond a thin frame. The six cards, the primitives, the query client
+own** beyond a thin frame and the two local cards (Updates, retention) that
+answer endpoints the plane does not have. The six cards, the primitives, the query client
 retry policy, and the confirm dialog's imperative handle all come from
 `@internal/node-admin`; this directory supplies the host those pieces assume — a
 Vite + TanStack Router app, a `styles.css` token copy, a `ConfirmProvider`, and
@@ -62,14 +63,15 @@ src/
 ├── routes/
 │   ├── __root.tsx     # QueryClientProvider → ConfirmProvider → DashboardShell
 │   ├── index.tsx      # Status   (facts + maintenance + runtime + service + log cards)
-│   ├── settings.tsx   # Settings (NodeServerUrlCard + NodeAllowedDirs readOnly)
+│   ├── settings.tsx   # Settings (NodeServerUrlCard + NodeAllowedDirs readOnly + LogRetentionCard)
 │   └── updates.tsx    # Updates  (the one page with a card of our own)
 ├── components/
 │   ├── dashboard-shell.tsx    # top bar (name · reachability dot · nav) + <Outlet>
 │   ├── confirm-dialog.tsx     # the ConfirmProvider confirmAction resolves through
 │   ├── reconnect-overlay.tsx  # the "node is restarting" screen
 │   ├── page-header.tsx        # title line
-│   └── updates-card.tsx       # the ONLY data-fetching UI here that is not a shared card
+│   ├── log-retention-card.tsx # our own, on /api/self/log-retention (no plane twin exists)
+│   └── updates-card.tsx       # our own, on /api/self/update (no plane twin exists)
 ├── lib/
 │   ├── query-client.ts        # the same unbounded-network-retry policy the SPA ships
 │   └── use-reconnect.ts       # reachability probe → overlay + invalidate-on-return
@@ -98,10 +100,13 @@ SPA's).
   carries the "managed by the control plane" sentence. Settings is otherwise the
   same view as the plane's per-node Configuration tab, as the operator asked.
 
-- **`/api/self/update`, not `/api/nodes/:id/update`.** The Updates page is the
-  one card with no shared twin (updating another machine is the plane's job); it
-  speaks the LOCAL endpoint, because here the subject is this machine and there
-  is no plane in the loop. The trust chain is unchanged from the CLI's — signed
+- **`/api/self/…` is the local half of the surface.** A card with no plane
+  twin speaks the LOCAL endpoint, because here the subject is this machine and
+  there is no plane in the loop: `/api/self/update` (updating another machine
+  is the plane's job) and `/api/self/log-retention` (retention is the policy of
+  the disk the files sit on; the plane has no counterpart route, which is why
+  the retention editor is a card of ours on the Settings page rather than a
+  shared one). The trust chain is unchanged from the CLI's — signed
   release manifest, compiled-in publisher key, install digest from the signed
   manifest — only the caller is local. Its one honest blind spot is stated on
   the page: this surface cannot ask the plane which node version the plane

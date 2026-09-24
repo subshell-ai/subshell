@@ -1,0 +1,22 @@
+[
+  {
+    "package": "decode-uri-component",
+    "advisories": ["GHSA-vcc3-ghjq-m6fr"],
+    "reason": "mobile runtime: query-string 7.1.3 pins ^0.2.2 and the fix is 0.5.0, so the upgrade is upstream's to make — tracked 2026-09-23"
+  },
+  {
+    "package": "glob",
+    "advisories": ["GHSA-5j98-mcp5-4vw2"],
+    "reason": "dev-only build tooling: hash-runner 4.0.0 pins glob 11.0.3 exactly; the advisory covers the glob CLI's -c/--cmd flag, which no script in this repo invokes"
+  },
+  {
+    "package": "image-size",
+    "advisories": ["GHSA-w3rx-r6r6-pgpr", "GHSA-5p2g-fcmc-qvqq"],
+    "reason": "mobile build tooling: metro 0.87.0 pins ^1.0.2 and the fix is the 2.0.3 major — upstream's to take, tracked 2026-09-23"
+  },
+  {
+    "package": "uuid",
+    "advisories": ["GHSA-w5hq-g745-h8pq"],
+    "reason": "dev-only tooling: xcode 3.0.1 (Expo's RN project generator) pins ^7.0.3; the vulnerable path is v3/v5/v6 with an explicit buf argument"
+  }
+]

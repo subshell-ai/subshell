@@ -295,9 +295,12 @@ async function bootServer(): Promise<void> {
   // this one walks the directory.
   const sweepPaneLogs = async (): Promise<void> => {
     const running = await subshells.listRunning();
-    sweepExpiredPaneLogs({
+    await sweepExpiredPaneLogs({
       retentionDays: SUBSHELL_LOG_RETENTION_DAYS,
       runningIds: new Set(running.map((row) => row.id)),
+      // The snapshot above goes stale the moment a restart reuses a log path
+      // append-only; re-ask the row per file immediately before its unlink.
+      isStillRunning: async (id) => (await subshells.findById(id))?.status === "running",
     });
   };
   await sweepPaneLogs();

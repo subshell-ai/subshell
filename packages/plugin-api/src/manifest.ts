@@ -52,10 +52,12 @@ export interface InstallSpec {
    * Copy-pasteable install command for the official installer.
    *
    * A command the HOST may run on request, which is why it may not be
-   * privileged: `sudo` is refused by the parser, so an installer that needs
-   * root is described under {@link NetworkManifest.privileged} instead and is
-   * only ever shown to copy. Without that refusal the two would be one field
-   * with two meanings, and the surface offering a button would have to guess.
+   * privileged: `sudo`, `doas` and `pkexec` are refused by the parser at any
+   * command boundary (the line is run through a shell — see
+   * {@link needsPrivileges}), so an installer that needs root is described
+   * under {@link NetworkManifest.privileged} instead and is only ever shown to
+   * copy. Without that refusal the two would be one field with two meanings,
+   * and the surface offering a button would have to guess.
    */
   command: string;
   /**
@@ -236,6 +238,50 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** The privilege wrappers no install command may ever run, by first-word basename. */
+const PRIVILEGED_COMMANDS: readonly string[] = ["sudo", "doas", "pkexec"];
+
+/** Shell boundaries that introduce a NEW command word: `;` `|` `&` (so `&&` and `||` too) and newline. */
+const COMMAND_BOUNDARY_RE = /[;&|\n]+/;
+
+/** A leading `NAME=…` env assignment, which `sh` strips before choosing the command. */
+const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=\S*\s*/;
+
+/**
+ * Whether a shell line runs one of {@link PRIVILEGED_COMMANDS} AS A COMMAND
+ * anywhere in it — not merely at the start.
+ *
+ * `install.command` is the one manifest field a host RUNS, and it runs through
+ * `sh -c` (`api/network/install-network.route.ts`), which means any boundary
+ * in the line can start the privileged command the start of the line hides:
+ * `"apt-get update && sudo apt-get install -y x"` is sudo-without-prompt on a
+ * NOPASSWD host. A line-start regex was the first gate and it was not one.
+ *
+ * The split is CONSERVATIVE, not a shell parser: segments are taken at every
+ * boundary character quote-blind (so a `;` inside a quoted string still
+ * counts, which can only over-refuse), leading env assignments are stripped
+ * (`FOO=bar sudo x` runs sudo), and each segment's first word is compared by
+ * BASENAME (`/usr/bin/sudo` is sudo, `pkexec-demo` is not). A word merely
+ * CONTAINING the token is fine — the comparison is equality on the basename.
+ * The accepted limit is a wrapper hidden inside quotes (`sh -c 'sudo …'`),
+ * which is the same limit `PluginHost.run`'s first-word check has, and it is
+ * accepted for the same reason: a plugin whose code LOADS can already run
+ * anything in this process (`docs/security.md` §11.9) — this rule refuses
+ * careless manifests deterministically, it is not a sandbox.
+ */
+function needsPrivileges(command: string): boolean {
+  for (const segment of command.split(COMMAND_BOUNDARY_RE)) {
+    let rest = segment.trim();
+    while (ENV_ASSIGNMENT_RE.test(rest)) rest = rest.replace(ENV_ASSIGNMENT_RE, "");
+    if (rest === "") continue;
+    const ws = rest.search(/\s/);
+    const firstWord = ws === -1 ? rest : rest.slice(0, ws);
+    const base = firstWord.slice(firstWord.lastIndexOf("/") + 1);
+    if (PRIVILEGED_COMMANDS.includes(base)) return true;
+  }
+  return false;
+}
+
 /**
  * Whether a string may be rendered as a link in an operator's browser.
  *
@@ -373,11 +419,13 @@ export function parseManifest(pkgJson: unknown): SubshellManifest | ManifestErro
     // The one field a host will RUN on request, so it may not need root: the
     // server has no terminal to answer a password prompt, and a surface
     // offering a button must be able to tell from the manifest alone that
-    // pressing it can work. Privileged steps have their own field.
-    if (/^\s*sudo(\s|$)/.test(i.command)) {
+    // pressing it can work. Privileged steps have their own field. The check
+    // is per command boundary because the RUNNER is a shell — see
+    // {@link needsPrivileges}.
+    if (needsPrivileges(i.command)) {
       return {
         error:
-          "`subshell.install.command` must not need sudo — the host runs it and has no terminal for a password prompt; put privileged steps in `subshell.network.privileged`",
+          "`subshell.install.command` must not need sudo, doas or pkexec — the host runs it through a shell and has no terminal for a password prompt; put privileged steps in `subshell.network.privileged`",
       };
     }
     // Rendered as a link beside that button, so it is held to the same rule

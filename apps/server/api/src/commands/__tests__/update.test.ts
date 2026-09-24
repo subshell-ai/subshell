@@ -257,4 +257,23 @@ describe("update --rollback", () => {
     // the binary back leaves a server that cannot boot at all (§12.3).
     expect(restored).toEqual([join(work, "snapshot.db")]);
   });
+
+  it("refuses to install back a .previous that cannot run, touching nothing", async () => {
+    // Round-3 review, finding 2: `rename(2)` is unconditional, so a truncated
+    // copy (an interrupted copy-fallback, or a hand's file) would land at the
+    // path the unit EXECs. The probe runs before the stop, the restore, and
+    // the rename — so a refusal costs NOTHING but the sentence naming the file.
+    await run({ from: incoming, yes: true, noRestart: true });
+    expect(
+      await run(
+        { rollback: true, yes: true },
+        { probeVersion: (file) => (file === binary ? SERVER_VERSION : null) }, // `.previous` says nothing
+      ),
+    ).toBe(1);
+    expect(errors.join("\n")).toMatch(/did not answer `version`/);
+    expect(readFileSync(binary, "utf8")).toBe("the new binary"); // running build left in place
+    expect(existsSync(`${binary}.previous`)).toBe(true); // the copy kept as evidence
+    expect(restored).toEqual([]); // the database was never touched
+    expect(readPending()).not.toBeNull(); // the open transaction survives the refusal
+  });
 });
