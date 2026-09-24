@@ -138,11 +138,12 @@ still marks every waiting event; only the push waits.
 **The rail says it too.** The unseen state becomes visible where the owner
 already looks: the subshell view carries `unseenPush: boolean` (non-null
 `last_push_urgency`), and `SubshellDot` swaps the dot for a bell glyph while
-anything is unseen — colour still carries the indicator state, the glyph
-carries "pushed and you have not looked". The raw `data-status`/`data-alive`
-pair rides along, because the e2e liveness assertions read this element in
-either shape. Every write to the column announces `subshell.changed`: the
-rail is live-fed, not polled.
+anything is unseen AND the viewer is the owner — a grantee can never clear
+the state, so for them the dot stays. Colour still carries the indicator
+state, the glyph carries "pushed and you have not looked". The raw
+`data-status`/`data-alive` pair rides along, because the e2e liveness
+assertions read this element in either shape. Every write to the column
+announces `subshell.changed`: the rail is live-fed, not polled.
 
 ### 4. What does NOT change
 
