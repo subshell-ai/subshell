@@ -95,8 +95,8 @@ Append to `apps/server/web/src/lib/subshell-node-groups.ts`:
  * (spec 2026-09-24).
  *
  * It is a filter, not a sort: the caller's order (the rail's status band, the
- * home's `priorityRunning`) is preserved, and the list is uncapped — a pane
- * that pushed is news however many rows sit above it.
+ * home's already-filtered feed-order list) is preserved, and the list is
+ * uncapped — a pane that pushed is news however many rows sit above it.
  *
  * `access === "owner"` is load-bearing, not tidy: every clear site for
  * `last_push_urgency` requires the OWNER's cookie, so a shared pane's unseen
