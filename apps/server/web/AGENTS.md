@@ -94,6 +94,14 @@ row's native-`title` tooltip (native because the row is a Link + drag source +
 context-menu trigger and a third wrapper is where one of those dies) carries
 Name/Node/Agent/Status/Directory — the three asked-for facts framed by the two
 strings the rail truncates, which the PRE-grouping title existed to reveal.
+**Above the groups sits a `Needs Attention` spotlight** (spec 2026-09-24,
+`needsAttention()` in the same lib): the owner's rows whose push has not been
+opened since, filtered by the same rule as the bell. It is a sibling, never a
+group — no chevron, no collapse pref, and an unseen row stays in its machine
+group too (spotlight, not extraction: group counts stay true and no row jumps
+when a pane is opened). It filters with the box and vanishes entirely when
+nothing is unseen; the home page's identically-named `TileSection` is the same
+selector over its own list.
 
 **There is no cadence, and that is the design.** One snapshot at connect, then
 a frame only when something changed: the server publishes domain events to Bun
