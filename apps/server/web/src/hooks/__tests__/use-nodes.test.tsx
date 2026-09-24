@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import {
+  SETUP_KEYS_QUERY_KEY,
+  useAllSetupKeys,
   useCreateSetupKey,
   useDeleteNode,
   useDeleteSetupKey,
@@ -43,6 +45,12 @@ const NODE: Node = {
 interface Call {
   method: string;
   url: string;
+  /**
+   * The raw query string (`""`, or `"?all=1"`). The two setup-keys shapes share a
+   * pathname and differ ONLY here, so a test that must name WHICH read fired
+   * asserts on this and not on `url` alone.
+   */
+  search: string;
   body?: string;
 }
 
@@ -55,8 +63,10 @@ function mockFetch(overrides: Record<string, () => Response> = {}) {
   globalThis.fetch = ((input: unknown, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     const method = init?.method ?? "GET";
-    calls.push({ method, url: url.pathname, body: init?.body as string | undefined });
-    const custom = overrides[`${method} ${url.pathname}`];
+    calls.push({ method, url: url.pathname, search: url.search, body: init?.body as string | undefined });
+    // An override may name the query (`GET /x?all=1`) to tell two same-path reads
+    // apart; one that names only the path serves every query, as before.
+    const custom = overrides[`${method} ${url.pathname}${url.search}`] ?? overrides[`${method} ${url.pathname}`];
     return Promise.resolve(custom ? custom() : json({}));
   }) as typeof fetch;
   return { calls, restore: () => (globalThis.fetch = original) };
@@ -114,6 +124,58 @@ describe("node reads", () => {
       const { result } = renderHook(() => useSetupKeys(), { wrapper });
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(result.current.data?.keys[0]?.key).toBe("nsk_listed");
+    } finally {
+      restore();
+    }
+  });
+
+  // Audit 2026-09 item 4, hook half. The admin read is a WIDENING, so the two
+  // things that must stay true of it are asserted as REQUESTS, not hook state:
+  // enabled names the `?all=1` route, disabled fires nothing at all (a plain
+  // user would only eat a 403, and an admin who has not asked owes no request).
+  it("useAllSetupKeys(true) names the ?all=1 route and returns each row's creator", async () => {
+    const { calls, restore } = mockFetch({
+      "GET /api/nodes/setup-keys?all=1": () =>
+        json({
+          keys: [
+            {
+              id: "f1",
+              key: "nsk_foreign",
+              createdAt: "x",
+              expiresAt: "y",
+              usedAt: null,
+              consumedNodeId: null,
+              ownerUserId: "u_bob",
+              ownerLabel: "bob@subshell.local",
+            },
+          ],
+        }),
+    });
+    try {
+      const { result } = renderHook(() => useAllSetupKeys(true), { wrapper });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(result.current.data?.keys[0]?.ownerLabel).toBe("bob@subshell.local");
+      const hit = calls.find((c) => c.method === "GET" && c.url === "/api/nodes/setup-keys");
+      expect(hit?.search).toBe("?all=1");
+    } finally {
+      restore();
+    }
+  });
+
+  it("useAllSetupKeys(false) fires no request, and the owner read carries no query", async () => {
+    const { calls, restore } = mockFetch({
+      "GET /api/nodes/setup-keys": () => json({ keys: [] }),
+    });
+    try {
+      const off = renderHook(() => useAllSetupKeys(false), { wrapper });
+      await waitFor(() => expect(off.result.current.fetchStatus).toBe("idle"));
+      expect(calls).toHaveLength(0);
+      // The narrow shape is the same path with NO query — the wire distinction
+      // the route decides `all` on is nothing else.
+      const own = renderHook(() => useSetupKeys(), { wrapper });
+      await waitFor(() => expect(own.result.current.isSuccess).toBe(true));
+      const hit = calls.find((c) => c.method === "GET" && c.url === "/api/nodes/setup-keys");
+      expect(hit?.search).toBe("");
     } finally {
       restore();
     }
@@ -182,6 +244,71 @@ describe("node mutations", () => {
       const { result } = renderHook(() => useDeleteSetupKey(), { wrapper });
       await result.current.mutateAsync("k1");
       expect(calls.find((c) => c.method === "DELETE" && c.url === "/api/nodes/setup-keys/k1")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  // The `all` query key sits BELOW SETUP_KEYS_QUERY_KEY on purpose
+  // (["node-setup-keys","all"]), so the revoke's prefix invalidation re-reads BOTH
+  // shapes. This mounts the two lists together — which the card never does, it
+  // swaps them — because only then is "the shape I am NOT looking at also
+  // refreshed" observable: a sibling key would leave the admin's all-list stale
+  // in place, and every component-level toggle-back would hide it behind a fresh
+  // narrow read.
+  it("a setup-key revoke re-reads both list shapes through the shared prefix", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidated: unknown[] = [];
+    const originalInvalidate = client.invalidateQueries.bind(client);
+    client.invalidateQueries = ((opts: unknown) => {
+      invalidated.push(opts);
+      return originalInvalidate(opts as Parameters<typeof originalInvalidate>[0]);
+    }) as typeof client.invalidateQueries;
+    const spyWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const mine = { id: "k1", key: "nsk_mine", createdAt: "x", expiresAt: "y", usedAt: null, consumedNodeId: null };
+    const foreign = { ...mine, id: "f1", key: "nsk_foreign", ownerUserId: "u_bob", ownerLabel: "bob@subshell.local" };
+    const all = [mine, foreign];
+    const { calls, restore } = mockFetch({
+      "GET /api/nodes/setup-keys": () => json({ keys: [mine] }),
+      "GET /api/nodes/setup-keys?all=1": () => json({ keys: all }),
+      "DELETE /api/nodes/setup-keys/f1": () => {
+        // The server would forget the key; the mock forgets it too, so the
+        // re-reads that follow have a different answer to return.
+        all.splice(all.indexOf(foreign), 1);
+        return json({ ok: true });
+      },
+    });
+    try {
+      const own = renderHook(() => useSetupKeys(), { wrapper: spyWrapper });
+      const every = renderHook(() => useAllSetupKeys(true), { wrapper: spyWrapper });
+      await waitFor(() => expect(own.result.current.isSuccess).toBe(true));
+      await waitFor(() => expect(every.result.current.isSuccess).toBe(true));
+
+      const del = renderHook(() => useDeleteSetupKey(), { wrapper: spyWrapper });
+      await del.result.current.mutateAsync("f1");
+
+      // The mechanism: ONE invalidate, on the prefix.
+      const keys = invalidated.map((o) => (o as { queryKey?: readonly unknown[] }).queryKey);
+      expect(keys).toContainEqual(SETUP_KEYS_QUERY_KEY);
+      // The consequence: after the DELETE, BOTH routes are re-read — the narrow
+      // one and the widening. Read the REQUEST log, not the hook state: a
+      // hook-result poll would hang on React's act queue under happy-dom (see
+      // the mint test in the component suite), and the cache is the contract
+      // anyway — the card's job is only to render what the cache holds.
+      const delAt = calls.findIndex((c) => c.method === "DELETE");
+      expect(delAt).toBeGreaterThanOrEqual(0);
+      await waitFor(() => {
+        expect(calls.some((c, i) => i > delAt && c.method === "GET" && c.url === "/api/nodes/setup-keys")).toBe(true);
+        expect(calls.some((c, i) => i > delAt && c.method === "GET" && c.search === "?all=1")).toBe(true);
+      });
+      // And the re-read answers: the revoked row is gone from the admin shape's
+      // cache, so whichever list the viewer is on, it cannot lag the delete.
+      await waitFor(() => {
+        const cache = client.getQueryData<{ keys: { id: string }[] }>([...SETUP_KEYS_QUERY_KEY, "all"]);
+        expect(cache?.keys.map((k) => k.id)).toEqual(["k1"]);
+      });
     } finally {
       restore();
     }

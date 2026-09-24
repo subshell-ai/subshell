@@ -1,5 +1,6 @@
 import { type LiveServerFrame, parseLiveClientFrame } from "@internal/subshell-protocol";
 import { getRequestlessContext } from "@/lib/context.js";
+import { accountDisabled } from "@/services/account-status.js";
 import type { SubshellsService } from "@/services/subshells.service.js";
 import { logger } from "@/utils/logger.js";
 import { registerLiveSocket, unregisterLiveSocket } from "@/ws/live-registry.js";
@@ -77,6 +78,16 @@ export interface LiveWsDeps {
   previewsFor(userId: string, ids: string[]): Promise<Map<string, string[]>>;
   /** Whether this viewer holds the admin role — decides the `admins` topic. */
   isAdmin(userId: string): Promise<boolean>;
+  /**
+   * Whether the viewer's account is DISABLED — the post-redeem re-ask
+   * (`attach-resolve` names the race on its token branch; this is the feed's
+   * twin). A mint passes `authGuard`, the disable commits, and
+   * `dropUserTokensFor` walks the store; a mint whose insert lands AFTER that
+   * walk survives the sweep for its whole 30 s life, and `dropLiveSocketsFor`
+   * already ran before this socket existed. The store cannot see that; the
+   * FLAG cannot be beaten, so redemption re-asks it.
+   */
+  accountDisabled(userId: string): Promise<boolean>;
 }
 
 /**
@@ -139,10 +150,34 @@ export async function handleLiveOpen(ws: LiveWsSocket, deps: LiveWsDeps): Promis
   registerLiveSocket(userId, ws);
 
   // ARMED BEFORE THE FIRST AWAIT, and that ordering is load-bearing: this
-  // handler suspends twice before it sends anything, and a `close` landing in
-  // either window would otherwise find no stopper installed and be forgotten.
-  // `ws/subshell-ws.ts` carries the same hazard as its `detachedEarly` flag.
+  // handler suspends before it sends anything (twice now), and a `close`
+  // landing in either window would otherwise find no stopper installed and be
+  // forgotten. `ws/subshell-ws.ts` carries the same hazard as its
+  // `detachedEarly` flag.
   ws.data.liveStop = stop;
+
+  // The DISABLE re-ask, before the role read and before any row is fetched:
+  // this is the one redemption path where a token outlives the disable sweep
+  // that should have eaten it (`attach-resolve`'s token-branch comment names
+  // the check-then-act; the store was walked while this insert was still in
+  // flight). The refusal is the same 4001 a bad token gets — a disable is
+  // never an enumeration signal. A THROWING re-ask fails CLOSED like the role
+  // read below, which is also the correct shape here: unlike a node socket
+  // (re-dialed and re-asked by the pre-socket gate), a live feed socket is
+  // never re-checked after it opens, so a transient that kept it would keep a
+  // missed socket for the tab's whole life; closing costs a reconnect, and
+  // the reconnect's fresh mint answers the same question through `authGuard`.
+  try {
+    if (await deps.accountDisabled(userId)) {
+      ws.close(4001, "unauthorized");
+      return;
+    }
+  } catch (err) {
+    logger.withError(err).warn("live ws: could not re-ask the account state; closing so the client reconnects");
+    ws.close(1011, "open failed");
+    return;
+  }
+  if (stopped) return;
 
   // GUARDED like the snapshot below, and for the same reason: a rejection here
   // used to reject into the plugin's `.catch`, which only logs — leaving a
@@ -222,6 +257,7 @@ export function liveWsDeps(): LiveWsDeps {
       getRequestlessContext().services.subshells.listSubshells(userId, { previews: false }),
     previewsFor: (userId, ids) => getRequestlessContext().services.subshells.previewsFor(userId, ids),
     isAdmin: async (userId) => (await getRequestlessContext().repos.userMeta.getRole(userId)) === "admin",
+    accountDisabled: (userId) => accountDisabled(getRequestlessContext().db, userId),
   };
 }
 

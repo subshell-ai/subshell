@@ -97,8 +97,52 @@ describe("normalizeLabel", () => {
 
   it("returns empty when nothing usable remains", () => {
     expect(normalizeLabel("\r\n\t", 64)).toBe("");
+    // Format characters carry no printable width, so a label made of nothing
+    // else empties out exactly like a label made of nothing but CR/LF.
+    expect(normalizeLabel("\u200B\u200D\u202E", 64)).toBe("");
   });
 
+  it("normalizes NFC first, so equivalent spellings become one string", () => {
+    // "cafe" + COMBINING ACUTE and the precomposed E-acute must not remain
+    // two names — uniqueness checks (the per-user workspace index, node
+    // renames) compare strings, and two spellings of one name is how a
+    // spoof slips past one.
+    expect(normalizeLabel("cafe\u0301", 64)).toBe(normalizeLabel("caf\u00E9", 64));
+    // The cap counts CODE POINTS AFTER NFC: eighty e+acute pairs compose to
+    // eighty characters, so the 40-cap sees 40 é, not a cut mid-pair.
+    expect(normalizeLabel("e\u0301".repeat(80), 40)).toBe("\u00E9".repeat(40));
+  });
+
+  it("drops format characters — the label cannot carry invisible instructions", () => {
+    // Bidi overrides reverse everything after them on screen: `shell` + RLO
+    // + `gnikcats` reads as `shell stacking`. With the override gone the
+    // text stays but the SPOOF dies, which is the whole job here.
+    expect(normalizeLabel("shell\u202Egnikcats", 64)).toBe("shellgnikcats");
+    expect(normalizeLabel("a\u202Ab\u2066c\u2069", 64)).toBe("abc"); // embedding + isolates
+    expect(normalizeLabel("a\u200Db", 64)).toBe("ab"); // ZWJ
+    expect(normalizeLabel("a\u200Bb", 64)).toBe("ab"); // ZWSP
+    expect(normalizeLabel("a\u00ADb", 64)).toBe("ab"); // SOFT HYPHEN
+    // Emoji variation selectors pick text vs emoji presentation; a label
+    // has no business choosing either. (VS15/16 are category Mn, so this is
+    // an explicit addition to the Cf pass, not something the category covers.)
+    expect(normalizeLabel("a\u2764\uFE0Fb", 64)).toBe("a\u2764b");
+    // Tag characters (U+E0020-U+E007F) carry the emoji-tag payloads that
+    // made the subdivision-flag spoof possible; they are category Cf and die.
+    expect(normalizeLabel("flag\u{E0061}\u{E007F}", 64)).toBe("flag");
+    // The bindings inherit; a probe each, so an override cannot pass the
+    // node name or device-label door while the general rule holds.
+    expect(normalizeNodeName("prod\u202Eplane")).toBe("prodplane");
+    expect(normalizeDeviceLabel("dev\u200Bice")).toBe("device");
+  });
+
+  it("drops unpaired surrogates, which nothing downstream can render or compare", () => {
+    // A lone surrogate is equal to no valid string — it breaks SQLite
+    // stores, hash comparisons, and every renderer that walks UTF-8.
+    expect(normalizeLabel("a\uD83Dz", 64)).toBe("az"); // orphaned high
+    expect(normalizeLabel("a\uDC00z", 64)).toBe("az"); // orphaned low
+    // A PAIRED surrogate is a real character and stays.
+    expect(normalizeLabel("a\uD83D\uDDA5z", 64)).toBe("a\uD83D\uDDA5z");
+  });
   it("caps by code point, so a boundary never splits a character in half", () => {
     // `slice(0, max)` counted UTF-16 units. Every other cap on these labels — the
     // agent's --name pre-flight, the desktop form, the plane's chars().count() —

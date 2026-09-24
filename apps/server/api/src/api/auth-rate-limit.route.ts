@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { sql } from "kysely";
+import { BREAKGLASS_NONCE_HEADER, clearEmergencySignInMark, markEmergencySignIn } from "@/auth/audit-hooks.js";
 import { getAuth } from "@/auth.js";
 import { emergencyLoginArmed, emergencyPassword } from "@/constants.js";
 import { db } from "@/db/index.js";
@@ -96,7 +97,7 @@ type SignInBody = { email?: string; password?: string };
  * The overwrite is destructive by design (the forgotten password dies the
  * moment the hatch fires); the armed-state banner tells the admin to set a
  * new password before clearing the env var. Non-admin/mismatch/unknown-email
- * return false without touching anything, so the response stays an ordinary
+ * answer `null` without touching anything, so the response stays an ordinary
  * bad-password 401 — no signal about which half failed. Every APPROVED
  * rewrite is an audit event + a warn log line: it is the single most
  * sensitive auth event the instance can produce and must leave a trace.
@@ -111,11 +112,18 @@ type SignInBody = { email?: string; password?: string };
  *   hatch must not rewrite for them either — trimming here once destroyed a
  *   password while granting no session)
  * @param password - the submitted password, compared to the env value
- * @returns true when the credential was rewritten (emergency login approved)
+ * @returns the rewritten admin's id AND the dedupe mark's nonce when the
+ *   emergency act fired, or `null`. The id lets the caller disarm the mark
+ *   if its forward does not complete; the nonce must ride the forwarded
+ *   request on {@link BREAKGLASS_NONCE_HEADER}, because the mark is bound to
+ *   this act — no header, no suppression (see below)
  */
-async function rewriteAdminCredentialToEnvPassword(lookupEmail: string, password: string): Promise<boolean> {
+async function rewriteAdminCredentialToEnvPassword(
+  lookupEmail: string,
+  password: string,
+): Promise<{ userId: string; nonce: string } | null> {
   const envValue = emergencyPassword();
-  if (!emergencyLoginArmed() || !lookupEmail || !secretEquals(password, envValue)) return false;
+  if (!emergencyLoginArmed() || !lookupEmail || !secretEquals(password, envValue)) return null;
   const found = await sql<{ id: string; role: string | null }>`
     SELECT u.id, m.role
     FROM user u
@@ -123,7 +131,7 @@ async function rewriteAdminCredentialToEnvPassword(lookupEmail: string, password
     WHERE u.email = ${lookupEmail}
   `.execute(db);
   const row = found.rows[0];
-  if (row?.role !== "admin") return false;
+  if (row?.role !== "admin") return null;
   await sql`
     UPDATE account
     SET password = ${await hashPassword(envValue)}, "updatedAt" = ${new Date().toISOString()}
@@ -136,10 +144,20 @@ async function rewriteAdminCredentialToEnvPassword(lookupEmail: string, password
     targetId: row.id,
     metadataJson: JSON.stringify({ email: lookupEmail }),
   });
+  // One act, one row (audit item R1): the `hooks.after` sign-in audit consumes
+  // this mark instead of writing a second row for the forwarded sign-in that
+  // follows. The rewrite row — which names the credential change, the act
+  // that actually matters — wins the name. The mark binds to THIS act through
+  // the nonce the caller must put on the forwarded request's
+  // `x-subshell-breakglass` header: a genuine sign-in that merely happens to
+  // interleave with an armed mark is not this act and cannot consume it. If
+  // the forward below fails, nothing carried the nonce to a success, and the
+  // caller disarms the mark so its nonce can never suppress anything.
+  const nonce = markEmergencySignIn(row.id);
   logger.warn(
     `emergency login: admin credential for ${lookupEmail} rewritten to the SUBSHELL_EMERGENCY_PASSWORD value`,
   );
-  return true;
+  return { userId: row.id, nonce };
 }
 
 export const authRateLimitRoutes = new Elysia({ name: "auth-rate-limit" }).post(
@@ -164,11 +182,18 @@ export const authRateLimitRoutes = new Elysia({ name: "auth-rate-limit" }).post(
     // success path (cookie + attempt-clear below) does the rest. The lookup
     // email is lowercased but deliberately NOT trimmed (see the function's
     // @param) even though backoff attribution above does trim.
-    await rewriteAdminCredentialToEnvPassword((body.email ?? "").toLowerCase(), body.password ?? "");
+    const emergency = await rewriteAdminCredentialToEnvPassword((body.email ?? "").toLowerCase(), body.password ?? "");
 
+    // The rebuild is where the act's binding travels: the nonce rides the
+    // forwarded request so the after-hook can tell THIS sign-in — the
+    // rewrite's own duplicate — from a genuine one that merely shares the
+    // user and the moment. A browser cannot send it (this wrapper owns the
+    // only copy), and it never leaves the process.
+    const headers = new Headers(request.headers);
+    if (emergency) headers.set(BREAKGLASS_NONCE_HEADER, emergency.nonce);
     const forwarded = new Request(request.url, {
       method: request.method,
-      headers: request.headers,
+      headers,
       body: JSON.stringify(body),
       // Optional third-party semantics survive the rebuild (default: same-origin).
       credentials: request.credentials,
@@ -180,6 +205,15 @@ export const authRateLimitRoutes = new Elysia({ name: "auth-rate-limit" }).post(
       await recordFailedLogin(email);
     } else if (res.ok && email) {
       await clearAuthAttempts(email);
+    }
+    // The emergency dedupe mark covers exactly the sign-in this forward IS.
+    // On success the after-hook spent it inline before this line (it read the
+    // nonce right off this request); on a failed forward nothing that
+    // succeeded carried it, and a stranded mark is one the clear below removes
+    // rather than a TTL's patience. The rewrite row already stands as that
+    // act's audit; any other act, whenever it comes, deserves its own.
+    if (emergency && !res.ok) {
+      clearEmergencySignInMark(emergency.userId, emergency.nonce);
     }
     return res;
   },

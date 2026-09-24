@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
+import { Elysia } from "elysia";
 import { nodesRoutes } from "@/api/nodes/index.js";
 import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
@@ -7,11 +8,12 @@ import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repos
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { ALLOW_NODE_ENROLLMENT_KEY } from "@/services/registration-gate.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
-/** One key row as the list route renders it. */
+/** One key row as the list route renders it (owner-scoped read). */
 type KeyRow = {
   id: string;
   /** The key text itself — the card's row title since the 2026-09-17 revamp */
@@ -21,6 +23,14 @@ type KeyRow = {
   usedAt: string | null;
   consumedNodeId: string | null;
 };
+
+/** One key row as the admin `?all=1` read renders it. */
+type AdminKeyRow = KeyRow & { ownerUserId: string; ownerLabel: string };
+
+// The error handler is what maps Elysia's native validation 422 to the
+// contract's 400 (and every thrown status-carrier to its structured body);
+// the sibling node-route tests compose it the same way.
+const app = new Elysia().use(errorHandlerPlugin).use(nodesRoutes);
 
 /**
  * `/api/nodes/setup-keys` — single-use enrollment key management (spec
@@ -39,6 +49,7 @@ describe("/api/nodes/setup-keys", () => {
   let aliceCookie: string;
   let bobCookie: string;
   const adminEmail = `nsk-admin-${crypto.randomUUID()}@subshell.local`;
+  let adminId: string;
   let adminCookie: string;
   let subshellKey: string;
   const createdApiKeyIds: string[] = [];
@@ -54,7 +65,7 @@ describe("/api/nodes/setup-keys", () => {
     await mkUser(bobEmail);
     aliceCookie = await signIn(aliceEmail, pw);
     bobCookie = await signIn(bobEmail, pw);
-    await mkUser(adminEmail, "admin");
+    adminId = await mkUser(adminEmail, "admin");
     adminCookie = await signIn(adminEmail, pw);
 
     // A real subshell bearer key owned by alice — proves cookie-only enforcement.
@@ -87,7 +98,7 @@ describe("/api/nodes/setup-keys", () => {
     if (opts.cookie) headers.cookie = `better-auth.session_token=${opts.cookie}`;
     if (opts.bearer) headers.authorization = `Bearer ${opts.bearer}`;
     if (opts.body !== undefined) headers["content-type"] = "application/json";
-    return nodesRoutes.fetch(
+    return app.fetch(
       new Request(`http://localhost:3080/api/nodes${path}`, {
         method,
         headers,
@@ -237,6 +248,131 @@ describe("/api/nodes/setup-keys", () => {
       } finally {
         await setAllowed(null);
       }
+    });
+  });
+
+  /** The `setup_key.*` audit rows for one target id, metadata included. */
+  async function auditRows(targetId: string) {
+    return await db
+      .selectFrom("auditEvents")
+      .select(["action", "actorUserId", "metadataJson"])
+      .where("targetId", "=", targetId)
+      .execute();
+  }
+
+  // Audit 2026-09 item 4, operator-approved: an outstanding foreign key used
+  // to be a door NO admin could close before its 24 h expiry — the delete was
+  // owner-filtered and the list owner-scoped. Both halves opened at once:
+  // `?all=1` for a cookie admin sees every row with its creator's label, and
+  // DELETE closes any row, audited `foreign: true` so the trail says whose
+  // door it was.
+  describe("the admin instance-wide view and foreign revoke", () => {
+    it("?all=1 as an admin lists every key with its creator's label and key text", async () => {
+      const foreignRow = await repo.create(aliceId);
+      const ownRow = await repo.create(adminId);
+      try {
+        const res = await req("GET", "/setup-keys?all=1", { cookie: adminCookie });
+        expect(res.status).toBe(200);
+        const keys = ((await res.json()) as { keys: AdminKeyRow[] }).keys;
+        const foreign = keys.find((k) => k.id === foreignRow.id);
+        expect(foreign?.key).toBe(foreignRow.key);
+        // The label is the creator's display name, which `mkUser` sets to the
+        // email — the card needs to say WHOSE door each row is.
+        expect(foreign?.ownerUserId).toBe(aliceId);
+        expect(foreign?.ownerLabel).toBe(aliceEmail);
+        expect(keys.some((k) => k.id === ownRow.id)).toBe(true);
+        // The plain read is unchanged: admin or not, it answers own rows only,
+        // and its rows carry no owner fields at all — those are the `all=1`
+        // shape. (Asserting the row's EXACT keys is the same discipline the
+        // anonymous-read routes hold to: a field added later is a decision.)
+        const plain = await req("GET", "/setup-keys", { cookie: adminCookie });
+        expect(plain.status).toBe(200);
+        const plainBody = (await plain.json()) as { keys: AdminKeyRow[] };
+        expect(Object.keys(plainBody)).toEqual(["keys"]);
+        expect(plainBody.keys.some((k) => k.id === foreignRow.id)).toBe(false);
+        if (plainBody.keys.length > 0) {
+          expect(Object.keys(plainBody.keys[0]!).sort()).toEqual([
+            "consumedNodeId",
+            "createdAt",
+            "expiresAt",
+            "id",
+            "key",
+            "usedAt",
+          ]);
+        }
+      } finally {
+        await repo.deleteByIdUnscoped(foreignRow.id);
+        await repo.deleteByIdUnscoped(ownRow.id);
+      }
+    });
+
+    it("the listing read writes no audit rows (mirrors the owner-scoped read)", async () => {
+      const countKeyRows = () =>
+        db
+          .selectFrom("auditEvents")
+          .where("targetType", "=", "node-setup-key")
+          .select(({ fn }) => fn.countAll<number>().as("n"))
+          .executeTakeFirst();
+      const before = await countKeyRows();
+      const res = await req("GET", "/setup-keys?all=1", { cookie: adminCookie });
+      expect(res.status).toBe(200);
+      const after = await countKeyRows();
+      expect(Number(after?.n)).toBe(Number(before?.n));
+    });
+
+    it("a plain user asking for all=1 gets 403, not a silently-narrowed list", async () => {
+      const res = await req("GET", "/setup-keys?all=1", { cookie: bobCookie });
+      expect(res.status).toBe(403);
+    });
+
+    it("a machine token is 403 before the parameter is even read", async () => {
+      expect((await req("GET", "/setup-keys?all=1", { bearer: subshellKey })).status).toBe(403);
+    });
+
+    it("a non-'1' spelling of all is a validation error, not a guess", async () => {
+      // The parameter is a literal: `all=yes` cannot mean "yes" AND `all=0`
+      // cannot mean "no" while looking like a request for everything. The
+      // error handler maps Elysia's validation failure to 400.
+      expect((await req("GET", "/setup-keys?all=yes", { cookie: adminCookie })).status).toBe(400);
+    });
+
+    it("an admin revokes a FOREIGN key → 200, gone for the creator too, audited foreign with no key text", async () => {
+      const foreignRow = await repo.create(aliceId);
+      const res = await req("DELETE", `/setup-keys/${foreignRow.id}`, { cookie: adminCookie });
+      expect(res.status).toBe(200);
+      expect(await repo.findById(foreignRow.id)).toBeUndefined();
+      expect((await listKeys(aliceCookie)).some((k) => k.id === foreignRow.id)).toBe(false);
+
+      const rows = await auditRows(foreignRow.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.action).toBe("setup_key.revoke");
+      expect(rows[0]?.actorUserId).toBe(adminId);
+      const meta = JSON.parse(rows[0]?.metadataJson ?? "{}") as Record<string, unknown>;
+      expect(meta).toEqual({ foreign: true, ownerUserId: aliceId });
+      expect(rows[0]?.metadataJson ?? "").not.toContain(foreignRow.key);
+    });
+
+    it("an admin deleting their OWN key keeps the creator's audit shape (null metadata)", async () => {
+      const ownRow = await repo.create(adminId);
+      const res = await req("DELETE", `/setup-keys/${ownRow.id}`, { cookie: adminCookie });
+      expect(res.status).toBe(200);
+      const rows = await auditRows(ownRow.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.action).toBe("setup_key.revoke");
+      expect(rows[0]?.metadataJson).toBeNull();
+    });
+
+    it("the creator's own revoke still audits null metadata", async () => {
+      const row = await repo.create(aliceId);
+      expect((await req("DELETE", `/setup-keys/${row.id}`, { cookie: aliceCookie })).status).toBe(200);
+      const rows = await auditRows(row.id);
+      expect(rows[0]?.metadataJson).toBeNull();
+    });
+
+    it("an admin deleting an unknown id still 404s (no probe surface for anyone)", async () => {
+      expect((await req("DELETE", "/setup-keys/nope-not-real", { cookie: adminCookie })).status).toBe(404);
+      const rows = await db.selectFrom("auditEvents").select("id").where("targetId", "=", "nope-not-real").execute();
+      expect(rows).toHaveLength(0);
     });
   });
 });

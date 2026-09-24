@@ -10,7 +10,7 @@ import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { consumeWsToken } from "@/ws/ws-token.js";
+import { clearWsTokensForTests, consumeWsToken, setWsTokenCapForTests } from "@/ws/ws-token.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 /**
@@ -184,5 +184,25 @@ describe("ws-token route (unscoped cookie mints, scoped bearer mints)", () => {
   it("subshell key, no subshellId -> 400 (no unscoped machine mints, ever)", async () => {
     const res = await app.fetch(bearerRequest("/api/auth/ws-token", subshellKey));
     expect(res.status).toBe(400);
+  });
+
+  it("a full store answers 503, on the cookie path included (audit item 8)", async () => {
+    // The cap is the STORE's, not the actor's: a script-rate bearer mint and a
+    // human pressing reconnect both meet the same refusal once 10 000 live
+    // tokens sit outstanding. Cap 0 skips the filling — the check runs before
+    // the insert, and the sweep has nothing expired to free.
+    setWsTokenCapForTests(0);
+    try {
+      const res = await app.fetch(authedRequest("/api/auth/ws-token", cookie, { method: "POST" }));
+      expect(res.status).toBe(503);
+      expect(((await res.json()) as { message: string }).message).toContain("too many outstanding attach tokens");
+    } finally {
+      setWsTokenCapForTests(null);
+      clearWsTokensForTests();
+    }
+    // Room returns the moment the cap does — the refusal minted nothing.
+    const after = await app.fetch(authedRequest("/api/auth/ws-token", cookie, { method: "POST" }));
+    expect(after.status).toBe(200);
+    consumeWsToken(await mintedToken(after));
   });
 });

@@ -53,7 +53,7 @@ The two endings are different acts, and only one is offered to people:
 Either way, a dead process's credential is revoked immediately; a running one's is never revoked by your browser closing.
 
 > [!note] Where transcripts live
-> Every pane is streamed to a log file on its own machine — that file is what makes replay-after-attach work, and it holds everything that was typed, including pasted tokens. Logs of subshells that are no longer running are removed after a retention window (30 days by default); closing one removes its log on the spot.
+> Every pane is streamed to a log file on its own machine — that file is what makes replay-after-attach work, and it holds everything that was typed, including pasted tokens. Logs of subshells that are no longer running are removed after a retention window (30 days by default on the control-plane host; on a node its own sweep runs with a 1-day default); closing one removes its log on the spot.
 
 ## See also
 

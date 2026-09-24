@@ -24,6 +24,10 @@ import { asUserRole, USER_ROLE_OPTIONS, type UserRole } from "@/types/user-role"
  * - a reset and a disable both **sign the user out everywhere**, which is the
  *   point of them and also a surprise if unannounced, and neither notifies
  *   anyone — there is no email on this instance;
+ * - since the 2026-09-24 ruling a disable also **takes the account's enrolled
+ *   nodes offline** (they reconnect on their own within a minute of a
+ *   re-enable), and the confirmation says so: the admin presses it, so the
+ *   admin hears what it costs;
  * - the new password is shown to the admin ONCE, because they have to be able
  *   to read what they set in order to pass it on;
  * - the last admin can be neither demoted nor disabled — surfaced as the
@@ -270,9 +274,10 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
           <DialogHeader>
             <DialogTitle>Disable {user.email}</DialogTitle>
             <DialogDescription>
-              They can no longer sign in, they are signed out of every device immediately, and every credential they
-              hold stops working, their API keys and running subshells' tokens included. They are not notified: there is
-              no email on this instance, so tell them yourself.
+              They can no longer sign in, they are signed out of every device, every credential they hold stops working,
+              their API keys and running subshells' tokens included, and any nodes they enrolled disconnect and stay
+              offline until they are re-enabled. They are not notified: there is no email on this instance, so tell them
+              yourself.
             </DialogDescription>
           </DialogHeader>
 

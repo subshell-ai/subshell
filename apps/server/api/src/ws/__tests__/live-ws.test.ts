@@ -65,6 +65,9 @@ function deps(over: Partial<LiveWsDeps> = {}): LiveWsDeps {
     listSubshells: async () => [{ id: "s1" }] as never,
     isAdmin: async () => false,
     previewsFor: async () => new Map(),
+    // The re-ask (disable race): healthy by default, like the token the
+    // factory hands out. Individual cases flip it.
+    accountDisabled: async () => false,
     ...over,
   };
 }
@@ -94,6 +97,39 @@ describe("/ws/live", () => {
     expect(sent).toEqual([]);
     expect(subscribed).toEqual([]);
     expect(closed).toEqual([{ code: 4001, reason: "unauthorized" }]);
+  });
+
+  it("refuses a token whose owner was disabled between the mint and this redeem", async () => {
+    // The disable race `attach-resolve` documents: a mint passes `authGuard`,
+    // the disable commits, `dropUserTokensFor` walks the store — an insert
+    // landing after that walk survives the sweep for its 30 s, and the
+    // feed-socket sweep ran before this socket existed. The redemption
+    // re-asks the FLAG, which cannot be beaten; the refusal is the uniform
+    // bad-token pair, so a disable never reads as an enumeration signal.
+    const { ws, sent, closed, subscribed } = fakeSocket({ token: "good" });
+    await handleLiveOpen(ws, deps({ accountDisabled: async () => true }));
+    expect(sent).toEqual([]);
+    expect(subscribed).toEqual([]);
+    expect(closed).toEqual([{ code: 4001, reason: "unauthorized" }]);
+  });
+
+  it("fails the re-ask CLOSED — an unreadable account state closes, and the reconnect re-mints through the guard", async () => {
+    // A throw must not leave the socket streaming: unlike a node socket (the
+    // next dial re-asks at the upgrade gate), a live feed is never re-checked
+    // after it opens, so a kept socket here keeps a missed disable for the
+    // tab's whole life. Closing costs the healthy an ordinary reconnect — the
+    // mint route is the same question's other door.
+    const { ws, sent, closed } = fakeSocket({ token: "good" });
+    await handleLiveOpen(
+      ws,
+      deps({
+        accountDisabled: async () => {
+          throw new Error("db transient");
+        },
+      }),
+    );
+    expect(sent).toEqual([]);
+    expect(closed).toEqual([{ code: 1011, reason: "open failed" }]);
   });
 
   it("sends exactly ONE snapshot — the 1.5 s cadence is gone", async () => {

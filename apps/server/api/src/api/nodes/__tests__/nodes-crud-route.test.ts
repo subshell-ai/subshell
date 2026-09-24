@@ -106,12 +106,12 @@ describe("/api/nodes registry CRUD", () => {
     const id = crypto.randomUUID();
     await nodes.create({ id, ownerUserId: ownerId, name, kind: "agent", status: "offline" });
     createdNodeIds.push(id);
+    // Mirrors enroll's mint exactly (item 10): kind-tagged, no permissions map.
     const created = (await getAuth().api.createApiKey({
       body: {
         name: `node:${id}`,
         userId: ownerId,
         metadata: { kind: "node", nodeId: id },
-        permissions: { nodes: ["read", "write"] },
       },
     })) as unknown as { id: string; key: string };
     createdApiKeyIds.push(created.id);
@@ -494,6 +494,15 @@ describe("/api/nodes registry CRUD", () => {
     const row = await nodes.findById(n.id);
     expect(row?.apiKeyId).toBeTruthy();
     expect(row?.apiKeyId).not.toBe(n.keyRowId);
+
+    // The REPLACED key is minted with no permissions map (security-actionable
+    // item 10): rotate mints exactly what enroll mints, and the kind refusal
+    // in `auth-guard` is the whole boundary — the `{ nodes: ["read","write"] }`
+    // both used to write was never read by anything.
+    const newKeyRow = authDatabase()
+      .prepare<{ permissions: string | null }, [string]>(`SELECT permissions FROM apikey WHERE id = ?`)
+      .get(row?.apiKeyId as string);
+    expect(newKeyRow?.permissions).toBeNull();
 
     expect(sock.closed.some((c) => c.code === 4401)).toBe(true);
     expect(getLive(n.id)).toBeUndefined();

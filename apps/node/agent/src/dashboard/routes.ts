@@ -10,7 +10,7 @@ import {
 import { Elysia, t } from "elysia";
 import { readAllowedDirs } from "../allowed-dirs.js";
 import { execService, type ServiceExecContext } from "../commands/service.js";
-import { execUpdate, type UpdateExecContext } from "../commands/update.js";
+import { execUpdate, type SupervisionProof, type UpdateExecContext } from "../commands/update.js";
 import type { NodeConfig } from "../config.js";
 import { runConfigure } from "../configure.js";
 import { currentDebugLogging, setDebugLogging } from "../debug-logging.js";
@@ -18,6 +18,7 @@ import { log } from "../log.js";
 import { AGENT_LOG_CAP_BYTES, agentLogPath, readNodeLogSlice } from "../log-file.js";
 import { writeMaintenance } from "../maintenance.js";
 import { defaultMaintenanceDeps, runMaintenance } from "../maintenance-cli.js";
+import { readRetentionState, setLogRetention, sweepIsScheduled } from "../retention-settings.js";
 import { DEFAULT_DEPS, queryService } from "../service.js";
 import {
   failedMarkerPath,
@@ -105,20 +106,53 @@ function refuse(status: number, message: string): Response {
  * every subshell" even while the card one inch above shows a healthy
  * keeps-panes definition — the view reads `liveRuntime()`, so the mutations
  * must read the same thing.
+ *
+ * The RESOLVED report's `paneSafety` comes back with the context because it
+ * is what drove the executor's refusal: a sentence that read the DAEMON
+ * state instead would name the null the route had just fallen back past, and
+ * an `unknown` fresh read would be answered with the CERTAIN "would close
+ * every subshell" — false certainty about a definition nobody read. The same
+ * rule the update route's `proof?.paneSafety` threading already follows.
  */
-async function serviceCtx(): Promise<ServiceExecContext> {
+async function serviceCtx(
+  live: () => Promise<Awaited<ReturnType<typeof liveRuntime>>>,
+): Promise<{ ctx: ServiceExecContext; paneSafety: SupervisionProof["paneSafety"] | undefined }> {
+  const runtime = getDaemonState().runtime ?? (await live());
   return {
-    runtime: getDaemonState().runtime ?? (await liveRuntime()),
-    requestRestart: () => void requestDaemonRestart(),
+    ctx: { runtime, requestRestart: () => void requestDaemonRestart() },
+    paneSafety: runtime?.service.paneSafety,
   };
 }
 
 /** The `CommandContext` subset `execUpdate` reads, for the same reason. */
-function updateCtx(cfg: NodeConfig): UpdateExecContext {
+function updateCtx(cfg: NodeConfig, proof?: SupervisionProof): UpdateExecContext {
   return {
     runtime: getDaemonState().runtime,
     config: cfg,
     requestRestart: () => void requestDaemonRestart(),
+    ...(proof ? { supervisedProof: proof } : {}),
+  };
+}
+
+/**
+ * One live manager query, reduced to what {@link SupervisionProof} carries.
+ *
+ * This is the page's answer for the window in which the daemon's FROZEN
+ * runtime report does not exist yet (boot) or never landed (the read failed):
+ * `execUpdate` must not 409 a supervised node on a null the page has just
+ * disproven, so the query happens ONCE, here, and its two facts — supervised
+ * and the definition's pane-safety — ride to the executor as the proof. A
+ * manager that will not answer is not supervised (fail-closed, the rule every
+ * destructive surface here already keeps); a running definition with no
+ * readable safety answer is `"unknown"`, which the executor's pane gate
+ * refuses without `force` exactly as it refuses an unreadable one.
+ */
+async function proveSupervision(): Promise<SupervisionProof> {
+  const state = await queryService(DEFAULT_DEPS(async () => true)).catch(() => null);
+  if (state === null) return { supervised: false };
+  return {
+    supervised: state.state === "running" && state.pid === process.pid,
+    paneSafety: state.paneSafety ?? "unknown",
   };
 }
 
@@ -131,9 +165,7 @@ function updateCtx(cfg: NodeConfig): UpdateExecContext {
 async function isSupervisedForRestart(): Promise<boolean> {
   const runtime = getDaemonState().runtime;
   if (runtime) return runtime.supervised;
-  return queryService(DEFAULT_DEPS(async () => true))
-    .then((s) => s.state === "running" && s.pid === process.pid)
-    .catch(() => false);
+  return (await proveSupervision()).supervised;
 }
 
 /**
@@ -145,7 +177,7 @@ async function isSupervisedForRestart(): Promise<boolean> {
  * half rather than forwarding a bare constant the card renders as snake_case.
  * "That node" becomes "this node" because the reader is standing on it.
  */
-function serviceRefusal(error: string): string {
+function serviceRefusal(error: string, knownPaneSafety?: SupervisionProof["paneSafety"]): string {
   if (error === NODE_RESULT_NOT_SUPERVISED) {
     return "This node is not running under a service manager, so exiting it would stop it rather than restart it; restart it where it was started";
   }
@@ -155,11 +187,22 @@ function serviceRefusal(error: string): string {
   if (error === NODE_RESULT_KILLS_PANES) {
     // The plane picks the wording from ITS knowledge of paneSafety; this
     // machine asked its own definition a route ago and can read the same
-    // field, so the two spellings survive here too.
-    const paneSafety = getDaemonState().runtime?.service.paneSafety;
-    return paneSafety === "unknown"
-      ? "This node's service definition could not be read, so whether this keeps its running subshells is unknown; act anyway with force, or repair the definition on this machine"
-      : "This node's service definition would close every subshell running on it; reinstall the definition on this machine, or act anyway with force";
+    // field, so the two spellings survive here too. A boot-window update
+    // refusal was decided on the CALLER's proof rather than the (null)
+    // frozen report, so that answer names the wording — "could not read"
+    // when the manager said `kills` would be false certainty wearing the
+    // opposite hat.
+    // Only `kills` earns the certainty sentence. `undefined` — the manager
+    // query threw, or nothing answered at all (a standalone dashboard with no
+    // daemon and a dead service backend) — is NOT evidence that the definition
+    // kills: it is the same unreadable case with fewer words. Saying
+    // "would close every subshell" about a machine nobody could read is the
+    // false-certainty class this mapping exists to avoid, so the fallback
+    // branch is the honest one and `kills` is the ONLY asserted value.
+    const paneSafety = knownPaneSafety ?? getDaemonState().runtime?.service.paneSafety;
+    return paneSafety === "kills"
+      ? "This node's service definition would close every subshell running on it; reinstall the definition on this machine, or act anyway with force"
+      : "This node's service definition could not be read, so whether this keeps its running subshells is unknown; act anyway with force, or repair the definition on this machine";
   }
   // Unrecognized (a manager's own words, an unknown verb): the plane falls
   // through to "unreachable" with the node's message; this side has nothing
@@ -180,9 +223,12 @@ function serviceRefusal(error: string): string {
  * mirror must answer 409 too or the machine's own card would render "no service
  * definition installed" in the muted *done* slot as if it had worked.
  */
-function serviceResult(result: { ok: true; data?: unknown } | { ok: false; error: string }): Response {
+function serviceResult(
+  result: { ok: true; data?: unknown } | { ok: false; error: string },
+  paneSafety?: SupervisionProof["paneSafety"],
+): Response {
   if (result.ok) return Response.json({ ok: true });
-  return refuse(409, serviceRefusal(result.error));
+  return refuse(409, serviceRefusal(result.error, paneSafety));
 }
 
 /**
@@ -235,262 +281,350 @@ type ResolveReleaseFn = (
  * is therefore already host/origin/content-type checked, and nothing in this
  * file re-checks — the guard is the one gate.
  *
- * `rollback` and `resolveRelease` are injectable seams (defaults: the real
- * `rollbackUpdate` / `resolveNodeRelease`) purely so the restart gate and the
- * already-at / downgrade refusals are unit-testable without a real binary
- * resolution, a real release source, or the network. Production callers pass
- * nothing and get the real behaviour.
+ * `rollback`, `resolveRelease`, `proveSupervision`, `execUpdate` and
+ * `liveRuntime` are injectable seams (defaults: the real `rollbackUpdate` /
+ * `resolveNodeRelease` / {@link proveSupervision} / `execUpdate` /
+ * {@link liveRuntime}) purely so the restart gate, the already-at / downgrade
+ * refusals, the boot-window proof-threading and the standalone service
+ * refusal's wording are unit-testable without a real binary resolution, a
+ * real release source, the network, or a real service manager. Production
+ * callers pass nothing and get the real behaviour.
  */
-export function buildRoutes(cfg: NodeConfig, opts: { rollback?: RollbackFn; resolveRelease?: ResolveReleaseFn } = {}) {
-  return new Elysia()
-    .onBeforeHandle(({ request }) => guardResponse(request) ?? undefined)
-    .get("/api/self", () => ({ id: cfg.nodeId, name: cfg.name }))
-    .get("/api/self/state", async () => ({
-      connected: getDaemonState().connected,
-      lastHeartbeatAt: getDaemonState().lastHeartbeatAt,
-      // The daemon's FROZEN report when a daemon is live (the Status page
-      // then shows exactly what the plane is shown); the memoized fresh
-      // collect when the dashboard runs without one.
-      runtime: getDaemonState().runtime ?? (await liveRuntime()),
-    }))
-    .get("/api/nodes/:id", async ({ params }) =>
-      isSelf(cfg, params.id) ? Response.json(await buildLocalNodeView(cfg)) : notFound(),
-    )
-    .get("/api/nodes/:id/allowed-dirs", ({ params }) =>
-      // Read-only here by contract: the list is the plane's push (the launch
-      // gate enforces the plane's copy first), so the SPA renders it with no
-      // editor. The route exists because the card reads it.
-      isSelf(cfg, params.id) ? Response.json({ dirs: readAllowedDirs(cfg.dataDir) }) : notFound(),
-    )
-    .get(
-      "/api/nodes/:id/logs",
-      async ({ params, query }) => {
-        if (!isSelf(cfg, params.id)) return notFound();
-        const fromByte = Math.max(0, Math.trunc(query.fromByte ?? 0));
-        const maxBytes = Math.min(Math.max(1, Math.trunc(query.maxBytes ?? 64 * 1024)), AGENT_LOG_CAP_BYTES);
-        // No cap on `fromByte` at the boundary: a cursor past EOF reads as
-        // empty, and `readNodeLogSlice` clamps a negative one — the file's
-        // own reader is the size authority.
-        return Response.json(await readNodeLogSlice(agentLogPath(), fromByte, maxBytes));
-      },
-      {
-        query: t.Object({
-          fromByte: t.Optional(t.Numeric({ description: "Byte offset to read from (0 = start; clamped at EOF)" })),
-          maxBytes: t.Optional(t.Numeric({ description: "Max bytes to return (capped at the agent log's own limit)" })),
-        }),
-      },
-    )
-    .put(
-      "/api/nodes/:id/maintenance",
-      async ({ params, body }) => {
-        if (!isSelf(cfg, params.id)) return notFound();
-        // `on` IS the CLI verb (census, flag-first, kills, re-probe), with
-        // the confirmation pre-given because the card asked before sending.
-        // `off` is a bare write — there is nothing to stop.
-        if (body.on) {
-          const r = await runMaintenance(
-            cfg.dataDir,
-            "on",
-            { yes: true, json: true },
-            defaultMaintenanceDeps(cfg.dataDir),
-          );
-          const parsed = JSON.parse(r.out) as {
-            on: boolean;
-            changedAt: string;
-            stopped: string[];
-            failed?: string[];
-          };
-          // The view is rebuilt AFTER the flip so its maintenance fields
-          // carry it; `stopped`/`failed` ride beside it in the plane's
-          // MaintenanceResult shape, absence of `failed` being the clean
-          // case on both backends.
-          const view = await buildLocalNodeView(cfg);
-          return Response.json({
-            ...view,
-            stopped: parsed.stopped,
-            ...(parsed.failed ? { failed: parsed.failed } : {}),
+export function buildRoutes(
+  cfg: NodeConfig,
+  opts: {
+    rollback?: RollbackFn;
+    resolveRelease?: ResolveReleaseFn;
+    proveSupervision?: () => Promise<SupervisionProof>;
+    execUpdate?: typeof execUpdate;
+    /** The no-daemon runtime read the service route falls back to (default the real {@link liveRuntime}). */
+    liveRuntime?: () => Promise<Awaited<ReturnType<typeof liveRuntime>>>;
+  } = {},
+) {
+  return (
+    new Elysia()
+      .onBeforeHandle(({ request }) => guardResponse(request) ?? undefined)
+      .get("/api/self", () => ({ id: cfg.nodeId, name: cfg.name }))
+      .get("/api/self/state", async () => ({
+        connected: getDaemonState().connected,
+        lastHeartbeatAt: getDaemonState().lastHeartbeatAt,
+        // The daemon's FROZEN report when a daemon is live (the Status page
+        // then shows exactly what the plane is shown); the memoized fresh
+        // collect when the dashboard runs without one.
+        runtime: getDaemonState().runtime ?? (await liveRuntime()),
+      }))
+      .get("/api/nodes/:id", async ({ params }) =>
+        isSelf(cfg, params.id) ? Response.json(await buildLocalNodeView(cfg)) : notFound(),
+      )
+      .get("/api/nodes/:id/allowed-dirs", ({ params }) =>
+        // Read-only here by contract: the list is the plane's push (the launch
+        // gate enforces the plane's copy first), so the SPA renders it with no
+        // editor. The route exists because the card reads it.
+        isSelf(cfg, params.id) ? Response.json({ dirs: readAllowedDirs(cfg.dataDir) }) : notFound(),
+      )
+      .get(
+        "/api/nodes/:id/logs",
+        async ({ params, query }) => {
+          if (!isSelf(cfg, params.id)) return notFound();
+          const fromByte = Math.max(0, Math.trunc(query.fromByte ?? 0));
+          const maxBytes = Math.min(Math.max(1, Math.trunc(query.maxBytes ?? 64 * 1024)), AGENT_LOG_CAP_BYTES);
+          // No cap on `fromByte` at the boundary: a cursor past EOF reads as
+          // empty, and `readNodeLogSlice` clamps a negative one — the file's
+          // own reader is the size authority.
+          return Response.json(await readNodeLogSlice(agentLogPath(), fromByte, maxBytes));
+        },
+        {
+          query: t.Object({
+            fromByte: t.Optional(t.Numeric({ description: "Byte offset to read from (0 = start; clamped at EOF)" })),
+            maxBytes: t.Optional(
+              t.Numeric({ description: "Max bytes to return (capped at the agent log's own limit)" }),
+            ),
+          }),
+        },
+      )
+      .put(
+        "/api/nodes/:id/maintenance",
+        async ({ params, body }) => {
+          if (!isSelf(cfg, params.id)) return notFound();
+          // `on` IS the CLI verb (census, flag-first, kills, re-probe), with
+          // the confirmation pre-given because the card asked before sending.
+          // `off` is a bare write — there is nothing to stop.
+          if (body.on) {
+            const r = await runMaintenance(
+              cfg.dataDir,
+              "on",
+              { yes: true, json: true },
+              defaultMaintenanceDeps(cfg.dataDir),
+            );
+            const parsed = JSON.parse(r.out) as {
+              on: boolean;
+              changedAt: string;
+              stopped: string[];
+              failed?: string[];
+            };
+            // The view is rebuilt AFTER the flip so its maintenance fields
+            // carry it; `stopped`/`failed` ride beside it in the plane's
+            // MaintenanceResult shape, absence of `failed` being the clean
+            // case on both backends.
+            const view = await buildLocalNodeView(cfg);
+            return Response.json({
+              ...view,
+              stopped: parsed.stopped,
+              ...(parsed.failed ? { failed: parsed.failed } : {}),
+            });
+          }
+          writeMaintenance(cfg.dataDir, { on: false, changedAt: new Date().toISOString() });
+          return Response.json({ ...(await buildLocalNodeView(cfg)), stopped: [] });
+        },
+        {
+          body: t.Object({
+            on: t.Boolean({ description: "true = enter maintenance (stops every subshell here); false = leave" }),
+          }),
+        },
+      )
+      .post(
+        "/api/nodes/:id/service",
+        async ({ params, body }) => {
+          if (!isSelf(cfg, params.id)) return notFound();
+          // Re-checked rather than trusted from the parser — the same
+          // exclusion `execService` guards with, so a verb added to the
+          // protocol cannot reach the manager as an unchecked string here.
+          if (!(NODE_SERVICE_VERBS as readonly string[]).includes(body.verb)) {
+            return serviceResult({ ok: false, error: `unknown service verb '${body.verb as string}'` });
+          }
+          // `install` answers `data` with the manager's success text; the plane
+          // forwards it as the ok-body's `detail` and the card prints it —
+          // carried here verbatim so both backends read the same card.
+          // The resolved report drives BOTH halves of one answer: `execService`
+          // refuses on its `paneSafety`, and `serviceRefusal` words the refusal
+          // from the SAME value — never from a daemon state the route already
+          // fell back past.
+          const { ctx, paneSafety } = await serviceCtx(opts.liveRuntime ?? liveRuntime);
+          const result = await execService(ctx, {
+            type: "service",
+            verb: body.verb as NodeServiceVerb,
+            force: body.force,
           });
-        }
-        writeMaintenance(cfg.dataDir, { on: false, changedAt: new Date().toISOString() });
-        return Response.json({ ...(await buildLocalNodeView(cfg)), stopped: [] });
-      },
-      {
-        body: t.Object({
-          on: t.Boolean({ description: "true = enter maintenance (stops every subshell here); false = leave" }),
-        }),
-      },
-    )
-    .post(
-      "/api/nodes/:id/service",
-      async ({ params, body }) => {
-        if (!isSelf(cfg, params.id)) return notFound();
-        // Re-checked rather than trusted from the parser — the same
-        // exclusion `execService` guards with, so a verb added to the
-        // protocol cannot reach the manager as an unchecked string here.
-        if (!(NODE_SERVICE_VERBS as readonly string[]).includes(body.verb)) {
-          return serviceResult({ ok: false, error: `unknown service verb '${body.verb as string}'` });
-        }
-        // `install` answers `data` with the manager's success text; the plane
-        // forwards it as the ok-body's `detail` and the card prints it —
-        // carried here verbatim so both backends read the same card.
-        const result = await execService(await serviceCtx(), {
-          type: "service",
-          verb: body.verb as NodeServiceVerb,
-          force: body.force,
-        });
-        if (result.ok && typeof result.data === "string" && result.data.trim().length > 0) {
-          return Response.json({ ok: true, detail: result.data.trim().slice(0, 400) });
-        }
-        return serviceResult(result);
-      },
-      { body: ServiceBody },
-    )
-    .put(
-      "/api/nodes/:id/logging",
-      async ({ params, body }) => {
-        if (!isSelf(cfg, params.id)) return notFound();
-        try {
-          // The plane's shape is the SETTING ECHO, not the effective state:
-          // under `SUBSHELL_DEBUG_LOGGING` the set throws (environment wins)
-          // and that refusal is the answer the card needs, verbatim.
-          const state = await setDebugLogging(body.debug);
-          log(`debug logging ${state.debug ? "enabled" : "disabled"} (dashboard)`);
-          return Response.json({ debug: state.debug });
-        } catch (err) {
-          return refuse(409, err instanceof Error ? err.message : String(err));
-        }
-      },
-      {
-        body: t.Object({
-          debug: t.Boolean({ description: "Whether debug-level lines reach the node's own log file" }),
-        }),
-      },
-    )
-    .patch(
-      "/api/nodes/:id/config",
-      async ({ params, body }) => {
-        if (!isSelf(cfg, params.id)) return notFound();
-        try {
-          const next = await runConfigure({ server: body.serverUrl });
-          log(`configured: server url is now ${next.serverUrl} (takes effect on the next restart)`);
-          return Response.json({ serverUrl: next.serverUrl, restartRequired: true });
-        } catch (err) {
-          return refuse(409, err instanceof Error ? err.message : String(err));
-        }
-      },
-      { body: t.Object({ serverUrl: t.String({ description: "Control-plane URL to dial on the next restart" }) }) },
-    )
-    .get("/api/self/update", async () => ({
-      currentVersion: NODE_VERSION,
-      protocolVersion: NODE_PROTOCOL_VERSION,
-      // The CLI's own `--check` cannot say this about its plane and prints
-      // a pointer instead; this page IS local, so it says whether a release
-      // source exists at all and the Updates page renders that honestly.
-      releaseConfigured: releaseApiUrl() !== null,
-      debugLogging: currentDebugLogging().debug,
-      pending: await readMarker(pendingMarkerPath(cfg.dataDir)),
-      lastFailure: await readMarker(failedMarkerPath(cfg.dataDir)),
-      connected: getDaemonState().connected,
-    }))
-    .post(
-      "/api/self/update",
-      async ({ body }) => {
-        // The supervision refusal must not wait for the release source to
-        // answer: `execUpdate` would refuse the same way, but only after a
-        // network round trip, and on the FOREGROUND `subshell run` the
-        // frozen runtime report can say "unsupervised" immediately and
-        // re-proves it with one manager query when it says otherwise.
-        const runtime = getDaemonState().runtime;
-        if (runtime && !runtime.supervised) {
-          return refuse(409, serviceRefusal(NODE_RESULT_NOT_SUPERVISED));
-        }
-        if (!runtime) {
-          const supervised = await queryService(DEFAULT_DEPS(async () => true))
-            .then((s) => s.state === "running" && s.pid === process.pid)
-            .catch(() => false);
-          if (!supervised) {
+          if (result.ok && typeof result.data === "string" && result.data.trim().length > 0) {
+            return Response.json({ ok: true, detail: result.data.trim().slice(0, 400) });
+          }
+          return serviceResult(result, paneSafety);
+        },
+        { body: ServiceBody },
+      )
+      .put(
+        "/api/nodes/:id/logging",
+        async ({ params, body }) => {
+          if (!isSelf(cfg, params.id)) return notFound();
+          try {
+            // The plane's shape is the SETTING ECHO, not the effective state:
+            // under `SUBSHELL_DEBUG_LOGGING` the set throws (environment wins)
+            // and that refusal is the answer the card needs, verbatim.
+            const state = await setDebugLogging(body.debug);
+            log(`debug logging ${state.debug ? "enabled" : "disabled"} (dashboard)`);
+            return Response.json({ debug: state.debug });
+          } catch (err) {
+            return refuse(409, err instanceof Error ? err.message : String(err));
+          }
+        },
+        {
+          body: t.Object({
+            debug: t.Boolean({ description: "Whether debug-level lines reach the node's own log file" }),
+          }),
+        },
+      )
+      // `scheduled` rides beside the window on both verbs: which sentence the
+      // card may say ("next hourly sweep" vs "at the next restart") is a
+      // PROCESS fact only the daemon's boot resolution knows (finding 5), and
+      // this surface has the daemon in-process or not at all — the `false` of a
+      // standalone dashboard (no daemon, no sweep) is honest, not unknown.
+      .get("/api/self/log-retention", async () =>
+        Response.json({ ...(await readRetentionState()), scheduled: sweepIsScheduled() }),
+      )
+      .put(
+        "/api/self/log-retention",
+        async ({ body }) => {
+          // Node-local, NOT a mirrored `/api/nodes/:id/*` route: the plane has no
+          // counterpart (retention is this machine's own disk policy), so this
+          // lives under `/api/self/` with the update card's local endpoints.
+          // Everything else is the logging route three handlers up: the setting
+          // echo on success, a 409 whose `message` is the whole refusal (the env
+          // forcing the field, or a value `retentionField` would refuse), and an
+          // agent-log line for every act — there is no audit row here, the log
+          // IS the machine's record of its own decisions.
+          const result = await setLogRetention({ days: body.days, hours: body.hours });
+          if (!result.ok) {
+            // EVERY refusal, not just the 409s: there is no audit row on this
+            // surface, so "the log IS the machine's record of its own
+            // decisions" means a caller hammering the route with invalid
+            // values (a 400 each) leaves the trace it deserves — a hole in
+            // exactly the window where someone kept asking is not a record.
+            log(`pane log retention change refused (${result.status}): ${result.message}`);
+            return refuse(result.status, result.message);
+          }
+          const { days, hours, forever } = result.state;
+          log(
+            `pane log retention set to ${days.value}d ${hours.value}h${forever ? " (keep-forever)" : ""} (dashboard)`,
+          );
+          // The same `scheduled` truth as the GET, so the card's save line can
+          // promise only what a live pass can deliver.
+          return Response.json({ ...result.state, scheduled: sweepIsScheduled() });
+        },
+        {
+          // `t.Unknown` rather than `t.Number` on purpose: the validation
+          // authority is `retention-settings.ts` (the exact rule
+          // `config.ts`'s retentionField applies, raised to a refusal), so that
+          // a wrong-typed body gets the SAME field-naming sentence a wrong value
+          // gets, not a parser error two layers above the rule.
+          body: t.Object({
+            days: t.Optional(
+              t.Unknown({ description: "New days half of the window (non-negative integer; omit to leave)" }),
+            ),
+            hours: t.Optional(
+              t.Unknown({ description: "New hours half of the window (non-negative integer; omit to leave)" }),
+            ),
+          }),
+        },
+      )
+      .patch(
+        "/api/nodes/:id/config",
+        async ({ params, body }) => {
+          if (!isSelf(cfg, params.id)) return notFound();
+          try {
+            const next = await runConfigure({ server: body.serverUrl });
+            log(`configured: server url is now ${next.serverUrl} (takes effect on the next restart)`);
+            return Response.json({ serverUrl: next.serverUrl, restartRequired: true });
+          } catch (err) {
+            return refuse(409, err instanceof Error ? err.message : String(err));
+          }
+        },
+        { body: t.Object({ serverUrl: t.String({ description: "Control-plane URL to dial on the next restart" }) }) },
+      )
+      .get("/api/self/update", async () => ({
+        currentVersion: NODE_VERSION,
+        protocolVersion: NODE_PROTOCOL_VERSION,
+        // The CLI's own `--check` cannot say this about its plane and prints
+        // a pointer instead; this page IS local, so it says whether a release
+        // source exists at all and the Updates page renders that honestly.
+        releaseConfigured: releaseApiUrl() !== null,
+        debugLogging: currentDebugLogging().debug,
+        pending: await readMarker(pendingMarkerPath(cfg.dataDir)),
+        lastFailure: await readMarker(failedMarkerPath(cfg.dataDir)),
+        connected: getDaemonState().connected,
+      }))
+      .post(
+        "/api/self/update",
+        async ({ body }) => {
+          // The supervision refusal must not wait for the release source to
+          // answer: `execUpdate` would refuse the same way, but only after a
+          // network round trip, and on the FOREGROUND `subshell run` the
+          // frozen runtime report can say "unsupervised" immediately. When the
+          // report is NULL — the boot window, or a failed boot-time read —
+          // this route re-proves supervision with one manager query, and that
+          // proof then rides to `execUpdate` as well (finding 5): the null the
+          // page just disproven must not 409 the supervised node a handler
+          // later, because two sources answered one request differently.
+          const runtime = getDaemonState().runtime;
+          let proof: SupervisionProof | undefined;
+          if (runtime && !runtime.supervised) {
+            return refuse(409, serviceRefusal(NODE_RESULT_NOT_SUPERVISED));
+          }
+          if (!runtime) {
+            proof = await (opts.proveSupervision ?? proveSupervision)();
+            if (!proof.supervised) {
+              return refuse(
+                409,
+                "This node is not running under a service manager, so exiting it would stop it rather than restart it; update it with `subshell update` and restart it where it was started",
+              );
+            }
+          }
+          // One resolution pass, then `execUpdate` — the plane-commanded
+          // installer, with its pane-safety refusal, its signature
+          // re-verification, its marker and `.previous` — running the LOCAL
+          // source the CLI's `--to` uses. The offer's manifest travels base64
+          // through the frozen frame shape, which is exactly what makes this
+          // path the same code path as the plane's.
+          let offer;
+          try {
+            offer = await (opts.resolveRelease ?? resolveNodeRelease)(body.to);
+          } catch (err) {
+            // "no release source", "no asset for this host", "not reachable":
+            // the resolution failed before any trust or bytes moved, and the
+            // sentence is the actionable part.
+            return refuse(409, err instanceof Error ? err.message : String(err));
+          }
+          // "already at <v>" and "downgrade needs force" run HERE and AGAIN
+          // inside `execUpdate`, and the duplication is the design, not an
+          // accident (the comment that used to live here predated C13 and is
+          // rewritten to match the code). This layer is the USER-FACING one: it
+          // answers the card with the page's own sentence before the release
+          // bytes are trusted or ~70 MB move, and its `force` is exactly the
+          // card's "Force (allow a downgrade)" checkbox. `execUpdate`'s floor
+          // (round-3 sweep C13) is the backstop for the PLANE-commanded path,
+          // where no such route stands in front, and its `force` is the plane's
+          // command field — the node's own dashboard passes it through, which is
+          // what makes the two `force` semantics line up rather than collide.
+          // Where they are IDENTICAL: an EQUAL version is refused at both layers
+          // even under force (re-swapping ~70 MB for a byte-identical binary is
+          // not what force has ever meant here), and a downgrade passes at both
+          // only when force says so. Without the mirror here the page would
+          // silently DOWNGRADE whenever the newest published release is older
+          // than the running agent — the transient mid-publish window `cli.ts`
+          // narrates at length — and re-swap the SAME version, while the card's
+          // checkbox would gate a refusal the user could never observe being
+          // refused by anything but the executor's later sentence.
+          if (offer.version === NODE_VERSION) {
+            return refuse(409, `This node is already at subshell ${NODE_VERSION}; there is nothing to install.`);
+          }
+          if (semverLt(offer.version, NODE_VERSION) && body.force !== true) {
             return refuse(
               409,
-              "This node is not running under a service manager, so exiting it would stop it rather than restart it; update it with `subshell update` and restart it where it was started",
+              `subshell ${offer.version} is older than the running ${NODE_VERSION}; set Force to install it anyway.`,
             );
           }
-        }
-        // One resolution pass, then `execUpdate` — the plane-commanded
-        // installer, with its pane-safety refusal, its signature
-        // re-verification, its marker and `.previous` — running the LOCAL
-        // source the CLI's `--to` uses. The offer's manifest travels base64
-        // through the frozen frame shape, which is exactly what makes this
-        // path the same code path as the plane's.
-        let offer;
+          const result = await (opts.execUpdate ?? execUpdate)(updateCtx(cfg, proof), {
+            type: "update",
+            version: offer.version,
+            url: offer.url,
+            sha256: offer.sha256,
+            force: body.force,
+            manifest: offer.manifest.bytes.toString("base64"),
+            manifestSig: offer.manifest.sig,
+          });
+          if (!result.ok) return refuse(409, serviceRefusal(result.error, proof?.paneSafety));
+          // `execUpdate` already asked the daemon to exit — the daemon's
+          // requestRestart defers RESTART_EXIT_DELAY_MS so this response
+          // leaves first. Nothing here waits, and nothing here exits.
+          return Response.json({ ok: true, version: offer.version });
+        },
+        {
+          body: t.Object({
+            to: t.Optional(t.String({ description: "Specific published version to install (blank = newest release)" })),
+            force: t.Optional(t.Boolean({ description: "Allow a downgrade / proceed past the pane-safety refusal" })),
+          }),
+        },
+      )
+      .post("/api/self/update/rollback", async () => {
         try {
-          offer = await (opts.resolveRelease ?? resolveNodeRelease)(body.to);
+          // A hand-run `subshell update --rollback` resolves the binary
+          // through the real ladder; so does this. Refusing because nothing
+          // was installed is `rollbackUpdate`'s sentence, not an invention
+          // of this route.
+          const r = await (opts.rollback ?? rollbackUpdate)(cfg.dataDir);
+          // The file swap is always safe to do — the running process keeps its
+          // in-memory version until it next boots. EXITING is not. The CLI's
+          // `--rollback` never restarts for exactly this reason, and the update
+          // route three handlers up refuses to exit an unsupervised node; this
+          // path must not be the one that silently turns a rollback into a stop
+          // on a `subshell run` in a terminal (nothing would respawn it). So ask
+          // the daemon to exit only where the manager would bring it back, and
+          // otherwise report `restarted:false` — the card then tells the operator
+          // to restart it where it was started.
+          const restarted = (await isSupervisedForRestart()) ? requestDaemonRestart() : false;
+          return Response.json({ ok: true, to: r.to, restarted });
         } catch (err) {
-          // "no release source", "no asset for this host", "not reachable":
-          // the resolution failed before any trust or bytes moved, and the
-          // sentence is the actionable part.
           return refuse(409, err instanceof Error ? err.message : String(err));
         }
-        // "already at <v>" and "downgrade needs force" live HERE, in the
-        // caller — they are the CLI `update` verb's checks, NOT `applyUpdate`'s
-        // or `execUpdate`'s (the executors enforce supervision + pane-safety and
-        // verify the signature, but never compare versions). Without this
-        // mirror the page would silently DOWNGRADE whenever the newest published
-        // release is older than the running agent — the transient mid-publish
-        // window `cli.ts` narrates at length — and re-swap ~70 MB for the SAME
-        // version, while the card's "Force (allow a downgrade)" checkbox would
-        // gate a refusal that never fires. The two checks and their order are
-        // the CLI's, restated here so the two callers cannot drift.
-        if (offer.version === NODE_VERSION) {
-          return refuse(409, `This node is already at subshell ${NODE_VERSION}; there is nothing to install.`);
-        }
-        if (semverLt(offer.version, NODE_VERSION) && body.force !== true) {
-          return refuse(
-            409,
-            `subshell ${offer.version} is older than the running ${NODE_VERSION}; set Force to install it anyway.`,
-          );
-        }
-        const result = await execUpdate(updateCtx(cfg), {
-          type: "update",
-          version: offer.version,
-          url: offer.url,
-          sha256: offer.sha256,
-          force: body.force,
-          manifest: offer.manifest.bytes.toString("base64"),
-          manifestSig: offer.manifest.sig,
-        });
-        if (!result.ok) return refuse(409, serviceRefusal(result.error));
-        // `execUpdate` already asked the daemon to exit — the daemon's
-        // requestRestart defers RESTART_EXIT_DELAY_MS so this response
-        // leaves first. Nothing here waits, and nothing here exits.
-        return Response.json({ ok: true, version: offer.version });
-      },
-      {
-        body: t.Object({
-          to: t.Optional(t.String({ description: "Specific published version to install (blank = newest release)" })),
-          force: t.Optional(t.Boolean({ description: "Allow a downgrade / proceed past the pane-safety refusal" })),
-        }),
-      },
-    )
-    .post("/api/self/update/rollback", async () => {
-      try {
-        // A hand-run `subshell update --rollback` resolves the binary
-        // through the real ladder; so does this. Refusing because nothing
-        // was installed is `rollbackUpdate`'s sentence, not an invention
-        // of this route.
-        const r = await (opts.rollback ?? rollbackUpdate)(cfg.dataDir);
-        // The file swap is always safe to do — the running process keeps its
-        // in-memory version until it next boots. EXITING is not. The CLI's
-        // `--rollback` never restarts for exactly this reason, and the update
-        // route three handlers up refuses to exit an unsupervised node; this
-        // path must not be the one that silently turns a rollback into a stop
-        // on a `subshell run` in a terminal (nothing would respawn it). So ask
-        // the daemon to exit only where the manager would bring it back, and
-        // otherwise report `restarted:false` — the card then tells the operator
-        // to restart it where it was started.
-        const restarted = (await isSupervisedForRestart()) ? requestDaemonRestart() : false;
-        return Response.json({ ok: true, to: r.to, restarted });
-      } catch (err) {
-        return refuse(409, err instanceof Error ? err.message : String(err));
-      }
-    });
+      })
+  );
 }

@@ -5,7 +5,7 @@ description: Restart, service controls, logs and config for an enrolled node —
 
 Most nodes are headless: a mini in a closet, a box on your tailnet, a cloud instance you only ever SSH into — or never. The node's page in the browser is therefore the only place left to ask about the machine: drive its service, read its log, flip its debug logging, or point it at a different control plane. These are not one permission, so this page names the gate on each verb rather than letting you assume.
 
-What follows is about **enrolled nodes**. The control plane's own machine (the row named **Server**) refuses every one of these controls: it is the same host as the plane, and its service is managed from [Server Settings → Service](/server/service) instead.
+What follows is about **enrolled nodes**. The control plane's own machine (the row named **Server**) refuses every one of these controls: it is the same host as the plane, and its service is managed from [Server Settings → Service](/server/service) instead. And none of it reaches a node whose owner account has been **disabled**: the machine is disconnected the moment the account is disabled and refused at the door until it is re-enabled, so until then it simply shows offline ([Users and roles](/server/users-roles)).
 
 ## The service controls
 
@@ -28,6 +28,19 @@ The **runtime report** on the node's page — how the node is supervised, where 
 **Logs** serves a slice of the node's own log file — bounded, self-replacing, and written by the node precisely so a browser can read a headless machine's output. Owner or edit, same gate as the service card. It records launches and their failures, command refusals, and connection problems. It never records pane content, and never command arguments — which is what keeps a log read from becoming a credential read, since a launch's arguments carry the subshell's bearer token.
 
 **Debug logging** on a node is a switch on the same page: owner or edit. It is not owner-only because it is reversible and narrow — it changes what the machine writes to its own bounded file, and the same call turns it back. One refusal: if the operator set `SUBSHELL_DEBUG_LOGGING` in the node's environment, the environment wins and the page refuses to write a setting the next boot would mask. (It currently reveals little: the node's debug vocabulary is still thin. The mechanism exists ahead of the lines.)
+
+## How long pane logs live
+
+Every pane's transcript — everything typed at that terminal, pasted tokens included — is streamed to a log file under the node's own data dir. The plane commands its deletion when you delete a subshell, but a node that was **offline** for that delete keeps the transcript on its own disk. So the node ages them out itself: a pass at boot and an hourly pass after it delete the logs of subshells that are no longer running. A **running** pane's log is never swept — it is what a browser replays from — and a liveness probe that cannot answer counts the pane running, because a sweep deletes.
+
+The window belongs to the machine the files sit on, so the control plane has no toggle for it. The node's own loopback dashboard does: run the agent on the machine, open `http://127.0.0.1:3090`, and edit **Pane log retention** under Settings. A save writes the same `config.json` fields a hand-edit would, and the next hourly sweep uses them, so no restart is involved. Two honest limits: a node that booted with `0` days and `0` hours scheduled no sweep at all, so *leaving* keep-forever does take a restart; and a variable set in the node's environment wins over every write, so the page shows that variable and refuses to change the field it forces, exactly as the debug-logging switch does. Below the dashboard, the same two settings can be written by hand or by the environment:
+
+| Setting | Default | Effect |
+|---|---|---|
+| `SUBSHELL_LOG_RETENTION_DAYS` / `logRetentionDays` in `config.json` | `1` | Days a non-running log survives. |
+| `SUBSHELL_LOG_RETENTION_HOURS` / `logRetentionHours` in `config.json` | `0` | The hours half: a log goes once older than `days × 24h + hours`. |
+
+`0` days and `0` hours **together** keep everything forever. The one-day default is deliberately shorter than the server's own 30-day window: a node is not where typed transcripts should accrete.
 
 ## Repointing at a different control plane
 

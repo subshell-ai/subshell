@@ -19,6 +19,7 @@ import { detectOnNodeBestEffort, readAgentInventory } from "./inventory.js";
 import { LOG_TAIL_BYTES, tailLinesFromWindowText } from "./log-tail.js";
 import { subscribeOutput } from "./node-events.js";
 import type { LaunchPlan, NodeLauncher } from "./node-launcher.js";
+import { assertNodePathId } from "./node-path-id.js";
 import { getLive, type NodeFacts } from "./node-registry.js";
 import { DEFAULT_COMMAND_TIMEOUT_MS, NodeRpcError, sendCommand } from "./node-rpc.js";
 
@@ -492,9 +493,13 @@ export class RemoteLauncher implements NodeLauncher {
    * The pane log's path ON THE NODE (`<nodeDataDir>/subshells/<id>.log`,
    * spec §6.4) — composed from the `ready` facts, no round-trip. Throws
    * {@link NoLiveConnectionError} when the node has no live `ready` (sync
-   * member; there is no honest path to answer without facts).
+   * member; there is no honest path to answer without facts). A
+   * non-conforming id throws FIRST ({@link assertNodePathId}) even offline —
+   * the invariant is about the id, and it must never be laundered into the
+   * offline 409 the sentinel maps to.
    */
   logPath(id: string): string {
+    assertNodePathId(id);
     return factsPath(this.#requireFacts(), `subshells/${id}.log`);
   }
 
@@ -512,6 +517,7 @@ export class RemoteLauncher implements NodeLauncher {
    * {@link logPath}).
    */
   metaArtifactPath(id: string): string {
+    assertNodePathId(id);
     return factsPath(this.#requireFacts(), `subshells/${id}.meta.json`);
   }
 
@@ -526,6 +532,7 @@ export class RemoteLauncher implements NodeLauncher {
    * shape as {@link logPath}).
    */
   mcpArtifactPath(id: string): string {
+    assertNodePathId(id);
     return factsPath(this.#requireFacts(), `mcp/${id}.json`);
   }
 
@@ -535,6 +542,8 @@ export class RemoteLauncher implements NodeLauncher {
    * pushed them (spec §6.4). Empty when the node has no live `ready` facts:
    * no facts, no layout to name paths from, and the artifacts age out with
    * the node — the same offline skip every pre-seam path made individually.
+   * The id guard rides through the three composed paths, so there is no
+   * fourth interpolation to forget.
    */
   subshellArtifacts(id: string): string[] {
     if (!this.#facts()) return [];

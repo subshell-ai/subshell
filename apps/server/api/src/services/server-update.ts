@@ -6,7 +6,9 @@
  * **It is the CLI's steps 5–7 and then `performRestart()`.** `commands/update.ts`
  * owns the ten-step verb, and nine of those steps are refusals an HTTP route
  * expresses as 409s instead — so what is shared is the irreversible middle:
- * download-and-verify, chmod, probe, back up, `beginUpdate`, two renames. The
+ * download-and-verify, chmod, probe, back up, `beginUpdate`, and the
+ * link-then-single-rename swap (`keepPreviousBinary` + one `rename`, which
+ * never moves the live path out from under the service definition). The
  * tail differs for one structural reason: the CLI asks the service manager to
  * restart a process it is not, while this code IS the process, so it exits the
  * way `POST /api/admin/server/restart` does and lets the manager respawn it.
@@ -15,9 +17,17 @@
  *
  * **The job is a module-level singleton and deliberately not a queue.** There
  * is exactly one binary to replace on this host, so a second concurrent start
- * is a mistake rather than work to schedule: the route refuses it with
+ * is a mistake rather than work to schedule. The route pre-checks with
  * `UPDATE_IN_PROGRESS`, and `beginUpdate` refuses it again from the marker on
- * disk, which is what also covers a CLI update started in a terminal.
+ * disk — which is what also covers a CLI update started in a terminal. The
+ * pre-check alone was NOT the gate: it sits before the release lookup and the
+ * audit, both of which await, so two concurrent POSTs both passed it and both
+ * reached `start()` (round-3 sweep C4 — they then shared one
+ * `<name>.download-<pid>` temp file, and the loser's cleanup unlinked the
+ * winner's bytes mid-flight). {@link tryClaimServerUpdate} is the actual
+ * lock: one synchronous check-and-set, and the route calls it — through the
+ * seam, so tests exercise the same claim a live server takes — with no await
+ * between the claim and handing work to {@link startServerUpdate}.
  *
  * **A failed job stays visible until the next start.** It is the only record
  * of a failure BEFORE the swap — a failure after it writes `failed.json` at
@@ -46,6 +56,7 @@ import {
   beginUpdate,
   clearPending,
   type FailedUpdate,
+  keepPreviousBinary,
   readFailed,
   readPending,
 } from "@/services/update-transaction.js";
@@ -101,6 +112,40 @@ export function resetUpdateJobForTests(): void {
   job = null;
 }
 
+/**
+ * Take the one slot, synchronously — the update lock (round-3 sweep C4).
+ *
+ * A check and a set with nothing between them, which is the whole point: the
+ * route's earlier `UPDATE_IN_PROGRESS` refusal reads the same two facts, but
+ * it sits before awaits (the release lookup, the audit) that let a second
+ * request sail past it. This is what makes "an update is already running"
+ * true of the moment a POST is accepted, not of the moment one happens to be
+ * observed.
+ *
+ * It re-reads the on-disk marker as well as the in-process job: a
+ * `subshell-server update` started in a terminal between the route's pre-check
+ * and this claim must be refused here, exactly as the pre-check would have
+ * refused it had it landed earlier.
+ *
+ * @param to - the version being installed; fills the job the view renders
+ *   while the download runs.
+ * @returns whether the slot was taken — `false` means the caller owes the
+ *   request the `UPDATE_IN_PROGRESS` refusal.
+ */
+export function tryClaimServerUpdate(to: string): boolean {
+  if (readPending() !== null || updateJobRunning()) return false;
+  job = {
+    from: SERVER_VERSION,
+    to,
+    startedAt: new Date().toISOString(),
+    phase: "downloading",
+    received: 0,
+    total: null,
+    error: null,
+  };
+  return true;
+}
+
 /** What {@link startServerUpdate} touches outside itself; every one injectable for tests. */
 export interface ServerUpdateJobDeps {
   /** Snapshot the database (default: {@link backupDatabase} over the configured one). */
@@ -113,6 +158,13 @@ export interface ServerUpdateJobDeps {
   chmod?: (path: string, mode: number) => void;
   /** Move a file (default: `renameSync`). */
   rename?: (from: string, to: string) => void;
+  /**
+   * Keep the RUNNING binary at `<binary>.previous` without moving the live
+   * path (default: {@link keepPreviousBinary} — hardlink, copy+fsync where
+   * links are refused). The swap is this plus ONE rename onto the live path;
+   * a throwing seam is how a test opens the crash window between them.
+   */
+  keepPrevious?: (binary: string) => string;
   /** Remove a file (default: `rmSync … force`). */
   remove?: (path: string) => void;
 }
@@ -136,6 +188,9 @@ function probeInstalledVersion(file: string): string | null {
 /**
  * Start the in-process update. Returns immediately; the caller has already
  * answered 202 and the page polls {@link currentUpdateJob} through the view.
+ * Call only after {@link tryClaimServerUpdate} has returned true — the claim
+ * is the lock, this is the work, and calling it unclaimed would overwrite a
+ * running job.
  *
  * Every refusal this could raise has already been evaluated by the route
  * (§4.5), so what is left here is the work and the failures only a running
@@ -175,6 +230,7 @@ async function runJob(
   const chmod = deps.chmod ?? ((path: string, mode: number) => chmodSync(path, mode));
   const rename = deps.rename ?? ((from: string, to: string) => renameSync(from, to));
   const remove = deps.remove ?? ((path: string) => rmSync(path, { force: true }));
+  const keepPrevious = deps.keepPrevious ?? keepPreviousBinary;
   const { release, binary } = input;
   const binaryDir = dirname(binary);
 
@@ -241,8 +297,18 @@ async function runJob(
     return;
   }
 
-  // 7. The transaction. From `beginUpdate` to the second rename is the only
-  //    stretch in which this host is not in the state it started in.
+  // 7. The transaction. From `beginUpdate` to the swap rename is the only
+  //    stretch in which this host is not in the state it started in — and the
+  //    swap no longer moves the live path (round-3 sweep C5): `.previous` is
+  //    made a second name for the RUNNING binary first, then ONE rename lands
+  //    the new bytes onto `binary`, over the image this process is running
+  //    (measured safe, spec §12.2). The old shape — rename aside, rename in —
+  //    left a window where the path the unit names held NOTHING, and the
+  //    boot-revert lives inside the missing binary: a kill or power loss in
+  //    that gap meant a hand at a keyboard, on machines deliberately headless.
+  //    A crash between the two operations NOW leaves the old binary at
+  //    ExecStart — bootable — and the next boot's marker-vs-version mismatch
+  //    converges it to a recorded failure (`recordFailure`, index.ts).
   if (job !== null) job = { ...job, phase: "swapping" };
   const previousBinary = `${binary}.previous`;
   try {
@@ -262,23 +328,22 @@ async function runJob(
     return;
   }
   try {
-    rename(binary, previousBinary);
+    keepPrevious(binary);
   } catch (error) {
+    // Nothing of the live path was touched; the marker was the only change.
     clearPending();
     remove(tmp);
-    fail(`could not move ${binary} aside: ${error instanceof Error ? error.message : String(error)}`);
+    fail(`could not keep a rollback copy of ${binary}: ${error instanceof Error ? error.message : String(error)}`);
     return;
   }
   try {
     rename(tmp, binary);
   } catch (error) {
-    // Between the two renames is the only window where this host has no
-    // binary at all. Put it back before answering anything else.
-    try {
-      rename(previousBinary, binary);
-    } catch {
-      // Both failed: the marker names `.previous` for a hand repair.
-    }
+    // The old binary is still exactly where the service definition points it
+    // — this is the difference from the old shape, where failing HERE meant
+    // reaching into `.previous` by hand. Drop the marker and the kept copy;
+    // the host stands where it started.
+    remove(previousBinary);
     clearPending();
     remove(tmp);
     fail(`could not install ${binary}: ${error instanceof Error ? error.message : String(error)}`);

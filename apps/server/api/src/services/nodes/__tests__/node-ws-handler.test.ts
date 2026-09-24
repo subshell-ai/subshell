@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import {
   MIN_NODE_VERSION,
   NODE_CLOSE_SUPERSEDED,
@@ -8,19 +8,26 @@ import {
   type NodeEvent,
 } from "@internal/subshell-protocol";
 import { HttpError } from "@/api/auth-guard.js";
-import type { NodeReadyReport } from "@/db/repositories/nodes.repository.js";
+import { db } from "@/db/index.js";
+import { runMigrations } from "@/db/migrate.js";
+import { type NodeReadyReport, NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { NodeKind, NodeTable } from "@/db/types/nodes.db-types.js";
+import { subscribeLive } from "@/services/live-bus.js";
 import { resetInputHoldsForTests } from "@/ws/input-hold.js";
 import { resetInputWindowsForTests } from "@/ws/input-window.js";
 import { handleSubshellMessage } from "@/ws/subshell-ws.js";
 import { resetNodeEventsForTests, setNodeLifecycleHooks } from "../node-events.js";
 import {
+  attachConnection,
+  disconnectNode,
   getHeld,
   getLive,
   isNodeOffline,
   listHeld,
   listOnline,
   type NodeConnection,
+  OWNER_DISABLED_CLOSE_CODE,
   resetNodeRegistryForTests,
 } from "../node-registry.js";
 import { NodeRpcError } from "../node-rpc.js";
@@ -36,6 +43,16 @@ import {
 } from "../node-ws-handler.js";
 
 /* ---------------------------- fakes ----------------------------- */
+
+/**
+ * `handleNodeOpen` grew the post-attach re-ask (the disable race — pinned in
+ * its own describe below), so it now takes the account seam. Call sites that
+ * invoke `open` only for its SYNCHRONOUS half — the `attachConnection` and
+ * the stashed `ws.data.nodeConn` — use this seam: it answers "enabled", and
+ * their fakes carry no stashed `ownerUserId`, so the re-ask is skipped and
+ * the attach behaves exactly as it did before the race closed.
+ */
+const OPEN_DEPS: Pick<NodeWsDeps, "accountDisabled"> = { accountDisabled: async () => false };
 
 /** Scripted socket: records sends and closes, carries `data` like ElysiaWS. */
 interface FakeNodeSocket extends NodeWsSocket {
@@ -67,6 +84,10 @@ interface Harness {
   bindings: Map<string, string | null>;
   /** node id → row `kind` (absent = "agent") */
   kinds: Map<string, NodeKind>;
+  /** node id → owner user id on the fake row (absent = "u-owner") */
+  owners: Map<string, string>;
+  /** user ids `deps.accountDisabled` answers disabled for */
+  disabledOwners: Set<string>;
   ready: { id: string; report: NodeReadyReport }[];
   inventories: { id: string; json: string }[];
   touched: string[];
@@ -86,6 +107,8 @@ function makeHarness(): Harness {
     keys: new Map(),
     bindings: new Map(),
     kinds: new Map(),
+    owners: new Map(),
+    disabledOwners: new Set(),
     ready: [],
     inventories: [],
     touched: [],
@@ -97,10 +120,16 @@ function makeHarness(): Harness {
   } as unknown as Harness;
   h.deps = {
     verifyApiKey: async (rawKey) => h.keys.get(rawKey) ?? null,
+    accountDisabled: async (userId) => h.disabledOwners.has(userId),
     nodes: {
       findById: async (id) =>
         h.bindings.has(id)
-          ? ({ id, apiKeyId: h.bindings.get(id) ?? null, kind: h.kinds.get(id) ?? "agent" } as unknown as NodeTable)
+          ? ({
+              id,
+              apiKeyId: h.bindings.get(id) ?? null,
+              kind: h.kinds.get(id) ?? "agent",
+              ownerUserId: h.owners.get(id) ?? "u-owner",
+            } as unknown as NodeTable)
           : undefined,
       applyReady: async (id, report) => {
         h.ready.push({ id, report });
@@ -176,13 +205,41 @@ describe("authenticateNodeUpgrade (spec §5.3 pre-socket tier)", () => {
   it("refuses 403: fully linked node key aimed at the LOCAL node row (it never dials in)", async () => {
     // A rotated local key (admin-only mint surface) must not impersonate the
     // control-plane host over /ws/node and overwrite its facts via ready.
+    // The owner of the seeded `local` row is the system service user — and
+    // the kind refusal must land BEFORE the owner check, so even answering
+    // "disabled" for that owner leaves the LOCAL refusal as the one seen.
     const h = makeHarness();
     h.keys.set("local", { id: "k-local", metadata: { kind: "node", nodeId: "local" } });
     h.bindings.set("local", "k-local"); // key↔row link is CORRECT — only `kind` refuses
     h.kinds.set("local", "local");
+    h.disabledOwners.add("u-owner"); // what the fake row names as local's owner
     await expect(authenticateNodeUpgrade(h.deps, "Bearer local")).rejects.toMatchObject({
       status: 403,
       message: "The local node cannot connect over /ws/node",
+    });
+  });
+
+  it("refuses 403 when the node's owner account is disabled (ruling 2026-09-24)", async () => {
+    // The key is fully live — rotate and delete own that tier — so the
+    // ACCOUNT is the gate: a disabled person's enrolled nodes are offline,
+    // and stay so until re-enabled.
+    const h = makeHarness();
+    h.keys.set("good", { id: "k1", metadata: { kind: "node", nodeId: "n1" } });
+    h.bindings.set("n1", "k1");
+    h.owners.set("n1", "u-bob");
+    h.disabledOwners.add("u-bob");
+    await expect(authenticateNodeUpgrade(h.deps, "Bearer good")).rejects.toMatchObject({
+      status: 403,
+      message: "The node's owner account is disabled",
+    });
+
+    // Re-enabling is the whole recovery: the agent's backoff loop re-dials on
+    // its own, and the next attempt lands. No second act on the key.
+    h.disabledOwners.delete("u-bob");
+    await expect(authenticateNodeUpgrade(h.deps, "Bearer good")).resolves.toEqual({
+      nodeId: "n1",
+      apiKeyId: "k1",
+      ownerUserId: "u-bob",
     });
   });
 
@@ -190,7 +247,11 @@ describe("authenticateNodeUpgrade (spec §5.3 pre-socket tier)", () => {
     const h = makeHarness();
     h.keys.set("good", { id: "k1", metadata: { kind: "node", nodeId: "n1" } });
     h.bindings.set("n1", "k1");
-    await expect(authenticateNodeUpgrade(h.deps, "Bearer good")).resolves.toEqual({ nodeId: "n1", apiKeyId: "k1" });
+    await expect(authenticateNodeUpgrade(h.deps, "Bearer good")).resolves.toEqual({
+      nodeId: "n1",
+      apiKeyId: "k1",
+      ownerUserId: "u-owner",
+    });
   });
 });
 
@@ -201,35 +262,274 @@ describe("handleNodeOpen", () => {
     resetNodeRegistryForTests();
   });
 
-  it("attaches the authenticated socket to the registry", () => {
+  it("attaches the authenticated socket to the registry", async () => {
+    const h = makeHarness();
     const ws = fakeSocket("n1");
-    handleNodeOpen(ws);
+    await handleNodeOpen(h.deps, ws);
     expect(getLive("n1")?.ws).toBe(ws);
     expect(ws.data.nodeConn).toBe(getLive("n1"));
     // Open does NOT write — status flips online only with `ready`.
     expect(ws.closed).toHaveLength(0);
   });
 
-  it("closes 4401 when no identity was stashed (never-authenticated socket)", () => {
+  it("closes 4401 when no identity was stashed (never-authenticated socket)", async () => {
+    const h = makeHarness();
     const ws = fakeSocket();
-    handleNodeOpen(ws);
+    await handleNodeOpen(h.deps, ws);
     expect(ws.closed).toEqual([{ code: NODE_CLOSE_UNAUTHENTICATED, reason: expect.any(String) }]);
     expect(getLive("n1")).toBeUndefined();
   });
 
-  it("second attach supersedes the first with 4409 (registry semantics)", () => {
+  it("second attach supersedes the first with 4409 (registry semantics)", async () => {
+    const h = makeHarness();
     const first = fakeSocket("n1");
-    handleNodeOpen(first);
+    await handleNodeOpen(h.deps, first);
     const second = fakeSocket("n1");
-    handleNodeOpen(second);
+    await handleNodeOpen(h.deps, second);
     expect(first.closed.map((c) => c.code)).toEqual([4409]);
     expect(getLive("n1")?.ws).toBe(second);
+  });
+
+  /**
+   * FINDING: check-then-attach is inherently racy. The upgrade hook asks
+   * `accountDisabled`, the disable route commits its flag and runs its sweep
+   * (finding no live socket to close — this one has not attached yet), and
+   * THEN `open` lands its `attachConnection`. Without a second ask after the
+   * attach, that socket would stay online until the agent's own connection
+   * happened to drop. The post-attach re-check closes the window: a disable
+   * that beats the attach is caught by the sweep, one that lands inside it is
+   * caught here.
+   */
+  it("a disable landing between the upgrade check and the attach evicts the socket", async () => {
+    const h = makeHarness();
+    h.keys.set("good", { id: "k1", metadata: { kind: "node", nodeId: "n1" } });
+    h.bindings.set("n1", "k1");
+    // The upgrade chain passes — the owner is enabled at check time. Its
+    // stashed identity carries the owner id precisely so `open` can re-ask.
+    const identity = await authenticateNodeUpgrade(h.deps, "Bearer good");
+    expect(identity.ownerUserId).toBe("u-owner");
+
+    // The disable commits, and its sweep runs — there is no socket yet.
+    h.disabledOwners.add("u-owner");
+
+    const ws = fakeSocket("n1");
+    Object.assign(ws.data, identity);
+    await handleNodeOpen(h.deps, ws);
+    expect(ws.closed).toEqual([{ code: OWNER_DISABLED_CLOSE_CODE, reason: "the node's owner account is disabled" }]);
+    // Evicted from the live registry, not merely closed — the sweep's own
+    // contract (capture-then-evict-then-drain) applied by the same helper.
+    expect(getLive("n1")).toBeUndefined();
+  });
+
+  it("an enabled owner answers the re-ask and the socket stays", async () => {
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    ws.data.ownerUserId = "u-owner";
+    await handleNodeOpen(h.deps, ws);
+    expect(ws.closed).toHaveLength(0);
+    expect(getLive("n1")?.ws).toBe(ws);
+  });
+
+  it("an owner-less identity (a fake that skipped the upgrade stash) attaches without a re-ask", async () => {
+    // The re-ask exists for the stashed-upgrade path; a socket whose `data`
+    // names no owner is nothing the disable rule can answer about, and open
+    // must not invent a row read to find one.
+    let asked = 0;
+    const _h = makeHarness();
+    const ws = fakeSocket("n1");
+    await handleNodeOpen(
+      {
+        accountDisabled: async () => {
+          asked += 1;
+          return false;
+        },
+      },
+      ws,
+    );
+    expect(asked).toBe(0);
+    expect(ws.closed).toHaveLength(0);
+    expect(getLive("n1")?.ws).toBe(ws);
+  });
+});
+
+/* -------------- eviction projection (the disconnectNode seam) ------------ */
+
+describe("forced-eviction projection", () => {
+  // The seam these cases drive is REAL — `disconnectNode` projects through
+  // `node-presence-announce` straight onto the shared handle, which is the
+  // point — so this describe is the file's one deliberate database guest:
+  // migrations run here, and rows are created and dropped per case.
+  beforeAll(async () => {
+    await runMigrations();
+  });
+  beforeEach(() => {
+    resetNodeRegistryForTests();
+  });
+  afterAll(() => {
+    resetNodeRegistryForTests();
+  });
+
+  const mkNode = async (): Promise<string> => {
+    const id = `evict-node-${crypto.randomUUID()}`;
+    await new NodesRepository(db).create({ id, ownerUserId: "u-evict", name: id, kind: "agent", status: "online" });
+    return id;
+  };
+
+  it("handleNodeOpen's post-attach eviction projects the row offline and announces its panes", async () => {
+    // The race-closing eviction above used to close + evict ONLY: the row is
+    // usually pre-`ready` and reads offline, so nothing LOOKED wrong — but a
+    // node row can already read online from an EARLIER session's `ready`
+    // while a fresh socket is mid-handshake, and then the sweep-missed
+    // socket's eviction has a projection to correct after all. The seam
+    // projects for every eviction, which makes that case hold.
+    const id = await mkNode();
+    const pane = await new SubshellsRepository(db).create({
+      id: `evict-pane-${crypto.randomUUID()}`,
+      userId: "u-evict",
+      presetId: "p",
+      harnessId: "shell",
+      name: "evict-pane",
+      workingDir: "/tmp",
+      tmuxSocket: null,
+      nodeId: id,
+      status: "running",
+    });
+    const changed: string[] = [];
+    const off = subscribeLive((e) => {
+      if (e.kind === "subshell.changed") changed.push(e.id);
+    });
+    try {
+      const h = makeHarness();
+      h.disabledOwners.add("u-owner");
+      const ws = fakeSocket(id);
+      ws.data.ownerUserId = "u-owner";
+      await handleNodeOpen(h.deps, ws);
+      expect(ws.closed).toEqual([{ code: OWNER_DISABLED_CLOSE_CODE, reason: "the node's owner account is disabled" }]);
+      expect(getLive(id)).toBeUndefined();
+      // Awaited through `handleNodeOpen` by the seam: the write landed with
+      // the call, not on a later sweep.
+      expect((await new NodesRepository(db).findById(id))?.status).toBe("offline");
+      await new Promise((r) => setTimeout(r, 20));
+      expect(changed).toContain(pane.id);
+      // And ONLY the seam projected: the handler injected nothing into its
+      // own (fake) repo, so a second projection path there would double-fire.
+      expect(h.statuses).toEqual([]);
+    } finally {
+      off();
+      await db.deleteFrom("subshells").where("id", "=", pane.id).execute();
+      await db.deleteFrom("nodes").where("id", "=", id).execute();
+    }
+  });
+
+  it("an applyReady whose UPDATE lands after a forced eviction converges the row back to offline", async () => {
+    // The C14 probe gates the frame when it STARTS; the race lives in the
+    // await after it. A `disconnectNode` (rotate, delete, disable) can land
+    // while this frame's applyReady UPDATE is in flight: the seam detaches
+    // and projects `offline`, and the already-issued write lands `online` on
+    // top of it — the row then reads online with no socket until the stale
+    // sweep catches it ~45 s later. The gate is pinned here with a deferred
+    // write against the REAL registry and the REAL projection seam: the
+    // eviction completes fully before the UPDATE is allowed to land, so the
+    // bad end-state is a certainty at that point, not a scheduling accident.
+    const id = await mkNode();
+    const repo = new NodesRepository(db);
+    await repo.setStatus(id, "offline");
+    const h = makeHarness();
+    let releaseWrite!: () => void;
+    const writeGate = new Promise<void>((r) => (releaseWrite = r));
+    let writeStarted!: () => void;
+    const started = new Promise<void>((r) => (writeStarted = r));
+    h.deps.nodes.applyReady = async (nodeId, report) => {
+      h.ready.push({ id: nodeId, report });
+      writeStarted();
+      await writeGate; // the UPDATE is "in flight" from here…
+      return repo.applyReady(nodeId, report); // …until the gate opens
+    };
+    const ws = fakeSocket(id);
+    await handleNodeOpen(OPEN_DEPS, ws);
+    const frame = handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame()));
+    await started;
+    // Eviction completes while the write is still in flight.
+    await expect(disconnectNode(id)).resolves.toBe(true);
+    expect((await repo.findById(id))?.status).toBe("offline");
+    // Land the stale UPDATE over it, then let the frame finish.
+    releaseWrite();
+    await frame;
+    // The row ends offline: the handler's post-write identity probe saw its
+    // own record gone and re-projected through the same seam (`h.statuses`
+    // empty proves the fake repo was not asked — the projection is real).
+    expect((await repo.findById(id))?.status).toBe("offline");
+    expect(h.statuses).toEqual([]);
+    await db.deleteFrom("nodes").where("id", "=", id).execute();
+  });
+
+  it("a late frame on a SUPERSEDED socket does not project the live replacement offline", async () => {
+    // The convergence is directional. Gone means the eviction deserves the
+    // last word; replaced means a NEWER socket is live and `online` is that
+    // machine's honest state — projecting over it would strand a healthy
+    // node offline until its next reconnect, the same row/registry
+    // divergence wearing the other coat. Assert both halves of "the stale
+    // frame does nothing to the replacement": no projection, and no machine
+    // facts written onto the newer connection.
+    const id = await mkNode();
+    const repo = new NodesRepository(db);
+    await repo.setStatus(id, "online");
+    const h = makeHarness();
+    const stale = fakeSocket(id);
+    await handleNodeOpen(OPEN_DEPS, stale);
+    const staleConn = getLive(id)!;
+    const frame = handleNodeMessage(h.deps, stale, JSON.stringify(readyFrame()));
+    // Re-dial mid-frame: newest-wins replaces the record (and closes the
+    // stale socket with 4409).
+    const replacement = fakeSocket();
+    attachConnection(id, replacement);
+    await frame;
+    expect((await repo.findById(id))?.status).toBe("online");
+    expect(h.statuses).toEqual([]);
+    expect(getLive(id)!.agent).toBeUndefined();
+    // The stale record was superseded (newest-wins closed its socket); the
+    // replacement's record is untouched by the stale frame.
+    expect(stale.closed[0]?.code).toBe(NODE_CLOSE_SUPERSEDED);
+    expect(staleConn.agent).toBeUndefined();
+    await db.deleteFrom("nodes").where("id", "=", id).execute();
+  });
+
+  it("the close event that lands AFTER a forced disconnect does not project again", async () => {
+    // The eviction detaches before the socket's close lands, so the close
+    // handler's identity guard correctly skips — the same guard that
+    // defuses the re-attach race, now also what keeps a forced eviction's
+    // projection single. Assert it directly: force-disconnect (seam writes
+    // offline), restore the row to online by hand, deliver the late close,
+    // and NOTHING touches the projection.
+    const id = await mkNode();
+    const sock = fakeSocket();
+    attachConnection(id, sock);
+    const conn = getLive(id)!;
+    await expect(disconnectNode(id)).resolves.toBe(true);
+    expect((await new NodesRepository(db).findById(id))?.status).toBe("offline");
+    await new NodesRepository(db).setStatus(id, "online");
+
+    const h = makeHarness();
+    const closing = fakeSocket(id);
+    closing.data.nodeConn = conn;
+    await handleNodeClose(h.deps, closing);
+    expect(h.statuses).toEqual([]);
+    expect((await new NodesRepository(db).findById(id))?.status).toBe("online");
+    await db.deleteFrom("nodes").where("id", "=", id).execute();
   });
 });
 
 /* --------------------------- message ---------------------------- */
 
 describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => {
+  // The C14 live-path identity probe reads the registry, so every case needs
+  // a clean map: an entry leaked from the `handleNodeOpen` describe above (or
+  // a prior case's `handleNodeOpen`) would make the fakes that never opened a
+  // socket look superseded-by-someone-else and drop their frames.
+  beforeEach(() => {
+    resetNodeRegistryForTests();
+  });
+
   it("ready → applyReady with the mapped report; NO inventory pull follows (Task 7)", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
@@ -299,7 +599,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
       // would be sending a command whose wire shape the two ends do not share.
       const h = makeHarness();
       const ws = fakeSocket("n1");
-      handleNodeOpen(ws);
+      handleNodeOpen(OPEN_DEPS, ws);
       await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame({ agentVersion: "0.0.1" })));
       expect(getHeld("n1")).toBeDefined();
       expect(h.detects).toEqual([]);
@@ -308,7 +608,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     it("a ready HELD on a protocol mismatch kicks nothing, and neither does its reconnect", async () => {
       const h = makeHarness();
       const ws = fakeSocket("n1");
-      handleNodeOpen(ws);
+      handleNodeOpen(OPEN_DEPS, ws);
       await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame({ protocolVersion: 999 })));
       expect(h.detects).toEqual([]);
       // The reconnect `ready` from the SAME held socket is dropped before the
@@ -460,7 +760,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     // `canResume` computes the plugin's default path for it.
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    handleNodeOpen(ws);
+    handleNodeOpen(OPEN_DEPS, ws);
     await handleNodeMessage(
       h.deps,
       ws,
@@ -478,7 +778,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
 
     const h2 = makeHarness();
     const ws2 = fakeSocket("n2");
-    handleNodeOpen(ws2);
+    handleNodeOpen(OPEN_DEPS, ws2);
     await handleNodeMessage(h2.deps, ws2, readyFrame());
     const plain = getLive("n2")?.agent;
     expect(plain).toMatchObject({ hostname: "box" });
@@ -492,7 +792,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     // the socket stays open for one command instead of being dropped.
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    handleNodeOpen(ws);
+    handleNodeOpen(OPEN_DEPS, ws);
     await handleNodeMessage(h.deps, ws, readyFrame({ protocolVersion: 999 }));
     expect(h.ready).toHaveLength(1); // persisted so the UI can say "agent too old"
     expect(ws.closed).toHaveLength(0);
@@ -512,7 +812,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     // machine no command can reach.
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    handleNodeOpen(ws);
+    handleNodeOpen(OPEN_DEPS, ws);
     await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: "0.0.1" }));
     expect(h.statuses).toEqual([{ id: "n1", status: "offline" }]);
   });
@@ -520,7 +820,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
   it("ready at the agent floor → accepted, and nothing is held", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    handleNodeOpen(ws);
+    handleNodeOpen(OPEN_DEPS, ws);
     await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: MIN_NODE_VERSION }));
     expect(ws.closed).toHaveLength(0);
     expect(getHeld("n1")).toBeUndefined();
@@ -534,7 +834,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     // reason nobody sees until they read the agent's own log.
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    handleNodeOpen(ws);
+    handleNodeOpen(OPEN_DEPS, ws);
     await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: "0.0.1" }));
     expect(ws.closed).toHaveLength(0);
     expect(getHeld("n1")).toMatchObject({ reason: "below-floor", agentVersion: "0.0.1" });
@@ -546,7 +846,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
   it("holds an agent that cannot say what version it is", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    handleNodeOpen(ws);
+    handleNodeOpen(OPEN_DEPS, ws);
     await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: "" }));
     expect(getHeld("n1")).toMatchObject({ reason: "below-floor", agentVersion: "" });
   });
@@ -560,7 +860,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
       resetNodeRegistryForTests();
       const h = makeHarness();
       const ws = fakeSocket("n1");
-      handleNodeOpen(ws);
+      handleNodeOpen(OPEN_DEPS, ws);
       await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: "99.0.0", protocolVersion }));
       expect(ws.closed).toHaveLength(0);
       expect(getHeld("n1")).toMatchObject({ reason: "protocol-mismatch", protocolVersion });
@@ -571,7 +871,6 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     // A socket that never went through `open` has nothing to put in the held
     // map. Refusing it the old way is better than leaving it attached to
     // nothing, and the reason string is the one the agent relays to its log.
-    resetNodeRegistryForTests(); // the backstop loop above leaves n1 held
     const h = makeHarness();
     const ws = fakeSocket("n1"); // deliberately NOT opened
     await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: "0.0.1" }));
@@ -588,7 +887,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     // one map probe. The `result` exception is the whole point of holding.
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    handleNodeOpen(ws);
+    handleNodeOpen(OPEN_DEPS, ws);
     await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: "0.0.1" }));
     const readyCount = h.ready.length;
 
@@ -621,12 +920,12 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     // dialing back on the new binary.
     const h = makeHarness();
     const first = fakeSocket("n1");
-    handleNodeOpen(first);
+    handleNodeOpen(OPEN_DEPS, first);
     await handleNodeMessage(h.deps, first, readyFrame({ agentVersion: "0.0.1" }));
     expect(getHeld("n1")).toBeDefined();
 
     const second = fakeSocket("n1");
-    handleNodeOpen(second);
+    handleNodeOpen(OPEN_DEPS, second);
     expect(first.closed[0]?.code).toBe(NODE_CLOSE_SUPERSEDED);
     expect(getHeld("n1")).toBeUndefined();
     await handleNodeMessage(h.deps, second, readyFrame());
@@ -636,7 +935,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
   it("releases the held entry when its socket closes", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    handleNodeOpen(ws);
+    handleNodeOpen(OPEN_DEPS, ws);
     await handleNodeMessage(h.deps, ws, readyFrame({ agentVersion: "0.0.1" }));
     expect(getHeld("n1")).toBeDefined();
     await handleNodeClose(h.deps, ws);
@@ -704,7 +1003,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
   it("result → resolveResult on the socket's OWN connection; unknown ref is a debug no-op", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    handleNodeOpen(ws); // stashes ws.data.nodeConn — the connection-scoping anchor
+    handleNodeOpen(OPEN_DEPS, ws); // stashes ws.data.nodeConn — the connection-scoping anchor
     const ev: Extract<NodeEvent, { type: "result" }> = { type: "result", ref: "jti-1", ok: true, data: { pong: true } };
     await handleNodeMessage(h.deps, ws, JSON.stringify(ev));
     // The correlator receives THIS socket's record, not some registry-wide scan.
@@ -716,12 +1015,34 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     expect(ws.closed).toHaveLength(0);
   });
 
+  it("a superseded socket cannot queue stale row writes (C14 live-path identity)", async () => {
+    // The twin of the held path's identity probe. A replacement flips the
+    // registry map immediately; the old socket's close lands whenever Elysia
+    // gets to it, and any frame already chained on THAT socket's queue would
+    // otherwise apply `ready`/`heartbeat` writes for a connection the plane
+    // has already disowned. This pins the refusal (no repo write from A), and
+    // pins that B — the current record — is untouched.
+    const h = makeHarness();
+    const first = fakeSocket("n1");
+    handleNodeOpen(OPEN_DEPS, first);
+    const second = fakeSocket("n1");
+    handleNodeOpen(OPEN_DEPS, second); // newest-wins: first is closed 4409, close not yet run
+    await handleNodeMessage(h.deps, first, JSON.stringify(readyFrame()));
+    await handleNodeMessage(h.deps, first, JSON.stringify({ type: "heartbeat", ts: "now" }));
+    expect(h.ready).toHaveLength(0);
+    expect(h.touched).toEqual([]);
+
+    // The replacement's own frames land normally.
+    await handleNodeMessage(h.deps, second, JSON.stringify(readyFrame()));
+    expect(h.ready).toHaveLength(1);
+  });
+
   it("result on a socket whose node was superseded still settles only ITS own record", async () => {
     const h = makeHarness();
     const first = fakeSocket("n1");
-    handleNodeOpen(first); // will be superseded, but its close hasn't fired
+    handleNodeOpen(OPEN_DEPS, first); // will be superseded, but its close hasn't fired
     const second = fakeSocket("n1");
-    handleNodeOpen(second); // registry now maps the fresh record
+    handleNodeOpen(OPEN_DEPS, second); // registry now maps the fresh record
     const ev: Extract<NodeEvent, { type: "result" }> = { type: "result", ref: "jti-x", ok: true };
     await handleNodeMessage(h.deps, first, JSON.stringify(ev));
     // The superseded socket's frame goes to the superseded record — the
@@ -797,7 +1118,7 @@ describe("handleNodeClose (superseded-close hygiene, spec §5.3)", () => {
   it("current socket dies → detach, offline projection", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    handleNodeOpen(ws);
+    handleNodeOpen(OPEN_DEPS, ws);
     await handleNodeClose(h.deps, ws);
     expect(h.statuses).toEqual([{ id: "n1", status: "offline" }]);
     expect(getLive("n1")).toBeUndefined();
@@ -806,7 +1127,7 @@ describe("handleNodeClose (superseded-close hygiene, spec §5.3)", () => {
   it("close fails the connection's in-flight commands as `offline`", async () => {
     const h = makeHarness();
     const ws = fakeSocket("n1");
-    handleNodeOpen(ws);
+    handleNodeOpen(OPEN_DEPS, ws);
     const conn = ws.data.nodeConn;
     if (!conn) throw new Error("open must stash the registry record on ws.data");
     let rejected: unknown;
@@ -826,7 +1147,7 @@ describe("handleNodeClose (superseded-close hygiene, spec §5.3)", () => {
   it("SUPERSEDED socket's late close: fails only ITS pendings, never evicts or offlines the node", async () => {
     const h = makeHarness();
     const first = fakeSocket("n1");
-    handleNodeOpen(first);
+    handleNodeOpen(OPEN_DEPS, first);
     const oldConn = first.data.nodeConn;
     if (!oldConn) throw new Error("open must stash the registry record on ws.data");
     let oldRejected = false;
@@ -839,7 +1160,7 @@ describe("handleNodeClose (superseded-close hygiene, spec §5.3)", () => {
     });
 
     const second = fakeSocket("n1");
-    handleNodeOpen(second); // newest-wins; the old socket was 4409'd
+    handleNodeOpen(OPEN_DEPS, second); // newest-wins; the old socket was 4409'd
     const freshConn = second.data.nodeConn;
     if (!freshConn) throw new Error("open must stash the registry record on ws.data");
     let freshRejected = false;

@@ -1,4 +1,4 @@
-import { access, chmod, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, link, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
@@ -589,6 +589,108 @@ export interface AppliedUpdate {
 }
 
 /**
+ * Make `<binary>.previous` a copy of the RUNNING agent without ever moving
+ * the live path — the node's port of the server's `keepPreviousBinary` (that
+ * module is AGPL and this package Apache, so it is copied, per the
+ * `log-file.ts` licence line). Hardlink first — the same inode gets a second
+ * name, so the unit's path still holds the bootable agent and the kept copy
+ * costs no extra bytes — falling back to a real copy where links are refused
+ * (a bind-mount edge, some FUSE volumes).
+ *
+ * The copy fallback is ATOMIC (round-3 review, finding 2): the bytes go to a
+ * sibling `.tmp-<pid>`, are synced, and ONE rename lands them on
+ * `<previous>`. A plain copy interrupted mid-write left a TRUNCATED
+ * `.previous` standing exactly where `--rollback` and the 4406 revert look
+ * for a working binary; an interrupted copy here can cost only the stray tmp
+ * name (swept on the throw path, left only by a hard crash), never an
+ * incomplete rollback target. A rollback copy that power loss eats is not a
+ * rollback copy — and neither is one that power loss truncates.
+ *
+ * @internal `seams` exists only so the copy-fallback branch is testable
+ *   without a no-link filesystem; production passes nothing.
+ */
+export async function keepPrevious(
+  binary: string,
+  seams: {
+    link?: (from: string, to: string) => Promise<void>;
+    copy?: (from: string, to: string) => Promise<void>;
+  } = {},
+): Promise<string> {
+  const previous = `${binary}.previous`;
+  // The old rename-aside overwrote a stale `.previous` implicitly; a link
+  // refuses an existing destination, so clear it first. Best-effort: a file
+  // we cannot remove is exactly the situation the link attempt will report,
+  // with the real errno.
+  await rm(previous, { force: true }).catch(() => {});
+  try {
+    await (seams.link ?? link)(binary, previous);
+    return previous;
+  } catch {
+    /* no links here — the atomic copy below */
+  }
+  const tmp = `${previous}.tmp-${process.pid}`;
+  try {
+    await (seams.copy ?? copyFile)(binary, tmp);
+    const handle = await open(tmp, "r");
+    try {
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await rename(tmp, previous);
+  } catch (err) {
+    // The refused bytes never reached `<previous>`; sweep the partial.
+    await rm(tmp, { force: true }).catch(() => {});
+    throw err;
+  }
+  return previous;
+}
+
+/**
+ * Hard bound on the rollback probe (round-3 review, finding 4), ported from
+ * the server twin's `spawnSync(..., timeout: 10_000)`. An UNBOUNDED probe is
+ * exactly the wrong bound on the 4406 auto-revert path: that path's whole
+ * contract is `exit(1)` so the service manager respawns the version that
+ * worked, and a `.previous` that never exits would hang the boot before the
+ * exit ever ran. A bounded refusal (the copy "cannot be run") is always the
+ * lesser failure: `revertAfterRefusal` records it and keeps the bootable
+ * binary in place, and the daemon goes on to exit.
+ */
+export const ROLLBACK_PROBE_TIMEOUT_MS = 10_000;
+
+/**
+ * Whether `file` answers `<file> version` with exit 0 — the rollback PROBE,
+ * the node's half of the question every install path already asks a candidate
+ * binary. A `.previous` that cannot run cannot BOOT, whatever `stat` says
+ * about being a regular file; and it certainly cannot run the revert logic a
+ * later boot would need, because that logic lives inside it.
+ *
+ * Bounded like every other probe of a stranger binary: `stdin: "ignore"` so
+ * it can block on nobody, stdout piped AND drained so a chatty binary cannot
+ * sit on a full pipe, and Bun's own spawn `timeout` so a binary that never
+ * exits answers FALSE (refuse) rather than never answering at all. Exported
+ * with an injectable `timeoutMs` so the suite can prove the bound in
+ * milliseconds; production always runs the default.
+ */
+export async function rollbackBinaryRuns(
+  file: string,
+  timeoutMs: number = ROLLBACK_PROBE_TIMEOUT_MS,
+): Promise<boolean> {
+  try {
+    const proc = Bun.spawn([file, "version"], {
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "ignore",
+      timeout: timeoutMs,
+    });
+    const [code] = await Promise.all([proc.exited, new Response(proc.stdout).text().catch(() => "")]);
+    return code === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Replace this agent's binary with `version` from `source`, and optionally
  * restart into it.
  *
@@ -602,11 +704,18 @@ export interface AppliedUpdate {
  *    artifact before it becomes the file the service manager runs.
  * 3. **Write the marker BEFORE the swap.** A crash between the marker and the
  *    rename leaves a marker naming a `.previous` that does not exist, which
- *    the revert path tolerates; a crash between the renames with no marker
- *    would leave nobody able to say what happened.
- * 4. **Two renames**, `binary → binary.previous` then `temp → binary`. A
- *    failure between them puts `.previous` back and clears the marker, because
- *    a machine with no binary at all is the one outcome nothing can recover.
+ *    the revert path tolerates; a crash around the swap with no marker would
+ *    leave nobody able to say what happened.
+ * 4. **Keep, then swap — the live path is never moved** (round-3 sweep C5,
+ *    the same shape the server's swappers now share): `.previous` is made a
+ *    second name for the RUNNING binary first ({@link keepPrevious}, hardlink
+ *    or flushed copy), then ONE rename lands the new bytes on `binary`, over
+ *    the running image. The old shape — rename aside, then rename in — had a
+ *    window where neither name held a bootable agent, and the boot-revert
+ *    lived inside the missing binary. A crash between the two operations
+ *    leaves the OLD binary at the unit's path — bootable, still dialing the
+ *    plane on the version it has always run, and the marker converges to a
+ *    recorded failure from there.
  *
  * @throws {@link UpdateRefused} for every refusal the plane maps to a 409
  */
@@ -663,14 +772,29 @@ export async function applyUpdate(input: ApplyUpdateInput): Promise<AppliedUpdat
   };
   await writeMarker(pendingMarkerPath(input.dataDir), marker);
 
-  // The two renames. Between them this machine has no agent binary at
-  // `binary`, which is the only window worth unwinding by hand.
-  await rm(previous, { force: true }).catch(() => {});
-  await rename(binary, previous);
+  // Keep, then swap. `.previous` first (a second name for the running
+  // binary), then ONE rename onto `binary` — the live path is never moved, so
+  // every crash state has a bootable agent at the unit's path. A stale
+  // `.previous` from an accepted-but-not-yet-cleaned swap is cleared by the
+  // keeper, exactly as the old rename-aside overwrote it implicitly.
+  try {
+    await keepPrevious(binary);
+  } catch (err) {
+    // Nothing of the live path was touched; the marker was the only change.
+    await rm(pendingMarkerPath(input.dataDir), { force: true }).catch(() => {});
+    await rm(temp, { force: true }).catch(() => {});
+    throw new UpdateRefused(
+      NODE_RESULT_DOWNLOAD_FAILED,
+      `could not keep a rollback copy of ${binary}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   try {
     await rename(temp, binary);
   } catch (err) {
-    await rename(previous, binary).catch(() => {});
+    // The old binary is still exactly where the service definition points it.
+    // Drop the marker, the kept name and the temp; the host stands where it
+    // started — which the old shape could not say after its second failure.
+    await rm(previous, { force: true }).catch(() => {});
     await rm(pendingMarkerPath(input.dataDir), { force: true }).catch(() => {});
     await rm(temp, { force: true }).catch(() => {});
     throw new UpdateRefused(
@@ -720,9 +844,19 @@ export async function applyUpdate(input: ApplyUpdateInput): Promise<AppliedUpdat
  * ordinary "your node is too old" case and swapping files there would be
  * inventing a rollback for an update that never happened.
  *
+ * A PRESENT-but-unrunnable `.previous` is not swapped back either: see the
+ * probe's comment for the decision on the automatic path and its reasoning.
+ * The operator's `subshell update --rollback` REFUSES outright in the same
+ * case — there is a human, and refusing costs nothing.
+ *
  * @returns the failure it recorded, or null when there was nothing to revert
  */
-export async function revertAfterRefusal(dataDir: string, reason: string): Promise<UpdateFailure | null> {
+export async function revertAfterRefusal(
+  dataDir: string,
+  reason: string,
+  /** Rollback probe (default: {@link rollbackBinaryRuns}). @internal seam for tests. */
+  probe: (file: string) => Promise<boolean> = rollbackBinaryRuns,
+): Promise<UpdateFailure | null> {
   const pending = await readMarker(pendingMarkerPath(dataDir));
   if (!pending) return null;
   try {
@@ -736,6 +870,33 @@ export async function revertAfterRefusal(dataDir: string, reason: string): Promi
       `the control plane refused subshell ${pending.to} and there is no ${pending.previousBinary} to restore; reinstall the agent by hand`,
     );
     return null;
+  }
+  if (!(await probe(pending.previousBinary))) {
+    // THE DECISION on an automatic revert whose copy fails the probe (round-3
+    // review, finding 2): record, do not swap, keep the copy. The operator's
+    // `--rollback` refuses in this case; here there is no human, and the two
+    // choices are two crash loops. Renaming an unbootable copy onto the path
+    // the manager EXECs buys a respawn that dies at exec with no log line at
+    // all — and the revert logic a later boot could act on lives INSIDE the
+    // copy, so burying it at the live path destroys the only file that could
+    // say what happened. Leaving the refused-but-bootable new binary in place
+    // keeps the machine dialing, logging the refusal on every attempt, and
+    // `failed.json` below names the same hand-install remedy the operator path
+    // prints. Either way an operator is needed; this state keeps talking until
+    // one arrives. The pending marker is still consumed, so the next boot
+    // converges on the ordinary "too old" behaviour rather than re-deciding
+    // this refusal forever.
+    const failure: UpdateFailure = {
+      ...pending,
+      reason: `${reason}; the rollback copy at ${pending.previousBinary} cannot be run, so ${pending.from} was NOT restored — reinstall by hand`,
+      failedAt: new Date().toISOString(),
+    };
+    await writeMarker(failedMarkerPath(dataDir), failure);
+    await rm(pendingMarkerPath(dataDir), { force: true }).catch(() => {});
+    log(
+      `the control plane refused subshell ${pending.to}, and ${pending.previousBinary} did not answer \`version\`; left ${pending.binary} in place and kept the copy`,
+    );
+    return failure;
   }
   await rename(pending.previousBinary, pending.binary);
   const failure: UpdateFailure = { ...pending, reason, failedAt: new Date().toISOString() };
@@ -772,11 +933,25 @@ export async function completeUpdate(dataDir: string): Promise<UpdateMarker | nu
  * person who watched the new version misbehave in some way the plane was happy
  * with, and works from whichever marker is on disk (or from neither, when the
  * `.previous` is simply there).
+ *
+ * A `.previous` that cannot run is REFUSED outright (round-3 review, finding
+ * 2), and this is where the two rollback paths deliberately diverge.
+ * `rename(2)` below is unconditional — whatever lands at the path the unit
+ * names is what the manager tries to EXEC — so a truncated copy (the shape an
+ * interrupted pre-atomic copy-fallback left, or one a hand produced since)
+ * would trade a working install for a binary the machine cannot even start.
+ * Here there is a human reading the answer and nothing else at stake, so the
+ * probe failure refuses: the running binary and the copy stay exactly where
+ * they are, and the sentence names the file and the hand-install remedy. The
+ * automatic revert cannot refuse into a rescue (nobody is coming mid-boot), so
+ * it records instead of refusing — see {@link revertAfterRefusal}.
  */
 export async function rollbackUpdate(
   dataDir: string,
   /** See {@link ApplyUpdateInput.binaryDeps} — the same host-independence seam. */
   binaryDeps: NodeBinaryDeps = {},
+  /** Rollback probe (default: {@link rollbackBinaryRuns}). @internal seam for tests. */
+  probe: (file: string) => Promise<boolean> = rollbackBinaryRuns,
 ): Promise<{ binary: string; to: string }> {
   const { binary } = await resolveNodeBinary(binaryDeps);
   const previous = `${binary}.previous`;
@@ -787,6 +962,15 @@ export async function rollbackUpdate(
     throw new UpdateRefused(
       NODE_RESULT_NOT_COMPILED,
       `there is no ${previous} to roll back to — an update either never ran here or was already accepted`,
+    );
+  }
+  // A regular file is not evidence of a BOOTABLE one: ask it the same question
+  // every install path asks a candidate, before the rename and before the
+  // marker is read.
+  if (!(await probe(previous))) {
+    throw new UpdateRefused(
+      NODE_RESULT_NOT_COMPILED,
+      `${previous} did not answer \`version\`, so it cannot be installed back; the running agent was left in place — install a fresh binary with \`subshell update --from <file>\``,
     );
   }
   const marker =

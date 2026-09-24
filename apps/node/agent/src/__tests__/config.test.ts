@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { clientHome, configPath, loadConfig, type NodeConfig, saveConfig } from "../config.js";
+import { clientHome, configPath, loadConfig, type NodeConfig, saveConfig, updateConfig } from "../config.js";
 import { newHome } from "../test-preload.js";
 
 const sample: NodeConfig = {
@@ -82,6 +82,23 @@ test("a stale registryUrl key is inert: loadConfig drops it, the loaded shape is
   }
 });
 
+test("pane-log retention fields round-trip; junk is dropped to absent like nodeWsUrl", async () => {
+  newHome();
+  const pinned = { ...sample, logRetentionDays: 0, logRetentionHours: 6 };
+  await saveConfig(pinned);
+  expect(await loadConfig()).toEqual(pinned); // 0 is a real value here (half of the keep-forever pair)
+  for (const junk of [-1, 1.5, "many", null]) {
+    writeFileSync(configPath(), JSON.stringify({ ...sample, logRetentionDays: junk }));
+    expect((await loadConfig()).logRetentionDays).toBeUndefined();
+  }
+  // An older config (never touched the fields) loads with them absent — the
+  // resolver reads that as the one-day default.
+  writeFileSync(configPath(), JSON.stringify(sample));
+  const old = await loadConfig();
+  expect(old.logRetentionDays).toBeUndefined();
+  expect(old.logRetentionHours).toBeUndefined();
+});
+
 test("loadConfig throws an actionable error when no config exists", async () => {
   newHome();
   await expect(loadConfig()).rejects.toThrow(/enroll/);
@@ -99,6 +116,86 @@ test("loadConfig rejects a JSON file that is not a usable config object", async 
   mkdirSync(dirname(configPath()), { recursive: true });
   writeFileSync(configPath(), JSON.stringify({ serverUrl: "http://x" }));
   await expect(loadConfig()).rejects.toThrow(/corrupt/);
+});
+
+test("debugLogging round-trips: false and true are real values, junk is absent", async () => {
+  // `updateConfig` re-reads through THIS loader, so a field dropped here is
+  // silently cleared by every unrelated write — and `loadAndApplyDebugLogging`
+  // can only restore what this returns.
+  newHome();
+  for (const stored of [true, false] as const) {
+    await saveConfig({ ...sample, debugLogging: stored });
+    expect(await loadConfig()).toEqual({ ...sample, debugLogging: stored });
+  }
+  writeFileSync(configPath(), JSON.stringify({ ...sample, debugLogging: "yes" }));
+  expect((await loadConfig()).debugLogging).toBeUndefined();
+});
+
+/**
+ * The merge discipline every live writer goes through (round-3 review,
+ * finding 3): a read fresh AT SAVE TIME, named keys only. The defect it closes
+ * is the two-dashboard-writers race — retention and debug-logging each used to
+ * `loadConfig → mutate → saveConfig` the WHOLE file, so an interleaved pair
+ * silently reverted one another's fields on a file that is also the node key's
+ * only home.
+ */
+describe("updateConfig", () => {
+  test("applies ONLY the named keys; every other field survives", async () => {
+    newHome();
+    await saveConfig({ ...sample, debugLogging: true, logRetentionDays: 7, logRetentionHours: 3 });
+    const written = await updateConfig({ logRetentionDays: 1 });
+    expect(written.logRetentionDays).toBe(1);
+    const onDisk = await loadConfig();
+    expect(onDisk.logRetentionDays).toBe(1);
+    expect(onDisk.logRetentionHours).toBe(3);
+    expect(onDisk.debugLogging).toBe(true);
+    expect(onDisk.nodeKey).toBe(sample.nodeKey); // the credential rides along untouched
+  });
+
+  test("an interleaved pair lands BOTH fields (the lost update, fixed)", async () => {
+    newHome();
+    await saveConfig({ ...sample, debugLogging: false, logRetentionDays: 1 });
+    // The OLD shape, replayed as the contrast it replaces: writing from a
+    // snapshot read before the other writer saved reverts that writer.
+    const stale = await loadConfig();
+    await updateConfig({ debugLogging: true }); // "B saves"
+    await saveConfig({ ...stale, logRetentionDays: 5 }); // "A saves" the old way
+    expect((await loadConfig()).debugLogging).toBe(false); // B's write, silently gone
+    // The NEW shape: each save re-reads, so neither can revert the other.
+    await saveConfig({ ...sample, debugLogging: false, logRetentionDays: 1 });
+    const alsoStale = await loadConfig(); // "A reads"
+    await updateConfig({ debugLogging: true }); // "B saves"
+    await updateConfig({ logRetentionDays: 5 }); // "A saves" — re-read at save time
+    const both = await loadConfig();
+    expect(both.debugLogging).toBe(true);
+    expect(both.logRetentionDays).toBe(5);
+    expect(alsoStale).not.toEqual(both); // the snapshot really was stale; the merge wasn't
+  });
+
+  test("overlap on ONE key is last-writer-wins, and only that key", async () => {
+    newHome();
+    await saveConfig({ ...sample, debugLogging: true, logRetentionHours: 4 });
+    await updateConfig({ logRetentionDays: 2 });
+    await updateConfig({ logRetentionDays: 9 });
+    const onDisk = await loadConfig();
+    expect(onDisk.logRetentionDays).toBe(9);
+    expect(onDisk.debugLogging).toBe(true);
+    expect(onDisk.logRetentionHours).toBe(4);
+  });
+
+  test("an explicit undefined CLEARS the field; an omitted key does not", async () => {
+    newHome();
+    await saveConfig({ ...sample, nodeWsUrl: "wss://old.invalid/ws", logRetentionDays: 8 });
+    const cleared = await updateConfig({ nodeWsUrl: undefined });
+    expect(cleared.nodeWsUrl).toBeUndefined();
+    expect((await loadConfig()).nodeWsUrl).toBeUndefined();
+    expect((await loadConfig()).logRetentionDays).toBe(8); // untouched
+  });
+
+  test("no config means no merge — the error points at enroll, nothing is created", async () => {
+    newHome();
+    await expect(updateConfig({ debugLogging: true })).rejects.toThrow(/enroll/);
+  });
 });
 
 describe("clientHome", () => {

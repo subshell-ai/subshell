@@ -144,6 +144,26 @@ describe("/api/nodes/enroll", () => {
     expect(raw).not.toContain("keyHash");
   });
 
+  it("the issued node key carries NO permissions map (security-actionable item 10)", async () => {
+    // `auth-guard` rejects every node-kind key on REST before its permissions
+    // are ever read, and `/ws/node`'s upgrade chain reads METADATA only. The
+    // `{ nodes: ["read","write"] }` enroll used to write was therefore inert
+    // AND misleading — a future reader widening the kind guard would silently
+    // activate those grants. Node keys carry no permission map: the kind
+    // guard is the whole boundary, so the column must be NULL.
+    const setupKey = await makeKey();
+    const res = await enroll(bodyFor(setupKey));
+    expect(res.status).toBe(201);
+    const { nodeId } = (await res.json()) as { nodeId: string };
+    createdNodeIds.push(nodeId);
+    const node = await nodes.findById(nodeId);
+    expect(node?.apiKeyId).toBeTruthy();
+    const row = authDatabase()
+      .prepare<{ permissions: string | null }, [string]>(`SELECT permissions FROM apikey WHERE id = ?`)
+      .get(node?.apiKeyId as string);
+    expect(row?.permissions).toBeNull();
+  });
+
   it("wsUrl preserves a subpath APP_BASE_URL (17c regression)", async () => {
     // Under tests constants.ts pins APP_BASE_URL to the loopback default (env is
     // ignored), so the subpath spelling has to be injected via a module mock;

@@ -104,6 +104,24 @@ describe("workspaces route", () => {
     expect(body.some((w) => w.id === id && w.name === name)).toBe(true);
   });
 
+  it("a workspace name goes through the shared label rule — and an unusable one is a 400", async () => {
+    // Workspace names render in every pane header the user shares a workspace
+    // with, and the draft-name collision index compares them. Both asked for
+    // the label rule; the create path only had a minLength.
+    const token = await signIn(ownerEmail, password);
+    const res = await workspaceRoutes.fetch(
+      authedRequest("/api/workspaces", token, {
+        method: "POST",
+        body: JSON.stringify({ name: "  x\u001B[2K\u000Dbad " }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { name: string }).name).toBe("x [2K bad");
+    const blank = await workspaceRoutes.fetch(
+      authedRequest("/api/workspaces", token, { method: "POST", body: JSON.stringify({ name: "\u200B\u200B" }) }),
+    );
+    expect(blank.status).toBe(400);
+  });
   it("duplicate name for the same user -> 409, but another user may reuse it", async () => {
     const ownerToken = await signIn(ownerEmail, password);
     const otherToken = await signIn(otherEmail, password);
@@ -518,6 +536,30 @@ describe("workspaces route", () => {
       const promoted = (await ok.json()) as { draft: boolean; name: string };
       expect(promoted).toMatchObject({ draft: false, name: free });
       expect(await listIds(token)).toContain(draftId);
+    });
+
+    it("a rename is normalized like the create — created clean cannot be renamed dirty", async () => {
+      const token = await signIn(ownerEmail, password);
+      const saved = await createWorkspace(token, `clean-${crypto.randomUUID().slice(0, 8)}`);
+      const res = await workspaceRoutes.fetch(
+        authedRequest(`/api/workspaces/${saved}`, token, {
+          method: "PUT",
+          body: JSON.stringify({ name: "  x\u001B[2K\u000Dbad  " }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { name: string }).name).toBe("x [2K bad");
+      const blank = await workspaceRoutes.fetch(
+        authedRequest(`/api/workspaces/${saved}`, token, {
+          method: "PUT",
+          body: JSON.stringify({ name: "\u200B" }),
+        }),
+      );
+      expect(blank.status).toBe(400);
+      const after = (await (await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${saved}`, token))).json()) as {
+        workspace: { name: string };
+      };
+      expect(after.workspace.name).toBe("x [2K bad");
     });
 
     // Promotion is the ONLY transition. The schema says `t.Literal(false)`;

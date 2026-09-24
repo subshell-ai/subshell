@@ -6,6 +6,17 @@ import type { NodeSetupKeyTable } from "@/db/types/node-setup-keys.db-types.js";
 export const SETUP_KEY_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * Reads a DELETE's affected-row count across the dialect spellings —
+ * kysely-bun-sqlite-dialect hands back `numDeletedRows` (a bigint) where
+ * Kysely types `numDeleted`; both reads, same guard as
+ * subshells.repository's update count.
+ */
+function countDeleted(res: unknown): number {
+  const counts = res as { numDeleted?: number | bigint; numDeletedRows?: number | bigint };
+  return Number(counts?.numDeletedRows ?? counts?.numDeleted ?? 0);
+}
+
+/**
  * Single-use node enrollment keys (spec §5.1/§5.2): one-time `nsk_…` codes a
  * new agent redeems exactly once to create its node row.
  *
@@ -60,20 +71,38 @@ export class NodeSetupKeysRepository extends BaseRepository {
   }
 
   /**
+   * Every key in the instance, newest first — the admin `?all=1` view
+   * (audit 2026-09 item 4). The route that calls it is cookie-ADMIN only;
+   * the rows carry other people's plaintext keys by design, which is the
+   * same accounting `listByUser` already makes for the caller's own.
+   */
+  async listAll(): Promise<NodeSetupKeyTable[]> {
+    return await this.db.selectFrom("nodeSetupKeys").selectAll().orderBy("createdAt", "desc").execute();
+  }
+
+  /**
    * Revokes a key. Only the owner's row is touched.
    * @returns rows deleted (0 = wrong id or wrong owner)
    */
   async deleteById(id: string, ownerUserId: string): Promise<number> {
-    const res = await this.db
-      .deleteFrom("nodeSetupKeys")
-      .where("id", "=", id)
-      .where("ownerUserId", "=", ownerUserId)
-      .executeTakeFirst();
-    // Same dialect quirk as updates: kysely-bun-sqlite-dialect hands back
-    // `numDeletedRows` (a bigint); read both spellings defensively, like
-    // subshells.repository's update-count guard.
-    const counts = res as unknown as { numDeleted?: number | bigint; numDeletedRows?: number | bigint };
-    return Number(counts?.numDeletedRows ?? counts?.numDeleted ?? 0);
+    return countDeleted(
+      await this.db
+        .deleteFrom("nodeSetupKeys")
+        .where("id", "=", id)
+        .where("ownerUserId", "=", ownerUserId)
+        .executeTakeFirst(),
+    );
+  }
+
+  /**
+   * The admin revoke path (audit 2026-09 item 4): deletes ANY row by id,
+   * unfiltered by owner. Callers must have resolved cookie-admin BEFORE
+   * reaching this — the delete route is the only sanctioned one, and it
+   * audits a foreign revoke with `{ foreign: true, ownerUserId }` metadata.
+   * @returns rows deleted (0 = unknown id)
+   */
+  async deleteByIdUnscoped(id: string): Promise<number> {
+    return countDeleted(await this.db.deleteFrom("nodeSetupKeys").where("id", "=", id).executeTakeFirst());
   }
 
   /**

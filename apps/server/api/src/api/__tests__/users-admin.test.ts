@@ -273,6 +273,14 @@ describe("users-admin + audit routes", () => {
     });
     for (const r of [mk(0, "p-0"), mk(1, "p-1"), mk(2, "p-2"), mk(3, "p-3a"), mk(3, "p-3b")]) await auditRepo.create(r);
 
+    // The token is minted BEFORE the ground-truth snapshot on purpose: an
+    // admin sign-in is itself an audited act now (audit item R1 —
+    // `auth.sign_in`), so doing it after the capture would land a now-stamped
+    // row above it and break the slice-equality walk below. Snapshot-after-
+    // own-writes is also what the ledger looks like in production, where the
+    // walk begins from a page 1 nobody re-reads against the past.
+    const token = await signIn(adminEmail, adminPassword);
+
     // Ground truth is the FULL ledger, not just the fixtures: earlier tests in
     // this file write real audit events with now-stamps, so page 1 belongs to
     // whatever is newest, and the assertions below are against that whole
@@ -282,7 +290,6 @@ describe("users-admin + audit routes", () => {
     // The tie: id descending inside one timestamp, adjacent.
     expect(ids.indexOf("p-3a")).toBe(ids.indexOf("p-3b") + 1);
 
-    const token = await signIn(adminEmail, adminPassword);
     const page = async (q: string) => {
       const res = await auditRoutes.fetch(authedRequest(`/api/audit?${q}`, token));
       expect(res.status).toBe(200);

@@ -431,13 +431,15 @@ export function parseNodeRuntimeReport(value: unknown): NodeRuntimeReport | null
 /* ------------------------------------------------------------------ */
 
 /**
- * The uuid-ish subshell-id guard: ids interpolated into node-side paths;
- * wire contract shared by backend RemoteLauncher gates and the agent path
- * policy (the agent's `isSubshellId` is an alias of this; the backend's
- * `SUBSHELL_ID_RE` mirrors it until its wave adopts the import). Subshell ids
- * are minted as uuids, so hex + hyphen (≤ 64 chars) is all a legitimate id
- * ever contains — a hostile `../../../../x` must never reach path
- * interpolation on either side of the link.
+ * The uuid-ish subshell-id guard: ids interpolated into node-side paths.
+ * The agent enforces it (its `isSubshellId` is an alias of this), and the
+ * backend gates the ids it interpolates via the same guard since 2026-09-23
+ * (`assertNodePathId` in `services/nodes/node-path-id.ts`, called at every
+ * `RemoteLauncher`/`planRemoteSubshellMcp` path-composition site) — so
+ * "a hostile `../../../../x` never reaches path interpolation" holds on BOTH
+ * sides of the link, and the old promise of a server-side mirror is now
+ * actually kept. Subshell ids are minted as uuids, so hex + hyphen (≤ 64
+ * chars) is all a legitimate id ever contains.
  */
 export function isNodeSubshellId(id: string): boolean {
   return /^[0-9a-fA-F-]{1,64}$/.test(id);

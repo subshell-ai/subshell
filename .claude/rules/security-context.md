@@ -4,988 +4,170 @@
 > This file is the working summary that loads into an agent's context: the rules
 > to code by, and the decisions not to "fix". When the two disagree,
 > `docs/security.md` is right and this file is stale — say so rather than
-> reconciling silently.
+> reconciling silently. Pointers below (`§N`) name sections of that file; the
+> argument for every rule lives there, not here.
 
-This is a **local / trusted-network service** designed to run on a developer's machine or
-within a trusted local network (VPN, WireGuard, Tailscale, SSH tunnel). It is not
-internet-grade.
+**Posture (§0–§1).** A **local / trusted-network service** — a developer's machine or a trusted perimeter (VPN, WireGuard, Tailscale, SSH tunnel), never directly internet-facing. The host's OS-user boundary *is* the trust boundary. NOT defended against: a local OS user; network-level attackers (transport is the operator's deployment); channel metadata; control-plane compromise (the node signing keypair rules every enrolled node); a malicious admin (no separation of duties); DoS; the harness binaries' supply chain.
 
 ## Authentication
 
-Authentication **is required** on all `/api/*` routes except auth and setup-status. Two
-credential kinds:
+Four credential kinds; `apps/server/api/src/api/auth-guard.ts` is the only place credentials become principals.
 
-- **better-auth session cookie** (email/password, HttpOnly, `SameSite=Lax`) — the browser
-  path and the only path allowed on admin surfaces. The first registered user becomes the
-  admin; registration is gated by a settings toggle that is **closed by
-  default**. An absent `allow_registrations` row means open ONLY while the
-  instance has no users at all — the first account is how an admin comes to
-  exist, so a closed empty instance could never mint the one person able to
-  open it, and a fresh install would be bricked behind a sign-up form that
-  refuses. The door is open exactly until someone walks through it, and closes
-  behind them; an admin who wants it open afterwards says so explicitly, and
-  that is audited. It still FAILS CLOSED on a corrupt or non-boolean row, and
-  the no-users carve-out is not a way back in for that. One function decides
-  it (`services/registration-gate.ts`) because three surfaces act on the
-  answer — better-auth's `before` hook, the admin switch, and the sign-in
-  page — and reading the row separately is how they come to disagree.
-  - *Passkeys* (WebAuthn, `@better-auth/passkey`) mint the SAME session cookie — an
-    additional browser credential per user/device, never a second factor. The rpID is
-    the **configured `APP_BASE_URL` host** (better-auth 1.7.1 derives it from the
-    static baseURL, not the request host), so passkeys work only when browsing on
-    that address — other names (e.g. loopback vs the domain) fail in the browser.
-  - *Break-glass*: while `SUBSHELL_EMERGENCY_PASSWORD` is set, an admin signing in with that
-    exact value has **their credential overwritten** by it and a real session is minted —
-    destructive by design, signalled by a warning banner to every signed-in user
-    (`GET /api/settings/public → emergencyLoginActive`). Clear the var after recovery.
-- **Bearer API keys** (`Authorization: Bearer subshell_...`, via `@better-auth/api-key`) —
-  machine credentials:
-  - *Per-subshell tokens*: minted when a subshell starts (7-day TTL, self-extending
-    for long-running agents), scoped by permissions, and **revoked immediately**
-    when the subshell is terminated/deleted (restart rotates the key — auto or
-    manual — on the same row). This is what the
-    `subshell mcp` server and any harness tooling authenticate with.
-    Harness **self-report** surfaces (`POST /api/subshells/:id/attention`,
-    `POST /api/subshells/:id/harness-session`) accept only the subshell's
-    OWN key acting on its OWN row — a harness can report its state, never
-    another's; a forged session id merely selects an existing transcript
-    the pane's user could already read.
-  - *System keys*: long-lived, no permission ceiling, owned by the `system` service user,
-    created by admins under **Server Settings → API keys** (plaintext shown exactly once;
-    only a hash is stored). Treat them as full-access bearer credentials — disable/delete
-    revokes instantly.
+- **Session cookie** — HttpOnly, `SameSite=Lax` always; `Secure` only when `APP_BASE_URL` is https (the marking follows the base URL, not `NODE_ENV`). The only actor admin surfaces accept, and the only one that mints an **unbound** WS attach token.
+- **System key** (`Bearer subshell_…`, admin-minted under Server Settings → API keys; plaintext shown once, hash at rest; disable/delete revokes instantly) — full access, no permission map, long-lived; mints a WS attach token bound to **any named** pane.
+- **Subshell token** — 7-day TTL, self-extending while its MCP child runs; revoked **instantly** on terminate/delete; rotated on restart (auto or manual) on the same row. Permissions `{channels:[read,write], subshells:[read,write]}` — a scope gate, not a row fence (§4). Mints a WS attach token only for its **own** pane.
+- **Node key** — `/ws/node` only; **nothing on REST** (permanent guard rejection, §5.5); refused at the upgrade chain's final tier **while its owner's account is disabled** (2026-09-24 — `accountDisabled(node.ownerUserId)`, HTTP-403-shaped close `4403` pre-socket; `local`/system-owned rows unaffected, the check lands after `apiKeyId`); blast radius = impersonating that one node.
 
-Admin-gated routes (`/api/users`, `/api/system-keys`, `/api/admin/status`, the
-`/api/admin/server` group, …) **reject bearer keys** (403): machine credentials can
-never manage the instance. That names the WRITES on those paths. `GET
-/api/users` is the exception worth stating: the roster read is instance-wide
-by design — it is what lets the sharing picker name people — so any signed-in
-caller and any bearer credential, a running subshell's own token included,
-reads every account's email, display name, role and disabled state
-(`docs/security.md` §3).
+**Forgery defense** — the guard never trusts api-key metadata: a key is a subshell principal only when the subshell row's `api_key_id` (written only by `issueSubshellToken`) equals the presenting key's id; `/api/auth/api-key/*` self-service endpoints are blocked at the mount; a key whose `referenceId` is not the `system` service user is not a system key; a valid key whose subshell row is gone returns 401 (**the row is lifecycle truth**); raw SQL against `apikey` lives only in `src/auth/apikey-store.ts`, scoped with `json_extract`, never `LIKE`.
 
-**The instance's ADDRESS LIST is readable by any signed-in caller**
-(2026-09-16). `GET /api/settings/public` carries `trustedOrigins` — every
-origin a browser may sign in from, including the machine's own derived LAN
-addresses and whatever a network plugin's publish added — so the "Subshell
-for Mobile" dialog can offer a PHONE an
-address (`appBaseUrl` is one spelling, and usually the loopback one the phone
-cannot reach). Same class as the roster read above: instance-wide by design,
-bearer credentials included, sound because every signed-in user is someone the
-operator admitted and the addresses are ones they may already use. It carries
-no credential and grants nothing — `docs/security.md` §3.
+**Registration** — the first registered user becomes admin; `allow_registrations` is closed by default, an absent row means open **only while the instance has no users at all**, and it fails closed on a corrupt/non-boolean row; one function decides (`services/registration-gate.ts`) for all three surfaces.
 
-**An admin reconfigures and restarts the server from the dashboard** (spec
-2026-09-12): `PATCH /api/admin/server/config` rewrites config.env (port, bind
-address, public base URL, trusted origins — never `DATABASE_PATH`, never the
-auth secret) and `POST /api/admin/server/restart` exits for the service manager
-to respawn. Both cookie-admin only, both audited (`server.config.update` with
-`{key, from, to}`, `server.restart` with `forced`). Four things hold it
-together, and each is load-bearing:
+**Passkeys** mint the same session cookie — an additional credential, never a second factor. rpID = the configured `APP_BASE_URL` host (better-auth 1.7.1, static baseURL): they work only on that exact address. Not behind the login backoff (no email to attribute; the authenticator is the gate).
 
-- **The restart is refused unless the manager reports THIS pid**
-  (`state === "running" && pid === process.pid`). A hand-run server, a
-  `bun run start`, a container with no init: `restart.available` is false and
-  the route 409s. There is no way to exit a server into nothing.
-- A second refusal when the service definition would take the tmux panes down
-  with the process, unless the body carries `{ force: true }`.
-- **The validator is SHARED with the CLI, not mirrored.** Both call one
-  `applyConfig`, so there is no second implementation to drift — that shared
-  call, not a test, is what keeps the `TRUSTED_ORIGINS` rules below true of
-  this writer. The route's test pins that the write lands, that keys this tool
-  does not own survive verbatim (`BETTER_AUTH_SECRET` above all), and that the
-  audit metadata holds no secret; it does not diff against a CLI-written file.
-- A key whose source is `process env` is refused (409), never written: a file
-  write the next boot would mask is a success report for a change that never
-  happens.
+**Break-glass** — while `SUBSHELL_EMERGENCY_PASSWORD` is set, an admin signing in with that exact value has **their credential overwritten** (a destructive reset, not a bypass); constant-time, shares the login backoff, audited `emergency_login.rewrite_credential`, banner-flagged via `emergencyLoginActive`. Clear the variable after recovery.
 
-**Stop, start, install, uninstall and reset have no route, deliberately** —
-each leaves the server unreachable, so a page the server serves is the wrong
-place to drive them. They stay with the CLI and the desktop assistant.
-**`POST /api/admin/server/autostart` is inside that rule, not an exception**:
-arming or disarming start-at-login touches nothing about the running process
-(`systemctl --user enable|disable` without `--now`; on macOS the plist MOVES
-between `~/Library/LaunchAgents` and the config home, and the loaded job does
-not care), so the page asking for it cannot take itself down. Cookie-admin,
-audited `server.autostart.update`, 409 where the question has no answer.
+**Account disable** (`PATCH /api/users/:id/disabled`, admin cookie, audited `user.disabled_change`) — ONE transaction that also counts admins and revokes every session the target holds; last-admin disable refused 409, self-disable 400. Reaches new sessions (password and passkey) and the bearer path alike — a running subshell's own token dies with its disabled owner — and since 2026-09-23 it **drops the target's live WebSockets** on the disable edge like a demotion does (close 1012; the count rides the audit metadata; re-enable drops nothing — while disabled, no token can even be minted). Since 2026-09-24 it also **disconnects every node the target owns** — live and held sockets closed `4403`, the upgrade chain then refuses the key until re-enable, when the agent redials within its 60 s backoff cap; `nodesDisconnected` rides the metadata, and the admin's confirm dialog states all of it (operator ruling: disable reaches the person AND their machines). The one remaining asymmetry (§2, §11.14): better-auth's 5-minute `cookieCache` lets a copied cookie keep answering better-auth's own session endpoints up to 5 min after the flag lands; route freshness is unaffected (`authGuard` reads the DB per request).
 
-**Admin user management** (spec 2026-09-05): an admin may create users, assign
-roles (`PATCH /api/users/:id/role`) and **reset another user's password**
-(`PATCH /api/users/:id/password`). Four guards, all load-bearing:
-demoting the LAST admin is refused (counted and written in ONE transaction, or
-two concurrent demotions both pass and nobody can administer the instance); a
-reset REVOKES every session the target holds (a reset that leaves live cookies
-is useless against a compromised account) — but NOT passkeys, which live in
-their own table, and NOT already-connected WebSockets, which authenticate only
-at connect, so a reset is a credential rotation and not a session-kill switch
-(docs/security.md §11.5); an admin cannot reset their OWN
-password there (Account requires the current one — otherwise an unlocked laptop
-is a full takeover); and the `system` service account is untouchable. The
-password is never logged, echoed, or audited — only that a reset happened and
-how many sessions it cut. User DELETION is deliberately absent.
+**Admin user management** (`/api/users`, writes cookie-admin) — create, `PATCH :id/role` (last-admin demotion refused, counted and written in one transaction), `PATCH :id/password`. A reset revokes **every session** — but NOT passkeys (own table, self-service delete) and NOT live WebSockets: credential rotation, not a session-kill switch (§11.5). Admins cannot reset their own password there; the `system` service account is untouchable; the password is never logged, echoed or audited — only the fact and the session count. User DELETION does not exist, by design.
 
-`GET /api/admin/status` is the widest of these READS — versions, host paths, the
-resolved MCP command, instance-wide counts and the security posture in one
-body. It carries **no secret in any form**: the auth secret appears only as
-`usingPlaceholderSecret`, the break-glass password only as
-`emergencyLoginActive`, and a test scans the serialized response for the actual
-values so a field added later cannot regress that. Treat an admin's screen as
-quotable — it is the thing that gets screenshotted into an issue.
+**The one anonymous read** (§2) — `GET /api/settings/instance` → `{ instanceName }` only: the sole pre-auth route outside first-run. Three load-bearing guards: own route module (`authGuard` is scoped to the whole settings group, so nothing of `GET /api/settings/public` — `viewerIsAdmin`, `appBaseUrl`, `nodeArtifactTargets` — is anonymous); a test asserts the **entire response key set**; the value is normalized on read as well as write. Never fold it into `GET /api/setup/status` (infinite stale cache).
 
-WS attach requires a short-lived (30 s) single-use token minted through an authenticated
-REST call — replay-resistant. A Bearer key may mint one only **bound to a single
-subshell** (a system key names any pane; a subshell's own key may name only its own,
-by `sess:` equality), the bind is enforced at redemption before access is resolved, and
-`/ws/live` refuses scoped tokens — machine credentials stay off the whole-user feed.
+**WS attach** (§8) — 30 s single-use token from `POST /api/auth/ws-token`; NOT cookie-only: a cookie mints unbound; a **system key** binds it to any named pane; a **subshell's own key** only its own, by `sess:` equality checked **before** the row lookup (a bad id cannot enumerate subshells). Redemption CONSUMES the token, then checks the bind — a wrong-pane attempt burns it and gets the same `4001` a bad token gets. `/ws/live` refuses scoped tokens outright — and BOTH redemption sites (`attach-resolve` and the feed's `handleLiveOpen`) re-ask `accountDisabled` after consuming (2026-09-24: the sweep cannot reach a mint that lands after its walk; the flag cannot be beaten). The feed fails CLOSED on a throwing re-ask — unlike a node socket, its next reconnect re-dials the question at the upgrade gate, but a feed socket is never re-checked once open. Fallback, stated because this file long described a stricter door than exists: with **no token parameter** the upgrade resolves the session cookie directly (same-host WebSockets run on this; `SameSite=Lax` suppresses cross-site upgrades) — and that fallback now applies the same `accountDisabled` refusal the REST guard makes (2026-09-24; it was the one principal path missing the check). A WS authenticates at connect and is never re-checked (§11.5). Outstanding tokens are capped (`MAX_PENDING_WS_TOKENS` = 10 000: sweep-then-refuse, a 503 naming itself — mints became machine-reachable with #159, so the store got a budget).
 
-**One anonymous read exists** (spec 2026-09-08): `GET /api/settings/instance`
-returns `{ instanceName }` — the operator-chosen name for this control plane,
-or the host's own name when unset — to a caller with **no credential at all**.
-It is the only pre-auth read outside the first-run setup window, and it exists
-so the sign-in page can say which plane is asking for your password; on a
-posture where several instances answer on one VPN, that is a security property
-rather than a leak. Two things keep it narrow: it lives in its own route module
-(`api/settings-public.route.ts`) precisely because `authGuard` is scoped to the
-whole settings group, so nothing about `GET /api/settings/public` —
-`viewerIsAdmin`, `appBaseUrl`, `nodeArtifactTargets` — is anonymous; and a test
-asserts the response's ENTIRE key set, so a field added later cannot go
-anonymous by accident. The value is normalized on the way out as well as in, so
-a hand-edited row cannot put control characters into a log line.
+**Login rate limit** — per email only, `2^n` s capped at 30, emails lowercased and trimmed. Nothing else is rate-limited.
 
-**Naming a node is an admin act on exactly one row.** The control-plane host's
-`local` node is renameable (`PATCH /api/nodes/:id`, cookie-only); its
-`canManage` already resolves to admin, so no permission concept was added.
-**Renaming an enrolled agent stays owner-only** — an admin's instance-wide
-`edit` still does not confer it. Node names are normalized like every other
-label, because a node name reaches log lines and menu labels.
+**Mobile app** (§2) — the session token lives in `expo-secure-store` and is sent as a `Cookie` header (the server sees an ordinary session); biometrics gate **use** of the token, not storage, and a device with no biometric enrollment degrades to allowed; `AsyncStorage` holds only the non-secret instance registry and the last push token.
 
-## Subshell sharing (spec 2026-08-31)
+## Authorization & sharing
 
-A subshell is **private to its owner by default** — it is absent (404, never 403) from
-every other user's list, detail, log, terminal, and workspace-pane path, so ids cannot
-be probed. The owner may grant two levels, to **Everyone** (all signed-in users) or to
-specific users, via `PUT /api/subshells/:id/shares`:
+- Three axes: **ownership** (a foreign subshell is 404 — never 403 — from list, detail, log, terminal and workspace-pane paths), **grants** (view/edit, never delete/re-share), **admin** = instance-wide **edit** (cannot delete or re-share; status lives in `user_meta`, not the better-auth user row).
+- `requireAdmin` 403s every non-cookie actor: `/api/users`, `/api/system-keys`, `/api/admin/status`, the `/api/admin/server` group, the sharing routes. Machine credentials never manage the instance.
+- **Per-subshell routes:** the boost-and-grants switch-off is keyed to **a subshell's own key** — it acts only on its owner's OWN subshells, never a foreign or merely-shared one. A **system key is NOT switched off**: it resolves through the full human gate as the `system` service user (owns nothing, holds no grants — in practice nowhere; a deliberate grant WOULD reach it) (§3).
+- `GET /api/subshells` passes no actor to the resolver: **bearer callers can enumerate the subshells shared with their owner** (names, status, activity). Disclosure only — acting still 404/403s. KEPT by operator ruling 2026-09-23 for MCP sibling coordination, and PINNED by `subshells-list-visibility.test.ts` (enumerate-ok / act-denied with a real pane token); do not tighten the read without moving that test and §3 together.
+- **Instance-wide reads by design** (§3): `GET /api/users` (every account's email, display name, role, disabled state) and `GET /api/settings/public`'s `trustedOrigins` (the full sign-in address list, live) answer any signed-in caller AND any bearer credential. They carry no credential and grant nothing on their own.
+- `GET /api/admin/status` carries **no secret in any form** (only `usingPlaceholderSecret`, `emergencyLoginActive`); a test scans the serialized body. Treat admin screens as quotable.
+- **Sharing** (`PUT /api/subshells/:id/shares`; bearer refused on the shares routes entirely): **view** = list, detail, pane log, read-only live terminal; **edit** adds terminal input, rename, restart, and **terminate** — the button left the UI 2026-09-03, `POST /:id/terminate` stays live at `edit` at REST/MCP level (§5). Owner-only forever (never conferred, not held by admins): delete, managing shares, the notification bell. Revoke = clear the grant or an empty `PUT`.
+- A share exposes: full pane output (`view`), plus keystroke stream and typing (`edit`); the `viewers` frame discloses every attached device — chosen name, grid, attach time, rendering, may-type — to every viewer including `view`-only grantees. Device labels are re-normalized server-side (`normalizeDeviceLabel`).
+- **Push is owner-targeted** — `user_meta.notify_enabled` (on by default) × per-subshell bell (on by default for new subshells); sharing never widens who is pushed. The metadata rides third-party relays (§5): Expo posts device token + event kind + opaque subshell id + origin URL to `exp.host`; web-push carries the subshell's **display name** to the browser push service and lock screen; `device_tokens` are plaintext and globally unique — re-enrolling one under another user moves the mailbox.
+- **`/ws/live` (§11.14)** is the tree's second authorization path (row→recipients vs viewer→row); the exhaustive diff test between the two is THE control — never delete or weaken it. Role changes drop that user's live sockets, and so does a disable (2026-09-23); a password reset does not — it is credential rotation, not a session-kill switch. Broadcasts carry no pane screen and no per-viewer `access` stamp — screens are pulled through the visibility-filtered read; a revocation is asserted only where the audience is addressable exactly, asked otherwise; an unresolvable row is asked about, never asserted away; a viewer who still has access is never told the row is gone.
+- **Trust disclosure UI:** foreign-node and shared exposures each show a permanent amber icon plus a one-time dismissible banner. The banner is silenceable per device; **the icon is not** — keep that split. `local` deliberately raises NO node disclosure (`subshell-card.tsx` returns null): every non-admin holds `edit` there via the seeded Everyone grant, so it would fire always and read as noise — don't "fix" it.
 
-- **view** — read only: list, detail, pane log, and a read-only live terminal.
-- **edit** — view + interact and manage: terminal input, rename, restart.
-  (Spec 2026-09-03 shed notes, the title pin, and human-facing terminate from
-  the action set; Close = delete, which stays owner-only.)
+## Pane logs & input
 
-Owner-only actions (never conferred by a grant, and not held by an admin either): **delete**,
-**managing the shares themselves**, and the **notification bell**. Sharing is a browser
-(human) act — a bearer/subshell key is refused on the shares routes and, on every other
-per-subshell route, runs with the admin boost and shared grants switched **off**, so
-a machine token can act only on its own owner's subshells, never a foreign or
-shared one.
+- Panes stream via `tmux pipe-pane` into `<SUBSHELL_SERVER_DATA_DIR>/subshells/<id>.log` (on the node's disk for a remote subshell) — plaintext by decision, holding **what was typed** (pasted tokens included) as well as output: the most sensitive artifact the app writes.
+- The capture child is the **self-invoked `pane-log` verb**, never `cat` (uutils coreutils buffers small newline-less writes and froze the live view); `cat >>` stays only as pipePane's no-child fallback.
+- Files 0600 (`O_CREAT` with mode 0600 — a umask can only clear bits), dir 0700; `services/pane-log-hygiene.ts` repairs old files at boot.
+- Local retention: hourly sweep of **non-running** logs after `SUBSHELL_LOG_RETENTION_DAYS` (default 30; `0` = keep forever); deleting a subshell unlinks its log at once; **running logs are never swept** (live replay buffer) — and since 2026-09-24 BOTH sweeps re-probe liveness PER FILE immediately before that file's own unlink: a restart reuses the append-only log path with its OLD mtime, and the one-snapshot loop would unlink a live transcript (unknown-not-dead applies to the re-probe too). **Node-side logs sweep on the node itself** (`apps/node/agent/src/pane-log-retention.ts`, shipped 2026-09-23): boot pass + hourly, window = `logRetentionDays`/`logRetentionHours` in the agent's `config.json` or `SUBSHELL_LOG_RETENTION_DAYS`/`_HOURS` env (env wins, per field), **default 1 day**, `0+0` = keep forever (no timer scheduled); a pane whose tmux probe THROWS counts as running (unknown is not dead); only `<valid-id>.log` names inside the data dir are eligible (same `pathAllowed`/`isSubshellId` rules as `remove_paths`, never follows symlinks). `remove_paths` at delete stays the prompt removal.
+- Never add a code path that copies pane content elsewhere (log line, notification body, diagnostic dump) without deciding its lifetime. `SUBSHELL_ATTACH_DEBUG=1` is the one exception — off by default, world-readable dumps under `/tmp/subshell-attach-debug/`, never swept.
+- Typed input transits argv (`tmux send-keys -t <id> -l -- <input>`, a paste is one argv element, `/proc`-readable); the pane's bearer token rides the launch argv **and the pane's tmux hook table** (`pane-died` carries it for the tmux server's life — `show-hooks` reveals what `ps` already did). Accepted (§11.2, §11.14).
+- A hook-carried credential value containing `' " \` or `#` is **refused, not escaped** — tmux re-parses hook values when it fires and `#` expands (§11.14).
+- Harnesses spawn under `env -i` with an allowlist (PATH, HOME, USER, LOGNAME, SHELL, TMPDIR, LANG, LC_ALL, + `CLAUDE_PATH`); preset env merges on top, MCP wiring env last. The launch DOES become a shell string via tmux — `shellQuote` on **every** token is the load-bearing defense; never reason from "there is no shell string".
+- Uploads: `<workingDir>/.subshell/uploads/`, git-excluded, filename-sanitized, ≤25 MiB (`MAX_UPLOAD_BYTES`), never swept.
+- The server's own log `<dataDir>/logs/server.log`: JSON lines, **0600 in a 0700 dir, 200 KB cap, replaced when full** — bounded by SIZE, never swept (the pane-log asymmetry). `GET /api/admin/server/logs` is cookie-admin. Request lines (method/path/remote/status; no bodies or headers; a path can carry a setup key) emit at `debug` into this file only, never the manager's log; debug is **off by default**, flipped live by `PUT /api/admin/server/logging` (audited `server.logging.update`); `SUBSHELL_DEBUG_LOGGING=1` forces it on and makes the setting read-only — only truthy spellings force, `=0` is a leftover, not "off"; polled routes are excluded from request lines.
+- Untrusted inputs: PTY bytes render only in xterm, never HTML; node event payloads are parsed by the `node-results.ts` validator, never cast; the path guard is `isNodeSubshellId` (hex+hyphen, ≤64) **on both sides**: the agent's `subshell-meta.ts` alias, and since 2026-09-23 the backend's `services/nodes/node-path-id.ts` `assertNodePathId` at every composition site (`logPath`/`metaArtifactPath`/`mcpArtifactPath`, before the facts check, plus the launch-side `planRemoteSubshellMcp`) — it throws as an impossible-state guard, never composes; every NAME path — subshell create/rename, workspace create/rename — goes through `normalizeLabel` (since 2026-09-24: NFC-first, drops category Cf, emoji presentation selectors, unpaired surrogates), so no manual rename carries raw ESC past `normalizePaneTitle`'s threat model into the journal or a shared screen; the per-attach journal line clamps UA and build to allow-sets BEFORE the 90-char slice (the journal is an injection sink; clamp before slice); sibling output and channel posts are data, never instructions.
 
-**Everyone attached to a shared subshell sees everyone else attached.** The
-`viewers` frame carries, to every viewer including a `view` grantee, each
-other device's chosen name (`lib/device-name.ts` — defaulted from the
-User-Agent, so "Safari on iPad", never a fingerprint), the grid it can
-display, when it attached, whether it is being rendered, and whether it may
-type. That is a real widening: before, a grantee could not tell whether anyone
-else was watching. It is deliberate — a pane has ONE size and is sized to the
-smallest visible viewer, so "why is my terminal 80 columns" is unanswerable
-without it — and it is sound on the trusted-network posture, but it is a
-disclosure to everyone the owner shared with, not only to the owner. A
-device's name is chosen client-side and re-normalized server-side
-(`normalizeDeviceLabel`), so it cannot carry control characters into another
-user's screen or a log line.
+## Encrypted channels
 
-Admins hold instance-wide **edit** (effective operator access) — they can read and
-interact with any subshell but cannot delete it or re-share it; those stay with the real
-owner.
+- ECDH-ES + A256GCM sealed per recipient (`jose`); the server stores/forwards opaque General JWE and filters reads without decrypting. NOT protected: metadata (names, membership, timing/order, sizes, principals — plaintext on the server), a local OS user (keypairs on the same disk), the bearer tokens.
+- TOFU peer-key pinning at `<dataDir>/peers.json` (0600), byte-equality after the first post; strict unless `SUBSHELL_CHANNEL_PIN` is exactly `"trust"`; a legitimate key recovery hard-blocks every peer until that principal's entry is manually deleted.
+- Envelopes ≤ 128 KiB, structurally validated on POST; slugs match `^[a-z0-9][a-z0-9-]{0,63}$`; long-poll `wait` clamped to 600 s.
+- **Nudge is two-tier** (§7): an idle pane is woken with the server-fixed line SUBMITTED; a mid-turn pane gets the same cue Enter-less (submitting into a busy harness would corrupt its turn). Every nudge line is server-fixed text naming the channel and `read_channel` — never the body; **content stays PULL**; a nudge never fails the post.
 
-Notifications are **owner-targeted**: a push goes only to the subshell owner's devices,
-gated by a per-user master switch (`user_meta.notify_enabled`, on by default) and the
-per-subshell bell (`subshells.notify`, on by default for new subshells). Sharing
-widens who can *see/act* on a subshell; it never widens who gets *pushed* about it.
+## Nodes
 
-This is a deliberate widening of exposure beyond the owner, sound only on the
-trusted-network posture below — a share makes a subshell's full pane output (potentially
-secrets on screen) and, at `edit`, its keystroke stream visible to the audience. Revoke by
-clearing the grant (the sharing dialog or an empty `PUT`).
+- Enrolling **delegates arbitrary command execution under that machine's OS user**. Command signing (JWS, per node, short-lived, single-use) proves authenticity, freshness and target — never confidentiality, never resilience to control-plane compromise (`<dataDir>/node-signing.json`, 0600). The node's OS user owns every pane launched there, its files, and its bearer token — tokens ride the launch argv and are `ps`-visible on every enrolled machine.
+- **Share axes:** any node share — even `view` — lets the grantee launch their own subshells there (invisible to the node's owner unless separately shared); `edit` (or owner) configures (re-checks, service, logging); shares, rename, maintenance, the allowlist, stop/uninstall and repointing stay owner-only (admin for `local`). Node shares and subshell shares are independent axes.
+- **`local` launch is granted, never boosted:** `nodeCanLaunchOn` reads the GRANTED access for `local` — admins included, the boost confers management and never launch. Narrowing the host = removing the seeded Everyone/`edit` row, which boot creates only when the row itself is created and never "repairs". The refusal is a **403** (the row stays visible; the remedy is a share), not the 404 of an invisible node.
+- **Maintenance** (`nodes.maintenance`, every node incl. `local`): the machine stays enrolled and answers everything else but takes no new subshells; turning it on **terminates every subshell running there**, whoever owns them. `PUT /api/nodes/:id/maintenance` is owner-only (admin on `local`) — the delete/re-share gate, NOT `nodeCanConfigure`; the machine's own `subshell maintenance on|off` sets the same flag. Retroactive by design; affected owners learn by push; the node owner sees only a `runningSubshells` COUNT (manage-gated). Either end may overrule (newer stamp wins, ties to the plane), so a compromised machine can clear its own flag — which costs nothing (the node-key holder is the local OS user). **A routing preference, never a quarantine**: containment is deleting the node, rotating/disabling its key, or clearing shares — all cookie-gated. The node's fail-closed mirror check is defence in depth, not a second switch. Audited `node.maintenance.update`.
+- **Service control** `POST /api/nodes/:id/service` — signed command, verbs start|stop|restart|install|uninstall; cookie only, owner or `edit`, `local` refused, audited `node.service` `{verb, forced}`. The agent refuses unless the manager reports this very pid, and when the definition would take its panes down without `force`. **`stop`/`uninstall` are owner-only and structurally one-way** (they end the agent socket that would carry the undo); `force` is refused outright on `start`/`install`.
+- **Node debug logging** `PUT /api/nodes/:id/logging` — an `edit` act, cookie only, `local` refused, audited `node.logging.update`; the agent persists it in its own `config.json` and REFUSES the command while `SUBSHELL_DEBUG_LOGGING` forces it on (environment wins; a write the next read would mask is not a success). It currently reveals nothing (no agent `debug` call sites).
+- **Agent log over HTTP** `GET /api/nodes/:id/logs` — a byte range of the agent's own bounded file (0600, 200 KB, replaced when full), owner or `edit`: same people, more places. An agent logs launches, refusals and connection errors — **never pane content, never argv** (argv carries the bearer token).
+- **Repointing** `PATCH /api/nodes/:id/config` (signed `set_server_url`) is **owner-only and a real widening**: the machine dials the named host with `Authorization: Bearer <nodeKey>`, a credential valid on THIS plane. Loopback refused outright; addresses validated by component and stored canonicalized; audited `node.config.update` naming the NEW value only; takes effect on the next start.
+- **Runtime report** (supervision, service state, config/log/binary paths, tmux) attaches only for an ONLINE agent node whose viewer is owner or `edit` — never `local`, never a `view` grantee.
+- **Directory allowlist** `PUT /api/nodes/:id/allowed-dirs`: **empty = unrestricted**, never deny-all; owner-only to edit (an `edit` grantee able to widen would face no restriction), read-visible to everyone who can see the node; rules stored already-resolved; enforced on the plane (create AND restart, resolved path) and independently on the node (`launch`/`stat_dir` vs `<dataDir>/allowed-dirs.json`, 0600, **fail-open on an unreadable file** — deliberate; the plane's copy still enforces); browsing is NOT gated (the picker filter is UX); stale window until the `ready` push reconciles; audited `node.allowed_dirs.update`.
+- **Node disclosures** (protocol ≤12): `ready` carries agentVersion, protocol/os/arch, hostname, dataDir, capabilities, selfInvoke prefix, homeDir, `runtime` snapshot; `detect` answers **only the binaries and env names the plane asked** (the union of `subshell.hostEnv` across enabled harness manifests) — never scans, holds no manifests; a plugin install (admin) therefore decides what env names every node may be asked. `held: {reason, agentVersion}` on the node view is disclosed to every viewer (like `agentVersion`; unlike `runtime`, which stays owner-or-`edit`).
+- **Refused agents are HELD, not closed** (§11.12): offline for every purpose but `update` — out of the live registry, every other frame dropped after envelope parse and before dispatch, superseded by a newer socket, closed after ten minutes unused, closed by `disconnectNode` on key rotation/deletion. The `update` command's wire shape is FROZEN across protocol bumps for this.
+- **Setup keys**: single-use, 24 h, **stored and listed in plaintext** to their creator (owner-scoped, cookie-only — `GET /api/nodes/setup-keys` 403s a machine token); the mint `POST /api/nodes/setup-keys` takes no body and its audit row (`setup_key.create`) carries **no metadata** — the key text never enters the trail; the node names itself (`setup` prompts, `--name`, `SUBSHELL_NODE_NAME`; `enroll` requires `--name`), stored via `normalizeNodeName` — the same rule rename applies (renaming an enrolled agent stays owner-only; `local` is admin-renamed via `PATCH /api/nodes/:id`, cookie-only). **Revocation**: the creator deletes their own row (`deleteById(id, user.id)` — a foreign id 404s for non-admins, no probing); a cookie ADMIN may delete ANY row after the owner-filtered path misses, and `?all=1` on the list is admin-only (deliberate 403, never a silently-narrowed list; the read is unaudited like the owner-scoped one). The audit is one action, `setup_key.revoke`, with `{ foreign: true, ownerUserId }` metadata on the admin path — ids only, never key text. The install command embeds the key in a URL → shell history and access logs, the posture of enrollment links everywhere.
+- **Minting is gated by** `allow_node_enrollment` (admin toggle, Settings → General, audited `settings.update`): an absent row means TRUE (any signed-in user may add a machine); off, the mint refuses non-admins 403, admins unaffected. Enforced at the mint and nowhere else (enrolling is unauthenticated by design — the key IS the credential). Bounds the FUTURE only; it never revokes what is outstanding.
+- `GET /install.sh` renders the same usage script for an absent, unknown, spent or expired key (never a binary oracle); `POST /api/nodes/enroll` answers three distinct 401s (invalid / already used / expired) by design.
+- **Agent artifacts are never anonymous**: `GET /api/downloads/node/*` requires a session cookie, **or** a valid unconsumed setup key, **or** a one-time `?update_token=` — the third path unlocks exactly one thing (release-coherent serving of the file and triple it names) and never reaches the `.sha256` routes. `GET /install.sh`'s `server=<origin>` param is accepted only as exact membership of the live trusted-origin registry; the rendered script digest-verifies the download before the first `chmod +x`.
+- **Lazy release fetch**: every release-source fetch (binary, manifest, sig, the server's own update download) passes `releaseFetchAllowed` — configured `SUBSHELL_RELEASE_URL` origin ∪ GitHub release hosts, refused **by name before any connection** (the egress destination is pinned; a mirror can no longer point the plane at link-local internals, 2026-09-24); nothing is fetched until an authenticated download 404s (no warm-up, no poll); streamed through and hashed against the digest from the **signed manifest's `assets` map** (the `.sha256` sidecar is never fetched — it is written from that digest); a mismatch errors the response mid-flight; bounded by `MAX_ARTIFACT_BYTES` (300 MB); only releases whose manifest declares THIS server's `NODE_PROTOCOL_VERSION` are offered — manifest-less or unsigned ones are refused by name; drafts skipped; only files this instance fetched (`.fetched.json`) are ever superseded or deleted, hand-published ones never touched; a file on disk wins **for enroll and install** downloads; an update download (valid `?update_token=`) is served release-coherently — disk only at the named digest, else the verified release fetched around it, else 409 naming the remedy. `SUBSHELL_RELEASE_URL` **empty = air-gapped**: every network path refuses by name.
+- **CLI-side**: `subshell configure --server` (repoint) is unprivileged and non-destructive — keeps `nodeId`, the node key and the pinned `controlPublicKey`, spends no setup key, mints no second row, clears the enroll-time `nodeWsUrl`, works only between two names for ONE plane, discloses the node key to the host named (treat it as naming a host you trust), and does not rename — `config.json`'s name never reaches the plane outside the enroll body, so the plane owns a node's name. `configure --key` rewrites only `nodeKey` and **refuses an `nsk_` setup key by name**. Neither is confirmation-gated in Subshell Client, where re-enrolling IS (enrolling twice overwrites `config.json` and discards the old node key).
+- **The node's loopback dashboard** (§6): `subshell run` binds **127.0.0.1:3090** with **no login by design** — the listen address plus the OS user IS the access control. Three load-bearing guards (`dashboard/guards.ts`): `Host` must name loopback; `Origin`, when present, must be loopback; mutations require `content-type: application/json`. No tokens, cookies, sessions or CORS. The **multi-user-host gap is accepted and is a widening** (a second local user can maintenance-kill, stop, or repoint — the repoint sends the node key to a typed host); `SUBSHELL_DASHBOARD=0` is the remedy there. Local update runs the same publisher-key path; allowed-dirs is read-only here; no audit rows (the agent log is the record); `maintenance on` here kills panes, node-CLI semantics verbatim.
 
-## Pane logs (the session transcript on disk)
+## Plugins & installers
 
-Every subshell's pane is streamed by `tmux pipe-pane` into
-`<SUBSHELL_SERVER_DATA_DIR>/subshells/<id>.log` (on the NODE's disk for a remote
-subshell). A terminal echoes, so this file holds what the operator TYPED as
-well as what the commands printed — pasted tokens included. It is the most
-sensitive thing the app writes, and it is deliberately **not encrypted**: the
-key would sit on the same host under the same OS user that can already read the
-log, so permissions and retention are the real controls.
+- **The control plane owns which plugins exist** (§6, §11.9): one store, `<SUBSHELL_SERVER_DATA_DIR>/plugins/`; one install arms every node. A node holds no plugin concept — the per-node routes and the agent's `subshell plugin` verbs are GONE, not widened; seeding keys on a **completion marker**, never on emptiness. `/api/plugins` writes are **cookie-admin only** (bearer refused) — installing runs third-party code in the process that holds the node signing keypair, so a malicious plugin reaches every node (§11.9); audited `plugin.install|enable|disable|uninstall|unpublish`. The anonymous setup route stays built-in-ids-only forever (its body carries no `spec` field).
+- Plugin runtime facts: they run unsandboxed in the control-plane process with the server's privileges; cannot import ours at runtime (everything arrives through `PluginHost`); identity lives in `package.json`'s `subshell` key (listing/probing read JSON only); built-ins are imported statically and `plugin-runtime.ts` holds the repo's one sanctioned `await import()`; a plugin names no program of its own on a pane's machine — runtime argv arrives as a resolved `{command, args}` (`BuildCommandInput.reporter`), and a plugin handed none omits the feature; what reaches a node is execution data only (the plane-built `argv` plus the binary-lookup `resolve` rule, never a node-side scan or install); a plugin that fails to load is reported, never fatal; `type` is for humans, `capabilities()` for code, validated at load (the applicable subset is per `type`).
+- Registry install (`POST /api/plugins` with a package spec): sha512 over the raw bytes against the announced hash before anything is written; the extractor refuses links/traversal/oversize; the load-check runs on a staging copy; a refused install leaves the previous state byte-identical; **any package name is installable** (deliberate, decided against an allowlist); `SUBSHELL_PLUGIN_REGISTRY_URL` is operator-configurable — over an http mirror, integrity proves only that bytes match what THAT server published; a claimed-id collision is refused BEFORE the load-check runs the module at all (`assertIdClaim` hoisted, 2026-09-23) and the same check stays immediately before the swap as the last gate against a concurrent install; a registry package claiming a built-in id is never loaded.
+- `GET /api/plugins/:pluginId/icon` serves plugin-chosen bytes to any authenticated reader: Content-Type from the extension, never sniffed; the resolved path re-checked under the plugin's own dir; `CSP: default-src 'none'; sandbox` + `nosniff`. Keep all three.
+- **Agent CLI install** `POST /api/setup/agents/:id/install` — admin cookie only, never public (not in the no-users window); the id is the only input; the command comes from a BUILT-IN manifest; single-flight per id; 10-minute bound; audited `agent.install` WITHOUT output (returned to the admin's browser, never logged); the child's env is the allowlist, not the server's.
+- **tmux install** `POST /api/setup/tmux/install` — admin cookie only (stricter than its `/api/setup` neighbours: it runs code); NO operator input; argv from a compiled-in table; **anything `sudo`-prefixed refused 409 before anything runs** (every Linux entry is sudo-prefixed, pinned by test — in practice macOS/Homebrew only); audited `tmux.install`.
+- **Shared spawn-core bounds** (§11.10, §11.13): the `CHILD_ENV_KEYS` allowlist — no `BETTER_AUTH_SECRET`, no database path — with two wrinkles: every `LC_*` variable passes through, and a caller's/plugin's `extra` may add variables but **never PATH**; stdin is closed **unless the plugin supplies `opts.stdin`** (a sudo prompt goes to the child's own tty, not a server-held pipe); the 64 KiB output cap is **PER STREAM** (stdout and stderr each — joined output reaches ~128 KiB); a 30 s default deadline capped at ten minutes.
+- Instance plugin secrets: **designed, NOT built** — `SUBSHELL_SECRETS_KEY` env-only (never a settings row, never the DB), write-only over the API, fails closed when unset, a lost key unrecoverable. Pane-side credentials stay in the node's own environment, which the plane never sees.
+- **Harness self-report is exactly three own-key surfaces** — `POST /api/subshells/:id/attention`, `/:id/harness-session`, `/:id/exit` (the route checks `principal === sess:<id>`) — plus the token self-extension route. A harness reports about itself, never another subshell; a forged session id merely selects a transcript the pane's own user could already read.
+- **Beyond its row** (§4): raw REST resolves a pane's token as its OWNER with boost and shares off, so a prompt-injected pane can create, restart and **terminate** the owner's OTHER subshells — the sibling-action surface the "other panes are agents" posture rests on, accepted at the harness's own altitude (§11).
+- `/api/files/explore` **403s machine credentials**. `SUBSHELL_FS_ROOT` unset = the host filesystem is browsable by design; the check is lexical AND realpath, unresolvable paths refused; it never confines a remote node.
 
-- The capture child is the **self-invoked `pane-log` verb** (`subshell`/
-  `subshell-server pane-log --file <path>`), not `cat`. `cat >>` froze the
-  browser's live view on hosts where `/usr/bin/cat` is **uutils coreutils**
-  (which buffers a partial write to a regular file until EOF/a big block — and a
-  keystroke echo is exactly a small, newline-less write). `appendStdinToLogFile`
-  is a plain `readSync`→`writeSync` loop that flushes every read, identical on
-  macOS and Linux. The bare `cat >>` stays only as pipePane's no-child fallback.
-- Files are **0600**: the `pane-log` verb opens them `O_CREAT` with mode `0600`
-  (umask can only clear bits, never widen), and the `umask 077` still wrapped
-  around the exec in `TmuxRunner.pipePane` is belt-and-suspenders for the
-  fallback. The directory is **0700** (`LocalLauncher`). Boot repairs both for
-  logs written before this (`services/pane-log-hygiene.ts`).
-- Logs of non-running subshells are swept after `SUBSHELL_LOG_RETENTION_DAYS`
-  (default 30; `0` = keep forever) by an hourly pass. Deleting a subshell still
-  unlinks its log at once. **A running subshell's log is never swept** — it is
-  the live replay buffer.
-- Typed input also transits **argv** (`send-keys -l -- <input>`), one process
-  per frame, so a paste is one argv element and `ps`-visible. Same accepted
-  risk class as the bearer token.
+## Network plugins
 
-Do not add a code path that copies pane content anywhere else (a log line, a
-notification body, a diagnostic dump) without deciding its lifetime first.
-`SUBSHELL_ATTACH_DEBUG=1` is the one exception and it is off by default.
+- **A network plugin DESCRIBES, the host EXECUTES** (§11.13): it returns argv, parses output, names a secret — never spawns, writes a file, touches config.env, or reads a credential back; every effect goes through a `PluginHost` member. `/api/network/*` is cookie-admin only, bearer refused, **never public** (no no-users carve-out).
+- **The sudo boundary is absolute**: `host.run` throws on an `argv[0]` that is not absolute or whose basename is `sudo`/`doas`/`pkexec`; the manifest parser refuses an `install.command` with `sudo`, `doas` or `pkexec` as a command at ANY shell boundary (start, `&&`, `||`, `;`, `|`, `&`, newline — the route runs the line through `sh -c`, so a start-anchored rule was no rule; env-assignments stripped, first word by basename, `pkexec-demo` still installs; a quoted wrapper is the documented, §11.9-bounded limit); privileged steps are declared under `network.privileged` and **PRINTED, never run**. `cloudflared` is the only built-in whose `install.command` the server may run. **Platform support is manifest data** (`subshell.network.platforms`) — availability is answered without loading plugin code.
+- **`host.secrets` has no `get`, deliberately** (set/has/delete — a readable credential could put it in argv, a log line, or a hint rendered in a browser). Stored 0600 under `<dataDir>/plugins-state/<id>/secrets/<name>` in 0700 dirs; hydrated only into a HOST-spawned child (a 0600 file named by a flag, or an env var). **`subshell-server backup` does NOT cover it** (the DB alone) — a restore needs the token re-entered, and the UI says so at the field. Mesh keys transit argv once (`ps`-visible for that one short command, single-use, consumed by the join); Subshell stores nothing of them.
+- **Cloudflare Tunnel** is the one `public-with-gate` inversion of §0, bounded in three places: exposure is manifest data rendered before the button; the plugin refuses to publish until a pre-flight confirms an Access application covers the hostname; and the server verifies the assertion itself — keyed on the **`Host` header** (never a `CF-Ray`-presence rule a LAN client can omit), `jwtVerify` against the team JWKS with issuer and `aud` pinned, failing closed with `403 ACCESS_DENIED` on every path with no exemptions, plus refusing a matching `Host` arriving from a non-loopback address. Disable/unpublish stop the process FIRST and drop the guard LAST. The assertion is a front door, never a session — the verified email is audit metadata and Subshell's own cookie is still required.
+- **No proxy header is trusted** (`X-Forwarded-*`, `Tailscale-User-Login`, `Cf-Access-Authenticated-User-Email` all ignored). Login backoff stays per-email; a future per-IP limit must read `CF-Connecting-IP`, and only behind the guard.
+- **Trust follows the plugin's RECORD, live** (2026-09-16): a publish no longer unions into `TRUSTED_ORIGINS` (both writers are gone). A `private` network's addresses are trusted from membership; a `public-with-gate` network's only once `published` (guard installed); `publishImplicit` networks: the join IS the publish (records it, trusts its addresses at once, audits `network.publish` with `by: join`). Disable/uninstall/leave forget the contribution — double-checked so an in-flight probe cannot resurrect it, persisted records cleared too. `canonicalPluginOrigin` refuses unparseable / `"null"` / wildcard-carrying entries — a refused entry is **dropped with a warn, never thrown**. Audit rows (`network.configure|install|join|publish|unpublish|leave`) name origins and field NAMES, never values.
+- **A plugin-reported URL is `http:`/`https:` or not rendered**, checked three times with different failures: the manifest parser REFUSES a bad `docsUrl` at load; the gate DROPS a bad runtime URL (keeping the sentence); the page renders no anchor (`lib/safe-href.ts`). Do not remove a layer on the grounds that React neutralizes `javascript:` hrefs. Each address carries `secureContext` — a statement about the browser (passkeys, `Secure` cookies), not about encryption. Tailscale Serve puts the machine's name in public CT logs — said on the publish button.
 
-## The server's own log file (spec 2026-09-12)
+## Updates & releases
 
-The server writes `<SUBSHELL_SERVER_DATA_DIR>/logs/server.log`: one file, JSON
-lines, **0600 in a 0700 directory**, **capped at 200 KB and replaced when
-full** (truncated and started over), the same on every platform. Nothing is
-kept in memory, request lines included. Note the asymmetry with pane logs:
-those are swept by AGE, this is bounded by SIZE and never swept, so it lives
-as one file for the life of the instance.
+- One release list, one pure selector (`packages/subshell-protocol/src/releases.ts`): newest-by-**semver**, never by date (four components share one repo). `SUBSHELL_RELEASE_URL` is the only seam (no alias for the old name); **empty = air-gapped and every network path refuses by name**, naming `--from` or a hand install.
+- **Signed-manifest rule** (§11.12): every release's `release-manifest.json` is verified against `release-manifest.json.sig` (detached minisign over the EXACT bytes, the desktop-updater publisher keypair) before ANY of it is trusted — at every update path and on the node itself. **Install digests come from the signed `assets` map, never from a `.sha256` sidecar.** No manifest / no sig / bad sig ⇒ refused BY NAME, never offered. Two stated exceptions: the **install one-liners keep the sidecar rule** (their machines hold no key yet — the first UPDATE is verified), and local unsigned publishes are legal for your own instance (served by digest through the authenticated route) while no plane will ever OFFER them. A compromised release source can withhold or replay signed releases, not mint new ones; TLS is delivery only.
+- **One publisher keypair for all four components**; losing `TAURI_SIGNING_PRIVATE_KEY` means no installed component can ever auto-update again. The pubkey's three spellings (both `tauri.conf.json` `plugins.updater.pubkey` + `RELEASE_PUBKEY`) are pinned equal by `release-pubkey.test.ts`; a release cut refuses the placeholder pubkey, and every shard fails loudly when the private key is unset.
+- **Server update** `POST /api/admin/server/update` — cookie-admin, bearer refused, audited twice (`server.update` at the start with the actor; at the completing boot with actor `null`). The URL comes from the release index, NEVER the request body; `version` only SELECTS among published tags; the downloaded binary must answer `<temp> version` with the version being installed; refused (notably `RESTART_UNAVAILABLE`) rather than updating into nothing; the job slot is a **one-synchronous-check-and-set claim** taken immediately before start — the claim IS the lock, two concurrent POSTs cannot both run (2026-09-24).
+- **Node update** `POST /api/nodes/:id/update` — the `nodeCanConfigure` gate (same as `service restart`), cookie only, `local` refused, audited `node.update`. The URL, digest and the VERIFIED manifest+signature travel INSIDE the signed command (protocol 12) and the node re-verifies the signature against its own compiled-in pubkey; agents below protocol 12 are refused the update outright by the plane; since 2026-09-24 the AGENT also refuses a non-newer `version` locally (`!semverLt` guard in `execUpdate`) unless the signed command carries `force` — the loopback dashboard's deliberate downgrade path keeps working; equal version is refused even under force. The `nut_…` download token is not a general credential: in-memory (hashed), 10-minute, single-use, checked at consumption against the platform TRIPLE, the named digest, its use and its clock; the node binding is by DELIVERY (the URL travels only inside that node's signed command); refused on the `.sha256` routes outright; a server restart forgets outstanding tokens (the agent then reports `download failed` — correct behaviour).
+- **Every install is a transaction the NEW binary completes at boot**: the swapper FIRST keeps the old binary as `.previous` (hardlink, copy+fsync fallback — shared `keepPreviousBinary` on the server, the node's async twin in `update.ts`) and then performs **ONE rename onto the live path** — never rename-aside-then-in, whose crash window left NO binary at ExecStart with an unrevertable marker (2026-09-24); it writes the marker too; the boot finalizes (migrations pass → audit, delete both) or reverts (restore the DB backup, rename `.previous` back, record the failure, exit 1 so the manager respawns the old version — which the single-rename shape now guarantees is bootable). The node mirrors it without the database half. **Never write the installed binary by convention** — it is the file the SERVICE DEFINITION names, else the one this process IS, else nothing (`services/installed-binary.ts`; `selfInvokePrefix()` on the node).
+- **Full-DB backup before every upgrade**: 0600 in a 0700 dir at `<dataDir>/backups/` (explicit chmod after `VACUUM INTO` — SQLite creates at umask 0644); five kept by default, `SUBSHELL_DB_BACKUPS_KEEP` (`0` = keep forever); `subshell-server backup` takes one by hand. Rollback restores **database → binary → marker** (an old binary cannot boot a newer DB — Kysely is forward-only), and `restoreDatabase` `wal_checkpoint(TRUNCATE)`s the live file BEFORE unlinking the WAL sidecars then renaming — a stale self-consistent WAL REPLAYS onto the restored snapshot (measured 2026-09-24: a 10-row read answered 12); a `pending.json` naming a version that is not booting is RECORDED as a failure. Desktop "install the bundled server" on a managed install delegates to `<installed> update --from <sidecar> --yes --no-restart --json`; the FIRST install still copies the sidecar.
+- **Desktop updaters**: `tauri-plugin-updater` verifies minisign over the BUNDLE bytes against the compiled-in pubkey; CLI paths verify over the MANIFEST bytes then match each file against the signed digest. One desktop update act spans a relaunch (spec 2026-09-18): the pane-safety consent persists as `settings.json` `pendingBundledInstall.forced` (one boolean, one restart, cleared with its marker, never written by a page); `desktop_install_app_update` takes booleans only and ANDs `forced` with the machine's own `pane_risk_now` (a page can decline, never manufacture, a force); the marker never decides work EXISTS — re-derived at boot with the same managed-aware comparison the offer uses; retries bounded at two; the assistant deep-link enum collapsed `app-update` + bundled-server into one `update`; the four updater commands are BUNDLED-window grants only (`wizard.json` / `node.json`) — no remote window gained one.
 
-Two disclosures, both deliberate and both narrow:
+## Desktop apps
 
-- **An admin can read it over HTTP** (`GET /api/admin/server/logs`). The set of
-  people who may read it is unchanged — 0600 on disk, cookie-admin on the wire
-  — but the set of PLACES they can read it from now includes a browser on the
-  LAN.
-- **In debug mode it holds request paths**, and a path can carry a secret
-  (`GET /install.sh?key=nsk_…`). That text already landed in access logs and an
-  admin can mint setup keys anyway, so this widens nobody's reach — but it is a
-  NEW READER of it. Say so rather than glossing it.
+- **The boundary is window KIND, not count** (§8b): commands touching a CLI, config, service manager or filesystem are granted to BUNDLED pages only; each app has one remote window and one bundled page. Each app's ACL manifest is **load-bearing by existence** (no manifest ⇒ Tauri leaves app commands ungated for local windows); the `csp` in `tauri.conf.json` governs bundled pages only — the remote window carries whatever the plane sends.
+- **Subshell Server, remote `main` window:** it OPENS on `Probe::window_origin` — the configured `APP_BASE_URL` when it is **https** (an https base URL marks the cookie `Secure`; a loopback http page cannot hold it), the managed server's loopback page otherwise (every http configuration opens on loopback; the dev-SPA override outranks it and is loopback-http-only). It may NAVIGATE anywhere http(s) (an OAuth-proxy sign-in needs it); `open_main` points it only at the trusted origins; `on_navigation` refuses schemes the OS would act on (`file:`, custom handlers) **and arms nothing** — it fires at request time and for subframes. Seven commands (+ window dragging): `desktop_open_assistant`, `desktop_shell_ready`, `desktop_notify`, `desktop_open_in_browser`, `desktop_permissions`, `desktop_app_update`, `desktop_set_supervision`. They answer only while the committed page is on **loopback (either spelling, http, any port) or the configured `APP_BASE_URL`** — `trust.rs`, in front of every app command, keyed on the calling webview, uniform across all seven; the capability's wildcard `remote.urls` is NOT the boundary. **The guard is armed only by a COMMITTED main-frame load** (`PageLoadEvent::Started`) — never by a navigation request, never by an iframe — with one second writer that only JUDGES the already-committed URL: the watch revalidates when an operator sets `APP_BASE_URL` to that origin. The grant is scoped to the WINDOW, not an admin session (a window on the sign-in page can invoke it). Six of the seven cannot touch the machine: `desktop_permissions` takes no argument (two booleans about the app's own OS standing — notifications, Photos); `desktop_app_update` takes no argument and makes no fetch (`currentVersion` + the `availableVersion` the daily launch check already wrote — `desktop_check_app_update` and `desktop_install_app_update` stay wizard-only); `desktop_notify` answers `{shown, permission}`; raising the assistant at `{screen:"reset"}` costs one read-only `status --json`. `desktop_set_supervision` is the ONE deliberate CLI-touching grant: it applies the restart route's **pane-safety refusal** (`pane_safety_refusal`, failing closed on an unreadable definition), **refuses to interleave with itself** (`ActionGuard::try_new` — refuse, never queue), and its audit row is best-effort, posted by the CALLER (`POST /api/admin/server/supervision` records `server.supervision.request`, changes nothing — legible, not a control). The acting pair `desktop_request_notifications` / `desktop_request_photos` is wizard-only and argument-free.
+- **Server assistant (`wizard`, bundled)** owns first run, recovery, update and reset. `desktop_reset` takes ONLY a typed hostname (compared against Rust's memoized `hostname(1)`), never a path; the five deletion paths come all-or-nothing from the server's own `status --json` `paths` block when the screen opens (partial = refuse); a recursive delete that would contain the installed `~/.local/bin/subshell-server` is refused before any mutation; a reset does NOT reach enrolled remote nodes or a same-machine `subshell` agent, which keep credentials and processes (the confirmation says so verbatim).
+- **Server config routes** (cookie-admin, bearer refused): `PATCH /api/admin/server/config` rewrites config.env — port, bind, base URL, trusted origins; NEVER `DATABASE_PATH`, never the auth secret; keys this tool does not own carried verbatim; a key sourced from process env is refused 409, never written (a write the next boot masks is a fake success). `POST /api/admin/server/restart` is refused unless the manager reports THIS pid (no exiting into nothing) and again when the definition would take the tmux panes down, absent `{force:true}`; audited `server.config.update {key,from,to}` / `server.restart`. `POST /api/admin/server/autostart` arms/disarms start-at-login touching nothing about the running process (Linux `systemctl --user enable|disable` without `--now`; macOS the plist moves); 409 where the question has no answer; audited `server.autostart.update`; the page offers only the arm direction — the route still takes both. **Stop, start, install, uninstall and reset have NO route** — each leaves the server unreachable; they stay with the CLI and the assistant. The config validator is SHARED with the CLI through one `applyConfig` — never mirror it.
+- **Subshell Client, remote window:** granted exactly ONE command, `desktop_open_in_browser` — it takes a **PATH** (`/`-prefixed; not `//`; no `://`, no backslash, no whitespace/control — one validator in `crates/desktop-core`'s `browser` module, shared by both apps) and joins it onto `PlanePin`, the origin the window was OPENED with (moved by a deliberate plane switch, never by a redirect). Capability scope is the wildcard `http://*:*` + `https://*:*`; `on_navigation` follows any http(s). Refusals are invisible by design (the SPA's forgiving `desktopInvoke` resolves null); no concurrency guard (worst case: browser-tab spam). The window carries a `SubshellClient/…` marker: in the SPA `isServerDesktop()` gates every Subshell Server surface, `isDesktop()` only "Open in browser".
+- **Client's bundled node page holds its privileged half** (`capabilities/node.json`): `node_reset`, `node_enroll`, `node_unenroll`, `node_service`, `node_install_agent`, the plane add/remove verbs, `node_check_app_update` / `node_install_app_update`. A pasted setup key reaches `subshell enroll --key` as one argv element (`ps`-visible; single-use, 24 h, bounded); the returned node key is never surfaced (the CLI writes it 0600, `--json` omits it); enrolling twice is destructive, so the app spawns nothing until confirmed.
+- **Entitlements:** one Tauri slot per bundle flows to the bundled binary, so each app keeps a SEPARATE plist (sharing one silently widens whichever pipeline was not edited), carrying only `allow-jit` + `allow-unsigned-executable-memory`, pinned by test; `disable-library-validation`, `allow-dyld-environment-variables` and `disable-executable-page-protection` are absent. The trim was measured under an ad-hoc signature — re-probe under a real Developer ID before the first signed release.
+- **They execute what they find:** each resolution ladder runs `<candidate> version`, and the installed copy (`~/.local/bin/subshell-server` or `~/.local/bin/subshell`) is executed on every launch from a user-writable directory (same OS user — accepted, but validate a hand-chosen binary before persisting it and bound every spawn); the login-shell PATH probe runs the user's own profile, arbitrary code by construction.
+- **Desktop-as-supervisor:** the server believes `SUBSHELL_SUPERVISOR*` only when the named pid is its actual parent; a forged claim buys `restart.available: true` AND suppression of the pane-safety refusal — accepted (the forger is whoever launched the process), same class as a hand-edited config.env. The app signals the MAIN pid, never the process group — which earns its `paneSafety: "keeps"`.
+- The desktop notification watcher reads the WIDE subshell list (for an admin, every row), so its owner-only + bell + master-switch filters are load-bearing.
 
-**Debug logging is off by default**, is an instance setting applied LIVE (the
-file transport's level is flipped, no restart), and is audited. Request lines
-are emitted at `debug`, so they reach this file only while it is on and
-**never** reach the service manager's log, which stays pinned at `info`. The
-polled routes are in the plugin's `ignore` list or a debug session fills the
-cap with the Service page asking after itself. `SUBSHELL_DEBUG_LOGGING=1`
-forces it on and makes the setting read-only — the environment wins, as it does
-everywhere else on the config ladder — and only truthy spellings force:
-`SUBSHELL_DEBUG_LOGGING=0` is a variable somebody left behind, not the
-environment saying "off".
+## CORS & rate limiting
 
-## Trust disclosure in the UI
+- The origin allowlist (§8) is **derived live, per request**, from four sources, none the request: the instance's own origins (both loopback spellings of `SERVER_PORT`, a concrete `HOST`, the `APP_BASE_URL` origin); this machine's non-internal IPv4 interfaces **on a wildcard bind** (`services/lan-origins.ts`; re-probed on `GET /api/settings/public`); the operator's `TRUSTED_ORIGINS`; and each enabled network plugin's recorded addresses for this host. NEVER "trust the origin that matches the request Host" — that is the DNS-rebinding hole. A literal-IP entry cannot be matched by a rebinding attack (whose `Origin` carries the attacker's hostname, never the IP). The LAN probe closes the same-Wi-Fi-IP case only: a LAN *hostname* still needs an explicit entry, because an interface address proves the entry names this host and a name proves nothing.
+- **Entries are validated by component and stored canonicalized** via `URL.origin` (http(s) scheme, a host required, no path/query/fragment; credentials refused, not silently stripped). **Wildcards (`*`/`?`) are refused, and the refusal is load-bearing:** better-auth 1.7.1 routes wildcard-carrying entries through `wildcardMatch` — `https://*` measured to trust every https origin; `@elysiajs/cors`'s schemeless-stripping branch is unreachable since the server passes its own predicate (`corsOriginAllowed`), but better-auth is unchanged, and CORS is no backstop either way (a non-browser client sends any `Origin`). An env var or a hand-edit still bypasses the validator.
+- All writers (CLI `configure --trusted-origins`, the dashboard's Addresses card, the restart route) go through one `applyConfig`. A value already on disk passes through byte-identical with a warning — only a CHANGED value must validate; `subshell-server status` reports per-entry problems **with the supplying layer** (a diagnostic, not a boot gate; wildcards excluded — better-auth honours them); the key is written or removed, never written empty.
+- `APP_BASE_URL` is also better-auth's passkey rpID — changing it moves where passkeys work, the `Secure` cookie marking, and (https) where the Server app window opens. Adding a name to `TRUSTED_ORIGINS` is passkey-neutral — the "also reachable at" lever.
+- `HOST` defaults to `0.0.0.0`: a first-run instance is LAN-reachable with registration open before anyone touches it — bind loopback or set the env before first boot on a network you do not own.
+- Login is the only rate-limited surface. Production refuses to boot on the placeholder `BETTER_AUTH_SECRET` and enforces the origin check strictly.
 
-Two exposures are invisible from looking at a terminal, so the UI states them:
-a subshell running on an **agent node the viewer does not own**, and a
-subshell that is **shared**. Both render a permanent amber icon in the
-subshell's chrome (`components/trust-indicators.tsx`, reason on hover) and a
-one-time banner (`components/trust-notice-banner.tsx`, 5 s then fades, keyed by
-the exposure so widening a share re-raises it).
+## Audit event names (§10)
 
-The banner is dismissible and has a per-device off switch; **the icon is not
-suppressible**. Keep that split — silencing an interruption is a legitimate
-preference, silencing the disclosure is not. The `local` node deliberately does
-NOT raise the node notice (every non-admin has `edit` on it via the Everyone
-grant, so it would fire always and be learned as noise).
+Read via `GET /api/audit?limit=50` (admin). Sign-in/sign-out ARE audited since 2026-09-23 (`auth.sign_in` from the after-hook's endpoint table — SUCCESS only, failures deliberately write nothing so the trail can't be spam-DoSed; `auth.sign_out` from the session-delete DB hook, one row per session actually ended; the break-glass path keeps its own `emergency_login.rewrite_credential` row, no duplicate). Those auth rows' metadata: method and ids, never tokens/emails/IPs/UAs — the never-values rule belongs to the credential/auth-event family; the **user-management** family (create/role/reset/disable) names its subject by email by convention, since every admin already sees every email (§3) and the trail's audience gains nothing new. Trusted-origin refresh probes write no row.
 
-## Encrypted channels (cross-subshell comms)
+- Auth: `auth.sign_in` (method password|passkey, success only), `auth.sign_out` (per session ended).
+- Users/keys: `user.create`, `user.role_change`, `user.password_reset`, `user.disabled_change`, `system-key.create|enable|disable|delete`, `emergency_login.rewrite_credential`, `setup_key.create` (no metadata), `setup_key.revoke`, `settings.update`.
+- Subshells: `subshell.create|terminate|restart|delete`.
+- Nodes: `node.enroll|delete|rename|key_rotate`, `node.allowed_dirs.update`, `node.config.update`, `node.maintenance.update`, `node.logging.update`, `node.update`, `node.update.unknown`, `node.shares_set`, `node.local_share_changed`, `node.service` (`{verb, forced}`).
+- Server process: `server.config.update` (`{key, from, to}`), `server.restart`, `server.logging.update`, `server.autostart.update`, `server.update` (start + completing boot with actor `null`), `server.supervision.request` (best-effort, caller-written).
+- Plugins/networks/installers: `plugin.install|enable|disable|uninstall|unpublish`, `network.configure|install|join|publish|unpublish|leave`, `agent.install`, `tmux.install`.
 
-Channel posts are sealed per-recipient with ECDH-ES + A256GCM (`jose`) to each subshell's
-identity keypair; the backend stores and forwards only opaque ciphertext it cannot read.
-The E2EE boundary protects message bodies from **the server's storage, backups, and any
-remote peer that compromises them** — and from other subshells that are not channel
-recipients. It does NOT protect:
+## Deliberate non-validation & accepted risks
 
-- **Metadata** — channel names, membership, post timing/order, message sizes, and
-  principals are plaintext on the server.
-- **A local OS user on the host** — subshell keypairs live on the same disk the backend
-  runs on; whoever owns that user account can read them (and the harness panes).
-- Subshell tokens themselves: a running harness holds its own bearer key by
-  design — and the token is part of the tmux start command, so it is visible to
-  any local process that can read `ps` output or tmux's pane metadata.
+- **No string length limits on log or subshell free-text fields** — with the qualified half: **labels are capped and normalized**, and a subshell rename enforces 120 chars (§9). **No pagination on small per-user lists** (services, channels). Channel slugs and long-poll waits ARE bounded (above).
+- Accepted, do not "fix" (§11): the OS-user trust boundary; `ps`-visible bearer tokens and typed input; control-plane compromise = all nodes; the host filesystem browsable by default; unconstrained admins (a one-click password reset of any other account — passkeys and live sockets survive it); system keys as bearer-equals-full-access; no DoS protection; the in-process post bus (a multi-process deployment loses cross-process wakeups).
 
-## Nodes (remote execution hosts)
+## When this changes
 
-Registering a node (spec 2026-08-31) delegates **arbitrary command execution
-under the agent's OS user** to the control plane, and delegates pane I/O for
-subshells launched there to everyone those *subshells* are shared with. Node
-shares and subshell shares are two independent axes:
-
-- **Any node share — even `view` — lets the grantee launch their own subshells
-  on it**; those subshells stay invisible to the node's owner unless separately
-  shared. `edit` (or owner) additionally configures the node (re-checks), and
-  shares and rename stay owner-only — admin for `local`. Plugins are no longer
-  a node axis at all (spec 2026-09-10): nodes execute, they do not install.
-  The owner controls everything launched there; whoever owns the
-  node's OS user owns every pane the backend launches on it, including its
-  files.
-- Command signing (§4) proves authenticity, freshness and target — **not**
-  confidentiality (that is WSS/operator TLS) and **not** resilience to
-  control-plane compromise: the signing keypair rules every enrolled node, so
-  **a control-plane key compromise is all nodes** (the signing key lives on the
-  backend host — same local-user exposure as everywhere else here).
-- A **node API key can do nothing on REST** (explicit guard rejection, §5.5);
-  its blast radius is exactly "impersonate this node on `/ws/node`".
-- **The plane drives a node's service manager, reads its log and can repoint
-  it** (`/api/nodes/:id/service`, `/logs`, `/config`; spec 2026-09-12, node
-  half). Most nodes are headless, so a browser is the only place these can be
-  asked at all. Cookie only; `local` refused; audited as `node.service` and
-  `node.config.update`. Two gates are NOT `nodeCanConfigure` and both are
-  deliberate:
-  - **`stop` and `uninstall` are owner-only** — structurally, not as a
-    permission nicety. Every command reaches a node over the AGENT'S OWN
-    socket, so the plane can never start an agent that is not running: those
-    two end the connection that would carry the verb undoing them. An `edit`
-    grantee may interrupt a machine they were shared; making it unreachable
-    until someone walks to it is a different act.
-  - **Repointing is owner-only** and is a REAL widening of what
-    `subshell configure --server` is locally. The agent dials whatever host
-    was named carrying `Authorization: Bearer <nodeKey>` — a credential valid
-    on THIS plane — and the machine leaves this instance. Loopback is refused
-    outright (nobody is at a headless machine to notice it dialing itself),
-    every address is validated by component and stored canonicalized, and the
-    audit row names the new value (the plane never knew the old one: which
-    address a node dials lives in that machine's own config).
-  - **Debug logging on a node is an `edit` act** (`PUT /api/nodes/:id/logging`,
-    cookie only, `local` refused, audited `node.logging.update`). It flips the
-    agent's own file-transport level live and persists the answer in that
-    machine's `config.json`; `SUBSHELL_DEBUG_LOGGING` in the agent's
-    environment forces it on and the agent REFUSES the command while it does,
-    the same "environment wins, and a write the next read would mask is not a
-    success" rule the rest of the config ladder follows. Not owner-only,
-    unlike `stop`/`uninstall`/repointing: it changes what a machine writes to
-    its own bounded, self-replacing 200 KB file and reverses with the same
-    call, so nothing here can strand a node. **It currently reveals nothing** —
-    the agent has no `logger.debug` call sites, and the server's equivalent
-    switch exists for its HTTP request lines, which an agent has none of. The
-    mechanism is in place ahead of the lines by decision, so the accounting to
-    redo is the one for whatever the first debug line carries.
-  - **The agent's log became readable over HTTP.** The agent now writes its own
-    bounded file (0600, 200 KB, replaced when full) because its console output
-    goes to a journal on Linux and a file on macOS, and neither is readable
-    from a browser. Same accounting as the server's own log: the set of people
-    who may read it is unchanged (owner or `edit`), what widens is the set of
-    PLACES. An agent logs launches, refusals and connection errors — never pane
-    content, and never argv, which carries a subshell's bearer token.
-- **The plane can restart a node's agent** (now the `restart` verb of the
-  above; spec 2026-09-12 §6.3). **No new trust**: the plane already runs arbitrary
-  commands on that machine under that OS user, and "exit so your service
-  manager respawns you" is the narrowest thing it could be asked to do. The
-  agent applies the same two refusals the server applies to itself — not
-  supervised, and a definition that would kill its panes without `force`.
-  Cookie only, owner or `edit`, `local` refused, audited as `node.service` with `{ verb: "restart", forced }` — no `node.restart` action exists.
-  The honest note is about AVAILABILITY, not confidentiality: an `edit`
-  grantee may restart a machine they do not own, briefly taking every subshell
-  running there offline, the owner's and other grantees' included.
-- **How a node's agent runs is visible to config-capable viewers only.** The
-  `runtime` report on node detail (supervision, service state, config/log/binary
-  paths, tmux) is attached only for an ONLINE agent node whose viewer is owner
-  or `edit` — never `local`, never a `view` grantee. A `view` grantee may launch
-  here; that does not make this machine's paths their business.
-- **New exposure:** subshell bearer keys ride in the launch command and are
-  **`ps`-visible on node hosts** — the known backend-host exposure now extends
-  to every enrolled machine. Node local users — and, in effect, anyone with
-  `edit` on a subshell running there — hold that subshell's bearer key. Sharing a
-  node does not hand out subshell keys, but anything launched there trusts the
-  machine.
-- **Directory allowlist** (spec 2026-09-05): a node owner may restrict which
-  directories subshells can be created in on that machine. **Empty =
-  unrestricted**, never "deny everything" — invert that anywhere and every
-  node locks out on upgrade. **Owner-only** to edit (`canManage`, NOT
-  `nodeCanConfigure`): any node share lets the grantee launch there, so an
-  `edit` grantee who could widen the list would face no restriction at all.
-  Enforced on the control plane (create + restart, on the RESOLVED path) and
-  independently on the node against `<dataDir>/allowed-dirs.json` — signing
-  proves who, never whether. Browsing is NOT gated (filtered for non-managers
-  as a UX nicety only); gating it made the second rule unaddable, since the
-  owner browses to pick what to permit.
-
-- **Setup keys**: single-use, 24 h expiry, **stored and listed in plaintext**,
-  revocable, audited. The plaintext is the 2026-09-17 node-setup revamp: the Setup
-  keys card on the Nodes page renders each caller's own key text, because a
-  minted-but-unused key was previously an open enrollment door that could be closed
-  but not read. The window is bounded — one machine, one redemption, dead at 24 h,
-  owner-scoped list, cookie-only (a bearer token cannot enumerate them), and the
-  mint's audit row carries NO metadata so the key never enters the trail. Full
-  accounting: `docs/security.md`, "Setup keys are stored in plaintext". The install
-  command embeds one in a URL, so it lands in shell history and server/access logs —
-  same posture as enrollment links everywhere; revoke = delete the key.
-- **A node names itself, on the machine.** The mint takes no body and has no label
-  column: the dialog's old "Node name" became only the key's label, while the node
-  was named by its hostname whatever was typed. `subshell setup` asks for the name
-  (hostname prefilled, Enter accepts), `--name` answers for a script,
-  `SUBSHELL_NODE_NAME` answers through the pipe, and Subshell Client's Enroll step
-  requires the field; `subshell enroll` — the primitive that asks nothing — requires
-  `--name` outright, and `setup` requires it under `--yes`/`--json`/no terminal.
-  Enroll and rename both store `normalizeNodeName(body.name)`, the protocol
-  package's one label rule shared with the agent and the desktop app.
-- **Who may MINT one is an instance setting** (`allow_node_enrollment`, admin
-  toggle under Settings → General, audited `settings.update`). An absent row
-  means TRUE, so an instance that never touched it keeps the behaviour it had:
-  any signed-in user may add a machine. Turned off, `POST /api/nodes/setup-keys`
-  refuses non-admins with 403 and admins are unaffected — the same shape as an
-  admin creating a user through `POST /api/users` while sign-up is closed.
-  Enforced THERE and nowhere else, because minting is the only chokepoint:
-  enrolling is unauthenticated by design (the key IS the credential), so there
-  is nothing to gate on `POST /api/nodes/enroll` and gating it would refuse
-  keys the instance itself handed out.
-  **It does not revoke what is outstanding** (operator's call, 2026-09-13):
-  flipping it off means "stop handing these out", not "invalidate the ones
-  already minted" — the same semantics as closing registrations, which signs
-  nobody out. An unconsumed key stays usable until it expires (24 h) or an
-  admin deletes it, which is the act that revokes and is separately audited.
-  So the switch bounds the FUTURE; the ≤24 h window it leaves is closed by
-  deleting keys, not by the toggle.
-  It governs ADDING a node only. Who may launch on one they were shared, and
-  what a share confers, are the unchanged axes above.
-- **Two axes stop launches on a node, not two switches** (spec 2026-09-14).
-  Shares answer WHO may launch; **maintenance** answers whether anyone may.
-  - *Narrowing the control-plane host* is still an admin removing `local`'s
-    seeded Everyone/`edit` share row. It **survives restarts** — boot seeding
-    creates that row only when the `local` node row itself is created, never to
-    "repair" a deliberate removal — and the row then vanishes from non-admin
-    views like any invisible node. **It applies to ADMINS too** (2026-09-12):
-    `nodeCanLaunchOn` reads the GRANTED access for `local`, so the boost grants
-    management and never launch. The refusal is a **403**, not the 404 an
-    invisible node answers with, because the admin must keep seeing the row to
-    widen it again. The remedy is a share.
-  - *Maintenance* is a per-node flag every node has, `local` included: the
-    machine stays enrolled and answers every other command but takes no new
-    subshells, and turning it on **terminates every subshell running there,
-    whoever owns them**. `PUT /api/nodes/:id/maintenance` is owner-only (admin
-    on `local`) — the delete/re-share gate, not `nodeCanConfigure` — and the
-    machine's own `subshell maintenance on|off` sets the same flag. Audited
-    `node.maintenance.update` from both origins, actor null when the machine
-    decided.
-  - It **reaches past the person who throws it**: any node share lets a
-    grantee launch there, and what they launch is private to them, so an owner
-    stops work they cannot enumerate. They are told a COUNT only
-    (`runningSubshells`, manage-gated on the node detail — itself a disclosure
-    of how much invisible work sits on that machine); the affected owners learn
-    by push. Retroactive on purpose, unlike `allow_node_enrollment`, which
-    bounds only the future.
-  - **Either end may overrule the other** (newer stamp wins, ties to the
-    plane), so a COMPROMISED machine can always clear its own flag. That costs
-    nothing: whoever can send that frame holds the node key, so they are the
-    local OS user and already own every pane, file and pane-argv token there.
-    **Maintenance is a routing preference, never a quarantine** — it keeps
-    answering every other command. Containment is deleting the node, rotating
-    or disabling its key, or clearing its shares, all cookie-gated and out of a
-    node key's reach. The node's own fail-closed mirror check is defence in
-    depth against a plane that has not learned yet, not a second switch.
-- **Agent artifacts are never anonymous.** Prebuilt `subshell` binaries and
-  their `.sha256` digests (`GET /api/downloads/node/*`) require a signed-in
-  session cookie OR a valid unconsumed setup key; `GET /install.sh` renders a
-  usage script for an invalid/absent key (it is never a binary oracle), and the
-  rendered script digest-verifies the download before its first `chmod +x`/exec.
-  **A binary the instance does not have is fetched from the project's own
-  `cli-node-v*` release on first use** (2026-09-12): lazily — no warm-up, no admin
-  button, no poll, and the triggering request is already authenticated —
-  streamed through while being hashed against the release's `.sha256`, with a
-  mismatch erroring the response mid-flight so nothing unverified is cached.
-  The node's own digest check before `chmod +x` is what makes streaming sound.
-  `SUBSHELL_RELEASE_URL` is operator-configurable and **empty disables
-  it** (the air-gapped configuration, where the Nodes dialog keeps its
-  no-binary warning). Only files this instance fetched — recorded in
-  `.fetched.json` with their release tag — are ever superseded or deleted; a
-  hand-published binary is never touched, and a file on disk always wins
-  **for enroll and install downloads**. An update download (a valid
-  `?update_token=`, which binds the digest the update command named) is
-  served release-coherently instead: disk only when it hashes to that
-  digest, the verified release fetched around it otherwise, and a stale copy
-  that cannot be fetched around is refused 409 with the remedy (2026-09-21).
-  Full prose: `docs/security.md`, "Agent binaries are fetched lazily".
-  Public settings now carries `appBaseUrl` so the Nodes dialog can show the
-  exact URL the server will bake — the enroll-time loopback trap above is
-  unchanged by that visibility.
-- **Plugin installs are instance-level admin acts** (spec 2026-09-10
-  inversion): `/api/plugins` writes are cookie-admin only, because installing
-  runs third-party plugin code IN THE CONTROL-PLANE PROCESS — the one that
-  holds the node signing keypair, so a malicious plugin reaches every node,
-  bounded by the admin gate (what it costs against what it removes — nodes
-  executing no third-party code at all — is accounted in `docs/security.md`
-  §11.9). The per-node plugin routes and the agent's `subshell plugin` verbs
-  are GONE, not widened; the agent holds no plugin concept. The anonymous
-  setup route stays embedded-built-ins-only — its body has no spec
-  field. The registry URL (`SUBSHELL_PLUGIN_REGISTRY_URL`) is
-  operator-configurable, and integrity only proves the bytes match the hash
-  the SAME registry published: over an http mirror that is the operator's own
-  network, not npm's assurance. An id switching across an uninstall is not a
-  privilege hop — both copies ran in the control-plane process. Instance-level
-  plugin SECRETS are designed-but-unbuilt future work (`SUBSHELL_SECRETS_KEY`,
-  fails closed, a lost key is unrecoverable — `docs/security.md` §8);
-  pane-side credentials stay in the node's own environment, which the plane
-  never sees. Full prose: `docs/security.md` §6, "Plugin installs from the
-  registry".
-- **Updating is a new class of act on every surface** (specs 2026-09-15 and
-  2026-09-17; full accounting in `docs/security.md` §11.12). Three sentences to
-  code by. **The plane downloads and executes code from the release source, and
-  since spec 2026-09-17 need not believe it**: every release carries a
-  `release-manifest.json` plus a detached minisign signature over its exact
-  bytes (`release-manifest.json.sig`), made with the SAME publisher keypair the
-  desktop updater uses — one key now guards all four components — and every
-  update path verifies it against a pubkey compiled into the product
-  (`RELEASE_PUBKEY`), taking the install digest from the signed `assets` map and
-  never from the release source's `.sha256` sidecar. Authenticity is the
-  publisher's key; TLS is only delivery. A compromised release source can
-  withhold or replay signed releases, not mint new ones; the install one-liners
-  keep the old sidecar rule (their machines hold no key yet). Empty
-  `SUBSHELL_RELEASE_URL` still disables every one of these paths, and an
-  unsigned release publishes but is refused BY NAME by every selector. **An
-  admin installs code on the control-plane host from a
-  browser** (`POST /api/admin/server/update`, cookie-admin, bearer refused,
-  audited at the start with the actor and again at the completing boot with
-  actor null) — the URL comes from the release index and never from the
-  request body, and `version` only selects among published tags. **An `edit`
-  grantee replaces a node's binary** (`POST /api/nodes/:id/update`, the
-  `service restart` gate, `local` refused, audited `node.update`): the URL,
-  digest, and the verified manifest + signature ride inside the SIGNED command
-  and the NODE re-verifies the signature against its own compiled-in pubkey
-  (agents below protocol 12 ignore those fields, so the plane refuses to send
-  one an update at all), and the `nut_…` download token is
-  in-memory, hashed, single-use, ten minutes, bound to one node and one
-  target, refused on the `.sha256` routes — so "a node key can do nothing on
-  REST" stays true as written. A refused agent is now HELD rather than
-  dropped: offline for every purpose but `update`, every other frame dropped
-  unparsed, closed after ten minutes unused, superseded by a newer socket, and
-  closed by `disconnectNode` when the key is rotated or deleted. The backup an
-  update takes is the WHOLE database (0600 in a 0700 dir inside the data dir,
-  so the reset already covers it; five kept, `SUBSHELL_DB_BACKUPS_KEEP`), and
-  a failed boot restores it before putting the old binary back — an old binary
-  cannot boot on a newer database at all. **Since spec 2026-09-18 one desktop
-  update act spans a relaunch**: the app is replaced, and the NEW build
-  installs the CLI that bundle ships. The pane-safety consent given before the
-  relaunch is PERSISTED (`settings.json`'s `pendingBundledInstall.forced`) and
-  honoured by that other process — a destructive consent at rest, kept narrow
-  (one boolean, one restart, cleared with its marker, never written by a page).
-  The marker never decides that work EXISTS: that is re-derived at boot with
-  the same managed-aware comparison the offer uses, so it can only continue an
-  act the probe would have offered, and retries are bounded at two.
-  `docs/security.md` §11.12 carries the accounting. Updating is one more name on the
-  existing closed screen enum — `app-update` until 2026-09-18, when it and the
-  separate bundled-server screen collapsed into a single `update` performing
-  both halves of one act, so the enum lost a member rather than gaining one —
-  and `main` gains no command in either desktop app.
-- **Agent CLI installs are an admin act on the control-plane host** (spec
-  2026-09-11 §7): `POST /api/setup/agents/:id/install` runs a BUILT-IN
-  manifest's install command as the server's user; admin cookie only, never
-  public, audited. Accounting in `docs/security.md` §11.10.
-- **So is installing tmux** (spec 2026-09-15): `POST /api/setup/tmux/install`
-  runs this platform's package manager as the server's user, so the browser
-  wizard can offer what the native assistant always could. Same gate (admin
-  cookie only, never public in the no-users window, audited `tmux.install`) and
-  narrower: the argv comes from a compiled-in table with NO operator input, and
-  anything `sudo`-prefixed is refused 409 before anything runs — the server has
-  no terminal to answer a password prompt, and that refusal is what keeps this
-  from being an escalation. Every Linux entry in the table is `sudo`-prefixed,
-  pinned by a test, so in practice it runs only under Homebrew on macOS.
-  Accounting in `docs/security.md` §11.10b.
-- Trusted-network posture is **unchanged**: node→control traffic is expected to
-  ride the same VPN/Tailscale; `wss://` termination is the operator's
-  deployment. **Enroll-time loopback trap:** if the server URL is `localhost`-
-  ish, a remote node dutifully dials the wrong machine — the enroll flow and
-  Nodes page surface the resolved URL and warn on loopback.
-- **Repointing a node (`subshell configure --server`) is deliberately
-  UNPRIVILEGED and non-destructive**, and it changes no trust relationship. It
-  rewrites `serverUrl` in the agent's own `config.json` — a 0600 file the local
-  OS user already owns and could edit by hand — while keeping `nodeId`, the
-  node key and the pinned `controlPublicKey`. So it spends no setup key, mints
-  no second node row, and grants the new plane nothing: it must still hold the
-  key matching the pinned `controlPublicKey`, or every command it sends fails
-  verification. It DOES disclose, though — the daemon dials the newly named
-  host with `Authorization: Bearer <nodeKey>`, so a repoint hands a credential
-  valid on the OLD plane to whatever host was typed. No privilege gain (the
-  local user already holds that key), but a repoint names a host you trust
-  rather than just correcting an address. What changes otherwise is where this
-  machine ANNOUNCES itself, which is why it also clears the enroll-time
-  `nodeWsUrl` (otherwise the daemon keeps dialing the old host). The old plane
-  simply loses the node.
-
-## Which addresses a browser may use (`TRUSTED_ORIGINS`)
-
-The allowlist is DERIVED — from the instance's own address, **this machine's
-own LAN interfaces** (`services/lan-origins.ts`; added 2026-09-17, and gated
-on a wildcard bind so a loopback-only server contributes none), the operator's
-`TRUSTED_ORIGINS`, and each enabled network plugin's self-reported addresses
-for this host (`services/trusted-origins.ts`) — and it is read LIVE, per
-request; never from the request's own Host — that is the DNS-rebinding hole
-the allowlist exists to close, and it stays closed. The LAN probe does not
-open that hole either: an entry naming a LITERAL IP can only be matched by an
-`Origin` that spells that literal IP, and a rebinding attack's browser sends
-the HOSTNAME it typed (`http://evil.com:3080`, resolving to the victim's LAN
-address) — which equals no IP-shaped entry, ever. The probe is re-asked on
-`GET /api/settings/public` — the request the mobile dialog repeats on open —
-so a laptop that switched Wi-Fi stops offering, and stops trusting, the
-address of the network it left. What changed is only where the list is reachable FROM: the `subshell-server` CLI
-(`--trusted-origins`) since 2026-09-08, and the dashboard since 2026-09-12 — the
-Addresses card, on Server Settings → Service until it moved to → Networking on
-2026-09-17 — instead of a hand-edit of config.env. The Subshell
-Server console that first carried the field is gone; its half moved into the
-served page. Every one of those surfaces writes through the same `applyConfig`,
-so the validator below is one narrow point rather than one of several.
-
-That is a usability fix for a real trap, not a widening: on the default
-`0.0.0.0` bind the derived set used to be the two loopback spellings, so a phone
-or a LAN hostname sent an `Origin` nothing matched and sign-in died on 403
-"Invalid origin" — with nothing naming the key that fixes it. The LAN
-derivation closes the phone-on-the-same-Wi-Fi case with no operator act; a LAN
-*hostname* still needs an entry here, because an interface address proves the
-entry names this host and a name proves nothing. Properties to keep:
-
-- **Every entry is validated by COMPONENT and stored canonicalized** (scheme
-  http(s), a host, no path/query/fragment → store `URL.origin`). Both
-  consumers match the origin a browser sends, so accepting a spelling without
-  canonicalizing it writes a config that 403s while reporting success.
-  Credentials are refused rather than silently stripped, since `URL.origin`
-  drops them.
-- **A plugin's addresses are canonicalized and wildcard-refused on the way
-  in** (`canonicalPluginOrigin`), the plugin-side twin of `validateValue`: an
-  entry is refused if it is unparseable, serializes to `"null"`, or carries
-  `*`/`?` in the origin component (a `?` there is a vendor value truncated at
-  a query separator; pattern characters in a path or query are discarded by
-  `URL.origin` and never reach the list). A refused entry is dropped with a
-  warn, never thrown — a plugin's bad address costs that plugin one entry,
-  not the allowlist.
-- **Wildcards are refused, and that refusal is load-bearing.** The list reads
-  stricter than its interpreter: better-auth routes any entry containing
-  `*`/`?` through `wildcardMatch` (so `https://*` trusts EVERY https origin —
-  measured, 1.7.1). `@elysiajs/cors` used to be a second loose consumer — its
-  string branch stripped the scheme off the incoming `Origin`, making a
-  schemeless entry a scheme-wildcard there — until 2026-09-16, when the server
-  began passing its own predicate (`corsOriginAllowed`, exact membership of
-  the live registry); that branch is no longer reachable. CORS is not a
-  backstop for the wildcard case either way: it is a browser courtesy, and a
-  non-browser client sends any `Origin` it likes. So `validateValue` is the
-  narrow point that makes the static-sources claim true of everything the CLI
-  flag and the dashboard can write. An env var or a hand-edit still bypasses
-  it. Adding wildcard support would need this section rewritten first.
-- **`APP_BASE_URL` is also better-auth's passkey rpID.** Changing it moves
-  which host passkeys work on, so an existing passkey stops working on the old
-  address — including the Subshell Server desktop app's own window, which loads
-  this machine over http. Adding a LAN name to `TRUSTED_ORIGINS` does NOT have
-  that effect and is the right lever for "also reachable at".
-  **The same field decides WHERE that app opens its own window** (2026-09-19):
-  an `https` base URL makes better-auth mark the session cookie `Secure`, which
-  a loopback http page cannot keep — so the app opens its dashboard window on
-  the configured address instead (`Probe::window_origin`). That extends the
-  § 15 decision from "the window may FOLLOW a sign-in onto that address" to
-  "it OPENS there", which means the seven commands are granted to a page served
-  from a remote host by default on any https instance, rather than only after a
-  redirect. Same trade, stated: the operator chose that address, and without
-  this the app cannot sign in to its own server at all. It moves ONLY for
-  https — every http configuration opens on loopback exactly as before. The
-  card says a restart and a sign-in are coming; the assistant's **Server
-  Addresses** screen remains the way back for an address that turns out to be
-  unreachable, since it drives the CLI and needs no session.
-
-## Network plugins publish this server on a network (spec 2026-09-15)
-
-A `type: "network"` plugin connects the control-plane host to one network
-(Tailscale, Headscale, NetBird, Cloudflare Tunnel) and publishes Subshell on
-it. Same store, same admin install door, same seeding marker as a harness
-plugin. **The rule to code by: a network plugin DESCRIBES, the host
-EXECUTES** — it returns argv, parses output and names a secret; it never
-spawns, never writes a file, never touches config.env, never reads a credential
-back. Everything goes through `PluginHost`. That is what keeps the admin-only,
-bounded, audited properties of the existing installers true of third-party
-code. Full accounting: `docs/security.md` §11.13.
-
-- **Same gate and the same bounded executor** as the two installers above:
-  `/api/network/*` is cookie-admin only (`resolveSetupActor === "admin"`),
-  bearer refused, never public — no no-users carve-out, which is why the wizard
-  step sits after Create Your Account. The spawn core is the one
-  `runInstaller` uses: the `INSTALLER_ENV_KEYS` allowlist (no
-  `BETTER_AUTH_SECRET`, no database path), stdin closed, 64 KiB cap, 30 s
-  default deadline capped at ten minutes. **The one difference from §11.10b:
-  the argv comes from plugin code rather than a compiled-in table** — no new
-  trust beyond §11.9, but say it rather than filing it under "plugins are
-  trusted".
-- **The sudo boundary is absolute.** `host.run` throws on an `argv[0]` that is
-  not absolute or whose basename is `sudo`/`doas`/`pkexec`, and the manifest
-  parser refuses an `install.command` starting with `sudo`. Every mesh daemon
-  needs one root install; those are manifest DATA (`network.privileged`),
-  PRINTED for a human and never run. `cloudflared` is the one binary needing no
-  root anywhere, which is why it is the only `install.command` the server may
-  run itself.
-- **`host.secrets` has no `get`, deliberately.** A plugin that could read a
-  credential could put it in argv, a log line or a hint that renders in a
-  browser. Stored 0600 under
-  `<dataDir>/plugins-state/<id>/secrets/<name>` in 0700 dirs; hydrated only
-  into a host-spawned child (a 0600 file named by a flag, or an env var).
-  **`subshell-server backup` does NOT cover it** — that snapshots the database
-  alone, so a restore needs the token re-entered, and the UI says so at the
-  field. Short-lived mesh keys never go here: they transit argv once (the
-  accepted `enroll --key` class) and the daemon owns the identity after.
-- **Cloudflare Tunnel inverts the posture and is bounded in three places.**
-  `exposure: "public-with-gate"` is manifest data rendered before the button;
-  the plugin REFUSES to publish until a pre-flight confirms an Access
-  application covers the hostname; and the server verifies the assertion
-  itself, keyed on the **`Host` header** (never a `CF-Ray`-style presence rule
-  a LAN client can omit), `jwtVerify` against the team JWKS with issuer and
-  `aud` pinned, failing closed with `403 ACCESS_DENIED` (the generic 403 code — `access-guard.plugin.ts:323`) on every path with no
-  exemptions, plus a refusal of a matching Host from a non-loopback address.
-  Disable and unpublish stop the process FIRST and drop the guard LAST, so a
-  live tunnel is never unguarded. **The assertion is a front door, never a
-  session**: the verified email is audit metadata, and Subshell's own cookie is
-  still required behind it.
-- **No proxy header is trusted.** `X-Forwarded-*`, `Tailscale-User-Login` and
-  `Cf-Access-Authenticated-User-Email` are ignored. Login backoff stays
-  per-email, which costs nothing under a tunnel today (every request looks like
-  127.0.0.1) and is why a per-IP limit added later must read `CF-Connecting-IP`
-  behind the guard only.
-- **Publishing widens NOTHING in config.env** (2026-09-16). Trust follows the
-  plugin's RECORD by exposure — a `private` network's addresses from `joined`,
-  a `public-with-gate` network's only once `published`, i.e. only once the
-  Access guard is installed (`services/network/origins.ts`) — and a disable,
-  uninstall or leave forgets it. Nothing unions into `TRUSTED_ORIGINS` any
-  more; both the publish-union and the unpublish-subtraction writers are gone,
-  so the earlier by-value subtraction rule has nothing to apply to. For a
-  `publishImplicit` network the join IS still the publish: it records the
-  publish — which trusts its addresses at once — and audits its own
-  `network.publish` row with `by: join`. `TRUSTED_ORIGINS` is
-  passkey-neutral, and origins are all a publish touches: the opt-in promotion
-  of `APP_BASE_URL` the publish checkbox carried was removed 2026-09-16 (a
-  checkbox moving the passkey rpID sat in a flow about reaching the server,
-  not about identity). The base URL is changed on the Networking page's
-  Addresses card, where it still MOVES the rpID and the field says so. Audit rows
-  (`network.configure|install|join|publish|unpublish|leave`) name origins and
-  field
-  NAMES, never values.
-- **A URL a plugin reports is `http:`/`https:` or it is not rendered.** A hint
-  can carry a link, and a plugin often read that value off a vendor CLI, which
-  read it off its control server (Tailscale's `AuthURL` with `--login-server`
-  is the case). An `href` is not inert, so it is checked three times and each
-  layer fails differently: the manifest parser REFUSES a bad `docsUrl` at load
-  (static data, so it is a plugin defect), the network gate DROPS one reported
-  at runtime and keeps the sentence beside it, and the page renders no anchor
-  for one that arrives anyway (`lib/safe-href.ts`). Do not remove a layer on
-  the grounds that React neutralizes `javascript:` hrefs — it does, and that is
-  a rendering library's internal, not the guarantee.
-- **Tailscale Serve puts the machine's name in public CT logs** (a real Let's
-  Encrypt certificate for `<host>.<tailnet>.ts.net`). Said on the publish
-  button, not discovered.
-- Each address carries `secureContext`, which is a statement about the BROWSER
-  and not about encryption: a WireGuard mesh encrypts an `http://` origin end
-  to end, but passkeys and `Secure` cookies still will not work there.
-
-## The desktop apps (`apps/server/desktop`, `apps/client/desktop`)
-
-Two Tauri v2 shells. `apps/server/desktop` ("Subshell Server") installs, runs
-and manages a `subshell-server`; `apps/client/desktop` ("Subshell Client") is a
-person's interface to a control plane AND the place their machine is registered
-as a node. Neither adds a server surface — everything privileged goes through a
-CLI as the same local user.
-
-**The boundary is window KIND, not window count: CLI-driving commands are
-granted only to BUNDLED pages.** Both apps are two windows now, one remote and
-one bundled — the server app's console was deleted by spec 2026-09-12 and its
-management surface moved into the SPA, leaving the remote SPA window plus one
-bundled ASSISTANT (`capabilities/wizard.json`, `console.json` gone) that owns
-first run, recovery, update and reset. That assistant is the only surface
-allowed to drive the CLI, so it holds every command that changes this machine,
-the destructive ones included, and `ui/src/__tests__/ipc-acl.test.ts` pins the
-grant equal to what the page actually invokes. The `csp` in each
-`tauri.conf.json` governs the bundled pages only — the remote window carries
-whatever CSP the plane sends.
-
-- **The server app's remote window loads TWO origins and holds seven
-  commands — six harmless, one deliberate exception.** It loads
-  `http://127.0.0.1:<port>` / `http://localhost:<port>` — the server this app
-  itself manages — or the instance's configured `APP_BASE_URL` (2026-09-18,
-  spec § 15: a plane behind an OAuth proxy could not be shown otherwise).
-  `capabilities/main.json` can no longer scope that, since the base URL is a
-  config value and the file is static, so its `remote.urls` is a wildcard and
-  `trust.rs` is the boundary instead. The grant is still only commands that
-  cannot touch the
-  CLI, the config, the service or the filesystem (drop this app's own title
-  bar, display one fixed-shape notification, raise the assistant at a named
-  screen, open a page of THIS server in the system browser, read this
-  app's own macOS permission states — `desktop_permissions`, the sixth,
-  2026-09-14: no argument, two facts from the OS, argued in spec 2026-09-14
-  §7 because two of the three moments a missing permission must be explained
-  are in this very page; requesting one and opening System Settings stay on
-  the bundled page — and read the app's own two update version facts —
-  `desktop_app_update`, the seventh, 2026-09-17: no argument, no fetch, just
-  `currentVersion` from the build's own package info and `availableVersion`
-  from the one settings field the daily launch check writes; it NEVER checks
-  the release source, and the row's `[Update]` rides `desktop_open_assistant`
-  while every install verb stays bundled-page-only; argued like the sixth in
-  spec 2026-09-17 §5.3, because only the app knows the version of its own
-  binary and the sidebar row cannot say "an update is waiting" without it) — plus
-  `desktop_set_supervision`, the ONE
-  CLI-touching command granted there (2026-09-12): switching who runs the
-  server is a restart with a different respawner, and an admin page already
-  holds the restart route, so the assistant window that carried the consent
-  defended less than it cost. `docs/security.md` carries the accounting.
-  **The loopback pin is GONE as of 2026-09-18, and what replaced it is a
-  runtime guard.** The window may now load the instance's configured
-  `APP_BASE_URL` as well as loopback, because a control plane behind an OAuth
-  proxy could not be shown at all — a proxied sign-in bounces through an
-  identity provider on a third origin. The capability's `remote.urls` is
-  therefore a wildcard and is no longer the boundary. The boundary is
-  `apps/server/desktop/src-tauri/src/trust.rs`: the window may NAVIGATE
-  anywhere http(s), and the seven commands answer only while it is ON loopback
-  or that base URL. `open_main` still points it at those two origins and
-  nothing else.
-  **Only a COMMITTED main-frame load may arm that guard** — it was briefly
-  armed from the navigation handler, which runs at request time and fires for
-  subframes, so a page that aimed at a loopback URL that could not connect (or
-  merely embedded an iframe) armed all seven commands while its own document
-  stayed on screen. An XSS in the SPA reaches those seven commands; a page on
-  any other origin reaches none of them.
-
-  Three caveats on that trade, all in `docs/security.md` and none of them
-  decoration: the grant is scoped to the WINDOW, not to an admin session, so a
-  `main` window on the sign-in page can invoke it and this is NOT parity with
-  the route; the command applies the restart route's own **pane-safety
-  refusal** (`pane_safety_refusal`, failing closed on an unreadable
-  definition) because `service uninstall` gates on nothing and on an old
-  definition takes every live subshell with it — without that the page could
-  do silently what the route 409s on, and the whole argument would be false;
-  and the **audit row is best-effort and posted by the CALLER**
-  (`POST /api/admin/server/supervision`, which records and changes nothing),
-  so it makes honest use legible and is not a control. The command also
-  refuses to interleave with itself (`ActionGuard::try_new`, a
-  compare-and-exchange), because a hundred concurrent chains can leave a
-  machine with no definition and no server.
-
-  `capabilities/main.json`'s SCOPE is pinned too, not just its permission
-  list: `remote.urls` (both loopback spellings), `local: false` and
-  `windows: ["main"]`, plus the granted command's argument list — widening any
-  of those would hand this grant to a page on any host with every
-  command-name assertion still green.
-- **The server app's reset is assistant-only, and the deep link reaches one
-  read-only spawn.** The dashboard's danger card calls
-  `desktop_open_assistant({ screen: "reset" })`; the remote window's worst case
-  is precisely that: it can raise the assistant at a confirmation screen and
-  trigger exactly one read-only `status --json` the app already runs on a
-  five-second timer, spammably — and no verb that changes the machine.
-  `desktop_reset` lives in `wizard.json` alone; it takes ONLY a typed hostname
-  (compared against Rust's own memoized `hostname(1)`, so the page supplies a
-  string, never a path), the five deletion paths come from the server's own
-  `status --json` `paths` block all-or-nothing, an absent or partial block
-  means the screen refuses, and a recursive delete that would contain the
-  installed `~/.local/bin/subshell-server` is refused before anything runs.
-  Enrolled remote nodes and a same-machine `subshell` node agent are NOT
-  reached by a reset and keep their keys and processes; that is stated in the
-  confirmation itself.
-- **The client app's remote window is granted exactly ONE command**
-  (2026-09-14; it was granted NOTHING before). A control plane can live on any
-  host, so its origin cannot be enumerated in a capability file the way loopback
-  can — and that has not changed. What changed is that the boundary moved one
-  level in rather than away: `capabilities/main.json`'s scope is a WILDCARD
-  (`http://*:*`, `https://*:*` — `http://*` alone does not match a non-default
-  port in Tauri 2.11.5's `urlpattern`, which would silently exclude the default
-  `:3080` plane), and the narrowness lives in the command's ARGUMENT.
-  `desktop_open_in_browser` takes a PATH — no scheme, no protocol-relative
-  `//host`, no backslash, no whitespace or control characters
-  (`crates/desktop-core`'s `browser` module, shared by both apps) — and joins it
-  onto the origin `PlanePin` already enforces for navigation. So an XSS in a
-  control plane's SPA can open a page of THAT SAME PLANE in the person's
-  browser, and nothing else: no `node_*` verb, no plugin permission, no
-  `core:default`, no CLI, config, service or file. The window now carries a
-  `SubshellClient/…` user-agent marker, a DIFFERENT product token from the
-  server app's, and the SPA branches on it — `isServerDesktop()` gates every
-  Subshell Server surface (overlay title bar, update, reset, supervision,
-  notifications), `isDesktop()` gates only "Open in browser". **`on_navigation`
-  no longer pins the window to one origin** (2026-09-18): it follows any
-  http(s) URL, because a plane behind an OAuth proxy could not otherwise be
-  signed into. What bounds this app is unchanged and does not depend on that
-  pin — the one granted command takes a PATH and joins it onto `PlanePin`'s
-  origin, not the page's, so a page anywhere a redirect leads can still only
-  open a path of the plane the window was OPENED with.
-- **Each app's ACL manifest is load-bearing BY EXISTENCE.** Tauri gates an app
-  command only when `plugin_command.is_some() || has_app_acl_manifest ||
-  !is_local`, so deleting `permissions/desktop.toml` leaves every command
-  ungated for every LOCAL window. Both apps have a local window that may drive
-  the CLI and a remote window that may not, and that file is what keeps a third
-  window added later from inheriting the surface silently.
-- **The bundled binary is signed with the app's entitlements.** Tauri has ONE
-  entitlements slot for the whole bundle, so whatever the Bun-compiled binary
-  needs is also granted to the GUI process — which, in the server app, is the
-  process holding the session cookie. That set was trimmed to `allow-jit` +
-  `allow-unsigned-executable-memory` and is pinned by test in each app;
-  `disable-library-validation` and `allow-dyld-environment-variables` — the pair
-  that turns a signed app into a code-injection host — are deliberately absent.
-  The two apps keep SEPARATE plists: one shared file would silently widen
-  whichever pipeline was not being edited.
-- **They execute what they find.** Each resolution ladder runs `<candidate>
-  version` on files it locates, and the copy it installs — at
-  `~/.local/bin/subshell-server` or `~/.local/bin/subshell` — is executed on
-  every launch from a user-writable directory. That is not an escalation on
-  this posture — the same user already runs these programs and can already write
-  there — but it is why a chosen-binary path is validated before it is
-  persisted, and why every spawn is bounded. The login-shell PATH probe runs the
-  user's own profile, which is arbitrary code by construction, on every launch.
-- **A setup key pasted into the node app is `ps`-visible**: it is passed to
-  `subshell enroll --key <nsk_…>` as an argv element, the same exposure the CLI
-  path already has. Bounded — single-use, 24 h, consumed by that enroll, and it
-  confers only the right to register one node. The node key enroll returns is
-  never surfaced: the CLI writes it 0600 and `enroll --json` omits it.
-- **Subshell Server can run the control plane as its OWN CHILD** instead of
-  installing a service (spec 2026-09-12 server-supervision), and the server
-  learns this from `SUBSHELL_SUPERVISOR*` in its environment — a claim it
-  believes only when the named pid is its actual parent. A forged claim needs
-  the forger to BE the parent, and buys only `restart.available: true`, i.e.
-  exiting into something that will not respawn: an operator lying to
-  themselves on a host they already control, accepted like a hand-edited
-  config.env. The supervisor signals the MAIN PID and never the process group,
-  which is what earns its `paneSafety: "keeps"` — quitting the app stops the
-  server and keeps every live pane.
-- **Enrolling twice is destructive**, so the node app spawns nothing until the
-  caller confirms: `enroll` overwrites `config.json`, mints a SECOND node row on
-  the control plane, and discards the previous node key whose only home was that
-  file.
-
-Notifications follow the same owner-targeted rule as push: the server app's
-watcher filters to `access === "owner"` and the per-subshell bell, and honours
-the account-wide master switch. The list it reads is much wider than that — for
-an admin it is every subshell on the instance — so the filter is load-bearing.
-
-## CORS
-
-Permissive CORS is acceptable **only** because the service is not exposed to the public
-internet. The allowlist has **static sources and a live read**: assembled on demand from
-the same four sources as the sign-in gate — the instance's own origins (both loopback
-spellings of `SERVER_PORT`, a concrete `HOST`, the `APP_BASE_URL` origin), the machine's
-own LAN interfaces on a wildcard bind, the operator's
-`TRUSTED_ORIGINS` (the dev Vite server comes from there), and each enabled network
-plugin's recorded addresses for this host. It is
-deliberately NOT "trust the origin that matches the request host": that is the
-DNS-rebinding hole the allowlist exists to close.
-
-## Rate Limiting
-
-Login is rate-limited; other endpoints are not — intentional for a local/trusted service
-where performance and simplicity are prioritized over protection from abuse.
-Passkey sign-in is **not** behind the email backoff — it carries no email to attribute
-failures to; the physical authenticator (device + biometric) is the gate.
-Approved emergency-logins (the credential rewrite) are audit events + warn log lines.
-
-## Input Validation
-
-Intentional design decisions for this deployment model:
-
-- **No string length limits on log/subshell fields**: they vary legitimately; limiting them
-  would break real use cases.
-- **No pagination on small per-user lists** (distinct services, channels): expected to be
-  small on a local instance.
-- **Channel slugs and long-poll waits are bounded**: slugs match `^[a-z0-9][a-z0-9-]{0,63}$`;
-  a read's `wait` is clamped to 600 s so a client cannot pin a socket indefinitely.
-
-## Production note
-
-`NODE_ENV=production` refuses to boot with the built-in placeholder `BETTER_AUTH_SECRET`
-(a better-auth guard that exits early) — set a real `BETTER_AUTH_SECRET`, plus
-`APP_BASE_URL`, when binding beyond loopback; its origin (and a concrete `HOST`) is
-trusted automatically, so `TRUSTED_ORIGINS` is only needed for extra names. Production
-enforces the origin check strictly — this is where a mismatched origin shows up as
-`403 Invalid origin` on sign-in/sign-up, not in dev.
-
-## When This Changes
-
-If this service is ever deployed to a shared or public environment, work through
-the full checklist in [`docs/security.md` §12](../../docs/security.md#12-hardening-checklist-for-a-wider-deployment).
-The headlines: HTTPS only with `secure` cookies and a real `BETTER_AUTH_SECRET`;
-proper CORS origin validation and rate limiting on all routes; input length
-validation and pagination on every list endpoint; set `SUBSHELL_FS_ROOT`; rotate
-and review system API keys; and re-examine the E2EE threat model, which protects
-neither metadata nor a host-compromising local user.
+Exposing this beyond a trusted network voids §0, and [`docs/security.md` §12](../../docs/security.md) becomes prerequisites, not improvements: HTTPS only with `Secure` cookies and a real `BETTER_AUTH_SECRET`; origin validation and rate limiting on all routes; input length validation and pagination everywhere; set `SUBSHELL_FS_ROOT`; shorten retention and encrypt the volume (and leave debug logging off — paths ride the server log); re-examine the E2EE model (it guards neither metadata nor a host-compromising local user); rotate and review system keys; reconsider node enrollment; add sign-in/sign-out audit events; separate admin duties; clear `SUBSHELL_EMERGENCY_PASSWORD`; gate or disable `POST /api/setup/agents/:id/install`; behind a `public-with-gate` plugin the Access guard IS the perimeter; and give the node's loopback dashboard its own credential (or set `SUBSHELL_DASHBOARD=0`) before it stops being loopback-only or lands on a multi-user host.

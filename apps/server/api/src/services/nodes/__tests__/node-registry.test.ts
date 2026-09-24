@@ -123,26 +123,26 @@ describe("node registry (spec 2026-08-31 §5.3)", () => {
   // rotate-key / delete-node revoke the credential out from under a LIVE
   // socket (T8 carry): the registry side of that teardown.
   describe("disconnectNode", () => {
-    it("unknown node → false, nothing to close", () => {
-      expect(disconnectNode("ghost")).toBe(false);
+    it("unknown node → false, nothing to close", async () => {
+      expect(await disconnectNode("ghost")).toBe(false);
     });
 
-    it("closes with 4401 by default and evicts the entry (identity-guarded)", () => {
+    it("closes with 4401 by default and evicts the entry (identity-guarded)", async () => {
       const sock = fakeSocket();
       attachConnection("n1", sock);
 
-      expect(disconnectNode("n1")).toBe(true);
+      expect(await disconnectNode("n1")).toBe(true);
       expect(sock.closed).toEqual([{ code: REVOKED_CLOSE_CODE, reason: expect.any(String) }]);
       expect(sock.closed[0]?.code).toBe(4401);
       expect(getLive("n1")).toBeUndefined();
       expect(listOnline()).toEqual([]);
     });
 
-    it("honours a custom code/reason and flags the record closing (late close must not evict a re-attach)", () => {
+    it("honours a custom code/reason and flags the record closing (late close must not evict a re-attach)", async () => {
       const sock = fakeSocket();
       const conn = attachConnection("n1", sock);
 
-      disconnectNode("n1", 4410, "key rotated");
+      await disconnectNode("n1", 4410, "key rotated");
       expect(sock.closed).toEqual([{ code: 4410, reason: "key rotated" }]);
       expect(conn.closing).toBe(true);
 
@@ -154,7 +154,7 @@ describe("node registry (spec 2026-08-31 §5.3)", () => {
       expect(getLive("n1")?.ws).toBe(fresh);
     });
 
-    it("swallows a throwing close() and still evicts", () => {
+    it("swallows a throwing close() and still evicts", async () => {
       const bad: NodeSocket = {
         send: () => 0,
         close: () => {
@@ -162,7 +162,36 @@ describe("node registry (spec 2026-08-31 §5.3)", () => {
         },
       };
       attachConnection("n1", bad);
-      expect(disconnectNode("n1")).toBe(true);
+      expect(await disconnectNode("n1")).toBe(true);
+      expect(getLive("n1")).toBeUndefined();
+    });
+
+    it("`only` evicts exactly that record — a replaced socket cannot condemn its replacement", async () => {
+      // The disable re-ask's targeting (finding, review iteration 5): the
+      // re-ask runs on a socket whose AWAIT may have outlived its own live
+      // slot. Evicting `getLive` there would close a REPLACEMENT that asked
+      // the same question about itself; the correct answer is "nothing of
+      // mine to evict".
+      const old = fakeSocket();
+      const oldConn = attachConnection("n1", old);
+      const replacement = fakeSocket();
+      attachConnection("n1", replacement); // supersedes `old` with 4409
+      expect(getLive("n1")?.ws).toBe(replacement);
+
+      expect(await disconnectNode("n1", 4403, "the node's owner account is disabled", oldConn)).toBe(false);
+      // The replacement is untouched and still live…
+      expect(getLive("n1")?.ws).toBe(replacement);
+      expect(replacement.closed).toHaveLength(0);
+      // …and the OLD record was already closed by the supersede, not this call.
+      expect(old.closed.some((c) => c.code === 4403)).toBe(false);
+    });
+
+    it("`only` still evicts its own socket while it holds the live slot", async () => {
+      const sock = fakeSocket();
+      const conn = attachConnection("n1", sock);
+
+      expect(await disconnectNode("n1", 4403, "the node's owner account is disabled", conn)).toBe(true);
+      expect(sock.closed).toEqual([{ code: 4403, reason: "the node's owner account is disabled" }]);
       expect(getLive("n1")).toBeUndefined();
     });
   });

@@ -26,6 +26,22 @@ export interface UserWithRole {
 }
 
 /**
+ * The predicate that isolates REAL accounts inside better-auth's `user`
+ * table: every row except the `system` service account.
+ *
+ * Spelled once because two questions must never disagree about what "has
+ * anybody registered" means: {@link UsersRepository.countRealAccounts} (the
+ * registration gate and the setup window read it) and the first-user
+ * promotion in `auth.ts`, which used to decide adminhood from emptiness of
+ * the `user_meta` ROLE side-table instead — the divergence
+ * `registration-gate.ts`'s `hasAnyUser` docstring records as a fixed bug on
+ * the gate's side, and security-actionable 2026-09 item 9 closes on the
+ * promotion's. Paste after `WHERE`; consumers add their own `AND` terms.
+ * The exclusion itself belongs to `countRealAccounts`'s docstring.
+ */
+export const REAL_ACCOUNT_FILTER = sql`email <> ${SYSTEM_USER_EMAIL}`;
+
+/**
  * Admin user management over better-auth's `user`/`account` tables plus the
  * app's `user_meta` role table.
  *
@@ -186,7 +202,7 @@ export class UsersRepository extends BaseRepository {
     // Raw sql for better-auth's table, like every other read here; the
     // CamelCasePlugin leaves these physical names untouched.
     const { rows } = await sql<{ n: number }>`
-      SELECT count(*) AS n FROM user WHERE email <> ${SYSTEM_USER_EMAIL}
+      SELECT count(*) AS n FROM user WHERE ${REAL_ACCOUNT_FILTER}
     `.execute(this.db);
     return Number(rows[0]?.n ?? 0);
   }

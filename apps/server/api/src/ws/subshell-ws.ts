@@ -92,6 +92,12 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     return;
   }
   const { row, access, params } = resolved;
+  // Stash WHO authenticated onto the socket before either path continues —
+  // the local `Object.assign` and the remote relay's both build their own
+  // `data` literals, and this channel is what lets an account disable find
+  // the open terminal later (`dropTerminalSocketsFor` in `ws/viewers.ts`).
+  // Nothing else reads it; the viewer registry keys panes, not people.
+  ws.data.attachUserId = resolved.userId;
 
   // spec §6.5: the launcher resolves PER ROW — `local` (the schema default;
   // `nodeId` is NOT NULL) keeps the untouched path below, an agent-node row

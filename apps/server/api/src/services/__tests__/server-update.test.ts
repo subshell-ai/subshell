@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   hostReleaseTarget,
   parseReleaseManifest,
@@ -18,9 +18,10 @@ import {
   describeBinary,
   resetUpdateJobForTests,
   startServerUpdate,
+  tryClaimServerUpdate,
   updateJobRunning,
 } from "@/services/server-update.js";
-import { clearPending, readPending, updateDir } from "@/services/update-transaction.js";
+import { clearPending, keepPreviousBinary, readPending, updateDir } from "@/services/update-transaction.js";
 import { SERVER_VERSION } from "@/version.js";
 
 /**
@@ -127,6 +128,12 @@ let binary: string;
 
 beforeEach(() => {
   fake = startFakeRelease();
+  // The job reads the release through the normal path — signed digest first,
+  // then the bytes, all from the fake — and the egress allowlist (C12) takes
+  // "which host may we knock" from the configured source. Pointing the source
+  // at the fake is what production does; under the suite default the source
+  // is OFF and nothing fetches at all.
+  setReleaseUrlForTests(`${fake.url}/releases`);
   dir = mkdtempSync(join(tmpdir(), "subshell-update-job-"));
   binary = join(dir, "subshell-server");
   writeFileSync(binary, "the old binary", { mode: 0o755 });
@@ -250,8 +257,14 @@ describe("startServerUpdate", () => {
     expect(readPending()).toBeNull();
   });
 
-  it("puts the old binary back when the second rename fails", async () => {
-    let renames = 0;
+  /**
+   * C5's whole point, in the failure that used to exist. The swap is
+   * keep-previous THEN one rename onto the live path; failing the rename must
+   * leave the OLD binary exactly where the service definition points — the
+   * old shape (rename aside, rename in) left this host with NO binary at that
+   * path and a marker only a hand could clean up.
+   */
+  it("leaves the old binary in place when the swap rename fails", async () => {
     startServerUpdate(
       { release: releaseWith(fake, "99.0.0", "the new binary"), binary, forced: false },
       {
@@ -260,12 +273,8 @@ describe("startServerUpdate", () => {
         restart: () => {
           throw new Error("must not restart");
         },
-        rename: (from, to) => {
-          renames++;
-          // The window between the two renames is the only moment this host
-          // has no binary at all; failing the second is what tests the undo.
-          if (renames === 2) throw new Error("no space left on device");
-          Bun.spawnSync({ cmd: ["mv", from, to] });
+        rename: () => {
+          throw new Error("no space left on device");
         },
       },
     );
@@ -273,10 +282,114 @@ describe("startServerUpdate", () => {
 
     expect(currentUpdateJob()?.phase).toBe("failed");
     expect(readFileSync(binary, "utf8")).toBe("the old binary");
+    // The kept copy goes with the failure: the host stands where it started,
+    // marker and all.
     expect(existsSync(`${binary}.previous`)).toBe(false);
-    // The marker is cleared too, or the next boot would revert an update that
-    // never happened.
     expect(readPending()).toBeNull();
+    expect(readdirSync(dirname(binary)).filter((f) => f.includes(".download-"))).toEqual([]);
+  });
+
+  /**
+   * The crash window C5 opens is now the SAFE one: kept copy written, swap
+   * not yet landed. The seam throws AFTER doing the real keep — the state a
+   * kill between the two operations leaves — and the honest answer is that
+   * the live path was never touched: the old binary is there and bootable,
+   * and whatever consumed the marker (the boot hook's `recordFailure`)
+   * converges on the failure.
+   */
+  it("keeps the old binary where it is when the swap dies after the copy", async () => {
+    startServerUpdate(
+      { release: releaseWith(fake, "99.0.0", "the new binary"), binary, forced: false },
+      {
+        backup: async () => null,
+        probeVersion: () => "99.0.0",
+        restart: () => {
+          throw new Error("must not restart");
+        },
+        keepPrevious: (b) => {
+          keepPreviousBinary(b);
+          throw new Error("killed before the rename");
+        },
+      },
+    );
+    await settle();
+
+    expect(currentUpdateJob()?.phase).toBe("failed");
+    expect(readFileSync(binary, "utf8")).toBe("the old binary"); // bootable, in place
+    expect(readPending()).toBeNull();
+  });
+
+  it("refuses to swap at all when the rollback copy cannot be kept", async () => {
+    startServerUpdate(
+      { release: releaseWith(fake, "99.0.0", "the new binary"), binary, forced: false },
+      {
+        backup: async () => null,
+        probeVersion: () => "99.0.0",
+        restart: () => {
+          throw new Error("must not restart");
+        },
+        keepPrevious: () => {
+          throw new Error("the volume refuses links and copies");
+        },
+      },
+    );
+    await settle();
+
+    expect(currentUpdateJob()?.phase).toBe("failed");
+    expect(currentUpdateJob()?.error).toContain("could not keep a rollback copy");
+    // Nothing of the live path was touched, and the marker (the only change
+    // made before this point) is gone.
+    expect(readFileSync(binary, "utf8")).toBe("the old binary");
+    expect(existsSync(`${binary}.previous`)).toBe(false);
+    expect(readPending()).toBeNull();
+  });
+
+  describe("tryClaimServerUpdate — the update lock (C4)", () => {
+    it("takes the slot once, refuses the second caller, and re-reads the disk marker", async () => {
+      expect(tryClaimServerUpdate("99.0.0")).toBe(true);
+      // The claim is the SET: the job is visible the moment the claim lands,
+      // which is what the second caller and every view reads.
+      expect(updateJobRunning()).toBe(true);
+      expect(currentUpdateJob()?.phase).toBe("downloading");
+      expect(tryClaimServerUpdate("99.0.0")).toBe(false);
+
+      // A CLI update started in a terminal, mid-claim — the marker, not the
+      // job, is the truth, and the claim re-reads it.
+      resetUpdateJobForTests();
+      mkdirSync(updateDir(), { recursive: true, mode: 0o700 });
+      writeFileSync(
+        join(updateDir(), "pending.json"),
+        JSON.stringify({
+          from: "1.0.0",
+          to: "2.0.0",
+          binary,
+          previousBinary: `${binary}.previous`,
+          backup: null,
+          startedAt: new Date().toISOString(),
+          origin: "cli",
+          forced: false,
+        }),
+      );
+      expect(tryClaimServerUpdate("99.0.0")).toBe(false);
+      clearPending();
+
+      // A FAILED job releases the slot — the failure stays visible in the
+      // view without continuing to hold the lock.
+      resetUpdateJobForTests();
+      startServerUpdate(
+        { release: releaseWith(fake, "99.0.0", "the new binary"), binary, forced: false },
+        {
+          backup: async () => {
+            throw new Error("the disk is full");
+          },
+          probeVersion: () => "99.0.0",
+        },
+      );
+      await settle();
+      expect(currentUpdateJob()?.phase).toBe("failed");
+      expect(updateJobRunning()).toBe(false);
+      expect(tryClaimServerUpdate("99.1.0")).toBe(true);
+    });
   });
 
   it("records a backup-less transaction rather than refusing it", async () => {
@@ -326,8 +439,11 @@ describe("describeBinary", () => {
 
 describe("collectServerUpdateView", () => {
   it("names the empty release source as a blocker and asks the network for nothing", async () => {
-    // `IS_TEST` pins SUBSHELL_RELEASE_URL empty, so this is the default state
-    // of the suite as well as the air-gapped deployment.
+    // The air-gapped deployment, spelled the way `IS_TEST` pins it. (The
+    // suite-wide `beforeEach` now points the source at the fake — the job's
+    // fetches read the egress allowlist from it — so the empty state is
+    // stated here rather than inherited.)
+    setReleaseUrlForTests("");
     const view = await collectServerUpdateView();
     expect(view.source.enabled).toBe(false);
     expect(view.current).toBe(SERVER_VERSION);
