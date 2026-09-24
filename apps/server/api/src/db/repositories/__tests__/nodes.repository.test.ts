@@ -43,6 +43,31 @@ describe("NodesRepository", () => {
     expect(found?.status).toBe("offline");
   });
 
+  it("encryptPublicKey: create-with pins it, an omitted field reads NULL, set/clear round-trip", async () => {
+    // The column is the node's pinned static X25519 half (spec 2026-09-24 §3);
+    // storage is opaque here, so any base64-looking value proves the round-trip.
+    const pinned = await repo.create({
+      id: unique("n"),
+      ownerUserId: unique("u"),
+      name: unique("node"),
+      kind: "agent",
+      status: "offline",
+      encryptPublicKey: "bgp4aGVsbG8td29ybGQ",
+      createdAt: new Date().toISOString(),
+    });
+    expect(pinned.encryptPublicKey).toBe("bgp4aGVsbG8td29ybGQ");
+    // NULL is the whole upgrade story: every row created without one (every
+    // legacy node, and this fixture) reads NULL = legacy mode (§5).
+    const legacy = await mkNode(repo, unique("u"));
+    expect(legacy.encryptPublicKey).toBeNull();
+    // set mirrors setApiKeyId: the update lands with the value, null clears it
+    // (key rotation re-provisions the encryption identity through exactly this).
+    await repo.setEncryptPublicKey(legacy.id, "cHVibGljLWtleQ");
+    expect((await repo.findById(legacy.id))?.encryptPublicKey).toBe("cHVibGljLWtleQ");
+    await repo.setEncryptPublicKey(legacy.id, null);
+    expect((await repo.findById(legacy.id))?.encryptPublicKey).toBeNull();
+  });
+
   it("findAccessible: owner yes, stranger no, view-sharee yes", async () => {
     const owner = unique("u");
     const stranger = unique("u");
