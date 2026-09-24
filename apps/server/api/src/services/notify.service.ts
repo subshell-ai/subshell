@@ -195,7 +195,7 @@ export function createNotifyService(deps: NotifyServiceDeps) {
      * invalidate. A dead web endpoint (403/404/410) or a DeviceNotRegistered
      * ticket prunes its row; every other failure keeps it (transient).
      * The unseen gate (spec 2026-09-23): with the bell on, an event pushes
-     * only if it outranks the pane's last delivered, still-unseen push; the
+     * only if it outranks the pane's last attempted, still-unseen push; the
      * owner opening the pane clears the state (see `#rememberSeen` in
      * `subshells.service.ts` and the attach path in `ws/attach-resolve.ts`).
      */
