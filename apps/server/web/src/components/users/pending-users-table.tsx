@@ -16,10 +16,11 @@ import { type PendingUserRow, useSetUserApproval } from "@/hooks/use-users-pendi
  *
  * Both buttons are one PATCH each and no dialog: neither locks anyone out or
  * destroys anything. The server's refusal on an already-approved target
- * (409 APPROVAL_NOOP) arrives as its own sentence, shown on the row that
- * asked; row errors retire after 8 s, the users and providers rows'
- * discipline — a refusal kept on screen past the moment it described becomes
- * a second, wrong state.
+ * (409 APPROVAL_NOOP) arrives as its own sentence and is shown on the row
+ * that asked (with the app-wide ApiError prefix, as everywhere else); row
+ * errors retire after 8 s, the users and providers rows' discipline — a
+ * refusal kept on screen past the moment it described becomes a second,
+ * wrong state.
  *
  * The Provider column resolves the door NAME the queue read carries live;
  * null means the door has since been removed, which renders as a standing
@@ -70,8 +71,9 @@ function PendingRow({ row }: { row: PendingUserRow }) {
       await approval.mutateAsync({ id: row.id, approvalState });
     } catch (err) {
       // The 409 sentence ("that account is already approved…") is the one
-      // explanation of the rule; showing it verbatim keeps it on the side
-      // that enforces it.
+      // explanation of the rule; rendering the server's wording unchanged —
+      // with only the app-wide ApiError prefix, as everywhere else — keeps
+      // it on the side that enforces it.
       reportError(errMessage(err, "Could not record the decision"));
     }
   }

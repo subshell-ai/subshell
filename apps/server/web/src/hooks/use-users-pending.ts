@@ -5,10 +5,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 export const USERS_PENDING_QUERY_KEY = ["users-pending"] as const;
 
 /**
- * Query key of the members roster, mirrored from `routes/settings_.users.tsx`
- * (the page owns the fetch; this hook only invalidates it). An approval turns
- * a queue row into a member, so the accept/reflect edge lands on BOTH lists:
- * the row leaves here and appears there.
+ * Query key of the members roster. This hook owns the definition: the page's
+ * fetch in `routes/settings_.users.tsx` imports it from here (the page owns
+ * the fetch; this hook only invalidates it), so do not re-inline a duplicate
+ * `["users"]` there. An approval turns a queue row into a member, so the
+ * accept/reflect edge lands on BOTH lists: the row leaves here and appears
+ * there.
  */
 export const USERS_QUERY_KEY = ["users"] as const;
 
@@ -60,8 +62,9 @@ export function useUsersPending(enabled: boolean) {
  * `PATCH /api/users/:id/approval` — approve or reject one queue arrival.
  * Both success edges move the row between the two lists, so one invalidation
  * pair covers the accept and the reject alike. The server's refusal on an
- * already-approved target (409 APPROVAL_NOOP) arrives as an `ApiError` whose
- * message the row renders verbatim.
+ * already-approved target (409 APPROVAL_NOOP) arrives as an `ApiError`, and
+ * the row shows its message with the app-wide error prefix, as every other
+ * error surface here does.
  */
 export function useSetUserApproval() {
   const queryClient = useQueryClient();

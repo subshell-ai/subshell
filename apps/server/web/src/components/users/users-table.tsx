@@ -11,7 +11,7 @@ import { asUserRole, USER_ROLE_LABELS } from "@/types/user-role";
  * OIDC door's row cannot be resolved to its admin-chosen name from this
  * payload alone, and guessing a name would be worse than printing the id.
  */
-export function providerBadgeLabel(providerId: string): string {
+function providerBadgeLabel(providerId: string): string {
   if (providerId === "credential") return "Email";
   if (providerId === "google") return "Google";
   return providerId;
