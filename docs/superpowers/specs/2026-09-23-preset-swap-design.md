@@ -11,11 +11,13 @@ optional body on the existing restart route rather than a new endpoint.
 
 ## 1. Why the restart route is the whole feature
 
-`subshells.presetId` is a live column, not a launch-time snapshot, and
-`restartSubshell`'s revive step re-reads it fresh at the swap point
-(`apps/server/api/src/services/subshell-manager.service.ts:1050` — the comment
-there names it). A restart therefore *is* "compose the launch from whatever
-presetId says now". Swapping is: validate a new preset, write the column at
+`subshells.presetId` is a live column, not a launch-time snapshot: the manager
+writes a swap at what its write-side comment names the swap point, and the
+revive step re-reads the row fresh after it (`restartSubshell` in
+`apps/server/api/src/services/subshell-manager.service.ts` — the comment that
+names the swap point sits on that write, not in `#reviveRow`). A restart
+therefore *is* "compose the launch from whatever presetId says now".
+Swapping is: validate a new preset, write the column at
 that point, continue. Everything downstream is untouched machinery — env/argv
 layering locally, the full plane-built launch frame (argv + preset + env +
 mcp + resolve) re-sent to the node for remote panes, MCP token rotation,
@@ -53,8 +55,8 @@ survives dangling references by nulling them.)
 
 **The write** rides into `subshell-manager.service.restartSubshell` as an
 optional `swapPresetTo` argument: `null` / string / undefined (no swap). The
-manager sets `row.presetId` immediately before `#reviveRow` re-reads the row,
-then the existing revive proceeds. If revive fails mid-flight, the row rolls
+manager writes the column at the swap point, and the fresh re-read of the row
+that follows feeds `#reviveRow`, then the existing revive proceeds. If revive fails mid-flight, the row rolls
 back to `terminated` **keeping the new preset** — that is the honest state:
 the pane is dead and the next Start again uses the preset that was chosen.
 
