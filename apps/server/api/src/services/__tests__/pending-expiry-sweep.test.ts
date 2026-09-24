@@ -4,6 +4,7 @@ import { db } from "@/db/index.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
+import { audit } from "@/services/audit.js";
 import { setupAuthTables } from "../../api/__tests__/helpers/auth-tables.js";
 import {
   expirePendingApprovals,
@@ -26,6 +27,8 @@ const createdDoorIds: string[] = [];
 const createdAccountIds: string[] = [];
 const createdSessionIds: string[] = [];
 const createdVerificationIds: string[] = [];
+/** user ids an approval audit row was written for (cleaned by targetId). */
+const createdApprovalTargetIds: string[] = [];
 
 const daysAgo = (n: number): string => new Date(Date.now() - n * 86_400_000).toISOString();
 
@@ -129,6 +132,9 @@ afterAll(async () => {
   for (const userId of createdUserIds) {
     await sql`DELETE FROM user_meta WHERE user_id = ${userId}`.execute(db);
     await sql`DELETE FROM user WHERE id = ${userId}`.execute(db);
+  }
+  for (const targetId of createdApprovalTargetIds) {
+    await db.deleteFrom("auditEvents").where("targetId", "=", targetId).execute();
   }
   await new SettingsRepository(db).delete(PENDING_APPROVAL_EXPIRY_KEY);
 });
@@ -246,7 +252,10 @@ describe("remarkUnmarkedArrivals", () => {
 
     // (a) The measured failure shape: `user.create.after` promoted the
     // first arrival and wrote its meta row (approval_state defaults
-    // 'approved'), then `account.create.after` threw before marking.
+    // 'approved'), then `account.create.after` threw before marking. No
+    // `user.approve` audit row exists — an approved row WITHOUT the trail
+    // is exactly the failed-mark signature (row absence alone is NOT,
+    // because the promotion writes the row for every user).
     const promotedArrival = await makeUser(
       `remark-promoted-${crypto.randomUUID().slice(0, 8)}@example.test`,
       new Date().toISOString(),
@@ -282,6 +291,41 @@ describe("remarkUnmarkedArrivals", () => {
       (await db.selectFrom("userMeta").select("role").where("userId", "=", metalessArrival).executeTakeFirstOrThrow())
         .role,
     ).toBe("user");
+  });
+
+  test("an arrival a human approved minutes ago is NOT re-queued — the sweep must not undo an approval", async () => {
+    // The exact undo-admin case (controller correction): the hook marked the
+    // arrival pending, an admin approved it inside the 2 h window, so it is
+    // byte-identical to the failed-mark shape on every column the QUEUE
+    // can see (present row, approved, NULL clock, one gated account, fresh
+    // user). The `user.approve` audit row — which only the approval route
+    // writes — is what distinguishes them, and it must win.
+    const doorId = `remark-approved-door-${crypto.randomUUID().slice(0, 8)}`;
+    await makeDoor(doorId, 1);
+    const approved = await makeUser(
+      `remark-approved-${crypto.randomUUID().slice(0, 8)}@example.test`,
+      new Date().toISOString(),
+    );
+    await makeAccount(approved, doorId);
+    // The route's own write pair: pending (marked, clock stamped), then
+    // approved (clock cleared by setApproval's leave-pending rule).
+    const meta = new UserMetaRepository(db);
+    await meta.setApproval(approved, "pending", { arrivedAt: new Date().toISOString() });
+    await meta.setApproval(approved, "approved");
+    await audit({
+      actorUserId: null,
+      action: "user.approve",
+      targetType: "user",
+      targetId: approved,
+      metadataJson: JSON.stringify({ email: "x@example.test", providerId: doorId }),
+    });
+    createdApprovalTargetIds.push(approved);
+
+    await remarkUnmarkedArrivals(db);
+
+    const state = await metaState(approved);
+    expect(state?.approvalState).toBe("approved");
+    expect(state?.pendingArrivedAt).toBeNull();
   });
 
   test("established members, linked users, open doors and rejected rows are never touched", async () => {

@@ -125,9 +125,11 @@ export async function expirePendingApprovals(db: Kysely<Database>): Promise<numb
  * Without this pass, a marking failure is a silently unapproved person with
  * admin-shaped privileges.
  *
- * **The false-positive direction is the dangerous one**: an admin turning
- * `require_approval` ON later must NOT retroactively un-approve established
- * members. So a row is re-marked only when ALL of:
+ * **The false-positive direction is the dangerous one twice over**: an
+ * admin turning `require_approval` ON later must NOT retroactively
+ * un-approve established members, and a sweep must NEVER undo an approval
+ * an admin made minutes ago — the sweep fighting a human is the worse bug
+ * class next to the hole it patches. So a row is re-marked only when ALL of:
  *
  * - exactly ONE `account` row — the same links-are-not-arrivals test the
  *   hook applies (`accountCount = 1`, counted over ALL accounts, so a user
@@ -136,34 +138,48 @@ export async function expirePendingApprovals(db: Kysely<Database>): Promise<numb
  *   `require_approval = 1`, and is not `credential` — mirroring the hook's
  *   `getById` + skip guard exactly, email-door sign-ups included;
  * - `approvalState` reads APPROVED, asked through `UserMetaRepository` so
- *   the absent-row and hand-edit rules live in one reader (absent counts as
- *   approved — the harsher failure shape where both after-hooks missed);
+ *   the absent-row and hand-edit rules live in one reader (an absent row —
+ *   both after-hooks missed — counts as approved too);
+ * - **no `user.approve` audit row targets the user**, and
  * - the user's `createdAt` is within {@link ARRIVAL_REMARK_WINDOW_MS} —
- *   anything older is established membership regardless of current policy.
+ *   anything older is established membership regardless of current policy,
+ *   and the window is also the belt against old accounts whose meta row was
+ *   hand-deleted.
+ *
+ * **Why the audit trail and not row-absence is the human-spoke signal:**
+ * a failed marking does NOT leave no row — `user.create.after`'s
+ * `promoteFirstUserAtomically` INSERTs the `user_meta` row for EVERY user
+ * creation (winners `admin`, losers `user`), and it runs before the account
+ * row exists, hence before the marking hook. So the normal failed-mark
+ * shape is a PRESENT row reading `approved` with a NULL clock — the exact
+ * bytes an approval leaves. What distinguishes them is the audit trail:
+ * `PATCH /api/users/:id/approval` is the only writer of the approved edge
+ * (it 409s onto an already-approved row), and every approval writes
+ * `user.approve`. Row present + approved + NO audit trail ⇒ the marking
+ * was lost, re-queue. Approved + an audit trail ⇒ a human said yes, hands
+ * off. A row-absent user can carry no approval trail, so it falls to the
+ * same branch and the rule reads uniformly.
+ *
+ * The residual risk is honest: `audit()` is best-effort and never throws,
+ * so an approval whose audit row was LOST degrades to the pre-fix behavior
+ * (re-queued within the window, stickable by re-approval). That is strictly
+ * rarer than the defect this closes, and closing it fully would mean the
+ * sweep trusting nothing but the trail.
  *
  * Re-marking runs the hook's exact pair (`setApproval(pending)` then
  * {@link UserMetaRepository.demoteAdminIfAutoPromoted}), which is what
- * makes the demote safe here: the demote's own `WHERE role = 'admin'`
- * clause only ever matches the role `promoteFirstUserAtomically` wrote
- * minutes ago for a genuine arrival, and its JSDoc's "never observable by
- * anyone" argument holds identically for a marking this pass repairs.
+ * makes the demote safe here and keeps it REACHABLE: the normal
+ * failed-mark shape is precisely the auto-promoted one (promotion wrote
+ * `admin`, marking threw), and the demote's `WHERE role = 'admin'` clause
+ * only ever matches a role `promoteFirstUserAtomically` wrote minutes ago
+ * for a genuine arrival — its JSDoc's "never observable by anyone"
+ * argument holds identically for a marking this pass repairs.
  *
- * **One accepted cost**: an admin who approves an arrival within the window
- * is re-queued by the next tick — the re-marked shape (`approved`, NULL
- * clock, one gated account, fresh `createdAt`) is byte-identical to the
- * never-marked shape, so the pass cannot tell a fast yes from a lost
- * marking. The person simply waits for one more approval, which sticks
- * once the window closes; the `user.approve` audit row is the trail that
- * explains why. Narrowing on that trail is possible and deliberately not
- * done here — the prescribed rule is the conservative one, and guessing
- * which approvals were real is how a queue repair starts un-approving
- * people.
- *
- * **No audit row** — per finding I2's posture the hook keeps this to a
- * `logger.warn`: this is not an admin act and not a user act, it is this
- * process repairing its own failed write, and the journal line is what
- * makes it loud. (Deliberately unlike the approval routes, which audit
- * because a human decided something.)
+ * **No audit row for the re-mark itself** — per finding I2's posture this
+ * stays a `logger.warn`: it is not an admin act and not a user act, it is
+ * this process repairing its own failed write, and the journal line is
+ * what makes it loud. (Deliberately unlike the approval routes, which
+ * audit because a human decided something.)
  *
  * @param db - the app database
  * @returns the number of arrivals re-marked pending
@@ -193,6 +209,18 @@ export async function remarkUnmarkedArrivals(db: Kysely<Database>): Promise<numb
     // The single reader owns "approved" here — absent row, default column
     // value and hand-edited junk all read approved, pending/rejected don't.
     if ((await meta.approvalState(candidate.userId)) !== "approved") continue;
+    // The human-spoke signal: `PATCH /api/users/:id/approval` is the only
+    // writer of the approved edge and it always leaves this trail behind.
+    // Typed read — `audit_events` is an app table (the CamelCasePlugin
+    // spells its snake_case physical names from these camelCase fields).
+    const approvedByHuman = await db
+      .selectFrom("auditEvents")
+      .select("id")
+      .where("action", "=", "user.approve")
+      .where("targetType", "=", "user")
+      .where("targetId", "=", candidate.userId)
+      .executeTakeFirst();
+    if (approvedByHuman) continue;
     await meta.setApproval(candidate.userId, "pending", { arrivedAt: new Date().toISOString() });
     await meta.demoteAdminIfAutoPromoted(candidate.userId);
     remarked += 1;
