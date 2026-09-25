@@ -157,7 +157,7 @@ function InstallProgress(props: { installLine: string; startedAt: number; now: n
   );
 }
 
-/** One manager's instructions, shown after its button is pressed. */
+/** One manager's instructions, shown under the buttons by default (the first route's) or after a press. */
 export function ManualRouteSteps(props: { route: ManualRoute; onFail: (err: unknown) => void }): ReactElement {
   const route = props.route;
   return (
@@ -206,11 +206,17 @@ export function TmuxScreen(props: {
   entranceKey?: number;
 }): ReactElement {
   const { probe, busy, running, tmuxResult, problem, installLine, installStartedAt } = props;
-  // Which manager's manual instructions are showing, or null for none yet.
-  // Screen-local state: the old page held it at page level only because a
-  // poll-driven DOM rebuild destroyed component memory, and that reason is
-  // gone. Leaving the screen forgets it, which is what a fresh visit wants.
-  const [manualRoute, setManualRoute] = useState<ManualRoute["target"] | null>(null);
+  // Which manager's instructions are showing. Default: the first route's
+  // (Homebrew), because the instructions no longer hide until asked for —
+  // operator's call, 2026-09-25: an operator met this screen, saw two bare
+  // buttons, and read the screen as doing nothing. Screen-local state: the old
+  // page held it at page level only because a poll-driven DOM rebuild
+  // destroyed component memory, and that reason is gone. Leaving the screen
+  // forgets it, which is what a fresh visit wants.
+  const [manualRoute, setManualRoute] = useState<ManualRoute["target"] | null>(() => {
+    const [first] = manualTmuxRoutes(probe.platform);
+    return first?.target ?? null;
+  });
   const plan = tmuxInstallPlan(probe.platform, probe.hasBrew);
   const failed = tmuxInstallFailure(tmuxResult, probe.tmux !== null);
   // The screen's own problem line: the failure card replaces it when the line
@@ -290,8 +296,11 @@ export function TmuxScreen(props: {
                 asides use, centred under a centred title. */}
             <p className="wizard-copy centered">Installing tmux through Homebrew or MacPorts is recommended.</p>
             {/* Two ordinary buttons, side by side: no class, so they carry the app's
-                default button look rather than the ghost one. Pressing one REVEALS that
-                manager's instructions below; nothing is shown until asked for. */}
+                default button look rather than the ghost one. The selected manager's
+                instructions show under the buttons — the first one's by default, and
+                a press SWITCHES which manager's show rather than toggling them away:
+                one hidden state is what the default exists to end, and a button that
+                could hide the lines again would reintroduce it one click later. */}
             <div className="manual-routes">
               {routes.map((route) => (
                 <Button
@@ -300,7 +309,7 @@ export function TmuxScreen(props: {
                   variant="outline"
                   id={`route-${route.target}`}
                   aria-pressed={manualRoute === route.target}
-                  onClick={() => setManualRoute(manualRoute === route.target ? null : route.target)}
+                  onClick={() => setManualRoute(route.target)}
                 >
                   {route.name}
                 </Button>

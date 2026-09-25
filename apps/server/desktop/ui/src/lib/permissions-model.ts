@@ -18,7 +18,7 @@
  *
  * - **Nothing here blocks.** Declining is a legitimate answer, so no row gates
  *   Continue and no row nags. The screen prepares; the recovery path (a denied
- *   row's Open System Settings, reachable forever afterwards) is what exists
+ *   row's Open Settings, reachable forever afterwards) is what exists
  *   for changing your mind.
  * - **A button is offered only where pressing it does something** — which is
  *   not the same as "only where a state is bad". macOS asks once, so "Allow"
@@ -74,7 +74,10 @@ export interface PermissionRow {
    * time when that was the only row that could ask anything. With Photos
    * asking too, a hardcoded label puts one permission's name on a button that
    * spends the other's question, and a dispatch on `id` would route an
-   * unlisted third row to notifications in silence. Paired here, the renderer's
+   * unlisted third row to notifications in silence. The LABEL is now the bare
+   * "Allow" (operator's call, 2026-09-25: the row's own label names the
+   * permission, and the long buttons read as clutter), so what carries the
+   * anti-mis-wiring is the REQUEST: still paired here, and the renderer's
    * `Record<PermissionRequest, …>` fails to COMPILE with a request that has no
    * handler.
    *
@@ -185,9 +188,9 @@ export function permissionRows(probe: Probe, requesting: PermissionRequests = {}
       state: requesting.notifications ? "active" : stateFor(notifications),
       suffix: suffixFor(notifications),
       // One of the TWO prompts this app owns. Both rows can raise their own
-      // sheet, and each names its own button — see `allow`.
+      // sheet, and each carries its own `request` — see `allow`.
       action: notifications === "not-determined" ? "allow" : notifications === "denied" ? "open-settings" : null,
-      allow: notifications === "not-determined" ? { label: "Allow notifications", request: "notifications" } : null,
+      allow: notifications === "not-determined" ? { label: "Allow", request: "notifications" } : null,
       pane: notifications === "denied" ? "notifications" : null,
     },
     {
@@ -218,7 +221,7 @@ export function permissionRows(probe: Probe, requesting: PermissionRequests = {}
       // so a sheet raised here arms the subject the picker will hit. A refusal
       // still has only one way back, and that stays System Settings.
       action: photos === "not-determined" ? "allow" : photos === "denied" ? "open-settings" : null,
-      allow: photos === "not-determined" ? { label: "Allow Photos", request: "photos" } : null,
+      allow: photos === "not-determined" ? { label: "Allow", request: "photos" } : null,
       pane: photos === "denied" ? "photos" : null,
     },
   ];

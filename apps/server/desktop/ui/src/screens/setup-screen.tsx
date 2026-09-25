@@ -350,10 +350,10 @@ export function SetupScreen(props: {
       entranceKey={props.entranceKey}
       barRight={
         <>
-          {/* The reason beside the button is four words, which is the right size for a
-              button that is merely waiting and the wrong size for one that will not
-              come back on its own. An empty reason means busy: a spinner is already
-              on screen. */}
+          {/* The reason beside the button is a few words at most, which is the right
+              size for a button that is merely waiting and the wrong size for one that
+              will not come back on its own. An empty reason means busy: a spinner is
+              already on screen. */}
           {!gate.ok && gate.reason && <span className="reason">{gate.reason}</span>}
           <Button type="button" disabled={!gate.ok} onClick={props.onStartSetup}>
             Set Up

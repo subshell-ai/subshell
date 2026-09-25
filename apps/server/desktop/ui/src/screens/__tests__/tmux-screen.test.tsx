@@ -1,7 +1,7 @@
 /**
  * The tmux screen, as component tests: the run plan's button and its try
  * again, the install progress, the three-layer failure card with its manual
- * command, and the manual routes' reveal toggle.
+ * command, and the manual routes showing their instructions by default.
  */
 import { afterEach, describe, expect, it, vi } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -108,23 +108,28 @@ describe("the run plan", () => {
 });
 
 describe("the manual plan", () => {
-  it("shows the checking line and both managers, revealed only when asked for", () => {
+  it("shows the checking line, both managers, and the first manager's instructions by default", () => {
     const noBrew = makeProbe({ next: "init", onboarded: false, tmux: null, platform: "darwin", hasBrew: false });
     renderTmux({ probe: noBrew });
     expect(screen.getByText("Checking for tmux…")).toBeDefined();
     expect(screen.getByText("Installing tmux through Homebrew or MacPorts is recommended.")).toBeDefined();
     const homebrew = screen.getByRole("button", { name: "Homebrew" });
     const macports = screen.getByRole("button", { name: "MacPorts" });
-    expect(homebrew.getAttribute("aria-pressed")).toBe("false");
-    // Nothing is shown until asked for.
-    expect(screen.queryByText(/Once you have Homebrew, run:/)).toBeNull();
-    fireEvent.click(homebrew);
+    // The instructions no longer hide until asked for (operator's call,
+    // 2026-09-25): the first route's are on screen the moment the screen is.
     expect(homebrew.getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByText(/Install it from its site, then come back\./)).toBeDefined();
+    expect(screen.getByText(/Once you have Homebrew, run:/)).toBeDefined();
     expect(screen.getByText("brew install tmux")).toBeDefined();
-    // Toggling to the other manager swaps the instructions.
+    // Pressing the other manager SWITCHES which instructions show.
     fireEvent.click(macports);
+    expect(macports.getAttribute("aria-pressed")).toBe("true");
+    expect(homebrew.getAttribute("aria-pressed")).toBe("false");
     expect(screen.getByText(/Once you have MacPorts, run:/)).toBeDefined();
     expect(screen.queryByText(/Once you have Homebrew, run:/)).toBeNull();
+    // And pressing the selected one again cannot hide them: a press that
+    // empties the pane is the hidden state, one click later.
+    fireEvent.click(macports);
+    expect(screen.getByText(/Once you have MacPorts, run:/)).toBeDefined();
   });
 });

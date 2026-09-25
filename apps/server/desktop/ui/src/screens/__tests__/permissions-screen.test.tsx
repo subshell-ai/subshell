@@ -46,24 +46,24 @@ function renderPermissions(over: {
 describe("the rows", () => {
   it("asks where macOS has not yet, and says so with the app's own words", () => {
     renderPermissions({});
-    const allowNotifications = screen.getByRole("button", { name: "Allow notifications" });
+    // The visible word is the bare "Allow" (operator's call, 2026-09-25), but
+    // the ACCESSIBLE name carries the row's permission — a button list sees
+    // no rows — so the roles below stay distinguishable, which is also what
+    // pins the aria-label onto both buttons.
+    const allowNotifications = screen.getByRole("button", { name: "Allow Notifications" });
     const allowPhotos = screen.getByRole("button", { name: "Allow Photos" });
     expect(allowNotifications.className).toContain("primary");
-    // Both rows carry their own state word; the Files row is unreadable by
-    // design and never asks.
+    expect(allowPhotos.textContent).toBe("Allow");
+    // The Files row is unreadable by design and never asks.
     expect(screen.getByText("Asked later")).toBeDefined();
-    expect(screen.queryByRole("button", { name: /Allow Files/ })).toBeNull();
     // The Files row's door is where a refusal is undone, whatever macOS has
     // asked yet.
-    expect(screen.getByRole("button", { name: "Open System Settings" })).toBeDefined();
-    expect(allowNotifications).toBeDefined();
-    expect(allowPhotos).toBeDefined();
+    expect(screen.getByRole("button", { name: "Open Files and Folders settings" })).toBeDefined();
   });
 
   it("marks an allowed permission done, with the checklist's own tick", () => {
     renderPermissions({ probe: makeProbe({ notificationPermission: "authorized", photosPermission: "authorized" }) });
-    expect(screen.queryByRole("button", { name: /Allow notifications/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Allow Photos/ })).toBeNull();
+    expect(screen.queryAllByRole("button", { name: /^Allow/ })).toHaveLength(0);
     const rows = document.querySelectorAll("ul.checklist li");
     expect(rows[0].getAttribute("data-state")).toBe("done");
     expect(rows[2].getAttribute("data-state")).toBe("done");
@@ -75,8 +75,9 @@ describe("the rows", () => {
       probe: makeProbe({ notificationPermission: "denied", photosPermission: "denied" }),
       fail,
     });
-    const doors = screen.getAllByRole("button", { name: "Open System Settings" });
-    // Three rows, two denials, one always-there Files door.
+    const doors = screen.getAllByRole("button", { name: /^Open .* settings$/ });
+    // Three rows, two denials, one always-there Files door — each names its
+    // own pane in its accessible name.
     expect(doors).toHaveLength(3);
   });
 
@@ -94,7 +95,7 @@ describe("the rows", () => {
     // The in-flight flag: the row renders from the MODEL's answer for a
     // requesting row, which is "active" — observable as the state attribute
     // while the act is unresolved.
-    screen.getByRole("button", { name: "Allow notifications" }).click();
+    screen.getByRole("button", { name: "Allow Notifications" }).click();
     await Promise.resolve();
     expect(act).toHaveBeenCalledTimes(1);
     const row = document.querySelectorAll("ul.checklist li")[0];
@@ -106,7 +107,7 @@ describe("the rows", () => {
     // guard that would refuse a press DURING an act is `busy`, held false
     // here so the flag's own reset is what is under test.
     renderPermissions({ probe, act });
-    screen.getByRole("button", { name: "Allow notifications" }).click();
+    screen.getByRole("button", { name: "Allow Notifications" }).click();
     expect(act).toHaveBeenCalledTimes(2);
   });
 });

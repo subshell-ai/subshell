@@ -45,12 +45,14 @@ describe("permissionRows", () => {
     expect(permissionRows(probe()).map((r) => r.id)).toEqual(["notifications", "files", "photos"]);
   });
 
-  it("pairs an `allow` button with its words exactly when it offers to ask", () => {
+  it("pairs an `allow` button with its request exactly when it offers to ask", () => {
     // The renderer takes BOTH from the row, having hardcoded the notifications
     // label and handler back when that was the only askable row. A row that
-    // says `allow` with no label would render a fallback button, and a label
-    // on a row that cannot ask is a field nothing renders — either way the two
-    // screens drift apart with no test in the middle.
+    // says `allow` with no button data would render a fallback, and button
+    // data on a row that cannot ask is a field nothing renders — either way
+    // the two screens drift apart with no test in the middle. The label is
+    // the uniform short "Allow" (operator's call, 2026-09-25), so it is the
+    // REQUEST that identifies the sheet, and the walk checks that instead.
     for (const notifications of ALL) {
       for (const photos of ALL) {
         for (const r of permissionRows(probe({ notificationPermission: notifications, photosPermission: photos }))) {
@@ -59,7 +61,7 @@ describe("permissionRows", () => {
             continue;
           }
           expect(r.allow, r.id).not.toBeNull();
-          expect(r.allow?.label.startsWith("Allow "), r.id).toBe(true);
+          expect(r.allow?.label, r.id).toBe("Allow");
           // The row that offers to ask names the sheet it raises. `String()`
           // because `files` is not a `PermissionRequest` — the type already
           // says a row with nothing to ask cannot name one, and this checks
@@ -85,7 +87,7 @@ describe("permissionRows", () => {
 /**
  * The first of the two rows that can raise a sheet, and the reason every state
  * needs its own line: macOS asks exactly once. Offering "Allow" on a denied
- * state is a button that does nothing, and offering "Open System Settings" on
+ * state is a button that does nothing, and offering "Open Settings" on
  * an undetermined one sends a person to a row that is not there yet.
  */
 describe("the notifications row", () => {
@@ -166,13 +168,21 @@ describe("the photos row", () => {
     expect(r.suffix).toBe("");
   });
 
-  it("names PHOTOS on its button, not the other row's permission", () => {
+  it("carries its own request, so a bare label cannot misroute the ask", () => {
     // The renderer used to hardcode "Allow notifications" for every `allow`
-    // row. Two askable rows is exactly when that string becomes a lie.
-    expect(row(probe({ photosPermission: "not-determined" }), "photos").allow?.label).toBe("Allow Photos");
-    expect(row(probe({ notificationPermission: "not-determined" }), "notifications").allow?.label).toBe(
-      "Allow notifications",
-    );
+    // row. Two askable rows is exactly when that string becomes a lie. The
+    // label is now the bare "Allow" (operator's call, 2026-09-25 — the row's
+    // own label names the permission), so what keeps the anti-misroute real
+    // is the REQUEST the row carries and the renderer's exhaustive Record
+    // over it: the photos row can only reach the photos sheet.
+    expect(row(probe({ photosPermission: "not-determined" }), "photos").allow).toEqual({
+      label: "Allow",
+      request: "photos",
+    });
+    expect(row(probe({ notificationPermission: "not-determined" }), "notifications").allow).toEqual({
+      label: "Allow",
+      request: "notifications",
+    });
   });
 
   it("is done and silent once allowed", () => {

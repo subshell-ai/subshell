@@ -415,7 +415,7 @@ describe("canSetup", () => {
     expect(canSetup(null, false)).toEqual({ ok: false, reason: "Checking this machine…" }));
   it("refuses silently while busy", () => expect(canSetup(virgin(WITH_TMUX), true)).toEqual({ ok: false, reason: "" }));
   it("waits for tmux, the chain's one hard stop", () =>
-    expect(canSetup(virgin(), false)).toEqual({ ok: false, reason: "Waiting for tmux" }));
+    expect(canSetup(virgin(), false)).toEqual({ ok: false, reason: "Waiting for tmux to be installed" }));
   it("is ok once tmux answers, even with no server yet", () =>
     expect(canSetup(virgin(WITH_TMUX), false)).toEqual({ ok: true }));
   it("refuses a port something else is holding, and names it", () =>
@@ -440,7 +440,7 @@ describe("canSetup", () => {
     const busy = { port: "3080" };
     expect(canSetup(null, false, busy)).toEqual({ ok: false, reason: "Checking this machine…" });
     expect(canSetup(virgin(WITH_TMUX), true, busy)).toEqual({ ok: false, reason: "" });
-    expect(canSetup(virgin(), false, busy)).toEqual({ ok: false, reason: "Waiting for tmux" });
+    expect(canSetup(virgin(), false, busy)).toEqual({ ok: false, reason: "Waiting for tmux to be installed" });
   });
 });
 
