@@ -449,11 +449,13 @@ jobs:
               cli-node) triples="linux-x64 linux-arm64 darwin-arm64 darwin-x64" ;;
               # No linux-arm64: there is no native arm64 Linux runner, and a
               # file(1) magic check cannot see a GUI's characteristic failure,
-              # which is an invisible window. No darwin-x64 either, though the
-              # CLI has it again: the desktop pipeline hands `tauri build` no
-              # --target and reads a host-relative bundle root, so the BUNDLE
-              # has no Intel build path — only the host arch is ever produced.
-              desktop-server|desktop-client) triples="linux-x64 darwin-arm64" ;;
+              # which is an invisible window. darwin-x64 is in: the pipeline
+              # cross-builds it with tauri `--target` on the arm64 runner
+              # (measured 2026-09-25: full crate graph compiles, links the
+              # SDK's universal WebKit, the x86_64 app runs), and the bundle
+              # smoke verifies signing, the staple, and the sidecar's Mach-O
+              # slice rather than launching the GUI.
+              desktop-server|desktop-client) triples="linux-x64 darwin-arm64 darwin-x64" ;;
               # $triples is an ordinary shell variable that OUTLIVES the loop
               # iteration. Without this arm a new app silently inherits the
               # PREVIOUS app's triples instead of failing.
@@ -655,6 +657,11 @@ jobs:
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: stable
+          # Both Mac stds on every darwin desktop shard: `tauri build` is
+          # passed an explicit `--target` for EVERY triple (a shard must never
+          # be able to silently build its runner's arch), and the arm64 shard
+          # naming its own host triple resolves through the same install step.
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache cargo
         if: startsWith(matrix.app, 'desktop-')

@@ -105,10 +105,11 @@ describe("parseScope (generalized from the client pipeline, Task E)", () => {
     expect(() => parseScope("win32-x64", SERVER_TARGETS, "TEST_TRIPLES")).toThrow(/linux-x64/);
   });
 
-  test("the CLI pipelines serve darwin-x64; the desktop pipeline does not (∉ DESKTOP_TARGETS)", () => {
+  test("darwin-x64 is known to every pipeline that ships it — CLI and desktop alike", () => {
     expect(parseScope("darwin-x64", SERVER_TARGETS, "TEST_TRIPLES")).toEqual(["darwin-x64"]);
-    // A desktop shard scoped to Intel is refused — no tauri cross-build ships it:
-    expect(() => parseScope("darwin-x64", DESKTOP_TARGETS, "TEST_TRIPLES")).toThrow(/unknown target/);
+    expect(parseScope("darwin-x64", DESKTOP_TARGETS, "TEST_TRIPLES")).toEqual(["darwin-x64"]);
+    // and linux-arm64 is STILL unknown to desktop — the no-native-runner rule stands:
+    expect(() => parseScope("linux-arm64", DESKTOP_TARGETS, "TEST_TRIPLES")).toThrow(/unknown target/);
   });
 });
 

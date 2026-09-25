@@ -246,7 +246,7 @@ its own.
 | bundle identifier | `dev.subshell.server` | `dev.subshell.client` |
 | `productName` | `Subshell Server` | `Subshell Client` |
 | sidecar stem | `subshell-server-bundled` | `subshell-node-bundled` |
-| published `.dmg` | `Subshell-Server-Desktop-<v>-darwin-arm64.dmg` | `Subshell-Client-Desktop-<v>-darwin-arm64.dmg` |
+| published `.dmg` | `Subshell-Server-Desktop-<v>-<darwin-triple>.dmg` | `Subshell-Client-Desktop-<v>-<darwin-triple>.dmg` (one per Mac triple: `darwin-arm64`, `darwin-x64`) |
 | published `.deb` | `subshell-server-desktop_<v>_amd64.deb` | `subshell-client-desktop_<v>_amd64.deb` |
 
 Both packages can be installed on one machine and both put a binary in

@@ -69,8 +69,8 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
 - `turbo build` wipes the compiled `apps/node/agent/dist/subshell` dev binary;
   re-create it with `cd apps/node/agent && bun run compile`.
 - Separately, `bun run release:cli-server` builds the **control-plane** binary
-  (not a Nodes download artifact): the three `SERVER_TARGETS` triples
-  (`linux-x64`, `linux-arm64`, `darwin-arm64`), each `--bytecode`, with the
+  (not a Nodes download artifact): the four `SERVER_TARGETS` triples
+  (`linux-x64`, `linux-arm64`, `darwin-arm64`, `darwin-x64`), each `--bytecode`, with the
   built SPA **embedded** so the binary serves the UI with no frontend dist
   on the host (an embed step overwrites, then `git checkout` restores, the
   tracked `embedded-web.ts` stub). Published atomically as
@@ -103,10 +103,13 @@ binary, each with a failure that only appears on a user's machine:
 - **Its `.sha256` is deleted**: it describes pre-seal bytes. Digests are never
   comparable between the bare-binary channel and this one.
 
-Targets are `DESKTOP_TARGETS` (`linux-x64`, `darwin-arm64`), narrower than
-`SERVER_TARGETS` and for a different reason: there is no native arm64 Linux
-runner, and `file(1)` cannot see a GUI's characteristic failure, which is an
-invisible window.
+Targets are `DESKTOP_TARGETS` (`linux-x64`, `darwin-arm64`, `darwin-x64`),
+narrower than `SERVER_TARGETS` only by `linux-arm64`: there is no native arm64
+Linux runner, and `file(1)` cannot see a GUI's characteristic failure, which is
+an invisible window. Both Mac triples ship — `tauri build` is passed an explicit
+`--target` for EVERY triple and cross-builds x86_64 on the arm64 runner (the
+macOS SDK's WebKit is universal; measured 2026-09-25), so no shard can silently
+publish its runner's arch under the other triple's name.
 
 **Every published desktop artifact carries a `Desktop` suffix**, and every CLI
 artifact carries `cli` (`subshell-server-cli-<triple>`, `subshell-node-cli-<triple>`),
@@ -128,8 +131,9 @@ the desktop app. The `/usr/bin` paths do NOT collide
 (that is what the `-bundled` sidecar suffix buys), so this is package identity
 only, and the lever if it ever matters is `productName`.
 
-Artifacts are `Subshell-Server-Desktop-<version>-darwin-arm64.dmg` /
-`Subshell-Client-Desktop-<version>-darwin-arm64.dmg` and
+Artifacts are `Subshell-Server-Desktop-<version>-<darwin-triple>.dmg` /
+`Subshell-Client-Desktop-<version>-<darwin-triple>.dmg` (`darwin-arm64` and
+`darwin-x64`) and
 `subshell-server-desktop_<version>_amd64.deb` /
 `subshell-client-desktop_<version>_amd64.deb` (no AppImage: `linuxdeploy` cannot
 cross-compile and downloads at build time). The old "no DMG" rule was never
@@ -409,11 +413,12 @@ which is why they share their own smoke, parameterized by app id.
   unit invokes. `cli-node-vX.Y.Z` carries `subshell-node-cli-<triple>` the same way,
   installed as `subshell`. The 1.3.x companion-binary era is retired.
   `desktop-server-vX.Y.Z` carries
-  `Subshell-Server-Desktop-<version>-darwin-arm64.dmg` (Tauri signs it; the
+  `Subshell-Server-Desktop-<version>-<darwin-triple>.dmg` for BOTH Mac triples (Tauri signs it; the
   pipeline notarizes and staples the image before digesting; the smoke mounts
-  it and validates the image's own staple) and
+  it, validates the image's own staple, and checks the nested sidecar is the
+  RIGHT Mach-O slice) and
   `subshell-server-desktop_<version>_amd64.deb` (linux-x64);
-  `desktop-client-vX.Y.Z` carries `Subshell-Client-Desktop-<version>-darwin-arm64.dmg`
+  `desktop-client-vX.Y.Z` carries `Subshell-Client-Desktop-<version>-<darwin-triple>.dmg`
   and `subshell-client-desktop_<version>_amd64.deb`. Each with a
   `.sha256`, and no AppImage (`linuxdeploy` cannot cross-compile and downloads at build time).
   **Every release also carries `release-manifest.json` + `release-manifest.json.sig`**

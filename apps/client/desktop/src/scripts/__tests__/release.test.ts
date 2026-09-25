@@ -11,6 +11,7 @@ import {
   NODE_SIDECAR_NAME,
   nodeArtifactFileName,
   RELEASE_MANIFEST_NAME,
+  RELEASE_MANIFEST_SIG_NAME,
   rustTargetTriple,
 } from "@internal/subshell-protocol";
 import {
@@ -18,6 +19,7 @@ import {
   assertUpdaterPubkey,
   bundleArtifact,
   bundleKind,
+  bundleRootFor,
   collectArtifact,
   collectUpdaterArtifact,
   DESKTOP_RELEASE_DIR_ENV,
@@ -141,12 +143,13 @@ describe("stageSidecar", () => {
   // The `.sha256` describes the bytes BEFORE Tauri re-seals them; the release
   // manifest describes the NODE release rather than this app's, and this
   // directory is a build input rather than a publish dir.
-  test("deletes the nested build's .sha256 and release manifest", async () => {
+  test("deletes the nested build's .sha256, release manifest, and manifest sig", async () => {
     const s = stub();
     await stageSidecar(s.deps, "darwin-arm64");
     expect(s.removed).toEqual([
       `${join(SIDECAR_DIR, nodeArtifactFileName("darwin-arm64"))}.sha256`,
       join(SIDECAR_DIR, RELEASE_MANIFEST_NAME),
+      join(SIDECAR_DIR, RELEASE_MANIFEST_SIG_NAME),
     ]);
   });
 
@@ -192,6 +195,52 @@ describe("bundle selection", () => {
       expect(tauriBuildArgs(target)).toContain("--bundles");
       expect(tauriBuildArgs(target)).toContain(bundleKind(target).bundles);
     }
+  });
+
+  // --target is the same class of enforcement: a shard scoped to one triple
+  // that silently built the RUNNER's arch instead would rename a native binary
+  // to the cross triple's published name — an x86_64 label on an arm64 Mach-O.
+  test("the build always passes --target with the Rust triple", () => {
+    expect(tauriBuildArgs("darwin-arm64")).toEqual(expect.arrayContaining(["--target", "aarch64-apple-darwin"]));
+    expect(tauriBuildArgs("darwin-x64")).toEqual(expect.arrayContaining(["--target", "x86_64-apple-darwin"]));
+    expect(tauriBuildArgs("linux-x64")).toEqual(expect.arrayContaining(["--target", "x86_64-unknown-linux-gnu"]));
+  });
+
+  test("the bundle root follows the target, not the host", () => {
+    expect(bundleRootFor("darwin-arm64").endsWith(join("target", "aarch64-apple-darwin", "release", "bundle"))).toBe(
+      true,
+    );
+    expect(bundleRootFor("darwin-x64").endsWith(join("target", "x86_64-apple-darwin", "release", "bundle"))).toBe(true);
+    expect(bundleRootFor("linux-x64").endsWith(join("target", "x86_64-unknown-linux-gnu", "release", "bundle"))).toBe(
+      true,
+    );
+  });
+});
+
+describe("the Intel Mac target", () => {
+  test("bundleKind ships the same DMG shape as the Apple silicon Mac", () => {
+    expect(bundleKind("darwin-x64")).toEqual({
+      bundles: "app,dmg",
+      dir: "dmg",
+      suffix: ".dmg",
+      intermediates: ["macos", "share"],
+    });
+  });
+
+  test("an Intel dev host is buildable natively", () => {
+    expect(hostTarget("darwin", "x64")).toBe("darwin-x64");
+  });
+
+  test("its updater artifact is the .app.tar.gz beside the image", () => {
+    expect(updaterSource("/root", "darwin-x64", DESKTOP_CLIENT_PRODUCT, "x.deb")).toBe(
+      join("/root", "macos", `${DESKTOP_CLIENT_PRODUCT}.app.tar.gz`),
+    );
+  });
+
+  test("its sidecar stages the agent scoped to the x64 triple", async () => {
+    const s = stub();
+    expect(await stageSidecar(s.deps, "darwin-x64")).toBe(true);
+    expect(s.runs.at(-1)?.env?.SUBSHELL_RELEASE_TRIPLES).toBe("darwin-x64");
   });
 });
 
@@ -335,11 +384,12 @@ describe("hostTarget", () => {
   // slow path — it is not a path. A default nobody can run is not a default.
   test("names the one target this machine can build", () => {
     expect(hostTarget("darwin", "arm64")).toBe("darwin-arm64");
+    expect(hostTarget("darwin", "x64")).toBe("darwin-x64");
     expect(hostTarget("linux", "x64")).toBe("linux-x64");
   });
 
   test("refuses a host with no buildable target rather than picking one", () => {
-    expect(() => hostTarget("darwin", "x64")).toThrow(/cannot be built on darwin-x64/);
+    // arm64 Linux is the load-bearing refusal: no runner, no webview story.
     expect(() => hostTarget("win32", "x64")).toThrow(/cannot be built/);
     expect(() => hostTarget("linux", "arm64")).toThrow(/cannot be built/);
   });

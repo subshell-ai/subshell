@@ -173,11 +173,12 @@ const APPS: readonly DesktopApp[] = [
  * are not built at all.
  *
  * `DESKTOP_TARGETS` is deliberately narrower than the CLI targets — there is
- * no native arm64 Linux runner, and the desktop pipeline has no Intel build
- * path (tauri gets no `--target`; the CLI's darwin-x64 cross-builds with bun
- * alone) — so an Intel Mac or an arm64 Linux box has no triple here, and
+ * no native arm64 Linux runner and the GTK/WebKit GUI cannot be cross-built or
+ * honestly magic-checked — so an arm64 Linux box has no triple here, and
  * `rustTargetTriple` would throw a message about release targets that reads as
- * a bug rather than as "this host is not supported".
+ * a bug rather than as "this host is not supported". Both Mac triples are
+ * desktop targets: an Intel Mac dev host resolves `darwin-x64` and builds
+ * natively, exactly as an arm64 one resolves `darwin-arm64`.
  */
 function hostTarget(): DesktopTarget | null {
   // Node's own spellings already match this repo's target names on every host

@@ -112,17 +112,15 @@ export type DesktopTarget = (typeof DESKTOP_TARGETS)[number];
  *   check as its only proof. That is defensible for a headless Bun binary and
  *   indefensible for a GTK/WebKit GUI whose characteristic failure is an
  *   INVISIBLE WINDOW — the one thing a magic check cannot see.
- * - No `darwin-x64`, even though {@link SERVER_TARGETS} has one again: the
- *   desktop pipeline hands `tauri build` no `--target` and reads a
- *   host-relative bundle root, so it builds only the host arch. Restoring the
- *   CLI triple did not restore a build path for the bundle; that cross-build
- *   work (tauri `--target`, `RUST_TARGET_TRIPLES`, dmg name, updater platform
- *   key `darwin-x86_64`, a real-Intel smoke) is the desktop prototype, not a
- *   constant to flip.
+ * - No `darwin-x64` was the state until the Intel prototype: `tauri build`
+ *   gets `--target` now and the cross-build is PROVEN (measured 2026-09-25:
+ *   the full crate graph cross-compiles on Apple Silicon, links against the
+ *   SDK's universal WebKit, and the x86_64 app runs). Intel Macs are in.
  *
- * Every entry here must therefore also be a {@link ServerTarget}.
+ * Every entry here must therefore also be a {@link ServerTarget}: a desktop
+ * build bundles a server, and the sidecar comes from the CLI pipeline.
  */
-export const DESKTOP_TARGETS = ["linux-x64", "darwin-arm64"] as const satisfies readonly ServerTarget[];
+export const DESKTOP_TARGETS = ["linux-x64", "darwin-arm64", "darwin-x64"] as const satisfies readonly ServerTarget[];
 
 /**
  * The Rust target triple for a repo triple.
@@ -152,6 +150,7 @@ export function rustTargetTriple(target: string): string {
 const RUST_TARGET_TRIPLES: Record<DesktopTarget, string> = {
   "linux-x64": "x86_64-unknown-linux-gnu",
   "darwin-arm64": "aarch64-apple-darwin",
+  "darwin-x64": "x86_64-apple-darwin",
 };
 
 /**
@@ -300,6 +299,7 @@ export const DESKTOP_SUFFIX = "Desktop";
 export function desktopArtifactFileName(product: string, target: string, version: string): string {
   const slug = `${product.trim().replace(/\s+/g, "-")}-${DESKTOP_SUFFIX}`;
   if (target === "darwin-arm64") return `${slug}-${version}-darwin-arm64.dmg`;
+  if (target === "darwin-x64") return `${slug}-${version}-darwin-x64.dmg`;
   if (target === "linux-x64") return `${slug.toLowerCase()}_${version}_amd64.deb`;
   throw new Error(`no desktop artifact name for '${target}' (known: ${DESKTOP_TARGETS.join(", ")})`);
 }
