@@ -78,7 +78,7 @@ sites.** The documentation site (Fumadocs,
 a static export, package `@internal/docs`) is a site, not a product component:
 it is changesets-versioned like the four releasable apps but deploys via
 `docs.yml` outside the release pipelines, and it is not a control plane, not a
-node, and not something a person points at a control plane. Its deploy shape is `docs/release-and-ci.md`.
+node, and not something a person points at a control plane. Its deploy shape is documented in `docs/release-and-ci.md`.
 
 **What each app is.**
 

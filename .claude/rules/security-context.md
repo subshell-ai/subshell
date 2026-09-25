@@ -6,8 +6,8 @@
 > `docs/security.md` is right and this file is stale; say so rather than
 > reconciling silently. Pointers (`§N`) name sections of that file; the
 > argument and the dated history behind every rule live there, not here.
-> Per-subsystem depth also lives in each app's `AGENTS.md` and `docs/`, they
-> say what to read before working in their area.
+> Per-subsystem depth also lives in each app's `AGENTS.md` (and the `docs/`
+> files it routes to), which say what to read before working in their area.
 
 **Posture (§0–§1).** A **local / trusted-network service**: a developer's machine or a trusted perimeter (VPN, WireGuard, Tailscale, SSH tunnel), never directly internet-facing. The host's OS-user boundary *is* the trust boundary. NOT defended against: a local OS user; network-level attackers (transport is the operator's deployment; the node ↔ plane link is the exception, app-layer encrypted since protocol 14, §6; the browser link and the downloads are TLS's job, not ours); channel metadata; control-plane compromise (the node signing keypair rules every enrolled node); a malicious admin (no separation of duties); DoS; the harness binaries' supply chain.
 
