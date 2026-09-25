@@ -1,5 +1,15 @@
 # @internal/node
 
+## 1.1.0
+
+### Minor Changes
+
+- [#210](https://github.com/subshell-ai/subshell/pull/210) [`f19fed4`](https://github.com/subshell-ai/subshell/commit/f19fed456ba1783b34fbe848d247a8253ab95e7f) Thanks [@theogravity](https://github.com/theogravity)! - Typing into a pane that has exited now answers honestly. `send_to_subshell` failed with an internal server error while a remote pane's process had exited but its row still read "running"; the send is now refused with a clear "restart it first" before anything is typed. The sidebar's needs-attention bell now clears when you type into the pane, not only when you (re)open it, fixing the flag that would not clear while you were already interacting with the subshell. Subshells an agent launches through `create_subshell` are recorded as cross-agent comms: they are created with the notification bell off (still togglable), they collect in a new "Cross-agent comms" sidebar section that is closed by default (each row naming its machine, remembered open per device), and the pane's own page says so. The MCP briefing and tool descriptions now teach an agent that a pane it opened is its own to terminate or delete when the exchange is done. The green "printing" dot blinks again while a pane produces output: the output time stamp was saved without announcing itself, so under the event-driven feed no client ever learned the pane was printing (a pane on another machine never blinked at all, as nothing else writes that stamp there). And the rail's status marks sit centered on the name line: the unseen-push bell rode a pixel off the dot and both floated above the text, so bell rows and dot rows down the rail read as a crooked column (operator screenshots).
+
+- [#212](https://github.com/subshell-ai/subshell/pull/212) [`c3cf1d7`](https://github.com/subshell-ai/subshell/commit/c3cf1d775e590f7fa0a1d4c3aa392d50ada6065e) Thanks [@theogravity](https://github.com/theogravity)! - Intel Macs (darwin-x64) are a published target again, for every component. `install-server.sh`, the server-rendered node enroll one-liner, self-update, and the downloads route resolve an Intel host to the `darwin-x64` artifact instead of refusing it by name. The desktop apps publish a second Mac image, `Subshell-<App>-Desktop-<version>-darwin-x64.dmg`, cross-built by `tauri build --target` on the Apple Silicon runner, and `install-client.sh` now installs it on an Intel Mac instead of refusing. The release pipeline cross-builds and exec-smokes CLI binaries under Rosetta; the desktop smoke verifies the bundle's signing chain, the staple, and the nested sidecar's Mach-O slice.
+  
+  On the marketing site the macOS download button becomes a split control with an Apple silicon / Intel menu. The choice is capability-driven: `releases.json` now carries each desktop release's verified asset list (read from the release's own signed `release-manifest.json`), and the menu appears only when the newest cut actually ships the Intel image. No version numbers are hardcoded anywhere on the page.
+
 ## 1.0.0
 
 ### Major Changes
