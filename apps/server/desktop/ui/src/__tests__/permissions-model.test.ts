@@ -31,7 +31,7 @@ const row = (p: Probe, id: string, requesting: PermissionRequests = {}) => {
   return found;
 };
 
-const ALL: Permission[] = ["not-determined", "denied", "authorized", "provisional", "unavailable"];
+const ALL: Permission[] = ["not-determined", "denied", "restricted", "authorized", "provisional", "unavailable"];
 
 describe("permissionRows", () => {
   it("is the three things macOS will ask, in the order a first run meets them", () => {
@@ -192,6 +192,21 @@ describe("the photos row", () => {
     expect(r.state).toBe("done");
     expect(r.suffix).toBe("Allowed");
     expect(r.action).toBeNull();
+  });
+
+  it("says BLOCKED for a refusal that was never the person's, and offers nothing", () => {
+    // The 2026-09-25 VM: macOS answered `restricted` without ever prompting,
+    // and the pane has no row for such an app — "Nothing in the system
+    // settings either". So the word is Blocked (not the accusation "Not
+    // allowed"), the ✕ stays (the attach WILL fail), and NO button: a door
+    // onto an empty pane is the dead end this screen's own rule forbids.
+    const r = row(probe({ photosPermission: "restricted" }), "photos");
+    expect(r.state).toBe("failed");
+    expect(r.suffix).toBe("Blocked");
+    expect(r.action).toBeNull();
+    expect(r.allow).toBeNull();
+    expect(r.pane).toBeNull();
+    expect(r.detail).toContain("without asking");
   });
 
   it("sends a denial to System Settings, never back to a prompt that will not fire", () => {

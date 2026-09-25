@@ -48,6 +48,10 @@ const PERMISSION_LINE: Record<Permission, string> = {
   authorized: "Allowed",
   provisional: "Allowed",
   denied: "Not allowed",
+  // Notifications never actually reaches it today (the UN framework has no
+  // such status), but the wire carries one enum for both permissions and a
+  // missing key here is a `undefined` line, so the map covers the whole type.
+  restricted: "Blocked",
   "not-determined": "Not yet asked",
   unavailable: "Unavailable in this build",
 };

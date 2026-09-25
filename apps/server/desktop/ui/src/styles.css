@@ -607,6 +607,14 @@
   /* The right-hand column: a state word, and at most one button under it.
      A grid rather than a flex row because the two stack on the narrow frame
      and reading "Not allowed" above the button that fixes it is the order
+     the reader meets them in. This comment was UNCLOSED from the screen's
+     first commit until 2026-09-25. An unterminated comment runs to the
+     next comment-terminator, so every build shipped without this rule and
+     the one below it, and the page put the state word beside the button,
+     touching it — the collision an operator screenshot reported. A CSS
+     parser never warns about this; the build just drops the text. The
+     design-lint cannot see it either: the rule exists in the source.
+   */
   .permission-side {
     display: grid;
     gap: 8px;

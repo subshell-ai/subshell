@@ -1042,9 +1042,15 @@ notifies. Two facts about that module are load-bearing:
 `src-tauri/Info.plist` carries the four usage descriptions; they are the
 sentence a prompt attributed to THIS APP shows, and a prompt attributed to
 `subshell-server` under launchd shows none, which is what the `files` row's
-attribution sentence is for. The row model is pure
-(`ui/src/lib/permissions-model.ts`): every `Permission` value to a glyph state,
-a suffix and an action, and which pane each row opens.
+attribution sentence is for. THAT the file reaches the bundle is a v1 behavior
+the v2 docs never repeat; it was confirmed at the source (tauri-cli 2.11.4
+`interface/rust.rs` merges the file with the `bundle.macOS.infoPlist` object)
+and the darwin smoke now RE-checks it: `plutil -extract` on each of the four
+keys inside the mounted `.app`, because a silently dropped key is not a
+build failure, it is a permission sheet with no reason, found only on a
+user's Mac (the 2026-09-25 Photos hunt is what earned this). The row model is
+pure (`ui/src/lib/permissions-model.ts`): every `Permission` value to a glyph
+state, a suffix and an action, and which pane each row opens.
 
 **Every row the dashboard sends someone to has something to press when they
 arrive**, and that is a SECOND rule beside "a button only where pressing it
@@ -1057,10 +1063,17 @@ because the pane is there whether or not the question has been asked. So the
 construction, so a button gated on `denied` would render never, while the
 picker's "Blocked by macOS" notice raises this screen as the fix regardless.
 `SettingsPane::FilesAndFolders` being defined, granted and sent by nothing was
-the tell. `photos` now follows `notifications` exactly (**Allow** while
-`not-determined`, **Open Settings** once `denied`, nothing once allowed)
-because it has a prompt of its own to raise now (see above), and its notice
-fires in the `denied` state the pane answers. Both buttons are short since the
+the tell. `photos` follows `notifications` on the two shared states (**Allow**
+while `not-determined`, **Open Settings** once `denied`) because it has a
+prompt of its own to raise now (see above), and its notice fires in the
+`denied` state the pane answers, and then DIVERGES on the state only Photos
+can reach: `restricted` is macOS refusing WITHOUT asking (a profile, Screen
+Time, or the 2026-09-25 VM whose Photos library has never existed), and the
+pane holds no row for such an app, so the row says **Blocked**, wears the ✕
+(the attach will fail), and offers NOTHING to press. A door onto an empty
+pane is exactly the dead end this rule exists to forbid, and the operator
+proved it: "Nothing in the system settings either". Both buttons are short
+since the
 operator's pass of 2026-09-25: the row's own label names the permission, so
 the ask is the bare **Allow** and the door is **Open Settings**; what keeps
 the 2026-09-14 anti-lie rule is the row's `request` field and the renderer's

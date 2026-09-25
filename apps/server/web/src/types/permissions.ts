@@ -15,8 +15,11 @@
  *   own child). Preferences still names the state for notifications, because
  *   someone who pressed Continue on first run without pressing Allow needs a
  *   route back to that button before an agent next waits.
- * - `denied` — asked and refused. macOS never asks again, so the only route
- *   back is System Settings.
+ * - `denied` — asked and refused BY THE PERSON. macOS never asks again, so the
+ *   only route back is System Settings, where their own row is.
+ * - `restricted` — refused without the person being asked: a profile, Screen
+ *   Time, or a Mac with no Photos library. Photos-only today, and there is no
+ *   Settings row to fix, so surfaces must not offer one (2026-09-25).
  * - `authorized` / `provisional` — allowed (the second is the quiet delivery
  *   macOS grants without a prompt).
  * - `unavailable` — this build cannot answer. The real one is a bundled `.app`;
@@ -24,12 +27,13 @@
  *   the shell reports this instead of asking. A shell too old to know the
  *   command reads the same way, and for the same reason: no answer exists.
  */
-export type Permission = "not-determined" | "denied" | "authorized" | "provisional" | "unavailable";
+export type Permission = "not-determined" | "denied" | "restricted" | "authorized" | "provisional" | "unavailable";
 
 /** Every {@link Permission} word, for iterating and for validating the wire. */
 export const PERMISSIONS: readonly Permission[] = [
   "not-determined",
   "denied",
+  "restricted",
   "authorized",
   "provisional",
   "unavailable",

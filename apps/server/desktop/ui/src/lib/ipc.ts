@@ -87,9 +87,12 @@ export type ProbeStep = "no-server" | "setup" | "unreachable" | "init" | "instal
  * this process cannot ask the question at all — Linux, or a `tauri dev` binary
  * that is not an `.app` bundle, where the framework API aborts the process and
  * the Rust side therefore refuses to touch it. The real prompt is testable only
- * in a built app.
+ * in a built app. `"restricted"` is a refusal that was never the person's —
+ * a profile, Screen Time, or a Mac with no Photos library, where PhotoKit
+ * answers without ever prompting. Nothing on the permissions screen fixes
+ * it, and the row that renders it offers no button.
  */
-export type Permission = "not-determined" | "denied" | "authorized" | "provisional" | "unavailable";
+export type Permission = "not-determined" | "denied" | "restricted" | "authorized" | "provisional" | "unavailable";
 
 /**
  * The System Settings panes this app may open. `SettingsPane`, kebab-case — a
