@@ -1,4 +1,5 @@
 import type { Node } from "@internal/node-admin";
+import type { NewSubshellFormValue } from "@/components/subshell-picker/launch-form-rules";
 import type { ComboboxOption } from "@/components/ui/combobox";
 import type { LaunchAgent } from "@/lib/subshell-compat";
 import { sortByCreation } from "@/lib/subshell-order";
@@ -59,23 +60,15 @@ export function launchTemplateFromList(list: readonly SubshellView[] | undefined
   return launchTemplateFromRow(sortByCreation(list)[0]);
 }
 
-/** The four launch fields, structurally — a param, so this lib never imports
- *  the form module (the caller passes `emptyNewSubshellForm()` as the
- *  baseline; nothing duplicates the empty values here). */
-export interface LaunchFieldsProbe {
-  harnessId: string;
-  presetId: string | null;
-  nodeId: string;
-  workingDir: string;
-}
-
 /**
  * Whether the form still holds the untouched empty baseline. This is the
  * auto-default's disqualifier: a Split `initialForm`, a caller seed, or a
  * field the user typed before the list answered all fail it, so the prior
- * settings never override a held or edited value.
+ * settings never override a held or edited value. The caller passes
+ * `emptyNewSubshellForm()` as the baseline; nothing duplicates the empty
+ * values here.
  */
-export function isUntouchedForm(value: LaunchFieldsProbe, empty: LaunchFieldsProbe): boolean {
+export function isUntouchedForm(value: NewSubshellFormValue, empty: NewSubshellFormValue): boolean {
   return (
     value.harnessId === empty.harnessId &&
     value.presetId === empty.presetId &&

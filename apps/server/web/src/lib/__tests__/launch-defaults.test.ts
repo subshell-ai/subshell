@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { Node } from "@internal/node-admin";
-import { emptyNewSubshellForm } from "@/components/subshell-picker/new-subshell-form";
+import { emptyNewSubshellForm } from "@/components/subshell-picker/launch-form-rules";
 import {
   COPY_SETTINGS_LIMIT,
   copySettingsOptions,

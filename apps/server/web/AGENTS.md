@@ -442,7 +442,12 @@ worse than no offer, and it ended nowhere for the one person who could take it.
 
 **The form asks Agent → Preset → Node → Working directory** (spec
 2026-09-13, presets replace profiles; `#picker-agent` / `#picker-preset` are
-the e2e handles, `lib/subshell-compat.ts` holds the pure rules). The Agent
+the e2e handles, `lib/subshell-compat.ts` holds the pure rules). The form is
+three files since the 2026-09-25 split: `new-subshell-form.tsx` is the fields
+and their pairing, `launch-form-rules.ts` the pure contract (the value, the
+empty baseline, `canSubmit`, the node-pick rules, the field-id sets), and
+`use-launch-form-defaults.ts` the ONE defaults effect and the picker's
+explicit apply. The Agent
 select offers the whole `GET /api/plugins` set, greyed never hidden, and its
 default (`defaultAgentId`) is the agent of the user's most recent subshell when
 usable (evaluated only after the subshells LIST has ANSWERED, so an
@@ -479,7 +484,13 @@ is an action, not a held value the re-pickable fields would contradict).
 Degradation is never a second rule: copying from an offline node re-homes the
 pick and the existing machine-switch arm clears the copied directory and
 re-arms the per-node seed; the preset-membership guard drops a preset that
-does not belong to the landed agent. The picker lists up to 10 newest rows
+does not belong to the landed agent. And nothing guesses at an unanswered
+list: the recents seed WAITS for the subshells list to have answered (a cold
+load where `/recent` lands first would otherwise have the seed mark the form
+touched and disqualify the copy tier for the whole session), so on a final
+list error with the dialog open the directory stays cold until the list next
+answers. The same gate-the-answered-not-the-value rule as the agent tier
+applies, and it self-heals on reopen, feed event, or retry. The picker lists up to 10 newest rows
 (`COPY_SETTINGS_LIMIT`), NEVER disables one, and carries `agent · node · dir`
 as the detail line (short node id for an unresolved machine). No new
 persistence: everything rides `GET /api/subshells`, so a deleted subshell

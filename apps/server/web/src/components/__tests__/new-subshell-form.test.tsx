@@ -16,10 +16,10 @@ import {
   hideMachineField,
   isSelectable,
   launchableNodes,
-  NewSubshellForm,
   type NewSubshellFormValue,
   pickNodeDefault,
-} from "@/components/subshell-picker/new-subshell-form";
+} from "@/components/subshell-picker/launch-form-rules";
+import { NewSubshellForm } from "@/components/subshell-picker/new-subshell-form";
 import { toSubshellCreateBody } from "@/hooks/use-create-subshell";
 import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";

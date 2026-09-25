@@ -5,9 +5,9 @@ import { ExistingSubshellList } from "@/components/subshell-picker/existing-subs
 import {
   canSubmit,
   emptyNewSubshellForm,
-  NewSubshellForm,
   type NewSubshellFormValue,
-} from "@/components/subshell-picker/new-subshell-form";
+} from "@/components/subshell-picker/launch-form-rules";
+import { NewSubshellForm } from "@/components/subshell-picker/new-subshell-form";
 import {
   Dialog,
   DialogContent,
