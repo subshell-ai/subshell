@@ -946,7 +946,11 @@ Files-and-Folders is attributed to whichever process lists the folder
 (`subshell-server` under launchd, this app under "runs with this app"), and
 Background Items is a banner, not a permission. So the `permissions` screen,
 macOS only, shows THREE rows, REQUESTS the
-two it owns, EXPLAINS the one it cannot, and never blocks Continue. It left the first
+two it owns, EXPLAINS the one it cannot, and never blocks Continue. The rows
+are listed ACTIONABLE FIRST (operator's ruling 2026-09-25): notifications,
+photos, files: reading down reads the decisions before the prose, where the
+old "order a first run meets them" put the one explanation-only row between
+the two questions. It left the first
 run with spec 2026-09-17 (the TCC prompt it explains belongs at the moment a
 permission is first wanted, not at launch) and came back on 2026-09-18 on the
 far SIDE of the setup chain (spec § 10): the ready screen's Continue hands off
@@ -1057,13 +1061,33 @@ arrive**, and that is a SECOND rule beside "a button only where pressing it
 does something". Read as one rule, they produce the dead end this screen
 shipped with (review, 2026-09-14). The two are about different buttons: macOS
 asks once, so **Allow** is inert after the first answer and is offered only
-while the state is `not-determined`; **Open Settings** is never inert,
-because the pane is there whether or not the question has been asked. So the
-`files` row offers it in EVERY state: its own state is unreadable by
-construction, so a button gated on `denied` would render never, while the
-picker's "Blocked by macOS" notice raises this screen as the fix regardless.
-`SettingsPane::FilesAndFolders` being defined, granted and sent by nothing was
-the tell. `photos` follows `notifications` on the two shared states (**Allow**
+while the state is `not-determined`; **Open Settings** is never inert where
+the pane has an entry to flip, whether or not the question was asked on this
+machine yet. So the `files` row offers it in EVERY state ON THE RECOVERY DOOR:
+its own state is unreadable by construction, so a button gated on `denied`
+would render never, while the picker's "Blocked by macOS" notice raises this
+screen as the fix regardless, and that notice only appears once a refusal is
+already in the pane. The door is the KIND of arrival, not which notice sent
+the person: the notifications notices route through the same door and can
+arrive with the files pane not yet populated, the price of a door Rust can
+answer without reading TCC. `SettingsPane::FilesAndFolders` being defined,
+granted and sent by nothing was the tell. The 2026-09-25 door ruling
+WITHHELD that button on the FIRST-RUN door: on a machine never asked the
+pane holds no row for this app, and a button onto an empty pane is the dead
+end the Photos `restricted` arm below refuses with the identical reason
+(macOS verdicts outlive an in-app reset; a person who reset and had denied
+a folder meets the button again at the notice door). The
+row model takes the door as its third argument
+(`permissionRows(probe, requesting, door)`); the button and the sentence's
+finder hint move with it, the suffix and the attribution never do. The same
+2026-09-25 pass, from a live screenshot, took the row's GLYPH off as well: it
+wore the checklist's `pending` ring, which reads as "not yet done": a
+promise this screen can never keep, since it never asks the question that
+would tick it. The row's state is `info` now: a label, a sentence, a suffix,
+at most one button, and NO state mark on either door; every glyph border in
+styles.css keys off `data-state` and no arm names `info`, while the 28px
+glyph column stays so its labels still align with the rows above. `photos`
+follows `notifications` on the two shared states (**Allow**
 while `not-determined`, **Open Settings** once `denied`) because it has a
 prompt of its own to raise now (see above), and its notice fires in the
 `denied` state the pane answers, and then DIVERGES on the state only Photos

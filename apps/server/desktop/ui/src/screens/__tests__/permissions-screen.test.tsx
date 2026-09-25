@@ -54,19 +54,52 @@ describe("the rows", () => {
     const allowPhotos = screen.getByRole("button", { name: "Allow Photos" });
     expect(allowNotifications.className).toContain("primary");
     expect(allowPhotos.textContent).toBe("Allow");
+    // Actionable rows first (operator's ruling 2026-09-25): the DOM order is
+    // the model's, so the two questions sit above the explanation.
+    const labels = Array.from(document.querySelectorAll("ul.checklist .label")).map((el) => el.textContent);
+    expect(labels).toEqual(["Notifications", "Photos", "Files and Folders"]);
     // The Files row is unreadable by design and never asks.
     expect(screen.getByText("Asked later")).toBeDefined();
-    // The Files row's door is where a refusal is undone, whatever macOS has
-    // asked yet.
+    // This render is the NOTICE door (no `afterHandoff`): a refusal is already
+    // in System Settings, so the Files row's door is there to undo it.
     expect(screen.getByRole("button", { name: "Open Files and Folders settings" })).toBeDefined();
+  });
+
+  it("withholds the Files door on the first-run handoff, where the pane is empty", () => {
+    // macOS has not been asked yet behind the handoff, so the Files and
+    // Folders pane holds no entry for this app — a door onto an empty list
+    // is the dead end the photos `restricted` arm refuses, and the model
+    // withholds it on this door. The row keeps its explanation and suffix,
+    // and the two asks are untouched by which door opened the screen.
+    renderPermissions({ afterHandoff: true });
+    expect(screen.queryByRole("button", { name: "Open Files and Folders settings" })).toBeNull();
+    expect(screen.getByText("Asked later")).toBeDefined();
+    // The row is explanation-only on this door in BOTH senses: no button,
+    // and no state glyph either — `info`, same as the notice door.
+    const filesRow = document.querySelectorAll("ul.checklist li")[2];
+    expect(filesRow.getAttribute("data-state")).toBe("info");
+    expect(filesRow.querySelector(".glyph")?.textContent).toBe("");
+    expect(screen.getByRole("button", { name: "Allow Notifications" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Allow Photos" })).toBeDefined();
   });
 
   it("marks an allowed permission done, with the checklist's own tick", () => {
     renderPermissions({ probe: makeProbe({ notificationPermission: "authorized", photosPermission: "authorized" }) });
     expect(screen.queryAllByRole("button", { name: /^Allow/ })).toHaveLength(0);
+    // The two askable rows are the FIRST TWO (actionable-rows-first order),
+    // and they tick; files is `info`, the state with no glyph at all
+    // (ruling 2026-09-25: its pending ring read as an unfinished checklist
+    // item for a question this screen never asks). The structural part of
+    // "no ring": data-state is not any of the four values styles.css's
+    // glyph borders key off, and the span carries no mark.
     const rows = document.querySelectorAll("ul.checklist li");
     expect(rows[0].getAttribute("data-state")).toBe("done");
-    expect(rows[2].getAttribute("data-state")).toBe("done");
+    expect(rows[1].getAttribute("data-state")).toBe("done");
+    expect(rows[2].getAttribute("data-state")).toBe("info");
+    expect(rows[2].querySelector(".glyph")?.textContent).toBe("");
+    // The span is still there: it is the 28px column's occupant, and its
+    // absence would misalign the labels under the rows above.
+    expect(rows[2].querySelector(".glyph")).not.toBeNull();
   });
 
   it("sends a denied permission to System Settings, the one way back", () => {
@@ -76,8 +109,8 @@ describe("the rows", () => {
       fail,
     });
     const doors = screen.getAllByRole("button", { name: /^Open .* settings$/ });
-    // Three rows, two denials, one always-there Files door — each names its
-    // own pane in its accessible name.
+    // Three rows, two denials, one Files door the NOTICE door always carries
+    // — each names its own pane in its accessible name.
     expect(doors).toHaveLength(3);
   });
 

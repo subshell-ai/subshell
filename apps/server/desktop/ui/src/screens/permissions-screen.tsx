@@ -144,8 +144,22 @@ export function PermissionsScreen(props: {
           the same wherever this app says it, and a second visual language for
           done and failed is how two screens come to disagree about a tick. */}
       <ul className="checklist">
-        {permissionRows(probe, { notifications: requestingNotifications, photos: requestingPhotos }).map((row) => (
+        {permissionRows(
+          probe,
+          { notifications: requestingNotifications, photos: requestingPhotos },
+          // The door the screen itself already reads for its leave button.
+          // The handoff has not asked macOS anything yet, so the model
+          // withholds the files row's Settings button there; every other
+          // arrival is the recovery door. It is the kind of arrival, not
+          // which notice sent the person, see `PermissionDoor`.
+          props.afterHandoff ? "first-run" : "recovery",
+        ).map((row) => (
           <li key={row.id} data-state={row.state}>
+            {/* `info` takes the `""` arm: no mark of its own, and no ring either
+                — every border in styles.css's glyph block keys off
+                `data-state`, and no arm names `info`. The span stays so the
+                28px column holds and the labels stay aligned with the rows
+                above. */}
             <span className="glyph">{row.state === "done" ? "✓" : row.state === "failed" ? "✕" : ""}</span>
             <div className="permission-copy">
               <div className="label">{row.label}</div>
