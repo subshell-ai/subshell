@@ -1168,6 +1168,18 @@ still raced (a response arriving is not the app having rendered from it).
 Anything driving a swipe should wait for this attribute; it is the fact
 itself rather than a proxy for it.
 
+**Touch-only is enforced in the handler, not the config** (2026-09-25 desktop
+report: dragging a text selection across the terminal jumped between
+subshells). `pointer: { touch: true }` only binds TOUCH events on browsers that
+support touch events; a plain desktop falls through to POINTER events, where
+the engine's only start filter is the button count and a left-drag's `buttons`
+is 1, the same as one finger. So the recognizer latches the first event and
+ignores the rest of the gesture unless it is shaped like a finger: a TouchEvent
+(the `touches` discriminator, since it carries no `pointerType` to name) or a
+PointerEvent naming `touch`. Mouse, pen, and plain MouseEvents are refused. The
+end-of-gesture `getSelection()` guard cannot catch a mouse inside xterm: the
+terminal paints its own selection, so the DOM never has one.
+
 ### Several devices, one pane
 
 A tmux pane has ONE grid, so every attached viewer constrains it. The rule
