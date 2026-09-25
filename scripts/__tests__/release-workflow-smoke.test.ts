@@ -7,8 +7,9 @@ import { join } from "node:path";
  * The release.yml binary-smoke block is shell that runs on the release
  * runners, and until a cut happens NOTHING else exercises it. Both bugs this
  * file pins were real in the darwin-x64 wave: an ELF-spelled arch hint that
- * would have failed every Intel CLI shard at the magic check, and a
- * backgrounded wrapper that made `kill $pid` miss the booted server. They are
+ * would have failed every Intel CLI shard at the file(1) gate (which every
+ * smoke mode passes through, exec included), and a backgrounded wrapper that
+ * made `kill $pid` miss the booted server. They are
  * extracted from the YAML itself, so the test checks the exact text CI runs,
  * not a copy.
  */
@@ -68,23 +69,80 @@ describe("release.yml file(1) arch hints", () => {
   });
 });
 
-/** The run_target function, verbatim from the YAML block scalar. */
-function runTargetFunction(): string {
-  const m = /^ {10}run_target\(\) \{([\s\S]*?)\n {10}\}/m.exec(WORKFLOW);
-  if (m === null) throw new Error("release.yml: the run_target function was not found (renamed?)");
-  return `run_target() {${m[1]}\n}`;
+/** The plan job's smoke-mode table, verbatim from the YAML block scalar.
+ * Matched by CONTENT (like hintTable's HINT= trick): release.yml carries
+ * another `case "$triple"` block for the runner mapping, and a bare
+ * first-match regex finds THAT one, silently testing the wrong table. */
+function smokeTable(): string {
+  const bodies = [...WORKFLOW.matchAll(/case "\$triple" in\n([\s\S]*?)\n\s*esac/g)].map((m) => m[1]);
+  const table = bodies.find((b) => b.includes('smoke="'));
+  if (table === undefined) throw new Error("release.yml: the smoke-mode case block was not found (renamed?)");
+  return table;
 }
 
-describe("release.yml run_target", () => {
-  // The boot smoke backgrounds this function and later `kill`s "$!". A
-  // backgrounded shell function forks a wrapper subshell that bash does NOT
-  // exec-replace through its function frame, so unless run_target itself
-  // execs, $! is the wrapper: the kill and the EXIT trap fire at a /bin/bash
-  // pid while the release binary keeps running (measured on /bin/bash 3.2,
-  // the macOS runners' shell). This spawns the REAL extracted text under
-  // /bin/bash and asks what $! actually became.
-  test("backgrounded, $! is the target command itself (kill reaches the binary)", () => {
-    const dir = mkdtempSync(join(tmpdir(), "run-target-"));
+/** The plan job's runner table (the other `case "$triple"` block). */
+function runnerTable(): string {
+  const bodies = [...WORKFLOW.matchAll(/case "\$triple" in\n([\s\S]*?)\n\s*esac/g)].map((m) => m[1]);
+  const table = bodies.find((b) => b.includes('runner="'));
+  if (table === undefined) throw new Error("release.yml: the runner case block was not found (renamed?)");
+  return table;
+}
+
+describe("release.yml darwin-x64 venue (settled by run 36196527394 + the hosted-runner docs)", () => {
+  test("the Intel shards build and exec-smoke on Intel hardware, not translated", () => {
+    // The Apple Silicon runner's Rosetta tops out at SSE4.2 while bun's
+    // x86_64 build needs AVX2 (its own crash banner proved both halves).
+    // GitHub's hosted fleet has Intel macOS labels again (macos-15-intel);
+    // on that host every darwin-x64 smoke claim is native, so exec mode is
+    // honest again rather than a guaranteed SIGILL.
+    expect(runnerTable()).toMatch(/darwin-x64\)\s*runner="\$MAC_INTEL"/);
+    expect(WORKFLOW).toMatch(/MAC_INTEL='"macos-15-intel"'/);
+    expect(smokeTable()).toMatch(/darwin-x64/);
+    expect(smokeTable()).toMatch(/darwin-x64[^)]*\)\s*smoke="exec"/);
+    expect(smokeTable()).not.toContain('smoke="rosetta"');
+    expect(smokeTable()).toContain('linux-arm64) smoke="magic"');
+  });
+
+  test("the Smoke step carries no exec-prefix machinery of any kind", () => {
+    const body = smokeStepBody();
+    for (const dead of ["EXEC_PREFIX", "run_target", "install-rosetta", "arch -x86_64", "rosetta"]) {
+      expect({ dead, present: body.includes(dead) }).toEqual({ dead, present: false });
+    }
+  });
+
+  test("a failed version exec still surfaces its output (the never-silent rule stands)", () => {
+    const body = smokeStepBody();
+    const line = body.split("\n").find((l) => l.includes('out=$("$BIN" version 2>&1)'));
+    expect(line).toBeTruthy();
+    expect(line).toMatch(/\|\|\s*\{\s*echo/);
+    expect(line).toContain("$out");
+  });
+
+  test("an unknown smoke mode dies loud instead of exiting 0 unproved", () => {
+    // `exec` and `magic` are the only values the plan job can emit here
+    // (desktop exits earlier via the bundle guard), but a case with no
+    // default arm answers any future value with a silent pass, and a
+    // smoke that proves nothing while exiting 0 is the exact failure
+    // this whole wave of pins exists to make impossible.
+    // Own anchor, not smokeStepBody(): that slice ENDS at the magic echo,
+    // which now sits one arm before the default. `case "$SMOKE"` (the
+    // uppercase one; the plan job's tables read $triple/$TRIPLE) is unique.
+    const m = /case "\$SMOKE" in\n([\s\S]*?)\n\s*esac/.exec(WORKFLOW);
+    if (m === null) throw new Error("release.yml: the $SMOKE dispatch was not found (renamed?)");
+    expect(m[1]).toMatch(/\*\)\s*\n\s*echo "unknown smoke mode[^"]*" >&2\n\s*exit 1/);
+  });
+
+  test("boot smoke backgrounds the binary directly, so $! is the process kill aims at", () => {
+    // The shape `VAR=val cmd ... >log 2>&1 &` is a simple command: bash
+    // execs it IN the forked child, so $! is the command itself. A helper
+    // function wrapper once broke exactly that (a backgrounded FUNCTION
+    // keeps its wrapper); the direct shape is what boot_smoke must keep,
+    // and the mechanism is verified behaviorally under /bin/bash here.
+    const body = smokeStepBody();
+    // Line-start match: the launch line must BE the direct background, not a
+    // wrapper call that happens to contain the path.
+    expect(body).toMatch(/\n\s*"\$PWD\/\$BIN" >server-boot\.log 2>&1 &/);
+    const dir = mkdtempSync(join(tmpdir(), "boot-bg-"));
     try {
       const script = join(dir, "probe.sh");
       writeFileSync(
@@ -92,69 +150,55 @@ describe("release.yml run_target", () => {
         [
           "#!/bin/bash",
           "set -euo pipefail",
-          'EXEC_PREFIX=""',
-          runTargetFunction(),
-          // stdout/stderr detached so an UNREACHABLE pid (the pre-fix shape:
-          // kill hits the wrapper, the real sleep survives) cannot hold the
-          // captured pipe open and stall this probe rather than fail it.
-          "run_target sleep 2 >/dev/null 2>&1 &",
+          "FOO=1 /bin/sleep 2 >/dev/null 2>&1 &",
           "pid=$!",
           'comm=$(ps -p "$pid" -o comm= 2>/dev/null || echo GONE)',
           'kill "$pid" 2>/dev/null || true',
           'wait "$pid" 2>/dev/null || true',
           'echo "BG=$comm"',
-          // The synchronous capture path (out=$(run_target ... version)) must
-          // keep working whatever the background fix looks like.
-          "out=$(run_target echo probe-ok 2>&1) || out=FAILED",
-          'echo "CS=$out"',
           "",
         ].join("\n"),
       );
       const proc = Bun.spawnSync({ cmd: ["/bin/bash", script] });
       const stdout = new TextDecoder().decode(proc.stdout);
-      expect(stdout).toContain("BG=sleep");
-      expect(stdout).toContain("CS=probe-ok");
+      // comm is the command (or its path), never a bash wrapper.
+      expect(stdout).toMatch(/BG=.*sleep/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("the cargo cache cannot hand one Mac arch the other's host-tooling tree", () => {
+    // The key already carried runner.os, but runner.os is "macOS" on BOTH
+    // hosted labels. With --target, cargo keeps host-arch build scripts and
+    // proc-macro dylibs in the unqualified target/release/, so a key shared
+    // across architectures lets an Intel shard restore an arm64 host's tree
+    // and die executing binaries it cannot run. runner.arch (ARM64 vs
+    // X86_64) is what splits it; both key and restore-keys must carry it,
+    // or a prefix restore re-crosses the line the full key just drew.
+    expect(WORKFLOW).toMatch(
+      /key: \$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-cargo-release-v2-\$\{\{ matrix\.app \}\}-/,
+    );
+    expect(WORKFLOW).toMatch(/restore-keys: \$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-cargo-release-v2-/);
+  });
+
+  test("the desktop bundle smoke execs its sidecar: same-arch hardware makes it native", () => {
+    // With the x64 bundle built and smoked on Intel hardware, the run check
+    // is unconditional again (an arm64 sidecar never lands on an Intel
+    // runner, and vice versa: each triple has exactly one runner and its
+    // runner IS its arch).
+    const desktop = readFileSync(join(import.meta.dir, "../../scripts/smoke-desktop-bundle.sh"), "utf8");
+    expect(desktop).toMatch(/^check_sidecar_runs "\$APP_BUNDLE/m);
+  });
 });
 
 /** The Smoke step's script body, from the env line that hands it the smoke
- * mode to the magic-mode echo that closes it. Both anchors are unique. */
+ * mode to the magic-mode echo that ends the slice (the $SMOKE dispatch's
+ * default arm sits past that; its test anchors the case block itself).
+ * Both anchors are unique. */
 function smokeStepBody(): string {
   const start = WORKFLOW.indexOf("SMOKE: ${{ matrix.smoke }}");
   const end = WORKFLOW.indexOf("no exec smoke (digest sidecar");
   if (start < 0 || end < 0) throw new Error("release.yml: the Smoke step body was not found (reworded?)");
   return WORKFLOW.slice(start, end);
 }
-
-describe("release.yml rosetta smoke (cut 36194869947 taught this the hard way)", () => {
-  test("the darwin-x64 shard provisions Rosetta before anything execs x86", () => {
-    const body = smokeStepBody();
-    const install = body.indexOf("softwareupdate --install-rosetta --agree-to-license");
-    expect(install).toBeGreaterThanOrEqual(0);
-    // Guarded: an install attempt on a non-x64 shard (or an Intel image
-    // without the command) must not become a new failure mode.
-    expect(new RegExp(`if \\[ "\\$TRIPLE" = darwin-x64 \\]; then\\n\\s*softwareupdate --install-rosetta`).test(body)).toBe(
-      true,
-    );
-    // BEFORE both consumers: the desktop early-exit case (its bundle smoke
-    // execs the x64 sidecar directly) and the arch prefix assignment.
-    expect(install).toBeLessThan(body.indexOf("desktop-*)"));
-    expect(install).toBeLessThan(body.indexOf('EXEC_PREFIX="arch -x86_64"'));
-  });
-
-  test("a failed version exec surfaces its output instead of dying silent", () => {
-    // Cut 36194869947's real lesson was diagnostic as much as Rosetta:
-    // `|| return 1` on the capture threw the failure's own words away, and
-    // the job died in 13 silent seconds. The failure path must echo.
-    const body = smokeStepBody();
-    const line = body.split("\n").find((l) => l.includes('out=$(run_target "$BIN" version 2>&1)'));
-    expect(line).toBeTruthy();
-    expect(line).toMatch(/\|\|\s*\{\s*echo/);
-    // And it must echo WHAT THE BINARY SAID, not just that it said nothing:
-    // the pin's whole point is that the next silent death is impossible.
-    expect(line).toContain("$out");
-  });
-});
