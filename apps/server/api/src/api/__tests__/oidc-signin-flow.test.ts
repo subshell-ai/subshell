@@ -646,12 +646,12 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
 
   // Case 12 — §2's seam shift: with the E-mail row's gate closed, the CREATE
   // path refuses with the named code and writes nobody. (Distinct from case
-  // 11 in the WHICH before-hook: the sign-in refusal lives in door-guards,
+  // 11 in WHICH before-hook answers: the sign-in refusal lives in door-guards,
   // the create refusal now in held-email-guards' gate-first answer — T17
-  // moved it out of the provisioning hook, which better-auth's earlier
-  // duplicate-email throw can keep from ever running. The before-hook answer
-  // is byte-identical to `validateUserInfo`'s, which is exactly why this case
-  // still passes unchanged.)
+  // moved it out of the provisioning hook because for a held email
+  // better-auth's duplicate-email throw lands first and that hook never
+  // runs. The before-hook answer is byte-identical to `validateUserInfo`'s
+  // on the wire, which is exactly why this case still passes unchanged.)
   it("12. a closed E-mail gate refuses sign-up with 403 registration_closed, creating nobody", async () => {
     await new AuthProvidersRepository(db).update("email", { registrationEnabled: 0 });
     invalidateAuth();
