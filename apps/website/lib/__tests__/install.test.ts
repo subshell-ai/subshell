@@ -67,7 +67,7 @@ test("headings name what each path delivers (operator note, 2026-09-25)", () => 
   expect(installCopy(m, "server", true).appHeading).toBe("Subshell Server desktop app");
   // Server's one-liner is the CLI; the client's installs the same desktop
   // app, so the curl heading is per kind by design, not an inconsistency.
-  expect(installCopy(m, "server", true).curlHeading).toBe("The CLI, one command");
+  expect(installCopy(m, "server", true).curlHeading).toBe("or the CLI");
   expect(installCopy(m, "client", true).appHeading).toBe("Subshell Client desktop app");
   expect(installCopy(m, "client", true).curlHeading).toBe("The same app, one command");
 });

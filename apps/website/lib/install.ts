@@ -59,7 +59,7 @@ export function installCopy(manifest: ReleasesManifest, kind: InstallKind, isMac
 
   return {
     appHeading: `${productName} desktop app`,
-    curlHeading: kind === "server" ? "The CLI, one command" : "The same app, one command",
+    curlHeading: kind === "server" ? "or the CLI" : "The same app, one command",
     downloadHref: assetHref(target) ?? generic,
     downloadLabel: isMac ? "Download for macOS · .dmg" : "Download for Linux · .deb",
     altLabel: isMac ? "Linux (.deb)" : "macOS (.dmg)",

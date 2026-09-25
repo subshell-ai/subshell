@@ -91,6 +91,17 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
       >
         <span suppressHydrationWarning>{copy.downloadLabel}</span>
       </a>
+      {/* The artifact's name names what the button above downloads, so it
+          sits under that button (operator observation, 2026-09-25); printed
+          in the small print below the curl row, it read as if the CLI
+          one-liner installed the .deb. */}
+      {copy.artifactFile !== null && (
+        <p className="mt-2">
+          <code className="font-mono text-[11.5px] text-[var(--dimmer)]">
+            <span suppressHydrationWarning>{copy.artifactFile}</span>
+          </code>
+        </p>
+      )}
       <p className="mt-3 text-[13.5px] text-[var(--dim)]">
         or{" "}
         <a className="text-[var(--frost)] underline-offset-2 hover:text-[var(--orchid)]" href={copy.altHref}>
@@ -126,15 +137,6 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
       )}
       <p className="mt-3 max-w-[36ch] text-[12px] text-[var(--dimmer)]">
         macOS 13+ on Apple silicon · Linux x86_64 Ubuntu 24.04+ / Debian 13+
-        {copy.artifactFile !== null && (
-          <>
-            {" "}
-            ·{" "}
-            <code className="font-mono text-[11.5px] text-[var(--dim)]">
-              <span suppressHydrationWarning>{copy.artifactFile}</span>
-            </code>
-          </>
-        )}
       </p>
       <p className="mt-2.5 max-w-[38ch] text-[12px] text-[var(--dimmer)]">{why}</p>
     </div>
