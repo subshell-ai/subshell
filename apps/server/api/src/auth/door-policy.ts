@@ -170,9 +170,11 @@ export async function evaluateDoorPolicy(
   // fails toward the door admins can actually see and close.
   const emailRow = await new AuthProvidersRepository(db).getById("email");
   // `enabled !== 1` is no-door, the SAME reading the oauth branch gives a
-  // disabled row: unreachable today (migration 0037 seeds 1 and nothing
-  // writes 0), but a hand-edited disabled row must read door_closed rather
-  // than opening a door the table says is shut.
+  // disabled row. Reachable through the admin API, not just a hand edit: the
+  // PATCH route's Enabled switch writes 0 on any row including this one
+  // (final review corrected this comment — it used to claim "nothing writes
+  // 0", which the switch made false). A disabled row must read door_closed
+  // rather than opening a door the table says is shut.
   const door = emailRow === undefined || emailRow.enabled !== 1 ? null : resolveDoor(emailRow);
   const existingState = email === "" ? null : await stateByEmail(db, email);
   return decideDoorPolicy({

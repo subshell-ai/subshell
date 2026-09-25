@@ -37,6 +37,11 @@ async function setEmailSignIn(on: boolean): Promise<void> {
   await new AuthProvidersRepository(db).update("email", { signInEnabled: on ? 1 : 0 });
 }
 
+/** Set BOTH E-mail-row switches at once; every matrix case below states both. */
+async function setEmailRow(over: { enabled: 0 | 1; signInEnabled: 0 | 1 }): Promise<void> {
+  await new AuthProvidersRepository(db).update("email", over);
+}
+
 async function signInRequest(extraHeaders: Record<string, string> = {}): Promise<Response> {
   return authRateLimitRoutes.fetch(
     new Request("http://localhost:3080/api/auth/sign-in/email", {
@@ -106,6 +111,33 @@ describe("doorGuardBeforeHook (unit)", () => {
       }
     } finally {
       await setEmailSignIn(true);
+    }
+  });
+
+  test("the master switch closes the door too: the enabled/signInEnabled matrix (final review, Important 1)", async () => {
+    // `enabled = 0` on the E-mail row is writable (the PATCH route's
+    // `booleanField("enabled")` accepts it, and the admin table renders the
+    // switch on the email row), and every OTHER reader treats it as closed —
+    // the last-door count, the anonymous `emailSignIn`, the door policy's
+    // create branch. The sign-in guard must give the same answer; a hidden
+    // door that still signs people in is the §7 violation this closes.
+    const hook = createDoorGuardBeforeHook(() => db);
+    const cases: [0 | 1, 0 | 1][] = [
+      [0, 1], // master OFF, half-switch on
+      [1, 0], // master on, half-switch off (the shipped rule, re-pinned)
+      [0, 0], // both off
+    ];
+    for (const [enabled, signInEnabled] of cases) {
+      await setEmailRow({ enabled, signInEnabled });
+      try {
+        for (const path of ["/sign-in/email", "/passkey/verify-authentication"]) {
+          const err = await hook({ path }).catch((e: unknown) => e);
+          expect(err).toBeTruthy();
+          expect((err as { statusCode?: number }).statusCode).toBe(403);
+        }
+      } finally {
+        await setEmailRow({ enabled: 1, signInEnabled: 1 });
+      }
     }
   });
 
@@ -182,6 +214,33 @@ describe("door guard on the real handler (HTTP)", () => {
   test("the open door signs the same credential in (the guard is not a blanket denial)", async () => {
     const res = await signInRequest();
     expect(res.status).toBe(200);
+  });
+
+  test("the master switch answers 403 on the real handler too (enabled=0, signInEnabled=1)", async () => {
+    // The HTTP half of the matrix above: the switch the admin flips is the
+    // one on the table row, and the wire must refuse what the UI hid.
+    await new AuthProvidersRepository(db).update("email", { enabled: 0, signInEnabled: 1 });
+    try {
+      expect((await signInRequest()).status).toBe(403);
+    } finally {
+      await new AuthProvidersRepository(db).update("email", { enabled: 1 });
+    }
+  });
+
+  test("a CLOSED REGISTRATION GATE does not refuse an existing account's sign-in", async () => {
+    // The two flags gate DIFFERENT things (spec §2): registration decides who
+    // may CREATE an account — signing in is signInEnabled's decision. The
+    // legacy dynamic window closes registration while every member keeps
+    // their way in, so this edge must stay a 200. (Pinned because a future
+    // "derive the whole policy in the sign-in guard" edit would break it.)
+    const reg = new AuthProvidersRepository(db);
+    const stored = (await reg.getById("email"))?.registrationEnabled;
+    await reg.update("email", { registrationEnabled: 0, signInEnabled: 1, enabled: 1 });
+    try {
+      expect((await signInRequest()).status).toBe(200);
+    } finally {
+      await reg.update("email", { registrationEnabled: stored ?? null });
+    }
   });
 
   test("a forged break-glass header does NOT exempt a closed-door sign-in (HTTP)", async () => {

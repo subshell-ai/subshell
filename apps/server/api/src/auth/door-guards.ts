@@ -32,9 +32,14 @@ import type { Database } from "@/db/types/index.js";
  * rather than `loadProviderRowsSync`: that loader's WHERE filters a disabled
  * door OUT of its result, and "filtered out" is exactly what this hook must
  * distinguish from "explicitly closed" — it reads the one row by primary key
- * and answers only to an explicit `sign_in_enabled = 0`. An ABSENT row (a
- * database predating migration 0037 — no server boots in that state, but the
- * read is defensive) is not an explicit close and passes.
+ * and answers to EITHER explicit close: `enabled = 0` (the master switch,
+ * writable by the PATCH route and shown as the Enabled toggle on the table's
+ * email row — final review, Important 1) or `sign_in_enabled = 0`. Every
+ * other reader (the last-door count, the anonymous `emailSignIn`, the door
+ * policy) already treats `enabled = 0` as closed; §7's "a hidden door is not
+ * a closed one" is false unless the SIGN-IN path reads the same flag. An
+ * ABSENT row (a database predating migration 0037 — no server boots in that
+ * state, but the read is defensive) is not an explicit close and passes.
  *
  * Break-glass is EXEMPT (spec §9 "break-glass unchanged"): the emergency
  * wrapper destructively rewrites the admin's credential BEFORE the forwarded
@@ -70,7 +75,7 @@ export function createDoorGuardBeforeHook(
     const db = getDb();
     if (!db) return;
     const row = await new AuthProvidersRepository(db).getById("email");
-    if (row?.signInEnabled === 0) {
+    if (row && (row.enabled === 0 || row.signInEnabled === 0)) {
       throw new APIError(403, { message: "Password and passkey sign-in are disabled on this instance" });
     }
   };
