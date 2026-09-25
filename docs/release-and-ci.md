@@ -277,7 +277,12 @@ anything, not just the GUIs. The darwin release shards are split by arch:
 correctness, not preference: bun's x86_64 build needs AVX2, while the Apple
 Silicon image's Rosetta tops out at SSE4.2 (run 36196527394's crash banner:
 `CPU: sse42 popcnt`), so a darwin-x64 build cannot exec there at all, under
-no amount of retrying. Each shard's runner is its artifact's arch.
+no amount of retrying. Each shard's runner is its artifact's arch. The
+Intel label tracks `macos-14` by generation as closely as the fleet
+allows: the operator rule (2026-09-25) is that both Mac arches build on
+the same macOS version, and the Intel line simply starts at 15 (no
+`macos-14-intel` image exists; `macos-26-intel` moves away from the
+arm64 environment, not toward it).
 
 The reason was operability, and the cost is the accepted trade: the repo is
 public now, and hosted minutes are still metered on the free plan, so a push

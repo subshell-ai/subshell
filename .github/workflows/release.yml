@@ -406,6 +406,13 @@ jobs:
           # popcnt") proved the macos-14 Rosetta ceiling is SSE4.2 while
           # bun's x86_64 build needs AVX2 — no exec claim there can ever
           # pass, and SIGILL is not a flaky signal worth retrying.
+          # The GENERATION follows the operator rule of 2026-09-25: match
+          # the macOS version the arm64 shards build on. The Intel line
+          # starts at 15 — no macos-14-intel image exists — so 15 is the
+          # closest to MAC's macos-14, and macos-26-intel would sit
+          # further from the arm64 build environment rather than closer.
+          # When MAC moves, this label moves with it, generation for
+          # generation.
           MAC_INTEL='"macos-15-intel"'
           entries=""
           appsjson=""
