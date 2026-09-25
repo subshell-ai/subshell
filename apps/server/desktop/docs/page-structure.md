@@ -27,7 +27,7 @@ ui/
 │   │   ├── ipc.ts            # one typed function per `desktop_*` command this page invokes
 │   │   ├── wizard-state.ts   # screensFor, autoSetupDecision, recoveryTitle/Action, RESET_LABEL, the checklist
 │   │   ├── server-state.ts   # railFor: which rail sections a route and an onboarded machine get
-│   │   ├── config-form.ts    # the pure form contract (docs/ipc-boundary.md)
+│   │   ├── config-form.ts    # the pure form contract (apps/server/desktop/docs/ipc-boundary.md)
 │   │   ├── installers.ts     # the pure install plans and manual routes
 │   │   ├── recovery-model.ts # the recovery screen's subtitle, facts and pane risk
 │   │   ├── update-act.ts     # the ONE update act: rows, phases, presses, refusals

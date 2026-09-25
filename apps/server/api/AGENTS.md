@@ -80,7 +80,7 @@ open sign-in provider (409 `LAST_SIGN_IN_PROVIDER`).
 
 ```
 src/
-├── api/            # Routes: flat *.route.ts (incl. downloads.route.ts, admin-status.route.ts, plugins.route.ts) + per-resource dirs (subshells/, workspaces/, channels/, nodes/, users/, auth-providers/) + auth-guard.ts + routes.ts; install-script.ts renders GET /install.sh (full comments: docs/source-tree.md)
+├── api/            # Routes: flat *.route.ts (incl. downloads.route.ts, admin-status.route.ts, plugins.route.ts) + per-resource dirs (subshells/, workspaces/, channels/, nodes/, users/, auth-providers/) + auth-guard.ts + routes.ts; install-script.ts renders GET /install.sh (full comments: apps/server/api/docs/source-tree.md)
 ├── auth/           # Api-key store, DB handle, system user, the sign-in providers (provider-policy.ts, provider-guards.ts, provider-rows.ts, oidc-discovery.ts; better-auth config: ../auth.ts)
 ├── db/             # Kysely setup, migrations (static provider map), types/, repositories/
 ├── lib/            # context.ts (ApiContext + getRequestlessContext), api-error.ts (apiErrorBody)
@@ -89,7 +89,7 @@ src/
 ├── scripts/        # e2e seed, embed-web.ts (SPA -> generated/embedded-web.ts), release.ts
 ├── services/       # Business logic: subshell-manager, nodes/ (NodeLauncher seam), channels/, uploads, tokens, audit, notify, mcp-launch (TmuxRunner lives in `@internal/pane-runtime` now, so the node CLI can reuse it)
 ├── utils/          # Logger and small shared helpers
-├── ws/             # Terminal attach WebSocket (short-lived single-use tokens — cookie-minted ones unscoped, Bearer-minted ones bound to one subshell) + the dashboard's live feed: live-ws.ts, live-topics.ts (the recipient set, diffed against resolveSubshellAccess by an exhaustive test) and live-publisher.ts (coalesced broadcasts). Full comments: docs/ws-attach.md
+├── ws/             # Terminal attach WebSocket (short-lived single-use tokens — cookie-minted ones unscoped, Bearer-minted ones bound to one subshell) + the dashboard's live feed: live-ws.ts, live-topics.ts (the recipient set, diffed against resolveSubshellAccess by an exhaustive test) and live-publisher.ts (coalesced broadcasts). Full comments: apps/server/api/docs/ws-attach.md
 └── test-preload.ts # Loaded by bunfig.toml before every test run
 ```
 
@@ -299,7 +299,7 @@ exactly like `GET /api/admin/status`:
 | route | |
 | --- | --- |
 | `GET /api/admin/server` | how this server is DEPLOYED, as against `admin/status`'s what-is-HAPPENING; `TRUSTED_ORIGINS` is the exception: read live, so `saved === running` always |
-| `PATCH /api/admin/server/config` | rewrite config.env through the CLI's own writer (see `docs/config-env.md`). `DATABASE_PATH` is deliberately absent |
+| `PATCH /api/admin/server/config` | rewrite config.env through the CLI's own writer (see `apps/server/api/docs/config-env.md`). `DATABASE_PATH` is deliberately absent |
 | `POST /api/admin/server/restart` | exit for the service manager to respawn; refused unless the manager reports THIS pid, or the definition keeps live panes / `force` |
 | `POST /api/admin/server/autostart` | arm or disarm start-at-login; touches nothing about the running process (inside the no-route rule, not an exception to it) |
 | `GET /api/admin/server/logs` | the tail of the server's own log file |
