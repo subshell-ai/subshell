@@ -54,7 +54,8 @@ export const patchProviderRoute = new Elysia()
           apiErrorBody({ code: BackendErrorCodes.BAD_REQUEST, message: "A provider's id is immutable." }),
         );
       }
-      // The E-mail row has no OAuth identity (spec §2): issuer, clientId and
+      // The E-mail row has no OAuth identity (spec §2, and entry origins are
+      // §5a's concept): issuer, clientId and
       // entryOrigins describe an exchange that row never runs. The route used
       // to accept them on this row — and a bogus issuer even earned a
       // discovery probe (refused before any fetch here). Create already 400s

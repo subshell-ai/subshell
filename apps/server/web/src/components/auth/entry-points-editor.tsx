@@ -10,10 +10,12 @@ const OTHER = "__other__";
 /**
  * The entry-points list editor (spec §5a), split out of `provider-dialog.tsx`
  * by review Minor 5: a list over the live origin registry plus a typed
- * escape. The first row is the canonical the round trip always lands on, and
- * it is PINNED there with NO control at all: "not removable" is the operator's
- * rule, and without position 0 there is no canonical to build redirect URIs
- * from, so the control that would empty the field must not exist. Nothing
+ * escape. The first row is the canonical the round trip always lands on (the
+ * emitted redirect URI is built from list position 0 on 1.7.1 — measured,
+ * provider-rows.ts), and it is PINNED there with NO control at all: "not
+ * removable" is the operator's rule, and without position 0 there is no
+ * canonical to build redirect URIs from, so the control that would empty the
+ * field must not exist. Nothing
  * else about the order means anything server-side — position 0 is the only
  * position with a consequence — so there are no move arrows either (operator
  * ask 2026-09-25): the rest are a set, in the order they were added. The

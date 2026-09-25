@@ -1038,7 +1038,7 @@ function killSpaTree(child: ChildProcess): void {
  * back to the old warning. Nothing is ever pointed at a port this function
  * did not see answer.
  */
-async function ensureSpaDevServer(): Promise<SpaDev | null> {
+async function ensureSpaDevServer(onStarted?: (child: ChildProcess) => void): Promise<SpaDev | null> {
   if (await spaListening()) return { url: SPA_DEV_URL, child: null };
   // stderr is kept: a Vite that dies on the way up (a missing dep, a bound
   // port it refused) says why there, and the fallback message quotes it.
@@ -1053,6 +1053,9 @@ async function ensureSpaDevServer(): Promise<SpaDev | null> {
     stderr: "pipe",
     detached: true,
   });
+  // Before the first probe: the caller's signal handler is the tree's only
+  // reaper for the whole wait below.
+  onStarted?.(child);
   for (let waited = 0; waited < SPA_START_BUDGET_MS; waited += 300) {
     if (await spaListening()) return { url: SPA_DEV_URL, child };
     // The wrapper is not the server; ask the GROUP. `child.exitCode` is the
@@ -1213,8 +1216,29 @@ async function killLeakedApps(app: DesktopApp, ignore: ReadonlySet<number>): Pro
 async function runDev(app: DesktopApp): Promise<number> {
   const env: Record<string, string> = { ...(process.env as Record<string, string>) };
   let spaChild: ChildProcess | null = null;
+  // The Vite tree the launcher started, visible to the signal handler the
+  // moment it EXISTS — which is during `ensureSpaDevServer`'s wait, not after
+  // it (round-3 review MINOR: with the handler installed only after the wait,
+  // a Ctrl-C there ran the default disposition and the detached tree kept
+  // :5174 with no launcher left to reap it).
+  let spaInFlight: ChildProcess | null = null;
+  let tauriRunning = false;
+  // Ctrl-C reaches the whole foreground group. Once `tauri dev` is running
+  // the handler is a no-op for US — the child gets its own SIGINT, and
+  // `proc.exited` is what drives the cleanup below. BEFORE the spawn there is
+  // no child to wait on: this handler is the only handle on the tree, so it
+  // ends the tree and leaves.
+  const stayForCleanup = (): void => {
+    if (tauriRunning) return;
+    if (spaInFlight) killSpaTree(spaInFlight);
+    process.exit(130);
+  };
+  process.on("SIGINT", stayForCleanup);
+  process.on("SIGTERM", stayForCleanup);
   if (app.id === "server" && env.SUBSHELL_DESKTOP_SPA_URL === undefined) {
-    const spa = await ensureSpaDevServer();
+    const spa = await ensureSpaDevServer((child) => {
+      spaInFlight = child;
+    });
     if (spa) {
       spaChild = spa.child;
       env.SUBSHELL_DESKTOP_SPA_URL = spa.url;
@@ -1237,14 +1261,10 @@ async function runDev(app: DesktopApp): Promise<number> {
   // Snapshotted BEFORE the spawn: whatever is already running belongs to
   // somebody else's session and is never this run's to kill.
   const preexisting = new Set(await appPids(app, new Set()));
-  // Ctrl-C reaches the whole foreground group, this script included, and the
-  // default disposition would end it here — before the sweep below could run.
-  // The handlers make it a no-op for US only: the child is in the same group
-  // and gets its own SIGINT, so it still shuts down exactly as it did before,
-  // and `proc.exited` is what we go on rather than the signal.
-  const stayForCleanup = (): void => {};
-  process.on("SIGINT", stayForCleanup);
-  process.on("SIGTERM", stayForCleanup);
+  // The handlers from the top of this function make SIGINT a no-op for US
+  // only: the child is in the same group and gets its own SIGINT, so it still
+  // shuts down exactly as it did before, and `proc.exited` is what we go on
+  // rather than the signal — so the sweep below runs.
   const proc = Bun.spawn(["bun", "run", "--cwd", `apps/${app.dir}`, "dev:app"], {
     cwd: REPO_ROOT,
     stdio: ["inherit", "inherit", "inherit"],

@@ -201,7 +201,7 @@ own account is refused with 400 for the same reason — a single-admin instance
 that disables itself has nobody left to undo it. The refusal reaches new
 sessions and machine credentials alike: the before-hook on session creation
 rejects a disabled user whatever minted the credential — password and passkey
-(`auth.ts:115-126`) — and the bearer path refuses too (`auth-guard.ts:154-171`),
+(`auth.ts:165-179`) — and the bearer path refuses too (`auth-guard.ts:154-171`),
 so **a running subshell's own token dies with its disabled owner**.
 
 A disable also ends everything the account still holds live, in three
@@ -307,10 +307,12 @@ only verification), and stores the resolved endpoints beside
 cannot crash-loop boot; a rebuild that throws anyway serves the last-known-good
 auth instance (spec §3). The id slug is `[a-z0-9-]` ≤ 40 chars, `email` is
 reserved, and a collision answers `SLUG_TAKEN` (409). **The last open
-sign-in provider cannot be closed**: a write that would leave zero enabled
-`sign_in_enabled` providers is refused with a `LAST_SIGN_IN_PROVIDER` 409 naming the
-break-glass remedy, before anything saves, and the guard's re-read, count and
-mutation are ONE transaction, so two admins closing two different providers
+sign-in provider cannot be closed**: a PATCH that closes a row on either flag
+(`enabled` or `sign_in_enabled`) and a DELETE of an open row are the same
+refusal when the result would leave zero providers open on BOTH flags —
+`LAST_SIGN_IN_PROVIDER` 409 naming the break-glass remedy, before anything
+saves, and the guard's re-read, count and mutation are ONE transaction, so two
+admins closing two different providers
 concurrently cannot both pass on the same snapshot (spec §7; the guard counts
 providers, not users, because the simple form prevents the incident the per-user
 join would only describe). Every successful write calls `invalidateAuth()`, so the

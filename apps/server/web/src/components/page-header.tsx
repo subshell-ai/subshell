@@ -24,7 +24,9 @@ export function PageHeader({ title, subtitle, action }: PageHeaderProps) {
     <header className="mb-6 flex items-center justify-between">
       <div>
         <h1 className="font-strong text-heading">{title}</h1>
-        <p className="text-muted-foreground text-sm">{subtitle}</p>
+        {/* Rendered only when present: an empty <p> is zero-height today but
+            it is the stray node the prop's contract says will not exist. */}
+        {subtitle ? <p className="text-muted-foreground text-sm">{subtitle}</p> : null}
       </div>
       {action}
     </header>
