@@ -430,11 +430,15 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
         expect(res.status).toBe(200);
         const json = (await res.json()) as { path: string; name: string; size: number; contentType: string };
 
+        // The `.subshell/.gitignore` seal frame leads the wire (its own
+        // fixed-name stream); the upload's two chunks follow it unchanged.
         const cmds = sim.cmdsOf("write_file");
-        expect(cmds.map((c) => c.chunk)).toEqual([0, 1]);
-        expect(cmds.map((c) => c.eof)).toEqual([false, true]);
-        expect(cmds.map((c) => Buffer.from(c.chunk_b64, "base64").byteLength)).toEqual([CHUNK, CHUNK]);
-        expect(cmds.every((c) => c.path === json.path)).toBe(true);
+        expect(cmds[0]).toMatchObject({ path: join(ws, ".subshell", ".gitignore"), chunk: 0, eof: true });
+        const uploadFrames = cmds.slice(1);
+        expect(uploadFrames.map((c) => c.chunk)).toEqual([0, 1]);
+        expect(uploadFrames.map((c) => c.eof)).toEqual([false, true]);
+        expect(uploadFrames.map((c) => Buffer.from(c.chunk_b64, "base64").byteLength)).toEqual([CHUNK, CHUNK]);
+        expect(uploadFrames.every((c) => c.path === json.path)).toBe(true);
 
         expect(json.name).toMatch(/^\d{8}-\d{6}-big-[0-9a-f]{8}\.bin$/);
         expect(json.path).toBe(join(ws, ".subshell", "uploads", json.name));
@@ -481,11 +485,14 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
         expect(res.status).toBe(200);
         const json = (await res.json()) as { path: string; name: string; size: number; contentType: string };
 
-        // Exactly one frame: chunk 0 IS the eof, payload empty — the sequence
-        // still terminates the stream (writeUploadRemote's `max(1, …)` rule).
+        // Exactly two frames: the seal first (its own stream, same rule the
+        // 1 MiB case pins), then the upload where chunk 0 IS the eof and the
+        // payload is empty — the sequence still terminates the stream
+        // (writeUploadRemote's `max(1, …)` rule).
         const cmds = sim.cmdsOf("write_file");
-        expect(cmds).toHaveLength(1);
-        expect(cmds[0]).toMatchObject({ chunk: 0, eof: true, chunk_b64: "", path: json.path });
+        expect(cmds).toHaveLength(2);
+        expect(cmds[0]).toMatchObject({ path: join(ws, ".subshell", ".gitignore"), chunk: 0, eof: true });
+        expect(cmds[1]).toMatchObject({ chunk: 0, eof: true, chunk_b64: "", path: json.path });
 
         expect(json.size).toBe(0);
         // The stem and extension are NOT this route's decision: they are

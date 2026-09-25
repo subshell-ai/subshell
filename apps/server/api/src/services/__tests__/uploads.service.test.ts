@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -204,6 +204,85 @@ describe("writeUpload", () => {
     expect(second.path).not.toBe(first.path);
     expect(second.name).toBe("20260827-143210-dup-2.txt");
     expect(readFileSync(first.path, "utf8")).toBe("one");
+  });
+
+  it("seals .subshell with a self-ignoring `*` .gitignore", async () => {
+    const ws = tempWorkDir();
+    await writeUpload({
+      workingRealPath: ws,
+      file: new File(["hello"], "notes.txt", { type: "text/plain" }),
+      now: NOW,
+    });
+    // The pattern must be EXACTLY this: `*\n` matches every descendant at any
+    // depth, including the .gitignore file itself, in every git topology.
+    expect(readFileSync(join(ws, ".subshell", ".gitignore"), "utf8")).toBe("*\n");
+  });
+
+  it("leaves the .subshell/.gitignore byte-identical on a second upload", async () => {
+    const ws = tempWorkDir();
+    await writeUpload({
+      workingRealPath: ws,
+      file: new File(["one"], "first.txt", { type: "text/plain" }),
+      now: NOW,
+    });
+    const before = readFileSync(join(ws, ".subshell", ".gitignore"));
+    await writeUpload({
+      workingRealPath: ws,
+      file: new File(["two"], "second.txt", { type: "text/plain" }),
+      now: NOW,
+    });
+    expect(readFileSync(join(ws, ".subshell", ".gitignore")).equals(before)).toBe(true);
+    expect(before.toString("utf8")).toBe("*\n");
+  });
+
+  // ROOT IGNORES PERMISSION BITS (see the note in uploads-route.test.ts), so
+  // the unwritable `.subshell` cannot be constructed under CI's root — the
+  // skip is the honest shape of that host fact, same precedent as there.
+  // A plain FILE at the `.subshell` PATH cannot be the injection either: it
+  // breaks the upload's own uploads-dir mkdir (ENOTDIR) before the seal is
+  // ever attempted. The seal must fail where the upload can still land:
+  // uploads/ pre-exists and stays writable while its parent refuses the
+  // .gitignore write (EACCES). The root-safe EISDIR twin below is what
+  // actually enforces the swallow under CI's root; this stays the dev-box
+  // truth of the same property.
+  it.skipIf(process.getuid?.() === 0)("still uploads when .subshell/.gitignore cannot be written", async () => {
+    const ws = tempWorkDir();
+    mkdirSync(join(ws, ".subshell", "uploads"), { recursive: true });
+    chmodSync(join(ws, ".subshell"), 0o500);
+    try {
+      const result = await writeUpload({
+        workingRealPath: ws,
+        file: new File(["payload"], "notes.txt", { type: "text/plain" }),
+        now: NOW,
+      });
+      expect(readFileSync(result.path, "utf8")).toBe("payload");
+      // The seal genuinely did not land — the test proves the swallow, not a
+      // write that silently succeeded anyway.
+      expect(existsSync(join(ws, ".subshell", ".gitignore"))).toBe(false);
+    } finally {
+      chmodSync(join(ws, ".subshell"), 0o700);
+    }
+  });
+
+  // The root-safe twin of the test above, so CI (root in the builder image)
+  // genuinely enforces the swallow instead of skipping it: a DIRECTORY named
+  // `.gitignore` under `.subshell` makes the exclusive create fail EISDIR —
+  // not the EEXIST-as-success path — while `uploads/` stays writable and the
+  // upload lands. Absence is asserted as not-a-file, since existsSync is
+  // true for the planted directory.
+  it("still uploads when .subshell/.gitignore cannot be created (EISDIR, root-safe)", async () => {
+    const ws = tempWorkDir();
+    mkdirSync(join(ws, ".subshell", "uploads"), { recursive: true });
+    mkdirSync(join(ws, ".subshell", ".gitignore"));
+    const result = await writeUpload({
+      workingRealPath: ws,
+      file: new File(["payload"], "notes.txt", { type: "text/plain" }),
+      now: NOW,
+    });
+    expect(readFileSync(result.path, "utf8")).toBe("payload");
+    // The planted directory survives untouched — the seal write was refused,
+    // swallowed, and never overwrote or removed what was there.
+    expect(lstatSync(join(ws, ".subshell", ".gitignore")).isDirectory()).toBe(true);
   });
 
   it("preserves every payload when concurrent uploads share a name (TOCTOU regression)", async () => {
