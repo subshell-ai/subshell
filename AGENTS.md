@@ -2,6 +2,28 @@
 
 This document describes how this project works and how to perform common operations.
 
+## How this documentation loads
+
+**`AGENTS.md` is the single source of truth** and coding agents read it
+directly: Claude Code loads a root `AGENTS.md` natively (no `CLAUDE.md`
+import needed since v2.1.277; verified on the installed build). Keep project
+documentation here, never in a wrapper file. One standing gotcha: a stray
+`CLAUDE.local.md` anywhere on the path would silently stop Claude Code from
+reading this file.
+
+**Per-app documentation loads on demand.** Every app under `apps/server/*`,
+`apps/client/*` and `apps/node/*` carries an `AGENTS.md`, but nested files
+only enter context once you read a file in that directory, and they are two
+levels deep, so the three grouping directories themselves hold nothing. If
+you are planning work in an app before opening any of its files, read that
+app's `AGENTS.md` first; it routes deeper `docs/` topics the same way.
+
+**Claude Code additionally auto-loads `.claude/rules/`**, covering code
+style, testing, verification, dependencies, the design system, and the
+security posture summary. Where a rule and an app's `AGENTS.md` disagree,
+the app's documentation is more specific and wins; the disagreement is a bug
+worth fixing rather than a choice to make silently.
+
 ## Project Overview
 
 This is a **Bun-powered TypeScript monorepo** using Turborepo for orchestration. It contains an ElysiaJS API server, the React SPA that server serves, a node daemon (`subshell`), two Tauri desktop apps, a React Native companion, and shared packages: a type-safe Eden Treaty client SDK, the subshell protocol, agent harness plugins, a shared `subshell mcp` server, and backend error handling.
@@ -40,7 +62,7 @@ The full argument is `docs/superpowers/specs/2026-09-07-app-vocabulary-design.md
 Nothing the vocabulary governs acquired a second meaning in that change: the
 id is `local`, the control-plane package is `@internal/server`, its component
 id says `cli-server`, the directory is `apps/server/`. The label is a string
-an admin owns and changes in one field — which is the point, since the old
+an admin owns and changes in one field, which is the point, since the old
 fixed "Local" read to every other user as *their* machine.
 
 ### Directory Structure
@@ -483,7 +505,7 @@ does not reach desktop users until the matching desktop cut: dispatch a
 security-relevant release as `app=all`.
 
 **Everything else about publishing, updates mechanics, the runners, signing
-and the docs/website deploys is `docs/release-and-ci.md` — read it before
+and the docs/website deploys is `docs/release-and-ci.md`, read it before
 any release, artifact, `release:*` script, or workflow work.** It carries
 the node/server/desktop publishing dances, the desktop artifact-naming and
 identity rules, the update design's "where each half lives" map, the
@@ -494,7 +516,7 @@ semantics), and the docs.yml/website.yml deploy shape.
 ### Updates
 
 How an installation moves to the next version is designed in
-`docs/superpowers/specs/2026-09-15-updates-design.md` — read §15
+`docs/superpowers/specs/2026-09-15-updates-design.md`, read §15
 ("Amendments made while building"); the code and §15 are what shipped, not
 §§1–14. The rules to code by are in `.claude/rules/security-context.md`
 ("Updates & releases"); the publishing mechanics are in
