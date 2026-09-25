@@ -101,6 +101,37 @@ export interface ServerUpdateView {
   backups: { dir: string; keep: number; count: number; latest: BackupFile | null };
 }
 
+/**
+ * Which phase an in-flight update reads as, per the server's tracker
+ * (`apps/server/api/src/services/nodes/update-tracker.ts`, design
+ * 2026-09-25). `stalled` is NOT terminal: a late `ready` still resolves the
+ * entry to `done`, which is the whole point of tracking it server-side.
+ */
+export type UpdateTrackerPhase = "working" | "restarting" | "done" | "failed" | "stalled";
+
+/**
+ * One in-flight or recently-finished update, on a node row or (as
+ * `UpdatesView.serverUpdate`) the server's own. Entries are in-memory on the
+ * server, so they appear when an update was ordered by THIS process — or, for
+ * the server's own, when its boot re-created the terminal entry from the
+ * update marker; a server restarted into the new version shows `done` again
+ * for ten minutes, then silence.
+ */
+export interface UpdateTrackerState {
+  /** The version the plane saw when the update was ordered (`unknown` before the node ever reported one). */
+  from: string;
+  /** The version this server ordered. */
+  to: string;
+  /** ISO 8601 of the ordering — the stall clock's zero. */
+  startedAt: string;
+  /** The server-derived phase (see {@link UpdateTrackerPhase}). */
+  phase: UpdateTrackerPhase;
+  /** For `failed`: the refusal's sentence, or `rolled back to X` for a boot that reverted. */
+  message: string | null;
+  /** ISO 8601 for a terminal entry; null for anything still live, `stalled` included. */
+  endedAt: string | null;
+}
+
 /** One enrolled node, as the Nodes rows render it. */
 export interface NodeUpdateRow {
   id: string;
@@ -120,6 +151,8 @@ export interface NodeUpdateRow {
   updateAvailable: boolean;
   /** Whether this row's Update button is live, and why not. */
   canUpdate: { ok: boolean; reason: string | null };
+  /** The update this server ordered here and has not forgotten; null when none is or was recently in flight. */
+  update: UpdateTrackerState | null;
 }
 
 /** The fleet section of the page. */
@@ -139,6 +172,13 @@ export interface NodeUpdates {
 /** `GET /api/admin/updates` — everything the page renders, in one read. */
 export interface UpdatesView {
   server: ServerUpdateView;
+  /**
+   * This server's own update as the tracker knows it. The ordering process
+   * exited for the manager and the entry is in-memory, so what a page finds
+   * after a real update is the entry the COMPLETING boot re-created — `done`,
+   * or `failed` on the boot that recorded the failure — for ten minutes.
+   */
+  serverUpdate: UpdateTrackerState | null;
   nodes: NodeUpdates;
   desktop: { server: ReleaseRef | null; client: ReleaseRef | null };
 }

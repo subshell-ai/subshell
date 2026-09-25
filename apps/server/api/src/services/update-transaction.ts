@@ -59,6 +59,7 @@ import { join } from "node:path";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { audit } from "@/services/audit.js";
 import { restoreDatabase } from "@/services/db-backup.js";
+import { resolveSelfUpdate } from "@/services/nodes/update-tracker.js";
 import { getLogger } from "@/utils/logger.js";
 
 /** Who asked for this update. Audited, and printed in the failure line. */
@@ -289,6 +290,14 @@ export async function completeUpdate(
   });
   rmSync(pending.previousBinary, { force: true });
   rmSync(pendingPath(dir), { force: true });
+  // The tracker's re-creation, beside the audit (design 2026-09-25): the
+  // `beginSelfUpdate` entry lived in the process that exited for the manager
+  // and is gone, so THIS boot rebuilds it as terminal from the marker. That
+  // asymmetry is the whole point of the `recreateFrom` argument — a page
+  // loaded after recovery can tell the story even though the ordering press
+  // happened in a dead process, and CLI/desktop updates, whose starting half
+  // the server process never saw, get their entry HERE.
+  resolveSelfUpdate("done", null, { from: pending.from, to: pending.to, startedAt: pending.startedAt });
   getLogger().info(`update complete: ${pending.from} → ${pending.to} (${pending.origin})`);
 }
 
@@ -391,6 +400,12 @@ export function revertUpdate(
     log.withError(markerError).error("update revert: could not write failed.json");
   }
   rmSync(pendingPath(dir), { force: true });
+  // The tracker's side of the failure story (design 2026-09-25). Stated
+  // honestly: this boot exits 1 right after the revert, so for the AUTOMATIC
+  // revert this entry mostly records the fact in the process that made it —
+  // the durable half is `failed.json`, which the view already renders as
+  // `lastFailure`. It is the non-exiting rollback that reads the tracker.
+  resolveSelfUpdate("failed", message, { from: pending.from, to: pending.to, startedAt: pending.startedAt });
   log.error(`update ${pending.from} → ${pending.to} FAILED and ${pending.from} was restored: ${message}`);
 }
 
@@ -413,6 +428,10 @@ export function recordFailure(pending: PendingUpdate, reason: string, dir: strin
     // Best effort; the log line below is the other record.
   }
   rmSync(pendingPath(dir), { force: true });
+  // Unlike the revert above, THIS recorder's boot survives — the old binary
+  // the manager respawned is still serving pages — so the tracker entry here
+  // is the half a later page load actually reads (design 2026-09-25).
+  resolveSelfUpdate("failed", reason, { from: pending.from, to: pending.to, startedAt: pending.startedAt });
   getLogger().error(`update ${pending.from} → ${pending.to} did not complete: ${reason}`);
 }
 

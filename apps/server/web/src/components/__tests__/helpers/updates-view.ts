@@ -52,6 +52,9 @@ export function nodeRow(over: Partial<NodeUpdateRow> = {}): NodeUpdateRow {
     held: null,
     updateAvailable: false,
     canUpdate: { ok: false, reason: "this node is offline" },
+    // The wire always carries the tracker field (design 2026-09-25); the
+    // fixture default is its "nothing in flight" spelling.
+    update: null,
     ...over,
   };
 }
@@ -60,6 +63,7 @@ export function nodeRow(over: Partial<NodeUpdateRow> = {}): NodeUpdateRow {
 export function updatesView(over: Partial<UpdatesView> = {}): UpdatesView {
   return {
     server: serverUpdateView(),
+    serverUpdate: null,
     nodes: nodeUpdates(),
     desktop: {
       server: { version: "0.7.0", tag: "desktop-server-v0.7.0", publishedAt: null },

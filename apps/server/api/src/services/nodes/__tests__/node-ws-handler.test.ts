@@ -48,6 +48,7 @@ import {
   type NodeWsDeps,
   type NodeWsSocket,
 } from "../node-ws-handler.js";
+import { beginUpdate, readView, resetForTests, updateSwapped } from "../update-tracker.js";
 
 /* ---------------------------- fakes ----------------------------- */
 
@@ -1727,5 +1728,73 @@ describe("handleNodeMessage through the link machine (spec 2026-09-24 §4/§5/§
     expect(h.ready).toHaveLength(1);
     expect(getHeld("n1")).toBeUndefined();
     expect(ws.closed).toHaveLength(0);
+  });
+});
+
+/**
+ * The update tracker seams (design 2026-09-25): the handler owns two of the
+ * tracker's moments — the `ready` that confirms what actually boots, and the
+ * authenticated socket's death. Both ride the deps-object pattern the file
+ * already uses (`detect`'s shape): the `??` at the call site IS the production
+ * wiring, so these cases drive the REAL tracker, and the stub case pins that
+ * the seam exists for tests to replace.
+ */
+describe("handleNodeMessage + handleNodeClose → the update tracker", () => {
+  beforeEach(() => {
+    resetNodeRegistryForTests();
+    resetForTests();
+  });
+
+  it("a ready at the ordered version resolves the in-flight entry done", async () => {
+    beginUpdate("n1", { from: "0.8.0", to: MIN_NODE_VERSION });
+    const h = makeHarness();
+    await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame()));
+    expect(readView().nodes.n1?.phase).toBe("done");
+  });
+
+  it("a ready at the from-version resolves it failed — the boot-revert story", async () => {
+    // The node swapped, the new binary could not migrate, and the old one is
+    // what dials back. Same two facts the tracker's own suite pins; here the
+    // point is that THIS frame reaches the tracker on the way to the row.
+    beginUpdate("n1", { from: "0.8.0", to: "0.17.0" });
+    updateSwapped("n1");
+    const h = makeHarness();
+    // Reports the OLD version — the below-floor hold downstream is a
+    // bystander; the tracker write rides the `ready` itself, before any gate.
+    await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame({ agentVersion: "0.8.0" })));
+    const state = readView().nodes.n1;
+    expect(state?.phase).toBe("failed");
+    expect(state?.message).toContain("rolled back");
+  });
+
+  it("a ready with no update in flight records nothing", async () => {
+    const h = makeHarness();
+    await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame()));
+    expect(readView().nodes.n1).toBeUndefined();
+  });
+
+  it("a disconnect mid-update claims NO restart", async () => {
+    // The current socket's close is the full teardown path (detach, offline,
+    // announce); whatever the entry's phase, the flap-vs-restart ambiguity
+    // means the close itself may not resolve it.
+    beginUpdate("n1", { from: "0.8.0", to: MIN_NODE_VERSION });
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    handleNodeOpen(OPEN_DEPS, ws);
+    await handleNodeClose(h.deps, ws);
+    expect(h.statuses).toEqual([{ id: "n1", status: "offline" }]); // the close really ran
+    expect(readView().nodes.n1?.phase).toBe("working");
+  });
+
+  it("the deps seams override the real tracker", async () => {
+    const seen: Array<[string, string]> = [];
+    const h = makeHarness();
+    h.deps.recordNodeReady = (nodeId, agentVersion) => {
+      seen.push([nodeId, agentVersion]);
+    };
+    beginUpdate("n1", { from: "0.8.0", to: MIN_NODE_VERSION });
+    await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame()));
+    expect(seen).toEqual([["n1", MIN_NODE_VERSION]]);
+    expect(readView().nodes.n1?.phase).toBe("working"); // the real one was never told
   });
 });

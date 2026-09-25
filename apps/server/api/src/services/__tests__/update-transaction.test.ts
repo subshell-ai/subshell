@@ -17,6 +17,7 @@ import { Kysely } from "kysely";
 import { Migrator } from "kysely/migration";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
 import { backupDatabase } from "@/services/db-backup.js";
+import { readView, resetForTests } from "@/services/nodes/update-tracker.js";
 import {
   beginUpdate,
   clearPending,
@@ -37,9 +38,11 @@ let dir = "";
 beforeEach(() => {
   work = mkdtempSync(join(tmpdir(), "update-tx-"));
   dir = join(work, "update");
+  resetForTests();
 });
 
 afterEach(() => {
+  resetForTests();
   rmSync(work, { recursive: true, force: true });
 });
 
@@ -153,6 +156,15 @@ describe("completeUpdate", () => {
     });
     expect(existsSync(pending.previousBinary)).toBe(false);
     expect(readPending(dir)).toBeNull();
+    // The tracker's boot re-creation (design 2026-09-25): the update was
+    // ordered in a process that exited and is long gone, so the completing
+    // boot RE-CREATES the self entry as `done` from the marker — which is
+    // what lets a page loaded after recovery say "it worked".
+    const self = readView().server;
+    expect(self?.phase).toBe("done");
+    expect(self?.from).toBe("0.6.0");
+    expect(self?.to).toBe("0.7.0");
+    expect(self?.startedAt).toBe(Date.parse("2026-09-15T00:00:00.000Z"));
   });
 
   it("cleans up even when the audit sink fails", async () => {
@@ -189,6 +201,12 @@ describe("revertUpdate", () => {
     expect(failed?.from).toBe("0.6.0");
     expect(failed?.to).toBe("0.7.0");
     expect(failed?.failedAt).toMatch(/^\d{4}-/);
+    // The tracker half records the same story for THIS process's readers; the
+    // reverted process exits right after, and `failed.json`/`lastFailure` is
+    // the half that survives. The in-memory entry covers a rollback that does
+    // not exit, and costs nothing where it cannot be read.
+    expect(readView().server?.phase).toBe("failed");
+    expect(readView().server?.message).toBe("migration 0032 failed");
   });
 
   it("restores the backup as well as the binary", async () => {
@@ -270,6 +288,12 @@ describe("recordFailure", () => {
     expect(existsSync(pending.previousBinary)).toBe(true);
     // And an update can be attempted again.
     expect(() => beginUpdate(stage({ to: "0.8.0" }), dir)).not.toThrow();
+    // THIS recorder's boot survives — the manager respawned the old binary and
+    // it is still serving — so the tracker entry here is the one a page
+    // actually loads after the incident: failed, naming the reason.
+    expect(readView().server?.phase).toBe("failed");
+    expect(readView().server?.message).toBe("expected 0.7.0 to boot, 0.6.0 did");
+    expect(readView().server?.to).toBe("0.7.0");
   });
 });
 

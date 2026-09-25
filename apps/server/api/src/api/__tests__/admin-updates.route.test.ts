@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import {
   NODE_PROTOCOL_VERSION,
   NODE_SIGNED_UPDATES_PROTOCOL_VERSION,
@@ -10,6 +10,15 @@ import { adminUpdatesRoutes, adminUpdatesSeams } from "@/api/admin-updates.route
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import {
+  beginSelfUpdate,
+  beginUpdate,
+  resetForTests,
+  STALL_MS,
+  updateOutcomeUnknown,
+  updateSwapped,
+  updateTrackerSeams,
+} from "@/services/nodes/update-tracker.js";
 import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
 import { SERVER_VERSION } from "@/version.js";
 import { type AdminServerFixture, bearerRequest, setupAdminServerFixture } from "../admin-server/__tests__/fixture.js";
@@ -25,9 +34,21 @@ import { authedRequest } from "./helpers/auth-tables.js";
  */
 
 const app = new Elysia().use(errorHandlerPlugin).use(adminUpdatesRoutes);
+const realNow = updateTrackerSeams.now;
+
+/** The wire shape of one tracker entry (ISO times — the route's convention). */
+interface UpdateStateWire {
+  from: string;
+  to: string;
+  startedAt: string;
+  phase: "working" | "restarting" | "done" | "failed" | "stalled";
+  message: string | null;
+  endedAt: string | null;
+}
 
 interface UpdatesBody {
   server: { current: string; canApply: { reasons: string[] } };
+  serverUpdate: UpdateStateWire | null;
   nodes: {
     release: unknown;
     reason: string | null;
@@ -40,6 +61,7 @@ interface UpdatesBody {
       held: { reason: string } | null;
       updateAvailable: boolean;
       canUpdate: { ok: boolean; reason: string | null };
+      update: UpdateStateWire | null;
     }[];
   };
   desktop: { server: unknown; client: unknown };
@@ -68,6 +90,11 @@ describe("GET /api/admin/updates", () => {
   });
   afterEach(() => {
     adminUpdatesSeams.getHeldRows = realHeld;
+    // The tracker is module-global like the held map; a leaked entry would
+    // make the "rows carry null" case answer differently for whichever file
+    // runs after this one.
+    resetForTests();
+    updateTrackerSeams.now = realNow;
   });
 
   /** An enrolled agent row, cleaned up with the suite. */
@@ -96,7 +123,7 @@ describe("GET /api/admin/updates", () => {
 
   it("answers the three sections, with the air-gapped reason on each", async () => {
     const body = await read(fx.adminCookie);
-    expect(Object.keys(body).sort()).toEqual(["desktop", "nodes", "server"]);
+    expect(Object.keys(body).sort()).toEqual(["desktop", "nodes", "server", "serverUpdate"]);
     expect(body.server.current).toBe(SERVER_VERSION);
     expect(body.server.canApply.reasons).toContain("no release source is configured (SUBSHELL_RELEASE_URL is empty)");
     expect(body.nodes.release).toBeNull();
@@ -279,6 +306,67 @@ describe("GET /api/admin/updates", () => {
       const row = (await read(fx.adminCookie)).nodes.rows.find((r) => r.id === id);
       expect(row?.agentVersion).toBeNull();
       expect(row?.canUpdate).toEqual({ ok: true, reason: null });
+    });
+  });
+
+  // ── the in-flight tracker (design 2026-09-25) ─────────────────────────────
+  //
+  // The payload half of "progress survives a page refresh": each node row
+  // carries its entry (or null), the top level carries the server's own, and
+  // the TIMES serialize ISO like every other time on this route. The entries
+  // are driven through the tracker's own API — the write seams are pinned in
+  // `update-node.route.test.ts` and `node-ws-handler.test.ts`; what is pinned
+  // HERE is that the route actually reads the tracker and declares the shape,
+  // since Elysia strips anything the `t.Object` omits (web AGENTS.md).
+
+  describe("update progress", () => {
+    const FIXED_MS = Date.parse("2026-09-25T12:00:00.000Z");
+
+    beforeEach(() => {
+      updateTrackerSeams.now = () => FIXED_MS;
+    });
+
+    it("carries update:null and serverUpdate:null with no tracker state", async () => {
+      const id = await agent({ name: `upd-quiet-${crypto.randomUUID()}`, version: "0.8.0" });
+      const body = await read(fx.adminCookie);
+      expect(body.serverUpdate).toBeNull();
+      expect(body.nodes.rows.find((r) => r.id === id)?.update).toBeNull();
+    });
+
+    it("serializes a swapped entry on its row, ISO times included", async () => {
+      const id = await agent({ name: `upd-flight-${crypto.randomUUID()}`, version: "0.8.0" });
+      beginUpdate(id, { from: "0.8.0", to: "9.9.9" });
+      updateSwapped(id);
+      const row = (await read(fx.adminCookie)).nodes.rows.find((r) => r.id === id);
+      expect(row?.update).toEqual({
+        from: "0.8.0",
+        to: "9.9.9",
+        startedAt: new Date(FIXED_MS).toISOString(),
+        phase: "restarting",
+        message: null,
+        endedAt: null,
+      });
+    });
+
+    it("the timeout posture reads working pre-stall and stalled past STALL_MS — same entry, no re-press", async () => {
+      const id = await agent({ name: `upd-slow-${crypto.randomUUID()}`, version: "0.8.0" });
+      beginUpdate(id, { from: "0.8.0", to: "9.9.9" });
+      updateOutcomeUnknown(id);
+      expect((await read(fx.adminCookie)).nodes.rows.find((r) => r.id === id)?.update?.phase).toBe("working");
+      // A refresh at the three-minute mark: nothing else touched the tracker,
+      // and the DERIVED phase is what tells the row it has stopped believing.
+      updateTrackerSeams.now = () => FIXED_MS + STALL_MS + 1;
+      const stalled = (await read(fx.adminCookie)).nodes.rows.find((r) => r.id === id)?.update;
+      expect(stalled?.phase).toBe("stalled");
+      expect(stalled?.startedAt).toBe(new Date(FIXED_MS).toISOString());
+      expect(stalled?.endedAt).toBeNull();
+    });
+
+    it("the server's own entry rides the top level, not a row", async () => {
+      beginSelfUpdate({ from: "0.0.0", to: "9.9.9" });
+      const body = await read(fx.adminCookie);
+      expect(body.serverUpdate).toMatchObject({ to: "9.9.9", phase: "working" });
+      expect(body.nodes.rows.every((r) => r.update === null)).toBe(true);
     });
   });
 });

@@ -41,6 +41,7 @@ import { serverConfigDir } from "@/config-env.js";
 import { SUBSHELL_DB_BACKUPS_KEEP } from "@/constants.js";
 import { type BackupFile, backupDatabase, backupsDir, listBackups } from "@/services/db-backup.js";
 import { binaryIsReplaceable, type InstalledBinary, resolveInstalledBinary } from "@/services/installed-binary.js";
+import { beginSelfUpdate } from "@/services/nodes/update-tracker.js";
 import {
   downloadVerified,
   installableCliRelease,
@@ -352,6 +353,12 @@ async function runJob(
 
   // 8. Exit for the manager. The NEXT boot finishes or reverts the transaction.
   if (job !== null) job = { ...job, phase: "restarting" };
+  // The tracker's self entry (design 2026-09-25) opens HERE because this is
+  // the one path that actually restarts — every `fail()` above returned before
+  // it. Honest about what an in-memory entry means across a process death:
+  // this one lives seconds, only for the page's last poll before the exit;
+  // the boot finalizer RE-CREATES it from the marker (`update-transaction.ts`).
+  beginSelfUpdate({ from: SERVER_VERSION, to: release.version });
   getLogger().info(`server update ${SERVER_VERSION} → ${release.version}: installed, restarting`);
   (deps.restart ?? performRestart)();
 }

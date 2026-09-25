@@ -36,6 +36,7 @@ import {
 import { failConnPendings, resolveResult } from "@/services/nodes/node-rpc.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { resetUpdateTokensForTests } from "@/services/nodes/update-tokens.js";
+import { readView, recordNodeReady, resetForTests } from "@/services/nodes/update-tracker.js";
 import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
@@ -250,6 +251,7 @@ describe("POST /api/nodes/:id/update", () => {
   afterEach(() => {
     resetNodeRegistryForTests();
     resetUpdateTokensForTests();
+    resetForTests();
     unpublishDiskFixture();
   });
 
@@ -739,6 +741,70 @@ describe("POST /api/nodes/:id/update", () => {
     expect(res.status).toBe(409);
     const rows = await new AuditRepository(db).listLatest(20);
     expect(rows.find((r) => r.action === "node.update.unknown" && r.targetId === id)).toBeUndefined();
+    // And the refusal ended the tracker entry too, with the same sentence the
+    // 409 carried (design 2026-09-25): the row that refreshes mid-failure
+    // still says what the toast said.
+    const state = readView().nodes[id];
+    expect(state?.phase).toBe("failed");
+    expect(state?.message).toContain("not running under a service manager");
+  });
+
+  // ── the update tracker (design 2026-09-25) ────────────────────────────────
+  //
+  // The route owns three of the tracker's moments — the order opened, the 202
+  // confirmed the swap, every refusal the agent spoke closed the entry. These
+  // drive the REAL tracker through the real dispatch (no seams): the point of
+  // the feature is that the state survives the page, so what is pinned here
+  // is that the route actually writes it.
+
+  it("opens a working entry BEFORE the command goes out, and moves it to restarting on the 202", async () => {
+    useFakeRelease();
+    const id = await mkNode();
+    const sock = goOnline(id);
+    const resP = req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    await waitFor(() => sock.sent.length > 0, "update command on the wire");
+    // Ordered but unconfirmed: the entry exists the moment the command is on
+    // the wire, so a refresh during the download has a story to render.
+    const inFlight = readView().nodes[id];
+    expect(inFlight?.phase).toBe("working");
+    expect(inFlight?.from).toBe("0.8.0");
+    expect(inFlight?.to).toBe(RELEASE_VERSION);
+    const record = getLive(id);
+    if (!record) throw new Error("no connection record");
+    const frame = JSON.parse(sock.sent[0] as string) as { jws: string };
+    const claim = JSON.parse(Buffer.from((frame.jws.split(".")[1] ?? "") as string, "base64url").toString()) as {
+      jti: string;
+    };
+    expect(resolveResult(record, { type: "result", ref: claim.jti, ok: true })).toBe(true);
+    expect((await resP).status).toBe(202);
+    expect(readView().nodes[id]?.phase).toBe("restarting");
+  });
+
+  it("a timeout leaves the entry working, and the node's later ready resolves it done", async () => {
+    // The slow-link story from the `node.update.unknown` case above, tracked:
+    // the plane stopped waiting, the node kept going, and the tracker must
+    // still believe the `ready` that lands after the 409.
+    useFakeRelease();
+    const id = await mkNode();
+    const sock = goOnline(id);
+    const record = getLive(id);
+    if (!record) throw new Error("no connection record");
+    const resP = req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    await waitFor(() => sock.sent.length > 0, "update command on the wire");
+    expect(failConnPendings(record, "timeout", "the node did not answer in time")).toBe(1);
+    expect((await resP).status).toBe(409);
+    expect(readView().nodes[id]?.phase).toBe("working");
+    recordNodeReady(id, RELEASE_VERSION);
+    expect(readView().nodes[id]?.phase).toBe("done");
+  });
+
+  it("opens NO entry for a gate refusal — a refused offer ordered nothing", async () => {
+    useNoRelease();
+    const id = await mkNode();
+    goOnline(id);
+    const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    expect(res.status).toBe(409);
+    expect(readView().nodes[id]).toBeUndefined();
   });
 
   // ── every refusal the AGENT raises, mapped by `detail` equality ──────────
