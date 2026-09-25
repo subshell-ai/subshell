@@ -8,12 +8,15 @@
 # release — and the retry semantics differ: a docs tag already on this commit
 # means "redeploy" (below), where for release.yml it would mean "skip".
 #
+# No CI gate, deliberately. There was one: a `ci-gate` job waited for this
+# commit's push-triggered Test + Lint runs and refused anything but success.
+# The operator removed it on 2026-09-25, the day a flaky job in an unrelated
+# package's Test run blocked BOTH site deploys until a human re-ran it. What
+# proves a static site is `lint.yml` building this export on every push (and
+# PR CI before that); the gate only coupled deploy health to server/node test
+# luck, which for a docs site is borrowing someone else's red light.
+#
 # Flow:
-#   ci-gate — wait for THIS commit's push-triggered Test + Lint runs and
-#             refuse anything but success. A dispatch can land while that CI
-#             is still running, or after it went red; deploying either would
-#             publish an unverified tree. `skip_ci_gate` is the loud,
-#             emergency-only opt-out.
 #   plan    — refuse any run not on refs/heads/main, resolve the version
 #             exactly as release.yml's plan job does (a `-f version=` that
 #             disagrees with apps/docs/package.json would tag one version
@@ -34,11 +37,6 @@ on:
         type: string
         required: false
         default: ""
-      skip_ci_gate:
-        description: "Deploy without waiting on this commit's Test + Lint runs (emergency only)"
-        type: boolean
-        required: false
-        default: false
 
 permissions:
   contents: read
@@ -51,73 +49,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  ci-gate:
-    name: CI gate (Test + Lint on this commit)
-    runs-on: ubuntu-24.04
-    # Waiting IS the job: the script's own deadline (55 min) bounds it and
-    # this ceiling sits above that, because a full Test run is the wait.
-    timeout-minutes: 60
-    # Reads no repo content — it only asks the Actions API about OTHER runs.
-    permissions:
-      actions: read
-    steps:
-      - name: Wait for Test + Lint to finish green on ${{ github.sha }}
-        env:
-          SKIP: ${{ inputs.skip_ci_gate }}
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # In the job body rather than a job-level `if:` on purpose: `if:`
-          # SKIPS the job, and a skipped job makes every `needs: ci-gate`
-          # downstream skip too — the escape hatch would skip the deploy.
-          if [ "$SKIP" = "true" ]; then
-            echo "::notice::CI gate skipped on request (skip_ci_gate=true) — deploying an unverified commit"
-            exit 0
-          fi
-          API="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows"
-          DEADLINE=$(( $(date +%s) + 55 * 60 ))
-          # The workflow FILE ids, not display names: names are labels people
-          # can rename; the file a run came from is stable. Both are resolved
-          # by head_sha AND event=push — docs deploys off main, and main's CI
-          # is the push runs, never the pull_request ones (a PR run for the
-          # same code tested a different merge tree).
-          for wf in test.yml lint.yml; do
-            echo "→ waiting for $wf on $GITHUB_SHA"
-            while :; do
-              resp=$(curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" \
-                "$API/$wf/runs?event=push&head_sha=$GITHUB_SHA&per_page=10" 2>/dev/null || echo '{}')
-              # Newest first is the list's own order; the head_sha filter is
-              # belt-and-braces because the API has matched loosely elsewhere.
-              run=$(printf '%s' "$resp" | jq -c --arg sha "$GITHUB_SHA" \
-                'first((.workflow_runs // [])[] | select(.head_sha == $sha)) // empty' || echo '')
-              status=$(printf '%s' "${run:-null}" | jq -r '.status // "absent"')
-              conclusion=$(printf '%s' "${run:-null}" | jq -r '.conclusion // ""')
-              url=$(printf '%s' "${run:-null}" | jq -r '.html_url // "?"')
-              if [ "$status" = "completed" ]; then
-                if [ "$conclusion" = "success" ]; then
-                  echo "✓ $wf succeeded ($url)"
-                  break
-                fi
-                # Every non-success counts as a refusal, cancelled and skipped
-                # included: this gate asks "did CI pass THIS commit", and a
-                # cancelled run did not.
-                echo "::error::$wf on $GITHUB_SHA concluded '$conclusion' — refusing to deploy ($url)"
-                exit 1
-              fi
-              # absent (queued) and in_progress both keep waiting; the
-              # deadline is the answer for a run that never arrives — a push
-              # whose CI was never scheduled must not deploy silently either.
-              if [ "$(date +%s)" -ge "$DEADLINE" ]; then
-                echo "::error::$wf on $GITHUB_SHA never completed (last status: $status) — refusing to deploy"
-                exit 1
-              fi
-              sleep 30
-            done
-          done
-
   plan:
     name: Plan the deploy
-    needs: ci-gate
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
