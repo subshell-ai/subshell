@@ -58,6 +58,14 @@ describe("parseFlagsPaste", () => {
   });
   it("drops a leading -- separator", () => {
     expect(parseFlagsPaste("-- --model sonnet")).toEqual([{ flag: "--model", value: "sonnet" }]);
+    // A `--` AFTER the first flag is not a separator, it opens a row — the
+    // only pin for the walk's `first` latch, which two otherwise-surviving
+    // mutations would erase (round-4 mutation audit, 2026-09-25).
+    expect(parseFlagsPaste("--f v -- --g w")).toEqual([
+      { flag: "--f", value: "v" },
+      { flag: "--", value: "" },
+      { flag: "--g", value: "w" },
+    ]);
   });
   it("throws on an unterminated quote and returns [] for empty input", () => {
     expect(() => parseFlagsPaste('--prompt "oops')).toThrow();
@@ -72,6 +80,59 @@ describe("parseFlagsPaste", () => {
   it("glues a token split across a continuation but keeps quoted newlines literal", () => {
     expect(parseFlagsPaste("--mo\\\ndel sonnet")).toEqual([{ flag: "--model", value: "sonnet" }]);
     expect(parseFlagsPaste('--prompt "be \\\nnice"')).toEqual([{ flag: "--prompt", value: "be \\\nnice" }]);
+  });
+
+  it("restores a leading dash that smart typography converted", () => {
+    // A command copied out of rich text arrives typeset: `--auto` as `—auto`
+    // (U+2014). The old walk saw no ASCII hyphen and glued the token onto the
+    // previous flag's value.
+    expect(parseFlagsPaste("opencode --effort xhigh —auto")).toEqual([
+      { flag: "--effort", value: "xhigh" },
+      { flag: "--auto", value: "" },
+    ]);
+    // Every multi-hyphen map entry is pinned by name, so flipping a
+    // DASH_REPLACEMENTS value fails (round-2 review, 2026-09-25).
+    expect(parseFlagsPaste("opencode –auto")).toEqual([{ flag: "--auto", value: "" }]);
+    expect(parseFlagsPaste("opencode ―auto")).toEqual([{ flag: "--auto", value: "" }]);
+  });
+
+  it("maps the single-hyphen dash lookalikes to one hyphen", () => {
+    expect(parseFlagsPaste("opencode −m anthropic/claude ‑v")).toEqual([
+      { flag: "-m", value: "anthropic/claude" },
+      { flag: "-v", value: "" },
+    ]);
+    // U+2010 hyphen and U+2012 figure dash, the map's remaining entries.
+    expect(parseFlagsPaste("opencode ‐m ‒x")).toEqual([
+      { flag: "-m", value: "" },
+      { flag: "-x", value: "" },
+    ]);
+    // A multi-character run maps each dash and restores as one flag (round-5
+    // mutation audit: restoring only the first character of a run survived
+    // every single-character input, so the loop itself needed this pin).
+    expect(parseFlagsPaste("opencode ‒‒x")).toEqual([{ flag: "--x", value: "" }]);
+  });
+
+  it("leaves a typographic dash inside a value as data", () => {
+    expect(parseFlagsPaste('--prompt "make it — nice"')).toEqual([{ flag: "--prompt", value: "make it — nice" }]);
+  });
+
+  it("does not restore a dash run the source left spaced or standing alone", () => {
+    // The regression this pins (review 2026-09-25): the tokenizer consumes
+    // quotes BEFORE classification, so `--title "— Q3"` arrives as the token
+    // `— Q3`. Restoring its leading dash would open a flag row and destroy a
+    // value the pre-fix code kept — and `presetFormToCommand` emits exactly
+    // that shape for any flag value starting with a spaced em dash.
+    expect(parseFlagsPaste('claude --title "— Q3"')).toEqual([{ flag: "--title", value: "— Q3" }]);
+    expect(parseFlagsPaste("--prompt hello — world")).toEqual([{ flag: "--prompt", value: "hello — world" }]);
+    // The accepted trade in the other direction, pinned so a future
+    // "consistency fix" cannot silently undo it: the bug's shape IS a
+    // leading-dash token with no space, and quotes are consumed before
+    // classification, so a quoted `—Q3` restores too — exactly the rule
+    // `--f "-x"` already follows for ASCII.
+    expect(parseFlagsPaste('--f v "—Q3"')).toEqual([
+      { flag: "--f", value: "v" },
+      { flag: "--Q3", value: "" },
+    ]);
   });
 });
 
@@ -116,6 +177,37 @@ describe("parseCommandPaste", () => {
     const parsed = parseCommandPaste("--effort xhigh");
     expect(parsed.command).toBeUndefined();
     expect(parsed.flags).toEqual([{ flag: "--effort", value: "xhigh" }]);
+  });
+
+  it("restores typographic dashes instead of gluing them onto the previous flag", () => {
+    // The bug this pins, as reported: a paste whose `--chrome` had been
+    // typeset to `—chrome` by a chat UI, and `--effort` ended up holding
+    // "xhigh —chrome".
+    expect(parseCommandPaste("claude --effort xhigh —chrome")).toEqual({
+      env: [],
+      flags: [
+        { flag: "--effort", value: "xhigh" },
+        { flag: "--chrome", value: "" },
+      ],
+      command: "claude",
+    });
+  });
+
+  it("does not mistake a dash-restored flag for the command name", () => {
+    const parsed = parseCommandPaste("—chrome --effort xhigh");
+    expect(parsed.command).toBeUndefined();
+    expect(parsed.flags).toEqual([
+      { flag: "--chrome", value: "" },
+      { flag: "--effort", value: "xhigh" },
+    ]);
+  });
+
+  it("keeps em dashes inside env and flag values as data", () => {
+    expect(parseCommandPaste('K="a — b" claude --t "x — y"')).toEqual({
+      env: [{ key: "K", value: "a — b" }],
+      flags: [{ flag: "--t", value: "x — y" }],
+      command: "claude",
+    });
   });
 
   it("accepts env assignments with no command at all", () => {
@@ -186,6 +278,9 @@ describe("parseCommandPaste", () => {
       "ünïcødé",
       "$(whoami)",
       "a  b",
+      // A leading em dash is data too: quoted on render, and the restored
+      // leading run must not mistake it for a typeset flag (review 2026-09-25).
+      "— Q3",
     ];
     for (const value of values) {
       const form = {
