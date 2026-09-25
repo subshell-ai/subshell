@@ -26,22 +26,23 @@ import { SETTINGS_QUERY_KEY } from "@/lib/query-keys";
  * arrives here as 30, the same number the sweep will act on, so the card and
  * the sweep cannot disagree about a fresh instance. Re-sending the current
  * value is the sibling no-op: it heals a corrupt row, audits nothing.
+ *
+ * `maxDays` is the ceiling the PATCH route refuses beyond, taken from the
+ * same read rather than mirrored here (final review, minor #2) — one
+ * constant, on the side that enforces it.
  */
 
-/** The ceiling the PATCH route refuses beyond, mirrored for the input. */
-const MAX_DAYS = 3650;
-
 /** Draft text → the number to send, or null when it is not a valid one. */
-export function parseDays(draft: string): number | null {
+export function parseDays(draft: string, maxDays: number): number | null {
   const trimmed = draft.trim();
-  // Digits only: the server's rule is a whole number in 0..3650, and a
+  // Digits only: the server's rule is a whole number in 0..maxDays, and a
   // number input can still carry "", "1e3" or "-4" through a keystroke.
   if (!/^\d+$/.test(trimmed)) return null;
   const days = Number(trimmed);
-  return days <= MAX_DAYS ? days : null;
+  return days <= maxDays ? days : null;
 }
 
-export function PendingExpiryCard({ days }: { days: number }) {
+export function PendingExpiryCard({ days, maxDays }: { days: number; maxDays: number }) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState(String(days));
   const [busy, setBusy] = useState(false);
@@ -55,7 +56,7 @@ export function PendingExpiryCard({ days }: { days: number }) {
     setDraft(String(days));
   }, [days]);
 
-  const parsed = parseDays(draft);
+  const parsed = parseDays(draft, maxDays);
   const invalid = parsed === null;
   const dirty = parsed !== null && parsed !== days;
 
@@ -94,7 +95,7 @@ export function PendingExpiryCard({ days }: { days: number }) {
             type="number"
             inputMode="numeric"
             min={0}
-            max={MAX_DAYS}
+            max={maxDays}
             step={1}
             className="w-20"
             value={draft}
@@ -114,7 +115,7 @@ export function PendingExpiryCard({ days }: { days: number }) {
         </p>
         {(invalid || error) && (
           <p role="alert" className="text-destructive text-detail">
-            {error ?? `Enter a whole number of days from 0 to ${MAX_DAYS}.`}
+            {error ?? `Enter a whole number of days from 0 to ${maxDays}.`}
           </p>
         )}
       </CardContent>

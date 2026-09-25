@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { nodeArtifactFileName } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-import { settingsRoutes } from "@/api/settings.route.js";
+import { PENDING_APPROVAL_EXPIRY_MAX_DAYS, settingsRoutes } from "@/api/settings.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
@@ -676,6 +676,31 @@ describe("settings routes (admin cookie only)", () => {
     it("accepts 0 (keep forever) and reads it back as 0", async () => {
       expect((await patch(0)).status).toBe(200);
       expect(await read()).toBe(0);
+    });
+
+    it("serves the ceiling on both answers, and the GET's key set is exactly the schema's", async () => {
+      // The card takes its input bound from the read (final review, minor #2)
+      // rather than mirroring `PENDING_APPROVAL_EXPIRY_MAX_DAYS`, so the
+      // field must ride the GET AND the PATCH echo; the whole-key-set
+      // assertion is the GET /api/settings/instance rule — a field added to
+      // this read later is a decision, not an accumulation.
+      const body = (await (await app.fetch(authedRequest("/api/settings", adminCookie))).json()) as Record<
+        string,
+        unknown
+      >;
+      expect(body.pendingApprovalExpiryMaxDays).toBe(PENDING_APPROVAL_EXPIRY_MAX_DAYS);
+      expect(Object.keys(body).sort()).toEqual([
+        "allowNodeEnrollment",
+        "allowRegistrations",
+        "allowServerSubshells",
+        "instanceName",
+        "localNodeName",
+        "lockdown",
+        "pendingApprovalExpiryDays",
+        "pendingApprovalExpiryMaxDays",
+      ]);
+      const echoed = (await (await patch(14)).json()) as Record<string, unknown>;
+      expect(echoed.pendingApprovalExpiryMaxDays).toBe(PENDING_APPROVAL_EXPIRY_MAX_DAYS);
     });
 
     it("refuses 2.5, -1 and 3651 with 400, before anything is written", async () => {

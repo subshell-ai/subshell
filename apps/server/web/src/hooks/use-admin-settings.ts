@@ -15,16 +15,19 @@ import { SETTINGS_QUERY_KEY } from "@/lib/query-keys";
  * card invalidating a key the page does not read would show a state the
  * server never confirmed until a full reload.
  *
- * `pendingApprovalExpiryDays` is OPTIONAL for the usual absent-field reason:
- * a server older than the setting sends no key, and the card must not render
- * an input for a number the route cannot back (the Lockdown card's render
- * guard is the precedent). The value is the route's ANSWERED number — an
- * absent or corrupt row arrives as 30, the same number the sweep acts on.
+ * `pendingApprovalExpiryDays` and `pendingApprovalExpiryMaxDays` are OPTIONAL
+ * for the usual absent-field reason: a server older than the setting sends
+ * neither key, and the card must not render an input for a number the route
+ * cannot back (the Lockdown card's render guard is the precedent). The value
+ * is the route's ANSWERED number — an absent or corrupt row arrives as 30,
+ * the same number the sweep acts on — and the ceiling is the route's own
+ * constant, so the card's bound cannot drift from the rule that enforces it.
  */
 export function usePendingExpiry(enabled: boolean) {
   return useQuery({
     queryKey: SETTINGS_QUERY_KEY,
-    queryFn: () => apiFetch<{ pendingApprovalExpiryDays?: number }>("/api/settings"),
+    queryFn: () =>
+      apiFetch<{ pendingApprovalExpiryDays?: number; pendingApprovalExpiryMaxDays?: number }>("/api/settings"),
     enabled,
     retry: false,
   });

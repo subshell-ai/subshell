@@ -27,8 +27,12 @@ import { SERVER_VERSION } from "@/version.js";
  * ten years of days. The floor is 0 (keep forever), which the sweep itself
  * defines; a hand-set value beyond a decade is indistinguishable from a
  * typo, and the sweep's consumer is a human queue, not an archive.
+ *
+ * Exported, and ALSO served on the admin GET as `pendingApprovalExpiryMaxDays`
+ * — the web card takes its input ceiling from that field rather than
+ * mirroring this constant (final review, minor #2), so the two cannot drift.
  */
-const PENDING_APPROVAL_EXPIRY_MAX_DAYS = 3650;
+export const PENDING_APPROVAL_EXPIRY_MAX_DAYS = 3650;
 
 /** The six settings an admin can WRITE, one shape shared by both schemas. */
 const SettingsWriteSchema = t.Object({
@@ -73,6 +77,10 @@ const SettingsSchema = t.Object({
   localNodeName: t.String({
     description:
       'The control-plane host\'s admin-chosen node name (default "Server") — what a lockdown ON is confirmed against, so the dialog and the route cannot disagree about a correctly typed name',
+  }),
+  pendingApprovalExpiryMaxDays: t.Number({
+    description:
+      "The ceiling this route enforces on pendingApprovalExpiryDays — served so the settings card draws its input bound from this read instead of mirroring the server's constant",
   }),
 });
 
@@ -283,6 +291,9 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         // sweep will act on, so the Auth page cannot show a number the
         // sweep disagrees with.
         pendingApprovalExpiryDays: await expiryDays(db),
+        // The ceiling served, not mirrored: the web card draws its input
+        // bound from this read (final review, minor #2).
+        pendingApprovalExpiryMaxDays: PENDING_APPROVAL_EXPIRY_MAX_DAYS,
       } as const;
     },
     {
@@ -291,7 +302,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         operationId: "getSettings",
         tags: ["settings"],
         description:
-          "Full settings (admin only, cookie session): the instance flags, the operator's name, the machine name a lockdown ON must be confirmed with, and the pending-approval expiry window as the sweep will answer it",
+          "Full settings (admin only, cookie session): the instance flags, the operator's name, the machine name a lockdown ON must be confirmed with, the pending-approval expiry window as the sweep will answer it, and the ceiling that window may be set to",
       },
     },
   )
@@ -463,6 +474,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         instanceName: await resolveInstanceName(db),
         localNodeName: await serverNodeName(db),
         pendingApprovalExpiryDays: await expiryDays(db),
+        pendingApprovalExpiryMaxDays: PENDING_APPROVAL_EXPIRY_MAX_DAYS,
         stopped: lockdownStopped,
         ...(lockdownFailed.length > 0 ? { failed: lockdownFailed } : {}),
       } as const;

@@ -33,13 +33,16 @@ const EMAIL_ROW = {
   endpointsResolved: true,
 };
 
+/** The route's own ceiling (`PENDING_APPROVAL_EXPIRY_MAX_DAYS`), served on the read. */
+const MAX_DAYS = 3650;
+
 /** What `/api/settings` answers; a test that saves re-seats it for the refetch. */
 interface Harness {
   patches: { pendingApprovalExpiryDays: number }[];
   restore: () => void;
 }
 
-function mockFetch(expiryDays: number): Harness {
+function mockFetch(expiryDays: number, maxDays: number | null = MAX_DAYS): Harness {
   const patches: { pendingApprovalExpiryDays: number }[] = [];
   // The PATCH moves the GET answer, so the invalidate-refetch after a save
   // re-seats the field on what the mock server STORED, exactly like the
@@ -70,7 +73,14 @@ function mockFetch(expiryDays: number): Harness {
         patches.push(body);
         current = body.pendingApprovalExpiryDays;
       }
-      return new Response(JSON.stringify({ pendingApprovalExpiryDays: current }));
+      // The ceiling rides the read (final review, minor #2): the card takes
+      // its bound from the server, so the mock carries it like the route does.
+      return new Response(
+        JSON.stringify({
+          pendingApprovalExpiryDays: current,
+          ...(maxDays === null ? {} : { pendingApprovalExpiryMaxDays: maxDays }),
+        }),
+      );
     }
     return new Response(JSON.stringify({}));
   }) as typeof fetch;
@@ -144,6 +154,24 @@ describe("Auth page pending-expiry card", () => {
     }
   });
 
+  it("renders no input when the server's ceiling is unknown", async () => {
+    // A server older than the field answers days without max; the card must
+    // not offer an input whose bound it cannot state (the render-guard rule
+    // that already gates on `pendingApprovalExpiryDays`).
+    const { restore } = mockFetch(14, null);
+    try {
+      renderPage();
+      // The page itself renders — the doors table is on it — only the card
+      // is absent.
+      // The page itself renders — the header's admin action is on it — only
+      // the card is absent.
+      await waitFor(() => expect(screen.getByRole("button", { name: "Add provider" })).toBeDefined());
+      expect(screen.queryByLabelText("Pending approvals expire after")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
   it("refuses a malformed draft loudly, and a valid edit still saves", async () => {
     const { patches, restore } = mockFetch(14);
     try {
@@ -161,7 +189,8 @@ describe("Auth page pending-expiry card", () => {
       expect(save().disabled).toBe(true);
 
       // Legal digits beyond the route's ceiling: same refusal, same weight —
-      // the card mirrors the bound rather than shipping a doomed PATCH.
+      // the card takes the bound from the read rather than shipping a doomed
+      // PATCH.
       fireEvent.change(input, { target: { value: "3651" } });
       expect(screen.getByRole("alert").textContent).toContain("3650");
       expect(save().disabled).toBe(true);

@@ -88,8 +88,11 @@ function AuthPage() {
               than one door's switch. Rendered only when the server knows the
               field — an input for a number the route cannot back is worse
               than no card (the Lockdown card's render guard). */}
-          {settings?.pendingApprovalExpiryDays !== undefined && (
-            <PendingExpiryCard days={settings.pendingApprovalExpiryDays} />
+          {settings?.pendingApprovalExpiryDays !== undefined && settings.pendingApprovalExpiryMaxDays !== undefined && (
+            <PendingExpiryCard
+              days={settings.pendingApprovalExpiryDays}
+              maxDays={settings.pendingApprovalExpiryMaxDays}
+            />
           )}
           <ProviderDialog
             open={dialog.open}
