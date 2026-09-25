@@ -12,6 +12,12 @@ export function detectIsMac(ua: string, plat: string): boolean {
 }
 
 export interface InstallCopy {
+  /** Small heading over the button: WHAT the button delivers. */
+  appHeading: string;
+  /** Small heading over the curl row. Server's one-liner installs the CLI,
+   * the client's installs the SAME desktop app, so the heading is per kind
+   * rather than one word stretched over both. */
+  curlHeading: string;
   downloadHref: string;
   downloadLabel: string;
   altLabel: string;
@@ -38,11 +44,26 @@ export function installCopy(manifest: ReleasesManifest, kind: InstallKind, isMac
     if (script) curlCommand = `curl -fsSL https://raw.githubusercontent.com/${REPO}/main/${script} | bash`;
   }
 
+  // DIRECT asset URLs. The manifest entry's `url` is the release PAGE, but
+  // nothing requires the button to send people there: the tag is the
+  // manifest's, and the filename is `desktopArtifactFileName`'s, the same
+  // derivation whose output the column already prints in the small print.
+  // Deriving keeps the no-hardcoded-artifact rule (AGENTS.md) intact while
+  // the click starts the download (GitHub 302s to the asset host).
+  const assetHref = (assetTarget: string): string | null => {
+    if (desktop === undefined) return null;
+    const file = desktopArtifactFileName(productName, assetTarget, desktop.version);
+    return `https://github.com/${REPO}/releases/download/${desktop.tag}/${file}`;
+  };
+  const otherTarget = isMac ? "linux-x64" : "darwin-arm64";
+
   return {
-    downloadHref: desktop?.url ?? generic,
+    appHeading: `${productName} desktop app`,
+    curlHeading: kind === "server" ? "or the CLI" : "The same app, one command",
+    downloadHref: assetHref(target) ?? generic,
     downloadLabel: isMac ? "Download for macOS · .dmg" : "Download for Linux · .deb",
     altLabel: isMac ? "Linux (.deb)" : "macOS (.dmg)",
-    altHref: generic,
+    altHref: assetHref(otherTarget) ?? generic,
     artifactFile: desktop ? desktopArtifactFileName(productName, target, desktop.version) : null,
     curlCommand,
   };

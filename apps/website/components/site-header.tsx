@@ -15,8 +15,14 @@ export function SiteHeader() {
           className="h-[26px] w-auto"
         />
       </a>
+      {/* Docs is a sibling site (docs.subshell.sh), not a page of this one:
+          an absolute link is the honest shape, and it is the only route off
+          the marketing origin besides GitHub. */}
+      <a className="ml-auto text-[14px] text-[var(--dim)] hover:text-[var(--frost)]" href="https://docs.subshell.sh">
+        Docs
+      </a>
       <a
-        className="ml-auto inline-flex items-center gap-1.5 text-[14px] text-[var(--dim)] hover:text-[var(--frost)]"
+        className="inline-flex items-center gap-1.5 text-[14px] text-[var(--dim)] hover:text-[var(--frost)]"
         href="https://github.com/subshell-ai/subshell"
       >
         <GitHubIcon />
