@@ -2783,7 +2783,9 @@ round-3 sweep (C12) it can no longer point this process's egress wherever it
 likes either:** every fetch of a source-named URL (the binary, the manifest,
 the signature, including the `downloadVerified` path the server's own update
 writes through) must target a GitHub release host (`api.github.com`,
-`github.com`, `objects.githubusercontent.com`, which is exactly what the
+`github.com`, and the asset host under BOTH its spellings, the legacy
+`objects.githubusercontent.com` and the renamed
+`release-assets.githubusercontent.com`, which is exactly what the
 shipped default needs) or the configured source's own origin; anything else is
 refused before the connection, logged with the host named. For the default
 configuration the allowlist is trivially "GitHub plus what the operator
