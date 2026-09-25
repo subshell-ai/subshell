@@ -1,5 +1,18 @@
 # @internal/website
 
+## 0.1.2
+
+### Patch Changes
+
+- [#192](https://github.com/subshell-ai/subshell/pull/192) [`b326fa2`](https://github.com/subshell-ai/subshell/commit/b326fa2d18f2bdc3387a63690ce6e1dbbef0e3dc) Thanks [@theogravity](https://github.com/theogravity)! - Both sites can be found now, not just read. Each gained a robots.txt
+  (everything allowed, sitemap named) and a sitemap.xml (the docs' generated
+  from the same page tree the sidebar renders, so it cannot drift; the
+  marketing site's one entry is its landing page), and every page declares a
+  canonical URL so a `/foo`, `/foo/` or `?utm=` share counts as one page in a
+  crawler's index instead of several. The metadata basics (titles,
+  descriptions, share card) were already carried; this was the discovery
+  layer that pointed crawlers at them.
+
 ## 0.1.1
 
 ### Patch Changes
