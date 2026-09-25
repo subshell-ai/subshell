@@ -76,11 +76,11 @@ const SettingsSchema = t.Object({
   ...SettingsWriteSchema.properties,
   localNodeName: t.String({
     description:
-      'The control-plane host\'s admin-chosen node name (default "Server") — what a lockdown ON is confirmed against, so the dialog and the route cannot disagree about a correctly typed name',
+      'The control-plane host\'s admin-chosen node name (default "Server"): what a lockdown ON is confirmed against, so the dialog and the route cannot disagree about a correctly typed name',
   }),
   pendingApprovalExpiryMaxDays: t.Number({
     description:
-      "The ceiling this route enforces on pendingApprovalExpiryDays — served so the settings card draws its input bound from this read instead of mirroring the server's constant",
+      "The ceiling this route enforces on pendingApprovalExpiryDays, served so the settings card draws its input bound from this read instead of mirroring the server's constant",
   }),
 });
 
@@ -95,7 +95,7 @@ const SettingsPatchSchema = t.Partial(
     ...SettingsWriteSchema.properties,
     lockdownConfirm: t.String({
       description:
-        "The server's node name, required to CHANGE lockdown in either direction and checked against the live node row — nothing is stored from it. Ignored when the body only re-sends the current state, which is a double-submit, not an act",
+        "The server's node name, required to CHANGE lockdown in either direction and checked against the live node row. Nothing is stored from it. Ignored when the body only re-sends the current state, which is a double-submit, not an act",
     }),
   }),
 );
@@ -108,7 +108,7 @@ const SettingsPatchResponseSchema = t.Object({
   }),
   failed: t.Optional(
     t.Array(t.String(), {
-      description: "Ids whose kill failed — absent when clean, never []. A row here may still be running",
+      description: "Ids whose kill failed, absent when clean, never []. A row here may still be running",
     }),
   ),
 });

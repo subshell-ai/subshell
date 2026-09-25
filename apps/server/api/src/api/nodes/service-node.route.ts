@@ -175,7 +175,7 @@ export const serviceNodeRoute = new Elysia()
           400,
           apiErrorBody({
             code: BackendErrorCodes.BAD_REQUEST,
-            message: `force is only meaningful for ${NODE_SERVICE_DESTRUCTIVE.join(", ")} — ${body.verb} cannot close a subshell`,
+            message: `force is only meaningful for ${NODE_SERVICE_DESTRUCTIVE.join(", ")}: ${body.verb} cannot close a subshell`,
           }),
         );
       }

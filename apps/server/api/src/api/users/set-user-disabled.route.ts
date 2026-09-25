@@ -172,7 +172,7 @@ export const setUserDisabledRoute = new Elysia().use(requireAdmin).patch(
       operationId: "setUserDisabled",
       tags: ["users"],
       description:
-        "Disables or re-enables a user (admin only, cookie session). A disabled account cannot sign in and every credential it holds is refused; disabling signs out all of its sessions, revokes its outstanding attach tokens, closes its live feed and terminal sockets, and disconnects the nodes it owns — they stay offline until re-enabled. Refuses with 400 on self and with 409 when it would disable the last admin who can still sign in. Re-enabling is never refused",
+        "Disables or re-enables a user (admin only, cookie session). A disabled account cannot sign in and every credential it holds is refused; disabling signs out all of its sessions, revokes its outstanding attach tokens, closes its live feed and terminal sockets, and disconnects the nodes it owns: they stay offline until re-enabled. Refuses with 400 on self and with 409 when it would disable the last admin who can still sign in. Re-enabling is never refused",
     },
   },
 );

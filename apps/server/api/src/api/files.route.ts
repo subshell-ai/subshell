@@ -75,7 +75,7 @@ const FavoriteBodySchema = t.Object({
   node: t.Optional(
     t.String({
       description:
-        "Machine the path lives on; omitted or 'local' = the control-plane host. A node id the caller cannot see answers 404, never 403 — the same no-oracle rule /explore and /recent apply",
+        "Machine the path lives on; omitted or 'local' = the control-plane host. A node id the caller cannot see answers 404, never 403 (the same no-oracle rule /explore and /recent apply)",
     }),
   ),
 });

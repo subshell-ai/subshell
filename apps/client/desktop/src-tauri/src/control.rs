@@ -3040,7 +3040,7 @@ mod action_result_tests {
 
     #[test]
     fn the_clis_own_words_are_passed_through_untouched() {
-        let stderr = "subshell: this setup key has already been used — each key enrolls one node; create a new setup key on the Nodes page\n";
+        let stderr = "subshell: this setup key has already been used. Each key enrolls one node; create a new setup key on the Nodes page\n";
         let r = ActionResult::from(Run {
             code: Some(1),
             stdout: String::new(),

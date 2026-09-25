@@ -244,7 +244,7 @@ pub fn open_node(app: &AppHandle) -> Result<WebviewWindow, String> {
         // screenshot and in the window list, where "this machine" does not say
         // WHICH of them it means — and the word this app uses for a machine
         // that runs agents is "node".
-        .title("Subshell Client — Node")
+        .title("Subshell Client: Node")
         .inner_size(width, height)
         .resizable(false)
         .center()

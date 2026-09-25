@@ -79,7 +79,7 @@ export const setUserRoleRoute = new Elysia().use(requireAdmin).patch(
       operationId: "setUserRole",
       tags: ["users"],
       description:
-        "Changes a user's role (admin only, cookie session). Refuses with 409 when it would remove the last admin, and with 400 on self — an admin cannot change their own role, another admin has to",
+        "Changes a user's role (admin only, cookie session). Refuses with 409 when it would remove the last admin, and with 400 on self: an admin cannot change their own role, another admin has to",
     },
   },
 );

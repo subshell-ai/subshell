@@ -225,8 +225,8 @@ export interface EmbedDeps {
 export async function runEmbed(deps: EmbedDeps): Promise<void> {
   if (!deps.distIndexExists()) {
     throw new Error(
-      "the built dashboard is missing (apps/node/web/dist/index.html) — " +
-        "run `turbo build` first from the repo root (the compiled node embeds it).",
+      "the built dashboard is missing (apps/node/web/dist/index.html). " +
+        "Run `turbo build` first from the repo root (the compiled node embeds it).",
     );
   }
   const code = await deps.runGenerator();
@@ -333,7 +333,7 @@ async function main(): Promise<void> {
   process.stdout.write(
     signed === "signed"
       ? `  ${RELEASE_MANIFEST_SIG_NAME.padEnd(28)} signed by the publisher key\n`
-      : `  ${RELEASE_MANIFEST_SIG_NAME.padEnd(28)} UNSIGNED — TAURI_SIGNING_PRIVATE_KEY not set; no plane will offer this release for update\n`,
+      : `  ${RELEASE_MANIFEST_SIG_NAME.padEnd(28)} UNSIGNED: TAURI_SIGNING_PRIVATE_KEY not set; no plane will offer this release for update\n`,
   );
   process.stdout.write(
     "\nrestart `subshell-server.service` to serve them: systemctl --user restart subshell-server.service\n",
@@ -342,7 +342,7 @@ async function main(): Promise<void> {
 
 if (import.meta.main) {
   main().catch((err: unknown) => {
-    process.stderr.write(`\ncompile:release: FAILED — ${err instanceof Error ? err.message : String(err)}\n`);
+    process.stderr.write(`\ncompile:release: FAILED: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);
   });
 }

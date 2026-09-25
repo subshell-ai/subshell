@@ -3,19 +3,19 @@
 # Its EXISTENCE is the security boundary, not just its contents. Tauri gates an
 # app command when `plugin_command.is_some() || has_app_acl_manifest ||
 # !is_local` (tauri 2.11.5, webview/mod.rs). Without this file, every app
-# command is ungated for every LOCAL window — so any window added later would
+# command is ungated for every LOCAL window, so any window added later would
 # silently inherit the ability to drive the CLI. With it, each command is
 # granted deliberately, per window.
 #
 # That second window now exists. `main` shows a control plane's own UI, loaded
 # from the plane's own origin, and every `allow-node-*` permission below reaches
-# the bundled `node` page and nothing else — nothing that drives the `subshell`
+# the bundled `node` page and nothing else; nothing that drives the `subshell`
 # CLI is reachable from a page this repo did not ship.
 #
 # `main` holds exactly ONE permission (2026-09-14),
 # `allow-desktop-open-in-browser`, and it is named `desktop_` rather than
 # `node_` to say out loud that it is not a node verb. A control plane can live
-# on any host, so `capabilities/main.json`'s scope is a WILDCARD —
+# on any host, so `capabilities/main.json`'s scope is a WILDCARD;
 # `apps/server/desktop` can pin its remote window to loopback because it manages
 # the server serving it, and there is no equivalent pin here. The narrowness
 # therefore lives in the command's ARGUMENT instead: a path, refused if it could
@@ -37,17 +37,17 @@ commands.allow = ["node_install_cli"]
 
 [[permission]]
 identifier = "allow-node-install-tmux"
-description = "Install tmux with this machine's own package manager, so a node registered here can open a pane at all. Runs what the user would have run in a terminal, with their own privileges, from a table in crates/desktop-core that Subshell Server drives too: Homebrew on macOS, pkexec apt-get on Linux — never a bare sudo, which a GUI has no terminal to answer. Nothing from the page reaches the argv; where no manager can be driven it refuses and the screen names the command to type."
+description = "Install tmux with this machine's own package manager, so a node registered here can open a pane at all. Runs what the user would have run in a terminal, with their own privileges, from a table in crates/desktop-core that Subshell Server drives too: Homebrew on macOS, pkexec apt-get on Linux, never a bare sudo, which a GUI has no terminal to answer. Nothing from the page reaches the argv; where no manager can be driven it refuses and the screen names the command to type."
 commands.allow = ["node_install_tmux"]
 
 [[permission]]
 identifier = "allow-node-enroll"
-description = "Register this machine as a node via `subshell enroll`. Destructive: it overwrites an existing config.json, mints a SECOND node row on the control plane, and discards the old node key — whose only home was that file."
+description = "Register this machine as a node via `subshell enroll`. Destructive: it overwrites an existing config.json, mints a SECOND node row on the control plane, and discards the old node key, whose only home was that file."
 commands.allow = ["node_enroll"]
 
 [[permission]]
 identifier = "allow-node-unenroll"
-description = "Stop being a node: this app's chain stops the service, uninstalls its definition, then runs `subshell unenroll --yes --json`, which deletes the node configuration and key. It keeps the data directory, the installed binary, and every running subshell — which is the point of the confirm the page shows — and the control plane keeps its node row until its owner deletes it there."
+description = "Stop being a node: this app's chain stops the service, uninstalls its definition, then runs `subshell unenroll --yes --json`, which deletes the node configuration and key. It keeps the data directory, the installed binary, and every running subshell (which is the point of the confirm the page shows), and the control plane keeps its node row until its owner deletes it there."
 commands.allow = ["node_unenroll"]
 
 [[permission]]
@@ -72,7 +72,7 @@ commands.allow = ["node_arm_reset"]
 
 [[permission]]
 identifier = "allow-node-reset"
-description = "Return this machine to un-enrolled: stop and uninstall the node service, close this node's pane servers, and delete the data directory, the lock file and config.json — the node key's only home. Irreversible, gated on the typed hostname, and it deletes EXACTLY the stashed plan; the page supplies a hostname, never a path. The installed ~/.local/bin/subshell and the control plane's own node row are deliberately left alone."
+description = "Return this machine to un-enrolled: stop and uninstall the node service, close this node's pane servers, and delete the data directory, the lock file and config.json, the node key's only home. Irreversible, gated on the typed hostname, and it deletes EXACTLY the stashed plan; the page supplies a hostname, never a path. The installed ~/.local/bin/subshell and the control plane's own node row are deliberately left alone."
 commands.allow = ["node_reset"]
 
 [[permission]]
@@ -102,12 +102,12 @@ commands.allow = ["node_open_plane_url"]
 
 [[permission]]
 identifier = "allow-node-pending-screen"
-description = "Read (and clear) the screen this window was opened for — About, or nothing. A pull, because a push emitted while the window is still loading reaches a page that is not listening yet. Answers one word this app chose; names no path and changes nothing."
+description = "Read (and clear) the screen this window was opened for: About, or nothing. A pull, because a push emitted while the window is still loading reaches a page that is not listening yet. Answers one word this app chose; names no path and changes nothing."
 commands.allow = ["node_pending_screen"]
 
 [[permission]]
 identifier = "allow-node-about"
-description = "Read who made this app, its version, and the licence terms — the strings the About footer renders. No machine state, nothing writable, no paths."
+description = "Read who made this app, its version, and the licence terms, the strings the About footer renders. No machine state, nothing writable, no paths."
 commands.allow = ["node_about"]
 
 [[permission]]
@@ -117,15 +117,15 @@ commands.allow = ["node_open_web"]
 
 [[permission]]
 identifier = "allow-node-check-app-update"
-description = "Ask the project's release list whether a newer Subshell Client APP exists — not the node agent it wraps. Takes no argument, downloads nothing and changes nothing: one GET of a public JSON list, and one manifest the updater plugin verifies against the public key compiled into this build. The bundled page only, like every node verb."
+description = "Ask the project's release list whether a newer Subshell Client APP exists, not the node agent it wraps. Takes no argument, downloads nothing and changes nothing: one GET of a public JSON list, and one manifest the updater plugin verifies against the public key compiled into this build. The bundled page only, like every node verb."
 commands.allow = ["node_check_app_update"]
 
 [[permission]]
 identifier = "allow-node-install-app-update"
-description = "Download, verify, install and relaunch into the newest Subshell Client app. Takes NO argument — the release is re-resolved in Rust, so the page asks for 'the newest' and never for a URL — and the bytes are refused unless they carry a minisign signature matching the public key in tauri.conf.json, which is what keeps the release host able only to withhold an update. On Linux it hands the .deb to dpkg behind a polkit prompt. It replaces the APPLICATION and leaves the installed node agent alone: the bundled agent is a source to install from, never a rung of the resolution ladder."
+description = "Download, verify, install and relaunch into the newest Subshell Client app. Takes NO argument (the release is re-resolved in Rust, so the page asks for 'the newest' and never for a URL), and the bytes are refused unless they carry a minisign signature matching the public key in tauri.conf.json, which is what keeps the release host able only to withhold an update. On Linux it hands the .deb to dpkg behind a polkit prompt. It replaces the APPLICATION and leaves the installed node agent alone: the bundled agent is a source to install from, never a rung of the resolution ladder."
 commands.allow = ["node_install_app_update"]
 
 [[permission]]
 identifier = "allow-desktop-open-in-browser"
-description = "Open one page of the control plane this window is already on, in the system browser. `desktop_`, not `node_`, because it is the one permission in this file that is NOT a node verb: it is granted to `main` — the plane's own page — and to nothing else, which is the opposite of every rule above it. It takes a PATH and nothing else (no scheme, no protocol-relative '//host', no backslash, no whitespace or control characters — crates/desktop-core's browser::browser_url) and joins it onto the origin windows.rs's PlanePin holds, so the page names the route and this side names the host. The tray and menu-bar routes to the same act need no permission at all: they run in Rust."
+description = "Open one page of the control plane this window is already on, in the system browser. `desktop_`, not `node_`, because it is the one permission in this file that is NOT a node verb: it is granted to `main` (the plane's own page) and to nothing else, which is the opposite of every rule above it. It takes a PATH and nothing else (no scheme, no protocol-relative '//host', no backslash, no whitespace or control characters; see crates/desktop-core's browser::browser_url) and joins it onto the origin windows.rs's PlanePin holds, so the page names the route and this side names the host. The tray and menu-bar routes to the same act need no permission at all: they run in Rust."
 commands.allow = ["desktop_open_in_browser"]

@@ -18,7 +18,7 @@ const RestartBodySchema = t.Object({
 const RestartResponseSchema = t.Object({
   restarting: t.Literal(true, { description: "The shutdown is scheduled; the manager respawns the process" }),
   resumeAt: t.String({
-    description: "The saved APP_BASE_URL — where the server comes back, which may differ from where this request went",
+    description: "The saved APP_BASE_URL, where the server comes back, which may differ from where this request went",
   }),
 });
 

@@ -19,14 +19,14 @@ import { t } from "elysia";
 
 /** One address this server can be reached at over a network. */
 export const NetworkAddressSchema = t.Object({
-  url: t.String({ description: "Canonical origin — scheme, host, optional port, no path and no trailing slash" }),
+  url: t.String({ description: "Canonical origin: scheme, host, optional port, no path and no trailing slash" }),
   scheme: t.Union([t.Literal("https"), t.Literal("http")], {
     description: "Scheme of `url`, split out so nothing has to re-parse it",
   }),
   label: t.String({ description: "Where the name comes from, for the UI: 'MagicDNS', 'NetBird IP', …" }),
   secureContext: t.Boolean({
     description:
-      "Whether a browser treats this origin as a secure context. False is not a claim that the traffic is unencrypted — it says the browser will refuse passkeys, Secure cookies and service workers there",
+      "Whether a browser treats this origin as a secure context. False is not a claim that the traffic is unencrypted. It says the browser will refuse passkeys, Secure cookies and service workers there",
   }),
 });
 

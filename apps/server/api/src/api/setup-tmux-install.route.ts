@@ -79,7 +79,7 @@ export function refuseTmuxInstall(deps: TmuxInstallDeps): { installer: TmuxInsta
   if (!installer) {
     return {
       message:
-        "No supported package manager was found on this host. Install tmux yourself and re-check — an unknown package manager is a hint, not a guess.",
+        "No supported package manager was found on this host. Install tmux yourself and re-check. An unknown package manager is a hint, not a guess.",
     };
   }
   // THE LOAD-BEARING REFUSAL (spec 2026-09-15 § 6). The server has no terminal
@@ -226,7 +226,7 @@ export const setupTmuxInstallRoute = new Elysia({ prefix: "/api/setup/tmux" }).u
       operationId: "installSetupTmux",
       tags: ["setup"],
       description:
-        "Installs tmux on the control-plane host with this platform's package manager, as the server's own user. Admin cookie only, never public, audited. Refuses (409) when no supported package manager is known and when the installer would need sudo — the server has no terminal to answer a password prompt. STREAMS application/x-ndjson while it runs: a {type:line,text} per line of installer output, then one terminal {type:done,...} carrying ok/exitCode/output/tmuxPath, or {type:error,message}. ok:false inside a done frame is a run that failed; a 4xx is a refusal decided before the body opened and before anything ran.",
+        "Installs tmux on the control-plane host with this platform's package manager, as the server's own user. Admin cookie only, never public, audited. Refuses (409) when no supported package manager is known and when the installer would need sudo: the server has no terminal to answer a password prompt. STREAMS application/x-ndjson while it runs: a {type:line,text} per line of installer output, then one terminal {type:done,...} carrying ok/exitCode/output/tmuxPath, or {type:error,message}. ok:false inside a done frame is a run that failed; a 4xx is a refusal decided before the body opened and before anything ran.",
     },
   },
 );

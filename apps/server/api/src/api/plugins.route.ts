@@ -137,7 +137,7 @@ const ImpactResponseSchema = t.Object({
   presets: t.Number({ description: "Presets using this harness, across every user" }),
   distinctUsers: t.Number({
     description:
-      "Every user who owns one of these presets, the caller included — the 'across N users' count the uninstall dialog renders",
+      "Every user who owns one of these presets, the caller included: the 'across N users' count the uninstall dialog renders",
   }),
   runningSubshells: t.Number({ description: "RUNNING subshells on this harness. Uninstalling touches none of them" }),
 });

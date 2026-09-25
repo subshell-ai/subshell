@@ -56,7 +56,7 @@ export const NodeHarnessViewSchema = t.Object({
   broken: t.Optional(
     t.String({
       description:
-        "Why the plugin cannot be used at all (it failed to load in the control-plane process — an instance fact, true for every node). Present means the row is shown so a reader can see the reason, not that the plugin is absent",
+        "Why the plugin cannot be used at all (it failed to load in the control-plane process, an instance fact, true for every node). Present means the row is shown so a reader can see the reason, not that the plugin is absent",
     }),
   ),
   restartRequired: t.Optional(
@@ -117,7 +117,7 @@ export const NodeViewSchema = t.Object({
   }),
   canLaunch: t.Boolean({
     description:
-      "Whether the caller may start a subshell here. Any share grants it on an agent node; on `local` it is the GRANTED access alone, so switching off launching on the server applies to admins too — which is why this node can be visible and unlaunchable at once",
+      "Whether the caller may start a subshell here. Any share grants it on an agent node; on `local` it is the GRANTED access alone, so switching off launching on the server applies to admins too, which is why this node can be visible and unlaunchable at once",
   }),
   capabilities: t.Array(t.String({ description: "Capability string" }), {
     description: "Capability strings from `ready` (empty when none reported)",
@@ -133,7 +133,7 @@ export const NodeViewSchema = t.Object({
   inventoryStale: InventoryStaleSchema,
   maintenance: t.Boolean({
     description:
-      "Whether this node is out of service: it answers every other command but accepts no new subshells. `canLaunch` already accounts for it — this field exists because that boolean cannot say WHY, and a node refusing launches for want of a share is a different thing to explain than one an operator took down",
+      "Whether this node is out of service: it answers every other command but accepts no new subshells. `canLaunch` already accounts for it. This field exists because that boolean cannot say WHY, and a node refusing launches for want of a share is a different thing to explain than one an operator took down",
   }),
   maintenanceAt: t.Nullable(t.String({ description: "ISO 8601 of the write that set the current value" }), {
     description: "ISO 8601 of the write that set the current value; null when it was never set",
@@ -142,7 +142,7 @@ export const NodeViewSchema = t.Object({
     t.Union([t.Literal("plane"), t.Literal("node")], { description: "Which end declared it" }),
     {
       description:
-        "Which end declared the current value — a browser or the machine's own `subshell maintenance` verb — so a person reading the page learns whether someone at the keyboard did this; null when it was never set",
+        "Which end declared the current value (a browser or the machine's own `subshell maintenance` verb), so a person reading the page learns whether someone at the keyboard did this; null when it was never set",
     },
   ),
   held: t.Nullable(
@@ -155,7 +155,7 @@ export const NodeViewSchema = t.Object({
     }),
     {
       description:
-        "This node is connected but REFUSED — held open for one command (`update`) and offline for every other purpose. Visible to every viewer who can see the row: it is the same disclosure as `agentVersion`, which is already here, and a node that needs updating is exactly what anyone looking at it needs told. null when the node is not held",
+        "This node is connected but REFUSED, held open for one command (`update`) and offline for every other purpose. Visible to every viewer who can see the row: it is the same disclosure as `agentVersion`, which is already here, and a node that needs updating is exactly what anyone looking at it needs told. null when the node is not held",
     },
   ),
 });
@@ -232,7 +232,7 @@ export const NodeRuntimeSchema = t.Object({
   configPath: t.String({ description: "The node's config.json" }),
   agentLogPath: t.String({
     description:
-      "The node's OWN log file — the one GET /api/nodes/:id/logs serves. Exists on every platform, unlike logPath",
+      "The node's OWN log file, the one GET /api/nodes/:id/logs serves. Exists on every platform, unlike logPath",
   }),
   logPath: t.Nullable(t.String(), { description: "The launchd log file; null under systemd" }),
   logHint: t.Nullable(t.String(), { description: "The journal command when logPath is null" }),
@@ -259,13 +259,13 @@ export const GetNodeResponseSchema = t.Object({
   runtime: t.Optional(
     t.Object(NodeRuntimeSchema.properties, {
       description:
-        "How the node runs — present only while the node is online, only for config-capable viewers, and only on agent nodes",
+        "How the node runs, present only while the node is online, only for config-capable viewers, and only on agent nodes",
     }),
   ),
   runningSubshells: t.Optional(
     t.Number({
       description:
-        "How many subshells are running here, counted across every owner — what entering maintenance would stop. MANAGERS only: the people who can flip the switch are the only ones who need its price, and the number itself says how much otherwise-invisible work sits on this machine",
+        "How many subshells are running here, counted across every owner: what entering maintenance would stop. MANAGERS only: the people who can flip the switch are the only ones who need its price, and the number itself says how much otherwise-invisible work sits on this machine",
     }),
   ),
 });
@@ -294,7 +294,7 @@ export const MaintenanceResponseSchema = t.Object({
   failed: t.Optional(
     t.Array(t.String({ description: "Subshell id whose kill the node refused" }), {
       description:
-        "Subshells whose kill the node refused — never counted as stopped, because a caller told a pane is down walks away from a machine still running it",
+        "Subshells whose kill the node refused, never counted as stopped, because a caller told a pane is down walks away from a machine still running it",
     }),
   ),
 });

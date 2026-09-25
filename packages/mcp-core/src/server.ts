@@ -142,7 +142,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     {
       title: "List presets",
       description:
-        "List the presets usable to launch a subshell — each carries the harness plugin id it belongs to, the pairs create_subshell takes.",
+        "List the presets usable to launch a subshell: each carries the harness plugin id it belongs to, the pairs create_subshell takes.",
       inputSchema: z.object({}),
     },
     guard(() => listPresets(deps)),
@@ -162,7 +162,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
           // harnessId, which makes list_subshells the source that still
           // answers on a new instance.
           .describe(
-            "Harness plugin id to launch — e.g. an id shown by list_presets, or the harnessId of any row from list_subshells",
+            "Harness plugin id to launch, e.g. an id shown by list_presets, or the harnessId of any row from list_subshells",
           ),
         preset: z.string().optional().describe("Optional preset name of that harness; omit for no saved settings"),
         name: z.string().optional(),

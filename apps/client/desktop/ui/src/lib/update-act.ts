@@ -261,7 +261,7 @@ const NOT_INSTALLED = "not installed";
  * cannot number. A dash and a reason beat omitting the component, which is the
  * guess § 13.1 exists to remove.
  */
-const NOT_ASKED = "—";
+const NOT_ASKED = "unknown";
 
 /**
  * Decide the whole screen.

@@ -382,7 +382,7 @@ fn schedule_restart(app: &AppHandle) {
     std::thread::spawn(move || {
         std::thread::sleep(RESTART_GRACE);
         if let Err(err) = tauri::process::current_binary(&handle.env()) {
-            eprintln!("subshell: not restarting after the reset — this app's own path did not resolve: {err}");
+            eprintln!("subshell: not restarting after the reset. This app's own path did not resolve: {err}");
             // The assistant is up and on `home`, which on a wiped machine is
             // first run. Leave the person with it rather than with nothing.
             if let Some(w) = handle.get_webview_window("wizard") {
@@ -694,7 +694,7 @@ pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, Stri
     // sees `onboarded: false`, and draws first run in its own still-running
     // process tree. Release ships embedded assets and restarts as designed.
     if cfg!(debug_assertions) {
-        eprintln!("subshell: dev build — skipping the post-reset restart; the assistant re-probes in place");
+        eprintln!("subshell: dev build, skipping the post-reset restart; the assistant re-probes in place");
     } else {
         schedule_restart(&app);
     }

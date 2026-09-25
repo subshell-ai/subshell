@@ -114,7 +114,7 @@ const UPDATE_SCREEN: &str = "update";
 /// tray, a menu or a display server.
 pub fn update_label(available: Option<&str>) -> String {
     match available {
-        Some(version) if !version.is_empty() => format!("Update available — Subshell Server {version}"),
+        Some(version) if !version.is_empty() => format!("Update available: Subshell Server {version}"),
         _ => "Check for Updates…".to_string(),
     }
 }
@@ -408,7 +408,7 @@ mod tests {
     /// and the item's job reverts to being the early door.
     #[test]
     fn the_update_item_announces_or_asks() {
-        assert_eq!(update_label(Some("0.8.0")), "Update available — Subshell Server 0.8.0");
+        assert_eq!(update_label(Some("0.8.0")), "Update available: Subshell Server 0.8.0");
         assert_eq!(update_label(None), "Check for Updates…");
         // An empty stored version is the "nothing known" case, not a version.
         assert_eq!(update_label(Some("")), "Check for Updates…");

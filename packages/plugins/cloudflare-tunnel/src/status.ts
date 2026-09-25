@@ -88,7 +88,7 @@ async function readIdentity(host: PluginHost, binary: string): Promise<NetworkSt
  */
 function frontDoorHint(): NetworkHint {
   return {
-    text: "Cloudflare Access is the front door for this address — it decides who may reach the tunnel. Subshell's own sign-in still runs behind it.",
+    text: "Cloudflare Access is the front door for this address: it decides who may reach the tunnel. Subshell's own sign-in still runs behind it.",
   };
 }
 
@@ -104,6 +104,6 @@ function frontDoorHint(): NetworkHint {
  */
 function ingressPortHint(): NetworkHint {
   return {
-    text: "The tunnel routes to the port set in the Cloudflare dashboard — if this server's port changes, update the public hostname's ingress there.",
+    text: "The tunnel routes to the port set in the Cloudflare dashboard. If this server's port changes, update the public hostname's ingress there.",
   };
 }

@@ -539,7 +539,7 @@ export function runStatus(log: (line: string) => void, deps: StatusDeps): void {
         ? `database present but unreadable (${v.settings.DATABASE_PATH.value})`
         : v.setup.hasUsers
           ? "admin account exists"
-          : `no admin account yet — open ${v.settings.APP_BASE_URL.value}/setup`;
+          : `no admin account yet. Open ${v.settings.APP_BASE_URL.value}/setup`;
   log(`setup                = ${setup}`);
   // The file an update would replace, and what is there to roll back to. Named
   // here rather than only in --json because "which binary is this instance"

@@ -1185,7 +1185,7 @@ export function controlService(deps: ServiceDeps, verb: ServiceVerb, opts: { for
     if (!waitForJobGone(deps, target)) {
       return errLine(
         `launchctl bootout was accepted, but the job is still in launchd's domain after ` +
-          `${STOP_WAIT_ATTEMPTS * STOP_WAIT_MS}ms — a teardown that slow is usually the server ` +
+          `${STOP_WAIT_ATTEMPTS * STOP_WAIT_MS}ms. A teardown that slow is usually the server ` +
           `finishing something (or a manager that will not answer), and either way the service ` +
           `was NOT confirmed stopped. Re-check with \`subshell-server service status\` before ` +
           `treating anything it owns as gone.`,

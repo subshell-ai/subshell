@@ -123,7 +123,7 @@ export const ReleaseRefSchema = t.Object({
 const BackupFileSchema = t.Object({
   path: t.String({ description: "Absolute path of the snapshot" }),
   bytes: t.Number({ description: "Size in bytes" }),
-  at: t.String({ description: "ISO 8601 of the file's mtime — when it was written" }),
+  at: t.String({ description: "ISO 8601 of the file's mtime (when it was written)" }),
 });
 
 /** The in-process update job, polled at 1 s while one runs. */
@@ -183,7 +183,7 @@ export const ServerUpdateViewSchema = t.Object({
       ok: t.Boolean({ description: "Whether an update could be applied at all right now" }),
       reasons: t.Array(t.String({ description: "One blocker, in a sentence a page renders verbatim" }), {
         description:
-          "Every hard blocker evaluated now — the refusals no press can overcome. Excludes the FORCIBLE pane-safety refusal (see paneSafety) and 'no newer release' (see updateAvailable)",
+          "Every hard blocker evaluated now, the refusals no press can overcome. Excludes the FORCIBLE pane-safety refusal (see paneSafety) and 'no newer release' (see updateAvailable)",
       }),
     },
     { description: "Whether the button is live, and why not when it is not" },

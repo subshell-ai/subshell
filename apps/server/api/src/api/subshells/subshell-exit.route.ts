@@ -7,7 +7,7 @@ const ExitBodySchema = t.Object({
   exitCode: t.Optional(
     t.Union([t.Number(), t.Null()], {
       description:
-        "The pane's exit status as tmux reported it (`#{pane_dead_status}`). Null or absent when it could not be read — never guessed at, since 0 is a real answer",
+        "The pane's exit status as tmux reported it (`#{pane_dead_status}`). Null or absent when it could not be read, never guessed at, since 0 is a real answer",
     }),
   ),
 });

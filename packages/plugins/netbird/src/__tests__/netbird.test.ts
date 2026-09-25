@@ -241,7 +241,7 @@ describe("NetBirdPlugin.status", () => {
     const status = await plugin.status(CTX);
     expect(status.state).toBe("daemon-down");
     expect(status.hints[0]?.text).toBe(
-      "The NetBird daemon is not running or not reachable. If it is installed, start its service — this page will notice when you do.",
+      "The NetBird daemon is not running or not reachable. If it is installed, start its service (this page will notice when you do).",
     );
     expect(status.hints[0]?.command).toBe("sudo netbird service install && sudo netbird service start");
     expect(status.hints[0]?.privileged).toBe(true);
@@ -294,7 +294,7 @@ describe("NetBirdPlugin.status", () => {
     // The sentence names the address the card now actually lists — the measured
     // daemon sends one — and the link is where a nameserver group is configured.
     expect(hint?.text).toBe(
-      "Peer names resolve only if your NetBird account has a nameserver group — otherwise use the NetBird IP address.",
+      "Peer names resolve only if your NetBird account has a nameserver group. Otherwise, use the NetBird IP address.",
     );
     expect(hint?.docsUrl).toBe("https://docs.netbird.io/how-to/manage-dns-in-your-network");
   });

@@ -261,7 +261,7 @@ test("a cancelled name prompt enrolls nothing and spends no key", async () => {
   });
 
   expect(res.code).toBe(1);
-  expect(res.err).toInclude("nothing was enrolled");
+  expect(res.err).toInclude("Nothing was enrolled");
   expect(hits).toBe(0); // the single-use key is still mint and usable
   expect(existsSync(configPath())).toBe(false);
   expect(s.calls).toEqual([]);

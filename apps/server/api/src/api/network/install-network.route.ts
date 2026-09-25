@@ -118,7 +118,7 @@ export const installNetworkRoute = new Elysia().use(apiModels).post(
       operationId: "installNetwork",
       tags: ["network"],
       description:
-        "Runs this network plugin's own declared installer on the control-plane host, as the server's user (admin cookie only, audited). The command comes from the plugin's manifest and never from the request. STREAMS application/x-ndjson: {type:line,text} frames, then one {type:done,ok,exitCode,output,durationMs,status} carrying a freshly probed status, or {type:error,message}. 404 when the plugin declares no installer the server may run — which is every plugin whose install needs root.",
+        "Runs this network plugin's own declared installer on the control-plane host, as the server's user (admin cookie only, audited). The command comes from the plugin's manifest and never from the request. STREAMS application/x-ndjson: {type:line,text} frames, then one {type:done,ok,exitCode,output,durationMs,status} carrying a freshly probed status, or {type:error,message}. 404 when the plugin declares no installer the server may run, which is every plugin whose install needs root.",
     },
   },
 );

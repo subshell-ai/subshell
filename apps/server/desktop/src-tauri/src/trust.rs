@@ -330,7 +330,7 @@ where
                 // and a refusal nobody can see reads as an app that hangs.
                 // Once per page — see `MainTrust::warned`.
                 eprintln!(
-                    "subshell: refused {} — the dashboard window is on an untrusted address",
+                    "subshell: refused {}: the dashboard window is on an untrusted address",
                     invoke.message.command()
                 );
             }

@@ -47,7 +47,7 @@ export const CreateProviderFieldsSchema = t.Object({
       ],
       {
         description:
-          "Allowed e-mail domains (spec §5), comma-separated string or array — the dialog sends either; both are normalized to lowercase bare form and deduped. An empty string or empty array CLEARS the column to NULL (= any domain), never a stored empty value",
+          "Allowed e-mail domains (spec §5), comma-separated string or array. The dialog sends either; both are normalized to lowercase bare form and deduped. An empty string or empty array CLEARS the column to NULL (= any domain), never a stored empty value",
       },
     ),
   ),

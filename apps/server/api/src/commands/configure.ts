@@ -436,8 +436,9 @@ function planConfigWrite(existing: Record<string, string>, input: ApplyConfigInp
     warnings.push(
       `APP_BASE_URL is ${baseUrl.value} but the server will listen on ${port.value}; unless a proxy or an ` +
         `SSH forward on this host maps port ${dialPort} to ${port.value}, a browser dialing ${dialPort} reaches ` +
-        `nothing, and one dialing ${port.value} by NAME is refused (403 "Invalid origin" — the exception is ` +
-        `this machine's own addresses, which are derived and trusted automatically). Set --base-url to the ` +
+        `nothing, and one dialing ${port.value} by NAME is refused (403 "Invalid origin"). ` +
+        `The exception is this machine's own addresses, which are derived and trusted automatically. ` +
+        `Set --base-url to the ` +
         `address you actually browse, or add it to --trusted-origins.`,
     );
   }
@@ -470,7 +471,7 @@ function planConfigWrite(existing: Record<string, string>, input: ApplyConfigInp
     warnings.push(
       `HOST=0.0.0.0 (LAN bind) with a loopback APP_BASE_URL (${baseUrl.value}) and nothing but loopback in ` +
         "TRUSTED_ORIGINS: browsers reaching this server by one of this machine's OWN addresses sign in " +
-        "fine — those origins are derived and trusted automatically — " +
+        "fine (those origins are derived and trusted automatically) " +
         'but no NAME is: browsing by a `.local` host or a DNS entry answers 403 "Invalid origin" without ' +
         `naming the key that fixes it. Add the name (${FLAG_FOR_KEY.TRUSTED_ORIGINS} http://<that-name>:${port.value}), ` +
         `or make it the base URL (${FLAG_FOR_KEY.APP_BASE_URL} http://<that-name>:${port.value}).`,

@@ -25,11 +25,11 @@ const LogsQuerySchema = t.Object({
 });
 
 const LogsViewSchema = t.Object({
-  text: t.String({ description: "The bytes read, decoded as UTF-8 — JSON lines, one log call each" }),
+  text: t.String({ description: "The bytes read, decoded as UTF-8 (JSON lines, one log call each)" }),
   nextByte: t.Number({ description: "Offset to pass as fromByte on the next read" }),
   size: t.Number({ description: "The file's total size when it was read" }),
   truncated: t.Boolean({
-    description: "True when fromByte pointed past the end — the file was replaced at its cap; start over from 0",
+    description: "True when fromByte pointed past the end: the file was replaced at its cap; start over from 0",
   }),
 });
 

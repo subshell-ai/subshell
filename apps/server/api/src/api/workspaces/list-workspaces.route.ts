@@ -10,7 +10,7 @@ const ListWorkspacesQuerySchema = t.Object({
     t.String({
       minLength: 1,
       description:
-        "Restrict to the caller's workspaces holding a pane for this subshell, most recently updated first — unsaved drafts INCLUDED (the unfiltered list excludes them)",
+        "Restrict to the caller's workspaces holding a pane for this subshell, most recently updated first, unsaved drafts INCLUDED (the unfiltered list excludes them)",
     }),
   ),
 });

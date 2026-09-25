@@ -600,7 +600,7 @@ export async function compatibleNodeRelease(): Promise<CompatibleNodeRelease> {
     return {
       release: null,
       manifest: null,
-      reason: `newest node release ${release.version} speaks protocol ${manifest.nodeProtocol}; this server speaks ${NODE_PROTOCOL_VERSION} — update the server first`,
+      reason: `newest node release ${release.version} speaks protocol ${manifest.nodeProtocol}; this server speaks ${NODE_PROTOCOL_VERSION}, so update the server first`,
     };
   }
   return { release, reason: null, manifest: outcome.verified };

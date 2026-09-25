@@ -449,7 +449,7 @@ fn dev_spa_origin() -> Option<String> {
     // opposite of saying it out loud.
     static ANNOUNCED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     if ANNOUNCED.set(()).is_ok() {
-        eprintln!("subshell: dev override — opening the dashboard at {chosen} instead of the server's own address");
+        eprintln!("subshell: dev override, opening the dashboard at {chosen} instead of the server's own address");
     }
     Some(chosen)
 }

@@ -6,7 +6,7 @@ import { resolveInstanceName } from "@/services/instance-name.js";
 
 /** One sign-in provider the login page may paint a button for. */
 const InstanceProviderSchema = t.Object({
-  id: t.String({ description: "Provider id — the provider's row id, carried through the OAuth round trip" }),
+  id: t.String({ description: "Provider id: the provider's row id, carried through the OAuth round trip" }),
   name: t.String({ description: "Admin-chosen display name, rendered on the sign-in button" }),
   kind: t.Union([t.Literal("google"), t.Literal("oidc")], {
     description:
@@ -24,7 +24,7 @@ const InstanceSettingsSchema = t.Object({
   }),
   emailSignIn: t.Boolean({
     description:
-      "Whether the password form may render. True when the E-mail provider is open, and true when its row answers nothing — a seed that failed must never hide the way in",
+      "Whether the password form may render. True when the E-mail provider is open, and true when its row answers nothing (a seed that failed must never hide the way in)",
   }),
 });
 

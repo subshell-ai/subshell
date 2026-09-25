@@ -101,7 +101,11 @@ admitted here.
   2026-09-21, after a maintenance toggle carried a four-clause essay and a
   launch-rule card carried five sentences: the paragraph beside a control is
   read ONCE, at the moment of decision; long run-ons teach people to skim
-  the whole screen.)*
+  the whole screen.)* A lone em dash standing in a table or detail cell for
+  "nothing here" is a placeholder glyph, not copy: the rule governs sentences,
+  and a placeholder is not one. *(The shipped-copy sweep of 2026-09-25 reviewed
+  every rendered `—` and kept the placeholders; it rewrote only strings that
+  carry words.)*
 - **Help text**: everything a control says about itself is `detail`, at ONE
   size: its hint, "set by the environment", a saved-vs-running note, a
   validation error, the same role metadata uses, so a field never mixes sizes.

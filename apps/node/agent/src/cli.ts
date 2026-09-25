@@ -75,12 +75,12 @@ usage:
                           name required instead. --no-service skips the service
                           question; --yes / a non-TTY take its default (yes).
   subshell enroll --server <url> --key <nsk_…> --name <n> [--data-dir <d>] [--json]
-                          enrollment ONLY — the primitive that setup composes; it
+                          enrollment ONLY: the primitive that setup composes; it
                           asks nothing, so --name is required
   subshell configure [--server <url>] [--key <node key>] [--json]
                           change how an ALREADY-enrolled node reaches its control
                           plane. --server repoints it; --key stores a ROTATED node
-                          key (the value Rotate key shows once — NOT a setup key,
+                          key (the value Rotate key shows once. NOT a setup key,
                           which enrolls a new node). Keeps this node's identity and
                           spends no setup key; restart the node to apply. Does NOT
                           rename: the plane owns a node's name (the Nodes page).
@@ -90,7 +90,7 @@ usage:
   subshell dashboard [--dashboard-port <n>]
                           the loopback dashboard WITHOUT the daemon: reads and
                           maintenance work, restart/update say "not supervised".
-                          For a stopped or broken agent — the machine's page
+                          For a stopped or broken agent: the machine's page
                           should not need the machine's plane socket
   subshell service install [--no-autostart]   (systemd user unit / launchd agent)
                           --no-autostart runs it now but not at login
@@ -127,10 +127,10 @@ usage:
   subshell license        print the copyright and licence and exit
   subshell mcp            (stdio MCP server for a subshell pane, internal)
   subshell report attention turn_complete|needs_attention|resumed
-  subshell report session (a pane's state, run by harness hooks — not by hand)
+  subshell report session (a pane's state, run by harness hooks, not by hand)
   subshell report exit <status> (the pane died; run by tmux's own hook)
   subshell pane-log --file <path> (append stdin to a pane log, flushing each
-                          read; run by tmux's own pipe-pane — not by hand)
+                          read; run by tmux's own pipe-pane, not by hand)
 `;
 
 /** Malformed invocation → usage text, exit 2. */
@@ -611,7 +611,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         // exit 2 above it), which is the thing it can act on tonight.
         const cfg = await loadConfig();
         const dash = await startNodeDashboard(cfg, { port });
-        logger.info(`dashboard: http://127.0.0.1:${dash.port}/ (${dash.webSource} pages) — no daemon; Ctrl-C to stop`);
+        logger.info(`dashboard: http://127.0.0.1:${dash.port}/ (${dash.webSource} pages). No daemon; Ctrl-C to stop`);
         // Exit only on a signal: the keep-alive is the server itself. The
         // exit hook (not a direct process.exit) so tests can drive the verb.
         const stop = () => {
@@ -908,9 +908,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         }
 
         if (parsed.flags.from !== undefined && parsed.flags.to !== undefined) {
-          throw new UsageError(
-            "--from installs a file you name; --to picks a published release — use one or the other",
-          );
+          throw new UsageError("--from installs a file you name; --to picks a published release. Use one or the other");
         }
 
         // Where the bytes come from, and what version they claim to be. A
@@ -1074,8 +1072,8 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           // alternative rather than as the only answer.
           line =
             `node ${cfg.nodeId} "${cfg.name}": OFFLINE (no local subshell running; ` +
-            `start it with \`subshell service start\` — or \`subshell service install\` if no ` +
-            `service is installed yet — or run \`subshell run\` in the foreground. ` +
+            `start it with \`subshell service start\`, or \`subshell service install\` if no ` +
+            `service is installed yet, or run \`subshell run\` in the foreground. ` +
             `Pass --probe to ask the control plane instead; a probe KICKS a remote agent!)`;
         }
         if (parsed.flags.json) {

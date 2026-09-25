@@ -271,7 +271,7 @@ function needsLoginHints(backendState: string | undefined, authUrl: string | und
   if (backendState === "Stopped") {
     return [
       {
-        text: "Tailscale is installed and switched off. Turn it back on — this page will notice when you do.",
+        text: "Tailscale is installed and switched off. Turn it back on (this page will notice when you do).",
         command: "tailscale up",
       },
     ];

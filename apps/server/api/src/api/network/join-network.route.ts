@@ -35,7 +35,7 @@ const JoinBodySchema = t.Object(
     credential: t.Optional(
       t.String({
         description:
-          "A pre-authentication credential pasted by the operator. Absent asks for the interactive flow instead, which a plugin declaring interactiveLogin answers with a URL; PRESENT BUT BLANK is a 400 — it is neither flow",
+          "A pre-authentication credential pasted by the operator. Absent asks for the interactive flow instead, which a plugin declaring interactiveLogin answers with a URL; PRESENT BUT BLANK is a 400: it is neither flow",
       }),
     ),
     hostname: t.Optional(
@@ -233,7 +233,7 @@ export const joinNetworkRoute = new Elysia().use(apiModels).post(
       operationId: "joinNetwork",
       tags: ["network"],
       description:
-        "Joins this host to the network, with a pasted credential or interactively (admin cookie only). STREAMS application/x-ndjson: {type:line,text} frames, then one {type:done,outcome,status} or {type:error,message}. A malformed credential is the plugin's own refusal and arrives as an error frame, because the body is already open by then — but a PRESENT-BUT-BLANK one is 400 before the stream opens, because which flow the request IS cannot be guessed from an empty field. For a publishImplicit network the join IS the publish: it records the publish, which trusts the addresses for sign-in at once, and audits its own network.publish row (by: join); an explicit-publish network's join records nothing. Audited as network.join with the mode and the outcome — never the credential.",
+        "Joins this host to the network, with a pasted credential or interactively (admin cookie only). STREAMS application/x-ndjson: {type:line,text} frames, then one {type:done,outcome,status} or {type:error,message}. A malformed credential is the plugin's own refusal and arrives as an error frame, because the body is already open by then, but a PRESENT-BUT-BLANK one is 400 before the stream opens, because which flow the request IS cannot be guessed from an empty field. For a publishImplicit network the join IS the publish: it records the publish, which trusts the addresses for sign-in at once, and audits its own network.publish row (by: join); an explicit-publish network's join records nothing. Audited as network.join with the mode and the outcome, never the credential.",
     },
   },
 );

@@ -159,7 +159,7 @@ export async function runMaintenance(
   }
   return {
     code: 0,
-    out: `maintenance on — stopped ${stopped.length} ${stopped.length === 1 ? "subshell" : "subshells"}\n${LEARNS_LINE}`,
+    out: `maintenance on: stopped ${stopped.length} ${stopped.length === 1 ? "subshell" : "subshells"}\n${LEARNS_LINE}`,
     err,
   };
 }
@@ -195,7 +195,7 @@ function status(dataDir: string, json: boolean): CliResult {
     const since = read.changedAt ? `since ${read.changedAt}; ` : "";
     return {
       code: 0,
-      out: `maintenance: on (${since}${maintenancePath(dataDir)} is unreadable — treated as on)\n`,
+      out: `maintenance: on (${since}${maintenancePath(dataDir)} is unreadable, treated as on)\n`,
       err: "",
     };
   }

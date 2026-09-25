@@ -150,7 +150,7 @@ describe("what the screen states (§ 4.1)", () => {
     const checkingNow = act({ check: undefined, checking: true, probe: nodeBehind() });
     expect(checkingNow.rows.map((r) => r.id)).toEqual(["app", "node"]);
     expect(checkingNow.rows[0]).toEqual(
-      row({ id: "app", label: "Subshell Client App", from: "—", to: { kind: "none" }, reason: "checking…" }),
+      row({ id: "app", label: "Subshell Client App", from: "unknown", to: { kind: "none" }, reason: "checking…" }),
     );
 
     // And once the check has REJECTED rather than answered, the row says so

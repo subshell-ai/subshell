@@ -935,7 +935,7 @@ describe("update verb (spec 2026-09-15 §5.2)", () => {
     });
     const res = await run(["update", "--from", "/tmp/x", "--to", "0.9.1"]);
     expect(res.code).toBe(2);
-    expect(res.err).toMatch(/use one or the other/);
+    expect(res.err).toMatch(/Use one or the other/);
   });
 
   test("with no config, exit 1 pointing at enroll", async () => {

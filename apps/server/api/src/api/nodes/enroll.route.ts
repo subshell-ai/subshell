@@ -32,7 +32,7 @@ const EnrollBodySchema = t.Object({
     minLength: 1,
     maxLength: NODE_NAME_MAX_UNITS,
     description:
-      "Display name for the new node (unique per owner), chosen ON THE MACHINE becoming the node — `subshell setup` asks for it there, `--name` answers for a script. Control characters are stripped and whitespace collapsed",
+      "Display name for the new node (unique per owner), chosen ON THE MACHINE becoming the node: `subshell setup` asks for it there, `--name` answers for a script. Control characters are stripped and whitespace collapsed",
   }),
   os: t.Union([t.Literal("linux"), t.Literal("darwin"), t.Literal("unknown")], {
     description: "Operating system reported by the node (mirrors the `ready` frame validator)",
@@ -76,7 +76,7 @@ const EnrollResponseSchema = t.Object({
   // provision without the pin).
   controlEncryptPublicKey: t.String({
     description:
-      "Base64 X25519 PUBLIC key — the control plane's static for /ws/node link encryption; the node pins it as `controlEncryptPublicKey`",
+      "Base64 X25519 PUBLIC key: the control plane's static for /ws/node link encryption; the node pins it as `controlEncryptPublicKey`",
   }),
   wsUrl: t.String({
     description:

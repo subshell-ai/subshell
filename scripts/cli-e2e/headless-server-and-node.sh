@@ -8,6 +8,19 @@ NODE="$ROOT/apps/node/agent/dist/subshell"
 PORT=31999
 BASE="http://127.0.0.1:$PORT"
 W=$(mktemp -d /tmp/ss-e2e-XXXX)
+# Bun auto-loads a .env from the process CWD, and the repo root is every
+# scenario's CWD: a developer's gitignored .env (the live instance's
+# APP_BASE_URL and BETTER_AUTH_SECRET live there on this machine) would
+# silently aim the rendered installer, the enroll, and the session signing at
+# the LIVE instance, not this sandbox. The process env beats .env (dotenv
+# never overwrites an already-set key), so pin every key .env could carry.
+# An unpinned future key is exactly how the nameless one-liner once dialed
+# :3080 from a "hermetic" sandbox.
+export APP_BASE_URL="$BASE"
+export BETTER_AUTH_SECRET="cli-e2e-sandbox-secret-not-a-real-one-0123456789ab"
+export SERVER_PORT="$PORT"
+export HOST=127.0.0.1
+export TRUSTED_ORIGINS=""
 export SUBSHELL_SERVER_CONFIG_DIR="$W/srv-config"
 export SUBSHELL_SERVER_DATA_DIR="$W/srv-data"
 mkdir -p "$SUBSHELL_SERVER_CONFIG_DIR" "$SUBSHELL_SERVER_DATA_DIR"
