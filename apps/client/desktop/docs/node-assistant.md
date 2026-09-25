@@ -230,7 +230,7 @@ STATE BADGE reads in the Frame header between the title and the subtitle:
 the client's `Frame` grew an optional `badge` slot; the shared package Frame
 is untouched, because the server's Status section has no badge to move. The
 switch is only honest because the node CLI gained the verb behind it (see
-`apps/node/agent/AGENTS.md`, "service autostart"), and it is gated on that
+`apps/node/agent/docs/service.md`), and it is gated on that
 verb: an agent older than `0.15.0` can READ the state (it has answered
 `enabled` forever) but cannot WRITE it, so the switch shows the answer
 greyed with "Currently the installed version cannot change this. Updating

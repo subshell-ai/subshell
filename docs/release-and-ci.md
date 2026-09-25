@@ -548,9 +548,9 @@ which is why they share their own smoke, parameterized by app id.
   unset, and `release.ts` refuses outright while the committed pubkey is still
   the `REPLACE_ME_…` placeholder.
   Publishing an unsigned updater artifact or an unsigned release manifest would
-  be publishing a lie: every installed product refuses it. `apps/server/desktop/AGENTS.md` carries the rest
-  (and `apps/server/desktop/docs/updating.md` the full signing setup), including the
-  one local cost: with the pubkey configured, `bun run compile`
+  be publishing a lie: every installed product refuses it.
+  `apps/server/desktop/docs/updating.md` carries the full signing setup; the
+  one local cost worth naming here: with the pubkey configured, `bun run compile`
   in either desktop app needs a private key set (a throwaway is fine);
   `tauri dev` bundles nothing and is unaffected. The CLI path's verifier is
   pure TypeScript (`@internal/subshell-protocol/release-signature`, node:crypto
