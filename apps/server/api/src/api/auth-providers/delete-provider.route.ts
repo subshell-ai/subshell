@@ -35,7 +35,7 @@ export const deleteProviderRoute = new Elysia()
           apiErrorBody({
             code: BackendErrorCodes.EMAIL_ROW_UNDELETABLE,
             message:
-              "The email door can be closed but never deleted. Turn it off instead, and only while another door is open.",
+              "The E-mail door can be closed but never deleted. Turn it off instead, and only while another door is open.",
           }),
         );
       }
