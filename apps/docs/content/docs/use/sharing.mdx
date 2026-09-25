@@ -3,44 +3,44 @@ title: Sharing
 description: Grant another user view or edit access to a subshell, and know exactly what that exposes.
 ---
 
-A subshell is **private to its owner by default** — it is absent from every other user's lists, detail pages, logs, and terminal views. Not hidden with a refusal: absent, answered as "not found", so ids cannot be probed for existence. Sharing is a deliberate widening you grant, and this page states what it opens.
+A subshell is **private to its owner by default**: it is absent from every other user's lists, detail pages, logs, and terminal views. Not hidden with a refusal: absent, answered as "not found", so ids cannot be probed for existence. Sharing is a deliberate widening you grant, and this page states what it opens.
 
 ## Granting and revoking
 
 From the subshell's ⋯ menu, **Share…** lets you grant a level to **Everyone** (every signed-in user on the instance) or to named users:
 
-- **view** — see it: the list entry, the detail page, the stored transcript, and a live read-only terminal.
-- **edit** — view, plus drive it: type into the live terminal, rename it, restart it, and terminate it. (The terminate route honors an edit grant even though the interface stopped offering the button.)
+- **view** lets a grantee see it: the list entry, the detail page, the stored transcript, and a live read-only terminal.
+- **edit** adds driving it: type into the live terminal, rename it, restart it, and terminate it. (The terminate route honors an edit grant even though the interface stopped offering the button.)
 
 The grant list is replaced whole on every save, so revoking is removing the entry (an empty list is private again).
 
 Two rows of the matrix never change hands:
 
-- **Owner-only, never conferred by any grant — and not held by admins either:** closing (deleting) the subshell, managing its shares, and its notification bell.
-- **Admins hold instance-wide edit** — the ability to read and drive any subshell, deliberately without delete or re-share. An admin can rescue a stuck agent; they cannot destroy yours or widen it further.
+- **Owner-only, never conferred by any grant, and not held by admins either:** closing (deleting) the subshell, managing its shares, and its notification bell.
+- **Admins hold instance-wide edit**: the ability to read and drive any subshell, deliberately without delete or re-share. An admin can rescue a stuck agent; they cannot destroy yours or widen it further.
 
-Sharing is a human act performed in a browser. Machine credentials are refused on the shares routes entirely, and everywhere else a subshell's own token acts as its owner's key on the owner's subshells only — a running agent never picks up its owner's shared grants, and can never touch a foreign or shared one.
+Sharing is a human act performed in a browser. Machine credentials are refused on the shares routes entirely, and everywhere else a subshell's own token acts as its owner's key on the owner's subshells only; a running agent never picks up its owner's shared grants, and can never touch a foreign or shared one.
 
 > [!important] What a share actually exposes
 > This is worth being blunt about, because a pane is not a curated document:
 >
-> - A **view** grant shows the grantee the subshell's full output, live. If a secret is on screen — a pasted token, a `.env` in a `cat` — it is shared.
+> - A **view** grant shows the grantee the subshell's full output, live. If a secret is on screen (a pasted token, a `.env` in a `cat`), it is shared.
 > - An **edit** grant additionally hands them the keystroke stream and the ability to type into a live agent session.
 > - **Everyone attached sees everyone else attached.** Each viewer announces its device name, the grid it displays, when it joined, whether its page is in the foreground, and whether it may type. That list goes to every viewer, including a view-only one. This is not an oversight: a pane has one size, set by its smallest visible viewer, and "why is my terminal 80 columns" has no answer without naming the other devices. Device names are sanitized on the way in, so no name carries control characters into your screen.
 > - **Pushes do not follow the share.** Notifications stay targeted at the owner's devices. Who can watch widens; who gets rung does not.
 
 ## The disclosure you will see
 
-Because these exposures are invisible from looking at a terminal, the interface states them: a shared subshell carries a permanent icon in its chrome (hover to name the reason), and widening an exposure raises a one-time banner. The banner is dismissible and can be turned off per device; the icon is not suppressible — silencing an interruption is a preference, silencing the disclosure is not.
+Because these exposures are invisible from looking at a terminal, the interface states them: a shared subshell carries a permanent icon in its chrome (hover to name the reason), and widening an exposure raises a one-time banner. The banner is dismissible and can be turned off per device; the icon is not suppressible, because silencing an interruption is a preference, silencing the disclosure is not.
 
 The same icon mechanism also flags a subshell running on a [node](/nodes) its viewer does not own: what anyone types there transits that machine.
 
 > [!note] Node shares are a separate axis
-> Sharing a subshell says who may watch or drive *it*. Making a *machine* launchable for other people is a different grant, with its own semantics — even a `view` node share lets the grantee launch their own private subshells there. That model lives on [Sharing a node](/nodes/sharing).
+> Sharing a subshell says who may watch or drive *it*. Making a *machine* launchable for other people is a different grant, with its own semantics: even a `view` node share lets the grantee launch their own private subshells there. That model lives on [Sharing a node](/nodes/sharing).
 
 ## See also
 
-- [Subshells](/use/subshells) — what the grant operates on
-- [Devices](/use/devices) — the presence list every attached device sees
-- [Notifications](/use/notifications) — why pushes stay with you
-- [The security model](/about/security-model) — the posture these choices sit in, and the authoritative [threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md) it summarizes
+- [Subshells](/use/subshells): what the grant operates on
+- [Devices](/use/devices): the presence list every attached device sees
+- [Notifications](/use/notifications): why pushes stay with you
+- [The security model](/about/security-model): the posture these choices sit in, and the authoritative [threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md) it summarizes

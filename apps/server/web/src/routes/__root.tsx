@@ -75,8 +75,9 @@ const NAVIGATE_TO_SETUP = <Navigate to="/setup" />;
  * first-run takes precedence — while the instance has no users everyone lands
  * on `/setup` (the boot wizard, never a sign-in form that cannot work) —
  * otherwise every non-bare route bounces to `/login?redirect=<path>`. The
- * pre-auth pages (`/login`, `/setup`) are "bare": they own the whole frame,
- * so the sidebar and mobile top bar never mount on them. If the setup-status
+ * pre-auth pages (`/login`, `/setup`, `/pending`) are "bare": they own the
+ * whole frame, so the sidebar and mobile top bar never mount on them. If the
+ * setup-status
  * query fails, `needsSetup` stays undefined, no redirect fires, and the page
  * renders as before (the old behavior) — a later navigation retries the query.
  */
@@ -117,7 +118,10 @@ function Shell() {
   const offline = useServerOffline();
   const location = useLocation();
   // Pre-auth pages own the whole frame: no sidebar, no drawer bar.
-  const bare = location.pathname === "/login" || location.pathname === "/setup";
+  // /pending is one too (spec 2026-09-24 §7): a pending identity has no
+  // session, and without this the signed-out guard would bounce it to
+  // /login before the waiting room could paint.
+  const bare = location.pathname === "/login" || location.pathname === "/setup" || location.pathname === "/pending";
   // Pages that pad the home-indicator strip themselves (their key bar carries
   // the safe-area padding inside the card) — see lib/app-frame.ts.
   const bottomOwner = routeOwnsBottomEdge(location.pathname);

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import { hashPassword, verifyPassword } from "better-auth/crypto";
 import { sql } from "kysely";
 import { authRateLimitRoutes } from "@/api/auth-rate-limit.route.js";
-import { usersRoutes } from "@/api/users.route.js";
+import { usersRoutes } from "@/api/users/index.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { setAuthPolicyDb } from "@/auth.js";
 import { db } from "@/db/index.js";
@@ -22,7 +22,7 @@ import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { registerLiveSocket, resetLiveRegistryForTests } from "@/ws/live-registry.js";
 import { registerViewer, resetLiveViewersForTests, type WsSocket } from "@/ws/viewers.js";
 import { clearWsTokensForTests, consumeWsToken, issueWsToken } from "@/ws/ws-token.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /**
  * Admin user management: role assignment and password reset.

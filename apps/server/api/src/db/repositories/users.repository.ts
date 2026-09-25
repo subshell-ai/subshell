@@ -1,6 +1,7 @@
 import { sql } from "kysely";
 import { SYSTEM_USER_EMAIL } from "@/auth/system-user.js";
 import { BaseRepository } from "@/db/repositories/base.repository.js";
+import { type ApprovalState, asApprovalState } from "@/db/types/approval-state.js";
 import type { UserRole } from "@/db/types/user-role.js";
 
 /**
@@ -23,6 +24,38 @@ export interface UserWithRole {
    * than left for each consumer to re-derive from a nullable column.
    */
   disabled: boolean;
+  /**
+   * The auth providers this account actually has `account` rows for — a SET
+   * in unspecified order (spec 2026-09-24 §7): a two-provider account may
+   * arrive as `["credential","google"]` or the reverse, and consumers must
+   * not rely on the ordering. Split from a `GROUP_CONCAT` at this boundary so
+   * no consumer knows SQLite aggregates strings — and the aggregate's order
+   * is not guaranteed, which is exactly why set semantics is the contract.
+   * Empty means no sign-in row at all, which in practice only the `system`
+   * service account is.
+   */
+  providers: string[];
+}
+
+/**
+ * One row of the approval queue (spec 2026-09-24 §6): a person a provider let
+ * THROUGH who is not a member yet. `providerName` is NOT here — the route
+ * resolves it live through the AuthProvidersRepository, because a deleted
+ * provider must render as "removed provider" rather than vanish the row.
+ */
+export interface PendingApprovalRow {
+  /** better-auth user id */
+  id: string;
+  /** Email the provider's profile carried */
+  email: string;
+  /** Display name (better-auth's `user.name`; empty for a provider arrival that carried none) */
+  name: string;
+  /** The provider's `providerId` on the account row, or null for a user with no account row */
+  providerId: string | null;
+  /** When the row last landed in (or knocked again on) `pending`; null once resolved */
+  arrivedAt: string | null;
+  /** Queue state — never `approved`; those rows are members, not queue items */
+  approvalState: Exclude<ApprovalState, "approved">;
 }
 
 /**
@@ -54,23 +87,93 @@ export const REAL_ACCOUNT_FILTER = sql`email <> ${SYSTEM_USER_EMAIL}`;
  */
 export class UsersRepository extends BaseRepository {
   /**
-   * Lists all users with their role (app user + user_meta join), newest first.
+   * Lists the MEMBERS with their role and auth providers (app user +
+   * `user_meta` + `account` join), newest first.
+   *
+   * Two filters decide WHO is a member (spec 2026-09-24 §6/§8): rows whose
+   * approval state is `pending` or `rejected` are invisible here — the queue
+   * is answered by {@link listApprovalQueue}, and members are never told who
+   * is pending. That exclusion is defense in depth behind the §6 hook undo;
+   * the approval route is the other half. An absent `user_meta` row (or a
+   * NULL column from a hand edit) COALESCEs to `approved`, like every other
+   * reader of the column: an account predating approval was never in a
+   * queue, and a broken value must not lock its owner out of the roster.
+   *
    * @returns Rows with `role` null when a user has no user_meta row yet
    */
   async listWithRoles(): Promise<UserWithRole[]> {
-    // better-auth's `user` table stores createdAt in camelCase; `user_meta`
-    // is the app's snake_case table. raw sql fragments bypass the
-    // CamelCasePlugin, so each reference spells its own dialect.
-    const { rows } = await sql<Omit<UserWithRole, "disabled"> & { disabled: number }>`
+    // better-auth's `user`/`account` tables store createdAt and providerId in
+    // camelCase; `user_meta` is the app's snake_case table. Raw sql fragments
+    // bypass the CamelCasePlugin, so each reference spells its own dialect,
+    // and every output alias is deliberately camelCase (the alias, not the
+    // column, is what the result key copies).
+    const { rows } = await sql<
+      Omit<UserWithRole, "disabled" | "providers"> & { disabled: number; providers: string | null }
+    >`
       SELECT u.id, u.email, u.name, m.role, u."createdAt" AS createdAt,
-             COALESCE(m.disabled, 0) AS disabled
+             COALESCE(m.disabled, 0) AS disabled,
+             GROUP_CONCAT(DISTINCT a.providerId) AS providers
       FROM user u
       LEFT JOIN user_meta m ON m.user_id = u.id
+      LEFT JOIN account a ON a.userId = u.id
+      WHERE COALESCE(m.approval_state, 'approved') = 'approved'
+      GROUP BY u.id
       ORDER BY u."createdAt" DESC
     `.execute(this.db);
-    // SQLite has no boolean; the 0/1 becomes one at this boundary so nothing
-    // downstream has to know that, or that a missing row means enabled.
-    return rows.map((row) => ({ ...row, disabled: row.disabled !== 0 }));
+    // SQLite has no boolean and no arrays: the 0/1 and the comma-joined
+    // provider list become a boolean and a string[] at this boundary so
+    // nothing downstream has to know either SQL trick, or that a missing row
+    // means enabled.
+    return rows.map((row) => ({
+      ...row,
+      disabled: row.disabled !== 0,
+      providers: row.providers ? row.providers.split(",") : [],
+    }));
+  }
+
+  /**
+   * The approval queue: every `pending` or `rejected` row, newest arrival
+   * first (spec 2026-09-24 §6 — `rejected` rows persist until an admin acts,
+   * which is what lets the tab offer "approve" on them too).
+   *
+   * A rejected row that left `pending` carries a NULL arrival, and SQLite
+   * sorts NULLs last on DESC, so resolved rejections sink below fresh
+   * knocks — the ordering a queue wants. `providerId` is the one provider the
+   * account has; a user with several account rows (credential added by an
+   * admin later) reads its minimum, a stable pick rather than a scan-order
+   * accident.
+   */
+  async listApprovalQueue(): Promise<PendingApprovalRow[]> {
+    const { rows } = await sql<Omit<PendingApprovalRow, "approvalState"> & { approvalState: string }>`
+      SELECT u.id, u.email, u.name, m.approval_state AS approvalState,
+             m.pending_arrived_at AS arrivedAt,
+             (SELECT MIN(a.providerId) FROM account a WHERE a.userId = u.id) AS providerId
+      FROM user u
+      JOIN user_meta m ON m.user_id = u.id
+      WHERE m.approval_state IN ('pending', 'rejected')
+      ORDER BY m.pending_arrived_at DESC, u."createdAt" DESC
+    `.execute(this.db);
+    return rows.flatMap((row) => {
+      const state = asApprovalState(row.approvalState);
+      // The WHERE only admits 'pending'/'rejected', so the narrowing can only
+      // answer "approved" for a value the filter would already have dropped.
+      // Skipping that (impossible) case keeps the row type exact without a
+      // cast — and an approved account is never a queue row anyway.
+      return state === "approved" ? [] : [{ ...row, approvalState: state }];
+    });
+  }
+
+  /**
+   * The provider that created this account, for audit metadata and the approval
+   * route — the same MIN pick {@link listApprovalQueue} makes, in both
+   * spellings of "which one" so the queue row and the audit row can never
+   * name different providers for the same person.
+   */
+  async primaryProviderId(userId: string): Promise<string | null> {
+    const { rows } = await sql<{ providerId: string | null }>`
+      SELECT MIN(providerId) AS providerId FROM account WHERE userId = ${userId}
+    `.execute(this.db);
+    return rows[0]?.providerId ?? null;
   }
 
   /**
@@ -194,9 +297,9 @@ export class UsersRepository extends BaseRepository {
    *
    * The service account is excluded because no credential row exists for it
    * and it can never sign in, so it is not somebody having registered —
-   * counting it would close the door before anyone walked through it and
+   * counting it would close the provider before anyone walked through it and
    * brick a fresh install. Same `email !== SYSTEM_USER_EMAIL` rule
-   * `users.route.ts` already applies to decide manageability.
+   * `users/list-users.route.ts` already applies to decide manageability.
    */
   async countRealAccounts(): Promise<number> {
     // Raw sql for better-auth's table, like every other read here; the

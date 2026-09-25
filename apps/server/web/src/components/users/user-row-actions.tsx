@@ -47,8 +47,12 @@ import { asUserRole, USER_ROLE_LABELS, type UserRole } from "@/types/user-role";
  */
 export interface UserRowActionsProps {
   /** The user this row is for. `role` is a raw string (null = no `user_meta`
-   * row), narrowed through `asUserRole` below, not a pre-narrowed UserRole. */
-  user: { id: string; email: string; role: string | null; disabled?: boolean };
+   * row), narrowed through `asUserRole` below, not a pre-narrowed UserRole.
+   * `providers` is the account's sign-in provider ids; when it is PRESENT and
+   * lacks `credential` there is no password to reset, so the item is omitted.
+   * Absent = an older payload: the item stays and the server's 409 is the
+   * backstop. */
+  user: { id: string; email: string; role: string | null; disabled?: boolean; providers?: string[] };
   /** The signed-in admin's own id — self gets no controls at all. */
   viewerId: string | null;
   /** Refetch the roster after a change. */
@@ -189,6 +193,12 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
     return <span className="text-detail text-muted-foreground">Your account</span>;
   }
 
+  // A provider-only account has no password to reset — offering the item would
+  // promise an act the server refuses. `providers` absent (a payload cached
+  // before the field existed) keeps the item: the server's 409 is still the
+  // truth there, and hiding it would UNDO a control for accounts that have
+  // one, on the strength of a field that never arrived.
+  const hasPassword = user.providers === undefined || user.providers.includes("credential");
   const roleTarget: UserRole = asUserRole(user.role) === "admin" ? "user" : "admin";
   const items: ActionItem[] = [
     {
@@ -200,21 +210,26 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
       icon: roleTarget === "admin" ? ShieldCheck : ShieldOff,
       onSelect: () => void changeRole(roleTarget),
     },
-    {
-      // A reset here never applies to the viewer (the self row returned
-      // above): Account is the path that requires the current password, and
-      // offering both would make the weaker one the obvious choice.
-      label: "Reset password",
-      icon: KeyRound,
-      // Clears the row error first, for the same reason the disable item does:
-      // the dialog renders `error` itself, so a stale refusal from another act
-      // would be misattributed to this one. closeReset already clears on the
-      // way out, but not every open is preceded by a close.
-      onSelect: () => {
-        clearError();
-        setResetOpen(true);
-      },
-    },
+    ...(hasPassword
+      ? [
+          {
+            // A reset here never applies to the viewer (the self row returned
+            // above): Account is the path that requires the current password,
+            // and offering both would make the weaker one the obvious choice.
+            label: "Reset password",
+            icon: KeyRound,
+            // Clears the row error first, for the same reason the disable item
+            // does: the dialog renders `error` itself, so a stale refusal from
+            // another act would be misattributed to this one. closeReset
+            // already clears on the way out, but not every open is preceded
+            // by a close.
+            onSelect: () => {
+              clearError();
+              setResetOpen(true);
+            },
+          },
+        ]
+      : []),
     user.disabled
       ? { label: "Enable account", icon: UserCheck, onSelect: () => void setDisabled(false) }
       : // The only red item: it locks a person out until an admin returns.

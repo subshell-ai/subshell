@@ -1,38 +1,39 @@
 ---
 title: Audit Log
-description: The instance's record of consequential acts — installs, role changes, restarts, repoints — and what each row names.
+description: The instance's record of consequential acts (installs, role changes, restarts, repoints), and what each row names.
 ---
 
-The audit trail is the answer to "who did this to my instance, and when". Every consequential act writes a row: **who** (the admin's user id, or `null` when a system moment answered for itself), **what** (a machine-readable action name like `user.role_change`), **to which target** (its kind and id), **context** (per-action metadata), and **when**. Writing is best-effort by design: if the audit insert itself fails, the act it describes still completes — a logging problem never undoes or blocks an operator's action.
+The audit trail is the answer to "who did this to my instance, and when". Every consequential act writes a row: **who** (the admin's user id, or `null` when a system moment answered for itself), **what** (a machine-readable action name like `user.role_change`), **to which target** (its kind and id), **context** (per-action metadata), and **when**. Writing is best-effort by design: if the audit insert itself fails, the act it describes still completes: a logging problem never undoes or blocks an operator's action.
 
 ## Reading it
 
-- **Settings → Logs → Audit tab** — a read-only trail of every recorded event, newest first, paged 25 at a time and walkable to its beginning: when, action, target, context. Refreshing is reopening.
-- `GET /api/audit?limit=25` — the same rows as JSON, for an admin cookie session (up to 500); older pages pass the last row of the page above as `beforeCreatedAt` and `beforeId`.
+- **Settings → Logs → Audit tab**: a read-only trail of every recorded event, newest first, paged 25 at a time and walkable to its beginning: when, action, target, context. Refreshing is reopening.
+- `GET /api/audit?limit=25`: the same rows as JSON, for an admin cookie session (up to 500); older pages pass the last row of the page above as `beforeCreatedAt` and `beforeId`.
 
 ## What lands in it
 
-Not every request — only **acts**. The families, with their shape:
+Not every request, only **acts**. The families, with their shape:
 
-- **People.** Accounts created, role changes (with the before and after), password resets, and disable/enable. A password reset records **that** it happened and **how many sessions it cut** — never the password, in any form.
-- **The instance's own switches.** Flips of registration, of node-enrollment permission, of the instance display name, and of debug logging — each audited only on a *real* change, with the old and new values, so the log reconstructs decisions rather than page visits.
-- **Credentials.** System API keys created, enabled, disabled, deleted; node setup keys created and revoked. Plaintext never appears — the setup-key rows name the key's id and nothing else. An admin revoking **someone else's** key is the one row in that family with context: `{ foreign: true, ownerUserId }`, so the trail says whose door was closed by whom. Ids, never the key text.
+- **People.** Accounts created, role changes (with the before and after), password resets, and disable/enable. A password reset records **that** it happened and **how many sessions it cut**, never the password, in any form. Approval-queue decisions carry their own rows: approve and reject each name the arriving account and **which provider it came through**.
+- **The instance's own switches.** Flips of registration (still spelled by its old settings key in the trail, even though the answer now lives on the E-mail provider's row), of node-enrollment permission, of the instance display name, and of debug logging, each audited only on a *real* change, with the old and new values, so the log reconstructs decisions rather than page visits.
+- **Sign-in providers.** Creates, updates (which fields moved, and the issuer), and removals, never the client secret, which is exactly what a "secret" row-writing discipline is for. See [Sign-in Providers](/server/sign-in-providers).
+- **Credentials.** System API keys created, enabled, disabled, deleted; node setup keys created and revoked. Plaintext never appears: the setup-key rows name the key's id and nothing else. An admin revoking **someone else's** key is the one row in that family with context: `{ foreign: true, ownerUserId }`, so the trail says whose door was closed by whom. Ids, never the key text.
 - **Subshell lifecycle.** Create, restart, terminate, delete.
-- **Nodes.** Enroll, delete, rename, key rotation, directory-allowlist changes, share changes, service verbs (start/stop/restart/install/uninstall, with whether `force` was used), repointing to another control plane (the row names the new address — that is the disclosure the act makes), logging toggles, maintenance flips, and binary updates. A maintenance row can carry a `null` actor: that is the machine's own `subshell maintenance on|off`, deciding for itself.
-- **The server, to itself.** Config writes (key, old value, new value — and this surface cannot write secrets), restarts, autostart armed or disarmed, supervision switches — though the supervision row is the table's one soft spot: it is posted by the desktop app itself as a record of intent, so the sanctioned path always leaves one and a direct command invocation would leave none. And **updates**, which are recorded twice: once when an admin presses the button (actor: the admin) and once at the completing boot (actor: `null` — the new binary answering for itself). A job that dies mid-download still leaves the first half.
+- **Nodes.** Enroll, delete, rename, key rotation, directory-allowlist changes, share changes, service verbs (start/stop/restart/install/uninstall, with whether `force` was used), repointing to another control plane (the row names the new address: that is the disclosure the act makes), logging toggles, maintenance flips, and binary updates. A maintenance row can carry a `null` actor: that is the machine's own `subshell maintenance on|off`, deciding for itself.
+- **The server, to itself.** Config writes (key, old value, new value; this surface cannot write secrets), restarts, autostart armed or disarmed, supervision switches, though the supervision row is the table's one soft spot: it is posted by the desktop app itself as a record of intent, so the sanctioned path always leaves one and a direct command invocation would leave none. And **updates**, which are recorded twice: once when an admin presses the button (actor: the admin) and once at the completing boot (actor: `null`; the new binary answering for itself). A job that dies mid-download still leaves the first half.
 - **Break-glass.** A recovery login that rewrote an admin's credential is audited as such, alongside the banner every signed-in user sees.
-- **Plugins and networks.** Installs, enables, disables, uninstalls; and for network plugins, configure (field **names** only, never the secret values), install, join (mode and outcome — never the credential used), publish, unpublish, leave (the rows name the affected origins).
-- **Software installed on this host on request.** An agent CLI's installer run, and a tmux install — both admin acts that put code on the control-plane host, both audited.
+- **Plugins and networks.** Installs, enables, disables, uninstalls; and for network plugins, configure (field **names** only, never the secret values), install, join (mode and outcome, never the credential used), publish, unpublish, leave (the rows name the affected origins).
+- **Software installed on this host on request.** An agent CLI's installer run, and a tmux install, both admin acts that put code on the control-plane host, both audited.
 
 ## What deliberately does not
 
-- **Reads and re-checks.** Nothing that changes no state earns a row — including the Updates page's Re-check button, so the `server.update` row that matters does not drown beside it.
+- **Reads and re-checks.** Nothing that changes no state earns a row, including the Updates page's Re-check button, so the `server.update` row that matters does not drown beside it.
 - **Request lines.** Those are the *log file*'s world, not this one (see [Logs & Debugging](/server/logs-debug)), and even there they stay off unless debug logging is explicitly on.
-- **Secret values.** This is the row-writing discipline behind the whole table, and it is what makes the audit trail safe to screenshot, paste into an issue, or hand to whoever is helping you debug: rows name origins, keys, field names, counts and before/after values for things that are not credentials — never a password, a token, or a secret.
+- **Secret values.** This is the row-writing discipline behind the whole table, and it is what makes the audit trail safe to screenshot, paste into an issue, or hand to whoever is helping you debug: rows name origins, keys, field names, counts and before/after values for things that are not credentials, never a password, a token, or a secret.
 
 ## See also
 
-- [Users & Roles](/server/users-roles) — the acts on accounts that write the people rows
-- [Registration & Enrollment](/server/registration-enrollment) — the switches whose flips you can now trace
-- [API Keys](/server/api-keys) — why the plaintext your key showed you once is nowhere in this table
-- [The full threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#10-audit-and-observability) — the event accounting, section by section
+- [Users & Roles](/server/users-roles): the acts on accounts that write the people rows
+- [Registration & Enrollment](/server/registration-enrollment): the switches whose flips you can now trace
+- [API Keys](/server/api-keys): why the plaintext your key showed you once is nowhere in this table
+- [The full threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#10-audit-and-observability): the event accounting, section by section

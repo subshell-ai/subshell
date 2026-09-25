@@ -198,6 +198,31 @@ if (!fs.existsSync(DOCS_DIR)) {
     }
   });
 
+  describe("em-dash ban", () => {
+    // The voice rule (AGENTS.md, operator ruling 2026-09-25): no U+2014 in
+    // page prose, headings, frontmatter or callouts — a comma, colon,
+    // parentheses or a full stop carries the same breath. Fenced blocks and
+    // inline code are exempt (they quote command output and literal strings);
+    // en dashes and hyphens are untouched. One test, every offender listed:
+    // the sweep wants the whole file list at once, not one rebuild per file.
+    test("no .mdx page carries an em dash", () => {
+      const offenders = listMdx("")
+        .map((rel) => {
+          const prose = fs
+            .readFileSync(path.join(DOCS_DIR, rel), "utf8")
+            .replace(/```[\s\S]*?```/g, "")
+            .replace(/`[^`\n]*`/g, "");
+          const hits = prose.match(/—/g);
+          return hits === null ? null : `${rel}: ${hits.length} em dash(es)`;
+        })
+        .filter((line): line is string => line !== null);
+      expect(
+        offenders,
+        `em dashes in page prose (replace with a comma, colon, parentheses, or a new sentence):\n${offenders.join("\n")}`,
+      ).toEqual([]);
+    });
+  });
+
   describe("internal links", () => {
     // One test, all failures listed — the point is to see every dead link in
     // one run, not to fix them one rebuild at a time.

@@ -1,16 +1,31 @@
 import { apiKey } from "@better-auth/api-key";
 import { passkey } from "@better-auth/passkey";
 import { betterAuth } from "better-auth";
+import { genericOAuth } from "better-auth/plugins";
 import { sql } from "kysely";
 import { auditAuthAfterRequest, auditSessionDeleted } from "@/auth/audit-hooks.js";
 import { authDatabase } from "@/auth/database.js";
+import { createHeldEmailGuardBeforeHook } from "@/auth/held-email-guards.js";
+import { createProviderGuardBeforeHook } from "@/auth/provider-guards.js";
+import { evaluateProviderPolicy, type ProviderValidationData } from "@/auth/provider-policy.js";
+import { loadProviderRowsSync, toGenericOAuthConfig } from "@/auth/provider-rows.js";
 import { APP_BASE_URL, AUTH_SECRET } from "@/constants.js";
+import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
+import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { REAL_ACCOUNT_FILTER } from "@/db/repositories/users.repository.js";
 import { FIRST_SETUP_STEP } from "@/db/types/setup-step.js";
-import { accountDisabled } from "@/services/account-status.js";
-import { registrationOpen } from "@/services/registration-gate.js";
+import { accountDisabled, accountPending } from "@/services/account-status.js";
 import { originRegistry } from "@/services/trusted-origins.js";
 import { normalizeUserName } from "@/services/user-name.js";
+import { logger } from "@/utils/logger.js";
+
+// Built over the lazily-injected app handle (the import-purity invariant
+// above applies to it too); see `@/auth/provider-guards` for what it refuses.
+const providerGuardBeforeHook = createProviderGuardBeforeHook(() => appDb);
+// The sign-up twin, same handle, same seam (spec §5's named refusal); see
+// `@/auth/held-email-guards` for why this path needs the before hook and not
+// the provisioning hooks.
+const heldEmailGuardBeforeHook = createHeldEmailGuardBeforeHook(() => appDb);
 
 /**
  * The raw better-auth options, exported for `runAuthMigrations`:
@@ -30,6 +45,35 @@ export const AUTH_OPTIONS = {
   secret: AUTH_SECRET,
   emailAndPassword: {
     enabled: true,
+  },
+  user: {
+    // §3: the one policy seam 1.7.1 offers (measured: there is no
+    // per-provider hook, and no `validateUserInfo` call anywhere on the
+    // email-password SIGN-IN path — that refusal is `provider-guards`'s job).
+    // Rejection is a RETURNED `{ error, errorDescription }` — NOT a thrown
+    // string and NOT the literal "reject" (a returned string's `.error` is
+    // undefined ⇒ ALLOWED; assertValidUserInfo reads `result?.error`). The
+    // codes ride out as a 403 APIError whose `code` is exactly this `error`,
+    // which is how `/pending` and the login page map the refusal (§4).
+    validateUserInfo: async (data: ProviderValidationData, _ctx: unknown) => {
+      if (!appDb) return undefined; // pre-boot: matches the other policy reads' gap behavior
+      return await evaluateProviderPolicy(appDb, data);
+    },
+  },
+  account: {
+    accountLinking: {
+      // Spec §5, measured: 1.7.1's implicit link gate demands the LOCAL user's
+      // emailVerified by default, and every account this instance writes has
+      // it FALSE — the spec's core linking requirement would die with a
+      // generic "account not linked". The inversion makes the PROVIDER's
+      // verified claim the link defense; that claim's enforcement (provider-policy
+      // + mapProfileToUser) is what pays for it, and docs/security.md §5
+      // accounting lands with it (final docs task). 1.7.1 marks the member
+      // deprecated ("gate becomes unconditional"); upgrading better-auth
+      // therefore re-arms the default this line removes, and the upgrade is a
+      // spec-§5 decision, not a dependency bump.
+      requireLocalEmailVerified: false,
+    },
   },
   // The FUNCTION form, which better-auth 1.7.1 re-invokes per request
   // (`dist/auth/base.mjs` getTrustedOrigins(options, request); the origin
@@ -88,19 +132,19 @@ export const AUTH_OPTIONS = {
     user: {
       create: {
         before: async (newUser: { name?: string }) => {
-          // Registration gate: once the app is set up, the admin can close it.
-          if (!(await registrationAllowed())) {
-            return false;
-          }
-          // ...and the display name is normalized HERE because this is the one
+          // The registration gate USED to refuse here; it now refuses in
+          // `user.validateUserInfo` (above), which 1.7.1 runs before this
+          // hook and on every provisioning path this instance has — see
+          // spec 2026-09-24 §3.
+          // The display name is normalized HERE because this is the one
           // seam every sign-up shares. The first-run wizard calls
           // `signUp.email` directly, so `POST /api/users`'s own normalizer
           // never sees the very first admin's name — and that name is rendered
           // to every other user as a share grantee label and reaches log
           // lines. better-auth 1.7.1 merges a returned `{ data }` over the row
           // it was about to write (`db/with-hooks.mjs`), which is what makes a
-          // rewrite possible at all; `false` still aborts, so the gate above
-          // is unaffected.
+          // rewrite possible at all; `false` still aborts, so this seam
+          // remains able to refuse if a future rule needs one.
           const name = normalizeUserName(newUser.name ?? "");
           // Nothing printable becomes "" rather than a refusal: a refusal here
           // is a failed first run, and "" is the value `displayNamesByIds`
@@ -113,13 +157,20 @@ export const AUTH_OPTIONS = {
         },
       },
     },
+    account: {
+      create: {
+        after: markApprovalProviderArrival,
+      },
+    },
     session: {
       create: {
         before: async (session: { userId: string }) => {
-          // A disabled account may not authenticate. The hook sits on SESSION
-          // creation rather than on the email sign-in endpoint because every
-          // credential kind mints a session here — password and passkey
-          // alike — so one refusal covers both, and whatever is added next.
+          // A disabled or pending account may not authenticate. The hook sits
+          // on SESSION creation rather than on the email sign-in endpoint
+          // because every credential kind mints a session here — password and
+          // passkey alike — so one refusal covers both, and whatever is added
+          // next. Pending lands here for the first-arrival OAuth sign-in and
+          // stays the backstop behind `validateUserInfo` (§4).
           if (await signInAllowed(session.userId)) return undefined;
           return false;
         },
@@ -141,6 +192,23 @@ export const AUTH_OPTIONS = {
   // success and why failures deliberately write nothing. Runs for every
   // better-auth request, so the path table short-circuits everything else.
   hooks: {
+    // One user-level before hook exists per options object, so the two path
+    // guards compose here. They match disjoint paths — the provider guard owns the
+    // two credential-VERIFICATION paths, the held-email guard owns
+    // `/sign-up/email` — so no request can see both and the order cannot
+    // matter; it is spelled this way only for reading.
+    before: async (rawCtx: unknown) => {
+      // The closed E-mail provider's sign-in refusal (spec §7) — see
+      // `@/auth/provider-guards` for why THIS layer and not `validateUserInfo`
+      // carries it (measured: that hook never fires on the sign-in paths).
+      await providerGuardBeforeHook(rawCtx);
+      // Spec §5's named refusal of OIDC-held addresses on the sign-up path —
+      // see `@/auth/held-email-guards` for why it must sit HERE (measured:
+      // better-auth's duplicate-email throw precedes both `validateUserInfo`
+      // and `user.create.before`, so neither provisioning seam ever sees a
+      // held address) and for the gate-first order it enforces.
+      await heldEmailGuardBeforeHook(rawCtx);
+    },
     after: auditAuthAfterRequest,
   },
 };
@@ -153,23 +221,70 @@ export const AUTH_OPTIONS = {
  * subcommand's lifetime; pinned by auth-import-purity.test.ts). The auth
  * database is the same bun:sqlite file as the app (better-auth's bundled
  * dialect handles it).
+ *
+ * `genericOAuth` joins the plugin list HERE and not in `AUTH_OPTIONS`:
+ * AUTH_OPTIONS also feeds `runAuthMigrations`, which receives the FULL
+ * options — a provider row that made plugin init throw (a bad config, a discovery
+ * fallback) would then crash-loop BOOT, since migrations run before anything
+ * listens (spec §3). genericOAuth registers no tables of its own, so the
+ * migration path never needs it, and a broken provider costs the auth instance
+ * only — which {@link getAuth}'s last-known-good rule then papers over.
+ * The email row is a provider for POLICY purposes (§2) and never an OAuth one:
+ * it is filtered here, before the config array is built.
  */
 function buildAuth() {
-  return betterAuth({ ...AUTH_OPTIONS, database: authDatabase() });
+  const providers = loadProviderRowsSync().filter((r) => r.kind !== "email");
+  // Canonical = list position 0 (§5a). On better-auth 1.7.1 this is also the
+  // ONLY entry that can ever reach the wire: genericOAuth's `redirectURI` is
+  // a plain config string (measured: plugins/generic-oauth/types.d.mts:116)
+  // and the core builder emits it verbatim, so follow-the-visitor waits on
+  // the upstream capability — flow-matrix case 14 pins the emitted URI.
+  const config = providers.map((r) => toGenericOAuthConfig(r, r.entryOrigins[0] ?? APP_BASE_URL));
+  return betterAuth({
+    ...AUTH_OPTIONS,
+    database: authDatabase(),
+    plugins: config.length > 0 ? [...AUTH_OPTIONS.plugins, genericOAuth({ config })] : AUTH_OPTIONS.plugins,
+  });
 }
 
 type Auth = ReturnType<typeof buildAuth>;
 let instance: Auth | undefined;
+/** The last instance that built cleanly, for the fallback below. */
+let lastGood: Auth | undefined;
 
 /**
  * The better-auth instance (singleton per the code-style rule), built on
  * FIRST USE. Everything that needs auth does so at boot or per-request —
  * both well after module evaluation — so the laziness is invisible in
  * behavior and visible only in the absence of import-time side effects.
+ *
+ * A rebuild that THROWS serves the last known-good configuration rather than
+ * taking the instance down: an admin saving a junk provider row must not
+ * sign every existing user out mid-edit (spec §3). The first-ever build
+ * failing still throws — there is no known-good to serve, and a silent
+ * stand-in would be a fake.
  */
 export function getAuth(): Auth {
-  instance ??= buildAuth();
+  if (instance) return instance;
+  try {
+    instance = buildAuth();
+    lastGood = instance;
+  } catch (err) {
+    logger.withError(err).error("building the auth instance failed; serving the last known-good configuration");
+    if (!lastGood) throw err; // first build can still fail loudly
+    instance = lastGood;
+  }
   return instance;
+}
+
+/**
+ * Drops the memoized instance so the next {@link getAuth} rebuilds from the
+ * CURRENT `auth_providers` table (spec §3). Called by the provider route
+ * after every successful write — no process restart; same sibling semantics
+ * as {@link resetAuthForTests}, which stays @internal and unchanged.
+ */
+export function invalidateAuth(): void {
+  instance = undefined;
 }
 
 /**
@@ -188,36 +303,83 @@ export function setAuthPolicyDb(db: import("kysely").Kysely<import("@/db/types/i
 }
 
 /**
- * Reads the registration gate.
- *
- * Delegates to `services/registration-gate.ts`, which the settings routes
- * read through as well — three surfaces decide things from this answer (this
- * hook refuses the POST, the admin switch draws itself, the sign-in page
- * offers or hides "create an account"), and a second reading of the row is
- * how they come to disagree.
- *
- * `!appDb` is before the database is wired, which is only ever during boot;
- * open there matches the pre-setup window the shared function describes.
- */
-async function registrationAllowed(): Promise<boolean> {
-  if (!appDb) return true;
-  return await registrationOpen(appDb);
-}
-
-/**
  * Whether this user may be given a session at all.
  *
  * Delegates to `services/account-status.ts`, which `authGuard` reads through
- * as well — this hook closes the door on new sessions, the guard closes it on
+ * as well — this hook closes the provider on new sessions, the guard closes it on
  * credentials already issued, and a second reading of the row is how the two
  * come to disagree.
+ *
+ * PENDING joins DISABLED here (spec 2026-09-24 §4): the first-arrival session
+ * refusal for an approval-gated OIDC account, and the backstop behind
+ * `validateUserInfo`. Disabled is asked FIRST and it wins: a pending account
+ * that an admin also disabled is refused for the stronger reason, and neither
+ * answer may leak the other's truth — the user-visible code for this whole
+ * path is better-auth's generic `unable_to_create_session`, deliberately: it
+ * cannot distinguish pending from disabled and neither leaks the other's.
  *
  * `!appDb` is before the database is wired, which is only ever during boot;
  * allowing there matches what the registration gate does with the same gap.
  */
 async function signInAllowed(userId: string): Promise<boolean> {
   if (!appDb) return true;
-  return !(await accountDisabled(appDb, userId));
+  return !(await accountDisabled(appDb, userId)) && !(await accountPending(appDb, userId));
+}
+
+/**
+ * `databaseHooks.account.create.after` — exported for the hook test; wired
+ * verbatim into {@link AUTH_OPTIONS}.
+ *
+ * The ONLY seam that sees the provider at creation time (user.create.after
+ * fires before the account row exists — measured, review finding 5). Marks
+ * require-approval providers' ARRIVALS pending and undoes the first-admin
+ * promotion that `user.create.after` just wrote for them (§6): an OIDC-arrival
+ * creator can never end up admin, on an instance with no admin yet or one
+ * with an existing admin miscounted as none. The `credential` skip is the
+ * email provider (its account rows spell their provider that way — measured,
+ * `dist/api/routes/sign-up.mjs`); the `getById` miss covers every other
+ * non-provider providerId (a passkey row says "passkey").
+ *
+ * ARRIVALS ONLY, decided by account count: `linkAccount` runs through the
+ * same adapter create (`db/internal-adapter.mjs` — measured), so an approved
+ * EXISTING user linking an approval provider would otherwise be marked pending
+ * and, if they were the sole admin, DEMOTED by the clause below — the
+ * instance losing its last admin to a link. The pure cascade already answers
+ * links (approved links pass; pending/rejected refuse), so marking here would
+ * contradict §5's policy with §6's queue, and the demote's "only the row the
+ * promotion just wrote" claim holds precisely because a fresh arrival is a
+ * user with exactly one account.
+ *
+ * Failures are LOGGED, never thrown and never silent: this runs as an
+ * after-TRANSACTION hook, so the account row is already committed by the
+ * time it executes — a miss leaves the arrival approved-but-unmarked with no
+ * later seam to re-fire it (the next knock takes the sign-in path, where no
+ * account row is created). The journal line is what makes that state loud
+ * for an operator; the compensating sweep-check lands with the expiry pass
+ * (Task 10).
+ */
+export async function markApprovalProviderArrival(account: {
+  id: string;
+  providerId: string;
+  userId: string;
+}): Promise<void> {
+  if (account.providerId === "credential" || !appDb) return;
+  try {
+    const provider = await new AuthProvidersRepository(appDb).getById(account.providerId);
+    if (provider === undefined || provider.requireApproval !== 1) return;
+    // Raw SQL: better-auth's `account` table, physical camelCase names.
+    const others = await sql<{ n: number }>`
+      SELECT COUNT(*) AS n FROM account WHERE userId = ${account.userId} AND id <> ${account.id}
+    `.execute(appDb);
+    if (Number(others.rows[0]?.n ?? 0) > 0) return; // a link, not an arrival
+    const meta = new UserMetaRepository(appDb);
+    await meta.setApproval(account.userId, "pending", { arrivedAt: new Date().toISOString() });
+    await meta.demoteAdminIfAutoPromoted(account.userId);
+  } catch (err) {
+    logger.error(
+      `provider policy: approval marking FAILED for arrival user ${account.userId} on provider ${account.providerId} — the account is committed but unmarked: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 /**

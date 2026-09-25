@@ -1572,10 +1572,15 @@ dashboard window THERE — it proxies `/api` and `/ws` to the real server, and
 it is the only way that window hot-reloads. It says which of the two it chose
 on startup, so the absence of hot reload is never a silent mystery.
 
-Detected rather than assumed, and never started: a window aimed at a dead port
-is worse than the default, and starting a second Vite would fight the one
-`bun run dev` may already own. So the order is `bun run dev` in
-`apps/server/web` first, then the app. `SUBSHELL_DESKTOP_SPA_URL` still wins
+Reused when one is listening, STARTED HERE when none is (operator ask
+2026-09-25): the old detect-only rule meant a dev dashboard silently showed
+the installed binary's embedded build, and an SPA edit reached it "not slowly
+but not at all". A second Vite never fights a developer's own — the running
+one is reused untouched — and a window is never aimed at a dead port: the
+launcher waits for the port to answer before pointing at it, and a Vite that
+never comes up is killed so the run falls back to the old warning. The one
+this run started is killed when `tauri dev` exits; one the developer started
+is never this script's to kill. `SUBSHELL_DESKTOP_SPA_URL` still wins
 when set explicitly, which is what makes a non-default port possible.
 Three things make it safe rather than a hole: it is read only under
 `debug_assertions`, so a release build ignores the variable before looking at
@@ -1851,11 +1856,24 @@ code.
 
 ## Text size is Rust's, not the page's
 
-⌘+ / ⌘− / ⌘0 (View, on macOS) and the tray's **Text Size** submenu walk a fixed
-ladder — `0.8 · 0.9 · 1.0 · 1.1 · 1.25 · 1.5 · 1.75 · 2.0` — stored as `zoom` in
-this app's own `settings.json` and applied with `WebviewWindow::set_zoom`. The
-ladder, the clamp and the frame arithmetic are `desktop-core`'s `zoom` module;
-`src/zoom.rs` here is the level, the menu ids and the apply.
+⌘+ / ⌘− / ⌘0 (View, on macOS), the same three **Ctrl** chords as WINDOW
+accelerators (on Linux — see below), and the tray's **Text Size** submenu walk a
+fixed ladder — `0.8 · 0.9 · 1.0 · 1.1 · 1.25 · 1.5 · 1.75 · 2.0` — stored as
+`zoom` in this app's own `settings.json` and applied with
+`WebviewWindow::set_zoom`. The ladder, the clamp, the frame arithmetic and the
+keyval→rung decision are `desktop-core`'s `zoom` module; `src/zoom.rs` here is
+the level, the menu ids, the apply, and the Linux attach.
+
+**The Linux keys are window accelerators, not a menu, because Linux has no
+menu bar by design.** Before them the tray submenu was the only zoom door
+there, and where no tray host answers — the probe's "none was detected" case
+the close-to-tray rule already respects — there was NO door at all. Reported
+2026-09-24 from a real Ubuntu 26.04 session where the tray rendered and the
+keys simply did nothing. `attach_accelerators`
+runs at EVERY window-build site and routes through the same `handle`, so the
+ladder and the save cannot gain a second implementation; the modifier half is
+GTK's (its default accel mask discards Shift, so Ctrl+Shift+= matches too),
+and the table it registers is pinned to the mapping by a `desktop-core` test.
 
 **Tauri's own `zoom_hotkeys_enabled` was rejected, and the reason is the trust
 boundary.** On macOS and Linux it injects a page script that invokes

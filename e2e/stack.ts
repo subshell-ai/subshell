@@ -2,12 +2,13 @@ import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { BASE_URL, FAKE_REGISTRY_URL, PORTS } from "./ports";
+import { BASE_URL, FAKE_IDP_URL, FAKE_REGISTRY_URL, PORTS } from "./ports";
 
 const ROOT = path.join(import.meta.dirname, "..");
 const BACKEND_DIR = path.join(ROOT, "apps", "server", "api");
 const STUB_PI = path.join(ROOT, "e2e", "stub", "pi");
 const FAKE_REGISTRY = path.join(ROOT, "e2e", "fake-registry.ts");
+const FAKE_OIDC = path.join(ROOT, "e2e", "fixtures", "fake-oidc-server.ts");
 
 interface Stack {
   dir: string;
@@ -16,6 +17,8 @@ interface Stack {
   child?: ReturnType<typeof spawn>;
   /** The fake plugin-registry bun child (fake-registry.ts); see {@link startStack}. */
   fake?: ReturnType<typeof spawn>;
+  /** The fake OIDC-issuer bun child (fixtures/fake-oidc-server.ts); spec 19's door. */
+  idp?: ReturnType<typeof spawn>;
 }
 
 /**
@@ -84,6 +87,32 @@ async function waitForFakeRegistry(fake: ReturnType<typeof spawn>, timeoutMs = 3
 }
 
 /**
+ * Polls the fake OIDC issuer's discovery document until it answers — the
+ * document is exactly what spec 19's door seed consumes (the admin save runs
+ * discovery against the fake, and a refused save would look like a fixture
+ * bug rather than an unstarted child). Same died-loudly shape as
+ * {@link waitForFakeRegistry}.
+ */
+async function waitForFakeIdp(idp: ReturnType<typeof spawn>, timeoutMs = 30_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (idp.exitCode !== null || idp.signalCode !== null) {
+      throw new Error(
+        `[e2e] fake OIDC issuer exited (${idp.exitCode ?? idp.signalCode}) — run \`bun e2e/fixtures/fake-oidc-server.ts\` to see why`,
+      );
+    }
+    try {
+      const res = await fetch(`${FAKE_IDP_URL}/.well-known/openid-configuration`);
+      if (res.ok) return;
+    } catch {
+      // Not listening yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  throw new Error(`[e2e] fake OIDC issuer did not become ready at ${FAKE_IDP_URL} within ${timeoutMs}ms`);
+}
+
+/**
  * Boots the real backend against scratch state: temp file DB, temp subshell
  * data dir, and the `pi` stub as the only harness binary. `detached` puts it in its
  * own process group so teardown can kill the whole tree (bun forks; killing
@@ -103,6 +132,15 @@ export async function startStack(): Promise<void> {
   // spec installs, the bytes are already served. A plain (non-detached)
   // child — it holds nothing but a port, and teardown kills it by pid.
   const fake = spawn("bun", [FAKE_REGISTRY, String(PORTS.fakeRegistry)], {
+    stdio: process.env.E2E_VERBOSE ? "inherit" : "ignore",
+  });
+
+  // The fake OIDC issuer alongside it (fixtures/fake-oidc-server.ts): spec 19
+  // seeds doors whose discovery and OAuth round trip run against it, and the
+  // round trip is a REAL browser navigation, so it must be listening before
+  // any spec starts. Same lifecycle as the registry: one port, no children,
+  // killed by pid.
+  const idp = spawn("bun", [FAKE_OIDC, String(PORTS.fakeIdp)], {
     stdio: process.env.E2E_VERBOSE ? "inherit" : "ignore",
   });
 
@@ -160,8 +198,8 @@ export async function startStack(): Promise<void> {
   });
   child.unref();
 
-  globalThis.e2eStack = { dir, tmuxBase, child, fake };
-  await Promise.all([waitForReady(), waitForFakeRegistry(fake)]);
+  globalThis.e2eStack = { dir, tmuxBase, child, fake, idp };
+  await Promise.all([waitForReady(), waitForFakeRegistry(fake), waitForFakeIdp(idp)]);
 
   // Warm the per-request harness detection: on a host where the real
   // claude/opencode/hermes CLIs exist, their first `--version` probe can
@@ -237,6 +275,15 @@ export async function stopStack(): Promise<void> {
     // fail on a leaked listener, which is the loud version of this bug.
     try {
       stack.fake?.kill();
+    } catch {
+      // Already dead.
+    }
+    // The fake OIDC issuer: same shape as the registry — a direct child with
+    // one port and no children of its own, so a plain kill by pid retires it
+    // (a leaked listener fails the next run's Bun.serve loudly, which is the
+    // point).
+    try {
+      stack.idp?.kill();
     } catch {
       // Already dead.
     }

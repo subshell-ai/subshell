@@ -63,7 +63,10 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>{view?.title}</DialogTitle>
-            {view?.description && <DialogDescription>{view.description}</DialogDescription>}
+            {/* A div, not the stock <p>: `description` may carry a list (the
+                provider-removal prompt, 2026-09-25), and a <ul> inside a <p>
+                is illegal HTML that the parser silently explodes. */}
+            {view?.description && <DialogDescription render={<div />}>{view.description}</DialogDescription>}
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => settle(false)}>

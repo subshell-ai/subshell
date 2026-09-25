@@ -8,6 +8,7 @@ import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
+import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import type { Database } from "@/db/types/index.js";
 
 /**
@@ -16,9 +17,10 @@ import type { Database } from "@/db/types/index.js";
  * - F5: the better-auth `cookieCache` must be bounded (5 min, not 7 days) so
  *   a copied/stale cookie jar stops passing better-auth's own requireSession
  *   endpoints long after sign-out.
- * - F6a: the registration gate must FAIL CLOSED on an unparseable
- *   `allow_registrations` value (missing row still means open — the pre-setup
- *   default).
+ * - F6a: the registration gate must FAIL CLOSED on a stored value that is
+ *   not exactly 1 (since spec 2026-09-24 §2 the answer lives on the E-mail
+ *   provider row; NULL on it means the legacy window — open only while no
+ *   user exists).
  * - F6b: first-admin promotion must be ONE atomic statement, so two
  *   concurrent first sign-ups cannot both count zero and both mint admin,
  *   and the old onConflict role-overwrite can never flip the loser over the
@@ -77,12 +79,13 @@ async function userExists(email: string): Promise<boolean> {
   return row.rows.length > 0;
 }
 
-async function setRegistrationSetting(value: string): Promise<void> {
-  await db
-    .insertInto("settings")
-    .values({ key: "allow_registrations", value, updatedAt: new Date().toISOString() })
-    .onConflict((oc) => oc.column("key").doUpdateSet({ value }))
-    .execute();
+/**
+ * Opens or closes the E-MAIL sign-up provider the way the gate now reads it: the
+ * `auth_providers` row with id `email` (spec 2026-09-24 §2). The settings
+ * row this helper used to write is no longer consulted.
+ */
+async function setEmailRegistration(stored: number | null): Promise<void> {
+  await new AuthProvidersRepository(db).update("email", { registrationEnabled: stored });
 }
 
 /**
@@ -145,7 +148,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db.deleteFrom("settings").where("key", "=", "allow_registrations").execute();
+  // The shared DB persists across files and the other suites depend on the
+  // gate sitting at its seeded default: the E-mail row's NULL (closed-by-
+  // default-while-users-exist). Every case that opened the provider leaves it
+  // here again.
+  await new AuthProvidersRepository(db).update("email", { registrationEnabled: null });
   for (const id of createdUserIds) {
     await db.deleteFrom("userMeta").where("userId", "=", id).execute();
     // A user's preset rows must not outlive the user in the shared
@@ -206,12 +213,13 @@ describe("first-admin promotion is atomic (F6b)", () => {
     // the second end-to-end sign-up must be 'user' — the `ELSE 'user'` half
     // of the statement.
     await signUpEmail(newEmail());
-    // **Registration is opened EXPLICITLY for the second one.** With no row,
-    // an instance that already has a user is now closed — that is the whole
-    // point of the new default, and it refuses this sign-up outright. This
-    // test is about PROMOTION, not about the gate, so it states the condition
-    // it needs rather than relying on a default that no longer holds.
-    await setRegistrationSetting("true");
+    // **Registration is opened EXPLICITLY for the second one.** With the
+    // E-mail row at NULL, an instance that already has a user is now closed —
+    // that is the whole point of the legacy window, and it refuses this
+    // sign-up outright. This test is about PROMOTION, not about the gate, so
+    // it states the condition it needs rather than relying on a default that
+    // no longer holds.
+    await setEmailRegistration(1);
     const r = await signUpEmail(newEmail());
     expect(await roleFor(r.user.id)).toBe("user");
   });
@@ -336,40 +344,46 @@ describe("the first user is bookmarked on the wizard's Network step", () => {
   });
 
   it("the real sign-up hook bookmarks nobody once users exist", async () => {
-    await setRegistrationSetting("true");
+    await setEmailRegistration(1);
     const r = await signUpEmail(newEmail());
     expect(await setupStepFor(r.user.id)).toBeNull();
   });
 });
 
-describe("registration gate fails closed (F6a)", () => {
-  it("unparseable allow_registrations blocks registration", async () => {
-    await setRegistrationSetting("this-is-not-json{");
+describe("registration gate fails closed (F6a, on the E-mail provider row)", () => {
+  it("a corrupt registration_enabled value blocks registration", async () => {
+    // The port of the unparseable-settings-row pin. The column has INTEGER
+    // affinity, not a CHECK — a hand edit can store text — and only exactly
+    // 1 opens, so a damaged row reads closed rather than becoming a way back
+    // in through the no-users window. Raw SQL: the repository's typed patch
+    // cannot express the corruption.
+    await sql`UPDATE auth_providers SET registration_enabled = 'this-is-not-json{' WHERE id = 'email'`.execute(db);
     const e = newEmail();
     await expect(signUpEmail(e)).rejects.toThrow();
     expect(await userExists(e)).toBe(false);
   });
 
-  it('explicit "false" blocks registration', async () => {
-    await setRegistrationSetting("false");
+  it("an explicit 0 blocks registration", async () => {
+    await setEmailRegistration(0);
     const e = newEmail();
     await expect(signUpEmail(e)).rejects.toThrow();
     expect(await userExists(e)).toBe(false);
   });
 
-  it("with NO row, an instance that already has a user refuses sign-up", async () => {
-    // The default flipped (2026-09-13). Before, an absent row meant open
-    // unconditionally, so every instance shipped accepting sign-ups from
-    // anyone who could reach it until an admin noticed. By this point in the
-    // suite users exist, which is the condition that now closes it.
-    await db.deleteFrom("settings").where("key", "=", "allow_registrations").execute();
+  it("with the row at NULL, an instance that already has a user refuses sign-up", async () => {
+    // The legacy window (2026-09-13 default, §2's NULL encoding of it). An
+    // absent answer used to mean open unconditionally, so every instance
+    // shipped accepting sign-ups from anyone who could reach it until an
+    // admin noticed. By this point in the suite users exist, which is the
+    // condition that closes the window.
+    await setEmailRegistration(null);
     const e = newEmail();
     await expect(signUpEmail(e)).rejects.toThrow();
     expect(await userExists(e)).toBe(false);
   });
 
-  it('explicit "true" allows registration again', async () => {
-    await setRegistrationSetting("true");
+  it("an explicit 1 allows registration again", async () => {
+    await setEmailRegistration(1);
     const r = await signUpEmail(newEmail());
     expect(r.user.id).toBeTruthy();
   });
@@ -384,7 +398,7 @@ describe("registration gate fails closed (F6a)", () => {
  */
 describe("display names are normalized on the sign-up path", () => {
   it("strips control characters and collapses whitespace before the row is written", async () => {
-    await setRegistrationSetting("true");
+    await setEmailRegistration(1);
     const email = newEmail();
     await signUpEmail(email, "  Ada\r\n Love\u0007lace  ");
     expect(await storedName(email)).toBe("Ada Love lace");
@@ -394,7 +408,7 @@ describe("display names are normalized on the sign-up path", () => {
     // The asymmetry with the admin route is deliberate: there an admin is
     // typing into a form and can be told to shorten it, here a refusal would
     // land as a failed first run with no account and no way to make one.
-    await setRegistrationSetting("true");
+    await setEmailRegistration(1);
     const email = newEmail();
     await signUpEmail(email, "Z".repeat(200));
     expect(await storedName(email)).toBe("Z".repeat(64));
@@ -405,7 +419,7 @@ describe("display names are normalized on the sign-up path", () => {
     // (`COALESCE(NULLIF(name, ''), email)`), so "" is the one value that means
     // "this person has no chosen name" — the right answer here, and better
     // than storing the control characters that were typed.
-    await setRegistrationSetting("true");
+    await setEmailRegistration(1);
     const email = newEmail();
     await signUpEmail(email, "\r\n\t");
     expect(await storedName(email)).toBe("");

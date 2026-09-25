@@ -1,5 +1,6 @@
 import type { AuditEventsTable } from "@/db/types/audit-events.db-types.js";
 import type { AuthAttemptsTable } from "@/db/types/auth-attempts.db-types.js";
+import type { AuthProviderTable } from "@/db/types/auth-providers.db-types.js";
 import type { ChannelPostRecipientTable, ChannelPostTable } from "@/db/types/channel-posts.db-types.js";
 import type { ChannelCursorTable, ChannelMemberTable, ChannelTable } from "@/db/types/channels.db-types.js";
 import type { DeviceTokenTable } from "@/db/types/device-tokens.db-types.js";
@@ -28,6 +29,7 @@ import type { WorkspaceTable } from "@/db/types/workspaces.db-types.js";
 export interface Database {
   authAttempts: AuthAttemptsTable;
   auditEvents: AuditEventsTable;
+  authProviders: AuthProviderTable;
   presets: PresetTable;
   pluginState: PluginStateTable;
   subshells: SubshellTable;

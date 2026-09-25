@@ -28,7 +28,7 @@ export function shellGate(args: {
   offline: boolean;
   setupLoading: boolean;
   needsSetup: boolean | undefined;
-  /** Pre-auth page (/login, /setup) — those own the whole frame. */
+  /** Pre-auth page (/login, /setup, /pending) — those own the whole frame. */
   bare: boolean;
   pathname: string;
   /** True while the caller's own wizard bookmark has not answered yet. */

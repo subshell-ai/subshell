@@ -40,6 +40,20 @@ sha512 over the real tgz bytes, and serves that one package; the backend child's
 `SUBSHELL_PLUGIN_REGISTRY_URL` points at it, so no spec in the suite can ever
 dial a real registry. It is torn down with the stack.
 
+Spec `19` adds a FOURTH: `bun fixtures/fake-oidc-server.ts 3197` — a
+`Bun.serve` fake OIDC issuer (the same standalone-bun child for the same
+runner reason) reused from Task 7's in-test fake. Unlike the registry it is
+BROWSER-reachable, because spec 19's round trip is a real navigation through
+`/authorize`. `PUT /_profile` swaps the `/userinfo` answer between flows —
+that is the subprocess's addition over the in-test `setProfile`. Spec 19 seeds
+its providers via the admin cookie at `POST /api/auth-providers` (whose save gate
+runs discovery against this fake), and no spec ever dials a real IdP.
+
+Every fixed port in `ports.ts` takes an env override (`E2E_PORT_BACKEND`,
+`E2E_PORT_FAKE_REGISTRY`, `E2E_PORT_FAKE_IDP`, `E2E_PORT_ONBOARDING`) with the
+committed defaults unchanged — the escape hatch for two suites running side by
+side on one machine, which the defaults collide on.
+
 Spec `12` extends the stack itself: it spawns the **real `subshell` from
 source** (`bun apps/node/agent/src/main.ts enroll|run` via `stub/client.ts`, with
 `SUBSHELL_CONFIG_HOME` and `TMUX_TMPDIR` pointed at temp dirs so its config and its
@@ -56,9 +70,11 @@ against ONE shared database:
 - `01-setup-wizard` creates the admin (`.test` email TLD — better-auth rejects
   digit TLDs like `.e2e`) and writes `.auth/admin.json`.
 - The specs after it load that storage state via `ADMIN_STATE` from
-  `helpers.ts` (`04`–`18`, less `15` — which boots its own clean
+  `helpers.ts` (`04`–`19`, less `15` — which boots its own clean
   machine and loads no state; `02` deliberately stays anonymous — it pins
-  the 401 boundary itself).
+  the 401 boundary itself; `19` reads it through an admin `APIRequestContext`
+  for its provider seeding, while every browser context it drives stays
+  anonymous).
 - Two files share the `06-` prefix: `06-split-to-workspace` sorts before
   `06-subshell-lifecycle` and so runs between `05` and it. Both depend only on
   `01`, and the split spec closes the subshells it launches, so the order
@@ -67,7 +83,7 @@ against ONE shared database:
 
 `.auth/admin.json` is path-portable: `ADMIN_STATE` in `helpers.ts` resolves it
 to an absolute path from `import.meta.url` (always `e2e/.auth/admin.json`), and
-both the writer (spec `01`) and the readers (`04`–`18`, less `15`) use that same constant —
+both the writer (spec `01`) and the readers (`04`–`19`, less `15`) use that same constant —
 so the CWD the run is launched from never matters.
 
 ## What the terminal assertions may use

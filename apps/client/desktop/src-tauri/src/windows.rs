@@ -252,6 +252,7 @@ pub fn open_node(app: &AppHandle) -> Result<WebviewWindow, String> {
         .map_err(|e| format!("could not open the node window: {e}"))
         .inspect(|w| {
             let _ = w.set_zoom(level);
+            crate::zoom::attach_accelerators(w);
         })
 }
 
@@ -382,6 +383,7 @@ fn open_plane_window(app: &AppHandle, origin: &str) -> Result<WebviewWindow, Str
             // and the plane's page has to come up at the size the user chose
             // rather than resize under them once it has painted.
             let _ = w.set_zoom(level);
+            crate::zoom::attach_accelerators(w);
         })
 }
 

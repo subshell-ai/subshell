@@ -49,6 +49,7 @@ import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { completeUpdate, readPending, recordFailure, revertUpdate } from "@/services/update-transaction.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { sweepExpiredPaneLogs, tightenPaneLogModes } from "@/services/pane-log-hygiene.js";
+import { expirePendingApprovals, remarkUnmarkedArrivals } from "@/services/pending-approvals.js";
 import { createIdleWatcher, IDLE_TICK_MS } from "@/services/notify-idle.js";
 import { hasAnyUser } from "@/services/registration-gate.js";
 import { SubshellManagerService } from "@/services/subshell-manager.service.js";
@@ -93,7 +94,19 @@ process.on("uncaughtException", (error) => {
   process.exit(1);
 });
 
-if (bootRequested) void bootServer();
+if (bootRequested) {
+  bootServer().catch((error: unknown) => {
+    // A boot failure reaches stderr SYNCHRONOUSLY, before the exit the
+    // unhandled-rejection handler would have performed: the FATAL log rides
+    // an async destination and `process.exit(1)` truncates it — measured
+    // 2026-09-24, a listener that could not bind died with an EMPTY
+    // server.log and an empty stderr redirect, giving `src/__tests__/
+    // e2e-cross-subshell.test.ts` (and any operator) nothing to read. The
+    // e2e's EADDRINUSE skip keys on this line; the exit code stays 1.
+    console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
+    process.exit(1);
+  });
+}
 
 async function bootServer(): Promise<void> {
   // Decoration, and deliberately separate from the version line below: the
@@ -306,6 +319,29 @@ async function bootServer(): Promise<void> {
   await sweepPaneLogs();
   setInterval(() => {
     void sweepPaneLogs().catch((err: unknown) => getLogger().withError(err).warn("pane log sweep failed"));
+  }, 3_600_000);
+  // The pending-approval queue, kept honest (spec 2026-09-24 §6): unactioned
+  // arrivals expire, and an arrival whose marking `account.create.after`
+  // lost is re-queued (`services/pending-approvals.ts` explains both, incl.
+  // why deleting never-admitted rows does not touch the no-user-deletion
+  // rule that shields members). Same hourly cadence as the pane-log pass —
+  // the expiry window is measured in days and the re-mark window in hours,
+  // so a fast tick answers nothing. The boot pass is try/warn like the
+  // origin-refresh boot pass: a housekeeping sweep that cannot run is a
+  // degraded queue, not a reason to fail a boot that already succeeded.
+  const sweepPendingApprovals = async (): Promise<void> => {
+    await expirePendingApprovals(db);
+    await remarkUnmarkedArrivals(db);
+  };
+  try {
+    await sweepPendingApprovals();
+  } catch (err) {
+    getLogger().withError(err).warn("pending-approval sweep failed at boot");
+  }
+  setInterval(() => {
+    void sweepPendingApprovals().catch((err: unknown) =>
+      getLogger().withError(err).warn("pending approval sweep failed"),
+    );
   }, 3_600_000);
   setInterval(() => {
     sweepWsTokens();

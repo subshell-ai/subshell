@@ -1,4 +1,4 @@
 {
   "title": "Server",
-  "pages": ["index", "headless-install", "configuration", "service", "docker", "networking", "network-plugins", "users-roles", "registration-enrollment", "api-keys", "backups", "updating", "logs-debug", "audit-log", "reset"]
+  "pages": ["index", "headless-install", "configuration", "service", "docker", "networking", "network-plugins", "users-roles", "sign-in-providers", "registration-enrollment", "api-keys", "backups", "updating", "logs-debug", "audit-log", "reset"]
 }

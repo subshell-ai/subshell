@@ -3,6 +3,7 @@ import { adminServerRoutes } from "@/api/admin-server/index.js";
 import { adminStatusRoutes } from "@/api/admin-status.route.js";
 import { adminUpdatesRoutes } from "@/api/admin-updates.route.js";
 import { auditRoutes } from "@/api/audit.route.js";
+import { authProvidersRoutes } from "@/api/auth-providers/index.js";
 import { channelRoutes } from "@/api/channels/index.js";
 import { devicesRoutes } from "@/api/devices.route.js";
 import { downloadsRoutes } from "@/api/downloads.route.js";
@@ -22,7 +23,7 @@ import { setupTmuxInstallRoute } from "@/api/setup-tmux-install.route.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { systemKeysRoutes } from "@/api/system-keys.route.js";
 import { uploadsRoutes } from "@/api/uploads.route.js";
-import { usersRoutes } from "@/api/users.route.js";
+import { usersRoutes } from "@/api/users/index.js";
 import { workspaceRoutes } from "@/api/workspaces/index.js";
 import { wsTokenRoutes } from "@/api/ws-token.route.js";
 
@@ -51,6 +52,9 @@ const coreRoutes = new Elysia()
   .use(pluginsRoutes)
   .use(metaRoutes)
   .use(usersRoutes)
+  // The sign-in providers belong with the user-management surfaces they gate
+  // (spec 2026-09-24 §8): same admin family, same admin gate.
+  .use(authProvidersRoutes)
   .use(auditRoutes)
   .use(wsTokenRoutes)
   .use(identityRoutes)

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Route } from "@/routes/settings_.users";
 import { setFetchRouter } from "@/test-setup";
 
@@ -59,6 +59,32 @@ function roster() {
   };
 }
 
+/** Two queue rows: one fresh knock and one rejected arrival that stayed. */
+function queue() {
+  return {
+    pending: [
+      {
+        id: "pend-1",
+        email: "knocker@example.com",
+        name: "Knocker",
+        providerId: "google",
+        providerName: "Google",
+        arrivedAt: "2026-09-24T10:00:00.000Z",
+        approvalState: "pending",
+      },
+      {
+        id: "rej-1",
+        email: "rejected@example.com",
+        name: "Rex",
+        providerId: "google",
+        providerName: "Google",
+        arrivedAt: null,
+        approvalState: "rejected",
+      },
+    ],
+  };
+}
+
 /**
  * Answers every request the page makes, through `setFetchRouter` rather than
  * by swapping `globalThis.fetch`: the better-auth client behind
@@ -79,13 +105,14 @@ function mockFetch(viewerIsAdmin: boolean) {
       return Promise.resolve(new Response(JSON.stringify({ viewerIsAdmin, serverVersion: "1.5.0" })));
     }
     if (url.pathname === "/api/users") return Promise.resolve(new Response(JSON.stringify(roster())));
+    if (url.pathname === "/api/users/pending") return Promise.resolve(new Response(JSON.stringify(queue())));
     // The table also asks better-auth who the viewer is.
     return Promise.resolve(new Response(JSON.stringify({ user: { id: VIEWER_ID } })));
   });
   return { calls, restore: () => setFetchRouter(null) };
 }
 
-function renderPage() {
+function renderPage(initialEntry = "/settings/users") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute();
   // Re-parented onto a test root, as in server-status.test.tsx.
@@ -96,7 +123,7 @@ function renderPage() {
   } as any);
   const router = createRouter({
     routeTree: rootRoute.addChildren([usersRoute]),
-    history: createMemoryHistory({ initialEntries: ["/settings/users"] }),
+    history: createMemoryHistory({ initialEntries: [initialEntry] }),
     defaultPreload: false,
   });
   render(
@@ -127,14 +154,52 @@ describe("/settings/users page", () => {
     }
   });
 
-  it("gives a member the guidance sentence and fetches NO roster", async () => {
+  it("gives a member the guidance sentence and fetches NO roster and NO queue", async () => {
     const { calls, restore } = mockFetch(false);
     try {
       renderPage();
       await waitFor(() => expect(screen.getByText(/for instance admins/)).toBeDefined());
       expect(calls).not.toContain("/api/users");
+      // The queue is gated exactly like the roster: a member's mount fires no
+      // doomed 403, even though its COUNT is what the tab label would show.
+      expect(calls).not.toContain("/api/users/pending");
       expect(screen.queryByRole("button", { name: "Add user" })).toBeNull();
       expect(screen.queryByText("dana@example.com")).toBeNull();
+      expect(screen.queryByText("Members")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("switches between Members and the queue with ?tab= URL state", async () => {
+    const { restore } = mockFetch(true);
+    try {
+      renderPage();
+      // Default tab is Members with the ABSENT param: the queue card is not
+      // rendered even though the count query ran for the label.
+      await waitFor(() => expect(screen.getByText("dana@example.com")).toBeDefined());
+      expect(screen.queryByText("knocker@example.com")).toBeNull();
+      // The label carries the count of EVERY queue row, pending and rejected.
+      const pendingTab = screen.getByRole("button", { name: /Pending approval/ });
+      expect(pendingTab.textContent).toContain("2");
+      fireEvent.click(pendingTab);
+      await waitFor(() => expect(screen.getByText("knocker@example.com")).toBeDefined());
+      // Queue rows get their decision buttons; members are absent on this tab.
+      expect(screen.getByRole("button", { name: "Approve knocker@example.com" })).toBeDefined();
+      expect(screen.queryByText("dana@example.com")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("renders the queue straight from ?tab=pending, a shareable address", async () => {
+    const { restore } = mockFetch(true);
+    try {
+      renderPage("/settings/users?tab=pending");
+      await waitFor(() => expect(screen.getByText("knocker@example.com")).toBeDefined());
+      // Rejected rows stay in the queue (spec §6), badged as what they are.
+      expect(screen.getByText("rejected@example.com")).toBeDefined();
+      expect(screen.getByText("Rejected")).toBeDefined();
     } finally {
       restore();
     }

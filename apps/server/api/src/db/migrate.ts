@@ -36,6 +36,8 @@ import * as setupKeyPlaintextMigration from "@/db/migrations/0033-setup-key-plai
 import * as favoritesNodeScopeMigration from "@/db/migrations/0034-favorites-node-scope.js";
 import * as pushUrgencyMigration from "@/db/migrations/0035-subshell-push-urgency.js";
 import * as nodeEncryptPublicKeyMigration from "@/db/migrations/0036-node-encrypt-public-key.js";
+import * as authProvidersMigration from "@/db/migrations/0037-auth-providers.js";
+import * as approvalStateMigration from "@/db/migrations/0038-approval-state.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -103,6 +105,12 @@ export async function runMigrations(): Promise<void> {
           // link; NULL = legacy row, held-updatable until it registers
           // (spec 2026-09-24 §3/§5).
           "0036-node-encrypt-public-key": nodeEncryptPublicKeyMigration,
+          // Admin-managed sign-in providers; the seeded `email` row carries the
+          // old `allow_registrations` gate forward (spec 2026-09-24 §2).
+          "0037-auth-providers": authProvidersMigration,
+          // Approval lifecycle on `user_meta`; DEFAULT 'approved' backfills
+          // every pre-existing account (spec 2026-09-24 §6).
+          "0038-approval-state": approvalStateMigration,
         };
       },
     },

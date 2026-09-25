@@ -85,7 +85,7 @@ function ServerStatusPage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
-      <PageHeader title="Server status" subtitle="What this instance is running right now (admins)" />
+      <PageHeader title="Server status" subtitle="What this instance is running right now" />
       {viewerIsAdmin === undefined ? null : isAdmin ? (
         <>
           {error && <RetryBanner message="Could not load the instance status." onRetry={() => void refetch()} />}

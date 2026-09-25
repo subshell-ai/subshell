@@ -1,15 +1,16 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { nodeArtifactFileName } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-import { settingsRoutes } from "@/api/settings.route.js";
+import { PENDING_APPROVAL_EXPIRY_MAX_DAYS, settingsRoutes } from "@/api/settings.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
 import { APP_BASE_URL, NODE_ARTIFACTS_DIR, SERVER_PORT } from "@/constants.js";
 import { db } from "@/db/index.js";
+import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -19,6 +20,7 @@ import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { setLanProbeForTests } from "@/services/lan-origins.js";
 import { ensureLocalNode, localHostname } from "@/services/nodes/seed-local.js";
+import { PENDING_APPROVAL_EXPIRY_KEY } from "@/services/pending-approvals.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { originRegistry, resetOriginRegistryForTests } from "@/services/trusted-origins.js";
 import { SERVER_VERSION } from "@/version.js";
@@ -101,8 +103,14 @@ describe("settings routes (admin cookie only)", () => {
   });
 
   afterAll(async () => {
-    // Restore the instance-wide default this suite toggles, then drop fixtures.
-    await new SettingsRepository(db).set("allow_registrations", true);
+    // Restore the instance-wide default this suite toggles, then drop
+    // fixtures. The PATCH writes the E-mail provider row (Task 9), so the
+    // row is the only thing this suite moves — and every other suite in the
+    // shared DB depends on it sitting at its seeded NULL (the legacy window:
+    // closed behind the first account). The legacy `allow_registrations`
+    // settings row is now read and written by nobody; migration 0037 spelled
+    // its key inline once, at upgrade time.
+    await new AuthProvidersRepository(db).update("email", { registrationEnabled: null });
     await db.deleteFrom("subshells").where("id", "=", subshellId).execute();
     for (const kid of createdKeyIds) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [kid]);
     await db.deleteFrom("userMeta").where("userId", "=", adminId).execute();
@@ -121,6 +129,11 @@ describe("settings routes (admin cookie only)", () => {
     const before = (await get.json()) as { allowRegistrations: boolean };
     expect(typeof before.allowRegistrations).toBe("boolean");
 
+    // One round-trip per direction: the PATCH writes the E-mail provider row
+    // and the response reads the answer back through `registrationOpen`, so a
+    // write that did not land cannot report itself as a success.
+    const emailRow = new AuthProvidersRepository(db);
+
     const patch = await app.fetch(
       authedRequest("/api/settings", adminCookie, {
         method: "PATCH",
@@ -129,6 +142,7 @@ describe("settings routes (admin cookie only)", () => {
     );
     expect(patch.status).toBe(200);
     expect(((await patch.json()) as { allowRegistrations: boolean }).allowRegistrations).toBe(false);
+    expect((await emailRow.getById("email"))?.registrationEnabled).toBe(0);
 
     const restore = await app.fetch(
       authedRequest("/api/settings", adminCookie, {
@@ -138,6 +152,8 @@ describe("settings routes (admin cookie only)", () => {
     );
     expect(restore.status).toBe(200);
     expect(((await restore.json()) as { allowRegistrations: boolean }).allowRegistrations).toBe(true);
+    expect((await emailRow.getById("email"))?.registrationEnabled).toBe(1);
+    await emailRow.update("email", { registrationEnabled: null });
   });
 
   it("admin cookie round-trips the instance name", async () => {
@@ -338,10 +354,19 @@ describe("settings routes (admin cookie only)", () => {
       .where("action", "=", "settings.update")
       .execute();
 
-    await patchTo(false);
+    // The seed below is the state the flips act on, not a stand-in for a
+    // write: the PATCH now writes the E-mail provider row itself (Task 9), so
+    // starting from open makes the first `patchTo(false)` a real
+    // true→false transition and the second one a real no-op.
+    const emailRow = new AuthProvidersRepository(db);
+
+    await emailRow.update("email", { registrationEnabled: 1 }); // gate: open
+    await patchTo(false); // flip: the audited one — and it writes the row now
+    expect((await emailRow.getById("email"))?.registrationEnabled).toBe(0);
     await patchTo(false); // no flip — must not add an event
     await patchTo(true); // flip back
 
+    await emailRow.update("email", { registrationEnabled: null });
     const events = await db
       .selectFrom("auditEvents")
       .select(["action", "targetType", "targetId", "metadataJson"])
@@ -378,6 +403,10 @@ describe("settings routes (admin cookie only)", () => {
   });
 
   it("admin-owned subshell token is rejected on GET and PATCH (403, not 500)", async () => {
+    // The switch this PATCH would move lives on the E-mail provider row now,
+    // so "the setting is untouched" is read from that row — around the call,
+    // whatever value the preceding tests left there.
+    const before = (await new AuthProvidersRepository(db).getById("email"))?.registrationEnabled ?? null;
     const get = await app.fetch(bearerRequest("/api/settings", adminSubshellKey));
     expect(get.status).toBe(403);
     const patch = await app.fetch(
@@ -390,9 +419,10 @@ describe("settings routes (admin cookie only)", () => {
     const body = (await patch.json()) as { code: string; statusCode: number };
     expect(body.code).toBe("ACCESS_DENIED");
     expect(body.statusCode).toBe(403);
-    // The setting is untouched: the denial was real, not a serialization mask.
-    const now = await new SettingsRepository(db).get("allow_registrations", true);
-    expect(now).toBe(true);
+    // The denial was real, not a serialization mask: the row still answers what
+    // it answered before the request.
+    const now = (await new AuthProvidersRepository(db).getById("email"))?.registrationEnabled ?? null;
+    expect(now).toBe(before);
   });
 
   it("system key is rejected on GET and PATCH (403)", async () => {
@@ -585,6 +615,143 @@ describe("settings routes (admin cookie only)", () => {
     expect(((await bearer.json()) as { viewerIsAdmin: boolean }).viewerIsAdmin).toBe(false);
   });
 
+  // pendingApprovalExpiryDays (Task 10b, spec 2026-09-24 §6): the expiry
+  // window the hourly sweep reads, now admin-set. GET answers through the
+  // sweep's OWN reader, so an absent or corrupt row reads 30 exactly as the
+  // sweep will act on it — the page can never show a number the sweep
+  // disagrees with.
+  describe("pendingApprovalExpiryDays (the sweep's window, admin-set)", () => {
+    const patch = (pendingApprovalExpiryDays: unknown) =>
+      app.fetch(
+        authedRequest("/api/settings", adminCookie, {
+          method: "PATCH",
+          body: JSON.stringify({ pendingApprovalExpiryDays }),
+        }),
+      );
+    const read = async () =>
+      (
+        (await (await app.fetch(authedRequest("/api/settings", adminCookie))).json()) as {
+          pendingApprovalExpiryDays: number;
+        }
+      ).pendingApprovalExpiryDays;
+    const clearEvents = async () =>
+      await db
+        .deleteFrom("auditEvents")
+        .where("actorUserId", "=", adminId)
+        .where("action", "=", "settings.update")
+        .where("targetId", "=", PENDING_APPROVAL_EXPIRY_KEY)
+        .execute();
+
+    afterEach(async () => {
+      await new SettingsRepository(db).delete(PENDING_APPROVAL_EXPIRY_KEY);
+      await clearEvents();
+    });
+
+    it("reads 30 with no row; PATCH 14 stores, echoes and audits; a re-send audits nothing", async () => {
+      await new SettingsRepository(db).delete(PENDING_APPROVAL_EXPIRY_KEY);
+      expect(await read()).toBe(30);
+
+      const res = await patch(14);
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { pendingApprovalExpiryDays: number }).pendingApprovalExpiryDays).toBe(14);
+      expect(await new SettingsRepository(db).get<number>(PENDING_APPROVAL_EXPIRY_KEY, Number.NaN)).toBe(14);
+
+      // Re-sending the current value: the sibling idiom — the row is written
+      // (which also heals a corrupt one), but nothing is audited.
+      expect((await patch(14)).status).toBe(200);
+
+      const events = await db
+        .selectFrom("auditEvents")
+        .select(["targetType", "targetId", "metadataJson"])
+        .where("actorUserId", "=", adminId)
+        .where("action", "=", "settings.update")
+        .where("targetId", "=", PENDING_APPROVAL_EXPIRY_KEY)
+        .execute();
+      expect(events.length).toBe(1);
+      expect([events[0]?.targetType, events[0]?.targetId]).toEqual(["settings", PENDING_APPROVAL_EXPIRY_KEY]);
+      // `from` is the ANSWERED number: no row meant 30, not null.
+      expect(JSON.parse(events[0]?.metadataJson ?? "{}")).toEqual({ from: 30, to: 14 });
+    });
+
+    it("accepts 0 (keep forever) and reads it back as 0", async () => {
+      expect((await patch(0)).status).toBe(200);
+      expect(await read()).toBe(0);
+    });
+
+    it("serves the ceiling on both answers, and the GET's key set is exactly the schema's", async () => {
+      // The card takes its input bound from the read (final review, minor #2)
+      // rather than mirroring `PENDING_APPROVAL_EXPIRY_MAX_DAYS`, so the
+      // field must ride the GET AND the PATCH echo; the whole-key-set
+      // assertion is the GET /api/settings/instance rule — a field added to
+      // this read later is a decision, not an accumulation.
+      const body = (await (await app.fetch(authedRequest("/api/settings", adminCookie))).json()) as Record<
+        string,
+        unknown
+      >;
+      expect(body.pendingApprovalExpiryMaxDays).toBe(PENDING_APPROVAL_EXPIRY_MAX_DAYS);
+      expect(Object.keys(body).sort()).toEqual([
+        "allowNodeEnrollment",
+        "allowRegistrations",
+        "allowServerSubshells",
+        "instanceName",
+        "localNodeName",
+        "lockdown",
+        "pendingApprovalExpiryDays",
+        "pendingApprovalExpiryMaxDays",
+      ]);
+      const echoed = (await (await patch(14)).json()) as Record<string, unknown>;
+      expect(echoed.pendingApprovalExpiryMaxDays).toBe(PENDING_APPROVAL_EXPIRY_MAX_DAYS);
+    });
+
+    it("refuses 2.5, -1 and 3651 with 400, before anything is written", async () => {
+      await new SettingsRepository(db).set(PENDING_APPROVAL_EXPIRY_KEY, 14);
+      // Start from an empty trail for this key (the afterEach keeps the suite
+      // clean, this makes the zero below unambiguous): every row counted after
+      // the loop was written by the refused PATCHes or not at all.
+      await clearEvents();
+      for (const bad of [2.5, -1, 3651]) {
+        const res = await patch(bad);
+        expect(res.status).toBe(400);
+        const body = (await res.json()) as { code: string; statusCode: number };
+        expect(body.code).toBe("BAD_REQUEST");
+        expect(body.statusCode).toBe(400);
+      }
+      // The refusal wrote nothing (the lockdown hoist's rule): neither the
+      // row nor the trail moved.
+      expect(await new SettingsRepository(db).get<number>(PENDING_APPROVAL_EXPIRY_KEY, Number.NaN)).toBe(14);
+      expect(await read()).toBe(14);
+      const events = await db
+        .selectFrom("auditEvents")
+        .select("id")
+        .where("actorUserId", "=", adminId)
+        .where("action", "=", "settings.update")
+        .where("targetId", "=", PENDING_APPROVAL_EXPIRY_KEY)
+        .execute();
+      expect(events).toHaveLength(0);
+    });
+
+    it("reads a corrupt row back as 30 through GET", async () => {
+      // Seeded the way `expiryDays`'s own suite seeds corruption: a
+      // valid-JSON non-number in the row, which the answered read falls back
+      // over. PATCHing 30 over it heals the row without an audit
+      // (from 30 === to 30, the real-changes rule).
+      await new SettingsRepository(db).set(PENDING_APPROVAL_EXPIRY_KEY, "eleven");
+      expect(await read()).toBe(30);
+      expect((await patch(30)).status).toBe(200);
+      expect(await new SettingsRepository(db).get<number>(PENDING_APPROVAL_EXPIRY_KEY, Number.NaN)).toBe(30);
+      await clearEvents();
+      expect(
+        await db
+          .selectFrom("auditEvents")
+          .select("id")
+          .where("actorUserId", "=", adminId)
+          .where("action", "=", "settings.update")
+          .where("targetId", "=", PENDING_APPROVAL_EXPIRY_KEY)
+          .execute(),
+      ).toHaveLength(0);
+    });
+  });
+
   // Lockdown (operator ask 2026-09-24): the instance-wide emergency stop.
   // Absent row = OFF like nothing-can-go-wrong defaults should — but EVERY
   // real flip, both directions, must be typed, not clicked: the PATCH itself
@@ -618,6 +785,7 @@ describe("settings routes (admin cookie only)", () => {
     // is hoisted above every write now; this pins that.
     await db.deleteFrom("settings").where("key", "=", "lockdown").execute();
     await ensureLocalNode(db);
+    const emailRow = new AuthProvidersRepository(db);
     const close = await app.fetch(
       authedRequest("/api/settings", adminCookie, {
         method: "PATCH",
@@ -625,6 +793,9 @@ describe("settings routes (admin cookie only)", () => {
       }),
     );
     expect(close.status).toBe(200);
+    // The PATCH writes the row the read consults (Task 9), so "closed" here
+    // is the real starting state the refused PATCH below must not move.
+    expect((await emailRow.getById("email"))?.registrationEnabled).toBe(0);
     const regAuditsBefore = await db
       .selectFrom("auditEvents")
       .select("id")
@@ -645,7 +816,12 @@ describe("settings routes (admin cookie only)", () => {
       allowRegistrations: boolean;
       lockdown: boolean;
     };
+    // Load-bearing again since the PATCH moved onto this row: a hoisted-
+    // validation regression (the write landing BEFORE the confirm check)
+    // would read back `true` here — during the 3-9 window this assertion
+    // could not have failed.
     expect(after.allowRegistrations).toBe(false);
+    expect((await emailRow.getById("email"))?.registrationEnabled).toBe(0);
     expect(after.lockdown).toBe(false);
     const regAuditsAfter = await db
       .selectFrom("auditEvents")
@@ -656,12 +832,17 @@ describe("settings routes (admin cookie only)", () => {
       .execute();
     expect(regAuditsAfter.length).toBe(regAuditsBefore.length);
 
-    await app.fetch(
+    // And the trailing re-open is an ACT, asserted as one: it lands on the
+    // same row the refusal above was held off writing.
+    const reopen = await app.fetch(
       authedRequest("/api/settings", adminCookie, {
         method: "PATCH",
         body: JSON.stringify({ allowRegistrations: true }),
       }),
     );
+    expect(reopen.status).toBe(200);
+    expect(((await reopen.json()) as { allowRegistrations: boolean }).allowRegistrations).toBe(true);
+    expect((await emailRow.getById("email"))?.registrationEnabled).toBe(1);
     await db
       .deleteFrom("auditEvents")
       .where("actorUserId", "=", adminId)

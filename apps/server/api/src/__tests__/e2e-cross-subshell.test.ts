@@ -17,6 +17,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 /** apps/server/api root (this file lives in src/__tests__). */
 const BACKEND_DIR = new URL("../../", import.meta.url).pathname;
 const BUN = process.execPath;
+const TIMEOUT = 90_000;
 
 /** A tool round-trip: call, unwrap the JSON text content, type it. */
 async function call<T>(client: Client, name: string, args: Record<string, unknown> = {}): Promise<T> {
@@ -32,27 +33,137 @@ interface ReadResult {
   nextSince: number;
 }
 
-describe("cross-subshell e2e (two subshell mcp processes)", () => {
-  const TIMEOUT = 90_000;
-  let dir: string;
-  let dbPath: string;
-  let port: number;
-  let backend: ReturnType<typeof Bun.spawn>;
+const dir = mkdtempSync(join(tmpdir(), "subshell-e2e-"));
+const dbPath = join(dir, "subshell.db");
+const backendLog = join(dir, "backend.log");
+
+/** Env every child process needs: dev NODE_ENV (a test NODE_ENV would force
+ * the in-memory DB and ignore DATABASE_PATH — see constants.ts) + the file DB. */
+function childEnv(extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    HOME: process.env.HOME ?? tmpdir(),
+    NODE_ENV: "development",
+    DATABASE_PATH: dbPath,
+    ...extra,
+  };
+}
+
+/**
+ * Boot the real backend BEFORE the suite is declared (top-level await).
+ *
+ * Why top level, and not inside `beforeAll` where this used to live: bun's
+ * `skipIf` reads its condition at DECLARATION time and the runtime has no
+ * skip — an EADDRINUSE discovered inside a hook can only fail, never skip.
+ * The race this file can genuinely suffer on a loaded machine is the
+ * claim-a-port / release / hand-off window below: the probe proves a port
+ * free, releases it, and another process can claim it before the child
+ * binds. When that happens the suite skips — the machine was busy, not the
+ * code. What a skip actually looks like: bun's `describe.skipIf` takes a
+ * boolean only, so the skip names no port and carries no reason text; the
+ * temp dir (and with it `backend.log`) is still removed by the top-level
+ * reaper, so nothing survives to be read afterwards; the entire signal is
+ * a run line that reads "1 skip". Every other cause still fails red with
+ * the backend's own log.
+ *
+ * The wait budget stays as measured: this boots a REAL backend while the
+ * rest of the suite's packages build/test in parallel under turbo — 20 s
+ * was routinely starved of CPU and failed here in isolation-fast (<2 s)
+ * cases. The child's stderr lands in `backend.log`; `src/index.ts` prints
+ * a boot crash to stderr SYNCHRONOUSLY precisely because that log is the
+ * only verdict this file can read (pino's async destination used to lose
+ * the fatal line to `process.exit(1)` truncation — a dead child left an
+ * empty log and the failure was undiagnosable).
+ */
+let port = 0;
+let backend: ReturnType<typeof Bun.spawn> | undefined;
+const boot = await (async () => {
+  // Claim a free port, release it, hand the number to the backend child.
+  const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("x") });
+  const free = probe.port;
+  if (!free) throw new Error("could not claim a free port");
+  port = free;
+  await probe.stop();
+
+  backend = Bun.spawn({
+    cmd: [BUN, "src/index.ts"],
+    cwd: BACKEND_DIR,
+    env: childEnv({ SERVER_PORT: String(port), HOST: "127.0.0.1" }),
+    stdout: "ignore",
+    stderr: Bun.file(backendLog),
+  });
+
+  // Wait until the answer is unmistakably OUR backend. The old check was
+  // "any status < 500 on /api/setup", which is precisely what the race
+  // defeats: whoever squats the released port answers 404, that reads as
+  // "up", and the suite died later at the first real call with a confusing
+  // error. `GET /api/setup/status` answers {needsSetup, hasUsers} JSON from
+  // the route graph itself, so a body carrying that boolean is the backend
+  // serving real routes. MAINTENANCE NOTE: if the /api/setup/status
+  // response shape changes, this fingerprint must move with it — an answer
+  // WITHOUT the boolean is classified below by whether our child is still
+  // alive, and a live child makes that classification go red on purpose.
+  const deadline = Date.now() + Math.min(TIMEOUT - 5_000, 60_000);
+  let up = false;
+  let squatter = false;
+  /** The odd answer, kept for the loud failure when the child is alive. */
+  let drift: { status: number; body: string } | undefined;
+  while (Date.now() < deadline && !up && !squatter && !drift) {
+    try {
+      // A 2 s socket bound: a module-scope await is NOT bounded by bun's
+      // --timeout, so a squatter that accepts and never answers would
+      // otherwise hang this file forever.
+      const res = await fetch(`http://127.0.0.1:${port}/api/setup/status`, {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (res.status < 500) {
+        const text = await res.text();
+        let needsSetup: unknown;
+        try {
+          needsSetup = (JSON.parse(text) as { needsSetup?: unknown }).needsSetup;
+        } catch {
+          needsSetup = undefined;
+        }
+        if (typeof needsSetup === "boolean") up = true;
+        else if (backend.exitCode === null)
+          // Our child is still alive, so this odd answer is NOT the
+          // squatter's 404 — either the probe's fingerprint no longer
+          // matches OUR route's shape (drift nobody would ever notice,
+          // because every machine would "cleanly" skip forever) or the boot
+          // answered oddly. Both must go red, not quiet.
+          drift = { status: res.status, body: text.slice(0, 500) };
+        else squatter = true;
+      } else {
+        await Bun.sleep(250);
+      }
+    } catch {
+      await Bun.sleep(250);
+    }
+  }
+  const log = up || drift ? "" : await Bun.file(backendLog).text();
+  // Port contention has two faces: the child could not bind (bun's message
+  // is "Failed to start server. Is port <n> in use?" — it never spells
+  // EADDRINUSE, so match both spellings for future versions), or a DEAD
+  // child means somebody else is answering on the port. Both are the
+  // machine being busy, and both SKIP rather than go red — and the old
+  // `up` check would have gone red on the SECOND face, later and more
+  // confusingly. A live child answers the third face (shape drift) with
+  // `drift`, which is deliberately NOT portBusy.
+  const portBusy = !up && !drift && (squatter || /EADDRINUSE|in use\?/i.test(log));
+  return { up, portBusy, drift };
+})();
+
+// The backend child and the temp dir belong to the MODULE now — a skipped
+// suite never runs its own hooks — so their reaper is top level.
+afterAll(() => {
+  backend?.kill();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+describe.skipIf(boot.portBusy)("cross-subshell e2e (two subshell mcp processes)", () => {
   let subshells: { id: string; token: string }[];
   let clientA: Client;
   let clientB: Client;
-
-  /** Env every child process needs: dev NODE_ENV (a test NODE_ENV would force
-   * the in-memory DB and ignore DATABASE_PATH — see constants.ts) + the file DB. */
-  function childEnv(extra: Record<string, string> = {}): Record<string, string> {
-    return {
-      PATH: process.env.PATH ?? "/usr/bin:/bin",
-      HOME: process.env.HOME ?? tmpdir(),
-      NODE_ENV: "development",
-      DATABASE_PATH: dbPath,
-      ...extra,
-    };
-  }
 
   /** Run the seed script and return its JSON stdout (it prints exactly one line). */
   async function seed<T>(mode: string, ...args: string[]): Promise<T> {
@@ -95,40 +206,21 @@ describe("cross-subshell e2e (two subshell mcp processes)", () => {
   }
 
   beforeAll(async () => {
-    dir = mkdtempSync(join(tmpdir(), "subshell-e2e-"));
-    dbPath = join(dir, "subshell.db");
-
-    // Claim a free port, release it, hand the number to the backend child.
-    const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("x") });
-    const free = probe.port;
-    if (!free) throw new Error("could not claim a free port");
-    port = free;
-    await probe.stop();
-
-    backend = Bun.spawn({
-      cmd: [BUN, "src/index.ts"],
-      cwd: BACKEND_DIR,
-      env: childEnv({ SERVER_PORT: String(port), HOST: "127.0.0.1" }),
-      stdout: "ignore",
-      stderr: Bun.file(join(dir, "backend.log")),
-    });
-
-    // Wait until the HTTP listener answers (any status proves it is up). The
-    // budget is generous because this boots a REAL backend while the rest of
-    // the suite's packages build/test in parallel under turbo — 20 s was
-    // routinely starved of CPU and failed here in isolation-fast (<2 s) cases.
-    // The outer beforeAll cap (TIMEOUT) still bounds total time.
-    const deadline = Date.now() + Math.min(TIMEOUT - 5_000, 60_000);
-    let up = false;
-    while (Date.now() < deadline && !up) {
-      try {
-        const res = await fetch(`http://127.0.0.1:${port}/api/setup`);
-        up = res.status < 500;
-      } catch {
-        await Bun.sleep(250);
-      }
+    // The probe saw a non-500 answer without `needsSetup` while our child
+    // was still alive: either /api/setup/status changed shape or the boot
+    // answered oddly. Name what it actually saw so the drift is diffable,
+    // rather than a silent "1 skip" on every machine forever.
+    if (boot.drift) {
+      throw new Error(
+        `probe got an answer without needsSetup while the backend child was alive ` +
+          `(status ${boot.drift.status}, body: ${boot.drift.body || "<empty>"}) — ` +
+          `if /api/setup/status changed shape, the fingerprint in this file must move with it`,
+      );
     }
-    if (!up) throw new Error(`backend did not come up: ${await Bun.file(join(dir, "backend.log")).text()}`);
+    // Not up and not the port race: fail red, with the backend's own words.
+    if (!boot.up) {
+      throw new Error(`backend did not come up: ${await Bun.file(backendLog).text()}`);
+    }
 
     const seeded = await seed<{ subshells: { id: string; token: string }[] }>("create");
     subshells = seeded.subshells;
@@ -141,8 +233,6 @@ describe("cross-subshell e2e (two subshell mcp processes)", () => {
   afterAll(async () => {
     await clientA?.close().catch(() => {});
     await clientB?.close().catch(() => {});
-    backend?.kill();
-    rmSync(dir, { recursive: true, force: true });
   });
 
   it(

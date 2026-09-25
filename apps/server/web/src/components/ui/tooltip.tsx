@@ -56,18 +56,21 @@ const ARROW = cn(
  * native `title` — the browser paints native tooltips at the SYSTEM font
  * size, so page zoom (ctrl +/-) grew the rows and left the tooltip behind.
  *
- * `side` defaults to Base UI's own ("top"); `arrow` draws the tip at the
- * popup's edge pointing back at the trigger (operator ask, 2026-09-24, for
- * the rail's rows — beside the row is where the rail's own tooltip belongs,
- * and the arrow says which row is speaking). The tip is `bg-popover` with
- * only the two trigger-facing edges bordered, so it reads as a point grown
- * out of the popup and not a diamond laid over it.
+ * `side` defaults to Base UI's own ("top"). `arrow` ON by default: the popup
+ * carries a tip at its edge pointing back at the trigger, because a floating
+ * rounded box beside several elements does not say which one is speaking —
+ * the disabled control's explanation read as a note about the whole table
+ * until it grew the tip. `arrow={false}` is the rare opt-out for a surface
+ * with no single anchor. The tip is `bg-popover` with only the two
+ * trigger-facing edges bordered, so it reads as a point grown out of the
+ * popup, not a diamond laid over it. (Operator rule, 2026-09-25; the rail's
+ * rows asked for it first on 2026-09-24.)
  */
 export function TooltipContent({
   className,
   sideOffset = 6,
   side = "top",
-  arrow = false,
+  arrow = true,
   children,
   ...props
 }: ComponentProps<typeof BaseTooltip.Popup> & {

@@ -29,3 +29,25 @@ import type { Database } from "@/db/types/index.js";
 export async function accountDisabled(db: Kysely<Database>, userId: string): Promise<boolean> {
   return await new UserMetaRepository(db).isDisabled(userId);
 }
+
+/**
+ * Whether this account is PENDING APPROVAL — arrived through a
+ * require-approval provider and not yet admitted (spec 2026-09-24 §4).
+ *
+ * The same one-function discipline as {@link accountDisabled}, for the same
+ * reason: better-auth's `session.create.before` hook refuses to mint a
+ * session for such an account, and the provider policy
+ * (`auth/provider-policy.ts` → `validateUserInfo`) refuses the provisioning
+ * request that would have led to it. Two readings of `approval_state` are
+ * how those surfaces come to disagree about who may sign in; this is the
+ * one reader of the session side, and it goes through
+ * `UserMetaRepository.approvalState` like the disabled check goes through
+ * `isDisabled`. An absent row reads APPROVED (the upgrade rule the
+ * repository documents); only the exact pending state refuses.
+ *
+ * @param db - the app database
+ * @param userId - better-auth user id
+ */
+export async function accountPending(db: Kysely<Database>, userId: string): Promise<boolean> {
+  return (await new UserMetaRepository(db).approvalState(userId)) === "pending";
+}

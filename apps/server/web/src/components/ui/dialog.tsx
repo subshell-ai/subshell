@@ -60,11 +60,19 @@ export function DialogContent({ className, children, ...props }: DialogPrimitive
 }
 
 export function DialogHeader({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex flex-col space-y-1.5 text-center sm:text-left", className)} {...props} />;
+  // Left, always. shadcn centers a dialog header until the 640px viewport
+  // breakpoint, but that tests the WINDOW, not the dialog — page zoom or a
+  // narrow shell put a comfortably wide dialog back in its centered branch
+  // (same trap as the footer, operator report 2026-09-25).
+  return <div className={cn("flex flex-col space-y-1.5 text-left", className)} {...props} />;
 }
 
 export function DialogFooter({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2", className)} {...props} />;
+  // Always one row, right-aligned. The shadcn stock stacks the actions on
+  // narrow VIEWPORTS (`flex-col-reverse sm:flex-row`), which read as a bug
+  // inside a dialog that is comfortably wide on screen: the breakpoint tests
+  // the window, not the dialog (operator report, 2026-09-25).
+  return <div className={cn("flex flex-row justify-end gap-2", className)} {...props} />;
 }
 
 export function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {

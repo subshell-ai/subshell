@@ -68,4 +68,44 @@ describe("UsersTable", () => {
     await waitFor(() => expect(screen.getByText("Your account")).toBeDefined());
     expect(screen.queryByRole("button", { name: /^Actions for/ })).toBeNull();
   });
+
+  describe("Provider column", () => {
+    /** The one row's text, once its session has resolved. */
+    async function renderOne(over: Partial<UserRow> & { id: string }): Promise<string> {
+      stubSession("me");
+      renderTable([user(over)]);
+      const tr = (await screen.findByText(`${over.id}@example.com`)).closest("tr");
+      return tr?.textContent ?? "";
+    }
+
+    it("badges both providers when an account has both", async () => {
+      const text = await renderOne({ id: "both", providers: ["credential", "google"] });
+      expect(text).toContain("E-mail");
+      expect(text).toContain("Google");
+    });
+
+    it("badges only the provider for a google-only account", async () => {
+      // "Email" is the credential provider's word (spelled like the Auth page's
+      // kind label), and a provider-only arrival must not borrow it.
+      const text = await renderOne({ id: "goned", providers: ["google"] });
+      expect(text).toContain("Google");
+      expect(text).not.toContain("E-mail");
+    });
+
+    it("renders an unknown provider id verbatim", async () => {
+      // A custom OIDC provider's admin-chosen name is not in this payload; the id
+      // is the honest fallback rather than a guess.
+      const text = await renderOne({ id: "oidc", providers: ["acme-sso"] });
+      expect(text).toContain("acme-sso");
+    });
+
+    it("renders nothing where the field is absent, and nothing for an empty set", async () => {
+      // Absent = an older payload; empty = the payload's own answer (the
+      // `system` account has no sign-in row). Both read as an empty cell.
+      const absent = await renderOne({ id: "old" });
+      expect(absent).not.toContain("E-mail");
+      const empty = await renderOne({ id: "svc", providers: [] });
+      expect(empty).not.toContain("E-mail");
+    });
+  });
 });

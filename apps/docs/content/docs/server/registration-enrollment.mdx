@@ -1,38 +1,41 @@
 ---
 title: Registration & Enrollment
-description: The two open doors that close — who may create an account, and who may add a machine.
+description: "The two open doors that close: who may create an account, and who may add a machine."
 ---
 
-Your instance has two self-service doors: sign-up, which makes people, and node enrollment, which makes machines. Both have switches, and both switches share one semantic you should read before flipping either: **turning a door off stops new traffic; it does not recall anyone already through.** Closing sign-up signs nobody out. Turning off enrollment leaves every already-minted setup key working until it expires or you delete it.
+Your instance has two self-service doors: sign-up, which makes people, and node enrollment, which makes machines. (Sign-up has more than one way in, the E-mail door and any external [sign-in providers](/server/sign-in-providers) you have added, but the door's semantic is the same whichever knob you turn.) Both have switches, and both switches share one semantic you should read before flipping either: **turning a door off stops new traffic; it does not recall anyone already through.** Closing sign-up signs nobody out. Turning off enrollment leaves every already-minted setup key working until it expires or you delete it.
 
 ## Registration
 
-Registration is **closed by default**. The one exception is the moment your instance is born: while the instance has **no users at all**, the door stands open — because the first registered account becomes the admin, and a closed empty instance could never mint the one person able to open it. The door is open exactly until someone walks through it, and closes behind them. Afterwards, an admin decides: the switch lives under Settings → General, and reopening sign-up is an audited act (a scripted session that opened it to mint a throwaway account used to leave no trace; it no longer can).
+Registration is **closed by default**. The one exception is the moment your instance is born: while the instance has **no users at all**, the door stands open, because the first registered account becomes the admin, and a closed empty instance could never mint the one person able to open it. The door is open exactly until someone walks through it, and closes behind them. Afterwards, an admin decides: the switch lives on the **E-mail provider's row** under [Settings → Auth](/server/sign-in-providers) (E-mail is on the providers list like everything else), and reopening sign-up is an audited act (a scripted session that opened it to mint a throwaway account used to leave no trace; it no longer can).
 
-One function answers "does this instance accept a sign-up?", and three surfaces read their answer from it — the check that refuses the request itself, the admin's switch, and the sign-in page's "create an account" link. That is deliberate: three independent readings of one settings row is how a page ends up saying "Open" on an instance that refuses every sign-up. The function also **fails closed**: a corrupt or non-boolean value reads as closed, because treating corruption as "open" silently re-opens a locked-down instance.
+One function answers "does this instance accept a sign-up?", and three surfaces read their answer from it: the check that refuses the request itself, the admin's switch, and the sign-in page's "create an account" link. That is deliberate: three independent readings is how a page ends up saying "Open" on an instance that refuses every sign-up. The function also **fails closed**: anything the E-mail row stores other than an explicit yes reads as closed, because treating corruption as "open" silently re-opens a locked-down instance.
+
+External providers answer the same question **for themselves** (each provider row on Settings → Auth carries its own allow-account-creation switch, independent of the E-mail row's), and a provider can put every new face it creates onto an approval queue. That half of the story is on [Sign-in Providers](/server/sign-in-providers).
 
 ### Passkeys
 
-A passkey is an additional credential per user and device — it mints **the same session cookie** a password does. It is *not* a second factor, and nothing enforces its use; users add them on their own Account page.
+A passkey is an additional credential per user and device: it mints **the same session cookie** a password does. It is *not* a second factor, and nothing enforces its use; users add them on their own Account page.
 
-One deployment trap worth knowing before you rely on them: passkeys are bound to the host in `APP_BASE_URL`, not to whatever address you happen to be browsing on. Reach the same instance by another name — the loopback spelling instead of the domain, say — and passkeys fail in the browser. If you move `APP_BASE_URL`, passkeys move with it, and stop working on the old address.
+One deployment trap worth knowing before you rely on them: passkeys are bound to the host in `APP_BASE_URL`, not to whatever address you happen to be browsing on. Reach the same instance by another name (the loopback spelling instead of the domain, say) and passkeys fail in the browser. If you move `APP_BASE_URL`, passkeys move with it, and stop working on the old address.
 
 ### Break-glass: `SUBSHELL_EMERGENCY_PASSWORD`
 
-If your last admin forgets their password, the recovery hatch is an environment variable. While `SUBSHELL_EMERGENCY_PASSWORD` is set in the environment the server starts with, an admin signing in with **that exact value** gets a real session — and **their stored credential is overwritten by it**. Read that again: it is a forced password reset wearing a login form, destructive by design, not a bypass. While it is armed, every signed-in user sees a warning banner (the flag is public on purpose — the banner is the point), the rewrite is audited as `emergency_login.rewrite_credential`, and the comparison is constant-time and shares the ordinary login backoff.
+If your last admin forgets their password, the recovery hatch is an environment variable. While `SUBSHELL_EMERGENCY_PASSWORD` is set in the environment the server starts with, an admin signing in with **that exact value** gets a real session, and **their stored credential is overwritten by it**. Read that again: it is a forced password reset wearing a login form, destructive by design, not a bypass. While it is armed, every signed-in user sees a warning banner (the flag is public on purpose: the banner is the point), the rewrite is audited as `emergency_login.rewrite_credential`, and the comparison is constant-time and shares the ordinary login backoff.
 
 **Clear the variable and restart after recovering.** While it is set, anyone who can read the server process's environment can become any admin.
 
 ## Node enrollment
 
-By default, **any signed-in user** may mint a node setup key and add a machine to the instance — the behaviour an instance that never touched the setting had. The `allow_node_enrollment` switch (Settings → General, admin, audited) narrows minting to admins; a non-admin is refused with a message telling them to ask one. Admins are never affected by it.
+By default, **any signed-in user** may mint a node setup key and add a machine to the instance, the behaviour an instance that never touched the setting had. The `allow_node_enrollment` switch (Settings → General, admin, audited) narrows minting to admins; a non-admin is refused with a message telling them to ask one. Admins are never affected by it.
 
-Remember the first paragraph: switching it off is *"stop handing these out"*, not *"revoke what is outstanding"*. A minted key stays usable until it is consumed, until it expires (they are single-use and expire in 24 hours), or until someone deletes it on the Nodes page — **deletion is the act that revokes**, and it is audited. What a setup key grants is exactly the right to register one machine; see [Add a Node](/nodes/add-node).
+Remember the first paragraph: switching it off is *"stop handing these out"*, not *"revoke what is outstanding"*. A minted key stays usable until it is consumed, until it expires (they are single-use and expire in 24 hours), or until someone deletes it on the Nodes page: **deletion is the act that revokes**, and it is audited. What a setup key grants is exactly the right to register one machine; see [Add a Node](/nodes/add-node).
 
 ## See also
 
-- [Users & Roles](/server/users-roles) — who an admin is and what the role can do
-- [Add a Node](/nodes/add-node) — the enrollment flow a setup key opens
-- [Audit Log](/server/audit-log) — where each flip of each switch is recorded
-- [Security model](/about/security-model) — the trusted-network posture these doors assume
-- [The full threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#2-identity-and-credentials) — the gate's fail-closed rules and the passkey/break-glass accounting, with enforcement points
+- [Sign-in Providers](/server/sign-in-providers): the other people-doors, and the approval queue
+- [Users & Roles](/server/users-roles): who an admin is and what the role can do
+- [Add a Node](/nodes/add-node): the enrollment flow a setup key opens
+- [Audit Log](/server/audit-log): where each flip of each switch is recorded
+- [Security model](/about/security-model): the trusted-network posture these doors assume
+- [The full threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#2-identity-and-credentials): the gate's fail-closed rules and the passkey/break-glass accounting, with enforcement points

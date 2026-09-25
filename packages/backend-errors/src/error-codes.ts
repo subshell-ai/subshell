@@ -1,5 +1,13 @@
 export enum BackendErrorCodes {
   ACCESS_DENIED = "ACCESS_DENIED",
+  /**
+   * `PATCH /api/users/:id/approval`: the target's account is already
+   * `approved`, so the write is not a queue decision. Approval only ever
+   * moves a row OUT of `pending`/`rejected` (spec 2026-09-24 §8) — refusing
+   * an approved target is what keeps this endpoint from being a state hammer
+   * against active members (barring one is what disable is for).
+   */
+  APPROVAL_NOOP = "APPROVAL_NOOP",
   /** `POST /api/admin/server/autostart`: nothing is installed to start at login, or this server is not run by a service manager at all. */
   AUTOSTART_UNAVAILABLE = "AUTOSTART_UNAVAILABLE",
   BAD_REQUEST = "BAD_REQUEST",
@@ -7,15 +15,37 @@ export enum BackendErrorCodes {
   CONFIG_INVALID = "CONFIG_INVALID",
   /** `PATCH /api/admin/server/config`: the key is set in the server's environment, so a config.env write would be masked at the next boot. */
   CONFIG_KEY_FROM_ENV = "CONFIG_KEY_FROM_ENV",
+  /**
+   * A `/api/auth-providers` SAVE whose issuer advertises the
+   * client_credentials grant got a real token-endpoint refusal for the
+   * offered pair. Nothing was written (operator ruling 2026-09-25: the save
+   * IS the verification; the standalone probe route is gone).
+   */
+  CREDENTIALS_REJECTED = "CREDENTIALS_REJECTED",
+  /** `/api/auth-providers`: OIDC discovery could not resolve the issuer's endpoints; the message names why. Raised on save, which IS the verification (spec 2026-09-24 §8, amended 2026-09-25). */
+  DISCOVERY_FAILED = "DISCOVERY_FAILED",
+  /** `PATCH /api/auth-providers/:id`: the reserved `email` row's kind is the credential provider's identity — it cannot be changed into an OIDC kind (or back). */
+  EMAIL_ROW_IMMUTABLE_KIND = "EMAIL_ROW_IMMUTABLE_KIND",
+  /** `DELETE /api/auth-providers/:id`: the reserved `email` row can be closed but never deleted (spec §2). */
+  EMAIL_ROW_UNDELETABLE = "EMAIL_ROW_UNDELETABLE",
   EXISTS_ERROR = "EXISTS_ERROR",
   INPUT_VALIDATION_ERROR = "INPUT_VALIDATION_ERROR",
   INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR",
   INVALID_CREDENTIALS = "INVALID_CREDENTIALS",
   /** `POST /api/subshells/:id/restart` with a `presetId`: the preset is unknown, not the caller's, or belongs to a different harness. Nothing was written and no restart was attempted. */
   INVALID_PRESET = "INVALID_PRESET",
+  /**
+   * A write to `/api/auth-providers` would leave the instance with ZERO open
+   * sign-in providers (spec 2026-09-24 §8's last-provider guard). Nothing was written;
+   * the remedy is in the message — open another provider first, or break-glass
+   * from the CLI.
+   */
+  LAST_SIGN_IN_PROVIDER = "LAST_SIGN_IN_PROVIDER",
   /** `PUT /api/admin/server/logging`: `SUBSHELL_DEBUG_LOGGING` is set in the environment, so the setting is read-only. */
   LOGGING_FROM_ENV = "LOGGING_FROM_ENV",
   NOT_FOUND_ERROR = "NOT_FOUND_ERROR",
+  /** `/api/auth-providers/:id`: no provider row with that id. */
+  PROVIDER_NOT_FOUND = "PROVIDER_NOT_FOUND",
   /**
    * The phase-1 placeholder refusing any non-local `POST /api/subshells` body.
    * Phase 2 removed the gate it served (§6.6 resolution is live); kept for
@@ -81,6 +111,8 @@ export enum BackendErrorCodes {
   SETUP_KEY_CONSUMED = "SETUP_KEY_CONSUMED",
   SETUP_KEY_EXPIRED = "SETUP_KEY_EXPIRED",
   SETUP_KEY_INVALID = "SETUP_KEY_INVALID",
+  /** `POST /api/auth-providers`: the chosen id slug already names a row. Ids are the callback path's identity and never get renumbered (spec §2). */
+  SLUG_TAKEN = "SLUG_TAKEN",
   /** `POST /api/admin/server/update`: `SUBSHELL_RELEASE_URL` is empty — this instance fetches no releases (the air-gapped configuration). */
   UPDATE_SOURCE_DISABLED = "UPDATE_SOURCE_DISABLED",
   /**
@@ -143,6 +175,10 @@ export const BackendErrorCodeDefs = {
     message: "Access denied",
     statusCode: 403,
   },
+  [BackendErrorCodes.APPROVAL_NOOP]: {
+    message: "That account is already approved",
+    statusCode: 409,
+  },
   [BackendErrorCodes.BAD_REQUEST]: {
     message: "Bad request",
     statusCode: 400,
@@ -154,6 +190,22 @@ export const BackendErrorCodeDefs = {
   [BackendErrorCodes.CONFIG_KEY_FROM_ENV]: {
     message: "That setting is fixed by the server's environment",
     statusCode: 409,
+  },
+  [BackendErrorCodes.CREDENTIALS_REJECTED]: {
+    message: "The OIDC token endpoint rejected the supplied client credentials",
+    statusCode: 400,
+  },
+  [BackendErrorCodes.DISCOVERY_FAILED]: {
+    message: "OIDC discovery could not resolve this issuer",
+    statusCode: 400,
+  },
+  [BackendErrorCodes.EMAIL_ROW_IMMUTABLE_KIND]: {
+    message: "The E-mail provider's kind cannot be changed",
+    statusCode: 400,
+  },
+  [BackendErrorCodes.EMAIL_ROW_UNDELETABLE]: {
+    message: "The E-mail provider can be closed but never deleted",
+    statusCode: 400,
   },
   [BackendErrorCodes.EXISTS_ERROR]: {
     message: "Resource already exists",
@@ -175,8 +227,16 @@ export const BackendErrorCodeDefs = {
     message: "Invalid preset",
     statusCode: 400,
   },
+  [BackendErrorCodes.LAST_SIGN_IN_PROVIDER]: {
+    message: "This would leave no way to sign in",
+    statusCode: 409,
+  },
   [BackendErrorCodes.NOT_FOUND_ERROR]: {
     message: "Resource not found",
+    statusCode: 404,
+  },
+  [BackendErrorCodes.PROVIDER_NOT_FOUND]: {
+    message: "Auth provider not found",
     statusCode: 404,
   },
   [BackendErrorCodes.NODE_LAUNCH_NOT_READY]: {
@@ -266,6 +326,10 @@ export const BackendErrorCodeDefs = {
   [BackendErrorCodes.SETUP_KEY_INVALID]: {
     message: "Invalid setup key",
     statusCode: 401,
+  },
+  [BackendErrorCodes.SLUG_TAKEN]: {
+    message: "That provider id is already taken",
+    statusCode: 409,
   },
   // Every update refusal is a 409: the request is well-formed and the caller
   // is allowed to make it — the host is simply not in a state where it can be

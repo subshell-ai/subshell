@@ -115,14 +115,14 @@ describe("AddUserDialog", () => {
     // Without `role="alert"` a screen-reader user who submits a duplicate
     // email gets a dialog that appears to do nothing at all.
     const { restore } = mockFetch(
-      () => new Response(JSON.stringify({ message: "Email already registered" }), { status: 409 }),
+      () => new Response(JSON.stringify({ message: "E-mail already registered" }), { status: 409 }),
     );
     try {
       renderDialog();
       fillForm();
       fireEvent.click(submit());
       const alert = await screen.findByRole("alert");
-      expect(alert.textContent).toContain("Email already registered");
+      expect(alert.textContent).toContain("E-mail already registered");
     } finally {
       restore();
     }
@@ -132,7 +132,7 @@ describe("AddUserDialog", () => {
     // 409 is the refusal an admin meets in practice. Closing on it would
     // discard a filled-in form to show an error nowhere.
     const { restore } = mockFetch(
-      () => new Response(JSON.stringify({ message: "Email already registered" }), { status: 409 }),
+      () => new Response(JSON.stringify({ message: "E-mail already registered" }), { status: 409 }),
     );
     const closes: boolean[] = [];
     try {
@@ -142,7 +142,7 @@ describe("AddUserDialog", () => {
       );
       fillForm();
       fireEvent.click(submit());
-      await waitFor(() => expect(screen.getByText(/Email already registered/)).toBeDefined());
+      await waitFor(() => expect(screen.getByText(/E-mail already registered/)).toBeDefined());
       expect(closes).toEqual([]);
     } finally {
       restore();
@@ -179,7 +179,7 @@ describe("AddUserDialog form", () => {
   it("asks for the role before the account fields", () => {
     renderDialog();
     const labels = Array.from(document.querySelectorAll("label")).map((l) => l.textContent);
-    expect(labels).toEqual(["Role", "Name", "Email", "Password", "Confirm password"]);
+    expect(labels).toEqual(["Role", "Name", "E-mail", "Password", "Confirm password"]);
   });
 
   it("spells the chosen role on the trigger the way the menu spells it", () => {

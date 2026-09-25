@@ -353,7 +353,7 @@ async function renderSetup(opts: SetupMocks, upto: WalkStep) {
   await settle();
   if (upto === "account") return { client, history };
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Ada" } });
-  fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ada@example.com" } });
+  fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: "ada@example.com" } });
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct-horse-battery" } });
   fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "correct-horse-battery" } });
   fireEvent.click(screen.getByRole("button", { name: "Create Account" }));
@@ -520,7 +520,7 @@ describe("setup wizard: what registration submits", () => {
   it("trims the name and email, and leaves the password exactly as typed", async () => {
     await renderSetup({}, "account");
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "  Ada  " } });
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: " ada@example.com " } });
+    fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: " ada@example.com " } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: " correct-horse-battery " } });
     fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: " correct-horse-battery " } });
     fireEvent.click(screen.getByRole("button", { name: "Create Account" }));

@@ -14,6 +14,7 @@ import { Route as AccountRouteImport } from './routes/account'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as NewRouteImport } from './routes/new'
 import { Route as NodesRouteImport } from './routes/nodes'
+import { Route as PendingRouteImport } from './routes/pending'
 import { Route as PreferencesRouteImport } from './routes/preferences'
 import { Route as PresetsRouteImport } from './routes/presets'
 import { Route as SettingsRouteImport } from './routes/settings'
@@ -22,6 +23,7 @@ import { Route as WorkspacesRouteImport } from './routes/workspaces'
 import { Route as NodesIdRouteImport } from './routes/nodes_.$id'
 import { Route as PresetsIdRouteImport } from './routes/presets_.$id'
 import { Route as SettingsApiKeysRouteImport } from './routes/settings_.api-keys'
+import { Route as SettingsAuthRouteImport } from './routes/settings_.auth'
 import { Route as SettingsLogsRouteImport } from './routes/settings_.logs'
 import { Route as SettingsNetworkingRouteImport } from './routes/settings_.networking'
 import { Route as SettingsPluginsRouteImport } from './routes/settings_.plugins'
@@ -57,6 +59,11 @@ const NewRoute = NewRouteImport.update({
 const NodesRoute = NodesRouteImport.update({
   id: '/nodes',
   path: '/nodes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PendingRoute = PendingRouteImport.update({
+  id: '/pending',
+  path: '/pending',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PreferencesRoute = PreferencesRouteImport.update({
@@ -97,6 +104,11 @@ const PresetsIdRoute = PresetsIdRouteImport.update({
 const SettingsApiKeysRoute = SettingsApiKeysRouteImport.update({
   id: '/settings_/api-keys',
   path: '/settings/api-keys',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsAuthRoute = SettingsAuthRouteImport.update({
+  id: '/settings_/auth',
+  path: '/settings/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsLogsRoute = SettingsLogsRouteImport.update({
@@ -161,6 +173,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/new': typeof NewRoute
   '/nodes': typeof NodesRoute
+  '/pending': typeof PendingRoute
   '/preferences': typeof PreferencesRoute
   '/presets': typeof PresetsRoute
   '/settings': typeof SettingsRoute
@@ -169,6 +182,7 @@ export interface FileRoutesByFullPath {
   '/nodes/$id': typeof NodesIdRoute
   '/presets/$id': typeof PresetsIdRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
+  '/settings/auth': typeof SettingsAuthRoute
   '/settings/logs': typeof SettingsLogsRoute
   '/settings/networking': typeof SettingsNetworkingRoute
   '/settings/plugins': typeof SettingsPluginsRoute
@@ -187,6 +201,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/new': typeof NewRoute
   '/nodes': typeof NodesRoute
+  '/pending': typeof PendingRoute
   '/preferences': typeof PreferencesRoute
   '/presets': typeof PresetsRoute
   '/settings': typeof SettingsRoute
@@ -195,6 +210,7 @@ export interface FileRoutesByTo {
   '/nodes/$id': typeof NodesIdRoute
   '/presets/$id': typeof PresetsIdRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
+  '/settings/auth': typeof SettingsAuthRoute
   '/settings/logs': typeof SettingsLogsRoute
   '/settings/networking': typeof SettingsNetworkingRoute
   '/settings/plugins': typeof SettingsPluginsRoute
@@ -214,6 +230,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/new': typeof NewRoute
   '/nodes': typeof NodesRoute
+  '/pending': typeof PendingRoute
   '/preferences': typeof PreferencesRoute
   '/presets': typeof PresetsRoute
   '/settings': typeof SettingsRoute
@@ -222,6 +239,7 @@ export interface FileRoutesById {
   '/nodes_/$id': typeof NodesIdRoute
   '/presets_/$id': typeof PresetsIdRoute
   '/settings_/api-keys': typeof SettingsApiKeysRoute
+  '/settings_/auth': typeof SettingsAuthRoute
   '/settings_/logs': typeof SettingsLogsRoute
   '/settings_/networking': typeof SettingsNetworkingRoute
   '/settings_/plugins': typeof SettingsPluginsRoute
@@ -242,6 +260,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/new'
     | '/nodes'
+    | '/pending'
     | '/preferences'
     | '/presets'
     | '/settings'
@@ -250,6 +269,7 @@ export interface FileRouteTypes {
     | '/nodes/$id'
     | '/presets/$id'
     | '/settings/api-keys'
+    | '/settings/auth'
     | '/settings/logs'
     | '/settings/networking'
     | '/settings/plugins'
@@ -268,6 +288,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/new'
     | '/nodes'
+    | '/pending'
     | '/preferences'
     | '/presets'
     | '/settings'
@@ -276,6 +297,7 @@ export interface FileRouteTypes {
     | '/nodes/$id'
     | '/presets/$id'
     | '/settings/api-keys'
+    | '/settings/auth'
     | '/settings/logs'
     | '/settings/networking'
     | '/settings/plugins'
@@ -294,6 +316,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/new'
     | '/nodes'
+    | '/pending'
     | '/preferences'
     | '/presets'
     | '/settings'
@@ -302,6 +325,7 @@ export interface FileRouteTypes {
     | '/nodes_/$id'
     | '/presets_/$id'
     | '/settings_/api-keys'
+    | '/settings_/auth'
     | '/settings_/logs'
     | '/settings_/networking'
     | '/settings_/plugins'
@@ -321,6 +345,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   NewRoute: typeof NewRoute
   NodesRoute: typeof NodesRoute
+  PendingRoute: typeof PendingRoute
   PreferencesRoute: typeof PreferencesRoute
   PresetsRoute: typeof PresetsRoute
   SettingsRoute: typeof SettingsRoute
@@ -329,6 +354,7 @@ export interface RootRouteChildren {
   NodesIdRoute: typeof NodesIdRoute
   PresetsIdRoute: typeof PresetsIdRoute
   SettingsApiKeysRoute: typeof SettingsApiKeysRoute
+  SettingsAuthRoute: typeof SettingsAuthRoute
   SettingsLogsRoute: typeof SettingsLogsRoute
   SettingsNetworkingRoute: typeof SettingsNetworkingRoute
   SettingsPluginsRoute: typeof SettingsPluginsRoute
@@ -377,6 +403,13 @@ declare module '@tanstack/react-router' {
       path: '/nodes'
       fullPath: '/nodes'
       preLoaderRoute: typeof NodesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pending': {
+      id: '/pending'
+      path: '/pending'
+      fullPath: '/pending'
+      preLoaderRoute: typeof PendingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/preferences': {
@@ -433,6 +466,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/api-keys'
       fullPath: '/settings/api-keys'
       preLoaderRoute: typeof SettingsApiKeysRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings_/auth': {
+      id: '/settings_/auth'
+      path: '/settings/auth'
+      fullPath: '/settings/auth'
+      preLoaderRoute: typeof SettingsAuthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings_/logs': {
@@ -521,6 +561,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   NewRoute: NewRoute,
   NodesRoute: NodesRoute,
+  PendingRoute: PendingRoute,
   PreferencesRoute: PreferencesRoute,
   PresetsRoute: PresetsRoute,
   SettingsRoute: SettingsRoute,
@@ -529,6 +570,7 @@ const rootRouteChildren: RootRouteChildren = {
   NodesIdRoute: NodesIdRoute,
   PresetsIdRoute: PresetsIdRoute,
   SettingsApiKeysRoute: SettingsApiKeysRoute,
+  SettingsAuthRoute: SettingsAuthRoute,
   SettingsLogsRoute: SettingsLogsRoute,
   SettingsNetworkingRoute: SettingsNetworkingRoute,
   SettingsPluginsRoute: SettingsPluginsRoute,

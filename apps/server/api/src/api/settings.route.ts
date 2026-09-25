@@ -3,6 +3,7 @@ import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { isCookieAdmin } from "@/api/user-utils.js";
 import { APP_BASE_URL, emergencyLoginArmed } from "@/constants.js";
 import { db } from "@/db/index.js";
+import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { publishedNodeTargets } from "@/lib/node-artifacts.js";
@@ -14,13 +15,26 @@ import {
   setInstanceName,
 } from "@/services/instance-name.js";
 import { applyLockdown, lockdownEnabled, serverNodeName } from "@/services/lockdown.js";
-import { ALLOW_NODE_ENROLLMENT_KEY, ALLOW_REGISTRATIONS_KEY, registrationOpen } from "@/services/registration-gate.js";
+import { expiryDays, PENDING_APPROVAL_EXPIRY_KEY } from "@/services/pending-approvals.js";
+import { ALLOW_NODE_ENROLLMENT_KEY, registrationOpen } from "@/services/registration-gate.js";
 import { autoFetchEnabled } from "@/services/releases.js";
 import { ALLOW_SERVER_SUBSHELLS_KEY, serverSubshellsEnabled } from "@/services/server-as-node.js";
 import { originRegistry } from "@/services/trusted-origins.js";
 import { SERVER_VERSION } from "@/version.js";
 
-/** The five settings an admin can WRITE, one shape shared by both schemas. */
+/**
+ * Ceiling for `pendingApprovalExpiryDays` (Task 10b, spec 2026-09-24 §6):
+ * ten years of days. The floor is 0 (keep forever), which the sweep itself
+ * defines; a hand-set value beyond a decade is indistinguishable from a
+ * typo, and the sweep's consumer is a human queue, not an archive.
+ *
+ * Exported, and ALSO served on the admin GET as `pendingApprovalExpiryMaxDays`
+ * — the web card takes its input ceiling from that field rather than
+ * mirroring this constant (final review, minor #2), so the two cannot drift.
+ */
+export const PENDING_APPROVAL_EXPIRY_MAX_DAYS = 3650;
+
+/** The six settings an admin can WRITE, one shape shared by both schemas. */
 const SettingsWriteSchema = t.Object({
   allowRegistrations: t.Boolean({ description: "Whether new users can register" }),
   allowNodeEnrollment: t.Boolean({
@@ -41,6 +55,17 @@ const SettingsWriteSchema = t.Object({
     description:
       "Instance-wide emergency stop (absent means false). ON stops every running subshell and starts no new ones on any machine, admins and pane-to-pane launches included; clearing it restarts nothing. Every real flip, either direction, must carry the server's node name in `lockdownConfirm`; re-sending the current state asks nothing. Distinct from node maintenance, which is one machine, its owner, and mirrored onto it",
   }),
+  // The expiry window behind the pending-approval sweep (spec 2026-09-24 §6).
+  // The consumer is the hourly pass in `services/pending-approvals.ts`: it
+  // deletes `pending` sign-ins whose clock is older than this number of days,
+  // so this is how long an unactioned arrival waits before it is dropped.
+  // `0` means those rows never expire. Absent means 30, and the GET answer is
+  // the ANSWERED number (absent and corrupt rows both read 30) — the same
+  // number the sweep will act on, never the raw row.
+  pendingApprovalExpiryDays: t.Number({
+    description:
+      "Days an unactioned pending sign-in waits before the hourly expiry sweep deletes it; 0 means pending rows never expire. Absent means 30. Writes outside 0 to 3650 are refused; a stored row that is not a day count reads back as 30",
+  }),
 });
 
 /**
@@ -52,6 +77,10 @@ const SettingsSchema = t.Object({
   localNodeName: t.String({
     description:
       'The control-plane host\'s admin-chosen node name (default "Server") — what a lockdown ON is confirmed against, so the dialog and the route cannot disagree about a correctly typed name',
+  }),
+  pendingApprovalExpiryMaxDays: t.Number({
+    description:
+      "The ceiling this route enforces on pendingApprovalExpiryDays — served so the settings card draws its input bound from this read instead of mirroring the server's constant",
   }),
 });
 
@@ -258,6 +287,13 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         // admin a 400 naming the NEW name rather than a silent lockdown by
         // a stale confirmation.
         localNodeName: await serverNodeName(db),
+        // The ANSWERED number (absent/corrupt read 30) — what the expiry
+        // sweep will act on, so the Auth page cannot show a number the
+        // sweep disagrees with.
+        pendingApprovalExpiryDays: await expiryDays(db),
+        // The ceiling served, not mirrored: the web card draws its input
+        // bound from this read (final review, minor #2).
+        pendingApprovalExpiryMaxDays: PENDING_APPROVAL_EXPIRY_MAX_DAYS,
       } as const;
     },
     {
@@ -266,7 +302,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         operationId: "getSettings",
         tags: ["settings"],
         description:
-          "Full settings (admin only, cookie session): the instance flags, the operator's name, and the machine name a lockdown ON must be confirmed with",
+          "Full settings (admin only, cookie session): the instance flags, the operator's name, the machine name a lockdown ON must be confirmed with, the pending-approval expiry window as the sweep will answer it, and the ceiling that window may be set to",
       },
     },
   )
@@ -297,21 +333,46 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
           throw new SettingsError("lockdown_confirm", `Type the machine name "${expected}" to confirm.`, 400);
         }
       }
+      // The expiry-day count is validated in the same hoist position (a 400
+      // means NOTHING happened, the lockdown finding's rule): an integer in
+      // 0..3650. `Number.isInteger` rather than schema bounds because the
+      // schema says `t.Number` — 2.5 must be refused by name, not rounded by
+      // a downstream `days * MS_PER_DAY`.
+      if (body.pendingApprovalExpiryDays !== undefined) {
+        const days = body.pendingApprovalExpiryDays;
+        if (!Number.isInteger(days) || days < 0 || days > PENDING_APPROVAL_EXPIRY_MAX_DAYS) {
+          throw new SettingsError(
+            "pending_expiry_days",
+            `Pending expiry days must be a whole number from 0 to ${PENDING_APPROVAL_EXPIRY_MAX_DAYS}. Use 0 to keep pending approvals forever.`,
+            400,
+          );
+        }
+      }
       const repo = new SettingsRepository(db);
       if (body.allowRegistrations !== undefined) {
+        // The answer lives on the E-mail provider row now (spec 2026-09-24
+        // §2): this PATCH writes `registration_enabled` 1/0, and every read —
+        // this route's own response included — answers through
+        // `registrationOpen`, so a write that did not land cannot report
+        // itself as a success. The row's existence is migration 0037's
+        // guarantee (it seeds the E-mail provider at upgrade time).
         const before = await registrationOpen(db);
-        await repo.set(ALLOW_REGISTRATIONS_KEY, body.allowRegistrations);
+        await new AuthProvidersRepository(db).update("email", {
+          registrationEnabled: body.allowRegistrations ? 1 : 0,
+        });
         // Audited on REAL flips only (best-effort like every audit call):
         // opening sign-up on a live instance is the step a scripted session
         // used to mint a throwaway admin (2026-09-03 deploy-bot incident),
         // and it left no trace. Admin-minted accounts go through POST
-        // /api/users, which already audits `user.create`.
+        // /api/users, which already audits `user.create`. The targetId keeps
+        // spelling the legacy settings key — the trail's vocabulary for this
+        // switch, so rows before and after the move read alike.
         if (before !== body.allowRegistrations) {
           await audit({
             actorUserId: user.id,
             action: "settings.update",
             targetType: "settings",
-            targetId: ALLOW_REGISTRATIONS_KEY,
+            targetId: "allow_registrations",
             metadataJson: JSON.stringify({ from: before, to: body.allowRegistrations }),
           });
         }
@@ -367,6 +428,25 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
           });
         }
       }
+      if (body.pendingApprovalExpiryDays !== undefined) {
+        // `from` is the previously ANSWERED number (absent/corrupt ⇒ 30), so
+        // the trail reads as changes to what the sweep actually did, not to
+        // whatever bytes the row happened to hold. Re-sending the current
+        // value writes the row (it heals a corrupt one) but audits nothing —
+        // the sibling idiom. No confirmation ritual: the blast radius is a
+        // queue aging out, and nothing is stopped.
+        const before = await expiryDays(db);
+        await repo.set(PENDING_APPROVAL_EXPIRY_KEY, body.pendingApprovalExpiryDays);
+        if (before !== body.pendingApprovalExpiryDays) {
+          await audit({
+            actorUserId: user.id,
+            action: "settings.update",
+            targetType: "settings",
+            targetId: PENDING_APPROVAL_EXPIRY_KEY,
+            metadataJson: JSON.stringify({ from: before, to: body.pendingApprovalExpiryDays }),
+          });
+        }
+      }
       // Lockdown is the one write here that ACTS rather than records, so it
       // runs last — every other field is settled before the whole instance
       // goes down. Its CONFIRMATION was validated up top, above every write;
@@ -393,6 +473,8 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         lockdown: await lockdownEnabled(db),
         instanceName: await resolveInstanceName(db),
         localNodeName: await serverNodeName(db),
+        pendingApprovalExpiryDays: await expiryDays(db),
+        pendingApprovalExpiryMaxDays: PENDING_APPROVAL_EXPIRY_MAX_DAYS,
         stopped: lockdownStopped,
         ...(lockdownFailed.length > 0 ? { failed: lockdownFailed } : {}),
       } as const;

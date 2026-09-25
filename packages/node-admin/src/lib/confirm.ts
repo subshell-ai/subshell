@@ -9,12 +9,19 @@
  * all share one mechanism without threading `useConfirm` through props.
  */
 
+import type { ReactNode } from "react";
+
 /** Options describing a confirmation prompt. */
 export interface ConfirmOptions {
   /** Headline question, e.g. `Close subshell "web"?` */
   title: string;
-  /** Supporting detail under the headline */
-  description?: string;
+  /**
+   * Supporting detail under the headline. A ReactNode so an effect-list
+   * prompt can pass `<>…<ul>…</ul></>` (provider removal, 2026-09-25); plain
+   * string prompts are unchanged. The renderer wraps it in a DIV, not a `<p>`,
+   * so block content is legal.
+   */
+  description?: ReactNode;
   /** Label of the affirmative button (default "Confirm") */
   confirmLabel?: string;
   /** Renders the affirmative button in the destructive style */

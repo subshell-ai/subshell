@@ -1,5 +1,6 @@
 import { sql } from "kysely";
 import { BaseRepository } from "@/db/repositories/base.repository.js";
+import { type ApprovalState, asApprovalState } from "@/db/types/approval-state.js";
 import { asSetupStep, type SetupStep } from "@/db/types/setup-step.js";
 import type { NewUserMeta } from "@/db/types/user-meta.db-types.js";
 import type { UserRole } from "@/db/types/user-role.js";
@@ -257,5 +258,135 @@ export class UserMetaRepository extends BaseRepository {
       .values({ userId, role: "user", terminalReplayLines: lines })
       .onConflict((oc) => oc.column("userId").doUpdateSet({ terminalReplayLines: lines }))
       .execute();
+  }
+
+  /**
+   * Writes the approval lifecycle state and its queue timestamp TOGETHER
+   * (spec 2026-09-24 §6): entering `pending` stamps `pendingArrivedAt` (the
+   * caller's own timestamp, or now), and leaving pending clears it to NULL —
+   * so an approved or rejected row can never carry a stale arrival clock the
+   * expiry sweep would one day act on. Upserts like the other setters: an
+   * OIDC arrival's `user_meta` row is written by the promotion hook moments
+   * EARLIER in the same request, but a hand-created user may have none.
+   *
+   * @param userId - better-auth user id
+   * @param state - the lifecycle state to record
+   * @param opts.arrivedAt - the stamp to write when entering pending
+   *   (defaults to now); ignored when leaving it
+   */
+  async setApproval(userId: string, state: ApprovalState, opts?: { arrivedAt?: string | null }): Promise<void> {
+    const pendingArrivedAt = state === "pending" ? (opts?.arrivedAt ?? new Date().toISOString()) : null;
+    await this.db
+      .insertInto("userMeta")
+      .values({ userId, role: "user", approvalState: state, pendingArrivedAt })
+      .onConflict((oc) => oc.column("userId").doUpdateSet({ approvalState: state, pendingArrivedAt }))
+      .execute();
+  }
+
+  /**
+   * Writes an approval decision ONLY when the row is not already APPROVED,
+   * with the check and the write in ONE transaction (final review, minor —
+   * the {@link setRole} / `patchGuardingLastProvider` precedent).
+   *
+   * The route used to ask {@link approvalState} and then {@link setApproval}
+   * as two statements: two concurrent approves on one pending row could both
+   * pass the already-approved gate and write the decision twice — two
+   * `user.approve` audit rows for one human act. (Under today's dialect the
+   * interleaving is hard to observe: `bun:sqlite` is synchronous over one
+   * shared connection. The invariant lives in the SHAPE, not the timing —
+   * which is exactly why the precedent folds it in the repository.)
+   *
+   * Absent row and out-of-enum values read APPROVED — the same
+   * {@link approvalState} fail-open the route refused on — so this method's
+   * `false` answer is exactly the 409 the wire contract (APPROVAL_NOOP) is.
+   *
+   * @returns `false` when the target is already approved (nothing written),
+   *   `true` when the decision landed
+   */
+  async setApprovalUnlessApproved(
+    userId: string,
+    state: ApprovalState,
+    opts?: { arrivedAt?: string | null },
+  ): Promise<boolean> {
+    return await this.db.transaction().execute(async (trx) => {
+      const row = await trx
+        .selectFrom("userMeta")
+        .select("approvalState")
+        .where("userId", "=", userId)
+        .executeTakeFirst();
+      if (asApprovalState(row?.approvalState) === "approved") return false;
+      await new UserMetaRepository(trx).setApproval(userId, state, opts);
+      return true;
+    });
+  }
+
+  /**
+   * The user's approval state. An ABSENT `user_meta` row reads as APPROVED,
+   * exactly like {@link isDisabled} reads an absent row as enabled — every
+   * account predating the column must keep signing in on the upgrade that
+   * added it. The narrowing goes through `asApprovalState`, so a hand-edited
+   * value outside the enum reads approved too (fail-open by the same
+   * argument: this column gates arrivals, not members).
+   *
+   * On the hot path with `accountPending`: `session.create.before` asks this
+   * on every session mint.
+   *
+   * @param userId - better-auth user id
+   */
+  async approvalState(userId: string): Promise<ApprovalState> {
+    const row = await this.db
+      .selectFrom("userMeta")
+      .select("approvalState")
+      .where("userId", "=", userId)
+      .executeTakeFirst();
+    return asApprovalState(row?.approvalState);
+  }
+
+  /**
+   * Undoes the first-admin promotion for an account that `user.create.after`
+   * JUST auto-promoted and `account.create.after` is now marking pending
+   * (spec 2026-09-24 §6). The `WHERE role = 'admin'` clause is the whole
+   * guard: the caller runs this only for a genuine ARRIVAL (a fresh user with
+   * exactly one account — the same hook skips links, which is where an
+   * existing admin's row could otherwise be reached), immediately after the
+   * promotion statement wrote that admin row for the same user, so the only
+   * row it can touch is the one the promotion path just wrote.
+   *
+   * **The last-admin guard of {@link setRole} is deliberately bypassed**, and
+   * that is sound rather than sloppy: the guard exists so an instance never
+   * LOSES an administrator someone relied on. Here the "admin" is seconds
+   * old, was never observable by anyone (the account is being created right
+   * now), and its arrival through a require-approval provider means the instance
+   * was admin-less a moment before this request. Refusing the demote would
+   * leave an unapproved OIDC arrival as the operator of the whole control
+   * plane — the exact inversion §6 exists to prevent. `setup_step` clears in
+   * the same statement for the same reason: the wizard bookmark belongs to
+   * whoever is actually admin, and a pending arrival must not own the
+   * first-run handoff.
+   */
+  async demoteAdminIfAutoPromoted(userId: string): Promise<void> {
+    await this.db
+      .updateTable("userMeta")
+      .set({ role: "user", setupStep: null })
+      .where("userId", "=", userId)
+      .where("role", "=", "admin")
+      .execute();
+  }
+
+  /**
+   * Re-stamps the §6 arrival clock for the pending row owning `email`, and
+   * ONLY a pending row (spec 2026-09-24 §6 dedup: a repeat knock on a still
+   * unapproved provider refreshes its position in the expiry queue; an approved,
+   * rejected or absent row is never touched). Raw SQL because it spans
+   * better-auth's `user` table and the app's `user_meta` in one statement —
+   * physical snake_case names per the plugin-bypass rule; `email` arrives
+   * already lowercased from the caller's normalization.
+   */
+  async touchPendingArrivedByEmail(email: string, arrivedAt: string = new Date().toISOString()): Promise<void> {
+    await sql`
+      UPDATE user_meta SET pending_arrived_at = ${arrivedAt}
+      WHERE approval_state = 'pending'
+        AND user_id = (SELECT id FROM user WHERE lower(email) = ${email})
+    `.execute(this.db);
   }
 }

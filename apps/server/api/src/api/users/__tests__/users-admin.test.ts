@@ -2,14 +2,14 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { auditRoutes } from "@/api/audit.route.js";
 import { authRateLimitRoutes } from "@/api/auth-rate-limit.route.js";
-import { usersRoutes } from "@/api/users.route.js";
+import { usersRoutes } from "@/api/users/index.js";
 import { authDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /**
  * Admin user-management + audit route tests against the dev singleton DB.
@@ -80,13 +80,16 @@ describe("users-admin + audit routes", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       viewerIsAdmin: boolean;
-      users: Array<{ id: string; email: string; role: string | null; createdAt: string | null }>;
+      users: Array<{ id: string; email: string; role: string | null; createdAt: string | null; providers: string[] }>;
     };
     expect(body.viewerIsAdmin).toBe(true);
     const adminRow = body.users.find((u) => u.email === adminEmail);
     expect(adminRow?.id).toBe(adminId);
     expect(adminRow?.role).toBe("admin");
     expect(adminRow?.createdAt).toBeTruthy();
+    // Every fixture here signs up with a password, so the providers column the
+    // users page renders (spec 2026-09-24 §7) is exactly the credential provider.
+    expect(adminRow?.providers).toEqual(["credential"]);
   });
 
   it("non-admin lists users read-only (200, viewerIsAdmin false)", async () => {
@@ -172,7 +175,10 @@ describe("users-admin + audit routes", () => {
     );
     expect(login.status).toBe(200);
 
-    // Duplicate email is rejected with a conflict.
+    // Duplicate email is rejected with a conflict — and the GENERIC sentence
+    // is pinned as the body text (T17 review: status alone would pass on any
+    // 409 copy; spec §5 keeps this answer unnamed for every holder, and
+    // oidc-held-email-signup.test.ts case (f) proves it even for an OIDC one).
     const dup = await usersRoutes.fetch(
       authedRequest("/api/users", token, {
         method: "POST",
@@ -180,6 +186,7 @@ describe("users-admin + audit routes", () => {
       }),
     );
     expect(dup.status).toBe(409);
+    expect(await dup.text()).toBe("E-mail already registered");
 
     // Cleanup: user row (cascades account/session) + user_meta row.
     await db.deleteFrom("userMeta").where("userId", "=", created.id).execute();
@@ -285,7 +292,12 @@ describe("users-admin + audit routes", () => {
     // this file write real audit events with now-stamps, so page 1 belongs to
     // whatever is newest, and the assertions below are against that whole
     // order — which is exactly the property that matters for paging ANY trail.
-    const all = await auditRepo.listLatest(500);
+    // The limit is a sentinel, not a cap: a full-suite run leaves MANY events
+    // above these fixtures (this file moved to `users/` on 2026-09-24 and
+    // landed later in the shared-DB order, where the old 500-row snapshot ran
+    // off the end of the walk), and a truncated snapshot makes the
+    // slice-equality walk and its tail checks lie.
+    const all = await auditRepo.listLatest(1_000_000);
     const ids = all.map((e) => e.id);
     // The tie: id descending inside one timestamp, adjacent.
     expect(ids.indexOf("p-3a")).toBe(ids.indexOf("p-3b") + 1);
@@ -302,7 +314,10 @@ describe("users-admin + audit routes", () => {
     const collected: string[] = [];
     let cursor: { createdAt: string; id: string } | undefined;
     for (let guard = 0; ; guard++) {
-      expect(guard).toBeLessThan(200);
+      // Pages of 2 walk ≤ ids.length/2 + 1 pages; the slack is the short
+      // tail page. A fixed cap would be another ledger-size assumption — the
+      // loop is bounded by the ledger itself.
+      expect(guard).toBeLessThan(ids.length + 4);
       const q = cursor
         ? `limit=2&beforeCreatedAt=${encodeURIComponent(cursor.createdAt)}&beforeId=${cursor.id}`
         : "limit=2";

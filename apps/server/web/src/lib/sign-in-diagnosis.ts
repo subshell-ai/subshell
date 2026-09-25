@@ -97,3 +97,92 @@ export function signInDiagnosis(opts: { inServerApp: boolean; protocol: string }
     remedy: "",
   };
 }
+
+/**
+ * What the login page makes of a failed OAuth round trip (spec 2026-09-24 §4).
+ *
+ * better-auth returns to `errorCallbackURL` (this page) with
+ * `?error=<code>&error_description=<text>` appended; the provider policy's refusal
+ * codes are stable wire strings, and two of them earn a special reading here.
+ * Everything else is still RENDERED (final review, Important 2 — it used to
+ * render nothing): a domain-gate, registration-closed or provider-closed refusal
+ * and the provider's own message are the honest answer for that trip, and a
+ * visitor back on a pristine login page with zero feedback after a full IdP
+ * round trip was indistinguishable from a page that ignored their click.
+ */
+export type AuthErrorDecision =
+  /** The identity exists but an admin has not approved it: leave for `/pending`. */
+  | { kind: "pending"; email: string | null }
+  /** A session could not be created and the honest line is the generic one. */
+  | { kind: "generic"; message: string }
+  /**
+   * A refusal this page has no special reading for, but the trip really
+   * carried a code: the sanitized sentence is what gets shown above the
+   * provider block (`error_description` as TEXT, never as an address — that
+   * reading belongs to `pending_approval` alone).
+   */
+  | { kind: "refused"; message: string }
+  /** Nothing here maps: there was no round trip to report. */
+  | { kind: "none" };
+
+/**
+ * The one sentence for every round trip that produced no session but cannot
+ * say which provider policy refused it (spec §4's honest line, rewritten to two
+ * sentences: UI copy carries no em dash).
+ */
+export const SIGN_IN_UNABLE =
+  "Sign-in could not complete. Access may be pending approval or disabled, so contact an admin.";
+
+/**
+ * The fallback for a refusal this page does not interpret and the trip named
+ * no description for.
+ */
+export const ROUND_TRIP_REFUSED = "That sign-in attempt was refused. Try again or contact an admin.";
+
+/**
+ * The cap on rendered `error_description` text: it arrives from a URL param
+ * with no reason to be short, and the login card is not a scrollback.
+ */
+const REFUSAL_TEXT_MAX = 200;
+
+/** Whitespace-collapsed, trimmed, capped — the sanitizer the `refused` half uses. */
+function refusalText(description: string | undefined): string {
+  return (description ?? "").replace(/\s+/g, " ").trim().slice(0, REFUSAL_TEXT_MAX);
+}
+
+/**
+ * The label of one provider's sign-in button (operator contract, 2026-09-24).
+ *
+ * **The name, never the kind.** Several providers of one kind are legal —
+ * `kind` is only the config preset, the admin's chosen NAME is the identity,
+ * and the immutable id is a slug derived from that name. Two rows can both
+ * be `google` ("Google (Acme)" and "Google (Personal)"), and a kind-first
+ * label would render them indistinguishable: a mis-click then sends the
+ * visitor to the wrong IdP's consent screen. The name IS the disambiguator,
+ * so it is what the button wears, for every kind.
+ */
+export function signInButtonLabel(provider: { name: string }): string {
+  return `Sign in with ${provider.name}`;
+}
+
+/**
+ * Map the login page's search params onto {@link AuthErrorDecision}.
+ *
+ * Pure by construction: it reads only the params passed in, so every shape is
+ * testable without a router, a DOM, or a clock. `error_description` is the
+ * provider policy's email ONLY for `pending_approval` — other codes carry free
+ * text, which is rendered as prose (sanitized, capped) and never treated as
+ * an address. A description with NO `error` code is a stray param, not a
+ * round trip: nothing renders (`none`), because there is no refusal to name.
+ */
+export function mapAuthError(params: { error?: string; error_description?: string }): AuthErrorDecision {
+  if (params.error === "pending_approval") {
+    return { kind: "pending", email: params.error_description || null };
+  }
+  if (params.error === "unable_to_create_session") {
+    return { kind: "generic", message: SIGN_IN_UNABLE };
+  }
+  if (params.error === undefined) return { kind: "none" };
+  const text = refusalText(params.error_description);
+  return { kind: "refused", message: text === "" ? ROUND_TRIP_REFUSED : text };
+}

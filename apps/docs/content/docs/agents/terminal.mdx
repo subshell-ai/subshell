@@ -1,35 +1,35 @@
 ---
 title: Terminal
-description: A plain shell in a subshell pane — no agent, nothing to install, and it is why a clean machine is launchable.
+description: "A plain shell in a subshell pane: no agent, nothing to install, and it is why a clean machine is launchable."
 ---
 
-The Terminal plugin is a subshell that drives no agent at all: your shell, in a tmux pane, watched through the browser like any other subshell. It is the one built-in with nothing to install — which is exactly what makes a brand-new machine launchable before you have put an agent CLI on it.
+The Terminal plugin is a subshell that drives no agent at all: your shell, in a tmux pane, watched through the browser like any other subshell. It is the one built-in with nothing to install, which is exactly what makes a brand-new machine launchable before you have put an agent CLI on it.
 
 ## What it runs
 
 A terminal subshell starts your shell bare: whatever `SHELL` names on that machine, falling back to `bash`. tmux supplies the pseudoterminal, so the shell behaves as it would in any window. One flag is worth knowing about if you launch one from the [preset editor](/use/presets): `-l` starts a login shell, sourcing your full profile.
 
-Detection works like every other plugin's — a shell is a binary, found the same way — so the Terminal row in a launch picker means *this machine has a shell to run*, which is true of every machine where Subshell itself runs.
+Detection works like every other plugin's (a shell is a binary, found the same way), so the Terminal row in a launch picker means *this machine has a shell to run*, which is true of every machine where Subshell itself runs.
 
 ## What a terminal subshell is, and is not
 
-It has no agent, and so it declares no capabilities: no MCP wiring, no resume, no attention hooks. A turn does not "complete" and there is nothing to notify about — it is your prompt, waiting exactly as long as you take.
+It has no agent, and so it declares no capabilities: no MCP wiring, no resume, no attention hooks. A turn does not "complete" and there is nothing to notify about; it is your prompt, waiting exactly as long as you take.
 
 Everything else Subshell does still applies, because none of it lives in the harness:
 
-- **[Sharing](/use/sharing)** — grant someone view or edit on the pane; they watch or type in your shell.
-- **[Workspaces and panes](/use/workspaces-panes)** — arrange terminals beside agents on one grid.
-- **Pane logs** — everything typed and printed lands in the subshell's log file, as with any harness.
-- **[Nodes](/nodes)** — a terminal subshell is often the fastest way to look at a machine you enrolled: it is a browser-based tmux session on that host, with no SSH hop.
+- **[Sharing](/use/sharing)**: grant someone view or edit on the pane; they watch or type in your shell.
+- **[Workspaces and panes](/use/workspaces-panes)**: arrange terminals beside agents on one grid.
+- **Pane logs**: everything typed and printed lands in the subshell's log file, as with any harness.
+- **[Nodes](/nodes)**: a terminal subshell is often the fastest way to look at a machine you enrolled; it is a browser-based tmux session on that host, with no SSH hop.
 
-One small difference: a terminal never tells Subshell its own title, because a shell has no session-name to set. The pane title follows whatever your shell prompt sets until you name the subshell — naming it locks the name, same as with an agent.
+One small difference: a terminal never tells Subshell its own title, because a shell has no session-name to set. The pane title follows whatever your shell prompt sets until you name the subshell; naming it locks the name, same as with an agent.
 
 ## Why it is built in
 
-On a fresh install of everything — control plane up, a node enrolled, no agent CLI anywhere — Terminal is launchable, and so is the rest of the first-run tour. You never have to install an agent just to discover what Subshell looks like.
+On a fresh install of everything (control plane up, a node enrolled, no agent CLI anywhere), Terminal is launchable, and so is the rest of the first-run tour. You never have to install an agent just to discover what Subshell looks like.
 
 ## See also
 
-- [Your First Subshell](/get-started/first-subshell) — the shortest path to a pane, agent or not
-- [Agents overview](/agents) — the other five built-ins and how plugins work
-- [Sharing](/use/sharing) — what an audience can see and do in your shell
+- [Your First Subshell](/get-started/first-subshell): the shortest path to a pane, agent or not
+- [Agents overview](/agents): the other five built-ins and how plugins work
+- [Sharing](/use/sharing): what an audience can see and do in your shell

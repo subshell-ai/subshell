@@ -48,6 +48,104 @@ pub fn apply(app: &AppHandle) {
     crate::windows::refit(app, level);
 }
 
+/// Give one window the Ctrl ladder: `Ctrl+=` / `Ctrl+-` / `Ctrl+0`.
+///
+/// The mirror of the server app's same half, for the same reason: the menu
+/// bar carrying these accelerators is macOS-only by design (a GTK menu bar
+/// is per-window chrome), so on Linux the tray submenu was the only door —
+/// and no door at all where no tray host answers. Window accelerators
+/// restore the keys on BOTH of this app's windows, the node assistant and
+/// the plane window alike; the plane window in particular can never be
+/// wired the built-in way (module header), and this route widens its grant
+/// by nothing. The keyval table and rung decision are `desktop-core`'s,
+/// pinned there; this is registration mechanics, routed through the SAME
+/// `handle` the menus use.
+#[cfg(target_os = "linux")]
+pub fn attach_accelerators(window: &tauri::WebviewWindow) {
+    use gtk::prelude::{AccelGroupExtManual, GtkWindowExt};
+    use subshell_desktop_core::zoom::Accel;
+
+    // Every GTK call below is MAIN-THREAD ONLY; the doors that open a window
+    // run their handlers on tokio workers, where `AccelGroup::new` PANICS and
+    // the window silently keeps no ladder. The server app carries the
+    // measured story. Re-run THIS call on the main thread.
+    if !gtk::is_initialized_main_thread() {
+        let next = window.clone();
+        if let Err(err) = window.run_on_main_thread(move || attach_accelerators(&next)) {
+            eprintln!("subshell-client: could not reach the main thread to attach the text-size keys: {err}");
+        }
+        return;
+    }
+
+    // Once per WINDOW IDENTITY, not per label: the plane window arrives
+    // through several doors, and the same window re-registering is a ladder
+    // that steps twice per press. The server app carries the measured story.
+    static ATTACHED: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
+    let Ok(gtk_window) = window.gtk_window() else {
+        // Not a GTK-backed window; the tray submenu remains the door.
+        return;
+    };
+    let key =
+        gtk::glib::translate::ToGlibPtr::<*mut gtk::ffi::GtkApplicationWindow>::to_glib_none(&gtk_window).0 as usize;
+    {
+        let mut guard = ATTACHED.lock().expect("zoom attach lock poisoned");
+        if guard.contains(&key) {
+            return;
+        }
+        guard.push(key);
+    }
+
+    let group = gtk::AccelGroup::new();
+    let control = gtk::gdk::ModifierType::CONTROL_MASK;
+    let app = window.app_handle().clone();
+    // The table and the mapping are desktop-core's ONE decision, pinned by
+    // its own test; this loop is registration mechanics only.
+    for keyval in subshell_desktop_core::zoom::ACCEL_KEYVALS {
+        let app = app.clone();
+        group.connect_accel_group(
+            keyval,
+            control,
+            gtk::AccelFlags::empty(),
+            move |_group, _window, fired, _mods| match subshell_desktop_core::zoom::zoom_id_for_accel(fired) {
+                Some(Accel::In) => handle(&app, IN_ID),
+                Some(Accel::Out) => handle(&app, OUT_ID),
+                Some(Accel::Reset) => handle(&app, RESET_ID),
+                None => false,
+            },
+        );
+    }
+
+    // The window's accel groups are where GTK consults key events; mounting
+    // the group there is the whole registration. Some WebKitGTK builds ship a
+    // private page-zoom of their own for Ctrl+= (`enable-browser-accelerator-
+    // keys`, ON by default and never plumbed through by tauri 2.11) that
+    // consumes the chord inside the webview before the window ever sees it;
+    // where the property exists it is switched off per webview. This matters
+    // MORE here than in the server app: the plane window shows a page that
+    // cannot be granted anything, so the window group is its only door.
+    gtk_window.add_accel_group(&group);
+    let label = window.label().to_string();
+    if let Err(err) = window.with_webview(move |platform| {
+        use gtk::glib::object::ObjectExt;
+        let webview = platform.inner();
+        // The property is spelled straight to GObject because the webkit2gtk
+        // binding predates it; `set_property` PANICS on an unknown name, so
+        // it is looked up first — a miss only means there was no private
+        // ladder on this engine to switch off.
+        if let Some(settings) = webkit2gtk::WebViewExt::settings(&webview) {
+            if settings.find_property("enable-browser-accelerator-keys").is_some() {
+                settings.set_property("enable-browser-accelerator-keys", false);
+            }
+        }
+    }) {
+        eprintln!("subshell-client: could not reach {label}'s webview to disable its private zoom: {err}");
+    }
+}
+
+/// No-op off Linux, so the window-build sites call it unconditionally.
+#[cfg(not(target_os = "linux"))]
+pub fn attach_accelerators(_window: &tauri::WebviewWindow) {}
+
 /// Route a zoom menu id, from either menu.
 ///
 /// Returns whether the id was one of ours, so its ONE caller can hand

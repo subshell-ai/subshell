@@ -3,8 +3,11 @@ import type { ReactNode } from "react";
 export interface PageHeaderProps {
   /** Page title (h1) — a plain noun like "Subshells" or "Presets" */
   title: ReactNode;
-  /** One-line description under the title */
-  subtitle: ReactNode;
+  /** One-line description under the title. Omit it when the page's own first
+   * card already carries that sentence — the header must not say it twice
+   * (API keys page, operator ruling 2026-09-25), and an empty paragraph would
+   * leave the gap. */
+  subtitle?: ReactNode;
   /** Optional right-aligned affordance, usually the "New X" button */
   action?: ReactNode;
 }
@@ -21,7 +24,9 @@ export function PageHeader({ title, subtitle, action }: PageHeaderProps) {
     <header className="mb-6 flex items-center justify-between">
       <div>
         <h1 className="font-strong text-heading">{title}</h1>
-        <p className="text-muted-foreground text-sm">{subtitle}</p>
+        {/* Rendered only when present: an empty <p> is zero-height today but
+            it is the stray node the prop's contract says will not exist. */}
+        {subtitle ? <p className="text-muted-foreground text-sm">{subtitle}</p> : null}
       </div>
       {action}
     </header>

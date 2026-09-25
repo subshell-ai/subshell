@@ -156,7 +156,9 @@ function NodesPage() {
         options={[...NODES_TABS]}
         value={active}
         onChange={(next) => goTab(next)}
-        className="w-fit"
+        // The page-tab shape; it used to be spelled `className="w-fit"`,
+        // which left the flex-1 equal-share fight to the layout (2026-09-25).
+        fill={false}
       />
 
       {active === "keys" ? (

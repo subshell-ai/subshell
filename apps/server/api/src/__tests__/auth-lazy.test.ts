@@ -18,4 +18,16 @@ describe("getAuth", () => {
     resetAuthForTests();
     expect(getAuth()).not.toBe(a);
   });
+
+  test("a zero-provider table still builds: no genericOAuth plugin over an email-only auth_providers", () => {
+    // Task 4's regression: AUTH_OPTIONS must keep working untouched by the
+    // provider wiring, and the lone EMAIL row (kind "email") is a provider for POLICY
+    // only — buildAuth filters it, so genericOAuth never enters the plugin
+    // list at all when no oidc/google row exists.
+    resetAuthForTests();
+    const auth = getAuth();
+    const pluginIds = ((auth.options?.plugins ?? []) as { id?: string }[]).map((p) => p.id);
+    expect(pluginIds).not.toContain("generic-oauth");
+    expect(typeof auth.handler).toBe("function");
+  });
 });
