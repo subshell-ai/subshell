@@ -65,6 +65,18 @@ pub fn attach_accelerators(window: &tauri::WebviewWindow) {
     use gtk::prelude::{AccelGroupExtManual, GtkWindowExt};
     use subshell_desktop_core::zoom::Accel;
 
+    // Every GTK call below is MAIN-THREAD ONLY; the doors that open a window
+    // run their handlers on tokio workers, where `AccelGroup::new` PANICS and
+    // the window silently keeps no ladder. The server app carries the
+    // measured story. Re-run THIS call on the main thread.
+    if !gtk::is_initialized_main_thread() {
+        let next = window.clone();
+        if let Err(err) = window.run_on_main_thread(move || attach_accelerators(&next)) {
+            eprintln!("subshell-client: could not reach the main thread to attach the text-size keys: {err}");
+        }
+        return;
+    }
+
     // Once per WINDOW IDENTITY, not per label: the plane window arrives
     // through several doors, and the same window re-registering is a ladder
     // that steps twice per press. The server app carries the measured story.
@@ -104,12 +116,11 @@ pub fn attach_accelerators(window: &tauri::WebviewWindow) {
     }
 
     // The window's accel groups are where GTK consults key events; mounting
-    // the group there is the whole registration. What defeats it on some
-    // sessions is WebKitGTK's OWN browser-accelerator-keys handler — its
-    // private page-zoom for Ctrl+=, ON by default and never plumbed through
-    // by tauri 2.11 — which consumes the chord inside the webview before the
-    // window ever sees it. Switching it off per webview is what makes the
-    // window group reachable; our ladder then owns those keys. This matters
+    // the group there is the whole registration. Some WebKitGTK builds ship a
+    // private page-zoom of their own for Ctrl+= (`enable-browser-accelerator-
+    // keys`, ON by default and never plumbed through by tauri 2.11) that
+    // consumes the chord inside the webview before the window ever sees it;
+    // where the property exists it is switched off per webview. This matters
     // MORE here than in the server app: the plane window shows a page that
     // cannot be granted anything, so the window group is its only door.
     gtk_window.add_accel_group(&group);

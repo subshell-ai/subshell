@@ -62,6 +62,21 @@ pub fn attach_accelerators(window: &tauri::WebviewWindow) {
     use gtk::prelude::{AccelGroupExtManual, GtkWindowExt};
     use subshell_desktop_core::zoom::Accel;
 
+    // Every GTK call below is MAIN-THREAD ONLY. The doors that open a window
+    // (the handoff's Start, the tray, the watch's re-point) run their command
+    // handlers on tokio workers, where `AccelGroup::new` PANICS — measured
+    // 2026-09-25: the dashboard window logged `attach ENTER main` and died
+    // there, so it had no ladder at all while the boot-opened assistant,
+    // attached from the main thread, worked. Re-run THIS call on the main
+    // thread rather than duplicating its body; the re-check lands true there.
+    if !gtk::is_initialized_main_thread() {
+        let next = window.clone();
+        if let Err(err) = window.run_on_main_thread(move || attach_accelerators(&next)) {
+            eprintln!("subshell: could not reach the main thread to attach the text-size keys: {err}");
+        }
+        return;
+    }
+
     // Once per WINDOW IDENTITY, not per label: a dashboard destroyed by reset
     // gets a new id and re-registers, while the same window arriving through
     // every door (boot, the wizard's handoff, the tray) registers exactly
@@ -103,12 +118,14 @@ pub fn attach_accelerators(window: &tauri::WebviewWindow) {
     }
 
     // The window's accel groups are where GTK consults key events; mounting
-    // the group there is the whole registration. What was defeating it on
-    // some sessions is WebKitGTK's OWN browser-accelerator-keys handler —
-    // its private page-zoom for Ctrl+=, ON by default and never plumbed
-    // through by tauri 2.11 — which consumes the chord inside the webview
-    // before the window ever sees it. Switching it off per webview is what
-    // makes the window group reachable; our ladder then owns those keys.
+    // the group there is the whole registration. Some WebKitGTK builds ship a
+    // private page-zoom of their own for Ctrl+= (`enable-browser-accelerator-
+    // keys`, ON by default and never plumbed through by tauri 2.11) that
+    // consumes the chord inside the webview before the window ever sees it;
+    // where the property exists it is switched off per webview, so the window
+    // group owns those keys on every engine. On the engine this was measured
+    // on (Ubuntu 26.04, 2026-09-25) the property is ABSENT — the miss is the
+    // `find_property` guard doing its job, not a skipped fix.
     gtk_window.add_accel_group(&group);
     let label = window.label().to_string();
     if let Err(err) = window.with_webview(move |platform| {
