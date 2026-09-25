@@ -1038,14 +1038,19 @@ any dispatch not on `main` and any `-f version=` that disagrees with
 refusal, same reason, as release.yml's); the tag has three cases: absent
 creates, **present at THIS commit redeploys** (re-dispatch is how you re-push
 a broken deploy, because for docs the deploy is the release), present at
-another commit refuses until the tag is deleted. A `ci-gate` job waits for
-this commit's push-triggered Test + Lint runs before anything builds and
-refuses on any non-success (`skip_ci_gate: true` is the emergency opt-out).
-The export is static for now (`output: "export"`); the vinext-at-1.0 follow-up
-lifts that. Broken docs fail PR CI, not just the deploy: the package's `build`
-script runs inside `bun run build`, which `lint.yml` runs on every push.
-The marketing site (`apps/website`, `website-v*` tags, `website.yml`,
-subshell.sh) follows the identical deploy shape.
+another commit refuses until the tag is deleted. There is **no CI gate**: the
+`ci-gate` job that waited for this commit's push-triggered Test + Lint runs
+was removed by operator ruling of 2026-09-25, the day a flaky job in an
+unrelated package's Test run blocked both site deploys until a human re-ran
+it. What proves a site is `lint.yml` building its export on every push, and
+PR CI before that; the gate only borrowed server/node test luck. (The specs
+that designed it, 2026-09-16 docs and 2026-09-23 website, keep their gate
+sections as dated records.) The export is static for now
+(`output: "export"`); the vinext-at-1.0 follow-up lifts that. Broken docs
+fail PR CI, not just the deploy: the package's `build` script runs inside
+`bun run build`, which `lint.yml` runs on every push. The marketing site
+(`apps/website`, `website-v*` tags, `website.yml`, subshell.sh) follows the
+identical deploy shape, gate removed there too.
 
 ## Build Dependencies
 
