@@ -107,7 +107,17 @@ export function nextPhase(
 export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
   const nodeUpdate = useNodeUpdate();
   const queryClient = useQueryClient();
-  const [running, setRunning] = useState(false);
+  // The run carries the fleet the press CAPTURED, ids in press order, for
+  // the whole sequence's length: a mid-run refetch takes a restarting node
+  // offline, its canUpdate goes false, and a counter reading the live
+  // updatable list would read "Updating 1 of 1" while the operator's own
+  // press said two.
+  const [run, setRun] = useState<{ ids: string[] } | null>(null);
+  // Which row the page is working on RIGHT NOW, owned by the sequence rather
+  // than by the shared mutation: `useMutation` can only name its latest call,
+  // so a busy state read from it left every "Update all" but the first row
+  // silent for the minutes that one POST takes (operator report 2026-09-25).
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [watches, setWatches] = useState<Record<string, Watch>>({});
   const updatable = fleet.rows.filter((row) => row.canUpdate.ok);
 
@@ -154,10 +164,18 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
     }
   }, [nodesView, watches, installing, queryClient]);
 
-  /** Record the 202's `to` and start the stall clock for one node. */
+  /** Work one node: it owns the row spinner while its POST runs, then hands
+   * the row to the watch once the 202 records `to` and starts the stall clock. */
   async function updateOne(nodeId: string): Promise<void> {
-    const res = await nodeUpdate.update(nodeId);
-    setWatches((prev) => ({ ...prev, [nodeId]: { to: res.to, acceptedAt: Date.now(), phase: "installing" } }));
+    setActiveId(nodeId);
+    try {
+      const res = await nodeUpdate.update(nodeId);
+      setWatches((prev) => ({ ...prev, [nodeId]: { to: res.to, acceptedAt: Date.now(), phase: "installing" } }));
+    } finally {
+      // The next row has usually already claimed the spinner by the time a
+      // failing or finished call gets here; only release OURS.
+      setActiveId((cur) => (cur === nodeId ? null : cur));
+    }
   }
 
   async function updateAll(): Promise<void> {
@@ -166,7 +184,7 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
     // run in which that row was never even asked.
     nodeUpdate.reset();
     setWatches({});
-    setRunning(true);
+    setRun({ ids: updatable.map((row) => row.id) });
     try {
       for (const row of updatable) {
         try {
@@ -182,11 +200,17 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
         }
       }
     } finally {
-      setRunning(false);
+      setRun(null);
     }
   }
 
   const newest = fleet.release?.version ?? DASH;
+  // The sequence's 1-based position WITHIN THE CAPTURED RUN. Zero means
+  // either no run (idle, or a single press - there the header keeps its own
+  // "Update all (N)" count) or the active row is momentarily outside the
+  // run; only that second case paints, as a bare un-numbered "Updating…"
+  // inside a running sequence.
+  const seqPos = run === null || activeId === null ? 0 : run.ids.indexOf(activeId) + 1;
 
   return (
     <>
@@ -195,11 +219,15 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
         {fleet.rows.length > 0 && (
           <Button
             variant="outline"
-            disabled={updatable.length === 0 || running || nodeUpdate.pendingNodeId !== null}
+            disabled={updatable.length === 0 || run !== null || activeId !== null}
             onClick={() => void updateAll()}
           >
-            {running && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 motion-safe:animate-spin" />}
-            {running ? "Updating…" : `Update all (${updatable.length})`}
+            {run !== null && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 motion-safe:animate-spin" />}
+            {run === null
+              ? `Update all (${updatable.length})`
+              : seqPos > 0
+                ? `Updating ${seqPos} of ${run.ids.length}…`
+                : "Updating…"}
           </Button>
         )}
       </div>
@@ -216,7 +244,7 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
 
       {fleet.rows.map((row, index) => {
         const runningValue = row.agentVersion ?? "version unknown";
-        const updating = nodeUpdate.pendingNodeId === row.id;
+        const updating = activeId === row.id;
         // The node page's card got these sentences first, for the same reason:
         // after the 202 the machine is mid-restart, and "it will reconnect by
         // itself" is what a person watching a finished spinner needs to hear.
@@ -237,7 +265,7 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={!row.canUpdate.ok || running || nodeUpdate.pendingNodeId !== null}
+                disabled={!row.canUpdate.ok || run !== null || activeId !== null}
                 title={row.canUpdate.reason ?? undefined}
                 onClick={() => {
                   nodeUpdate.reset();

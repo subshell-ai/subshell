@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { nodeRow, nodeUpdates } from "@/components/__tests__/helpers/updates-view";
 import { NodeRows, nextPhase, rowState, WATCH_STALL_MS } from "@/components/updates/node-rows";
 import type { NodeUpdates } from "@/types/updates";
@@ -12,15 +12,21 @@ afterEach(cleanup);
  * pressed, and they are `contents` fragments — a grid div is their real
  * parent on the page.
  */
+/** Also returns the provider's client: a test that re-renders mid-sequence
+ * with a changed fleet must keep the SAME client, or it remounts the tree
+ * under review. */
 function renderRows(fleet: NodeUpdates) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={client}>
-      <div className="grid">
-        <NodeRows fleet={fleet} />
-      </div>
-    </QueryClientProvider>,
-  );
+  return {
+    client,
+    ...render(
+      <QueryClientProvider client={client}>
+        <div className="grid">
+          <NodeRows fleet={fleet} />
+        </div>
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 const updateAll = () => screen.getByRole("button", { name: /^Update all/ }) as HTMLButtonElement;
@@ -142,7 +148,12 @@ describe("NodeRows", () => {
       const updating = (await screen.findByRole("button", { name: "Updating…" })) as HTMLButtonElement;
       expect(updating.disabled).toBe(true);
       expect(updating.querySelector("svg")).toBeTruthy();
-      release();
+      // Async act: the resolve's microtask chain needs the await to land
+      // inside act, or the state updates escape it (the sibling sequence
+      // test's comment carries the full reason).
+      await act(async () => {
+        release();
+      });
     } finally {
       globalThis.fetch = original;
     }
@@ -188,14 +199,131 @@ describe("NodeRows", () => {
         }),
       );
       fireEvent.click(updateAll());
-      // Row a's own button reads "Updating…" too while its POST hangs, so a
-      // single match is impossible; findAll, and the header button is first
-      // in document order.
+      // The header button carries the sequence counter now ("Updating 1 of
+      // 2…"), so the only exact "Updating…" match is row a's own button —
+      // which is the working row, and the point of this assertion.
       const updating = (await screen.findAllByRole("button", { name: "Updating…" }))[0] as HTMLButtonElement;
       expect(updating.disabled).toBe(true);
       expect(updating.textContent).toContain("Updating");
       expect(updating.querySelector("svg")).toBeTruthy();
       expect(posts).toEqual(["/api/nodes/a/update"]);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("moves the working row with the sequence and names its position", async () => {
+    // Operator report (2026-09-25): Update all disabled every row's button
+    // while only the FIRST row ever showed a spinner, for the minutes that
+    // one POST takes. The rows read their busy state from a single shared
+    // mutation, which can only ever name its latest call, and nothing said
+    // where the fleet stood in the sequence.
+    const original = globalThis.fetch;
+    const deferred = new Map<string, () => void>();
+    globalThis.fetch = ((input: unknown, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "POST") {
+        const id = url.split("/")[3];
+        return new Promise<Response>((resolve) => {
+          deferred.set(id, () =>
+            resolve(
+              new Response(JSON.stringify({ ok: true, from: "0.9.0", to: "0.9.1", url: "/d/linux-x64" }), {
+                status: 202,
+              }),
+            ),
+          );
+        });
+      }
+      // The watcher's read: both still on the OLD version, so accepted
+      // watches stay on their "installing" sentence.
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            nodes: [
+              { id: "a", agentVersion: "0.9.0" },
+              { id: "b", agentVersion: "0.9.0" },
+            ],
+          }),
+          {
+            status: 200,
+          },
+        ),
+      );
+    }) as typeof globalThis.fetch;
+    try {
+      const view = renderRows(
+        nodeUpdates({
+          release: { version: "0.9.1", tag: "cli-node-v0.9.1", publishedAt: null },
+          rows: [
+            nodeRow({ id: "a", name: "alpha", agentVersion: "0.9.0", canUpdate: { ok: true, reason: null } }),
+            nodeRow({ id: "b", name: "beta", agentVersion: "0.9.0", canUpdate: { ok: true, reason: null } }),
+          ],
+        }),
+      );
+      const { client } = view;
+      // Grab the header button BEFORE pressing it: mid-sequence it no longer
+      // answers /^Update all/, so every position assert below reads the same
+      // captured element (React keeps the node across renders).
+      const allBtn = updateAll();
+      fireEvent.click(allBtn);
+
+      // Position 1 of 2 while a's POST is open: the counter names it, only
+      // row a spins, row b sits plainly disabled.
+      await waitFor(() => expect(allBtn.textContent).toBe("Updating 1 of 2…"));
+      expect((await screen.findByRole("button", { name: "Updating…" })).textContent).toBe("Updating…");
+      // Row b is the only plain "Update" button left: a string `name` on a
+      // role query matches the accessible name exactly, so "Updating…" on
+      // row a cannot shadow-match it.
+      const plain = screen.getByRole("button", { name: "Update" }) as HTMLButtonElement;
+      expect(plain.disabled).toBe(true);
+
+      // a's 202 lands: a keeps a sentence (not a spinner), b takes the
+      // spinner, and the counter moves. This is the moment the old state
+      // model made unrepresentable to SEE. (ASYNC act: a sync act callback
+      // returns before the resolve's microtask chain runs, so the state
+      // would land outside it and the next waitFor's first check would be
+      // a coin-flip, which is exactly the Linux happy-dom escape trap. The
+      // await drains the chain, so the waitFor below lands on settled DOM.)
+      await act(async () => {
+        deferred.get("a")?.();
+      });
+      await waitFor(() => expect(allBtn.textContent).toBe("Updating 2 of 2…"));
+      expect(screen.getByText(/Update accepted. alpha is installing 0.9.1/)).toBeTruthy();
+      expect(screen.getAllByRole("button", { name: "Updating…" }).length).toBe(1);
+      expect(screen.queryByText(/Update accepted. beta is installing/)).toBeNull();
+
+      // The mid-run refetch: a restarts, goes offline, and drops OUT of the
+      // updatable list while b is still in flight. The counter must keep
+      // counting the fleet the press captured, not the one on screen now,
+      // or it reads "1 of 1" while the operator's own press said two.
+      view.rerender(
+        <QueryClientProvider client={client}>
+          <div className="grid">
+            <NodeRows
+              fleet={nodeUpdates({
+                release: { version: "0.9.1", tag: "cli-node-v0.9.1", publishedAt: null },
+                rows: [
+                  nodeRow({
+                    id: "a",
+                    name: "alpha",
+                    agentVersion: "0.9.0",
+                    canUpdate: { ok: false, reason: "this node is offline" },
+                  }),
+                  nodeRow({ id: "b", name: "beta", agentVersion: "0.9.0", canUpdate: { ok: true, reason: null } }),
+                ],
+              })}
+            />
+          </div>
+        </QueryClientProvider>,
+      );
+      expect(allBtn.textContent).toBe("Updating 2 of 2…");
+
+      // b's 202 lands: the sequence is done; the header button is itself again.
+      await act(async () => {
+        deferred.get("b")?.();
+      });
+      await waitFor(() => expect(allBtn.textContent).toBe("Update all (1)"));
+      expect(screen.getByText(/beta is installing 0.9.1/)).toBeTruthy();
     } finally {
       globalThis.fetch = original;
     }
