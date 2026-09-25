@@ -43,6 +43,16 @@
 //! main INSIDE the block), and [`WAIT`] is the backstop if that is ever untrue
 //! on some future OS: a bounded wrong answer rather than a window that never
 //! paints.
+//!
+//! A fourth measured fact sits beside that: **PhotoKit's consent prompt is
+//! presentation, and presentation belongs on the main thread.** The Photos
+//! REQUEST (not its handler) is re-dispatched to main by
+//! [`request_photos`] through [`run_block_on_main_thread`], because calling it
+//! from this command's worker thread was measured (2026-09-25, packaged app)
+//! to produce no sheet and no TCC registration at all. The notifications calls
+//! keep calling in place: the UN framework re-dispatches its own request
+//! internally, which is why the same command-threaded pattern works for it and
+//! did not for Photos.
 
 use serde::Serialize;
 
@@ -242,20 +252,60 @@ pub fn request_photos() -> Result<Permission, String> {
         return Ok(Permission::Unavailable);
     }
     let (tx, rx) = mpsc::channel::<()>();
-    let handler = block2::RcBlock::new(move |_status: PHAuthorizationStatus| {
-        // The status is dropped on purpose — the row is re-read below. What
-        // crosses the channel is only the fact that the framework answered.
-        let _ = tx.send(());
+    // **The request itself goes to the main thread.** Called from this
+    // command's tokio worker (measured 2026-09-25, packaged app): the sheet
+    // never appeared and the app never registered under System Settings →
+    // Privacy & Security → Photos, which is what "no consent prompt ever
+    // reached TCC" looks like from outside. PhotoKit's consent sheet is
+    // presentation, and the completion handler — unlike UN's, which this
+    // same pattern serves fine — arrives on an arbitrary background queue,
+    // so blocking HERE (never on main) stays safe: main presents, a framework
+    // queue answers, this worker waits.
+    let request = block2::RcBlock::new(move || {
+        let answer = tx.clone();
+        let handler = block2::RcBlock::new(move |_status: PHAuthorizationStatus| {
+            // The status is dropped on purpose — the row is re-read below.
+            // What crosses the channel is only the fact that the framework
+            // answered.
+            let _ = answer.send(());
+        });
+        // SAFETY: a class method taking a plain enum and a completion block,
+        // now called on the main thread. The block runs on the framework's
+        // own queue with a plain integer argument; the `WAIT` timeout bounds
+        // the wait, exactly as around the UN calls.
+        unsafe {
+            PHPhotoLibrary::requestAuthorizationForAccessLevel_handler(PHAccessLevel::ReadWrite, &handler);
+        }
     });
-    // SAFETY: a class method taking a plain enum and a completion block. The
-    // block runs on the framework's own queue with a plain integer argument;
-    // the `WAIT` timeout bounds the wait, exactly as around the UN calls.
-    unsafe {
-        PHPhotoLibrary::requestAuthorizationForAccessLevel_handler(PHAccessLevel::ReadWrite, &handler);
-    }
+    run_block_on_main_thread(&request);
     match rx.recv_timeout(WAIT) {
         Ok(()) => Ok(photos_permission()),
         Err(_) => Ok(Permission::Unavailable),
+    }
+}
+
+/// Run a block on the AppKit main thread and return immediately.
+///
+/// `+[NSThread performBlockOnMainThread:]` (macOS 10.12+, below every floor
+/// this app ships to) is sent through `msg_send!` rather than a binding
+/// because `objc2-foundation` 0.3.2 does not generate it — its `NSThread`
+/// carries `detachNewThreadWithBlock:` but not this. The class and selector
+/// exist at runtime regardless of what the crate wrapped.
+///
+/// The shape this module relies on is: a worker dispatches, the main thread
+/// runs, the worker waits. A caller ON the main thread would get Apple's
+/// synchronous-when-on-main execution rather than a hang, and the framework's
+/// own queue answers the completion either way — but every reachable caller
+/// here is a worker, and the `WAIT` timeout bounds the wait regardless.
+#[cfg(target_os = "macos")]
+fn run_block_on_main_thread(block: &block2::RcBlock<dyn Fn()>) {
+    use objc2::{class, msg_send};
+    // SAFETY: `NSThread` is a system class always present on macOS;
+    // `performBlockOnMainThread:` has taken one `dispatch_block_t` (the same
+    // object encoding a `RcBlock` passes) since 10.12; the message returns
+    // nothing.
+    unsafe {
+        let _: () = msg_send![class!(NSThread), performBlockOnMainThread: &**block];
     }
 }
 

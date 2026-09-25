@@ -172,7 +172,16 @@ export function PermissionsScreen(props: {
                 const allow = row.allow;
                 if (row.action !== "allow" || allow === null) return null;
                 return (
-                  <Button type="button" disabled={busy || running} onClick={() => REQUESTS[allow.request]()}>
+                  <Button
+                    type="button"
+                    // The visible word is the bare "Allow" (operator's call, 2026-09-25)
+                    // because the row names the permission beside it; the ACCESSIBLE
+                    // name keeps the attribution a button list needs, since a screen
+                    // reader browsing buttons sees no rows.
+                    aria-label={`Allow ${row.label}`}
+                    disabled={busy || running}
+                    onClick={() => REQUESTS[allow.request]()}
+                  >
                     {allow.label}
                   </Button>
                 );
@@ -184,6 +193,7 @@ export function PermissionsScreen(props: {
                 <Button
                   type="button"
                   variant="outline"
+                  aria-label={`Open ${row.label} settings`}
                   disabled={busy || running}
                   onClick={() =>
                     void ipc
@@ -191,7 +201,7 @@ export function PermissionsScreen(props: {
                       .catch(props.fail)
                   }
                 >
-                  Open System Settings
+                  Open Settings
                 </Button>
               )}
             </div>

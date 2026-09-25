@@ -135,7 +135,7 @@ describe("the form", () => {
     renderSetup({ probe: makeProbe({ next: "init", onboarded: false, tmux: null }) });
     const setUp = screen.getByRole("button", { name: "Set Up" }) as HTMLButtonElement;
     expect(setUp.disabled).toBe(true);
-    expect(screen.getByText("Waiting for tmux")).toBeDefined();
+    expect(screen.getByText("Waiting for tmux to be installed")).toBeDefined();
   });
 
   it("keeps Set Up live when tmux is present, and fires it on the press", () => {

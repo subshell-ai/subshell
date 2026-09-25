@@ -571,7 +571,7 @@ export function canSetup(
 ): { ok: true } | { ok: false; reason: string } {
   if (probe === null) return { ok: false, reason: "Checking this machine…" };
   if (busy) return { ok: false, reason: "" };
-  if (probe.tmux === null) return { ok: false, reason: "Waiting for tmux" };
+  if (probe.tmux === null) return { ok: false, reason: "Waiting for tmux to be installed" };
   // Short because it renders in a span beside the button; the screen itself
   // carries the explanation and the two ways out.
   if (portConflict) return { ok: false, reason: `Port ${portConflict.port} is in use` };

@@ -986,6 +986,21 @@ the answer is RE-READ from that function rather than mapped from the handler;
 this row renders the difference between `authorized` and `limited`, and one read
 keeps that mapping in one place.
 
+**The request itself had to move to the main thread** (operator report,
+2026-09-25, packaged app). Called on the command's tokio worker, the sheet
+never appeared and the app never registered under System Settings → Privacy &
+Security → Photos: no consent prompt ever reached TCC. PhotoKit's consent sheet
+is presentation, and presentation belongs on the main thread; `request_photos`
+now re-dispatches the REQUEST through `run_block_on_main_thread` (a
+`msg_send!` of `+[NSThread performBlockOnMainThread:]`, which
+`objc2-foundation` 0.3.2 does not generate), and only then waits on the channel.
+The wait stays on the worker, so the main thread is never held. The
+notifications pair keeps calling in place: the UN framework re-dispatches its
+own request internally, which is why the identical pattern worked there and did
+not here. **No check on this host can compile the macOS-gated half;
+`cargo check --target aarch64-apple-darwin` does, and the fix's real proof is
+a press of the button on a built app.**
+
 **Tauri's notification plugin cannot see any of this.** Its desktop
 `permission_state()` and `request_permission()` are stubs that answer
 `Granted` (2.4.0, measured), so the truth comes from `UNUserNotificationCenter`
@@ -1031,16 +1046,24 @@ arrive**, and that is a SECOND rule beside "a button only where pressing it
 does something". Read as one rule, they produce the dead end this screen
 shipped with (review, 2026-09-14). The two are about different buttons: macOS
 asks once, so **Allow** is inert after the first answer and is offered only
-while the state is `not-determined`; **Open System Settings** is never inert,
+while the state is `not-determined`; **Open Settings** is never inert,
 because the pane is there whether or not the question has been asked. So the
 `files` row offers it in EVERY state: its own state is unreadable by
 construction, so a button gated on `denied` would render never, while the
 picker's "Blocked by macOS" notice raises this screen as the fix regardless.
 `SettingsPane::FilesAndFolders` being defined, granted and sent by nothing was
 the tell. `photos` now follows `notifications` exactly (**Allow** while
-`not-determined`, **Open System Settings** once `denied`, nothing once allowed)
+`not-determined`, **Open Settings** once `denied`, nothing once allowed)
 because it has a prompt of its own to raise now (see above), and its notice
-fires in the `denied` state the pane answers.
+fires in the `denied` state the pane answers. Both buttons are short since the
+operator's pass of 2026-09-25: the row's own label names the permission, so
+the ask is the bare **Allow** and the door is **Open Settings**; what keeps
+the 2026-09-14 anti-lie rule is the row's `request` field and the renderer's
+exhaustive `Record` over it, not the label spelling out which permission it
+spends. The buttons carry `aria-label` with the row's permission anyway
+(**Allow Photos**, **Open Photos settings**): a screen reader browsing the
+button list sees no rows, and an invisible accessible name costs the eyes
+nothing.
 
 **A second rule came out of the same screen: an `allow` row carries its own
 button WORDS.** The renderer used to hardcode `("Allow notifications",
@@ -1048,8 +1071,8 @@ allowNotifications)` for `row.action === "allow"`, which was true of one row and
 became a lie the moment two rows could ask: the Photos row would have shown a
 button naming notifications and spent the Photos question. So `PermissionRow`
 carries `allow: { label, request } | null` (present exactly where `action` is
-`"allow"`, pinned by `permissions-model.test.ts`), and `wizard.ts` looks the
-handler up in a `Record<PermissionRequest, () => void>`. A `Record` over the
+`"allow"`, pinned by `permissions-model.test.ts`), and `permissions-screen.tsx`
+looks the handler up in a `Record<PermissionRequest, () => void>`. A `Record` over the
 model's closed union, not a chain of `if`s on `row.id`: a third request added to
 the union without its handler is a COMPILE error, where dispatch defaulting to
 notifications is a button that lies and a test nothing fails.
@@ -1264,66 +1287,72 @@ no orphan `index.html` sits beside it.
 
 ```
 ui/
-├── wizard.html         # the ONE bundled page; every id the assistant binds is in it
+├── wizard.html         # the ONE Vite input; it loads /src/main.tsx (pinned by tauri-config.test.ts)
 ├── src/
-│   ├── wizard.ts       # the ENTRY: state, the screens, render(), the poll, the screen listener
-│   ├── assistant/      # the screen modules, each taking an AssistantHost
-│   │   ├── host.ts     #   the contract, plus el() and errText()
-│   │   ├── logs.ts     #   renderTail() and renderOutput(), for the Show Details panes
-│   │   ├── copy-button.ts   # the one Copy affordance; its flash lives in lib/copy-flash.ts
-│   │   ├── tmux-warning.ts  # the amber gate explanation — a FACTORY
-│   │   └── screens/reset-dialog.tsx # the Reset dialog (the 2026-09-23 wave: a modal over the standing section, no longer a frame replacement)
+│   ├── main.tsx        # the React entry: mounts <Host>
+│   ├── host.tsx        # the state owner: probe + poll, route resolution, the screen listener,
+│   │                   #   the update selection's overrides — the old wizard.ts's role
+│   ├── runners.ts      # the action layer: act, startSetup, startTmuxInstall, pickBinary,
+│   │                   #   runRecovery, refreshTail — one hook over the host's state bag
+│   ├── components/     # the app's UI primitives (button, badge, …)
+│   ├── hooks/
+│   │   └── use-port-check.ts  # the port-in-use round trip behind the setup gate
+│   ├── screens/        # ONE component per screen, props in, never a reach into host.tsx;
+│   │   │             #   the frame and its strings come from @internal/assistant
+│   │   └── copy-button.tsx, address-fields.tsx, status-details.tsx   # shared blocks
 │   ├── styles.css      # @theme tokens + component classes; Tailwind in markup
-│   ├── lib/
+│   ├── lib/            # the pure decisions, testable without a webview
 │   │   ├── ipc.ts            # one typed function per `desktop_*` command this page invokes
-│   │   ├── config-form.ts    # the pure form contract (see below)
-│   │   ├── installers.ts     # the pure install plans
 │   │   ├── wizard-state.ts   # screensFor, autoSetupDecision, recoveryTitle/Action, RESET_LABEL, the checklist
+│   │   ├── server-state.ts   # railFor: which rail sections a route and an onboarded machine get
+│   │   ├── config-form.ts    # the pure form contract (see below)
+│   │   ├── installers.ts     # the pure install plans and manual routes
 │   │   ├── recovery-model.ts # the recovery screen's subtitle, facts and pane risk
 │   │   ├── update-act.ts     # the ONE update act: rows, phases, presses, refusals
 │   │   ├── pane-force.ts     # the pane-safety Force box, shared by both screens that restart
 │   │   ├── settings-screen.ts # Server Addresses: the https warning, what Save sends, its refusals
-│   │   ├── permissions-model.ts # the four macOS rows: glyph, suffix, action, pane
+│   │   ├── permissions-model.ts # the three macOS rows: glyph, suffix, action, pane
 │   │   ├── copy-flash.ts     # the Copy button's copied/failed state, by key and by clock
 │   │   └── reset.ts          # the reset dialog's pure decisions: rows, refusal, arming
-│   └── __tests__/      # pure pins: config-form, installers, wizard-state, recovery-model,
-│                       # update-act, settings-screen, permissions-model, copy-flash,
-│                       # reset, wire-names, ipc-acl, tauri-config
+│   └── __tests__/      # pure pins (config-form, installers, wizard-state, recovery-model,
+│                       #   update-act, settings-screen, permissions-model, copy-flash, reset,
+│                       #   wire-names, ipc-acl, tauri-config) + component tests under
+│                       #   screens/__tests__ (a real DOM via @testing-library, happy-dom
+│                       #   preloaded by ui/bunfig.toml)
 └── dist/               # `frontendDist` — built, gitignored, never hand-edited
 ```
 
 The split rule the plain-JS version established still decides WHERE logic
 lives: anything with a contract rather than a rendering goes in `lib/`, where
-it is testable without a webview. Everything under `ui/src/assistant/` holds
-only the DOM.
+it is testable without a webview, and `screens/` holds only rendering.
 
 Four things about that arrangement are load-bearing:
 
-- **No module under `assistant/` imports `wizard.ts`.** They take an
-  `AssistantHost` (`probe`, `busy`, `setBusy`, `render`, `refresh`, `fail`,
-  `close`) instead. A cycle back to the entry is not a type error and not a
-  lint error; it is a temporal dead zone at module evaluation, i.e. a BLANK
-  window on the machine someone is repairing. The console's `ConsoleHost` had
-  the same rule; what is missing here is `goTo`, because there is no sidebar
-  and no sections, so a module that could navigate would be navigating a
-  structure that does not exist. `close()` replaces it: leave a requested
-  screen for whatever the probe implies.
-- **`tmux-warning.ts` is a factory**, and the reason survived the console. It
-  needed one per gated surface because two sections rendered at once; here the
-  element is re-appended by every render, and one created per render would
-  throw away a half-finished Copy.
+- **No screen imports `host.tsx`.** The host renders the screens and passes
+  them what they need as props; a cycle back up to it is the same hazard the
+  old page had: a module-eval dead zone reads as a BLANK window on the
+  machine someone is repairing, not a type error. The old `AssistantHost`
+  contract is the props lists now; navigation stayed out of them for the old
+  reason (a screen that could navigate navigates a structure the host owns).
+  The other boundary pin: Tauri is reached only through `lib/ipc.ts`.
+- **The amber tmux gate is no longer a factory.** `tmux-warning.ts` had to be
+  one because the imperative page built a single element that two gated
+  surfaces re-appended, and one created per render threw away a half-finished
+  Copy. React deleted the mechanism: `status-screen.tsx` renders its gate
+  block itself. The Copy button keeps its own entry below because its flash
+  is still state the render does not own.
 - **A Copy button's flash is PAGE state** (`lib/copy-flash.ts`), which is the
   third time this app has had to move something out of an element the render
   rebuilds (after `Show Details` and the reset screen's step rows). The flash
-  lasts 1600 ms and the poll renders every 1500, so a tick living in the DOM
-  survived a uniformly random 0–1500 ms of it: pressed, seen, gone, with
-  nothing wrong and nothing to notice. The slot is keyed by a string the
+  lasts 1600 ms and the poll renders every 1500, so a tick living in the
+  element survived a uniformly random 0–1500 ms of it: pressed, seen, gone,
+  with nothing wrong and nothing to notice. The slot is keyed by a string the
   CALLER owns (the element is the thing that does not survive), and expires
   by TIMESTAMP rather than by a timer having fired, since the timer belongs to
   whichever button has already been discarded. Copy buttons are also the one
   affordance here that is never disabled, and by construction rather than by
-  an opt-out: they are not built through the screens' `button()`, which is
-  what the busy state reaches. (A `data-always` opt-out existed for the
+  an opt-out: they are not built through the screens' busy-disabling pattern
+  (`screens/copy-button.tsx`). (A `data-always` opt-out existed for the
   console's sweep, which read it; the sweep went with the console and the
   attribute outlived its only reader by three months.)
 - **`lib/update-act.ts` holds every judgment the update screen makes**, for
@@ -1332,13 +1361,13 @@ Four things about that arrangement are load-bearing:
   install, one NEWER than the bundle, a release source that would not answer,
   and the automatic attempts being spent), never more than two of them at once,
   since a phase-2 screen returns before the release answer is consulted. None
-  of it could be covered at all from inside `renderUpdate`. Which rows appear,
+  of it could be covered at all from inside the component. Which rows appear,
   which of them carry a checkbox and which carry a reason instead, what is
   ticked by default, whether the Force box renders, what the press is called
   and what it will do, and whether phase 2 fires by itself are all decisions
   there, and `update-act.test.ts` walks § 4.1's four cases, § 4.2's two phases,
   § 13's selection and each of § 6's refusals. The SELECTION itself is page
-  state in `wizard.ts` (held as overrides, so an absent id is the model's
+  state in `host.tsx` (held as overrides, so an absent id is the model's
   default and a tick made against a row that stops existing takes nothing with
   it), because the model is pure and is handed the answer rather than keeping
   it.
@@ -1622,8 +1651,10 @@ stay valid against the same regex; `DESKTOP_PROTOCOL` is unchanged by it.
 command name lives in the calling page module, in `permissions/desktop.toml`
 and in a capability file; missing from any one is a runtime permission
 refusal, not a compile error. `ui/src/__tests__/ipc-acl.test.ts` asserts that
-the commands invoked by the assistant page (`ui/src/wizard.ts` plus every
-module under `ui/src/assistant/`) are EXACTLY the set `wizard.json` grants,
+the commands invoked by the assistant page (`ui/src/main.tsx`, `host.tsx`,
+`runners.ts`, plus every module under `screens/` and `hooks/`, enumerated from
+disk so a new screen joins the pin by itself) are EXACTLY the set
+`wizard.json` grants,
 that `ipc.ts` hides nothing extra, that no capability names an undefined
 permission, that no defined permission goes ungranted, and that `main` still
 holds exactly its seven commands plus window dragging (by name, by count, by
@@ -1703,8 +1734,9 @@ now, so source-beside-source is the layout again, and what keeps the old
 failure mode from returning is `tauri-config.test.ts` pinning
 `frontendDist === "../ui/dist"`: the shipped directory is generated, and a
 test file cannot hide inside a build's output.) `package.json`'s `test` runs
-`bun test src ui/src`; that same file also pins the wiring in `main.ts` at the
-source, because the render path imports Tauri and cannot be loaded here.
+`bun test src ui/src`; that same file also pins the wiring in `host.tsx` and
+`runners.ts` at the source, because the render path imports Tauri and cannot be
+loaded here.
 
 The fields are PREFILLED with the effective configuration (2026-09-09), which
 moved that contract rather than removing it:

@@ -44,12 +44,12 @@ export interface InstallPlan {
  * them: a package manager's name, and the member of the app's closed URL set
  * that opens its site.
  *
- * **The command is shown only when ASKED FOR.** Printing both routes' shell
- * lines up front asked someone to paste an unexplained command on a window's
- * say-so; pressing a manager's name and being shown the one line for it does
- * not. The line that installs the MANAGER is still never shown — that is the
- * `curl … | bash` nobody should take from here, and each project's own site
- * carries it in its own words (operator's calls, 2026-09-14).
+ * **One route's command shows at a time, and the first one's shows by
+ * default** (operator's call, 2026-09-25: hidden until asked, the two bare
+ * buttons read as a screen doing nothing). The lines that install the MANAGER
+ * are still never shown — that is the `curl … | bash` nobody should take from
+ * here, and each project's own site carries it in its own words (operator's
+ * call, 2026-09-14).
  */
 export interface ManualRoute {
   /** The package manager's name, spelled as its own project spells it */
