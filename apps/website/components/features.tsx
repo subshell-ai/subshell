@@ -11,7 +11,10 @@ const FEATURES = [
     "Get notified when an agent needs you",
     "Subshell sends push notifications when agents are waiting for your input after finishing tasks.",
   ],
-  ["Spin up agents on remote machines", "Register your machines as nodes to launch agents from."],
+  [
+    "Spin up agents on remote machines",
+    "Register your machines as nodes to launch agents from. Every node connection is encrypted and authenticated.",
+  ],
   [
     "Upload files from any device",
     "Drop a screenshot, a log or any file into a session from your phone or another machine for your agent to use.",
