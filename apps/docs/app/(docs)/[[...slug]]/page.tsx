@@ -46,5 +46,9 @@ export async function generateMetadata(props: PageRouteProps): Promise<Metadata>
   return {
     title: page.data.title,
     description: page.data.description,
+    // Canonical = the page's own path on the real origin. metadataBase
+    // (docs.subshell.sh) makes this absolute; it tells crawlers that a
+    // `/foo`, `/foo/`, or `?utm=` variant is one page, not duplicates.
+    alternates: { canonical: page.url },
   };
 }
