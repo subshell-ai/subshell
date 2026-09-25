@@ -16,6 +16,13 @@ function registrationBlock(entries: readonly string[], id: string): string {
  * while filling — `providerId` is the id that WILL be stored (the dialog
  * sends its own slug preview on create), so what the panel showed is
  * byte-identically what gets stored.
+ *
+ * The sentence describes the SHIPPED behavior (final review, Important 3):
+ * on better-auth 1.7.1 the redirect is always the canonical entry, so the
+ * copy no longer promises that each host's own round trip works — an admin
+ * chasing an entry that "breaks that host's door" would be chasing a thing
+ * that does not exist. See the spec's §5a amendment and `pickEntryOrigin`'s
+ * pin in the server.
  */
 export function RegistrationPanel({ entries, providerId }: { entries: readonly string[]; providerId: string }) {
   if (entries.length === 0 || providerId === "") return null;
@@ -23,9 +30,8 @@ export function RegistrationPanel({ entries, providerId }: { entries: readonly s
     <fieldset className="space-y-3 rounded-md border p-3">
       <legend className="font-strong text-label">Finish the setup at your provider</legend>
       <p className="text-detail text-muted-foreground">
-        Register each redirect URI and JavaScript origin at the provider. A host missing from its list cannot complete
-        its sign-in round trip, and removing an entry here breaks that host's door until the provider registration is
-        updated.
+        Register each redirect URI and JavaScript origin at the provider. Round trips land on the canonical entry today,
+        and the other entries register the door with the IdP on each host so those hosts stand ready.
       </p>
       <div className="space-y-3">
         {entries.map((origin, i) => (
