@@ -449,7 +449,8 @@ can read and drive any subshell. They **cannot** delete one or change its shares
 those stay with the real owner. Admin status lives in the app's `user_meta`
 table, not on the better-auth user row.
 
-Two hard rules on top:
+Hard rules and standing rulings on top (the two rulings are the LIST reads this
+section's posture depends on):
 
 - **Machine credentials never manage the instance.** `requireAdmin` rejects any
   non-cookie actor with 403: `/api/users`, `/api/system-keys`,
@@ -490,6 +491,19 @@ Two hard rules on top:
   permission map: the token is bound to one subshell at mint, the bind is
   checked at redemption BEFORE access is ever resolved, and the token can name
   no second pane (see §2).
+- **The NODE LIST answers a machine token as its owner, disclosure-only
+  (2026-09-25).** `GET /api/nodes` used to sit behind the same cookie-only
+  refusal as every other nodes route; the MCP `list_nodes` tool needed a door,
+  so a bearer actor now gets the strict owner-only set: the nodes its owner
+  owns, no shares, no admin boost, rendered by the same mapper with the
+  unboosted access (`list-nodes.route.ts`). `local` appears only to its owner,
+  which for the seeded row is the system user, so a system key sees it and a
+  human's pane token never does. The rest of the plane is untouched: the detail
+  route and every nodes write still 403 a bearer, so learning a machine's name
+  grants no way to drive it. This is the same ruling the subshell-list bullet
+  above made on 2026-09-23, and it is pinned the same way, by real tokens:
+  `enumerate-ok`, invisibility and `act-denied` in
+  `apps/server/api/src/api/nodes/__tests__/nodes-list-bearer.test.ts`.
 
 **The roster READ is not admin-gated, and it carries display names.** Writes to
 `/api/users` are cookie-admin; `GET /api/users` is deliberately instance-wide
@@ -670,6 +684,22 @@ a value read out of a `.env`.
 paste arrives as a single frame, so the whole pasted value is one argv element.
 On Linux `/proc/<pid>/cmdline` is world-readable. Accepted (§11), same class as
 the bearer token above.
+
+**REST input rides the same pipe (2026-09-25).** `POST /api/subshells/:id/input`
+types into a running pane over HTTP, the door the MCP `send_to_subshell` tool
+rides: the one `NodeLauncher.sendInput` member the live attach socket already
+flows keystrokes through (`tmux send-keys -l --` locally, the agent's `input`
+command remotely), so the argv posture above is this route's posture too, not a
+new exposure. Its gate is the level typing already costs on the socket: `edit`
+(a `view` grantee 403s, a foreign row 404s), and a bearer pane key follows the
+per-subshell switch-off (§3): it types into its owner's other running panes,
+never a foreign or merely-shared one. `submit` sends Enter as a SECOND
+`sendInput` frame, so the pair is ordered but not atomic: a node that drops
+between the two frames answers the offline 409 with the text already sitting at
+the prompt unsubmitted (the WS path's own at-least-once posture, restated
+here because the HTTP door makes the pair observable). The route writes no
+row, so it announces nothing and audits nothing; `{ ok: true }` means the
+bytes reached the pane's machine, not that the pane acted on them.
 
 ## 5. Sharing
 
@@ -2101,6 +2131,11 @@ join and enable are trust-EARNING, not just trust-shedding. Boot writes its
 own `network.publish` row with actor `null`
 (`services/network/prepare.ts:409-420`), the same "what happened, not who
 asked" shape as `server.update`'s completing row (§11.12).
+
+The 2026-09-25 MCP surface added no rows here, by the census's own convention:
+the bearer `GET /api/nodes` list is a read, and no list read has ever been
+audited; `POST /api/subshells/:id/input` writes no row and types the same
+keystrokes the live attach socket has always flowed without an event.
 
 Read them with `GET /api/audit?limit=50` (admin).
 

@@ -615,7 +615,8 @@ describe("workspaces route", () => {
 
   // F4 (security audit 2026-08): /api/workspaces is a browser-only surface —
   // the `subshell mcp` binary never calls it (see the endpoint census in
-  // packages/mcp-core/src/tools.ts), so a bearer key (any grants, any owner) must not act
+  // packages/mcp-core/src/subshell-tools.ts + channel-tools.ts), so a bearer key
+  // (any grants, any owner) must not act
   // as the owner here. The frontend reaches it cookie-only via apiFetch.
   describe("bearer keys are locked out (cookie-only surface)", () => {
     it("subshell bearer GET/POST /api/workspaces -> 403; cookie GET stays 200", async () => {

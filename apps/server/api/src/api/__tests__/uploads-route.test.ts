@@ -212,7 +212,8 @@ describe("subshell uploads route", () => {
 
   // F4 (security audit 2026-08): uploads write into the subshell's working
   // directory and are browser-only — the `subshell mcp` binary never calls this
-  // endpoint (see the endpoint census in packages/mcp-core/src/tools.ts), and the frontend
+  // endpoint (see the endpoint census in packages/mcp-core/src/subshell-tools.ts +
+  // channel-tools.ts), and the frontend
   // posts with `credentials: "include"`. A bearer key must not act as owner.
   it("bearer subshell key -> 403 and nothing written", async () => {
     const ws = tempWorkDir();

@@ -6,7 +6,7 @@ import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 // line. `resumed` is deliberately NOT a `NotifyKind` in either file: resuming
 // is a state change, nothing rings for it.
 import type { AttentionKind } from "@internal/mcp-core";
-import { getHarness } from "@internal/pane-runtime";
+import { allHarnesses, getHarness, tmuxSocketFor } from "@internal/pane-runtime";
 import { NODE_RESULT_MAINTENANCE } from "@internal/subshell-protocol";
 import type { GuardActor } from "@/api/auth-guard.js";
 import { HttpError } from "@/api/auth-guard.js";
@@ -20,12 +20,15 @@ import { type Access, accessAtLeast, loadSubshellAccess, resolveSubshellAccess }
 import { BaseService, type CommonServiceParams } from "@/services/base.service.js";
 import { publishLive } from "@/services/live-bus.js";
 import { lockdownEnabled } from "@/services/lockdown.js";
+import { launcherFor } from "@/services/nodes/launcher-registry.js";
 import { getLive, isNodeOffline } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import {
+  PROMPT_POLL_MS,
+  PROMPT_SETTLE_TIMEOUT_MS,
   RestartInFlightSwapError,
   readSubshellLogTail,
   SubshellManagerService,
@@ -392,14 +395,28 @@ export class SubshellsService extends BaseService {
     }
     // An id that resolves to NO plugin names nothing — a typo, or a plugin
     // that failed to load (broken plugins enter neither the registry nor the
-    // overlay). Say so (400, the same wording `POST /api/presets` uses)
-    // before anything node-shaped can answer instead: this check depends on
-    // nothing node resolution produces, so running it after would let a typo
-    // on an instance with no launch-eligible node come back as NODE_REQUIRED
+    // overlay). Say so (400, the same status `POST /api/presets` uses) before
+    // anything node-shaped can answer instead: this check depends on nothing
+    // node resolution produces, so running it after would let a typo on an
+    // instance with no launch-eligible node come back as NODE_REQUIRED
     // ("pick one") rather than "Unknown harness". Only the USABILITY gate
     // below is per-node; disabled-but-known still 409s there.
+    //
+    // The refusal NAMES the options (spec 2026-09-25, MCP DX): the machine
+    // reader that arrives through this error has no other enumeration path in
+    // hand, and a bare "unknown" forces a guess-retry loop. The list is what
+    // `getHarness` actually resolves against (built-ins plus the installed
+    // overlay), sorted, so two identical mistakes answer identically.
     if (!getHarness(harnessId)) {
-      throw new SubshellCreateError("bad_request", `Unknown harness: ${harnessId}`, 400);
+      const available = allHarnesses()
+        .map((h) => h.id)
+        .sort()
+        .join(", ");
+      throw new SubshellCreateError(
+        "bad_request",
+        `Unknown harness: ${harnessId}. Available harnesses: ${available}`,
+        400,
+      );
     }
     // §6.6 precedence BEFORE the per-node harness gate: "where" must be
     // settled first, since "usable" is per-node now (spec §6.2).
@@ -680,6 +697,68 @@ export class SubshellsService extends BaseService {
   }
 
   /**
+   * Types text into a RUNNING pane over REST (spec 2026-09-25 MCP DX), the
+   * input the live attach socket already carries, given an HTTP door for
+   * machine callers. Gated at `edit`, the level the posture assigns to
+   * terminal input (`view` 403s, a foreign row 404s, and a bearer pane key
+   * acts through its OWNER with boost and shares off, exactly like restart).
+   *
+   * "The same seam as the attach path" means: the ONE `NodeLauncher.sendInput`
+   * member, resolved per row via `launcherFor(row.nodeId)`: locally a
+   * `tmux send-keys -l --` on the row's socket, remotely the agent's `input`
+   * command, byte for byte. The bytes are never translated, matching the dumb
+   * pipe the WS keystrokes flow through. `submit` appends Enter as a literal
+   * CR, the exact byte the browser terminal sends when a human presses it on
+   * that path; `deliverPrompt`'s `pressEnter` is the same CR at the pane's
+   * pty, but it is a `TmuxRunner` method with no `NodeLauncher` twin, so the
+   * spelling both launches can carry is this one. The per-pane input chain (or
+   * the agent's serialized dispatch) keeps text-before-Enter in order.
+   *
+   * Typed input transits argv (`send-keys -l -- <text>`, `/proc`-readable for
+   * the spawn's life) exactly like every other send-keys path, keystrokes
+   * included; that is the accepted posture (`docs/security.md` §11.2), not a
+   * new exposure this route introduces.
+   *
+   * The one honest partial: a node that drops BETWEEN the text and the Enter
+   * frame answers the offline 409 with the text already sitting at the prompt
+   * unsubmitted. Half a pair landing beats reordering or duplicating it, and a
+   * retry of the POST re-types rather than guesses (the WS path's own
+   * at-least-once posture, stated in `ws/subshell-ws.ts`).
+   *
+   * @throws SubshellError 404 when absent or invisible to the caller.
+   * @throws HttpError 403 when the caller holds only `view`.
+   * @throws ApiError 409 SUBSHELL_NOT_RUNNING when the row is not running
+   *         (checked BEFORE the launcher is resolved: nothing is typed into a
+   *         row that is not there), and 409 NODE_OFFLINE when its agent node
+   *         has no live connection (the create/restart mapper again).
+   */
+  async sendSubshellInput(
+    viewerId: string,
+    id: string,
+    text: string,
+    submit: boolean,
+    actor: GuardActor,
+  ): Promise<{ ok: true }> {
+    const { row } = await this.#gate(viewerId, id, "edit", actor);
+    if (row.status !== "running") {
+      throwApiError({
+        code: BackendErrorCodes.SUBSHELL_NOT_RUNNING,
+        message: "The subshell is not running; nothing was typed. Restart it first.",
+        doNotLog: true,
+      });
+    }
+    // NO publishLive, deliberately: every other act here announces itself
+    // because it CHANGES THE ROW, and this one writes nothing. The typed text
+    // is the pane's own doing from that moment on; its consequences reach
+    // viewers through the pane log and the live tail, not a dashboard re-read.
+    const launcher = launcherFor(row.nodeId);
+    const socket = row.tmuxSocket ?? tmuxSocketFor(id);
+    await launcher.sendInput(socket, id, text).catch(rethrowLaunchRefusal);
+    if (submit) await launcher.sendInput(socket, id, "\r").catch(rethrowLaunchRefusal);
+    return { ok: true };
+  }
+
+  /**
    * Rings or mutes a subshell's notifications (the ⋯-menu bell) — OWNER-only
    * (it changes what leaves the instance for the owner's devices). Muting stops
    * pushes only; the waiting stamp is deliberately untouched.
@@ -843,12 +922,17 @@ export class SubshellsService extends BaseService {
    * @param swapPresetTo - the optional preset swap riding this restart
    *         (spec 2026-09-23): `null` = swap to presetless, `undefined` = no
    *         swap. Validated here, written by the manager at the swap point.
+   * @param prompt - optional task text (spec 2026-09-25): typed into the
+   *         revived pane through the SAME settle seam create uses, after a
+   *         SUCCESSFUL revive only. A refusal at any point above types
+   *         nothing; a pane that never settles answers false and is kept.
    */
   async restartSubshell(
     viewerId: string,
     id: string,
     actor: GuardActor,
     swapPresetTo?: string | null,
+    prompt?: string,
   ): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     const { row } = await this.#gate(viewerId, id, "edit", actor);
     // Lockdown is instance-wide, so it is asked before anything machine-shaped
@@ -947,9 +1031,26 @@ export class SubshellsService extends BaseService {
     if (!revived) {
       throw new SubshellError("not_found", "Subshell not found");
     }
-    // No prompt is typed on a restart (matching auto-restart); the schema
-    // keeps the create-subshell shape, so the flag is a truthful false.
-    return { id: revived.id, tmuxSocket: revived.tmuxSocket, promptDelivered: false };
+    // A prompt (when asked) rides the SUCCESSFUL revive, typed through the
+    // same launcher seam and the same settle constants create uses (spec
+    // 2026-09-25): `deliverPrompt` waits for the fresh pane to show output and
+    // reports false rather than typing blind. It never throws on either
+    // launcher (local catches its own input failures, the agent-side loop
+    // answers `{ promptDelivered: false }`), so no mapper wraps it, and the
+    // blank check mirrors create's `prompt?.trim()`. Every refusal above has
+    // already returned; nothing is typed into a pane this call did not start.
+    let promptDelivered = false;
+    const trimmed = prompt?.trim();
+    if (trimmed) {
+      promptDelivered = await launcherFor(row.nodeId).deliverPrompt(
+        revived.tmuxSocket,
+        id,
+        trimmed,
+        PROMPT_SETTLE_TIMEOUT_MS,
+        PROMPT_POLL_MS,
+      );
+    }
+    return { id: revived.id, tmuxSocket: revived.tmuxSocket, promptDelivered };
   }
 
   /**

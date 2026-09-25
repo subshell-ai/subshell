@@ -8,6 +8,7 @@ import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
+import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /**
@@ -17,6 +18,7 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
  */
 describe("GET /api/subshells/:id/log", () => {
   let userId: string;
+  let otherUserId: string;
   let token: string;
   let otherToken: string;
   const email = `log-${crypto.randomUUID()}@subshell.local`;
@@ -31,12 +33,12 @@ describe("GET /api/subshells/:id/log", () => {
     return file;
   }
 
-  async function newSubshell(): Promise<string> {
+  async function newSubshell(ownerId: string = userId): Promise<string> {
     const id = crypto.randomUUID();
     createdSubshells.push(id);
     await new SubshellsRepository(db).create({
       id,
-      userId,
+      userId: ownerId,
       presetId: "p",
       harnessId: "claude-code",
       name: "log-test",
@@ -55,14 +57,13 @@ describe("GET /api/subshells/:id/log", () => {
       role: "user",
     });
     token = await signIn(email, pw);
-    const otherId = await new UsersRepository(db).createUser({
+    otherUserId = await new UsersRepository(db).createUser({
       email: otherEmail,
       name: otherEmail,
       passwordHash: await hashPassword(pw),
       role: "user",
     });
     otherToken = await signIn(otherEmail, pw);
-    void otherId;
   });
 
   afterAll(async () => {
@@ -120,5 +121,47 @@ describe("GET /api/subshells/:id/log", () => {
     // The pane log's directory travels to tmux and harness processes; a
     // relative path silently reads from the wrong cwd.
     expect(SUBSHELL_SERVER_DATA_DIR.startsWith("/")).toBe(true);
+  });
+
+  /**
+   * THE BEARER DOOR for the MCP `read_subshell_log` tool (spec 2026-09-25,
+   * MCP DX): the gate at `view` with the machineActor rules already resolves a
+   * pane token as its owner with shares switched off, so a SIBLING of the same
+   * owner reads the tail and a foreign row is a 404, never a 403. This test
+   * exists so that door cannot close silently: the tool lands in a later task,
+   * and nothing else on this path pins it for a bearer actor.
+   */
+  describe("bearer door (a pane's own token)", () => {
+    let paneKey: string;
+
+    beforeAll(async () => {
+      const own = await newSubshell(); // the pane the token authenticates
+      paneKey = await issueSubshellToken(own, userId);
+    });
+
+    function bearerGet(id: string) {
+      return subshellRoutes.fetch(
+        new Request(`http://localhost:3080/api/subshells/${id}/log`, {
+          headers: { authorization: `Bearer ${paneKey}` },
+        }),
+      );
+    }
+
+    it("a sibling subshell of the SAME owner reads 200 with the tail shape", async () => {
+      const sibling = await newSubshell();
+      writeLog(sibling, "sibling says hello\nsecond line\n");
+      const res = await bearerGet(sibling);
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { lines: string[]; truncated: boolean }).toEqual({
+        lines: ["sibling says hello", "second line"],
+        truncated: false,
+      });
+    });
+
+    it("a foreign user's row is 404, not 403: the owner-only bearer rule survives the door", async () => {
+      const foreign = await newSubshell(otherUserId);
+      writeLog(foreign, "not yours\n");
+      expect((await bearerGet(foreign)).status).toBe(404);
+    });
   });
 });

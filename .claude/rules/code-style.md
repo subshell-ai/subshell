@@ -254,7 +254,7 @@ export const ROUTE_DEFINITIONS = [
 ];
 ```
 
-**Known divergence.** `packages/mcp-core/src/server.ts` registers its 13 tools with
+**Known divergence.** `packages/mcp-core/src/server.ts` registers its tools with
 zod schemas written *inline* in the `registerTool` call, against the "Schema
 Definitions" rule above. The schemas are one-liners and the file reads fine, so it
 has not been worth changing, but it is a divergence, not a second sanctioned

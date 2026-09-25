@@ -47,6 +47,25 @@ describe("SubshellApi", () => {
     expect((err as ApiError).status).toBe(403);
   });
 
+  it("carries the structured body's machine code on ApiError (the tool layer maps it)", async () => {
+    const body = JSON.stringify({
+      errId: "V1stk9xQ2mLp",
+      code: "NODE_REQUIRED",
+      message: "Multiple online nodes; pick one (2 are online)",
+      statusCode: 400,
+    });
+    globalThis.fetch = (async () => new Response(body, { status: 400 })) as never;
+    const err = await api.req("/api/subshells", { method: "POST", body: {} }).catch((e) => e as ApiError);
+    expect((err as ApiError).code).toBe("NODE_REQUIRED");
+  });
+
+  it("leaves code undefined for a non-JSON error body", async () => {
+    globalThis.fetch = (async () => new Response("recipient is not a member: x", { status: 400 })) as never;
+    const err = await api.req("/api/channels/c/posts", { method: "POST", body: {} }).catch((e) => e as ApiError);
+    expect((err as ApiError).code).toBeUndefined();
+    expect((err as ApiError).message).toContain("not a member");
+  });
+
   it("serializes query params and JSON bodies", async () => {
     let seen: Request | undefined;
     globalThis.fetch = (async (input: URL, init?: RequestInit) => {

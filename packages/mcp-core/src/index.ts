@@ -11,10 +11,12 @@
  */
 
 export * from "./api-client.js";
+export * from "./channel-tools.js";
 export * from "./crypto.js";
 export * from "./env.js";
 export * from "./identity-store.js";
 export * from "./pin-store.js";
 export * from "./report.js";
 export * from "./server.js";
+export * from "./subshell-tools.js";
 export * from "./tools.js";
