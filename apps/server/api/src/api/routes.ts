@@ -23,7 +23,7 @@ import { setupTmuxInstallRoute } from "@/api/setup-tmux-install.route.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { systemKeysRoutes } from "@/api/system-keys.route.js";
 import { uploadsRoutes } from "@/api/uploads.route.js";
-import { usersRoutes } from "@/api/users.route.js";
+import { usersRoutes } from "@/api/users/index.js";
 import { workspaceRoutes } from "@/api/workspaces/index.js";
 import { wsTokenRoutes } from "@/api/ws-token.route.js";
 

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { sql } from "kysely";
-import { usersRoutes } from "@/api/users.route.js";
+import { usersRoutes } from "@/api/users/index.js";
 import { createHeldEmailGuardBeforeHook, heldEmailMessage, oidcHolderNameByEmail } from "@/auth/held-email-guards.js";
 import { getAuth, invalidateAuth, setAuthPolicyDb } from "@/auth.js";
 import { APP_BASE_URL } from "@/constants.js";

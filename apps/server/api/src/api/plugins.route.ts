@@ -666,7 +666,7 @@ const adminRoutes = new Elysia()
 
 export const pluginsRoutes = new Elysia({ prefix: "/api/plugins" })
   // GET is any authenticated actor; the write half composes `requireAdmin`
-  // as its own route-bearing sub-instance, mirroring `users.route.ts`
+  // as its own route-bearing sub-instance, mirroring the `users/` directory
   // (authGuard for the reads, then a stricter gate per verb — one prefix,
   // two doors, neither the weaker door for the other's operation).
   .use(readRoutes)

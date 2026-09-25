@@ -299,7 +299,7 @@ export class UsersRepository extends BaseRepository {
    * and it can never sign in, so it is not somebody having registered —
    * counting it would close the door before anyone walked through it and
    * brick a fresh install. Same `email !== SYSTEM_USER_EMAIL` rule
-   * `users.route.ts` already applies to decide manageability.
+   * `users/list-users.route.ts` already applies to decide manageability.
    */
   async countRealAccounts(): Promise<number> {
     // Raw sql for better-auth's table, like every other read here; the
