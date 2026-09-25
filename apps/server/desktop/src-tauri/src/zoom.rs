@@ -59,7 +59,7 @@ pub fn apply(app: &AppHandle) {
 /// refit cannot drift.
 #[cfg(target_os = "linux")]
 pub fn attach_accelerators(window: &tauri::WebviewWindow) {
-    use gtk::prelude::{AccelGroupExtManual, WidgetExt};
+    use gtk::prelude::{AccelGroupExtManual, GtkWindowExt};
     use subshell_desktop_core::zoom::Accel;
 
     let Ok(gtk_window) = window.gtk_window() else {
@@ -77,7 +77,7 @@ pub fn attach_accelerators(window: &tauri::WebviewWindow) {
         group.connect_accel_group(
             keyval,
             control,
-            gtk::AccelFlags::EMPTY,
+            gtk::AccelFlags::empty(),
             move |_group, _window, fired, _mods| {
                 match subshell_desktop_core::zoom::zoom_id_for_accel(fired) {
                     Some(Accel::In) => handle(&app, IN_ID),

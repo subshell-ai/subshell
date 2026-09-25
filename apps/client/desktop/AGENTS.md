@@ -1159,11 +1159,17 @@ by any of that:
 
 ## Text size is Rust's, not the page's
 
-⌘+ / ⌘− / ⌘0 (View, on macOS) and the tray's **Text Size** submenu walk a fixed
-ladder — `0.8 · 0.9 · 1.0 · 1.1 · 1.25 · 1.5 · 1.75 · 2.0` — stored as `zoom` in
-this app's own `settings.json` and applied with `WebviewWindow::set_zoom`. The
-ladder, the clamp and the frame arithmetic are `desktop-core`'s `zoom` module;
-`src/zoom.rs` here is the level, the menu ids and the apply.
+⌘+ / ⌘− / ⌘0 (View, on macOS), the same three **Ctrl** chords as WINDOW
+accelerators (on Linux, BOTH windows — node assistant and plane alike; the
+menu bar is macOS-only by design and the tray submenu was otherwise the only
+door, no door where no tray host answers), and the tray's **Text Size**
+submenu walk a fixed ladder — `0.8 · 0.9 · 1.0 · 1.1 · 1.25 · 1.5 · 1.75 ·
+2.0` — stored as `zoom` in this app's own `settings.json` and applied with
+`WebviewWindow::set_zoom`. The ladder, the clamp, the frame arithmetic and
+the keyval→rung decision are `desktop-core`'s `zoom` module; `src/zoom.rs`
+here is the level, the menu ids, the apply, and the Linux attach. The
+accelerator route also honors this app's plane-window rule exactly: it adds
+no command to a page it has never granted one.
 
 **Tauri's own `zoom_hotkeys_enabled` was rejected, and the reason is the trust
 boundary.** On macOS and Linux it injects a page script that invokes

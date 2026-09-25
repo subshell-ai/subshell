@@ -48,6 +48,53 @@ pub fn apply(app: &AppHandle) {
     crate::windows::refit(app, level);
 }
 
+/// Give one window the Ctrl ladder: `Ctrl+=` / `Ctrl+-` / `Ctrl+0`.
+///
+/// The mirror of the server app's same half, for the same reason: the menu
+/// bar carrying these accelerators is macOS-only by design (a GTK menu bar
+/// is per-window chrome), so on Linux the tray submenu was the only door —
+/// and no door at all where no tray host answers. Window accelerators
+/// restore the keys on BOTH of this app's windows, the node assistant and
+/// the plane window alike; the plane window in particular can never be
+/// wired the built-in way (module header), and this route widens its grant
+/// by nothing. The keyval table and rung decision are `desktop-core`'s,
+/// pinned there; this is registration mechanics, routed through the SAME
+/// `handle` the menus use.
+#[cfg(target_os = "linux")]
+pub fn attach_accelerators(window: &tauri::WebviewWindow) {
+    use gtk::prelude::{AccelGroupExtManual, GtkWindowExt};
+    use subshell_desktop_core::zoom::Accel;
+
+    let Ok(gtk_window) = window.gtk_window() else {
+        // Not a GTK-backed window; the tray submenu remains the door.
+        return;
+    };
+    let group = gtk::AccelGroup::new();
+    gtk_window.add_accel_group(&group);
+    let control = gtk::gdk::ModifierType::CONTROL_MASK;
+    let app = window.app_handle().clone();
+    for keyval in subshell_desktop_core::zoom::ACCEL_KEYVALS {
+        let app = app.clone();
+        group.connect_accel_group(
+            keyval,
+            control,
+            gtk::AccelFlags::empty(),
+            move |_group, _window, fired, _mods| {
+                match subshell_desktop_core::zoom::zoom_id_for_accel(fired) {
+                    Some(Accel::In) => handle(&app, IN_ID),
+                    Some(Accel::Out) => handle(&app, OUT_ID),
+                    Some(Accel::Reset) => handle(&app, RESET_ID),
+                    None => false,
+                }
+            },
+        );
+    }
+}
+
+/// No-op off Linux, so the window-build sites call it unconditionally.
+#[cfg(not(target_os = "linux"))]
+pub fn attach_accelerators(_window: &tauri::WebviewWindow) {}
+
 /// Route a zoom menu id, from either menu.
 ///
 /// Returns whether the id was one of ours, so its ONE caller can hand

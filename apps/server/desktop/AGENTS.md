@@ -1851,11 +1851,24 @@ code.
 
 ## Text size is Rust's, not the page's
 
-⌘+ / ⌘− / ⌘0 (View, on macOS) and the tray's **Text Size** submenu walk a fixed
-ladder — `0.8 · 0.9 · 1.0 · 1.1 · 1.25 · 1.5 · 1.75 · 2.0` — stored as `zoom` in
-this app's own `settings.json` and applied with `WebviewWindow::set_zoom`. The
-ladder, the clamp and the frame arithmetic are `desktop-core`'s `zoom` module;
-`src/zoom.rs` here is the level, the menu ids and the apply.
+⌘+ / ⌘− / ⌘0 (View, on macOS), the same three **Ctrl** chords as WINDOW
+accelerators (on Linux — see below), and the tray's **Text Size** submenu walk a
+fixed ladder — `0.8 · 0.9 · 1.0 · 1.1 · 1.25 · 1.5 · 1.75 · 2.0` — stored as
+`zoom` in this app's own `settings.json` and applied with
+`WebviewWindow::set_zoom`. The ladder, the clamp, the frame arithmetic and the
+keyval→rung decision are `desktop-core`'s `zoom` module; `src/zoom.rs` here is
+the level, the menu ids, the apply, and the Linux attach.
+
+**The Linux keys are window accelerators, not a menu, because Linux has no
+menu bar by design.** Before them the tray submenu was the only zoom door
+there, and where no tray host answers — the probe's "none was detected" case
+the close-to-tray rule already respects — there was NO door at all. Reported
+2026-09-24 from a real Ubuntu 26.04 session where the tray rendered and the
+keys simply did nothing. `attach_accelerators`
+runs at EVERY window-build site and routes through the same `handle`, so the
+ladder and the save cannot gain a second implementation; the modifier half is
+GTK's (its default accel mask discards Shift, so Ctrl+Shift+= matches too),
+and the table it registers is pinned to the mapping by a `desktop-core` test.
 
 **Tauri's own `zoom_hotkeys_enabled` was rejected, and the reason is the trust
 boundary.** On macOS and Linux it injects a page script that invokes
