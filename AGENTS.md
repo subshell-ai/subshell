@@ -343,10 +343,13 @@ server.** `tauri dev` gives the app's own bundled page HMR, but the DASHBOARD
 window loads the running server's origin — the installed binary, serving the
 SPA embedded in it at build time — so an edit under `apps/server/web` reaches
 that window not slowly but not at all. The launcher probes
-`http://localhost:5174` and points the window there when Vite answers, saying
-which it chose either way. Run `bun run dev` in `apps/server/web` first if you
-want that; it is detected, never started, because a second Vite would fight
-the first and a window aimed at a dead port is worse than no hot reload.
+`http://localhost:5174`: a Vite that answers is reused (a second one never
+fights a developer's own), and when nothing answers the launcher STARTS one,
+waits for the port, and points the window there — a dev dashboard that
+silently showed the embedded build was the surprise, per the operator on
+2026-09-25. It says which of the two it did; a Vite that never comes up is
+killed and the run falls back to the old warning, so the window is never
+aimed at a dead port, and the launcher reaps only what it started.
 
 The cost of not doing this was measured on 2026-09-11: a `service uninstall`
 fix landed seven minutes after the installed binary was compiled, the desktop

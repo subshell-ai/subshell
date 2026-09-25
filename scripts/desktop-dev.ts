@@ -73,10 +73,12 @@
 // package specifier, because `scripts/` is not a workspace and a bare
 // `@internal/subshell-protocol` does not resolve from here. Same convention as
 // `scripts/prune-node-artifacts.ts`.
+
 import { chmodSync, copyFileSync, existsSync, readFileSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
+import type { ChildProcess } from "bun";
 import {
   DEFAULT_DEPS as CLIENT_DEPS,
   stageSidecar as stageClientSidecar,
@@ -979,25 +981,65 @@ export async function preflightClientDaemon(
   }
 }
 
-/**
- * The SPA dev server's address when one is actually listening, else null.
- *
- * **Detected rather than assumed, and never started.** Pointing the dashboard
- * window at a port with nothing behind it is worse than the default — a
- * window of failed requests instead of a working app — so this only reports
- * what is there. Starting one here was the alternative and is worse in a
- * different way: `bun run dev` may already own that port, and a second Vite
- * fighting it is a confusing failure to hand someone who just wanted the app.
- */
-async function spaDevServer(): Promise<string | null> {
+/** A HEAD against the dev server's root. Vite answers; a free port rejects. */
+async function spaListening(): Promise<boolean> {
   try {
-    // A HEAD against the dev server's root. Vite answers; nothing listening
-    // rejects immediately, which is the case this is distinguishing.
     await fetch(SPA_DEV_URL, { method: "HEAD", signal: AbortSignal.timeout(700) });
-    return SPA_DEV_URL;
+    return true;
   } catch {
-    return null;
+    return false;
   }
+}
+
+/** What {@link ensureSpaDevServer} hands back. */
+interface SpaDev {
+  url: string;
+  /** The Vite THIS run started, or null when a developer's own already answered. */
+  child: ChildProcess | null;
+}
+
+/** How long to wait for a spawned Vite to answer before falling back. */
+const SPA_START_BUDGET_MS = 20_000;
+
+/**
+ * The SPA dev server to point the dashboard at — reused, or STARTED here.
+ *
+ * **Reused when one is already listening**, which is the old rule and keeps
+ * its reason: `bun run dev` may own the port, and a second Vite fighting it
+ * is a confusing failure. **Started when nothing is**, on the operator's
+ * ask of 2026-09-25: detect-only meant the dashboard silently showed the
+ * installed binary's embedded build, and an edit under `apps/server/web`
+ * reached it "not slowly but not at all" — a dev launch that cannot see the
+ * working tree is the surprise. What the old rule feared (a window aimed at
+ * a dead port) is handled by WAITING: this returns only once the port
+ * answers, and a Vite that never comes up is killed and the caller falls
+ * back to the old warning. Nothing is ever pointed at a port this function
+ * did not see answer.
+ */
+async function ensureSpaDevServer(): Promise<SpaDev | null> {
+  if (await spaListening()) return { url: SPA_DEV_URL, child: null };
+  // stderr is kept: a Vite that dies on the way up (a missing dep, a bound
+  // port it refused) says why there, and the fallback message quotes it.
+  const child = Bun.spawn(["bun", "run", "--cwd", join("apps", "server", "web"), "dev"], {
+    cwd: REPO_ROOT,
+    stdout: "ignore",
+    stderr: "pipe",
+  });
+  for (let waited = 0; waited < SPA_START_BUDGET_MS; waited += 300) {
+    if (await spaListening()) return { url: SPA_DEV_URL, child };
+    if (child.exitCode !== null) break;
+    await Bun.sleep(300);
+  }
+  const why = child.exitCode === null ? "it never answered the port in time" : `it exited (code ${child.exitCode})`;
+  try {
+    child.kill(15);
+  } catch {
+    // Already gone — the case we were trying to end anyway.
+  }
+  const stderr = child.stderr ? await new Response(child.stderr as ReadableStream).text().catch(() => "") : "";
+  if (stderr.trim() !== "") console.error(`  vite said: ${stderr.trim().split("\n").slice(-4).join("\n  ")}`);
+  console.warn(`  The SPA dev server could not be started (${why}).`);
+  return null;
 }
 
 /**
@@ -1127,11 +1169,14 @@ async function killLeakedApps(app: DesktopApp, ignore: ReadonlySet<number>): Pro
 /**
  * `tauri dev` for one app, inheriting stdio so its output and Ctrl-C behave.
  *
- * **The server app's dashboard window is pointed at the SPA dev server when
- * one is running**, which is the only way an edit in `apps/server/web` reaches
- * that window at all: it otherwise loads the installed binary's EMBEDDED SPA,
- * built at release time. Detected here rather than left to an environment
- * variable a person has to remember — the variable still wins when set
+ * **The server app's dashboard window is pointed at the SPA dev server**,
+ * which is the only way an edit in `apps/server/web` reaches that window at
+ * all: it otherwise loads the installed binary's EMBEDDED SPA, built at
+ * release time. A running Vite is reused; when none answers, one is started
+ * here and waited for ({@link ensureSpaDevServer}) and reaped on the way out
+ * — a dev launch that could not see the working tree was the surprise
+ * (operator, 2026-09-25). Left to an environment variable a person has to
+ * remember it would still be that surprise; the variable still wins when set
  * explicitly, which is what makes a non-default port possible.
  *
  * Not for the client app: its remote window is a control plane that can live
@@ -1140,11 +1185,17 @@ async function killLeakedApps(app: DesktopApp, ignore: ReadonlySet<number>): Pro
  */
 async function runDev(app: DesktopApp): Promise<number> {
   const env: Record<string, string> = { ...(process.env as Record<string, string>) };
+  let spaChild: ChildProcess | null = null;
   if (app.id === "server" && env.SUBSHELL_DESKTOP_SPA_URL === undefined) {
-    const found = await spaDevServer();
-    if (found) {
-      env.SUBSHELL_DESKTOP_SPA_URL = found;
-      console.log(`==> SPA dev server on ${found} — the dashboard will open THERE, so the SPA hot-reloads.`);
+    const spa = await ensureSpaDevServer();
+    if (spa) {
+      spaChild = spa.child;
+      env.SUBSHELL_DESKTOP_SPA_URL = spa.url;
+      console.log(
+        spa.child === null
+          ? `==> SPA dev server on ${spa.url} — the dashboard will open THERE, so the SPA hot-reloads.`
+          : `==> SPA dev server STARTED here on ${spa.url} — the dashboard will open THERE, so the SPA hot-reloads.`,
+      );
     } else {
       console.log(
         `==> no SPA dev server on ${SPA_DEV_URL}: the dashboard will show the installed binary's embedded SPA, ` +
@@ -1152,7 +1203,7 @@ async function runDev(app: DesktopApp): Promise<number> {
           // printed, and it fails with `Script not found "dev"` — the one
           // line a confused developer copy-pastes, in a feature whose whole
           // point is that the absence of hot reload should not be a mystery.
-          "which will NOT pick up edits under apps/server/web. Run `bun run --cwd apps/server/web dev` first for that.",
+          "which will NOT pick up edits under apps/server/web. Start one with `bun run --cwd apps/server/web dev`.",
       );
     }
   }
@@ -1173,6 +1224,18 @@ async function runDev(app: DesktopApp): Promise<number> {
     env,
   });
   const code = await proc.exited;
+  // The Vite this run started belongs to this run. Ctrl-C reaches it through
+  // the shared process group anyway; this is the path where `tauri dev` ends
+  // on its own and would otherwise leave the dev server holding :5174 with
+  // no app pointed at it. A Vite the developer started themselves is never
+  // ours to kill — `spaChild` is null in that case by construction.
+  if (spaChild) {
+    try {
+      spaChild.kill(15);
+    } catch {
+      // Already gone.
+    }
+  }
   await killLeakedApps(app, preexisting);
   return code;
 }
