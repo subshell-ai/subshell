@@ -3,7 +3,6 @@ import { hashPassword } from "better-auth/crypto";
 import { Elysia, t } from "elysia";
 import { authGuard, requireAdmin } from "@/api/auth-guard.js";
 import { isCookieAdmin } from "@/api/user-utils.js";
-import { heldEmailMessage, oidcHolderNameByEmail } from "@/auth/held-email-guards.js";
 import { SYSTEM_USER_EMAIL } from "@/auth/system-user.js";
 import { db } from "@/db/index.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
@@ -246,13 +245,13 @@ const adminOnly = new Elysia()
         id = await repo.createUser({ name, email, passwordHash, role: body.role });
       } catch (err) {
         if (err instanceof Error && err.message.includes("UNIQUE") && err.message.includes("user.email")) {
-          // Spec §5's named answer, same lookup and same sentence as the
-          // sign-up guard (an admin already sees every email and door, so the
-          // name is not a disclosure here — it is the remedy). A credential
-          // holder keeps the generic sentence; the UNIQUE failure itself is
-          // still the trigger, so the ordinary path costs no extra query.
-          const holderName = await oidcHolderNameByEmail(db, email);
-          if (holderName !== undefined) throw new UsersError("conflict", heldEmailMessage(holderName));
+          // Spec §5 keeps this answer GENERIC for every holder, OIDC included:
+          // an admin typing an email that exists does not need a provider name
+          // back (they already see every email per §3 of the security rules,
+          // so the name discloses nothing AND remedies nothing they cannot see
+          // in the roster). The named refusal belongs to the public sign-up
+          // door alone — `@/auth/held-email-guards`, where the person asking
+          // genuinely cannot see who holds their address.
           throw new UsersError("conflict", "Email already registered");
         }
         throw err;

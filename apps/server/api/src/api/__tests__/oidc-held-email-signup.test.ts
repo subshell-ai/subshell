@@ -28,14 +28,20 @@ import { type FakeIdp, startFakeIdp } from "./helpers/fake-oidc.js";
  * real `auth_providers` rows, real round trips.
  *
  * The cases are the requirement list: (a) pending holder, (b) approved
- * holder, (c) rejected holder — all named; (d) credential-only duplicate —
- * generic, unchanged; (e) closed gate + held address — STILL registration_closed,
- * byte-identical to the free-address answer (order + no-leak proof); (f) the
- * admin `POST /api/users` twin; plus the wizard-safety case: a fresh address
- * signs up exactly as before (the guard early-returns when nobody holds it —
- * the real zero-user first run cannot be reproduced against this per-process
- * shared DB, which is why the case states the gate open, the one condition
- * the first-run window also satisfies).
+ * holder, (c) rejected holder — all named, with (a) pinning the sentence's
+ * LITERAL bytes (T17 review: every other assertion compared against the
+ * producing helper, so a copy rewrite could drift both sides and pass);
+ * (d) credential-only duplicate — generic, unchanged; (e) closed gate + held
+ * address — STILL registration_closed, byte-identical to the free-address
+ * answer (order + no-leak proof); (f) the admin `POST /api/users` twin —
+ * GENERIC even for a door-held address (spec §5 governs; the T17 fix round
+ * reverted the named twin that shipped first); (g) the wizard-safety case: a
+ * fresh address signs up exactly as before (the guard early-returns when
+ * nobody holds it — the real zero-user first run cannot be reproduced against
+ * this per-process shared DB, which is why the case states the gate open, the
+ * one condition the first-run window also satisfies); (h) a DISABLED door row
+ * still names its provider and (i) a DELETED one names nothing — the two
+ * one-line-SQL flips the T17 review flagged, each pinned on HTTP.
  *
  * Shared-DB discipline mirrors the sibling matrix: random ids, purged rows,
  * the E-mail row restored to its seeded NULL, `invalidateAuth()` + `getAuth()`
@@ -294,7 +300,12 @@ describe("sign-up refusal names the holding provider (spec §5, HTTP)", () => {
       const before = await countSignInRows();
       const res = await signUpAttempt(email);
       expect(res.status).toBe(403);
-      expect(((await res.json()) as { message?: string }).message).toBe(heldEmailMessage(doorName));
+      // THE LITERAL WIRE PIN (T17 review): the sentence's own bytes, concrete
+      // door name and exact punctuation — not `heldEmailMessage(doorName)`,
+      // so a copy rewrite fails here instead of passing on both sides.
+      expect(((await res.json()) as { message?: string }).message).toBe(
+        "An account for this email exists. Sign in with T17 Approving Co.",
+      );
       expect(await rowCount(email)).toBe(1); // nobody new behind the refusal
       expect(await sessionCount(holderId)).toBe(0); // and no session for the attempt
       expect(await countSignInRows()).toBe(before); // a refused sign-up writes nothing
@@ -404,11 +415,71 @@ describe("sign-up refusal names the holding provider (spec §5, HTTP)", () => {
   });
 });
 
-describe("POST /api/users names the holding provider too", () => {
-  // (f) The admin twin: the UNIQUE-collision answer becomes the same sentence
-  // when an OIDC door holds the address. Credential holders keep "Email
-  // already registered" (pinned by users-management.test.ts, untouched).
-  it("(f) an admin create for an OIDC-held email answers the named sentence", async () => {
+describe("sign-up refusal edge pins (T17 review)", () => {
+  // (h) A door row present but `enabled = 0` STILL names its provider:
+  // disabling takes away sign-in availability, not the fact that the address
+  // arrived through that door. Pinned on HTTP — an `AND p.enabled = 1`
+  // slipped into the lookup SQL would silently downgrade these holders to
+  // the generic sentence and nothing else would notice.
+  it("(h) a disabled door row still names its provider", async () => {
+    const doorName = "T17 Switched-off Gate";
+    const door = await mkDoor({ name: doorName });
+    const email = emailN("disabled-door");
+    expect(await runFlow(door, profileFor(email))).toBe("session"); // arrives while the door is open
+    const holderId = (await userIdFor(email)) ?? "";
+    expect(holderId).toBeTruthy();
+    fixtureUserIds.push(holderId);
+
+    await doors.update(door, { enabled: 0 });
+    invalidateAuth();
+    await setEmailRegistration(1);
+    try {
+      const res = await signUpAttempt(email);
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { message?: string }).message).toBe(heldEmailMessage(doorName));
+    } finally {
+      await setEmailRegistration(null);
+      await doors.update(door, { enabled: 1 });
+      invalidateAuth();
+    }
+    await purgeFixture(email);
+  });
+
+  // (i) The door row DELETED — the account's providerId names no
+  // `auth_providers` row — names nothing and falls through to better-auth's
+  // own generic answer. The mirror pin of (h): loosening the JOIN (LEFT JOIN,
+  // or dropping the `auth_providers` constraint) would resurrect a name for
+  // a door the admin deliberately erased.
+  it("(i) a deleted door row falls through to the generic answer", async () => {
+    const door = await mkDoor({ name: "T17 Erased Gate" });
+    const email = emailN("deleted-door");
+    expect(await runFlow(door, profileFor(email))).toBe("session");
+    const holderId = (await userIdFor(email)) ?? "";
+    expect(holderId).toBeTruthy();
+    fixtureUserIds.push(holderId);
+
+    await doors.remove(door); // afterAll repeats this; remove() tolerates absence
+    invalidateAuth();
+    await setEmailRegistration(1);
+    try {
+      const res = await signUpAttempt(email);
+      expect(res.status).toBe(422); // better-auth's untouched duplicate answer
+      expect(((await res.json()) as { message?: string }).message).toBe("User already exists. Use another email.");
+      expect(await rowCount(email)).toBe(1); // and still nothing created behind it
+    } finally {
+      await setEmailRegistration(null);
+    }
+    await purgeFixture(email);
+  });
+});
+
+describe("POST /api/users keeps the generic answer (spec §5 governs)", () => {
+  // (f, reverted in the T17 fix round) The admin twin answers GENERIC even
+  // when an OIDC door holds the address: spec §5 says an admin typing an
+  // email that exists does not need a provider name back. The named refusal
+  // belongs to the public sign-up door alone. (The credential-holder site's
+  // generic sentence is pinned in users-admin.test.ts.)
+  it("(f) an admin create for an OIDC-held email answers the generic 409", async () => {
     const doorName = "T17 Admin-held Gate";
     const door = await mkDoor({ name: doorName });
     const heldEmail = emailN("admin-held");
@@ -436,7 +507,9 @@ describe("POST /api/users names the holding provider too", () => {
       }),
     );
     expect(res.status).toBe(409);
-    expect(await res.text()).toBe(heldEmailMessage(doorName));
+    const text = await res.text();
+    expect(text).toBe("Email already registered"); // the generic sentence for every holder
+    expect(text).not.toContain(doorName); // no door named here, held or not
     expect(await rowCount(heldEmail)).toBe(1); // the refusal created nothing
 
     await purgeFixture(heldEmail);

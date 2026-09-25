@@ -175,7 +175,10 @@ describe("users-admin + audit routes", () => {
     );
     expect(login.status).toBe(200);
 
-    // Duplicate email is rejected with a conflict.
+    // Duplicate email is rejected with a conflict — and the GENERIC sentence
+    // is pinned as the body text (T17 review: status alone would pass on any
+    // 409 copy; spec §5 keeps this answer unnamed for every holder, and
+    // oidc-held-email-signup.test.ts case (f) proves it even for an OIDC one).
     const dup = await usersRoutes.fetch(
       authedRequest("/api/users", token, {
         method: "POST",
@@ -183,6 +186,7 @@ describe("users-admin + audit routes", () => {
       }),
     );
     expect(dup.status).toBe(409);
+    expect(await dup.text()).toBe("Email already registered");
 
     // Cleanup: user row (cascades account/session) + user_meta row.
     await db.deleteFrom("userMeta").where("userId", "=", created.id).execute();

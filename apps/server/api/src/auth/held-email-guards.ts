@@ -75,10 +75,13 @@ export function heldEmailMessage(providerName: string): string {
  * typed `Database` builders) and the app's `auth_providers` in one statement.
  *
  * Multiple doors may hold the same address (an arrival that later linked a
- * second one). The pick is the LOWEST matching `providerId` — the same MIN
- * rule the approval queue makes (`UsersRepository.listApprovalQueue` /
- * `primaryProviderId`), so the refusal and a queue row never name different
- * doors for the same person.
+ * second one). The pick is the LOWEST matching `providerId` — the SAME
+ * ordering rule the approval queue applies (`UsersRepository.listApprovalQueue`
+ * / `primaryProviderId` picks MIN(providerId) too), but over a DIFFERENT
+ * domain: the queue sorts across the person's providers credential-included,
+ * while this lookup answers for configured OIDC doors only. The two lowest
+ * ids are therefore not guaranteed to be the same row — what is shared is the
+ * tie-break rule, not a shared pick.
  *
  * `providerId <> 'credential'` is the spec's own exclusion (password rows);
  * the JOIN on `auth_providers` is what makes "an OIDC account" mean *a
