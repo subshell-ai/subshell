@@ -67,10 +67,10 @@ worse than no offer, and it ended nowhere for the one person who could take it.
 
 **The form asks Agent → Preset → Node → Working directory** (spec
 2026-09-13, presets replace profiles; `#picker-agent` / `#picker-preset` are
-the e2e handles, `lib/subshell-compat.ts` holds the pure rules). The form is three files since the
-2026-09-25 split: `new-subshell-form.tsx` is the fields and their pairing,
-`launch-form-rules.ts` the pure contract (the value, the empty baseline,
-`canSubmit`, the node-pick rules, the field-id sets), and
+the e2e handles, `lib/subshell-compat.ts` holds the pure rules). The form is
+three files since the 2026-09-25 split: `new-subshell-form.tsx` is the fields
+and their pairing, `launch-form-rules.ts` the pure contract (the value, the
+empty baseline, `canSubmit`, the node-pick rules, the field-id sets), and
 `use-launch-form-defaults.ts` the ONE defaults effect and the picker's
 explicit apply. The Agent
 select offers the whole `GET /api/plugins` set, greyed never hidden, and its

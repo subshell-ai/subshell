@@ -134,7 +134,11 @@ on a `(createdAt, id)` PAIR, because two events can share a millisecond.
 **Working on either page: read apps/server/web/docs/settings-status-logs.md first.**
 
 **The launch form asks Agent → Preset → Node → Working directory and asks
-nothing it cannot answer.** A directory is a claim about ONE machine:
+nothing it cannot answer.** The dialog opens on your last launch (node and
+directory pre-filled from the newest prior subshell), and a **Copy settings
+from** row applies any listed row's settings as an explicit act; one selector
+(`launchTemplateFromList`) feeds both, so the two defaults cannot disagree
+about which row is recent. A directory is a claim about ONE machine:
 changing Machine clears `workingDir` and re-arms the per-machine seed, and the
 folder picker is machine-scoped end to end. Node options filter on the
 server's own `canLaunch` (never a re-derived rule). Two kinds of unlaunchable
