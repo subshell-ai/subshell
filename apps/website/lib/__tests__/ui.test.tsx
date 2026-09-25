@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Analytics } from "../../components/analytics";
 import { GitHubIcon } from "../../components/icons";
+import { SiteFooter } from "../../components/site-footer";
 
 describe("GitHubIcon", () => {
   test("renders GitHub's classic site mark path at currentColor", () => {
@@ -22,5 +23,14 @@ describe("Analytics", () => {
     const html = renderToStaticMarkup(<Analytics id="G-ABC123" />);
     expect(html).toContain("googletagmanager.com/gtag/js?id=G-ABC123");
     expect(html).toContain('"G-ABC123"');
+  });
+});
+
+describe("SiteFooter", () => {
+  test("carries the security docs link beside the licence line", () => {
+    const html = renderToStaticMarkup(<SiteFooter />);
+    expect(html).toContain('href="https://docs.subshell.sh/about/security-model"');
+    expect(html).toContain("Security");
+    expect(html).toContain("disaresta.com");
   });
 });

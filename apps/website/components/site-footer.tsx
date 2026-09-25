@@ -8,6 +8,9 @@ export function SiteFooter() {
         </a>
       </span>
       <span>AGPL-3.0 server · Apache-2.0 everything else</span>
+      <a className="[border-bottom:1px_solid_var(--hairline)]" href="https://docs.subshell.sh/about/security-model">
+        Security
+      </a>
     </p>
   );
 }
