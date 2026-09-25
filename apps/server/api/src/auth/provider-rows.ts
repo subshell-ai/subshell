@@ -235,6 +235,20 @@ export function toGenericOAuthConfig(row: StoredProviderRow, canonicalOrigin: st
 /**
  * Which entry origin a round trip should use: exact membership, else
  * canonical (§5a). Request input is matched, never spliced.
+ *
+ * THE PIN, NOT THE PRODUCTION PATH (final review, Important 3 — measured):
+ * better-auth 1.7.1's genericOAuth `redirectURI` is a plain config string
+ * (`types.d.mts:116`), set once at build from list position 0 (`auth.ts`),
+ * and nothing in the package ever CALLS a redirectURI (no call site exists;
+ * a function there would be URL-serialized into the request). So today no
+ * production caller passes a visitor origin here — `buildAuth` always takes
+ * position 0. This function IS §5a's membership rule, kept honest by
+ * `provider-rows.test.ts` (which exercises every branch) and by flow-matrix
+ * case 14 (which pins what the IdP actually receives); when an upstream
+ * better-auth gains a per-request `redirectURI`, the swap is a config
+ * expression — `pickEntryOrigin(row.entryOrigins, visitorOrigin, row
+ * .entryOrigins[0])` — not a redesign. That is what §5a's degradation clause
+ * reserved, and it is why this is shipped-but-pin-tested rather than deleted.
  */
 export function pickEntryOrigin(entryOrigins: string[], visitorOrigin: string | null, fallback: string): string {
   if (visitorOrigin !== null && entryOrigins.includes(visitorOrigin)) return visitorOrigin;

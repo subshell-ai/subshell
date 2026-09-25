@@ -234,7 +234,12 @@ export const AUTH_OPTIONS = {
  */
 function buildAuth() {
   const doors = loadProviderRowsSync().filter((r) => r.kind !== "email");
-  const config = doors.map((r) => toGenericOAuthConfig(r, r.entryOrigins[0] ?? APP_BASE_URL)); // canonical = list position 0 (§5a)
+  // Canonical = list position 0 (§5a). On better-auth 1.7.1 this is also the
+  // ONLY entry that can ever reach the wire: genericOAuth's `redirectURI` is
+  // a plain config string (measured: plugins/generic-oauth/types.d.mts:116)
+  // and the core builder emits it verbatim, so follow-the-visitor waits on
+  // the upstream capability — flow-matrix case 14 pins the emitted URI.
+  const config = doors.map((r) => toGenericOAuthConfig(r, r.entryOrigins[0] ?? APP_BASE_URL));
   return betterAuth({
     ...AUTH_OPTIONS,
     database: authDatabase(),

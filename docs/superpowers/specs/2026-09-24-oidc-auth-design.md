@@ -347,6 +347,24 @@ so the registration panel and the follow-the-visitor behavior light up the
 moment better-auth supports it — the stored list and the membership rule are
 the same either way, so this is a capability difference, not a redesign.
 
+Amended during build (2026-09-24), recorded final-review: the verification
+came back as the honest-degradation arm, NOT follow-the-visitor. On the
+pinned 1.7.1, genericOAuth's `redirectURI` is a plain config string
+(measured: `plugins/generic-oauth/types.d.mts:116`; the core builder
+`@better-auth/core/dist/oauth2/create-authorization-url.mjs:29` puts the
+config value ahead of the route-derived callback path and writes it straight
+into the URL — a function value would be serialized into the request, never
+called; no call site for a callable `redirectURI` exists in either package).
+So every round trip emits the STORED CANONICAL entry (list position 0), and
+the extra entries exist so the hosts are registered at the IdP the moment
+the door can follow the visitor there. `pickEntryOrigin` ships as the
+membership rule §5a defines — kept and tested as the PIN for the day that
+capability lands (the swap is a config expression in `buildAuth`, not a
+redesign) — and flow-matrix case 14 records the `redirect_uri` the IdP
+ACTUALLY receives for a multi-entry door. The dialog's finish-the-setup
+sentence was corrected to this shipped truth (it promised per-host round
+trips, which would send an admin chasing entries that do nothing today).
+
 The anonymous pre-auth surface grows but stays **one route**: the login page
 learns which buttons to draw from `GET /api/settings/instance`, whose body
 gains `providers: [{ id, name, kind }]` — public facts only, no secrets in any
@@ -406,6 +424,13 @@ account can knock, so the tab must not be an unbounded junkyard:
   screen; it never mints a second row. (An email is unique in the `user`
   table anyway, so this is better-auth's existing find-or-create behavior
   with the timestamp touch added.)
+  Amended during build (2026-09-24), recorded final-review: the shipped
+  `evaluateDoorPolicy` re-stamps ONLY a `pending` row. A `rejected` arrival
+  answers the identical code but is not waiting on anyone (rejection never
+  expires, §6), and re-stamping it would drag a resolved rejection back to
+  the top of the queue's newest-first view — the knock timestamp is queue
+  bookkeeping, and the queue shows work, not history. Matrix case 7 pins
+  the non-stamp; §10's lifecycle bullet is amended to match.
 - **Pending expires.** Unactioned `pending` rows older than
   `pending_approval_expiry_days` (a settings row, admin-set on Settings →
   Auth, default **30**, `0` = keep forever — the log-retention idiom) are
@@ -607,12 +632,25 @@ better-auth's code, not ours):
   callback URL carries the canonical origin, never the request's); "Other"
   validates bare-origin and refuses paths/queries/wildcards; the panel lists
   Redirect URI + JS origin per entry.
+  Amended during build (2026-09-24): what ships is the canonical-only half
+  (1.7.1's `redirectURI` is a static config string — see §5a's amendment),
+  and the tests are what that truth needs rather than what this bullet
+  promised: flow-matrix case 14 records the ACTUAL `redirect_uri` arriving
+  at the fake IdP for a door whose list is [not-this-host canonical,
+  this-host] — byte-identically the canonical entry, never the request's
+  origin — and completes the round trip on it; `provider-rows.test.ts`
+  exercises every `pickEntryOrigin` membership branch as the reserved rule's
+  pin. "Other" validation and the per-entry panel stand as written.
 - Domain gate: non-matching email cannot link, create, or land in pending —
   including a previously-linked account once domains are added; empty field
   accepts any.
-- Lifecycle: repeat knock on a pending/rejected email updates `arrived_at`
-  without a second row; the sweep deletes expired `pending` (user + account +
-  user_meta together) but never a `rejected` row; `0` disables the timer.
+- Lifecycle: repeat knock on a pending email updates `arrived_at` without a
+  second row; a REJECTED row answers the same code but keeps its cleared
+  clock (§6's amendment — a resolved rejection re-stamped would jump the
+  queue's view); the sweep deletes expired `pending` (user + account +
+  user_meta + defensive session/verification, and the user-owned
+  `device_tokens`/`favorites` rows cascade rather than join the refusal set)
+  but never a `rejected` row; `0` disables the timer.
 - Last-door guard: closing the final `sign_in_enabled` door 409s and saves
   nothing; opening a second door first makes the same edit succeed.
 

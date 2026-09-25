@@ -346,16 +346,23 @@ no per-provider hook, measured), branching on method + providerId + action; a
 throw inside it fails closed. The hook never fires on the password or passkey
 SIGN-IN paths, so the closed E-mail door's refusal rides a second layer
 (`auth/door-guards.ts`, `hooks.before` on `/sign-in/email` and
-`/passkey/verify-authentication`): a hidden door is not a closed one, the
-flag is enforced at the API. That refusal is a thrown 403 `APIError` with a
+`/passkey/verify-authentication`): a hidden door is not a closed one, EITHER
+close flag is enforced at the API — `sign_in_enabled = 0` or the master
+`enabled = 0` (final review, Important 1, 2026-09-24) — while the
+registration gate deliberately never refuses an existing account's sign-in.
+That refusal is a thrown 403 `APIError` with a
 message but NO machine code (honesty note: the provisioning refusals above
 answer with named codes, this one answers with prose; the UI does not branch
 on it). Break-glass is exempt from the guard via a server-held nonce, because
 the guard fires after the emergency wrapper has already rewritten the
 credential and refusing then would lock the operator out of the account it
-just took. Entry origins follow the CORS rule: a provider's callback host is
-chosen by MEMBERSHIP in the stored list, never composed from the request, and
-the emitted `redirect_uri` is always one of the stored strings (spec §5a).
+just took. Entry origins follow the CORS rule: a callback host is NEVER
+composed from the request, and the `redirect_uri` emitted to the IdP is
+always one of the stored strings — on 1.7.1 that string is the stored
+CANONICAL entry (list position 0; measured: genericOAuth's `redirectURI` is
+a static config string), and §5a's per-request membership rule ships
+pin-tested as `pickEntryOrigin` awaiting the upstream capability (spec §5a,
+amended 2026-09-24).
 
 **Approval gates account CREATION only; an existing email links straight in**
 (spec §4; the admin already admitted that person). A first arrival at a

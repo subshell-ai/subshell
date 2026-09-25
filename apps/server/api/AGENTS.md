@@ -80,7 +80,13 @@ rebuild serves the last-known-good instance. **Door policy is one global
 seam**, `options.user.validateUserInfo` → `auth/door-policy.ts` (1.7.1 has no
 per-provider hook); it never fires on the password/passkey SIGN-IN paths, so
 `auth/door-guards.ts` (`hooks.before`) carries those two refusals for a
-closed E-mail door, with break-glass exempted by a server-held nonce. A
+closed E-mail door — `closed` meaning EITHER flag: the guard reads
+`enabled = 0` beside `sign_in_enabled = 0` (final review, Important 1: the
+master switch was hiding the door in the UI while the API kept signing
+people in), with break-glass exempted by a server-held nonce, and — equally
+load-bearing — `registration_enabled` does NOT gate SIGN-IN, only creation:
+the legacy dynamic window closes the gate while every member keeps their way
+in (pinned both ways in `door-guards.test.ts`). A
 `require_approval` door's first arrival is marked pending at
 `databaseHooks.account.create.after` (the only seam that sees the provider at
 creation; it also undoes any first-admin promotion its own write caused,
@@ -92,7 +98,18 @@ hook with the code the login page maps to `/pending`. The hourly sweep
 `rejected`) and re-marks failed-mark arrivals. `/api/auth-providers` is
 cookie-admin only; discovery is the save gate (400 `DISCOVERY_FAILED`), the
 client secret is never serialized or audited, and no write may close the
-LAST open sign-in door (409 `LAST_SIGN_IN_DOOR`). The security accounting is
+LAST open sign-in door (409 `LAST_SIGN_IN_DOOR`). The PATCH also refuses
+`issuer`/`clientId`/`entryOrigins` on the E-mail row (that row runs no
+exchange; the route used to accept them and even probe discovery against a
+nonsense email-row issuer), and every door's `name` goes through the shared
+`normalizeLabel` + 120-code-point cap like every other user-visible NAME —
+it renders on the anonymous login buttons. On the §5a entry origins: what
+reaches the IdP is ALWAYS the stored canonical entry (list position 0),
+because 1.7.1's genericOAuth `redirectURI` is a static config string
+(measured, `types.d.mts:116`; a function value would be URL-serialized, not
+called); follow-the-visitor waits on the upstream capability,
+`pickEntryOrigin` stands as the pinned membership rule, and flow-matrix
+case 14 pins the emitted URI. The security accounting is
 `docs/security.md` §2's "OIDC sign-in with approval".
 
 ```

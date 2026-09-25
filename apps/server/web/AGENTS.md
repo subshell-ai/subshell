@@ -318,7 +318,12 @@ that code's `error_description` is the only free text that may render as an
 address; `unable_to_create_session` (the first arrival at a
 `require_approval` door; the redirect cannot tell pending from disabled)
 renders one honest line true for both, and a fresh sign-in attempt retires
-the consumed refusal. Button labels wear the door's NAME for every kind
+the consumed refusal. Everything else the trip can carry renders too —
+the `refused` reading shows the sanitized, capped `error_description` as
+prose, or the generic fallback sentence, above the door block; unrecognized
+codes used to be stripped and paint NOTHING (final review, Important 2),
+which is what `routes/__tests__/login.test.tsx` now pins, render and param-
+strip and clear-on-attempt together. Button labels wear the door's NAME for every kind
 (`signInButtonLabel`: same-kind rows are legal, and a kind-first label makes
 them a mis-click lottery). `/pending` is the third bare frame beside
 `/login` and `/setup`; its "Sign in again" navigates to `/login`, and the
