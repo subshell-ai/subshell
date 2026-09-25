@@ -36,33 +36,31 @@ fail() {
 
 # --- 1. which bundle does this machine need? ---------------------------------
 # Desktop targets are NOT the CLI's four (spec 2026-09-23 §6): there is no
-# linux-arm64 desktop build, and the desktop pipeline builds no Intel Mac
-# bundle (the CLI binaries cross-build with bun; tauri gets no --target here).
-# Refused BY NAME so the message is that fact rather than a 404 the reader
-# misattributes to a broken release.
+# linux-arm64 desktop build — no native runner, and a GUI cannot be
+# magic-checked into confidence. Intel Macs DO get the app: the pipeline
+# cross-builds the darwin-x64 bundle with tauri `--target`. Any other
+# platform is refused BY NAME so the message is that fact rather than a 404
+# the reader misattributes to a broken release.
 if [ -n "${SUBSHELL_CLIENT_TARGET:-}" ]; then
   TARGET="$SUBSHELL_CLIENT_TARGET"
 else
   OS="$(uname -s)"
   ARCH="$(uname -m)"
   case "$OS/$ARCH" in
-    Darwin/arm64) TARGET="darwin-arm64" ;;
-    Linux/x86_64) TARGET="linux-x64" ;;
-    Darwin/x86_64)
-      fail "Intel Macs are not supported: no Subshell Client is published for darwin-x64." \
-        "Apple silicon Macs and Linux x86_64 get the app."
-      ;;
+    Darwin/arm64)  TARGET="darwin-arm64" ;;
+    Darwin/x86_64) TARGET="darwin-x64" ;;
+    Linux/x86_64)  TARGET="linux-x64" ;;
     *)
       fail "unsupported platform: $OS/$ARCH" \
-        "Subshell Client is published for darwin-arm64 and linux-x64."
+        "Subshell Client is published for darwin-arm64, darwin-x64 and linux-x64."
       ;;
   esac
 fi
 case "$TARGET" in
-  darwin-arm64|linux-x64) ;;
+  darwin-arm64|darwin-x64|linux-x64) ;;
   *)
     fail "unsupported target: $TARGET" \
-      "Subshell Client is published for darwin-arm64 and linux-x64."
+      "Subshell Client is published for darwin-arm64, darwin-x64 and linux-x64."
     ;;
 esac
 
@@ -125,11 +123,13 @@ echo "==> installing Subshell Client $TAG ($TARGET)"
 # The names are `desktopArtifactFileName` in @internal/subshell-protocol: the
 # `Desktop` marker is what keeps a DMG apart from the CLI binaries in the
 # same downloads space, and the .deb spelling is Tauri's lower-cased slug.
-if [ "$TARGET" = "darwin-arm64" ]; then
-  ASSET="Subshell-Client-Desktop-$VERSION-darwin-arm64.dmg"
-else
-  ASSET="subshell-client-desktop_${VERSION}_amd64.deb"
-fi
+# The Mac spelling is `<slug>-<version>-<triple>.dmg`, so one $TARGET covers
+# both Apple silicon and Intel — the same formula `desktopArtifactFileName`
+# publishes under.
+case "$TARGET" in
+  darwin-*) ASSET="Subshell-Client-Desktop-$VERSION-$TARGET.dmg" ;;
+  *)        ASSET="subshell-client-desktop_${VERSION}_amd64.deb" ;;
+esac
 BASE="${SUBSHELL_CLIENT_RELEASE_BASE:-https://github.com/$REPO/releases/download/$TAG}"
 ASSET_PROTO="$(proto_for "$BASE")"
 
@@ -151,7 +151,8 @@ case "$HTTP" in
   200) ;;
   404)
     fail "$TAG publishes no $TARGET bundle (asset $ASSET is missing)." \
-      "Published desktop targets are darwin-arm64 and linux-x64."
+      "Current published desktop targets are darwin-arm64, darwin-x64 and linux-x64;" \
+      "older releases may carry fewer."
     ;;
   *)
     fail "the release host answered HTTP $HTTP for $ASSET; nothing was installed."
@@ -186,7 +187,7 @@ fi
 # Everything above wrote only inside $TMPD: every refusal so far changed
 # nothing on this machine, which is what the test harness asserts by way of
 # the shims never having been called.
-if [ "$TARGET" = "darwin-arm64" ]; then
+if [ "${TARGET#darwin-}" != "$TARGET" ]; then
   APPS_DIR="${SUBSHELL_CLIENT_APPS_DIR:-/Applications}"
   STAGED="$APPS_DIR/Subshell Client.app"
   # The spaced name is the bundle's real identity — the published FILE is

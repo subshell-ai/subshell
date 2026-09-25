@@ -58,9 +58,9 @@ Deleting is owner-only and it is a *retirement*, not a kill switch. The plane di
 
 You alone. Admins hold instance-wide *edit* (read and interact, restart), but delete and re-sharing never leave the owner, and neither do they extend to a node's owner for someone else's subshell running there. Deleting a subshell deletes its row and unlinks its pane log. [Sharing](/use/sharing).
 
-## Why no Intel Mac, or arm64 Linux, desktop builds?
+## Why no arm64 Linux desktop build?
 
-The CLI binaries cover Intel Macs (`darwin-x64`, cross-built and release-smoked under Rosetta); what Intel does not get is the GUIs, which ship for Apple silicon macOS and `amd64` Linux only. The narrower desktop matrix is about what can be honestly tested: `tauri build` links the host's own webview stack, so a GUI cannot be cross-built and magic-checked the way a headless Bun binary can, and there is no native arm64 Linux runner to build a GUI on at all. On Linux every artifact builds on Ubuntu 24.04, which sets a **glibc 2.39 floor** (Ubuntu 24.04 / Debian 13 or newer for every component). [Supported Platforms](/about/supported-platforms) has the matrix.
+Every other combination ships, Intel Macs included: the CLI binaries cross-build with Bun (their release smoke runs under Rosetta), and the desktop images cross-build with `tauri build --target x86_64-apple-darwin` (the macOS SDK's WebKit carries both architectures, so an Apple Silicon runner can honestly produce the Intel image). arm64 Linux is the exception the matrix still refuses: there is no arm64 Linux runner to build a GUI on, and a headless cross-build's `file(1)` check cannot see a GUI's characteristic failure, which is an invisible window. On Linux every artifact builds on Ubuntu 24.04, which sets a **glibc 2.39 floor** (Ubuntu 24.04 / Debian 13 or newer for every component). [Supported Platforms](/about/supported-platforms) has the matrix.
 
 ## Why no TLS enforcement, or 2FA?
 

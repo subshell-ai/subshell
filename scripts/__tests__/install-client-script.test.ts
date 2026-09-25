@@ -452,7 +452,7 @@ describe("install-client.sh", () => {
     const r = await run({ env: { SUBSHELL_CLIENT_TARGET: "linux-arm64" } });
     expect(r.code).not.toBe(0);
     expect(r.stderr).toContain("unsupported target: linux-arm64");
-    expect(r.stderr).toContain("Subshell Client is published for darwin-arm64 and linux-x64");
+    expect(r.stderr).toContain("Subshell Client is published for darwin-arm64, darwin-x64 and linux-x64");
     expect(r.requests).toEqual([]);
   });
 
@@ -482,7 +482,7 @@ describe("install-client.sh", () => {
     expect(r.code).not.toBe(0);
     expect(r.stderr).toContain("desktop-client-v0.6.0");
     expect(r.stderr).toContain(dmgName("0.6.0"));
-    expect(r.stderr).toContain("darwin-arm64 and linux-x64");
+    expect(r.stderr).toContain("darwin-arm64, darwin-x64 and linux-x64");
     expect(r.log).toEqual([]);
   });
 
@@ -575,19 +575,21 @@ describe("install-client.sh", () => {
     expect(r.requests).toContain(`/download/${dmgName("0.6.0")}`);
   });
 
-  test("refuses an Intel Mac by name, before any fetch", async () => {
-    const r = await run({ unameShim: { s: "Darwin", m: "x86_64" } });
-    expect(r.code).not.toBe(0);
-    expect(r.stderr).toContain("Intel Macs are not supported");
-    expect(r.stderr).toContain("darwin-x64");
-    expect(r.requests).toEqual([]);
+  test("an Intel Mac resolves to the published darwin-x64 dmg", async () => {
+    const r = await run({
+      shims: { hdiutil: SHIM_HDIUTIL, cp: SHIM_CP },
+      unameShim: { s: "Darwin", m: "x86_64" },
+    });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("installing Subshell Client desktop-client-v0.6.0 (darwin-x64)");
+    expect(r.requests).toContain("/download/Subshell-Client-Desktop-0.6.0-darwin-x64.dmg");
   });
 
   test("refuses any other platform by name", async () => {
     const r = await run({ unameShim: { s: "Linux", m: "ppc64le" } });
     expect(r.code).not.toBe(0);
     expect(r.stderr).toContain("Linux/ppc64le");
-    expect(r.stderr).toContain("Subshell Client is published for darwin-arm64 and linux-x64");
+    expect(r.stderr).toContain("Subshell Client is published for darwin-arm64, darwin-x64 and linux-x64");
   });
 
   test("carries the executable bit (the one-liner is fetched raw and piped)", () => {

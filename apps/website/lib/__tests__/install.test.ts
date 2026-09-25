@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { detectIsMac, installCopy, type ReleasesManifest } from "../install";
+import { detectIsMac, installCopy, macIntelAvailable, type ReleasesManifest } from "../install";
 
 const m = {
   schemaVersion: 1,
@@ -91,4 +91,67 @@ test("missing desktop entry: generic releases href, no filename, no crash (Revie
 test("detectIsMac mirrors the concept's sniffing", () => {
   expect(detectIsMac("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", "MacIntel")).toBe(true);
   expect(detectIsMac("Mozilla/5.0 (X11; Linux x86_64)", "Linux x86_64")).toBe(false);
+});
+
+// ── Intel Mac: the arch choice ──────────────────────────────────────────────
+// Note the UA above: even an Intel Mac's own user-agent reads "Intel Mac OS
+// X" and platform reads "MacIntel", so the browser cannot pick the arch —
+// that is why the menu exists and why the default stays Apple silicon.
+
+const withAssets = (assets: string[] | undefined) =>
+  ({
+    ...m,
+    components: {
+      ...m.components,
+      "desktop-server": {
+        version: "0.16.0",
+        tag: "desktop-server-v0.16.0",
+        url: "https://ds",
+        ...(assets === undefined ? {} : { desktopAssets: assets }),
+      },
+    },
+  }) as ReleasesManifest;
+
+const bothMacs = withAssets([
+  "Subshell-Server-Desktop-0.16.0-darwin-arm64.dmg",
+  "Subshell-Server-Desktop-0.16.0-darwin-x64.dmg",
+  "subshell-server-desktop_0.16.0_amd64.deb",
+]);
+const armOnly = withAssets(["Subshell-Server-Desktop-0.16.0-darwin-arm64.dmg"]);
+
+test("macIntelAvailable reads the release's verified asset list, never the field's existence alone", () => {
+  expect(macIntelAvailable(bothMacs, "server")).toBe(true);
+  // Probed, and the answer was "no Intel bundle in this cut":
+  expect(macIntelAvailable(armOnly, "server")).toBe(false);
+  // No probe data at all (a pre-desktopAssets manifest): conservative no.
+  expect(macIntelAvailable(m, "server")).toBe(false);
+  // The predicate is per kind — Client's entry has no assets in these fixtures:
+  expect(macIntelAvailable(bothMacs, "client")).toBe(false);
+});
+
+test("with Intel published, the selection drives label, href and the filename line", () => {
+  const intel = installCopy(bothMacs, "server", true, "darwin-x64");
+  expect(intel.downloadLabel).toBe("Download for Intel · .dmg");
+  expect(intel.downloadHref).toContain("Subshell-Server-Desktop-0.16.0-darwin-x64.dmg");
+  expect(intel.artifactFile).toBe("Subshell-Server-Desktop-0.16.0-darwin-x64.dmg");
+  const arm = installCopy(bothMacs, "server", true, "darwin-arm64");
+  expect(arm.downloadLabel).toBe("Download for Apple silicon · .dmg");
+  expect(arm.artifactFile).toBe("Subshell-Server-Desktop-0.16.0-darwin-arm64.dmg");
+  // The Linux alternative is untouched by the choice:
+  expect(intel.altLabel).toBe("Linux (.deb)");
+  expect(intel.altHref).toContain("subshell-server-desktop_0.16.0_amd64.deb");
+});
+
+test("default selection is Apple silicon — the arch no browser can detect", () => {
+  expect(installCopy(bothMacs, "server", true).downloadLabel).toBe("Download for Apple silicon · .dmg");
+});
+
+test("without Intel, macOS copy is exactly what it was: no arch claims, no arch choice", () => {
+  for (const manifest of [m, armOnly]) {
+    expect(installCopy(manifest, "server", true).downloadLabel).toBe("Download for macOS · .dmg");
+  }
+});
+
+test("the Linux path ignores the arch parameter entirely", () => {
+  expect(installCopy(bothMacs, "server", false, "darwin-x64").downloadLabel).toBe("Download for Linux · .deb");
 });
