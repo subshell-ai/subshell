@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 12 848 126">
+  <title>Subshell Docs</title>
+  <defs>
+    <linearGradient id="slash" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#744b8d"/>
+      <stop offset="0.62" stop-color="#a678bd"/>
+      <stop offset="1" stop-color="#d9c6e8"/>
+    </linearGradient>
+  </defs>
+  <g font-family="Acherus Grotesque Light" font-size="100" letter-spacing="1.1">
+    <text x="0" y="100" fill="url(#slash)">/</text>
+    <text x="36.2" y="100" fill="#9c71ae">sub</text>
+    <text x="218.5" y="100" fill="#e6dbef">shell</text>
+    <!-- The suite word, in `shell`'s own frost (operator choice 2026-09-25):
+         the lockup reads "/sub shell … docs", both words of the pair bright. -->
+    <text x="608" y="100" fill="#e6dbef">docs</text>
+  </g>
+  <rect x="468" y="54" width="11" height="11" rx="2" fill="#c39bd9"/>
+  <rect x="488" y="24" width="9" height="9" rx="2" fill="#e6dbef"/>
+  <rect x="507" y="58" width="5" height="5" rx="1.5" fill="#9c71ae"/>
+  <rect x="525" y="37" width="7" height="7" rx="1.5" fill="#c39bd9"/>
+  <rect x="542" y="67" width="3" height="3" rx="1" fill="#e6dbef"/>
+  <rect x="564" y="47" width="3" height="3" rx="1" fill="#744b8d"/>
+</svg>

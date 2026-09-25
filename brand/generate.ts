@@ -17,6 +17,28 @@ const BRAND_DIR = import.meta.dir;
 const SRC_DIR = path.join(BRAND_DIR, "src");
 const ICONS_DIR = path.join(BRAND_DIR, "../apps/server/web/public/icons");
 const DOCS_DIR = path.join(BRAND_DIR, "../docs/assets");
+/** The docs SITE's asset root: header lockups the Next app serves directly. */
+const DOCS_SITE_DIR = path.join(BRAND_DIR, "../apps/docs/public");
+/**
+ * The two sites' icon roots (docs, marketing). They are their own static
+ * servers and cannot reach the SPA's `public/icons`, so the generated set is
+ * written into each, byte-identical to the SPA's — the same multi-root rule
+ * `desktop-ui/` follows for the Tauri pages, and for the same reason: a
+ * hand-copied PNG is exactly what this script forbids.
+ */
+const SITE_ICON_DIRS = [
+  path.join(BRAND_DIR, "../apps/docs/public/icons"),
+  path.join(BRAND_DIR, "../apps/website/public/icons"),
+];
+/** The favicon set both sites declare in their metadata (the 192/512 PWICONS,
+ * the standalone marks and the wordmarks are the SPA's own concern). */
+const SITE_ICON_FILES = [
+  "favicon-16.png",
+  "favicon-32.png",
+  "favicon-48.png",
+  "favicon.ico",
+  "apple-touch-icon.png",
+];
 /**
  * The Subshell Server desktop app's bundled pages (the setup assistant and the
  * console) serve their own static files — they are a separate Vite build from
@@ -115,6 +137,11 @@ const JOBS: { master: string; mode: Mode; size: number; out: string }[] = [
   { master: "mark-glyph.svg", mode: "height", size: 120, out: "icons/mark-120.png" },
   { master: "wordmark-plate.svg", mode: "width", size: 640, out: "docs/subshell-wordmark.png" },
   { master: "wordmark-plate.svg", mode: "width", size: 1280, out: "docs/subshell-wordmark@2x.png" },
+  // The docs site's header lockup: the wordmark with the suite word "docs"
+  // after it (the site is dark-only, so transparent-on-void is the only
+  // ground it ever sits on).
+  { master: "wordmark-docs.svg", mode: "height", size: 96, out: "docs-site/wordmark-docs-96.png" },
+  { master: "wordmark-docs.svg", mode: "height", size: 192, out: "docs-site/wordmark-docs-192.png" },
 ];
 
 /**
@@ -200,6 +227,8 @@ for (const { app, background } of DESKTOP_APPS) {
 
 mkdirSync(ICONS_DIR, { recursive: true });
 mkdirSync(DOCS_DIR, { recursive: true });
+mkdirSync(DOCS_SITE_DIR, { recursive: true });
+for (const dir of SITE_ICON_DIRS) mkdirSync(dir, { recursive: true });
 for (const dir of DESKTOP_UI_DIRS) mkdirSync(dir, { recursive: true });
 for (const [out, bytes] of outputs) {
   // A `desktop-ui/` job writes the same bytes into every bundled page's asset
@@ -213,9 +242,19 @@ for (const [out, bytes] of outputs) {
   }
   const file = out.startsWith("icons/")
     ? path.join(ICONS_DIR, out.slice("icons/".length))
-    : path.join(DOCS_DIR, out.slice("docs/".length));
+    : out.startsWith("docs-site/")
+      ? path.join(DOCS_SITE_DIR, out.slice("docs-site/".length))
+      : path.join(DOCS_DIR, out.slice("docs/".length));
   writeFileSync(file, bytes);
   console.log(`wrote ${out} (${bytes.length} B)`);
+}
+// The two sites' favicon sets are the SPA's bytes, mirrored from the same
+// `outputs` map (never a re-render, never a hand-copy): one source, three
+// static roots, byte-identical.
+for (const name of SITE_ICON_FILES) {
+  const bytes = outputs.get(`icons/${name}`) as Buffer;
+  for (const dir of SITE_ICON_DIRS) writeFileSync(path.join(dir, name), bytes);
+  console.log(`wrote ${name} to ${SITE_ICON_DIRS.length} site icon roots (${bytes.length} B)`);
 }
 for (const [file, bytes] of appIcons) {
   writeFileSync(file, bytes);
