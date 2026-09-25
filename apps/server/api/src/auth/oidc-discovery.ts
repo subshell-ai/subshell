@@ -6,9 +6,11 @@
  * probe; the auth BUILD reads the stored endpoints and never touches the
  * network (that is what makes a rebuild safe while the issuer is briefly
  * dead). The validators are pure and shared with the SPA's preview mirror —
- * `slugifyProviderId` in particular is byte-identical to the web's
- * `previewProviderId`, because the create dialog sends its preview as the id
- * and the stored truth must match what the copy panel showed.
+ * the slug TRANSFORM inside `slugifyProviderId` is byte-identical to the
+ * web's `previewProviderId` (the refusals layered on top — an empty slug,
+ * the reserved `email` — are the server's own and have no web twin),
+ * because the create dialog sends its preview as the id and the stored
+ * truth must match what the copy panel showed.
  */
 
 /** The three endpoints genericOAuth needs, in the exact shape the row persists. */
@@ -151,10 +153,13 @@ const RESERVED_PROVIDER_ID = "email";
 
 /**
  * `name` → id slug: lowercase, `[a-z0-9-]`, runs collapsed, trimmed of
- * leading/trailing dashes, ≤ 40 chars. MUST stay byte-identical to the SPA's
- * `previewProviderId` (`apps/server/web/src/types/auth-provider.ts`) — the
- * dialog sends its preview as the create body's `id`, so the registration
- * panel's prediction and the stored truth are the same string.
+ * leading/trailing dashes, ≤ 40 chars. That transform MUST stay
+ * byte-identical to the SPA's `previewProviderId`
+ * (`apps/server/web/src/types/auth-provider.ts`) — the dialog sends its
+ * preview as the create body's `id`, so the registration panel's prediction
+ * and the stored truth are the same string. The refusals below are
+ * deliberately NOT mirrored: the web preview only predicts the shape, and
+ * this function is the gate.
  *
  * `email` is refused as a user-chosen slug: it is the reserved row's id, and
  * a door whose callback is `/api/auth/callback/email` would collide with the
