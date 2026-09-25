@@ -382,8 +382,11 @@ describe("egress pin (round-3 sweep C12)", () => {
   it("allows GitHub's release hosts and the configured source's origin — and nothing else", () => {
     // The shipped default IS this list: `DEFAULT_RELEASE_API` is api.github.com
     // (which the configured-origin rule also covers), a GitHub release asset's
-    // `browser_download_url` is github.com, and that 302s to
-    // objects.githubusercontent.com — all three allowed. So for the default
+    // `browser_download_url` is github.com, and that 302s to the asset host —
+    // BOTH spellings allowed, because GitHub renamed the destination
+    // (release-assets.githubusercontent.com is where the 1.0.0 post-cut proof
+    // measured the hop landing; objects.githubusercontent.com stays for the
+    // legacy URLs that still redirect there). So for the default
     // configuration the pin is trivially true of every real fetch, and it
     // exists for the other one: an operator pointing SUBSHELL_RELEASE_URL at
     // a mirror, where the LIST can then name any host and must not be able to
@@ -391,6 +394,7 @@ describe("egress pin (round-3 sweep C12)", () => {
     expect(releaseFetchAllowed("https://api.github.com/repos/theo/subshell/releases")).toBe(true);
     expect(releaseFetchAllowed("https://github.com/theo/subshell/releases/download/cli-node-v1/bin")).toBe(true);
     expect(releaseFetchAllowed("https://objects.githubusercontent.com/signed/asset-blob")).toBe(true);
+    expect(releaseFetchAllowed("https://release-assets.githubusercontent.com/signed/asset-blob")).toBe(true);
     expect(releaseFetchAllowed(`${fake.url}/asset/bin`)).toBe(true); // the configured source
     expect(releaseFetchAllowed("http://169.254.169.254/latest/meta-data/")).toBe(false);
     expect(releaseFetchAllowed(`${fake.url.replace("127.0.0.1", "localhost")}/asset/bin`)).toBe(false); // not same-origin
@@ -512,7 +516,7 @@ describe("egress pin (round-3 sweep C12)", () => {
   });
 
   it("follows an allowed redirect chain — the mirror-to-storage shape still delivers verified bytes", async () => {
-    // github.com 302s to objects.githubusercontent.com in production; the
+    // github.com 302s to its asset host in production; the
     // test's honest stand-in is a hop that stays on an allowed origin. The
     // hop is followed, the digest still decides, and the cache still lands.
     fake.assets.set("signed-blob-storage", BINARY_PAYLOAD.bytes);

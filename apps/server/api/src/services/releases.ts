@@ -306,8 +306,8 @@ export const releaseSeams = {
  *
  * The shipped default IS GitHub (`SUBSHELL_RELEASE_URL` defaults to
  * `DEFAULT_RELEASE_API` on api.github.com, and a GitHub release asset's
- * `browser_download_url` is github.com, which redirects to
- * objects.githubusercontent.com), so for the default configuration the list
+ * `browser_download_url` is github.com, which redirects to the asset host),
+ * so for the default configuration the list
  * is trivially "GitHub plus what the operator configured" — and that is the
  * point. The list exists for the OTHER configuration: an operator pointing
  * `SUBSHELL_RELEASE_URL` at a mirror of their own. The mirror then chooses
@@ -318,7 +318,7 @@ export const releaseSeams = {
  *
  * `raw.githubusercontent.com` is deliberately ABSENT: no release asset URL
  * this pipeline publishes is served from there (assets live on github.com and
- * redirect to objects.githubusercontent.com), and an allowlist entry nothing
+ * redirect to the renamed asset host), and an allowlist entry nothing
  * uses is an egress door held open for no one.
  *
  * What the pin gates (C12, extended by the 2026-09-24 review): the URL the
@@ -339,6 +339,7 @@ const ALLOWED_FETCH_HOSTS: ReadonlySet<string> = new Set([
   "api.github.com",
   "github.com",
   "objects.githubusercontent.com",
+  "release-assets.githubusercontent.com",
 ]);
 
 /** A fetch the release egress allowlist refuses. Carries the rejected host. */
@@ -399,7 +400,7 @@ function assertReleaseFetchAllowed(url: string): void {
 
 /**
  * Redirect hops {@link fetchWithPinnedEgress} will walk for one source-named
- * URL. A GitHub asset is ONE hop (github.com → objects.githubusercontent.com),
+ * URL. A GitHub asset is ONE hop (github.com → the asset host),
  * so five is headroom for any honest chain and short enough that an endless
  * loop fails the fetch rather than hanging the caller — the same reasoning as
  * {@link METADATA_TIMEOUT_MS} applied to hops instead of seconds.
