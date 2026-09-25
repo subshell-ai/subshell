@@ -245,6 +245,28 @@ describe("POST /api/subshells/:id/input (spec 2026-09-25)", () => {
     }
   });
 
+  it("a PARKED row (status running, alive 0 — the self-exit state) 409s, not a 500, and types nothing", async () => {
+    // What a pane that exited on its own actually leaves behind: the
+    // LIFECYCLE intent still says `running` (parked is what auto-restart and
+    // "Start again" revive from) while the LIVENESS fact says 0, and the
+    // pane's session is gone. A guard on `status` alone sails into the dead
+    // session and answers 500 (the live incident 2026-09-25: cross-node MCP
+    // sends failing after a remote pane terminated); the honest answer is the
+    // same 409, because `alive` is the fact the send actually needs.
+    const sim = attachScriptedNode(node, LIFECYCLE);
+    try {
+      const id = await directRow({ userId: ownerId, status: "running", name: "in-parked" });
+      const res = await input(id, { cookie: ownerCookie, body: { text: "wake up" } });
+      expect(res.status).toBe(409);
+      expect((await errorBody(res)).code).toBe("SUBSHELL_NOT_RUNNING");
+      // Nothing reaches the machine: an agent-facing "ok" here would be the
+      // silent lie (bytes into a session that does not exist).
+      expect(sim.countOf("input")).toBe(0);
+    } finally {
+      sim.detach();
+    }
+  });
+
   it("an offline agent node maps to 409 NODE_OFFLINE (the create/restart mapper)", async () => {
     const sim = attachScriptedNode(node, LIFECYCLE);
     const id = await createRunning("in-offline");

@@ -480,3 +480,56 @@ describe("the rail's Needs Attention spotlight (spec 2026-09-24)", () => {
     );
   });
 });
+
+describe("the cross-agent comms section (operator ask 2026-09-25)", () => {
+  const COMMS_KEY = "subshell.sidebarCommsOpen";
+  afterEach(() => localStorage.removeItem(COMMS_KEY));
+
+  it("files MCP-launched panes in their own section, out of the machine groups", async () => {
+    await withRail(
+      [
+        subshell({ id: "h", name: "human-work", nodeId: "n1" }),
+        subshell({ id: "c", name: "helper-bot", nodeId: "n1", crossAgent: true }),
+      ],
+      async () => {
+        expect(groupList("n1").textContent).toContain("human-work");
+        expect(groupList("n1").textContent).not.toContain("helper-bot");
+        expect(groupList("cross-agent").textContent).toContain("helper-bot");
+        // The section header cannot name a machine (it spans them), so the
+        // ROW carries it: the subline of a comms row is its node, not its path.
+        expect(groupList("cross-agent").textContent).toContain("mac-mini");
+      },
+    );
+  });
+
+  it("is CLOSED by default, unlike the machine groups, and its press opens and persists", async () => {
+    await withRail([subshell({ id: "c", name: "helper-bot", crossAgent: true })], async () => {
+      expect(groupHeader("cross-agent").getAttribute("aria-expanded")).toBe("false");
+      // Hidden by class, never unmounted: the machine groups' rule, same here.
+      expect(groupList("cross-agent").className).toContain("hidden");
+      fireEvent.click(groupHeader("cross-agent"));
+      await waitFor(() => expect(groupHeader("cross-agent").getAttribute("aria-expanded")).toBe("true"));
+      expect(localStorage.getItem(COMMS_KEY)).toBe("1");
+    });
+  });
+
+  it("a remembered open survives the remount", async () => {
+    localStorage.setItem(COMMS_KEY, "1");
+    await withRail([subshell({ id: "c", crossAgent: true })], async () => {
+      expect(groupHeader("cross-agent").getAttribute("aria-expanded")).toBe("true");
+    });
+  });
+
+  it("an explicit shut keeps the closed default (the pref is not the machine group's set)", async () => {
+    localStorage.setItem(COMMS_KEY, "0");
+    await withRail([subshell({ id: "c", crossAgent: true })], async () => {
+      expect(groupHeader("cross-agent").getAttribute("aria-expanded")).toBe("false");
+    });
+  });
+
+  it("renders no header at all when no pane is cross-agent", async () => {
+    await withRail([subshell({ id: "a" })], async () => {
+      expect(document.querySelector("button[aria-controls='sidebar-node-group-cross-agent']")).toBeNull();
+    });
+  });
+});

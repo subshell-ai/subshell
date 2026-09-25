@@ -19,7 +19,10 @@ work", first built as a halo pulse and deliberately replaced): the alive
 pair now differs by motion as well as brightness, the loop being honest
 only because the dot's DOM node never remounts (stable keys plus the
 feed's structural sharing), and under `prefers-reduced-motion` the class
-carries nothing, so the dot is plainly green. The bell never blinks. The tiles are segmented on the group-by axis (By machine | By status | No grouping selector, machine default; operator ask 2026-09-24), and BOTH views segment on the SAME `SubshellSection`s: tiles get headings, the list gets a band row per section (`lib/subshell-sections.ts`, banding on the shared indicator, never a second status model). Machine sections ride the RAIL's own machinery (`sortByStatus` into
+carries nothing, so the dot is plainly green. Its freshness arrives over the
+feed (see "There is no cadence" in live-feed.md): an attached pane blinks
+within 2 s of printing, and an agent pane NOBODY is attached to cannot report
+output at all, so its dot waits for an attach, an act, or a terminate. The bell never blinks. The tiles are segmented on the group-by axis (By machine | By status | No grouping selector, machine default; operator ask 2026-09-24), and BOTH views segment on the SAME `SubshellSection`s: tiles get headings, the list gets a band row per section (`lib/subshell-sections.ts`, banding on the shared indicator, never a second status model). Machine sections ride the RAIL's own machinery (`sortByStatus` into
 `groupSubshellsByNode`/`nodeLabelFor`) with no per-group cap and no collapse
 (a grid of cards is not a rail), and the old Running/Paused/Completed bands
 left with the chips, and the group-by selector can band by status again, on the dots'

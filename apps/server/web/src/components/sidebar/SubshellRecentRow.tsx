@@ -32,6 +32,7 @@ export function SubshellRecentRow({
   nodeLabel,
   agentLabel,
   presetLabel,
+  subline,
 }: {
   subshell: SubshellView;
   active: boolean;
@@ -44,6 +45,14 @@ export function SubshellRecentRow({
    * the launch has no preset — the tooltip omits the line rather than
    * saying "none" */
   presetLabel?: string;
+  /**
+   * Text for the row's muted second line, REPLACING the working directory.
+   * The "Cross-agent comms" section uses it to name the MACHINE each pane runs
+   * on: its rows span every machine, so the header cannot say which one a row
+   * is on the way a node group's header can, and the path is less useful there
+   * than the machine. Every other rail row leaves it undefined (the path).
+   */
+  subline?: string;
 }) {
   // `render`, not a wrapper: the Link below is simultaneously the nav, the
   // drag source and the context-menu subject, and the tooltip had to attach
@@ -79,8 +88,8 @@ export function SubshellRecentRow({
           <SubshellDot subshell={subshell} hideTitle />
           <span className="min-w-0 flex-1">
             <span className="block truncate">{subshell.name}</span>
-            {subshell.workingDir ? (
-              <span className="block truncate text-detail opacity-70">{subshell.workingDir}</span>
+            {(subline ?? subshell.workingDir) ? (
+              <span className="block truncate text-detail opacity-70">{subline ?? subshell.workingDir}</span>
             ) : null}
           </span>
         </TooltipTrigger>

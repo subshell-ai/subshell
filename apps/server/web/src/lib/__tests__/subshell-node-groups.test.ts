@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { Node } from "@internal/node-admin";
-import { groupSubshellsByNode, needsAttention, nodeLabelFor } from "@/lib/subshell-node-groups";
+import { groupSubshellsByNode, needsAttention, nodeLabelFor, partitionCrossAgent } from "@/lib/subshell-node-groups";
 import type { SubshellView } from "@/types/subshell";
 
 /** A minimal subshell view — only the fields grouping and ranking read. */
@@ -218,5 +218,39 @@ describe("needsAttention — the shared spotlight rule (spec 2026-09-24)", () =>
   it("returns nothing for a seen list or an empty one", () => {
     expect(needsAttention([subshell({ unseenPush: false }), subshell()])).toEqual([]);
     expect(needsAttention([])).toEqual([]);
+  });
+});
+
+describe("partitionCrossAgent (operator ask 2026-09-25)", () => {
+  it("splits MCP-launched panes into the comms half, preserving order in both", () => {
+    const rows = [
+      subshell({ id: "human-a" }),
+      subshell({ id: "comms-a", crossAgent: true }),
+      subshell({ id: "human-b" }),
+      subshell({ id: "comms-b", crossAgent: true }),
+    ];
+    const { human, comms } = partitionCrossAgent(rows);
+    expect(human.map((s) => s.id)).toEqual(["human-a", "human-b"]);
+    expect(comms.map((s) => s.id)).toEqual(["comms-a", "comms-b"]);
+  });
+
+  it("reads an ABSENT crossAgent as human — every pre-flag row and older cached payload", () => {
+    // Absent, false, and true are three rows: only true is comms.
+    const { human, comms } = partitionCrossAgent([
+      subshell({ id: "legacy" }),
+      subshell({ id: "explicit-human", crossAgent: false }),
+      subshell({ id: "comms", crossAgent: true }),
+    ]);
+    expect(human.map((s) => s.id)).toEqual(["legacy", "explicit-human"]);
+    expect(comms.map((s) => s.id)).toEqual(["comms"]);
+  });
+
+  it("groupSubshellsByNode is UNCHANGED: it still buckets a comms pane by machine (the home page's contract)", () => {
+    // The partition is the RAIL's, applied BEFORE grouping; the home page's
+    // machine sections call the same grouping and must keep showing a comms
+    // pane under the machine it runs on. Regression guard against folding the
+    // rule INTO groupSubshellsByNode.
+    const groups = groupSubshellsByNode([subshell({ id: "c", nodeId: "n1", crossAgent: true })], [node()]);
+    expect(groups.find((g) => g.nodeId === "n1")?.subshells.map((s) => s.id)).toEqual(["c"]);
   });
 });

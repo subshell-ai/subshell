@@ -72,6 +72,13 @@ export interface SubshellTable {
   /** Node the subshell runs on ('local' = control-plane host) */
   nodeId: string;
   /**
+   * 1 = launched by an agent over MCP (`create_subshell` on a pane's own token),
+   * not a human at the UI. Such panes are cross-agent comms: bell defaults off,
+   * filed under "Cross-agent comms" in the rail. Written once at create; no
+   * later act rewrites it. See migration 0039.
+   */
+  crossAgent: number;
+  /**
    * DEPRECATED (spec 2026-09-03): the terminal history cap moved per-USER
    * (`user_meta.terminal_replay_lines`, migration 0020). This column is
    * read and written by nothing; it stays so a rollback finds its data.
@@ -105,12 +112,15 @@ export type NewSubshell = Omit<
   | "waitingSince"
   | "lastPushUrgency"
   | "nodeId"
+  | "crossAgent"
   | "terminalReplayLines"
 > & {
   /** Preset launched with; omitted = NULL (presetless launch). Defaults on insert. */
   presetId?: string | null;
   /** Node to launch on; omitted = DB default 'local' */
   nodeId?: string;
+  /** 1 = agent-launched cross-agent comms pane; omitted = DB default 0 (human) */
+  crossAgent?: number;
   /** Per-subshell terminal replay cap; omitted = NULL = instance default */
   terminalReplayLines?: number | null;
   harnessSessionId?: string | null;
@@ -129,4 +139,9 @@ export type NewSubshell = Omit<
   nextRestartAt?: string | null;
   apiKeyId?: string | null;
 };
-export type SubshellUpdate = Partial<Omit<SubshellTable, "id" | "userId">>;
+/**
+ * The patch shape for row updates. `crossAgent` is excluded beside `id` and
+ * `userId` because provenance is written exactly once, by the create path:
+ * "no later act un-stamps it" is a type fact, not a convention.
+ */
+export type SubshellUpdate = Partial<Omit<SubshellTable, "id" | "userId" | "crossAgent">>;

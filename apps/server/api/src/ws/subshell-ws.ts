@@ -17,6 +17,7 @@ import { captureStable, fitPaneAndRepaint, paneReadsAsBooting, RESIZE_SETTLE_MS 
 import { createLogTailSource, createPanePollSource } from "@/ws/pane-sources.js";
 import type { Subscription } from "@/ws/pane-stream.js";
 import { attachRemoteSubshellWs } from "@/ws/remote-subshell-ws.js";
+import { answerUnseenPush } from "@/ws/unseen-answer.js";
 import {
   applySharedGeometry,
   broadcastToViewers,
@@ -91,13 +92,18 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     ws.close(resolved.code, resolved.reason);
     return;
   }
-  const { row, access, params } = resolved;
+  const { row, access, params, attendsPush } = resolved;
   // Stash WHO authenticated onto the socket before either path continues —
   // the local `Object.assign` and the remote relay's both build their own
   // `data` literals, and this channel is what lets an account disable find
   // the open terminal later (`dropTerminalSocketsFor` in `ws/viewers.ts`).
   // Nothing else reads it; the viewer registry keys panes, not people.
   ws.data.attachUserId = resolved.userId;
+  // Same channel, same reason: BOTH paths build their own `data` literal and
+  // `Object.assign` it onto `ws.data` afterwards, and neither literal carries
+  // this key, so a value stamped before the branch survives into the one
+  // place that reads it, the shared input handler.
+  ws.data.attendsPush = attendsPush;
 
   // spec §6.5: the launcher resolves PER ROW — `local` (the schema default;
   // `nodeId` is NOT NULL) keeps the untouched path below, an agent-node row
@@ -461,6 +467,13 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
   // already encodes Enter as "\r", so bytes must not be split or terminated.
   if (frame.data) {
     if (!data.canInput) return;
+    // The owner's OWN keystroke answers the pane's unseen push (2026-09-25):
+    // the detail-read and attach clears are boundaries, and a push arriving
+    // while the owner is already here had neither. Fire-and-forget and
+    // self-deduplicating (the write is conditional); before the idempotent-
+    // retry branches, because a RETRIED frame is still a frame the human
+    // typed. A `view` grantee never reaches this line.
+    if (data.attendsPush) void answerUnseenPush(data.subshellId);
     // Idempotent input (spec 2026-09-21 Wave A): a frame carrying an id is
     // retried by its client, so the write must be deduped against what has
     // ALREADY landed, and the client must learn when the write DID land. Both

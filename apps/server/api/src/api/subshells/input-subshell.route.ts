@@ -66,8 +66,9 @@ export const inputSubshellRoute = new Elysia()
         403: "ApiErrorResponse",
         // Foreign row (bearer or stranger), absent id: never a 403 on the way.
         404: "ApiErrorResponse",
-        // 409 SUBSHELL_NOT_RUNNING (row not running) / NODE_OFFLINE (the
-        // row's agent node has no live connection). Nothing was typed.
+        // 409 SUBSHELL_NOT_RUNNING (row not running, or its pane has exited
+        // and the row is parked) / NODE_OFFLINE (the row's agent node has no
+        // live connection). Nothing was typed.
         409: "ApiErrorResponse",
       },
       detail: {

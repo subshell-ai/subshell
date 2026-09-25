@@ -279,6 +279,11 @@ function SubshellPage() {
                 {subshell && subshell.backoffCount > 0 && (
                   <span className="text-detail text-muted-foreground">restart #{subshell.backoffCount} pending</span>
                 )}
+                {/* How this pane was OPENED: an agent's MCP `create_subshell`,
+                    not a human at the UI (operator ask 2026-09-25). A fact
+                    about the pane stated where its own name is, worded the way
+                    the rail's section labels it. */}
+                {subshell?.crossAgent && <span className="text-detail text-muted-foreground">Cross-agent comms</span>}
                 {/* Permanent disclosure: whose machine this runs on, and who
                     else can read it. Never suppressible — see
                     components/trust-indicators.tsx. */}

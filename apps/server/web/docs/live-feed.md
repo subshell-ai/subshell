@@ -7,10 +7,14 @@ This file carries the full history behind the summary; the routing line in
 **There is no cadence, and that is the design.** One snapshot at connect, then
 a frame only when something changed: the server publishes domain events to Bun
 pub/sub topics, and the socket subscribes to the ones its viewer may see. What
-the old 1.5 s beat re-sent was almost entirely static (`alive`, `startedAt`,
-the auto-title `name` and local `lastOutputAt` are written by the 60 s
-reconcile sweep, everything else by a user action), and each rebuild captured
-every running pane's screen server-side. Three consequences the client owns:
+the old 1.5 s beat re-sent was almost entirely static (`alive`, `startedAt` and
+the auto-title `name` are written by the 60 s reconcile sweep, `lastOutputAt`
+by that sweep for unwatched local panes and otherwise by the attach relay's
+2 s-throttled persist, which ANNOUNCES (an unannounced write reaches no client
+under this feed: it is how the printing dot read idle for its first days, and
+an agent pane has no sweep at all, the relay is its only writer), and
+everything else by a user action), and each rebuild captured every running
+pane's screen server-side. Three consequences the client owns:
 
 - **A snapshot must not clobber a newer event.** The socket subscribes BEFORE
   the list read, so the read may predate an event delivered first; the client

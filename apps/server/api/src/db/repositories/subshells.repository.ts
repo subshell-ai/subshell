@@ -64,6 +64,8 @@ export class SubshellsRepository extends BaseRepository {
         // Node pin defaults in the DB (migration 0017); mirror it so the typed
         // insert is complete and the row reads back whole.
         nodeId: subshell.nodeId ?? LOCAL_NODE_ID,
+        // Cross-agent provenance defaults to "human" (migration 0039); mirror it.
+        crossAgent: subshell.crossAgent ?? 0,
         createdAt: new Date().toISOString(),
       })
       .returningAll()
@@ -232,6 +234,27 @@ export class SubshellsRepository extends BaseRepository {
       .set(update)
       .where("id", "=", id)
       .where("alive", "=", 1)
+      .executeTakeFirst();
+    const counts = res as unknown as { numUpdated?: number | bigint; numUpdatedRows?: number | bigint };
+    return Number(counts.numUpdatedRows ?? counts.numUpdated ?? 0);
+  }
+
+  /**
+   * Answers the unseen push (spec 2026-09-23) ONLY while one is actually
+   * unseen: the UPDATE carries `last_push_urgency IS NOT NULL`, so the
+   * per-keystroke input path needs no pre-read and a second answering event
+   * costs a 0-row statement. The return is the announce decision — publish
+   * the row exactly when this call is the one that cleared it.
+   *
+   * @returns 1 for the caller that performed the clear, 0 for every event
+   *   that arrived after it (or to a row that never pushed)
+   */
+  async clearUnseenPushIfSet(id: string): Promise<number> {
+    const res = await this.db
+      .updateTable("subshells")
+      .set({ lastPushUrgency: null })
+      .where("id", "=", id)
+      .where("lastPushUrgency", "is not", null)
       .executeTakeFirst();
     const counts = res as unknown as { numUpdated?: number | bigint; numUpdatedRows?: number | bigint };
     return Number(counts.numUpdatedRows ?? counts.numUpdated ?? 0);

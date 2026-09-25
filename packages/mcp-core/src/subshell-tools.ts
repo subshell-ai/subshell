@@ -23,6 +23,7 @@ interface SubshellWireRow {
   exitCode: number | null;
   access: string;
   lastOutputAt: string | null;
+  crossAgent: boolean;
 }
 
 /** The honest projection list_subshells and get_subshell answer with (spec 2026-09-25 MCP DX). */
@@ -43,6 +44,8 @@ export interface SubshellView {
   exitCode: number | null;
   access: string;
   lastOutputAt: string | null;
+  /** True = this pane was opened by an agent over MCP, not a human at the UI. */
+  crossAgent: boolean;
 }
 
 /** Project one wire row to the agent-facing view (req 7: BOTH reads use it). */
@@ -62,6 +65,7 @@ function toSubshellView(row: SubshellWireRow): SubshellView {
     exitCode: row.exitCode,
     access: row.access,
     lastOutputAt: row.lastOutputAt,
+    crossAgent: row.crossAgent === true,
   };
 }
 
@@ -356,7 +360,8 @@ export const readSubshellLog = (deps: ToolDeps, id: string) =>
  * `send_to_subshell`: types `text` into a running pane over REST; `submit`
  * (default true) presses Enter after it. The server's gate decides whose
  * panes this reaches (the owner's, at edit access); a 409 names it not
- * running or the node offline.
+ * running (never running, or its pane exited and the row is parked: restart
+ * revives it) or the node offline.
  */
 export const sendToSubshell = (deps: ToolDeps, args: { id: string; text: string; submit?: boolean }) =>
   deps.api.req<{ ok: true }>(`/api/subshells/${encodeURIComponent(args.id)}/input`, {

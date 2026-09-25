@@ -30,6 +30,7 @@ function row(overrides: Partial<Parameters<typeof toSubshellView>[0]> = {}) {
     notify: 0,
     waitingSince: null,
     lastPushUrgency: null,
+    crossAgent: 0,
     ...overrides,
   } satisfies Parameters<typeof toSubshellView>[0];
 }
@@ -43,6 +44,11 @@ describe("toSubshellView notification fields", () => {
     const idle = toSubshellView(row(), "running");
     expect(idle.notify).toBe(false);
     expect(idle.waitingSince).toBeNull();
+  });
+
+  it("maps crossAgent 1/0 to a boolean (an MCP-launched pane files as cross-agent comms)", () => {
+    expect(toSubshellView(row({ crossAgent: 1 }), "running").crossAgent).toBe(true);
+    expect(toSubshellView(row({ crossAgent: 0 }), "running").crossAgent).toBe(false);
   });
 
   it("defaults access to 'owner' and honours an explicit override (sharing, spec 2026-08-31)", () => {

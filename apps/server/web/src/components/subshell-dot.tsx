@@ -64,6 +64,13 @@ const BELL_TONE: Record<SubshellIndicator, string> = {
  * the dot with the FIRST text line of the rail's two-line rows; standalone
  * dots center against their row's own `items-center`.
  *
+ * The two default margins differ BY DESIGN and share one number: the rail
+ * row's first line is a 19.5px box (13px × 1.5), so the 6px dot rides
+ * `mt-[7px]` and the 12px bell `mt-[4px]` — both CENTERS at 10px, on the
+ * name line. One margin for unequal boxes is the misalignment the operator's
+ * 2026-09-25 screenshots caught: bell rows and dot rows down the rail read
+ * as one column only while their centers coincide.
+ *
  * `data-status` and `data-alive` carry the raw fields beside the rendered
  * indicator. The two questions are genuinely different — the indicator is
  * what a person should see (working, waiting, unreachable), the raw pair is
@@ -120,7 +127,7 @@ export function SubshellDot({
         {...(hideTitle ? {} : { title: bellLabel })}
         data-status={subshell.status}
         data-alive={String(subshell.alive)}
-        className={cn("mt-px shrink-0", className)}
+        className={cn("mt-[4px] shrink-0", className)}
       >
         <Bell size={12} className={BELL_TONE[indicator]} />
       </span>
@@ -132,7 +139,7 @@ export function SubshellDot({
       {...(hideTitle ? {} : { title: label })}
       data-status={subshell.status}
       data-alive={String(subshell.alive)}
-      className={cn("mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full", DOT_CLASS[indicator], className)}
+      className={cn("mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full", DOT_CLASS[indicator], className)}
     />
   );
 }

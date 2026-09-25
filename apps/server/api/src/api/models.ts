@@ -48,9 +48,14 @@ export const SubshellSchema = t.Object({
   nextRestartAt: t.Union([t.String({ description: "Backoff restart due (ISO)" }), t.Null()]),
   nameLocked: t.Boolean({ description: "True = operator-named; false = pane-title auto-naming owns the name" }),
   notify: t.Boolean({ description: "True = pushes and waiting-for-you priority enabled (bell on)" }),
+  crossAgent: t.Boolean({
+    description:
+      "True = the pane was launched by an agent over MCP (create_subshell), not a human at the UI: internal cross-agent comms, filed as such in the rail and created with the bell off",
+  }),
   waitingSince: t.Union([t.String({ description: "ISO ts of the attention event; null = not waiting" }), t.Null()]),
   unseenPush: t.Boolean({
-    description: "True = a delivered push the owner has not answered by opening the pane (spec 2026-09-23)",
+    description:
+      "True = a delivered push the owner has not answered by opening the pane or typing into it (spec 2026-09-23; the typing answer joined 2026-09-25)",
   }),
   access: t.Union([t.Literal("owner"), t.Literal("edit"), t.Literal("view")], {
     description: "Caller's effective access to this subshell (viewer-relative; never 'none' on a returned row)",

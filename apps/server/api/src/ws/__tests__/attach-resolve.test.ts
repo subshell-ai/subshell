@@ -450,6 +450,10 @@ describe("resolveAttach clears the unseen push (spec 2026-09-23)", () => {
     });
     expect(res.ok).toBe(true);
     expect(await urgencyOf(id)).toBeNull();
+    // The flag that lets this socket's FIRST TYPED frame answer a push
+    // arriving later in the same attach (2026-09-25). `expect(res.ok)` above
+    // already failed a refusal; the `if` is only what TypeScript needs.
+    if (res.ok) expect(res.attendsPush).toBe(true);
   });
 
   it("an UNBOUND (cookie-minted) ws-token attach clears it", async () => {
@@ -458,6 +462,7 @@ describe("resolveAttach clears the unseen push (spec 2026-09-23)", () => {
     const res = await resolveAttach(request(`subshell=${id}&token=${token}`));
     expect(res.ok).toBe(true);
     expect(await urgencyOf(id)).toBeNull();
+    if (res.ok) expect(res.attendsPush).toBe(true);
   });
 
   it("a SCOPED (Bearer-minted) token resolves as the owner but attends nothing", async () => {
@@ -466,5 +471,8 @@ describe("resolveAttach clears the unseen push (spec 2026-09-23)", () => {
     const res = await resolveAttach(request(`subshell=${id}&token=${token}`));
     expect(res.ok).toBe(true);
     expect(await urgencyOf(id)).toBe(2);
+    // A machine credential attends nothing, at attach or at typing: the typed
+    // frame would answer a push no human saw.
+    if (res.ok) expect(res.attendsPush).toBe(false);
   });
 });

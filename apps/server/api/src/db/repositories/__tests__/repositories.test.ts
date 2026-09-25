@@ -12,6 +12,7 @@ import * as sharingMigration from "@/db/migrations/0016-session-sharing.js";
 import * as nodesMigration from "@/db/migrations/0017-nodes.js";
 import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
 import * as presetsMigration from "@/db/migrations/0027-presets.js";
+import * as crossAgentMigration from "@/db/migrations/0039-subshell-cross-agent.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
@@ -47,6 +48,7 @@ beforeAll(async () => {
   await sharingMigration.up(db); // 0019 renames session_shares
   await subshellRenameMigration.up(db); // renamed schema the code sees
   await presetsMigration.up(db); // profiles → presets (spec 2026-09-13 §6)
+  await crossAgentMigration.up(db); // subshells.cross_agent — SubshellsRepository.create writes it (2026-09-25)
 });
 
 beforeEach(async () => {
