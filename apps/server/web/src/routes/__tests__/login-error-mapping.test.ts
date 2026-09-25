@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mapAuthError, SIGN_IN_UNABLE, signInButtonLabel } from "@/lib/sign-in-diagnosis";
+import { mapAuthError, ROUND_TRIP_REFUSED, SIGN_IN_UNABLE, signInButtonLabel } from "@/lib/sign-in-diagnosis";
 import type { InstanceSignInProvider } from "@/types/auth-provider";
 
 /**
@@ -42,13 +42,39 @@ describe("mapAuthError", () => {
     expect(SIGN_IN_UNABLE).not.toContain("—");
   });
 
-  it("passes anything else through to the existing error UI", () => {
+  /**
+   * The shape this case used to pin — "passes anything else through to the
+   * existing error UI" — described a pass-through the PAGE NEVER HAD (final
+   * review, Important 2): `login.tsx`'s error STATE is fed by the form's own
+   * failures only, so every unrecognized code was stripped from the URL and
+   * painted nothing. A `?error=` now maps to `refused` and renders; a stray
+   * `error_description` with no code stays unrendered (there is no refusal to
+   * name), and a bare mount stays `none` — the fresh page is not a report.
+   */
+  it("refuses to go silent: any carried code renders a sanitized sentence", () => {
     expect(mapAuthError({})).toEqual({ kind: "none" });
-    // A provider's own refusal stays the provider's own refusal: its
-    // error_description is free text and must not be read as an address.
+    // A provider's own refusal renders the provider's own words as PROSE —
+    // never as an address; that reading belongs to `pending_approval` alone.
     expect(mapAuthError({ error: "door_closed", error_description: "That door is closed." })).toEqual({
-      kind: "none",
+      kind: "refused",
+      message: "That door is closed.",
     });
+    // The door policy's other named refusals, description-less: the fallback.
+    for (const code of ["registration_closed", "domain_not_allowed", "door_closed"]) {
+      expect(mapAuthError({ error: code })).toEqual({ kind: "refused", message: ROUND_TRIP_REFUSED });
+    }
+    // A URL param is no reason for a long render: whitespace collapses and
+    // the text is capped, so the login card stays a card.
+    const messy = mapAuthError({
+      error: "provider_said",
+      error_description: `  user   denied\nthe request  ${"x".repeat(500)}  `,
+    });
+    expect(messy.kind).toBe("refused");
+    if (messy.kind !== "refused") return;
+    expect(messy.message).toStartWith("user denied the request");
+    expect(messy.message.length).toBeLessThanOrEqual(200);
+    // The description alone names no refusal: it is a stray param, and the
+    // page must not read an un-carried code's leftover as a message.
     expect(mapAuthError({ error_description: "ada@example.com" })).toEqual({ kind: "none" });
   });
 });

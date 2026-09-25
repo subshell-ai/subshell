@@ -28,8 +28,11 @@ export const Route = createFileRoute("/login")({
   //
   // `error`/`error_description` are the failed OAuth round trip better-auth
   // appends to the errorCallbackURL (spec 2026-09-24 §4). Raw strings, only
-  // passed through: `mapAuthError` decides what they MEAN, and anything it
-  // does not recognize falls through to the form's ordinary error surface.
+  // passed through: `mapAuthError` decides what they MEAN — pending leaves
+  // for /pending, the sessionless shape gets the honest generic line, and
+  // any other code RENDERS its sanitized sentence (final review, Important
+  // 2: unrecognized refusals used to paint nothing). Only the form's own
+  // errors (wrong password, dropped request) arrive through `error` state.
   validateSearch: (
     search: Record<string, unknown>,
   ): { redirect?: string; error?: string; error_description?: string } => {
@@ -73,8 +76,9 @@ function LoginPage() {
 
   // The failed round trip better-auth returned us to (`?error=…`, spec §4).
   // A pending identity is not an error to print, it is a screen to move to;
-  // the generic refusal gets its own line above the door block; anything else
-  // (including a provider's own message) falls through untouched.
+  // the sessionless refusal and every other code the trip can carry get
+  // their own line above the door block — the generic sentence, or the
+  // sanitized description. A fresh attempt retires the captured decision.
   //
   // DECIDED ONCE, from the params as this component MOUNTED with them: the
   // effect below clears the consumed params out of the URL (Task 14 review,
@@ -205,7 +209,9 @@ function LoginPage() {
               door closed the form is not on this page to carry the line. The
               form's own errors (a wrong password, a dropped request) stay
               where they always were. */}
-          {authError.kind === "generic" && <p className="mb-4 text-destructive text-detail">{authError.message}</p>}
+          {(authError.kind === "generic" || authError.kind === "refused") && (
+            <p className="mb-4 text-destructive text-detail">{authError.message}</p>
+          )}
           {/* No door open at all (spec §7): say so rather than paint an empty
               card. The email flag's ABSENCE is not "no doors" — an older
               server answers neither field, and the form stays. */}
