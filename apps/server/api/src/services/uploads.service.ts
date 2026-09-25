@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, resolve, sep } from "node:path";
 import { parseNodeWriteFileResult } from "@internal/subshell-protocol";
@@ -16,6 +16,13 @@ const SUBSHELL_DIR = ".subshell";
 
 /** The single line appended to .git/info/exclude. */
 const GIT_EXCLUDE_LINE = `${SUBSHELL_DIR}/`;
+
+/**
+ * The whole content of the `.gitignore` that seals `<workingDir>/.subshell/`.
+ * `*` matches every descendant at any depth — including the ignore file
+ * itself — so git shows nothing from the directory.
+ */
+const GIT_IGNORE_CONTENT = "*\n";
 
 /** Filesystem limit for a single path component. */
 const MAX_NAME_BYTES = 255;
@@ -171,9 +178,12 @@ export function resolveUploadPath(workingRealPath: string, name: string): string
 /**
  * Appends `.subshell/` to the working directory's `.git/info/exclude` when missing.
  *
- * `info/exclude` rather than `.gitignore`: it is per-clone and untracked, so
- * Subshell never modifies a file the user commits. Best-effort — an unwritable
- * git dir must not fail an upload.
+ * `info/exclude` rather than a repo-level ignore file: it is per-clone and
+ * untracked, so Subshell never modifies a file the user commits. The primary
+ * seal is now {@link ensureSubshellSelfIgnoring} (inside our own directory,
+ * reachable from every git topology); this stays as the fallback for a disk
+ * where even that file cannot be written. Best-effort — an unwritable git
+ * dir must not fail an upload.
  *
  * @param workingRealPath - Resolved absolute working directory
  */
@@ -192,6 +202,40 @@ export function ensureGitExcluded(workingRealPath: string): void {
     // Never block an upload on git bookkeeping, but a permanently failing
     // exclude write should be visible somewhere rather than silent.
     logger.withError(err).warn(`failed to update .git/info/exclude for ${workingRealPath}`);
+  }
+}
+
+/**
+ * Writes `<workingDir>/.subshell/.gitignore` containing exactly `*\n`, once.
+ *
+ * The directory seals itself: the pattern matches every descendant at any
+ * depth — including the ignore file itself — so git shows nothing from
+ * `.subshell/` in EVERY topology, including the ones {@link
+ * ensureGitExcluded} structurally cannot reach: a working directory that is
+ * a subdirectory of a repo, a linked worktree, or a repo `git init`ed after
+ * the uploads. And because the file lives inside Subshell's OWN directory,
+ * it touches no operator git state at all.
+ *
+ * Write-if-missing: an exclusive create, with `EEXIST` (already sealed) as
+ * the success path so repeated uploads cost nothing and a hand-edited seal
+ * is never overwritten. Any other failure is logged and swallowed — a disk
+ * that will not take the ignore file must never fail the upload itself.
+ *
+ * @param workingRealPath - Resolved absolute working directory
+ */
+function ensureSubshellSelfIgnoring(workingRealPath: string): void {
+  try {
+    const dir = join(workingRealPath, SUBSHELL_DIR);
+    mkdirSync(dir, { recursive: true });
+    try {
+      writeFileSync(join(dir, ".gitignore"), GIT_IGNORE_CONTENT, { flag: "wx" });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    }
+  } catch (err) {
+    // Same discipline as ensureGitExcluded's catch: never block an upload on
+    // git bookkeeping, but keep a permanently failing write visible.
+    logger.withError(err).warn(`failed to seed ${SUBSHELL_DIR}/.gitignore for ${workingRealPath}`);
   }
 }
 
@@ -248,8 +292,16 @@ export async function writeUpload({
 }): Promise<UploadResult> {
   const { bytes, name, contentType } = await sniffedUpload(file, now);
   const dir = uploadsDirFor(workingRealPath);
+  // Seal BEFORE any upload byte lands — the same rule the relay's wire-order
+  // test pins on the wire: a `git add` racing a first upload into a fresh
+  // directory must never find unsealed files. (The helper creates
+  // `.subshell` itself, so nothing here depends on ordering below it.)
+  ensureSubshellSelfIgnoring(workingRealPath);
   mkdirSync(dir, { recursive: true });
   const { path, finalName } = await writeUnique(workingRealPath, name, bytes);
+  // NOT a duplicate of the seal above, so do not "dedup" it away:
+  // ensureGitExcluded is the fallback for a disk where even our own
+  // .gitignore cannot be written.
   ensureGitExcluded(workingRealPath);
   return { path, name: finalName, size: bytes.byteLength, contentType };
 }
@@ -267,6 +319,55 @@ export const UPLOAD_CHUNK_BYTES = 512 * 1024;
 
 /** Per-chunk RPC deadline — parity with RemoteLauncher's `write_file` budget. */
 const WRITE_CHUNK_TIMEOUT_MS = 30_000;
+
+/**
+ * Seeds `<workingDir>/.subshell/.gitignore` ON THE NODE — the remote twin of
+ * {@link ensureSubshellSelfIgnoring}, sent as one tiny `write_file` stream
+ * before the upload's own chunks.
+ *
+ * Same seal, same reasoning (see that function): the agent's `write_file`
+ * path policy accepts it because it lands under the tracked cwd, and the
+ * fixed name means every relay re-seals idempotently (chunk 0 on an open
+ * stream replaces it, and the eof rename overwrites with the same bytes).
+ * One asymmetry with the local twin: an edited seal on the control-plane
+ * host survives (the exclusive create refuses the overwrite), while the
+ * relay's fixed-name eof rename replaces an edited seal with `*\n` on the
+ * next upload. Honoring edits on the node would need if-missing write
+ * semantics (a protocol change, ruled out) or a read-before-write that
+ * races anyway, for double the RPC.
+ * No {@link remoteUniqueName} tag — a collision-free constant is the point.
+ *
+ * Best-effort in the strongest sense: EVERY failure — a policy refusal, a
+ * timeout, an offline socket, a short `received` — is caught and logged at
+ * warn, and the upload proceeds unchanged. The seal is git hygiene, not the
+ * upload's contract.
+ *
+ * @param nodeId - Target node (a live connection is assumed; its loss is one
+ *   of the swallowed failures)
+ * @param workingRealPath - The subshell's working directory AS THERE (absolute)
+ */
+async function seedNodeSelfIgnore(nodeId: string, workingRealPath: string): Promise<void> {
+  const path = join(workingRealPath, SUBSHELL_DIR, ".gitignore");
+  try {
+    const data = await sendCommand(
+      nodeId,
+      {
+        type: "write_file",
+        path,
+        chunk_b64: Buffer.from(GIT_IGNORE_CONTENT, "utf8").toString("base64"),
+        chunk: 0,
+        eof: true,
+      },
+      { timeoutMs: WRITE_CHUNK_TIMEOUT_MS },
+    );
+    const result = parseNodeWriteFileResult(data);
+    if (!result || result.received !== Buffer.byteLength(GIT_IGNORE_CONTENT)) {
+      throw new Error(`node "${nodeId}" returned a malformed or short .gitignore write_file result`);
+    }
+  } catch (err) {
+    logger.withError(err).warn(`failed to seed ${SUBSHELL_DIR}/.gitignore on node "${nodeId}" at ${workingRealPath}`);
+  }
+}
 
 /**
  * The ONE budget-disciplined name tagger behind every collision suffix:
@@ -313,11 +414,14 @@ export function remoteUniqueName(name: string): string {
  * Relays an uploaded file to an agent node as ordered `write_file` chunks
  * (spec §3.4) and returns the path ON THE NODE.
  *
- * The composition is string-only — no local `mkdirSync`, no `resolveUploadPath`
- * containment check, no {@link ensureGitExcluded}: the target lives on the
- * node's filesystem, where the agent's own twice-gated path policy
- * (`apps/node/agent/src/commands/write-file.ts`) is the authority and git
- * bookkeeping stays operator-controlled.
+ * The composition is string-only — no local `mkdirSync`, no
+ * `resolveUploadPath` containment check: the target lives on the node's
+ * filesystem, where the agent's own twice-gated path policy
+ * (`apps/node/agent/src/commands/write-file.ts`) is the authority. Nothing
+ * is written into the repo's git files (info/exclude, .gitignore at the
+ * root, … — git bookkeeping stays operator-controlled); the relay does seed
+ * its OWN directory, best-effort, via {@link seedNodeSelfIgnore} before the
+ * upload's chunks.
  *
  * Agent-side semantics this loop relies on (pinned by the agent's own tests):
  * - chunk indices must arrive strictly 0, 1, 2… — every chunk is AWAITED
@@ -362,8 +466,12 @@ export async function writeUploadRemote(nodeId: string, workingRealPath: string,
     throw new UploadError("Upload target must be an absolute path on the node");
   }
   logger.debug(
-    `remote upload to node "${nodeId}": ${bytes.byteLength} bytes -> ${path} (git-exclude skipped: node-side git is operator-controlled)`,
+    `remote upload to node "${nodeId}": ${bytes.byteLength} bytes -> ${path} (repo git untouched: only our own ${SUBSHELL_DIR}/.gitignore is seeded)`,
   );
+
+  // Seal our directory before any upload byte lands, so nothing in it is
+  // ever git-visible — best-effort, every failure swallowed (see helper).
+  await seedNodeSelfIgnore(nodeId, workingRealPath);
 
   const chunkCount = Math.max(1, Math.ceil(bytes.byteLength / UPLOAD_CHUNK_BYTES));
   let received = 0;

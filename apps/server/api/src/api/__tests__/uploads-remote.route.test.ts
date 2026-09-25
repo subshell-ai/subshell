@@ -36,7 +36,9 @@ import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from ".
  * wire and answers each chunk with the `{ path, received }` result the agent
  * is contractually required to echo. Chunk indices arriving 0,1,2… in wire
  * order is contractual — the tests below are what pin THAT from the
- * backend's side.
+ * backend's side. Per-stream `received` totals are tracked per path, as the
+ * real agent does: every upload now rides TWO streams — the fixed-name
+ * `.subshell/.gitignore` seal and the upload file itself.
  */
 
 const password = "upload-remote-pass-1";
@@ -64,32 +66,51 @@ type WriteFileCmd = Extract<NodeCommandBody, { type: "write_file" }>;
 
 /** Script overrides for the fake agent's answers. */
 interface FakeNodeScript {
-  /** Chunk index that answers `ok:false` (every earlier chunk is accepted). */
+  /**
+   * Upload-file chunk index that answers `ok:false` (every earlier upload
+   * chunk is accepted). The `.subshell/.gitignore` seal frame is exempt —
+   * script it separately with {@link FakeNodeScript.failGitignore}.
+   */
   failAt?: number;
-  /** Added to the running total in the `eof` answer (short-read simulation). */
+  /** Added to the running total in the upload stream's `eof` answer (short-read simulation). */
   eofReceivedDelta?: number;
-  /** After answering this chunk index, the node's socket goes away. */
+  /** After answering this upload chunk index, the node's socket goes away. */
   offlineAfter?: number;
+  /** Answers the `.subshell/.gitignore` seal frame with `ok:false` (the socket stays up). */
+  failGitignore?: boolean;
 }
 
 /** Recording fake agent attached to the live-connection registry. */
 interface FakeNode {
-  /** Every `write_file` command body, in wire order. */
+  /** Every `write_file` command body, in wire order — the seal frame included. */
   readonly cmds: WriteFileCmd[];
+  /** Only the upload file's frames, in wire order (seal excluded). */
+  uploadCmds(): WriteFileCmd[];
   /** Evict the connection (idempotent) — for offline-transition scripts. */
   detach(): void;
 }
+
+/**
+ * The seal rides a fixed name under the working directory's `.subshell/`;
+ * upload names are timestamp-prefixed files under `.subshell/uploads/`, so
+ * this suffix identifies the seal frame unambiguously.
+ */
+const isSealFrame = (cmd: WriteFileCmd): boolean => cmd.path.endsWith("/.subshell/.gitignore");
 
 /**
  * Attach a fake agent for `nodeId`: each `send` unwraps the envelope's
  * claims (decode-only — signature verification is node-rpc's own suite),
  * records the command, and settles the pending RPC exactly as the WS handler
  * would (`resolveResult`). Answers are synchronous, so chunk order in
- * `cmds` equals wire order with no scheduling noise.
+ * `cmds` equals wire order with no scheduling noise. `received` totals run
+ * per path AND reset at chunk 0 — the real agent's total is stream-local
+ * (fresh state at chunk 0, which on an open stream REPLACES it), and the
+ * seal + upload share one socket.
  */
 function attachFakeNode(nodeId: string, script: FakeNodeScript = {}): FakeNode {
   const cmds: WriteFileCmd[] = [];
-  let received = 0;
+  const receivedByPath = new Map<string, number>();
+  let uploadChunksSeen = 0;
   let conn: NodeConnection;
   const ws: NodeSocket = {
     send(data) {
@@ -102,8 +123,24 @@ function attachFakeNode(nodeId: string, script: FakeNodeScript = {}): FakeNode {
       if (claims.cmd.type !== "write_file") throw new Error(`fake agent: unexpected cmd "${claims.cmd.type}"`);
       const cmd = claims.cmd;
       cmds.push(cmd);
-      received += Buffer.from(cmd.chunk_b64, "base64").byteLength;
-      const i = cmds.length - 1;
+      // Stream-local running total (real-agent parity): chunk 0 starts
+      // fresh, so a second seal frame or a chunk-0 redelivery echoes THAT
+      // stream's bytes, never a sum across streams on the same path.
+      const chunkBytes = Buffer.from(cmd.chunk_b64, "base64").byteLength;
+      const total = (cmd.chunk === 0 ? 0 : (receivedByPath.get(cmd.path) ?? 0)) + chunkBytes;
+      receivedByPath.set(cmd.path, total);
+      if (isSealFrame(cmd)) {
+        // The seal is best-effort sender-side; the fake stays up either way —
+        // only the upload's frames carry the offline/short-read scripts.
+        resolveResult(
+          conn,
+          script.failGitignore
+            ? { type: "result", ref: claims.jti, ok: false, error: "scripted .gitignore refusal" }
+            : { type: "result", ref: claims.jti, ok: true, data: { path: cmd.path, received: total } },
+        );
+        return 0;
+      }
+      const i = uploadChunksSeen++;
       if (script.failAt === i) {
         resolveResult(conn, { type: "result", ref: claims.jti, ok: false, error: `scripted refusal at chunk ${i}` });
       } else {
@@ -111,7 +148,7 @@ function attachFakeNode(nodeId: string, script: FakeNodeScript = {}): FakeNode {
           type: "result",
           ref: claims.jti,
           ok: true,
-          data: { path: cmd.path, received: received + (cmd.eof ? (script.eofReceivedDelta ?? 0) : 0) },
+          data: { path: cmd.path, received: total + (cmd.eof ? (script.eofReceivedDelta ?? 0) : 0) },
         });
       }
       if (script.offlineAfter === i) detachConnection(nodeId, ws);
@@ -120,7 +157,11 @@ function attachFakeNode(nodeId: string, script: FakeNodeScript = {}): FakeNode {
     close: () => {},
   };
   conn = attachConnection(nodeId, ws);
-  return { cmds, detach: () => detachConnection(nodeId, ws) };
+  return {
+    cmds,
+    uploadCmds: () => cmds.filter((c) => !isSealFrame(c)),
+    detach: () => detachConnection(nodeId, ws),
+  };
 }
 
 describe("uploads relay to agent nodes (spec §3.4)", () => {
@@ -207,20 +248,77 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
       expect(res.status).toBe(200);
       const json = (await res.json()) as { path: string; name: string; size: number; contentType: string };
 
-      expect(agent.cmds.map((c) => c.chunk)).toEqual([0, 1]);
-      expect(agent.cmds.map((c) => c.eof)).toEqual([false, true]);
-      expect(agent.cmds.map((c) => Buffer.from(c.chunk_b64, "base64").byteLength)).toEqual([CHUNK, CHUNK]);
-      const reassembled = Buffer.concat(agent.cmds.map((c) => Buffer.from(c.chunk_b64, "base64")));
+      // The seal frame leads; the upload's two chunks follow it unchanged.
+      expect(agent.cmds.map((c) => c.path)).toEqual([join(ws, ".subshell", ".gitignore"), json.path, json.path]);
+      const upload = agent.uploadCmds();
+      expect(upload.map((c) => c.chunk)).toEqual([0, 1]);
+      expect(upload.map((c) => c.eof)).toEqual([false, true]);
+      expect(upload.map((c) => Buffer.from(c.chunk_b64, "base64").byteLength)).toEqual([CHUNK, CHUNK]);
+      const reassembled = Buffer.concat(upload.map((c) => Buffer.from(c.chunk_b64, "base64")));
       expect(reassembled.equals(payload(1048576))).toBe(true);
-      expect(agent.cmds.every((c) => c.path === json.path)).toBe(true);
+      expect(upload.every((c) => c.path === json.path)).toBe(true);
 
       expect(json.name).toMatch(/^\d{8}-\d{6}-big-[0-9a-f]{8}\.bin$/);
       expect(json.path).toBe(join(ws, ".subshell", "uploads", json.name));
       expect(json.size).toBe(1048576);
       expect(json.contentType).toBe("application/octet-stream");
       // The relay composes the target as a STRING — the backend's own fs
-      // (and the node-side git bookkeeping it would trigger) stays untouched.
+      // stays untouched; everything aimed at the node travels the wire.
       expect(existsSync(join(ws, ".subshell"))).toBe(false);
+    } finally {
+      agent.detach();
+    }
+  });
+
+  it("seals the node's .subshell with a `*`-only .gitignore before the upload's chunk 0", async () => {
+    const nodeId = await mkNodeRow();
+    const ws = tempWorkDir();
+    const id = await makeSubshell(ws, nodeId);
+    const agent = attachFakeNode(nodeId);
+    try {
+      const res = await uploadsRoutes.fetch(
+        uploadRequest(id, ownerToken, new File([payload(8)], "seeded.bin", { type: "application/octet-stream" })),
+      );
+      expect(res.status).toBe(200);
+      const _json = (await res.json()) as { path: string };
+
+      // Wire order IS the contract: the seal must land before the first
+      // upload byte, or a `git add .subshell/uploads/...` racing the upload
+      // finds unsealed files.
+      expect(agent.cmds).toHaveLength(2);
+      const seal = agent.cmds[0];
+      expect(seal.path).toBe(join(ws, ".subshell", ".gitignore"));
+      expect(seal.chunk).toBe(0);
+      expect(seal.eof).toBe(true);
+      expect(Buffer.from(seal.chunk_b64, "base64").toString("utf8")).toBe("*\n");
+      // The exact-path equality above already pins the point: the seal
+      // carries no `remoteUniqueName` tag — a fixed name, so the
+      // overwrite-on-eof idempotence applies.
+    } finally {
+      agent.detach();
+    }
+  });
+
+  it("a refused .subshell/.gitignore seal is swallowed and the upload still lands", async () => {
+    const nodeId = await mkNodeRow();
+    const ws = tempWorkDir();
+    const id = await makeSubshell(ws, nodeId);
+    const agent = attachFakeNode(nodeId, { failGitignore: true });
+    try {
+      const res = await uploadsRoutes.fetch(
+        uploadRequest(
+          id,
+          ownerToken,
+          new File([payload(64)], "sealed-anyway.bin", { type: "application/octet-stream" }),
+        ),
+      );
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { path: string; size: number };
+      expect(json.size).toBe(64);
+      // The seal frame went first and was refused; the upload's eof chunk
+      // still shipped and completed.
+      expect(agent.cmds.map((c) => c.path)).toEqual([join(ws, ".subshell", ".gitignore"), json.path]);
+      expect(agent.uploadCmds().map((c) => c.eof)).toEqual([true]);
     } finally {
       agent.detach();
     }
@@ -258,8 +356,11 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
       expect(a.path).not.toBe(b.path);
       expect(a.path).toBe(join(ws, ".subshell", "uploads", a.name));
       expect(b.path).toBe(join(ws, ".subshell", "uploads", b.name));
-      expect(nodeA.cmds.map((c) => c.path)).toEqual([a.path]);
-      expect(nodeB.cmds.map((c) => c.path)).toEqual([b.path]);
+      // Each relay re-seals the SAME fixed name (idempotent overwrite on eof)
+      // before its own upload frames.
+      const seal = join(ws, ".subshell", ".gitignore");
+      expect(nodeA.cmds.map((c) => c.path)).toEqual([seal, a.path]);
+      expect(nodeB.cmds.map((c) => c.path)).toEqual([seal, b.path]);
     } finally {
       nodeB.detach();
     }
@@ -275,8 +376,8 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
         uploadRequest(id, ownerToken, new File([payload(1048577)], "tail.bin", { type: "application/octet-stream" })),
       );
       expect(res.status).toBe(200);
-      expect(agent.cmds.map((c) => Buffer.from(c.chunk_b64, "base64").byteLength)).toEqual([CHUNK, CHUNK, 1]);
-      expect(agent.cmds.map((c) => c.eof)).toEqual([false, false, true]);
+      expect(agent.uploadCmds().map((c) => Buffer.from(c.chunk_b64, "base64").byteLength)).toEqual([CHUNK, CHUNK, 1]);
+      expect(agent.uploadCmds().map((c) => c.eof)).toEqual([false, false, true]);
     } finally {
       agent.detach();
     }
@@ -302,7 +403,9 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
       // Agent error strings are UNPINNED protocol-side (T6 ruling): the route
       // maps on ok/not-ok only and never echoes the refusal text to the browser.
       expect(body.message).not.toContain("scripted refusal");
-      expect(agent.cmds.map((c) => c.chunk)).toEqual([0, 1]); // chunk 2 (the eof) never went out
+      // The seal was accepted first; among the upload's frames chunk 2 (the
+      // eof) never went out.
+      expect(agent.uploadCmds().map((c) => c.chunk)).toEqual([0, 1]);
     } finally {
       agent.detach();
     }
@@ -335,7 +438,7 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
       );
       expect(res.status).toBe(409);
       expect(((await res.json()) as { code: string }).code).toBe("NODE_UNREACHABLE");
-      expect(agent.cmds.length).toBe(1);
+      expect(agent.uploadCmds().length).toBe(1);
     } finally {
       agent.detach();
     }
@@ -359,7 +462,9 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
       );
       expect(res.status).toBe(409);
       expect(((await res.json()) as { code: string }).code).toBe("NODE_OFFLINE");
-      expect(agent.cmds.map((c) => c.chunk)).toEqual([0]);
+      // The seal and chunk 0 were answered, then the socket died — chunk 1's
+      // send found no live connection.
+      expect(agent.uploadCmds().map((c) => c.chunk)).toEqual([0]);
     } finally {
       agent.detach();
     }
