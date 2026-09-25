@@ -321,8 +321,10 @@ renders one honest line true for both, and a fresh sign-in attempt retires
 the consumed refusal. Button labels wear the door's NAME for every kind
 (`signInButtonLabel`: same-kind rows are legal, and a kind-first label makes
 them a mis-click lottery). `/pending` is the third bare frame beside
-`/login` and `/setup`; its "Sign in again" re-runs the round trip, which is
-also exactly how a rejected person sees the identical screen (rejected and
+`/login` and `/setup`; its "Sign in again" navigates to `/login`, and the
+next round trip re-lands here while the row is still pending, which is how
+the wait re-checks the door for free; it is also exactly how a rejected
+person sees the identical screen (rejected and
 pending are indistinguishable from the visitor's side; the truth lives on
 Settings → Auth and the Users page's **Pending approval** tab, which reads
 `GET /api/users/pending` and whose Approve/Reject buttons drive

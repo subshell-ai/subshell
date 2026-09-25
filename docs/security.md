@@ -370,19 +370,34 @@ the login page maps onto `/pending`; pending and rejected render the
 identical screen, the truth lives in the admin tab (spec §7). The marking
 seam also undoes any first-admin promotion its own creation wrote (and clears
 the auto-promoted row's `setup_step` bookmark with it), so an OIDC arrival can
-never become first admin; the `REAL_ACCOUNT_FILTER` exclusion of
-pending/rejected is hygiene under that, and `GET /api/users` never lists a
-queue row. `PATCH /api/users/:id/approval` only moves rows OUT of the queue
-(an already-approved target answers 409 `APPROVAL_NOOP`), so approval cannot
+never become first admin; the roster's queue exclusion (defense in depth
+under that) lives in `listWithRoles`'s `COALESCE(approval_state, 'approved')`
+WHERE term, not in `REAL_ACCOUNT_FILTER`, which excludes only the `system`
+service email and, in `countRealAccounts`, deliberately counts queue rows: a
+pending arrival is a real account for "has anybody registered", which is what
+closes the legacy no-users window behind it. `PATCH /api/users/:id/approval`
+only moves rows OUT of the queue (an already-approved target answers 409
+`APPROVAL_NOOP`), so approval cannot
 become a state hammer against members; disabling is that switch, unchanged.
 Email registration refuses a claimed email explicitly, pending holders
-included, naming the provider that holds it (spec §5).
+included, and the refusal SPLITS by seam exactly as spec §5 wrote it:
+`/sign-up/email` names the holding door (a `hooks.before` guard,
+`auth/held-email-guards.ts`, the only layer that runs before better-auth's own
+already-exists answer; 403, "An account for this email exists. Sign in with
+<Name>."), with the registration gate checked FIRST so a closed door answers
+held and free addresses alike with the unchanged `registration_closed` and the
+path cannot be probed for who holds what (test-pinned uniformity). Admin user
+creation keeps the generic 409 "Email already registered" for every holder,
+named or not: spec §5's explicit sentence, "an admin typing an email that
+exists does not need a provider name back", §3's instance-wide roster already
+showing every email to every admin.
 
 **The queue expires; a rejection does not** (spec §6). Unactioned `pending`
 rows older than `pending_approval_expiry_days` (settings row, admin-set on
 Settings → Auth, default 30, `0` keeps forever, corrupt reads the default with
-a warn) are deleted by the hourly sweep, one transaction per user across
-`user_meta`, `user`, `account` and defensively `session`/`verification`.
+a warn) are deleted by the hourly sweep in ONE transaction per sweep RUN,
+covering every candidate across `user_meta`, `user`, `account` and defensively
+`session`/`verification`.
 Deleting a `pending` row is legitimate where "user deletion does not exist"
 elsewhere: that rule shields MEMBERS, and a `pending` row is nobody's
 membership, it is a knock that was never opened. Rejection is an explicit
@@ -2022,8 +2037,9 @@ These are choices, not oversights, and they follow from §0:
 Audit events are written, grouped by family:
 
 - **Authentication**: `auth.sign_in` (metadata `{ method: "password" |
-  "passkey" | "oidc:<door id>" }`), `auth.sign_out` — seams, dedupe and
-  deliberate exclusions in the paragraph at the end of this section.
+  "passkey" }`, plus `userId` on the `oidc:<door id>` arm), `auth.sign_out`
+  — seams, dedupe and deliberate exclusions in the paragraph at the end of
+  this section.
 - **Users and keys**: `user.create`, `user.role_change`,
   `user.password_reset`, `user.disabled_change` (metadata `{ email,
   disabled, droppedSockets }`, plus — on the DISABLE edge only, the keys
@@ -2079,9 +2095,11 @@ Read them with `GET /api/audit?limit=50` (admin).
 "known"; shipped 2026-09-23, audit item R1): `auth.sign_in` and `auth.sign_out`,
 from the better-auth integration in `src/auth.ts`. A successful sign-in writes
 one row per act, keyed by the endpoint's RESULT — never the request body — with
-metadata carrying only `{ method: "password" | "passkey" | "oidc:<door id>" }`;
-the paths that count are `/sign-in/email` and the passkey plugin's
-`/passkey/verify-authentication`. OIDC callbacks ride the same hook through a
+metadata carrying only `{ method: "password" | "passkey" }` on those arms, and
+`{ method, userId }` on the OIDC one (`method` spelled `oidc:<door id>`; the
+redirect result names no user, and the id read back from the session cookie
+rides the metadata beside the method); the paths that count are
+`/sign-in/email` and the passkey plugin's `/passkey/verify-authentication`. OIDC callbacks ride the same hook through a
 dedicated `/callback/` branch (spec 2026-09-24 §4), because that endpoint's
 success is a thrown redirect whose payload names no user: the success test is
 the actor proof, the response's own `session_token` cookie resolving to a row

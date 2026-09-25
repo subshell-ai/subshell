@@ -218,7 +218,7 @@ as failed logins). Candidate seams (plan picks one, tests pin the invariant):
 the session-create path where the session actually mints, or an after-hook
 prefix-matching `/callback/` and inspecting the redirect's destination —
 the latter is brittle to better-auth's redirect shape, so prefer the former.
-Amended during build (2026-09-25): the shipped seam is the after hook's
+Amended during build (2026-09-24): the shipped seam is the after hook's
 `/callback/` branch (the "latter" candidate), and its success test is the
 actor proof: the response's own `session_token` cookie resolves to a row in
 the `session` table. An intermediate formulation, "the redirect's Location
@@ -375,7 +375,7 @@ sees the provider) and **demotes back to `user` any role `admin` that seam
 just wrote for a row it marked pending** — an OIDC-arrival creator can never
 end up first admin. (The `setup_step` the same atomic write sets stays; it
 is inert without a session, which a pending person never gets.)
-Amended during build (2026-09-25): the shipped demote-undo clears `setup_step`
+Amended during build (2026-09-24): the shipped demote-undo clears `setup_step`
 to NULL along with the role (`demoteAdminIfAutoPromoted`), so a row the
 marking seam auto-promoted and then queues leaves no wizard bookmark behind;
 the bookmark was inert without a session, but a cleared row is honest where a
@@ -383,6 +383,14 @@ stale one merely could not be reached.
 `REAL_ACCOUNT_FILTER`'s pending/rejected exclusion is kept as
 **defense-in-depth** (list and count hygiene), not as the admin guard.
 Pinned by tests re-anchored to the real mechanism (§10).
+Amended during build (2026-09-24): the mechanism named above is misattributed.
+`REAL_ACCOUNT_FILTER` excludes ONLY the `system` service email, never a queue
+state; the roster's queue exclusion is `listWithRoles`'s own
+`COALESCE(approval_state, 'approved')` WHERE term, and `countRealAccounts`
+carries no queue exclusion at all, deliberately: counting a pending arrival is
+what closes the legacy no-users window behind it, the opposite of hygiene. The
+conclusion stands (the seam above is the guard, the list filter below it is
+defense in depth); what moved is which code carries the exclusion.
 
 `GET /api/users` keeps its shape for members and gains nothing unapproved.
 The pending list is a separate admin-only read: `GET /api/users/pending`
@@ -429,7 +437,7 @@ a closed one: the flag is enforced at the API through `validateUserInfo`
 consulting the same row is mandatory, not optional (the invariant: a closed
 E-mail door refuses `sign-in/email` and passkey verify at the server). If NO
 door is open, the page says so rather than showing an empty card.
-Amended during build (2026-09-25): the button label is the door's NAME for
+Amended during build (2026-09-24): the button label is the door's NAME for
 every kind, not "Sign in with <kind>": `kind` is a PRESET (which endpoints
 and prefills), the id slug is the unique thing, and N rows of one kind are
 legal (several Google Workspaces); kind-first labels would render two Google
@@ -562,7 +570,7 @@ better-auth's code, not ours):
   its job); an UNVERIFIED profile email refuses `link-account` via the hook
   and creates nothing; a verified match flips the local user's
   `emailVerified` (pin the §5 side effect so it is known, not discovered).
-  Amended during build (2026-09-25): on the implicit link path the hook's
+  Amended during build (2026-09-24): on the implicit link path the hook's
   `unverified_email` code never reaches the browser; better-auth's own
   `!trusted && !emailVerified` gate answers first with the generic
   `account_not_linked` (matrix case 9 pins the wire code), and the hook
@@ -659,7 +667,7 @@ files land in the same change, not as a follow-up.
     (both measured); the hook branches on method + providerId + action, and
     its throw-fails-closed shape is relied on, not rediscovered (§3).
 16. **Multiple same-kind providers are legal and buttons label by NAME**
-    (added during build, 2026-09-25): `kind` is a preset, the id slug is
+    (added during build, 2026-09-24): `kind` is a preset, the id slug is
     the unique identity, several Google Workspaces may coexist as rows, and
     the shared `accountIssuer` is what lands one person on one account
     across doors; a kind-first label would make the rows a mis-click lottery
