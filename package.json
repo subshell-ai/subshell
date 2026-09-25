@@ -40,6 +40,7 @@
     "lint:lockfile:fix": "bun scripts/lockfile-workspace-versions.ts --fix",
     "lint:design": "bun scripts/design-tokens.ts",
     "lint:design:report": "bun scripts/design-tokens.ts --report",
+    "lint:prose": "bun scripts/prose-dashes.ts",
     "audit:deps": "bun scripts/dep-audit.ts",
     "test": "turbo run test --continue --",
     "test:scripts": "bun test ./scripts/__tests__/",

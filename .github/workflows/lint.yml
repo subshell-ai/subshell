@@ -97,6 +97,14 @@ jobs:
       - name: Check the design tokens
         run: bun run lint:design
 
+      # The voice rule (operator ruling 2026-09-25): no em dashes in authored
+      # prose. The docs site enforces this through its content test; this is
+      # the twin for the rest of the repository's prose (AGENTS/CLAUDE files,
+      # docs/, rules, READMEs, pending changesets). A dash is not a type, lint
+      # or test failure, so this is the only thing that sees it.
+      - name: Check the prose (no em dashes)
+        run: bun run lint:prose
+
       - name: Run type checking
         run: bun run verify-types
 

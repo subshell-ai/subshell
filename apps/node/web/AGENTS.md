@@ -2,7 +2,7 @@
 
 Documentation for the React SPA the node daemon serves (`apps/node/web`,
 `@internal/node-web`, Apache-2.0). It is the **node's own loopback admin
-surface** — Status, Settings, Updates for the one machine the daemon runs on —
+surface** (Status, Settings, Updates for the one machine the daemon runs on)
 and nothing else's. It is to `apps/node/agent` (the daemon that embeds and
 serves it) what `apps/server/web` is to `apps/server/api`: the app beside the
 server that builds it, never a standalone deploy.
@@ -17,7 +17,7 @@ cards, hooks, and primitives), not between these two directories.
 Managing a node otherwise means the control plane's Nodes pages (which need a
 plane session, and cannot `stop`/`uninstall` a disconnected agent) or a terminal
 at the machine. This page is operable headless, with or without a plane, and on
-the same host as the server — which is why it binds `127.0.0.1` and requires no
+the same host as the server, which is why it binds `127.0.0.1` and requires no
 login (everything the local CLI lets this OS user do, the page can do; the
 threat model is `docs/security.md` §6).
 
@@ -33,7 +33,7 @@ That mirror is what makes the whole app small: there are **no components of our
 own** beyond a thin frame and the two local cards (Updates, retention) that
 answer endpoints the plane does not have. The six cards, the primitives, the query client
 retry policy, and the confirm dialog's imperative handle all come from
-`@internal/node-admin`; this directory supplies the host those pieces assume — a
+`@internal/node-admin`; this directory supplies the host those pieces assume: a
 Vite + TanStack Router app, a `styles.css` token copy, a `ConfirmProvider`, and
 the daemon-specific reconnect behaviour.
 
@@ -95,7 +95,7 @@ SPA's).
 
 - **Allowed-dirs is read-only here.** The plane holds its own copy, enforces it
   at launch, and re-pushes this machine's file on every `ready`, so a local edit
-  would be silently overwritten by the next reconnect — a worse outcome than an
+  would be silently overwritten by the next reconnect, a worse outcome than an
   absent control. `NodeAllowedDirs` is rendered `readOnly`; the card itself
   carries the "managed by the control plane" sentence. Settings is otherwise the
   same view as the plane's per-node Configuration tab, as the operator asked.
@@ -106,9 +106,9 @@ SPA's).
   is the plane's job) and `/api/self/log-retention` (retention is the policy of
   the disk the files sit on; the plane has no counterpart route, which is why
   the retention editor is a card of ours on the Settings page rather than a
-  shared one). The trust chain is unchanged from the CLI's — signed
+  shared one). The trust chain is unchanged from the CLI's (signed
   release manifest, compiled-in publisher key, install digest from the signed
-  manifest — only the caller is local. Its one honest blind spot is stated on
+  manifest); only the caller is local. Its one honest blind spot is stated on
   the page: this surface cannot ask the plane which node version the plane
   accepts; that check stays in the server's Settings → Updates.
 
@@ -117,6 +117,6 @@ SPA's).
 Styling follows `docs/design-system.md` and the shared palette; the classes come
 almost entirely from the `@internal/node-admin` primitives. `bun run lint:design`
 scans this `src` **under the `spa` surface's rules** (it is a `SCAN_ROOTS` entry
-in `scripts/design-tokens.ts`, not a fifth `CSS_SURFACES` entry) — so a literal
+in `scripts/design-tokens.ts`, not a fifth `CSS_SURFACES` entry), so a literal
 size, weight, or colour here fails exactly as it does in the server SPA. The
 `styles.css` token block is the server SPA's, copied; keep it in step.

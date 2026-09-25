@@ -1,14 +1,14 @@
 # Changesets
 
-Run `bunx changeset` after user-visible changes to any releasable app —
+Run `bunx changeset` after user-visible changes to any releasable app:
 `@internal/server`, `@internal/node`, `@internal/desktop-server`,
 `@internal/desktop-client` or `@internal/docs`. The version PR on merge to main
 records the bump; the release cut happens via
-`.github/workflows/release.yml` — except for `@internal/docs`, whose version
+`.github/workflows/release.yml`, except for `@internal/docs`, whose version
 drives the tagged docs-site deploy in `.github/workflows/docs.yml` instead.
 
 The Action commits `changeset version`'s bumps itself, so lefthook's local
-"update bun lockfile" hook never runs — which is why `version-packages` ends
+"update bun lockfile" hook never runs, which is why `version-packages` ends
 with `lint:lockfile:fix`. Bun does not resync a workspace's recorded version on
 install, and `--frozen-lockfile` does not object to a stale one, so without
 that step `bun.lock` trails a release. It did, for one.

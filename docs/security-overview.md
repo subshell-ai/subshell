@@ -80,7 +80,7 @@ that expires in 24 hours. After pairing, the relationship works like this:
   the long-term identity each pinned at pairing, and from then on the socket
   carries only ciphertext. A server on plain `http://` no longer puts your
   agents' commands, tokens, or terminal traffic on the network in the clear.
-  What the encryption does not decide is *who you paired with* — that stays
+  What the encryption does not decide is *who you paired with*; that stays
   the setup key's job. Shortfall 5 below still applies to everything the
   browser sends you.
 - The browser never talks to nodes directly. One person's browser session can
@@ -149,7 +149,7 @@ No shrouding. These are the real limits of the design as it ships:
    exhaustive input-length limits, no multi-tenant isolation work, because
    those defend a scenario this product is not designed for. Put it behind a
    VPN or Tailscale. The node-to-server link encrypts itself (above), but
-   everything between a browser and the server does not — your sign-in,
+   everything between a browser and the server does not; your sign-in,
    cookies, and what you see in panes are only as private as the transport
    you put in front of them. If you must serve it further, HTTPS and the
    hardening checklist are prerequisites, not suggestions.

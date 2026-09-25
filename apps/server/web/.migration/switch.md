@@ -4,7 +4,7 @@
 
 ## Changed
 
-- `src/components/ui/switch.tsx` — `@radix-ui/react-switch` ->
+- `src/components/ui/switch.tsx`: `@radix-ui/react-switch` ->
   `Switch as SwitchPrimitive` from `@base-ui/react/switch` (Root + Thumb).
   Class rewrites per the class-mapping tables: `data-[state=checked]:` ->
   `data-checked:`, `data-[state=unchecked]:` -> `data-unchecked:`, and
@@ -32,5 +32,5 @@
 
 - Settings: "Allow new registrations" toggles instantly; harness allowlist
   switches save per harness (harness allowlist is disabled while the page is
-  unsaved — check greyed state).
+  unsaved; check greyed state).
 - System API keys: enable/disable switch flips a key's state chip.

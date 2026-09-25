@@ -2,7 +2,7 @@
 
 2026-08-30, transformation engine (no components.json in the repo, so no CLI
 golden pairs; every file transformed from its own classes + the skill's
-reference tables). Verdict: complete — zero Radix imports remain.
+reference tables). Verdict: complete; zero Radix imports remain.
 
 ## Changed
 
@@ -25,15 +25,15 @@ Per-component detail lives in the sibling files (`button.md`, `label.md`,
 ## Left alone
 
 - No cmdk/vaul/sonner/input-otp/react-day-picker/recharts wrappers exist in
-  this project — the skill's hard-rule exemption list is moot here.
+  this project; the skill's hard-rule exemption list is moot here.
 - `dockview-react`, xterm, TanStack: not primitive libraries, untouched.
 
-## Behavior changes (rolled up — details per component report)
+## Behavior changes (rolled up; details per component report)
 
 - Menu arrow-key navigation loops by default (`loopFocus` true).
 - Menu/Select items highlight via `data-highlighted`, never DOM focus.
 - Select trigger prints labels only because the 3 label-bearing roots now
-  pass `items` — a new Select whose label differs from its value needs one.
+  pass `items`; a new Select whose label differs from its value needs one.
 - Dialog focus-on-open target can differ subtly (X-button-first popups).
 
 ## Verify

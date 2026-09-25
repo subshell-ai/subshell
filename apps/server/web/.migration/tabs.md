@@ -13,15 +13,15 @@
 
 ## Left alone
 
-- `src/components/workspace-tabs.tsx` — custom component, no Radix, not a
+- `src/components/workspace-tabs.tsx`: custom component, no Radix, not a
   shadcn Tabs consumer.
 
 ## Behavior changes
 
-- None possible — the wrapper was unreachable. If a future feature needs
+- None possible; the wrapper was unreachable. If a future feature needs
   tabs, fetch the Base-UI shadcn tabs component fresh.
 
 ## Verify by hand
 
-- Workspace page in tab mode (narrow viewport) still renders its tab strip —
+- Workspace page in tab mode (narrow viewport) still renders its tab strip;
   proves nothing imported the deleted file indirectly.

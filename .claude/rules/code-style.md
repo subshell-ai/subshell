@@ -112,7 +112,7 @@ interface SubshellTable {
 ```
 
 Export the runtime array beside the type whenever something has to iterate or
-validate the values — one edit site instead of two that drift.
+validate the values: one edit site instead of two that drift.
 
 **Not this:**
 ```typescript
@@ -212,10 +212,10 @@ This applies to:
 
 Keep all definitions for a single concept in the same file. When a handler has
 associated schemas, types, and metadata, define them in the handler file rather
-than spreading them across a parallel "definitions" module — a central registry
+than spreading them across a parallel "definitions" module: a central registry
 that restates what the handler already declares is two things to keep in sync.
 
-**Do this** — a route module owns its schemas, its handler, and its OpenAPI metadata:
+**Do this:** a route module owns its schemas, its handler, and its OpenAPI metadata:
 
 ```typescript
 // src/api/channels/read-channel-posts.route.ts
@@ -245,7 +245,7 @@ export const channelRoutes = new Elysia({ prefix: "/api/channels" })
   .use(readChannelPostsRoute);
 ```
 
-**Not this** — a registry duplicating each handler's own metadata:
+**Not this:** a registry duplicating each handler's own metadata:
 
 ```typescript
 // definitions.ts — centralized, far from the implementation
@@ -257,7 +257,7 @@ export const ROUTE_DEFINITIONS = [
 **Known divergence.** `packages/mcp-core/src/server.ts` registers its 13 tools with
 zod schemas written *inline* in the `registerTool` call, against the "Schema
 Definitions" rule above. The schemas are one-liners and the file reads fine, so it
-has not been worth changing — but it is a divergence, not a second sanctioned
+has not been worth changing, but it is a divergence, not a second sanctioned
 pattern. New tools should follow the named-constant rule; do not cite `server.ts`
 as precedent for inline schemas elsewhere.
 
@@ -353,4 +353,4 @@ Key points:
 - Tests should call reset in `beforeEach`/`afterEach` to ensure isolation
 - **Construct lazily, never at import.** A module that opens a database or binds
   a port merely by being evaluated breaks the compiled binary's non-boot
-  subcommands. Import purity is pinned by test — see `apps/server/api/AGENTS.md`.
+  subcommands. Import purity is pinned by test; see `apps/server/api/AGENTS.md`.

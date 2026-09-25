@@ -4,7 +4,7 @@
 
 ## Changed
 
-- `src/components/ui/dropdown-menu.tsx` — `@radix-ui/react-dropdown-menu` ->
+- `src/components/ui/dropdown-menu.tsx`: `@radix-ui/react-dropdown-menu` ->
   `Menu` from `@base-ui/react/menu`. Content became `Portal > Positioner >
   Popup` with `side/sideOffset/align/alignOffset` destructured and forwarded
   to the **Positioner** (the forward-rule; `sideOffset = 4` default
@@ -21,10 +21,10 @@
 - Dead exports dropped instead of ported (zero consumers, grep-verified):
   `DropdownMenuPortal`, `DropdownMenuSub`, `DropdownMenuSubTrigger`,
   `DropdownMenuSubContent`, and the unused `ChevronRight` import.
-- `src/components/actions-menu.tsx` — trigger `asChild` -> `render={<Button/>}`
+- `src/components/actions-menu.tsx`: trigger `asChild` -> `render={<Button/>}`
   (children move outside render); destructive item class
   `focus:text-destructive` -> `data-highlighted:text-destructive`.
-- `src/components/working-dir-field.tsx:139` — trigger `asChild` ->
+- `src/components/working-dir-field.tsx:139`: trigger `asChild` ->
   `render={<Button>…</Button>}`.
 - Tests: `actions-menu.test.tsx` passes unmodified (open, click-through,
   close-unmount, destructive class, disabled trigger).
@@ -32,7 +32,7 @@
 
 ## Left alone
 
-- Six `<DropdownMenu>` consumer files besides the two triggers — their JSX
+- Six `<DropdownMenu>` consumer files besides the two triggers: their JSX
   (Content align/className, Item onSelect, Separator) is API-compatible.
 
 ## Behavior changes
