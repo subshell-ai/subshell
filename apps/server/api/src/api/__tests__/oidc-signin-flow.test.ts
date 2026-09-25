@@ -29,22 +29,22 @@ import { type FakeIdp, startFakeIdp } from "./helpers/fake-oidc.js";
  * rows cleared before each flow so the counts are exact.
  *
  * Shared-DB discipline: the per-process temp database is shared by every test
- * file in the invocation, so this file creates its doors and users with random
+ * file in the invocation, so this file creates its providers and users with random
  * ids, purges them as it goes, restores the E-mail row's seeded defaults, and
  * ends with `invalidateAuth()` + `getAuth()` so the next sibling file gets a
- * door-less auth build.
+ * provider-less auth build.
  */
 
 const app = new Elysia().use(authPlugin);
 const ORIGIN = APP_BASE_URL; // forced to http://localhost:<port> under IS_TEST
 
-const doors = new AuthProvidersRepository(db);
+const providers = new AuthProvidersRepository(db);
 const meta = new UserMetaRepository(db);
 const users = new UsersRepository(db);
 
 let idp: FakeIdp;
 
-/** Door ids created by this file; removed in afterAll. */
+/** Provider ids created by this file; removed in afterAll. */
 const providerIds: string[] = [];
 /** Every email this file may have written a user for; purged in afterAll. */
 const fixtureEmails: string[] = [];
@@ -66,13 +66,13 @@ function profileFor(email: string, over: Record<string, unknown> = {}): Record<s
   return { id: stable, sub: stable, email, email_verified: true, name: "T7 Fake", ...over };
 }
 
-/** Seeds a door pointing at the fake issuer and rebuilds auth to see it. */
-async function mkDoor(over: Partial<NewAuthProvider> = {}): Promise<string> {
+/** Seeds a provider pointing at the fake issuer and rebuilds auth to see it. */
+async function mkProvider(over: Partial<NewAuthProvider> = {}): Promise<string> {
   const id = `t7-${crypto.randomUUID().slice(0, 8)}`;
-  await doors.create({
+  await providers.create({
     id,
     kind: "oidc",
-    name: "T7 fake door",
+    name: "T7 fake provider",
     issuer: idp.url,
     clientId: "t7-client",
     endpointsJson: JSON.stringify({
@@ -84,8 +84,8 @@ async function mkDoor(over: Partial<NewAuthProvider> = {}): Promise<string> {
     allowedDomains: null,
     enabled: 1,
     signInEnabled: 1,
-    // Explicit 1 on an oidc row: NULL reads CLOSED to the door policy (§2), so
-    // a door that lets anyone in must SAY 1.
+    // Explicit 1 on an oidc row: NULL reads CLOSED to the provider policy (§2), so
+    // a provider that lets anyone in must SAY 1.
     registrationEnabled: 1,
     requireApproval: 0,
     ...over,
@@ -134,13 +134,13 @@ const flowStates: string[] = [];
  * contains `error=`, which the classifier must not read as a refusal: the
  * `/login`-prefix test is shape, not substring).
  */
-async function runFlow(doorId: string, profile: Record<string, unknown>, callbackURL = "/"): Promise<FlowResult> {
+async function runFlow(providerId: string, profile: Record<string, unknown>, callbackURL = "/"): Promise<FlowResult> {
   idp.setProfile(profile);
   const start = (await app.fetch(
     new Request(`${ORIGIN}/api/auth/sign-in/social`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ provider: doorId, callbackURL, errorCallbackURL: "/login" }),
+      body: JSON.stringify({ provider: providerId, callbackURL, errorCallbackURL: "/login" }),
     }),
   )) as Response;
   expect(start.status).toBe(200);
@@ -269,7 +269,7 @@ async function realUserCount(): Promise<number> {
 describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
   beforeAll(async () => {
     await setupAuthTables();
-    // The door policy, the session hook and the door guard all read through
+    // The provider policy, the session hook and the provider guard all read through
     // the boot-injected app handle; a test file that drives auth must inject
     // it exactly like `index.ts` does.
     setAuthPolicyDb(db);
@@ -278,7 +278,7 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
 
   afterAll(async () => {
     for (const email of fixtureEmails) await purgeByEmail(email);
-    for (const id of providerIds) await doors.remove(id);
+    for (const id of providerIds) await providers.remove(id);
     // Restore the seeded E-mail row defaults: the shared test DB outlives this
     // file, and the sibling suites assume `sign_in_enabled=1, registration NULL`.
     await sql`UPDATE auth_providers SET sign_in_enabled = 1, registration_enabled = NULL WHERE id = 'email'`.execute(
@@ -305,35 +305,35 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
       SELECT COUNT(*) AS n FROM verification WHERE identifier IN (${sql.join(flowStates.map((s) => sql`${s}`))})
     `.execute(db);
     expect(Number(rows[0]?.n ?? 0)).toBe(0);
-    // A final rebuild so the next file's first getAuth() sees a door-less,
+    // A final rebuild so the next file's first getAuth() sees a provider-less,
     // email-default instance rather than this file's last configuration.
     invalidateAuth();
     getAuth();
     idp.close();
   });
 
-  // Case 1 — §4 bullet 1: a new email at a plain approved door is created and
+  // Case 1 — §4 bullet 1: a new email at a plain approved provider is created and
   // signed in on first arrival — and the arrival writes EXACTLY ONE
   // `auth.sign_in` (spec §4): the actor/target is the signed-in user's id
   // (the cookie→session-table lookup resolving to the RIGHT user is the
-  // proof, not merely that some row appeared), the method names the door, and
+  // proof, not merely that some row appeared), the method names the provider, and
   // the never-values rule holds on the serialized row.
-  it("1. create through an approved door lands a session", async () => {
-    const door = await mkDoor();
+  it("1. create through an approved provider lands a session", async () => {
+    const provider = await mkProvider();
     const email = emailN("create");
-    const r = await runFlow(door, profileFor(email));
+    const r = await runFlow(provider, profileFor(email));
     expect(r.kind).toBe("session");
     expect(r.token).toBeTruthy();
     const id = (await userIdFor(email)) ?? "";
     expect(id).toBeTruthy();
     expect(await meta.approvalState(id)).toBe("approved");
-    expect(await accountProviders(id)).toEqual([door]);
+    expect(await accountProviders(id)).toEqual([provider]);
 
     const rows = await signInRows(id); // the user is new: any row is THIS flow's
     expect(rows).toHaveLength(1);
     expect(rows[0]?.targetType).toBe("user");
     expect(rows[0]?.targetId).toBe(id);
-    expect(metaOf(rows[0])).toEqual({ method: `oidc:${door}`, userId: id });
+    expect(metaOf(rows[0])).toEqual({ method: `oidc:${provider}`, userId: id });
     const serialized = JSON.stringify(rows);
     expect(serialized).not.toContain(email);
     expect(serialized).not.toContain(r.token ?? "\0");
@@ -349,7 +349,7 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
   // provider profile links straight in — and the §5 side effect (better-auth
   // flips the local emailVerified on a verified match) is pinned, not discovered.
   it("2. a verified profile links an existing emailVerified=0 user (§5 inversion + flip)", async () => {
-    const door = await mkDoor();
+    const provider = await mkProvider();
     const email = emailN("link");
     const id = await users.createUser({
       email,
@@ -360,34 +360,34 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     expect(await emailVerifiedFlag(id)).toBe(0);
 
     await clearSignInRows(id); // a pre-existing user: start the count at zero
-    const r = await runFlow(door, profileFor(email));
+    const r = await runFlow(provider, profileFor(email));
     expect(r.kind).toBe("session");
-    expect(await accountProviders(id)).toContain(door);
+    expect(await accountProviders(id)).toContain(provider);
     expect(await emailVerifiedFlag(id)).toBe(1);
 
     // The LINK arrival is one sign-in too — and its row names this user,
     // proving the callback's session-token lookup lands on the right account.
     const rows = await signInRows(id);
     expect(rows).toHaveLength(1);
-    expect(metaOf(rows[0])).toEqual({ method: `oidc:${door}`, userId: id });
+    expect(metaOf(rows[0])).toEqual({ method: `oidc:${provider}`, userId: id });
 
     await purgeByEmail(email);
   });
 
-  // Cases 3–7 are ONE lifecycle on one door and one person: the §6 queue, seen
+  // Cases 3–7 are ONE lifecycle on one provider and one person: the §6 queue, seen
   // end to end. They run in declaration order on purpose.
   const approvalEmail = emailN("pending");
   const approvalProfile = profileFor(approvalEmail);
-  let approvalDoor = "";
+  let approvalProvider = "";
   let approvalUserId = "";
 
   // Case 3 — §4 bullet 2: the account IS created (the queue needs a row), the
   // arrival is marked pending, and the SESSION is what refuses — the generic
   // `unable_to_create_session`, deliberately with no description (it cannot
   // distinguish pending from disabled and must not).
-  it("3. first arrival at a require-approval door: row created, session refused generically", async () => {
-    approvalDoor = await mkDoor({ requireApproval: 1 });
-    const r = await runFlow(approvalDoor, approvalProfile);
+  it("3. first arrival at a require-approval provider: row created, session refused generically", async () => {
+    approvalProvider = await mkProvider({ requireApproval: 1 });
+    const r = await runFlow(approvalProvider, approvalProfile);
     expect(r.kind).toBe("error");
     expect(r.code).toBe("unable_to_create_session");
     expect(r.description).toBeNull();
@@ -436,7 +436,7 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     await meta.setApproval(approvalUserId, "pending", { arrivedAt: stale });
 
     await clearSignInRows(approvalUserId);
-    const r = await runFlow(approvalDoor, approvalProfile);
+    const r = await runFlow(approvalProvider, approvalProfile);
     expect(r.kind).toBe("error");
     expect(r.code).toBe("pending_approval");
     expect(r.description).toBe(approvalEmail);
@@ -459,12 +459,12 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
   // Case 6 — §4/§8: approval moves the row out of the queue, and the NEXT
   // arrival signs straight in. No invalidateAuth here on purpose: the approval
   // state is read live by the hooks, not built into the config — that
-  // asymmetry (door config rebuilds, user state does not) is part of what this
+  // asymmetry (provider config rebuilds, user state does not) is part of what this
   // case pins.
   it("6. after an admin approval the next arrival signs straight in", async () => {
     await meta.setApproval(approvalUserId, "approved");
     await clearSignInRows(approvalUserId);
-    const r = await runFlow(approvalDoor, approvalProfile);
+    const r = await runFlow(approvalProvider, approvalProfile);
     expect(r.kind).toBe("session");
     expect(r.token).toBeTruthy();
 
@@ -473,7 +473,7 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     // sign_in row — one row per SUCCESS, none per refusal, cumulatively.
     const rows = await signInRows(approvalUserId);
     expect(rows).toHaveLength(1);
-    expect(metaOf(rows[0])).toEqual({ method: `oidc:${approvalDoor}`, userId: approvalUserId });
+    expect(metaOf(rows[0])).toEqual({ method: `oidc:${approvalProvider}`, userId: approvalUserId });
   });
 
   // Case 7 — §4's indistinguishability: a rejected person gets the PENDING
@@ -482,9 +482,9 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
   it("7. rejection answers the identical pending wire, and does not re-enter the queue", async () => {
     await meta.setApproval(approvalUserId, "rejected");
     await clearSignInRows(approvalUserId);
-    expect((await runFlow(approvalDoor, approvalProfile)).code).toBe("pending_approval");
+    expect((await runFlow(approvalProvider, approvalProfile)).code).toBe("pending_approval");
 
-    const r = await runFlow(approvalDoor, approvalProfile);
+    const r = await runFlow(approvalProvider, approvalProfile);
     expect(r.kind).toBe("error");
     expect(r.code).toBe("pending_approval");
     expect(r.description).toBe(approvalEmail);
@@ -503,15 +503,15 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     await purgeByEmail(approvalEmail);
   });
 
-  // Case 8 — §4 bullet 4: a closed door refuses a NEW email. The code is the
-  // same `registration_closed` the E-mail door's closed gate returns — nothing
+  // Case 8 — §4 bullet 4: a closed provider refuses a NEW email. The code is the
+  // same `registration_closed` the E-mail provider's closed gate returns — nothing
   // about the provider leaks, and no user row is written.
-  it("8. closed registration on a door refuses a new email and creates nobody", async () => {
-    const door = await mkDoor({ registrationEnabled: 0 });
+  it("8. closed registration on a provider refuses a new email and creates nobody", async () => {
+    const provider = await mkProvider({ registrationEnabled: 0 });
     const email = emailN("closed");
     const before = await realUserCount();
     const signInBefore = await countSignInRows();
-    const r = await runFlow(door, profileFor(email));
+    const r = await runFlow(provider, profileFor(email));
     expect(r.kind).toBe("error");
     expect(r.code).toBe("registration_closed");
     expect(await userIdFor(email)).toBeUndefined();
@@ -527,9 +527,9 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
   // BEFORE our hook runs on the implicit-link path, so the wire code is the
   // generic `account_not_linked` — §5's `unverified_email` is the hook's second
   // belt (reachable on the explicit `/link-social` seam, and unit-pinned in
-  // door-policy.test.ts). Either seam: no link row, no session, no new account.
+  // provider-policy.test.ts). Either seam: no link row, no session, no new account.
   it("9. an unverified profile cannot link an existing account (§5, generic refusal)", async () => {
-    const door = await mkDoor();
+    const provider = await mkProvider();
     const email = emailN("unverified");
     const id = await users.createUser({
       email,
@@ -538,7 +538,7 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
       role: "user",
     });
     await clearSignInRows(id);
-    const r = await runFlow(door, profileFor(email, { email_verified: undefined }));
+    const r = await runFlow(provider, profileFor(email, { email_verified: undefined }));
     expect(r.kind).toBe("error");
     expect(r.code).toBe("account_not_linked");
     expect(await sessionCount(id)).toBe(0);
@@ -551,7 +551,7 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
   // Case 10 — §5's domain gate: the check runs before the link/create decision,
   // so a non-matching email cannot link either — even an existing user's.
   it("10. the domain gate refuses a non-matching email that already has a user", async () => {
-    const door = await mkDoor({ allowedDomains: "acme.com" });
+    const provider = await mkProvider({ allowedDomains: "acme.com" });
     const email = "intruder@evil.com"; // deliberately outside the fixture domain
     const id = await users.createUser({
       email,
@@ -563,7 +563,7 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     const before = await realUserCount();
 
     await clearSignInRows(id);
-    const r = await runFlow(door, profileFor(email));
+    const r = await runFlow(provider, profileFor(email));
     expect(r.kind).toBe("error");
     expect(r.code).toBe("domain_not_allowed");
     expect(await accountProviders(id)).toEqual(["credential"]);
@@ -572,13 +572,13 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     await purgeByEmail(email);
   });
 
-  // Case 11 — §7: the E-mail door's sign_in_enabled refuses the PASSWORD path
-  // at the server (the door-guards before-hook — `validateUserInfo` never fires
-  // there, measured), while a provider door keeps working. The row is closed
+  // Case 11 — §7: the E-mail provider's sign_in_enabled refuses the PASSWORD path
+  // at the server (the provider-guards before-hook — `validateUserInfo` never fires
+  // there, measured), while a provider provider keeps working. The row is closed
   // and restored through raw SQL, and every edge carries an invalidateAuth()
   // because the config build reads the table too.
-  it("11. closing the E-mail door 403s password sign-in; the OIDC door keeps working", async () => {
-    const email = emailN("pw-door");
+  it("11. closing the E-mail provider 403s password sign-in; the OIDC provider keeps working", async () => {
+    const email = emailN("pw-provider");
     const pwId = await users.createUser({
       email,
       name: email,
@@ -598,7 +598,7 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     // even after the same after-hook grew the OIDC `/callback/` branch — a
     // `/sign-in/email` act can never be claimed by an `oidc:` row.
     await clearSignInRows(pwId);
-    expect((await signIn()).status).toBe(200); // precondition: the credential works while the door is open
+    expect((await signIn()).status).toBe(200); // precondition: the credential works while the provider is open
     let pwRows = await signInRows(pwId);
     expect(pwRows).toHaveLength(1);
     expect(metaOf(pwRows[0])).toEqual({ method: "password" });
@@ -608,14 +608,14 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     const closed = await signIn();
     expect(closed.status).toBe(403);
     const body = (await closed.json().catch(() => null)) as { message?: string } | null;
-    // The FULL door-guards sentence, not a substring (T11 review): the wire
+    // The FULL provider-guards sentence, not a substring (T11 review): the wire
     // copy is part of what case 11 pins, and a rewrite that keeps the word
     // "disabled" while changing the sentence must fail here, not ride past.
     expect(body?.message).toBe("Password and passkey sign-in are disabled on this instance");
     expect(await signInRows(pwId)).toHaveLength(1); // the refused password act writes nothing
 
-    // The refusal is the E-mail door's, not a blanket auth outage.
-    const oidc = await mkDoor();
+    // The refusal is the E-mail provider's, not a blanket auth outage.
+    const oidc = await mkProvider();
     const okEmail = emailN("oidc-after-email-closed");
     const r = await runFlow(oidc, profileFor(okEmail));
     expect(r.kind).toBe("session");
@@ -628,7 +628,7 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
         targetId: okId,
         metadataJson: JSON.stringify({ method: `oidc:${oidc}`, userId: okId }),
       },
-    ]); // exactly one, right actor, right method — while the closed E-mail door is irrelevant to it
+    ]); // exactly one, right actor, right method — while the closed E-mail provider is irrelevant to it
     // ...and the password user is still holding ONLY its own password row.
     pwRows = await signInRows(pwId);
     expect(pwRows).toHaveLength(1);
@@ -646,7 +646,7 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
 
   // Case 12 — §2's seam shift: with the E-mail row's gate closed, the CREATE
   // path refuses with the named code and writes nobody. (Distinct from case
-  // 11 in WHICH before-hook answers: the sign-in refusal lives in door-guards,
+  // 11 in WHICH before-hook answers: the sign-in refusal lives in provider-guards,
   // the create refusal now in held-email-guards' gate-first answer — T17
   // moved it out of the provisioning hook because for a held email
   // better-auth's duplicate-email throw lands first and that hook never
@@ -688,16 +688,16 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
   // success whose redirect Location CONTAINS `error=` must still land exactly
   // one `auth.sign_in` row.
   it("13. a success whose callbackURL carries error= still writes its audit row", async () => {
-    const door = await mkDoor();
+    const provider = await mkProvider();
     const email = emailN("suppress");
-    const r = await runFlow(door, profileFor(email), "/?error=boom");
+    const r = await runFlow(provider, profileFor(email), "/?error=boom");
     expect(r.kind).toBe("session");
     expect(r.location).toBe("/?error=boom"); // the redirect really does carry the poison word
     const id = (await userIdFor(email)) ?? "";
     expect(id).toBeTruthy();
     const rows = await signInRows(id);
     expect(rows).toHaveLength(1);
-    expect(metaOf(rows[0])).toEqual({ method: `oidc:${door}`, userId: id });
+    expect(metaOf(rows[0])).toEqual({ method: `oidc:${provider}`, userId: id });
     await purgeByEmail(email);
   });
 
@@ -709,14 +709,14 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
   // mirrored by `validate-authorization-code.mjs:41`) — so follow-the-visitor
   // is not implementable on this version and what ships is canonical-only.
   // This test records the URI the IdP ACTUALLY received, not the 302 shape:
-  // a door whose stored list is [canonical-not-this-host, this-host] must
+  // a provider whose stored list is [canonical-not-this-host, this-host] must
   // emit byte-identically `${canonical}/api/auth/callback/<id>` even though
   // the flow started on this host — never the request's origin, never the
   // list's other entry. (A function-valued `redirectURI` is not an option:
   // line 29 would URL-serialize the function source; measured.)
   it("14. the emitted redirect_uri is the stored canonical entry byte-for-byte (§5a pin)", async () => {
     const CANON = "http://canonical.pin.example:4321"; // deliberately NOT this host
-    const door = await mkDoor({ entryOrigins: JSON.stringify([CANON, ORIGIN]) });
+    const provider = await mkProvider({ entryOrigins: JSON.stringify([CANON, ORIGIN]) });
     const email = emailN("canon-pin");
 
     idp.setProfile(profileFor(email));
@@ -725,7 +725,7 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
         method: "POST",
         // No origin header: same-origin, exactly like every other case's start.
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ provider: door, callbackURL: "/", errorCallbackURL: "/login" }),
+        body: JSON.stringify({ provider: provider, callbackURL: "/", errorCallbackURL: "/login" }),
       }),
     )) as Response;
     expect(start.status).toBe(200);
@@ -736,7 +736,7 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     const au = new URL(authorizeUrl);
 
     // The pin itself: what the IdP receives, read off the authorize URL.
-    expect(au.searchParams.get("redirect_uri")).toBe(`${CANON}/api/auth/callback/${door}`);
+    expect(au.searchParams.get("redirect_uri")).toBe(`${CANON}/api/auth/callback/${provider}`);
 
     // And the trip still COMPLETES on the canonical spelling: the fake 302s
     // to that origin, the callback is answered by path, and the session
@@ -749,7 +749,7 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     const toIdp = await idp.handle(new Request(authorizeUrl));
     expect(toIdp.status).toBe(302);
     const callbackUrl = toIdp.headers.get("location");
-    expect(callbackUrl).toStartWith(`${CANON}/api/auth/callback/${door}`);
+    expect(callbackUrl).toStartWith(`${CANON}/api/auth/callback/${provider}`);
     const cb = (await app.fetch(new Request(callbackUrl!, { headers: { cookie } }))) as Response;
     const token = (cb.headers
       .getSetCookie()

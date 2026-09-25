@@ -11,7 +11,7 @@ import type { Database } from "@/db/types/index.js";
 import { emailRegistrationDecision, hasAnyUser, registrationOpen } from "@/services/registration-gate.js";
 
 /**
- * The registration rule for the E-MAIL sign-in door (spec 2026-09-24 §2):
+ * The registration rule for the E-MAIL sign-in provider (spec 2026-09-24 §2):
  * the `auth_providers` row with id `email` answers through its
  * `registration_enabled`, and NULL on that row means the legacy dynamic
  * window — open exactly while no real account exists, closed behind the
@@ -29,7 +29,7 @@ describe("emailRegistrationDecision", () => {
     // person able to open it, and the boot wizard would point at a sign-up
     // form that refuses.
     expect(emailRegistrationDecision(null, false)).toBe(true);
-    // The door shuts behind the first one: an instance no longer ships
+    // The provider shuts behind the first one: an instance no longer ships
     // accepting sign-ups from anyone who can reach it until an admin notices.
     expect(emailRegistrationDecision(null, true)).toBe(false);
   });
@@ -194,7 +194,7 @@ describe("hasAnyUser", () => {
     // instance that has ever had a system API key. The account carries no
     // credential row and can never sign in, so it is not somebody having
     // registered: counting it would brick a fresh install by closing the
-    // door before anyone walked through it.
+    // provider before anyone walked through it.
     const scratch = await scratchDb();
     await addUser(scratch, SYSTEM_USER_EMAIL);
     expect(await hasAnyUser(scratch)).toBe(false);

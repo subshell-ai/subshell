@@ -4,7 +4,7 @@ import { type PendingUserRow, useSetUserApproval } from "@/hooks/use-users-pendi
 
 /**
  * The approval queue on `/settings/users?tab=pending` (spec 2026-09-24 §6):
- * every arrival a door let through who is not a member yet, newest first.
+ * every arrival a provider let through who is not a member yet, newest first.
  *
  * A row leaves here only by an admin's decision: approving makes the person a
  * member (they surface in the Members tab), rejecting keeps them OUT of the
@@ -22,10 +22,10 @@ import { type PendingUserRow, useSetUserApproval } from "@/hooks/use-users-pendi
  * refusal kept on screen past the moment it described becomes a second,
  * wrong state.
  *
- * The Provider column resolves the door NAME the queue read carries live;
- * null means the door has since been removed, which renders as a standing
+ * The Provider column resolves the provider NAME the queue read carries live;
+ * null means the provider has since been removed, which renders as a standing
  * label rather than vanishing the row — the queue is the record of who knocked
- * at a door this instance used to have.
+ * at a provider this instance used to have.
  */
 export function PendingUsersTable({ rows }: { rows: readonly PendingUserRow[] }) {
   return (
@@ -83,7 +83,7 @@ function PendingRow({ row }: { row: PendingUserRow }) {
 
   return (
     <tr className="border-b align-middle last:border-0">
-      {/* A door arrival may have carried no name; the email still identifies
+      {/* A provider arrival may have carried no name; the email still identifies
           the person, so the empty name reads as "—" rather than a blank. */}
       <td className="py-2 pr-4">{row.name || "—"}</td>
       <td className="py-2 pr-4">{row.email}</td>

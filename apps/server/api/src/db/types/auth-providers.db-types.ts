@@ -1,6 +1,6 @@
 import type { Generated, Selectable } from "kysely";
 
-/** Auth door kind; "email" is the reserved credential-provider row (§2). */
+/** Auth provider kind; "email" is the reserved credential-provider row (§2). */
 export type AuthProviderKind = "email" | "google" | "oidc";
 
 /**
@@ -14,7 +14,7 @@ export function asProviderKind(value: string | null | undefined): AuthProviderKi
 }
 
 /**
- * One admin-managed sign-in door. Booleans are 0/1 integers (SQLite);
+ * One admin-managed sign-in provider. Booleans are 0/1 integers (SQLite);
  * `registrationEnabled` NULL means the legacy dynamic gate (§2) and is only
  * legal on the `email` row — OIDC rows always carry an explicit 0/1.
  */

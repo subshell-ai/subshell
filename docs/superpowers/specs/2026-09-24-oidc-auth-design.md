@@ -27,17 +27,17 @@ The operator's requirements, stated 2026-09-24 and not up for re-deciding:
 
 ## 1. Which plugin, and why not the other one
 
-better-auth 1.7.1 ships two OIDC doors. The **SSO plugin** is the
+better-auth 1.7.1 ships two OIDC mechanisms. The **SSO plugin** is the
 enterprise-shaped one: providers resolved by *email domain*
 (`POST /sso/sign-in` takes an email and picks the provider), organization
 tenancy, SAML, verified-domain membership rules. Our model is the opposite —
-an admin-curates-a-list product, and the door is a **button on the login page**
+an admin-curates-a-list product, and the provider is a **button on the login page**
 resolved by provider id. The **genericOAuth plugin** is the right shape:
 `signIn.social` / `linkSocial` from the client, callback at
 `{baseURL}/api/auth/callback/:providerId`, per-provider `providerId` +
 `clientId` + `clientSecret` + discovery (`discoveryUrl`, or explicit
 authorization/token/userInfo URLs for non-discovering issuers), and
-`mapProfileToUser` / `getUserInfo` profile hooks. Door policy is NOT
+`mapProfileToUser` / `getUserInfo` profile hooks. Provider policy is NOT
 per-provider: 1.7.1 has no `validateUserInfo` on the genericOAuth config
 (measured — the member does not exist); the gate is the **global**
 `user.validateUserInfo` (§3).
@@ -60,16 +60,16 @@ New table `auth_providers` — migration `0037-auth-providers.ts` in
 | `issuer` | OIDC issuer; discovery is `{issuer}/.well-known/openid-configuration`. Null for `email` |
 | `client_id` / `client_secret` | Null for `email`. The secret lives in the 0600 DB file — the same posture as setup keys, which are stored in plaintext to their creator |
 | `enabled` | master switch — a disabled provider is not offered and not built |
-| `entry_origins` | the hosts this provider's door can round-trip through — an admin-curated LIST of origins (§5a). Each admits `{origin}/api/auth/callback/{id}`; the first is the canonical fallback. Null on `email` rows |
-| `allowed_domains` | optional comma-separated email domains (`acme.com, acme.io`); null/empty = any. When set, an email outside the list cannot use this door at all — link, sign-in or create (§5) |
-| `sign_in_enabled` | offer the door to existing accounts |
-| `registration_enabled` | allow the door to CREATE accounts; nullable on the `email` row only — null = the legacy "open while no users exist" dynamic (§2) |
+| `entry_origins` | the hosts this provider's provider can round-trip through — an admin-curated LIST of origins (§5a). Each admits `{origin}/api/auth/callback/{id}`; the first is the canonical fallback. Null on `email` rows |
+| `allowed_domains` | optional comma-separated email domains (`acme.com, acme.io`); null/empty = any. When set, an email outside the list cannot use this provider at all — link, sign-in or create (§5) |
+| `sign_in_enabled` | offer the provider to existing accounts |
+| `registration_enabled` | allow the provider to CREATE accounts; nullable on the `email` row only — null = the legacy "open while no users exist" dynamic (§2) |
 | `require_approval` | accounts this provider CREATES start `pending` (§4) |
 
 `position` (integer) governs list order — SQLite's natural order is not a
 promise — and the dialog's list editor reorders it. `created_at` /
 `updated_at` as everywhere else. The E-mail row can never be deleted — it is
-the fallback door and the carrier of the bootstrap semantics; it is toggled,
+the fallback provider and the carrier of the bootstrap semantics; it is toggled,
 not removed. Delete offers only OIDC rows.
 
 **`registration_enabled` is nullable, and null means "legacy dynamic".** Its
@@ -80,7 +80,7 @@ null means open iff no real accounts exist — the deliberate
 "open-exactly-until-someone-arrives" bootstrap, which closes itself behind
 the first user. A static `true` default would have **frozen that window
 open**: the 2026-09-13 fail-closed change would silently regress on every
-fresh install, leaving the email door LAN-open after the wizard until an
+fresh install, leaving the email provider LAN-open after the wizard until an
 admin noticed. (Operator ruling 2026-09-24, upholding the old gate's meaning
 through the migration.)
 
@@ -97,7 +97,7 @@ one); the old key becomes dead data, harmless. The Auth page's E-mail toggle dis
 decision (the column value, or its null-expansion) and persists a real
 boolean on first touch.
 
-## 3. How the config reaches better-auth, and where door policy lives
+## 3. How the config reaches better-auth, and where provider policy lives
 
 `AUTH_OPTIONS.plugins` gains `genericOAuth`. Its `config` is a **static array
 built when the auth instance is constructed** — the docs show no per-request
@@ -113,7 +113,7 @@ provider whose discovery fetch fails **throws at plugin init** unless
 `accountIssuer` is set ("Provider initialization stopped to keep its account
 issuer stable"), and `AUTH_OPTIONS` is also handed to `runAuthMigrations` —
 which runs before listen. So one drifted issuer would crash-loop the **whole
-plane, boot and migrations included**, not just one door. Three defenses:
+plane, boot and migrations included**, not just one provider. Three defenses:
 every config entry sets `accountIssuer` = the stored issuer; the save path
 persists the discovery-resolved `authorizationUrl` / `tokenUrl` /
 `userInfoUrl` alongside it, so a rebuild never re-fetches a dead issuer (an
@@ -123,7 +123,7 @@ validate-before-save (create/update fetches
 stays, so most failure modes never get stored. A rebuild that throws anyway
 falls back to the last-good instance rather than taking requests down.
 
-**Door policy is one global seam: `user.validateUserInfo` (measured).** The
+**Provider policy is one global seam: `user.validateUserInfo` (measured).** The
 hook is `options.user.validateUserInfo`, **not** per-provider — 1.7.1's
 genericOAuth config has no such member. It receives `{ source, action,
 profile }`: `action` is `create-user | link-account | sign-in`;
@@ -135,13 +135,13 @@ becomes the 403 `code`, and on the OAuth path the callback redirects with
 inside the hook fails closed** (`validation_failed` 403). Everything the
 provider table decides rides here, branching on method + providerId + action:
 
-- per-door **registration** — `create-user` consults that door's
+- per-provider **registration** — `create-user` consults that provider's
   `registration_enabled` (the email row's null-dynamic included);
 - the **domain gate** (§5) — all three actions;
 - **pending / rejected** (§4) — `sign-in` and `link-account`, reading the
   email-matched user's `approval_state` from the app DB;
-- the E-mail door's **`sign_in_enabled`** (§7) — `email-password` +
-  `sign-in`, so a closed door refuses at the API, not just in the UI.
+- the E-mail provider's **`sign_in_enabled`** (§7) — `email-password` +
+  `sign-in`, so a closed provider refuses at the API, not just in the UI.
 
 **`user.create.before` keeps only name normalization** — its current
 registration-gate refusal MUST move to the hook above. The hook cannot stay
@@ -149,7 +149,7 @@ as the email gate: it receives the user row with **no method or provider**
 (measured) and fires for OAuth-created users too, so "consult the email row"
 there would refuse every Google-provisioned account the moment an admin
 closed email registration — the natural OIDC-only configuration would zero
-out the very door it configured. Admin `POST /api/users` is unaffected
+out the very provider it configured. Admin `POST /api/users` is unaffected
 either way (direct insert, never the sign-up route).
 
 ## 4. Sign-in, creation, and approval
@@ -169,7 +169,7 @@ named at each step (all measured on the installed 1.7.1):
   email whose user does not exist) → the account IS created (the queue needs
   a row), and `databaseHooks.account.create.after` — the only OAuth seam
   carrying `providerId` at creation time (`user.create.after` fires before
-  the account row exists, door-blind) — marks the new user
+  the account row exists, provider-blind) — marks the new user
   `approval_state = pending` and undoes any first-admin promotion the
   creation just wrote (§6). The session then fails at
   `session.create.before` (extended to pending), which surfaces as a
@@ -223,7 +223,7 @@ Amended during build (2026-09-24): the shipped seam is the after hook's
 actor proof: the response's own `session_token` cookie resolves to a row in
 the `session` table. An intermediate formulation, "the redirect's Location
 carries no `error=`", was REMOVED: it made the audit row self-suppressible
-(any holder of a door credential could complete a real sign-in with a
+(any holder of a provider credential could complete a real sign-in with a
 `callbackURL` containing `error=` and write nothing), and matrix case 13
 pins the poisoned shape against the row. On the shipped dist facts the
 cookie mint is reached only by successes, so the cookie test alone carries
@@ -240,7 +240,7 @@ The link rule is bidirectional-asymmetric, by decision:
   `signUp.email` refuses any existing email, and `POST /api/users` 409s on a
   UNIQUE violation — but today it is a happy accident of a unique index, not
   a stated rule. It must hold explicitly against **pending** arrivals (the
-  person denied approval cannot enter through the password door), and it gets
+  person denied approval cannot enter through the password provider), and it gets
   a test pinning it so no future change mistakes it for slack.
 - Admin user creation keeps its generic 409 (an admin typing an email that
   exists does not need a provider name back; it discloses account existence
@@ -254,9 +254,9 @@ better-auth's link/create decision — the global `validateUserInfo` (§3) sees
 all three actions and carries `source.oauth.providerId`, so the check rides
 there and refuses whatever it contradicts: no link, no create, no pending
 row, the generic refusal. That includes a pre-existing linked
-account: a door whose domains stop matching stops letting its own linked
-users in — a door policy, consistent with `sign_in_enabled` turning the same
-door off for everyone. For a Google Workspace company this is the difference
+account: a provider whose domains stop matching stops letting its own linked
+users in — a provider policy, consistent with `sign_in_enabled` turning the same
+provider off for everyone. For a Google Workspace company this is the difference
 between "anyone on Earth with a Google account can knock" and "your staff
 can enter," and many instances will prefer it to require-approval.
 
@@ -329,7 +329,7 @@ one:
   copy-all block — so the admin pastes the whole list at the IdP in one
   pass. Shown live while filling (the provider id is the name slug) and
   again in the edit dialog. Adding an entry warns it must be registered at
-  the IdP before that host's door works; removing one warns the reverse.
+  the IdP before that host's provider works; removing one warns the reverse.
 - A fresh instance's only option is usually `http://127.0.0.1:3080` —
   Google accepts `http://localhost` redirect URIs for development, so the
   selector normalizes the loopback spelling to what the IdP will accept and
@@ -357,11 +357,11 @@ into the URL — a function value would be serialized into the request, never
 called; no call site for a callable `redirectURI` exists in either package).
 So every round trip emits the STORED CANONICAL entry (list position 0), and
 the extra entries exist so the hosts are registered at the IdP the moment
-the door can follow the visitor there. `pickEntryOrigin` ships as the
+the provider can follow the visitor there. `pickEntryOrigin` ships as the
 membership rule §5a defines — kept and tested as the PIN for the day that
 capability lands (the swap is a config expression in `buildAuth`, not a
 redesign) — and flow-matrix case 14 records the `redirect_uri` the IdP
-ACTUALLY receives for a multi-entry door. The dialog's finish-the-setup
+ACTUALLY receives for a multi-entry provider. The dialog's finish-the-setup
 sentence was corrected to this shipped truth (it promised per-host round
 trips, which would send an admin chasing entries that do nothing today).
 
@@ -370,7 +370,7 @@ learns which buttons to draw from `GET /api/settings/instance`, whose body
 gains `providers: [{ id, name, kind }]` — public facts only, no secrets in any
 shape. The existing key-set-pinning test grows to pin the nested array shape,
 and the "the one anonymous read" rule in `security-context.md` is amended to
-say the read is one route that also names the doors.
+say the read is one route that also names the providers.
 
 ## 6. Pending state, and what must not see it
 
@@ -416,7 +416,7 @@ The pending list is a separate admin-only read: `GET /api/users/pending`
 pending or rejected, which the admin column shows). Members are never told
 who is pending.
 
-**Pending-row lifecycle** — an open Google door means anyone with a Google
+**Pending-row lifecycle** — an open Google provider means anyone with a Google
 account can knock, so the tab must not be an unbounded junkyard:
 
 - **Dedup by email.** A callback whose email matches a `pending` or
@@ -425,7 +425,7 @@ account can knock, so the tab must not be an unbounded junkyard:
   table anyway, so this is better-auth's existing find-or-create behavior
   with the timestamp touch added.)
   Amended during build (2026-09-24), recorded final-review: the shipped
-  `evaluateDoorPolicy` re-stamps ONLY a `pending` row. A `rejected` arrival
+  `evaluateProviderPolicy` re-stamps ONLY a `pending` row. A `rejected` arrival
   answers the identical code but is not waiting on anyone (rejection never
   expires, §6), and re-stamping it would drag a resolved rejection back to
   the top of the queue's newest-first view — the knock timestamp is queue
@@ -443,7 +443,7 @@ account can knock, so the tab must not be an unbounded junkyard:
   renders a provider id with no live row as "removed provider" rather than
   falling over.
 - **Rejected never expires.** Rejection is an explicit admin decision and
-  must not silently reopen the door on a timer; rejected rows persist until
+  must not silently reopen the provider on a timer; rejected rows persist until
   an admin approves or deletes them. No pile-up risk: dedup keeps knockers
   on their one row.
 
@@ -455,19 +455,19 @@ not the fetch-style call — `authClient.signIn.social({ provider, callbackURL,
 errorCallbackURL })`; the error target is `/login`, which maps
 `?error=pending_approval` onto `/pending` per §4). E-mail sign-in itself is
 hidden when the email row's `sign_in_enabled` is off, and the passkey button
-hides with it, since passkeys are credential accounts. A hidden door is not
+hides with it, since passkeys are credential accounts. A hidden provider is not
 a closed one: the flag is enforced at the API through `validateUserInfo`
 (§3), and the plan must verify the passkey-verify path obeys it too — if
 `validateUserInfo` does not fire there, a path-specific `hooks.before` guard
 consulting the same row is mandatory, not optional (the invariant: a closed
-E-mail door refuses `sign-in/email` and passkey verify at the server). If NO
-door is open, the page says so rather than showing an empty card.
-Amended during build (2026-09-24): the button label is the door's NAME for
+E-mail provider refuses `sign-in/email` and passkey verify at the server). If NO
+provider is open, the page says so rather than showing an empty card.
+Amended during build (2026-09-24): the button label is the provider's NAME for
 every kind, not "Sign in with <kind>": `kind` is a PRESET (which endpoints
 and prefills), the id slug is the unique thing, and N rows of one kind are
 legal (several Google Workspaces); kind-first labels would render two Google
 rows indistinguishable, and a mis-click lands on the wrong IdP's consent
-screen. Doors sharing an `accountIssuer` still land the same Google person
+screen. Providers sharing an `accountIssuer` still land the same Google person
 on one account.
 
 **`/pending?email=…`**: a third bare frame beside `/login` and `/setup`
@@ -486,23 +486,23 @@ copy-panel per §5a**, an optional allowed-domains field, the
 three toggles with one sentence of
 help each (design-system rule: every control's self-explanation is `detail`,
 max two sentences), and the discovery-validation error rendered inline on the
-failing field. Deleting a provider stops offering the door; it never touches
-user or account rows — a linked person simply loses that door (email login
+failing field. Deleting a provider stops offering the provider; it never touches
+user or account rows — a linked person simply loses that provider (email login
 survives if they have a credential). A confirm dialog says so. The dialog
 carries the one-line trust warning from §5.
 
 **Discovery is badge-only, by decision:** a new pending arrival pushes
-nothing to admins — no new push plumbing, and an open Google door would
+nothing to admins — no new push plumbing, and an open Google provider would
 otherwise push drive-by knocks. The Pending tab's count badge (and the
 Needs Attention rail, which reads it) is the signal.
 
-**The last door cannot be closed.** A provider write that would leave zero
-enabled providers with `sign_in_enabled` — disabling the last door,
-deleting it, or closing E-mail sign-in while every OIDC door is closed — is
+**The last provider cannot be closed.** A provider write that would leave zero
+enabled providers with `sign_in_enabled` — disabling the last provider,
+deleting it, or closing E-mail sign-in while every OIDC provider is closed — is
 refused with a **409 naming itself**, before anything is saved; the dialog
 shows the reason. The escape hatch of last resort is unchanged from today:
 `SUBSHELL_EMERGENCY_PASSWORD` + `config.env` from the CLI. (The guard counts
-doors, not users — asking "does any remaining admin have a way in" would
+providers, not users — asking "does any remaining admin have a way in" would
 need per-user join logic for a question the simple form already prevents.)
 
 **Users page** (`routes/settings_.users.tsx`): gains its first tabs —
@@ -526,17 +526,21 @@ machine credentials never manage auth), the same gate as `/api/users`:
 
 - `GET /` admin list (secrets never serialized — the list carries a boolean
   `hasSecret` and the client id, never the secret; edit dialog re-enters it).
-- `POST /`, `PATCH /:id`, `DELETE /:id` — validation per §2/§3 (discovery
-  probe on create and on any edit that changes issuer/client id; an edit that
-  changes no issuer-bearing field skips the probe), each invalidates the auth
-  singleton on success, each audited.
-- `POST /test` — optional in-dialog "verify credentials" that runs the
-  discovery probe without saving. Cuts a half-broken provider before it
-  exists. The token-endpoint check rides as a client-credentials probe ONLY
-  where offered — Google web clients refuse that grant, so for the Google
-  preset (and any issuer whose metadata omits the grant) it is skipped and
-  the discovery result is the whole answer, reported as such rather than as
-  a failure.
+- `POST /`, `PATCH /:id`, `DELETE /:id` — validation per §2/§3. **THE SAVE IS
+  THE VERIFICATION** (amended by operator ruling 2026-09-25, which deleted the
+  planned `POST /test` probe route: a save that refuses before writing costs a
+  retry, not a broken row, and the in-dialog button only duplicated the
+  answer). Create, and any edit that changes issuer, client id or secret, runs
+  discovery against the effective issuer (400 `DISCOVERY_FAILED`, nothing
+  written) and — where the discovery metadata advertises the
+  `client_credentials` grant — ONE real token request with the offered pair
+  (400 `CREDENTIALS_REJECTED`; the token response body is never read into the
+  answer, and the secret never enters a message). An edit that changes none of
+  those three skips the verification. The soft ladder is the original one,
+  moved: Google web clients refuse that grant, so for the Google preset (and
+  any issuer whose metadata omits the grant) there is NO token call and the
+  discovery result is the whole answer. Each success invalidates the auth
+  singleton; each is audited.
 
 `GET /api/users/pending` and `PATCH /api/users/:id/approval` (body
 `{ "approvalState": "approved" | "rejected" }`). Cookie-admin, same
@@ -554,7 +558,7 @@ convention, provider id).
 
 ## 9. Passkeys, sessions, and what does NOT change
 
-- Passkeys ride the E-mail provider's doors: they are credential accounts;
+- Passkeys ride the E-mail provider's providers: they are credential accounts;
   no separate toggle. Registration via the setup wizard is untouched.
 - Session cookie, backoff, break-glass, `accountDisabled` (with its socket
   sweeps), trusted-origin machinery: unchanged. A pending person never had a
@@ -600,13 +604,13 @@ better-auth's code, not ours):
   `!trusted && !emailVerified` gate answers first with the generic
   `account_not_linked` (matrix case 9 pins the wire code), and the hook
   branch is reachable only via `/link-social` (unit-pinned in
-  `door-policy.test.ts`). Both layers stand as designed; what moved is which
+  `provider-policy.test.ts`). Both layers stand as designed; what moved is which
   one speaks on which seam.
-- Door-policy hook shape: rejection returns `{ error }` and surfaces that
+- Provider-policy hook shape: rejection returns `{ error }` and surfaces that
   code; a throwing hook fails closed; the branch is keyed on
   `source.method` + `providerId` (a test drives email-password and two
-  providers and asserts each got its own door's rules).
-- Closed E-mail door refuses `POST /api/auth/sign-in/email` at the SERVER,
+  providers and asserts each got its own provider's rules).
+- Closed E-mail provider refuses `POST /api/auth/sign-in/email` at the SERVER,
   not just the UI; passkey verify refuses too (whichever seam §7 chose).
 - Boot resilience: with a stored provider whose issuer has stopped answering
   discovery, the server still boots, migrates, and signs people in by
@@ -636,7 +640,7 @@ better-auth's code, not ours):
   (1.7.1's `redirectURI` is a static config string — see §5a's amendment),
   and the tests are what that truth needs rather than what this bullet
   promised: flow-matrix case 14 records the ACTUAL `redirect_uri` arriving
-  at the fake IdP for a door whose list is [not-this-host canonical,
+  at the fake IdP for a provider whose list is [not-this-host canonical,
   this-host] — byte-identically the canonical entry, never the request's
   origin — and completes the round trip on it; `provider-rows.test.ts`
   exercises every `pickEntryOrigin` membership branch as the reserved rule's
@@ -651,8 +655,8 @@ better-auth's code, not ours):
   user_meta + defensive session/verification, and the user-owned
   `device_tokens`/`favorites` rows cascade rather than join the refusal set)
   but never a `rejected` row; `0` disables the timer.
-- Last-door guard: closing the final `sign_in_enabled` door 409s and saves
-  nothing; opening a second door first makes the same edit succeed.
+- Last-provider guard: closing the final `sign_in_enabled` provider 409s and saves
+  nothing; opening a second provider first makes the same edit succeed.
 
 Verification per repo rules: `bun run verify-types`, `bun run lint:check`,
 `bun run test` — and the spec's changes to `docs/security.md` + both rules
@@ -681,15 +685,15 @@ files land in the same change, not as a follow-up.
 8. **Email registration refuses a claimed email explicitly**, including
    pending arrivals, with a message that says what to do (§5).
 9. **Pending expires (default 30 days, admin-set); rejected never does** —
-   an open Google door knocks forever, an admin decision must not decay on a
+   an open Google provider knocks forever, an admin decision must not decay on a
    timer (§6).
 10. **Admins learn via badge, not push** — drive-by knocks must not page
     anyone (§7).
-11. **The last sign-in door cannot be closed** (409, break-glass unchanged)
+11. **The last sign-in provider cannot be closed** (409, break-glass unchanged)
     — an instance with no way in is a support incident, not a feature (§7).
-12. **Providers can be domain-scoped**, and the gate binds the door itself —
+12. **Providers can be domain-scoped**, and the gate binds the provider itself —
     a non-matching email never becomes a pending row, and a linked account
-    outside the domains loses that door (§5).
+    outside the domains loses that provider (§5).
 13. **Each provider carries a LIST of entry origins**, the round trip
     follows the visitor among them (canonical fallback otherwise), the
     emitted redirect URI is always a stored string matched by membership,
@@ -700,13 +704,13 @@ files land in the same change, not as a follow-up.
     `emailVerified = false`, measured); the price is that the provider's
     verified claim becomes THE link defense, which is why it, the domain
     gate, and the admin-only trust decision stand together (§5).
-15. **All door policy lives in one global `user.validateUserInfo` hook** —
-    1.7.1 has no per-provider hook and `user.create.before` is door-blind
+15. **All provider policy lives in one global `user.validateUserInfo` hook** —
+    1.7.1 has no per-provider hook and `user.create.before` is provider-blind
     (both measured); the hook branches on method + providerId + action, and
     its throw-fails-closed shape is relied on, not rediscovered (§3).
 16. **Multiple same-kind providers are legal and buttons label by NAME**
     (added during build, 2026-09-24): `kind` is a preset, the id slug is
     the unique identity, several Google Workspaces may coexist as rows, and
     the shared `accountIssuer` is what lands one person on one account
-    across doors; a kind-first label would make the rows a mis-click lottery
+    across providers; a kind-first label would make the rows a mis-click lottery
     (§7).

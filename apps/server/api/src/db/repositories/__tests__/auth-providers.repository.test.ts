@@ -36,13 +36,13 @@ describe("AuthProvidersRepository", () => {
     const positions = rows.map((r) => r.position);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
-  test("openSignInDoorCount counts enabled+signInEnabled rows only", async () => {
-    const before = await repo.openSignInDoorCount();
-    const id = `test-door-${crypto.randomUUID().slice(0, 8)}`;
-    await repo.create({ id, kind: "oidc", name: "Door", signInEnabled: 1, enabled: 1 });
-    expect(await repo.openSignInDoorCount()).toBe(before + 1);
+  test("openSignInProviderCount counts enabled+signInEnabled rows only", async () => {
+    const before = await repo.openSignInProviderCount();
+    const id = `test-provider-${crypto.randomUUID().slice(0, 8)}`;
+    await repo.create({ id, kind: "oidc", name: "Provider", signInEnabled: 1, enabled: 1 });
+    expect(await repo.openSignInProviderCount()).toBe(before + 1);
     await repo.update(id, { signInEnabled: 0 });
-    expect(await repo.openSignInDoorCount()).toBe(before);
+    expect(await repo.openSignInProviderCount()).toBe(before);
     await repo.remove(id);
   });
 });

@@ -102,10 +102,10 @@ export function signInDiagnosis(opts: { inServerApp: boolean; protocol: string }
  * What the login page makes of a failed OAuth round trip (spec 2026-09-24 §4).
  *
  * better-auth returns to `errorCallbackURL` (this page) with
- * `?error=<code>&error_description=<text>` appended; the door policy's refusal
+ * `?error=<code>&error_description=<text>` appended; the provider policy's refusal
  * codes are stable wire strings, and two of them earn a special reading here.
  * Everything else is still RENDERED (final review, Important 2 — it used to
- * render nothing): a domain-gate, registration-closed or door-closed refusal
+ * render nothing): a domain-gate, registration-closed or provider-closed refusal
  * and the provider's own message are the honest answer for that trip, and a
  * visitor back on a pristine login page with zero feedback after a full IdP
  * round trip was indistinguishable from a page that ignored their click.
@@ -118,7 +118,7 @@ export type AuthErrorDecision =
   /**
    * A refusal this page has no special reading for, but the trip really
    * carried a code: the sanitized sentence is what gets shown above the
-   * door block (`error_description` as TEXT, never as an address — that
+   * provider block (`error_description` as TEXT, never as an address — that
    * reading belongs to `pending_approval` alone).
    */
   | { kind: "refused"; message: string }
@@ -127,7 +127,7 @@ export type AuthErrorDecision =
 
 /**
  * The one sentence for every round trip that produced no session but cannot
- * say which door policy refused it (spec §4's honest line, rewritten to two
+ * say which provider policy refused it (spec §4's honest line, rewritten to two
  * sentences: UI copy carries no em dash).
  */
 export const SIGN_IN_UNABLE =
@@ -170,7 +170,7 @@ export function signInButtonLabel(provider: { name: string }): string {
  *
  * Pure by construction: it reads only the params passed in, so every shape is
  * testable without a router, a DOM, or a clock. `error_description` is the
- * door policy's email ONLY for `pending_approval` — other codes carry free
+ * provider policy's email ONLY for `pending_approval` — other codes carry free
  * text, which is rendered as prose (sanitized, capped) and never treated as
  * an address. A description with NO `error` code is a stray param, not a
  * round trip: nothing renders (`none`), because there is no refusal to name.

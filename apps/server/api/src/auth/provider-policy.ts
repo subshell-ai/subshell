@@ -9,25 +9,25 @@ import type { Database } from "@/db/types/index.js";
 import { registrationOpen } from "@/services/registration-gate.js";
 
 /** Actions better-auth's `user.validateUserInfo` hook can fire for. */
-export type DoorAction = "create-user" | "link-account" | "sign-in";
-/** How the caller authenticated: an OAuth/OIDC door or the email/password door. */
-export type DoorMethod = "oauth" | "email-password";
+export type ProviderAction = "create-user" | "link-account" | "sign-in";
+/** How the caller authenticated: an OAuth/OIDC provider or the email/password provider. */
+export type ProviderMethod = "oauth" | "email-password";
 
-export interface DoorPolicyInput {
-  action: DoorAction;
-  method: DoorMethod;
+export interface ProviderPolicyInput {
+  action: ProviderAction;
+  method: ProviderMethod;
   /** oauth only: the providerId from source.oauth.providerId. */
   providerId?: string;
   email: string;
   emailVerified: boolean;
-  /** The resolved door row; `null` = providerId not configured/enabled. */
-  door: {
+  /** The resolved provider row; `null` = providerId not configured/enabled. */
+  provider: {
     signInEnabled: boolean;
     registrationEnabled: boolean | null;
     requireApproval: boolean;
     allowedDomains: string[];
   } | null;
-  /** For the `email` door only: the caller resolves the null-dynamic via
+  /** For the `email` provider only: the caller resolves the null-dynamic via
    * `registrationOpen()` and passes the ANSWER here — the pure function never
    * counts users. */
   emailRegistrationOpen?: boolean;
@@ -35,35 +35,35 @@ export interface DoorPolicyInput {
   existingState: "approved" | "pending" | "rejected" | null;
 }
 
-export interface DoorRefusal {
+export interface ProviderRefusal {
   error: string;
   errorDescription?: string;
 }
 
 /**
- * The door policy, pure (spec 2026-09-24 §3–§5). Everything the provider
+ * The provider policy, pure (spec 2026-09-24 §3–§5). Everything the provider
  * table decides is decided HERE, in one ordered cascade, because 1.7.1 has
  * ONE global `user.validateUserInfo` hook (no per-provider hook exists —
  * measured) and every policy question arrives as
  * `{ user, source: { action, method, oauth?: { providerId, profile? } } }`
- * — the measured shape, spelled out on {@link DoorValidationData} below;
- * the caller unpacks it into {@link DoorPolicyInput} before this runs.
+ * — the measured shape, spelled out on {@link ProviderValidationData} below;
+ * the caller unpacks it into {@link ProviderPolicyInput} before this runs.
  *
- * Order matters and is the spec's own: door (exists + open) → domain →
+ * Order matters and is the spec's own: provider (exists + open) → domain →
  * non-approved existing → unverified link → per-action registration.
  * Refusal strings are stable wire codes: `pending_approval` in particular is
  * what the login page maps onto `/pending` (§4), so a rename is a UI bug.
  */
-export function decideDoorPolicy(i: DoorPolicyInput): DoorRefusal | undefined {
-  if (i.door === null || !i.door.signInEnabled) return { error: "door_closed" };
-  if (!domainAllowed(i.door.allowedDomains, i.email)) return { error: "domain_not_allowed" };
+export function decideProviderPolicy(i: ProviderPolicyInput): ProviderRefusal | undefined {
+  if (i.provider === null || !i.provider.signInEnabled) return { error: "provider_closed" };
+  if (!domainAllowed(i.provider.allowedDomains, i.email)) return { error: "domain_not_allowed" };
   if (i.existingState === "pending" || i.existingState === "rejected")
     return { error: "pending_approval", errorDescription: i.email };
   if (i.action === "link-account" && !i.emailVerified) return { error: "unverified_email" };
   if (i.action === "create-user") {
     if (i.method === "email-password") {
       if (i.emailRegistrationOpen !== true) return { error: "registration_closed" };
-    } else if (i.door.registrationEnabled === false) {
+    } else if (i.provider.registrationEnabled === false) {
       return { error: "registration_closed" };
     }
     // requireApproval needs NO branch: the row is created (the queue IS the
@@ -88,18 +88,18 @@ export function domainAllowed(allowedDomains: readonly string[], email: string):
  * call sites, all read; there is no top-level `action`/`profile` member).
  * Typed as the upstream `ValidateUserInfoSource` so a better-auth upgrade
  * that renames a member fails typecheck here rather than silently reading
- * `undefined` and answering `door_closed` for everyone.
+ * `undefined` and answering `provider_closed` for everyone.
  */
-export interface DoorValidationData {
+export interface ProviderValidationData {
   user?: Record<string, unknown> | undefined;
   source?: ValidateUserInfoSource | undefined;
 }
 
 /** The three action spellings 1.7.1 fires; anything else reads as "sign-in". */
-const DOOR_ACTIONS: readonly string[] = ["create-user", "link-account", "sign-in"];
+const PROVIDER_ACTIONS: readonly string[] = ["create-user", "link-account", "sign-in"];
 
 /**
- * The DB-backed half: resolve the door, the email's existing state, and (only
+ * The DB-backed half: resolve the provider, the email's existing state, and (only
  * when the pure layer needs it) the E-mail gate, then answer. This is what
  * `AUTH_OPTIONS.user.validateUserInfo` runs; it also does the §6 `arrived_at`
  * touch on a pending refusal — validation hooks are allowed one write here
@@ -110,19 +110,19 @@ const DOOR_ACTIONS: readonly string[] = ["create-user", "link-account", "sign-in
  *
  * Two readings worth naming because they are decisions, not accidents:
  *
- * - A row that exists but says `enabled = 0` is NOT a door. `buildAuth` never
- *   builds a disabled door (so no callback route exists to fire this hook for
+ * - A row that exists but says `enabled = 0` is NOT a provider. `buildAuth` never
+ *   builds a disabled provider (so no callback route exists to fire this hook for
  *   one), but `evaluate` answers from the table, and the honest reading of a
- *   disabled row is `door_closed` whatever wrote it.
+ *   disabled row is `provider_closed` whatever wrote it.
  * - `registrationEnabled = NULL` is the legacy dynamic window ONLY for the
  *   email row. On an oidc row it is a hand edit (the route always writes an
  *   explicit 0/1), and the pure cascade's `=== false` would read NULL as
- *   open — so `resolveDoor` coerces it CLOSED on non-email rows.
+ *   open — so `resolveProvider` coerces it CLOSED on non-email rows.
  */
-export async function evaluateDoorPolicy(
+export async function evaluateProviderPolicy(
   db: Kysely<Database>,
-  data: DoorValidationData,
-): Promise<DoorRefusal | undefined> {
+  data: ProviderValidationData,
+): Promise<ProviderRefusal | undefined> {
   const user = (data.user ?? {}) as Record<string, unknown>;
   const email = String(user.email ?? "")
     .trim()
@@ -136,22 +136,24 @@ export async function evaluateDoorPolicy(
   const emailVerified =
     user.emailVerified === true || oauthProfile.email_verified === true || oauthProfile.emailVerified === true;
   const rawAction = data.source?.action;
-  const action: DoorAction = (DOOR_ACTIONS.includes(String(rawAction)) ? rawAction : "sign-in") as DoorAction;
+  const action: ProviderAction = (
+    PROVIDER_ACTIONS.includes(String(rawAction)) ? rawAction : "sign-in"
+  ) as ProviderAction;
 
   if (isOauth) {
     const providerId = data.source?.oauth?.providerId ?? "";
     const row = await new AuthProvidersRepository(db).getById(providerId);
-    // The email row is not an OAuth door (kind check = defence against a
+    // The email row is not an OAuth provider (kind check = defence against a
     // provider hand-configured under the id "email"); undefined = unconfigured.
-    const door = row === undefined || row.kind === "email" || row.enabled !== 1 ? null : resolveDoor(row);
+    const provider = row === undefined || row.kind === "email" || row.enabled !== 1 ? null : resolveProvider(row);
     const existingState = email === "" ? null : await stateByEmail(db, email);
-    const decision = decideDoorPolicy({
+    const decision = decideProviderPolicy({
       action,
       method: "oauth",
       providerId,
       email,
       emailVerified,
-      door,
+      provider,
       existingState,
     });
     // §6 dedup: a repeat knock on a still-pending arrival refreshes the
@@ -164,31 +166,31 @@ export async function evaluateDoorPolicy(
   }
 
   // Email-password sign-up (the measured email-password seam) — and any other
-  // non-oauth method — through the EMAIL door. better-auth spells further
+  // non-oauth method — through the EMAIL provider. better-auth spells further
   // methods ("anonymous", "phone-number", …) we have not enabled; enabling
-  // one later is a door-policy decision, and reading it as the email door
-  // fails toward the door admins can actually see and close.
+  // one later is a provider-policy decision, and reading it as the email provider
+  // fails toward the provider admins can actually see and close.
   const emailRow = await new AuthProvidersRepository(db).getById("email");
-  // `enabled !== 1` is no-door, the SAME reading the oauth branch gives a
+  // `enabled !== 1` is no-provider, the SAME reading the oauth branch gives a
   // disabled row. Reachable through the admin API, not just a hand edit: the
   // PATCH route's Enabled switch writes 0 on any row including this one
   // (final review corrected this comment — it used to claim "nothing writes
-  // 0", which the switch made false). A disabled row must read door_closed
-  // rather than opening a door the table says is shut.
-  const door = emailRow === undefined || emailRow.enabled !== 1 ? null : resolveDoor(emailRow);
+  // 0", which the switch made false). A disabled row must read provider_closed
+  // rather than opening a provider the table says is shut.
+  const provider = emailRow === undefined || emailRow.enabled !== 1 ? null : resolveProvider(emailRow);
   const existingState = email === "" ? null : await stateByEmail(db, email);
-  return decideDoorPolicy({
+  return decideProviderPolicy({
     action,
     method: "email-password",
     email,
     emailVerified,
-    door,
+    provider,
     existingState,
     emailRegistrationOpen: await registrationOpen(db),
   });
 }
 
-function resolveDoor(row: AuthProviderRow): DoorPolicyInput["door"] {
+function resolveProvider(row: AuthProviderRow): ProviderPolicyInput["provider"] {
   return {
     signInEnabled: row.signInEnabled === 1,
     registrationEnabled:
@@ -219,7 +221,7 @@ function resolveDoor(row: AuthProviderRow): DoorPolicyInput["door"] {
  * statement. No LIMIT: `email` is UNIQUE, and two rows would be a corruption
  * this read must not silently rank.
  */
-async function stateByEmail(db: Kysely<Database>, email: string): Promise<DoorPolicyInput["existingState"]> {
+async function stateByEmail(db: Kysely<Database>, email: string): Promise<ProviderPolicyInput["existingState"]> {
   if (email === "") return null;
   const r = await sql<{ state: string | null }>`
     SELECT m.approval_state AS state FROM user u

@@ -161,7 +161,7 @@ describe("Auth page pending-expiry card", () => {
     const { restore } = mockFetch(14, null);
     try {
       renderPage();
-      // The page itself renders — the doors table is on it — only the card
+      // The page itself renders — the providers table is on it — only the card
       // is absent.
       // The page itself renders — the header's admin action is on it — only
       // the card is absent.

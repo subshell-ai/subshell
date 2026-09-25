@@ -5,7 +5,7 @@ export const b2n = (value: boolean): number => (value ? 1 : 0);
 
 export const ProviderKindSchema = t.Union([t.Literal("email"), t.Literal("google"), t.Literal("oidc")], {
   description:
-    'Door kind: the reserved "email" credential row, or an OIDC/genericOAuth door ("google" is the preset id, driven the same way)',
+    'Provider kind: the reserved "email" credential row, or an OIDC/genericOAuth provider ("google" is the preset id, driven the same way)',
 });
 
 /** The POST body field set; PATCH is its Partial (id/kind immutable there). */
@@ -34,7 +34,7 @@ export const CreateProviderFieldsSchema = t.Object({
   entryOrigins: t.Optional(
     t.Array(t.String({ description: "One entry origin; http(s), bare host[:port], canonicalized to URL.origin" }), {
       description:
-        "Origins this door is reached from. When none are sent, the instance's own APP_BASE_URL origin is used; position 0 is the canonical one the redirect URI is built from (spec §5a)",
+        "Origins this provider is reached from. When none are sent, the instance's own APP_BASE_URL origin is used; position 0 is the canonical one the redirect URI is built from (spec §5a)",
     }),
   ),
   allowedDomains: t.Optional(
@@ -51,15 +51,17 @@ export const CreateProviderFieldsSchema = t.Object({
       },
     ),
   ),
-  enabled: t.Boolean({ description: "Master switch for this door" }),
-  signInEnabled: t.Boolean({ description: "Whether this door may sign accounts in" }),
+  enabled: t.Boolean({ description: "Master switch for this provider" }),
+  signInEnabled: t.Boolean({ description: "Whether this provider may sign accounts in" }),
   registrationEnabled: t.Optional(
     t.Boolean({
       description:
-        "Whether this door may create accounts. Omitted on create means false; OIDC rows always carry an explicit value (spec §2)",
+        "Whether this provider may create accounts. Omitted on create means false; OIDC rows always carry an explicit value (spec §2)",
     }),
   ),
-  requireApproval: t.Boolean({ description: "Whether accounts created through this door land on pending (spec §6)" }),
+  requireApproval: t.Boolean({
+    description: "Whether accounts created through this provider land on pending (spec §6)",
+  }),
 });
 
 /** PATCH /api/auth-providers/:id body: a partial of the create fields. */

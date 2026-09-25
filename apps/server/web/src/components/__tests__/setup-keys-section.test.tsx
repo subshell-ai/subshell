@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { setConfirmHandler } from "@internal/node-admin";
+import { type ConfirmOptions, setConfirmHandler } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SetupKeysSection } from "@/components/nodes/setup-keys-section";
@@ -28,12 +28,10 @@ const PAST = new Date(Date.now() - 60 * 1000).toISOString();
 function mockKeys(rows: Row[], opts: { viewerIsAdmin?: boolean; allRows?: Row[] } = {}) {
   const deletes: string[] = [];
   const gets: string[] = [];
-  const confirmations: {
-    title: string;
-    description?: string;
-    confirmLabel?: string;
-    danger?: boolean;
-  }[] = [];
+  // The package's own options type, not a re-declared shape: `description`
+  // grew to ReactNode (effect-list prompts) and a local copy silently
+  // diverged (2026-09-25).
+  const confirmations: ConfirmOptions[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");

@@ -7,12 +7,12 @@ import { AuthProvidersRepository } from "@/db/repositories/auth-providers.reposi
 /** GET /api/auth-providers response. */
 const ListResponseSchema = t.Object({
   providers: t.Array(ProviderViewSchema, {
-    description: "Every door row, stored order (position, then id) — the email row first",
+    description: "Every provider row, stored order (position, then id) — the email row first",
   }),
 });
 
 /**
- * `GET /api/auth-providers` — every door row for the admin table (cookie-admin
+ * `GET /api/auth-providers` — every provider row for the admin table (cookie-admin
  * only). The client secret is never serialized; hasSecret says whether one is
  * stored.
  */

@@ -1,7 +1,7 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
 import { requireAdmin } from "@/api/auth-guard.js";
-import { LAST_DOOR_MESSAGE } from "@/api/auth-providers/provider-inputs.js";
+import { LAST_PROVIDER_MESSAGE } from "@/api/auth-providers/provider-inputs.js";
 import { invalidateAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
@@ -12,14 +12,14 @@ import { audit } from "@/services/audit.js";
 /** DELETE /api/auth-providers/:id response — a body, not a bare 204: the SPA parses it. */
 const DeleteResponseSchema = t.Object({
   ok: t.Literal(true, {
-    description: "The door row is gone; users and accounts it once created are untouched (spec §7)",
+    description: "The provider row is gone; users and accounts it once created are untouched (spec §7)",
   }),
 });
 
 /**
- * `DELETE /api/auth-providers/:id` — deletes a door (cookie-admin only). The
+ * `DELETE /api/auth-providers/:id` — deletes a provider (cookie-admin only). The
  * reserved email row is refused with 400 EMAIL_ROW_UNDELETABLE, and deleting
- * the only open door is refused with 409 LAST_SIGN_IN_DOOR. Accounts the door
+ * the only open provider is refused with 409 LAST_SIGN_IN_PROVIDER. Accounts the provider
  * created are untouched.
  */
 export const deleteProviderRoute = new Elysia()
@@ -35,7 +35,7 @@ export const deleteProviderRoute = new Elysia()
           apiErrorBody({
             code: BackendErrorCodes.EMAIL_ROW_UNDELETABLE,
             message:
-              "The E-mail door can be closed but never deleted. Turn it off instead, and only while another door is open.",
+              "The E-mail provider can be closed but never deleted. Turn it off instead, and only while another provider is open.",
           }),
         );
       }
@@ -47,11 +47,14 @@ export const deleteProviderRoute = new Elysia()
         );
       }
       // Guard + delete in ONE transaction (the PATCH guard's shape): the
-      // pre-read above answers 404 and the audit's issuer, but the open-door
+      // pre-read above answers 404 and the audit's issuer, but the open-provider
       // arithmetic must not trust a snapshot a concurrent write may move.
-      const outcome = await repo.deleteGuardingLastDoor(params.id);
-      if (outcome === "last_door") {
-        return status(409, apiErrorBody({ code: BackendErrorCodes.LAST_SIGN_IN_DOOR, message: LAST_DOOR_MESSAGE }));
+      const outcome = await repo.deleteGuardingLastProvider(params.id);
+      if (outcome === "last_provider") {
+        return status(
+          409,
+          apiErrorBody({ code: BackendErrorCodes.LAST_SIGN_IN_PROVIDER, message: LAST_PROVIDER_MESSAGE }),
+        );
       }
       if (outcome === "not_found") {
         return status(
@@ -59,8 +62,8 @@ export const deleteProviderRoute = new Elysia()
           apiErrorBody({ code: BackendErrorCodes.PROVIDER_NOT_FOUND, message: `No auth provider "${params.id}".` }),
         );
       }
-      // Users and accounts the door created stay (spec §7) — deleting the
-      // door removes the WAY in, not the people already in.
+      // Users and accounts the provider created stay (spec §7) — deleting the
+      // provider removes the WAY in, not the people already in.
       invalidateAuth();
       await audit({
         actorUserId: user.id,
@@ -74,7 +77,7 @@ export const deleteProviderRoute = new Elysia()
       return { ok: true } as const;
     },
     {
-      params: t.Object({ id: t.String({ description: "Id slug of the door to delete" }) }),
+      params: t.Object({ id: t.String({ description: "Id slug of the provider to delete" }) }),
       response: {
         200: DeleteResponseSchema,
         400: "ApiErrorResponse",
@@ -87,7 +90,7 @@ export const deleteProviderRoute = new Elysia()
         operationId: "deleteAuthProvider",
         tags: ["auth-providers"],
         description:
-          "Deletes a door (cookie-admin only). The reserved email row is refused with 400 EMAIL_ROW_UNDELETABLE, and deleting the only open door is refused with 409 LAST_SIGN_IN_DOOR. Accounts the door created are untouched",
+          "Deletes a provider (cookie-admin only). The reserved email row is refused with 400 EMAIL_ROW_UNDELETABLE, and deleting the only open provider is refused with 409 LAST_SIGN_IN_PROVIDER. Accounts the provider created are untouched",
       },
     },
   );

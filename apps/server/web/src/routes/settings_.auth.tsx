@@ -1,5 +1,6 @@
 import { Button } from "@internal/node-admin";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { Plus } from "lucide-react";
 import { useState } from "react";
 import { PendingExpiryCard } from "@/components/auth/pending-expiry-card";
 import { ProviderDialog } from "@/components/auth/provider-dialog";
@@ -14,15 +15,15 @@ import type { ProviderAdminView } from "@/types/auth-provider";
 export const Route = createFileRoute("/settings_/auth")({ component: AuthPage });
 
 /**
- * Settings → Auth: the admin-managed sign-in doors (spec 2026-09-24 §7).
+ * Settings → Auth: the admin-managed sign-in providers (spec 2026-09-24 §7).
  *
  * The gate is the one Status and Users use: server-derived `viewerIsAdmin`,
  * `undefined` (still loading) counting as NOT admin, and the providers query
  * `enabled` on it so a member's mount fires no doomed 403.
  *
- * What the page edits is the SET of doors and their half switches; the
+ * What the page edits is the SET of providers and their half switches; the
  * General page keeps its registration toggle (Task 14 narrows it), and the
- * email row here is that same row seen from the door side: its toggles PATCH
+ * email row here is that same row seen from the provider side: its toggles PATCH
  * through the same routes, and its null registration flag renders the gate's
  * computed answer, which public settings already carries — both fields come
  * from `registrationOpen()` server-side, so there is one truth and this page
@@ -48,9 +49,13 @@ function AuthPage() {
     <main className="mx-auto w-full max-w-5xl space-y-6 p-6">
       <PageHeader
         title="Auth"
-        subtitle="Which doors this instance signs people in through (admins)"
+        subtitle="Identity providers for auth"
         action={
-          isAdmin ? <Button onClick={() => setDialog({ open: true, provider: null })}>Add provider</Button> : undefined
+          isAdmin ? (
+            <Button onClick={() => setDialog({ open: true, provider: null })}>
+              <Plus /> Add provider
+            </Button>
+          ) : undefined
         }
       />
       {viewerIsAdmin === undefined ? null : isAdmin ? (
@@ -84,8 +89,8 @@ function AuthPage() {
               ))}
           </div>
           {/* The pending-approval expiry window (spec 2026-09-24 §6): its own
-              card under the door list, since it is the queue's policy rather
-              than one door's switch. Rendered only when the server knows the
+              card under the provider list, since it is the queue's policy rather
+              than one provider's switch. Rendered only when the server knows the
               field — an input for a number the route cannot back is worse
               than no card (the Lockdown card's render guard). */}
           {settings?.pendingApprovalExpiryDays !== undefined && settings.pendingApprovalExpiryMaxDays !== undefined && (

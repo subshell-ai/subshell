@@ -1,5 +1,5 @@
 import { Badge, Button, Input, Label } from "@internal/node-admin";
-import { ArrowDown, ArrowUp, X } from "lucide-react";
+import { X } from "lucide-react";
 import { type Dispatch, type SetStateAction, useState } from "react";
 import { normalizeOriginEntry } from "@/components/auth/entry-origins";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -10,8 +10,14 @@ const OTHER = "__other__";
 /**
  * The entry-points list editor (spec §5a), split out of `provider-dialog.tsx`
  * by review Minor 5: a list over the live origin registry plus a typed
- * escape. Order matters and is shown: position 1 is the canonical fallback
- * the round trip lands on when the visitor's host is not on the list. The
+ * escape. The first row is the PUBLIC BASE URL (operator naming,
+ * 2026-09-25), the canonical the round trip always lands on, and it is
+ * PINNED there with NO control at all: "not removable" is the operator's
+ * rule, and without position 0 there is no canonical to build redirect URIs
+ * from, so the control that would empty the field must not exist. Nothing
+ * else about the order means anything server-side — position 0 is the only
+ * position with a consequence — so there are no move arrows either (operator
+ * ask 2026-09-25): the rest are a set, in the order they were added. The
  * entries themselves live in the form (it saves them); the pick, the typed
  * Other text and the refusal are this editor's own state.
  */
@@ -44,18 +50,6 @@ export function EntryPointsEditor({
     setOtherText("");
   }
 
-  function move(index: number, delta: -1 | 1): void {
-    setEntries((prev) => {
-      const next = [...prev];
-      const to = index + delta;
-      const moved = next[index];
-      if (to < 0 || to >= next.length || moved === undefined) return prev;
-      next[index] = next[to] as string;
-      next[to] = moved;
-      return next;
-    });
-  }
-
   return (
     <div className="space-y-2">
       <Label>Entry points</Label>
@@ -66,36 +60,18 @@ export function EntryPointsEditor({
         {entries.map((origin, i) => (
           <li key={origin} className="flex items-center gap-2">
             <span className="min-w-0 flex-1 truncate font-mono text-detail">{origin}</span>
-            {i === 0 && <Badge variant="secondary">Canonical</Badge>}
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`Move ${origin} up`}
-              disabled={i === 0}
-              onClick={() => move(i, -1)}
-            >
-              <ArrowUp className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`Move ${origin} down`}
-              disabled={i === entries.length - 1}
-              onClick={() => move(i, 1)}
-            >
-              <ArrowDown className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`Remove ${origin}`}
-              onClick={() => setEntries((prev) => prev.filter((o) => o !== origin))}
-            >
-              <X className="h-3.5 w-3.5" />
-            </Button>
+            {i === 0 && <Badge variant="secondary">Public base URL</Badge>}
+            {i > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Remove ${origin}`}
+                onClick={() => setEntries((prev) => prev.filter((o) => o !== origin))}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            )}
           </li>
         ))}
         {entries.length === 0 && <li className="text-detail text-muted-foreground">No entry points yet.</li>}

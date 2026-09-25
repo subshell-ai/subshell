@@ -24,7 +24,7 @@ import { type FakeIdp, startFakeIdp } from "./helpers/fake-oidc.js";
  * `createUser` is where `validateUserInfo` and `user.create.before` fire —
  * so neither provisioning seam ever sees a held address, and only the before
  * hook can name the provider. Its wire shape is pinned here end-to-end, the
- * same way `oidc-signin-flow.test.ts` pins the door policy: fake issuer,
+ * same way `oidc-signin-flow.test.ts` pins the provider policy: fake issuer,
  * real `auth_providers` rows, real round trips.
  *
  * The cases are the requirement list: (a) pending holder, (b) approved
@@ -34,12 +34,12 @@ import { type FakeIdp, startFakeIdp } from "./helpers/fake-oidc.js";
  * (d) credential-only duplicate — generic, unchanged; (e) closed gate + held
  * address — STILL registration_closed, byte-identical to the free-address
  * answer (order + no-leak proof); (f) the admin `POST /api/users` twin —
- * GENERIC even for a door-held address (spec §5 governs; the T17 fix round
+ * GENERIC even for a provider-held address (spec §5 governs; the T17 fix round
  * reverted the named twin that shipped first); (g) the wizard-safety case: a
  * fresh address signs up exactly as before (the guard early-returns when
  * nobody holds it — the real zero-user first run cannot be reproduced against
  * this per-process shared DB, which is why the case states the gate open, the
- * one condition the first-run window also satisfies); (h) a DISABLED door row
+ * one condition the first-run window also satisfies); (h) a DISABLED provider row
  * still names its provider and (i) a DELETED one names nothing — the two
  * one-line-SQL flips the T17 review flagged, each pinned on HTTP.
  *
@@ -51,7 +51,7 @@ import { type FakeIdp, startFakeIdp } from "./helpers/fake-oidc.js";
 const app = new Elysia().use(authPlugin);
 const ORIGIN = APP_BASE_URL; // forced to http://localhost:<port> under IS_TEST
 
-const doors = new AuthProvidersRepository(db);
+const providers = new AuthProvidersRepository(db);
 const meta = new UserMetaRepository(db);
 const users = new UsersRepository(db);
 
@@ -74,12 +74,12 @@ function profileFor(email: string, over: Record<string, unknown> = {}): Record<s
   return { id: stable, sub: stable, email, email_verified: true, name: "T17 Fake", ...over };
 }
 
-async function mkDoor(over: Partial<NewAuthProvider> = {}): Promise<string> {
+async function mkProvider(over: Partial<NewAuthProvider> = {}): Promise<string> {
   const id = over.id ?? `t17-${crypto.randomUUID().slice(0, 8)}`;
-  await doors.create({
+  await providers.create({
     id,
     kind: "oidc",
-    name: `T17 door ${id}`,
+    name: `T17 provider ${id}`,
     issuer: idp.url,
     clientId: "t17-client",
     endpointsJson: JSON.stringify({
@@ -101,13 +101,13 @@ async function mkDoor(over: Partial<NewAuthProvider> = {}): Promise<string> {
 }
 
 /** Drives one full OIDC flow; classification copied from the sibling matrix. */
-async function runFlow(doorId: string, profile: Record<string, unknown>): Promise<"session" | "error" | "http"> {
+async function runFlow(providerId: string, profile: Record<string, unknown>): Promise<"session" | "error" | "http"> {
   idp.setProfile(profile);
   const start = (await app.fetch(
     new Request(`${ORIGIN}/api/auth/sign-in/social`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ provider: doorId, callbackURL: "/", errorCallbackURL: "/login" }),
+      body: JSON.stringify({ provider: providerId, callbackURL: "/", errorCallbackURL: "/login" }),
     }),
   )) as Response;
   expect(start.status).toBe(200);
@@ -173,14 +173,14 @@ async function countSignInRows(): Promise<number> {
 }
 
 async function setEmailRegistration(stored: number | null): Promise<void> {
-  await doors.update("email", { registrationEnabled: stored });
+  await providers.update("email", { registrationEnabled: stored });
 }
 
-/** Raw insert of a second door's `account` row (better-auth's own tables;
- * `issuer` is NOT NULL and carries the door's issuer for OAuth rows — the
+/** Raw insert of a second provider's `account` row (better-auth's own tables;
+ * `issuer` is NOT NULL and carries the provider's issuer for OAuth rows — the
  * credential shape "local:credential" is UsersRepository.createUser's half
  * of the same schema). */
-async function insertDoorAccount(userId: string, providerId: string): Promise<void> {
+async function insertProviderAccount(userId: string, providerId: string): Promise<void> {
   const now = new Date().toISOString();
   await sql`
     INSERT INTO account (id, issuer, accountId, providerId, userId, createdAt, updatedAt)
@@ -208,7 +208,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   for (const email of fixtureEmails) await purgeFixture(email);
-  for (const id of providerIds) await doors.remove(id);
+  for (const id of providerIds) await providers.remove(id);
   // Restore the seeded E-mail row default the sibling suites assume.
   await setEmailRegistration(null);
   expect(flowStates.length).toBeGreaterThan(0);
@@ -239,12 +239,12 @@ describe("held-email lookup + hook (unit)", () => {
     await purgeFixture(email);
   });
 
-  it("names the LOWEST matching provider id among several doors (the queue's MIN rule)", async () => {
+  it("names the LOWEST matching provider id among several providers (the queue's MIN rule)", async () => {
     const suffix = crypto.randomUUID().slice(0, 8);
     // Byte order is decided by the first differing character, so `-lower-`
     // sorts below `-upper-` whatever the random suffix carries.
-    const lower = await mkDoor({ id: `t17-lower-${suffix}`, name: "T17 Lower Door" });
-    const upper = await mkDoor({ id: `t17-upper-${suffix}`, name: "T17 Upper Door" });
+    const lower = await mkProvider({ id: `t17-lower-${suffix}`, name: "T17 Lower Provider" });
+    const upper = await mkProvider({ id: `t17-upper-${suffix}`, name: "T17 Upper Provider" });
     const email = emailN("unit-min");
     const id = await users.createUser({
       email,
@@ -253,10 +253,10 @@ describe("held-email lookup + hook (unit)", () => {
       role: "user",
     });
     fixtureUserIds.push(id);
-    // Seed the doors in the WRONG order so the pick cannot pass on insertion.
-    await insertDoorAccount(id, upper);
-    await insertDoorAccount(id, lower);
-    expect(await oidcHolderNameByEmail(db, email)).toBe("T17 Lower Door");
+    // Seed the providers in the WRONG order so the pick cannot pass on insertion.
+    await insertProviderAccount(id, upper);
+    await insertProviderAccount(id, lower);
+    expect(await oidcHolderNameByEmail(db, email)).toBe("T17 Lower Provider");
     await purgeFixture(email);
   });
 
@@ -286,10 +286,10 @@ describe("sign-up refusal names the holding provider (spec §5, HTTP)", () => {
   // (a) A PENDING arrival holds its email too — the row exists — and gets the
   // named answer, with no second user, no session, and no audit row.
   it("(a) a pending OIDC holder gets the named refusal, writing nobody", async () => {
-    const doorName = "T17 Approving Co";
-    const door = await mkDoor({ name: doorName, requireApproval: 1 });
+    const providerName = "T17 Approving Co";
+    const provider = await mkProvider({ name: providerName, requireApproval: 1 });
     const email = emailN("pending");
-    expect(await runFlow(door, profileFor(email))).toBe("error"); // pending: session refused
+    expect(await runFlow(provider, profileFor(email))).toBe("error"); // pending: session refused
     const holderId = (await userIdFor(email)) ?? "";
     expect(holderId).toBeTruthy();
     fixtureUserIds.push(holderId);
@@ -301,7 +301,7 @@ describe("sign-up refusal names the holding provider (spec §5, HTTP)", () => {
       const res = await signUpAttempt(email);
       expect(res.status).toBe(403);
       // THE LITERAL WIRE PIN (T17 review): the sentence's own bytes, concrete
-      // door name and exact punctuation — not `heldEmailMessage(doorName)`,
+      // provider name and exact punctuation — not `heldEmailMessage(providerName)`,
       // so a copy rewrite fails here instead of passing on both sides.
       expect(((await res.json()) as { message?: string }).message).toBe(
         "An account for this e-mail exists. Sign in with T17 Approving Co.",
@@ -316,12 +316,12 @@ describe("sign-up refusal names the holding provider (spec §5, HTTP)", () => {
   });
 
   // (b) The approved OIDC-only holder — the person who would otherwise get
-  // better-auth's generic sentence today — gets the door named.
+  // better-auth's generic sentence today — gets the provider named.
   it("(b) an approved OIDC-only holder gets the named refusal", async () => {
-    const doorName = "T17 Front Gate";
-    const door = await mkDoor({ name: doorName });
+    const providerName = "T17 Front Gate";
+    const provider = await mkProvider({ name: providerName });
     const email = emailN("approved");
-    expect(await runFlow(door, profileFor(email))).toBe("session");
+    expect(await runFlow(provider, profileFor(email))).toBe("session");
     const holderId = (await userIdFor(email)) ?? "";
     expect(holderId).toBeTruthy();
     fixtureUserIds.push(holderId);
@@ -330,7 +330,7 @@ describe("sign-up refusal names the holding provider (spec §5, HTTP)", () => {
     try {
       const res = await signUpAttempt(email);
       expect(res.status).toBe(403);
-      expect(((await res.json()) as { message?: string }).message).toBe(heldEmailMessage(doorName));
+      expect(((await res.json()) as { message?: string }).message).toBe(heldEmailMessage(providerName));
       expect(await rowCount(email)).toBe(1);
       expect(await sessionCount(holderId)).toBe(1); // still exactly their own arrival session
     } finally {
@@ -339,7 +339,7 @@ describe("sign-up refusal names the holding provider (spec §5, HTTP)", () => {
 
     // (e, first half) the SAME held address, gate closed: the gate answers,
     // not the name — and with the exact bytes a free address gets, so the
-    // closed door cannot be probed for holders.
+    // closed provider cannot be probed for holders.
     await setEmailRegistration(0);
     try {
       const held = await signUpAttempt(email);
@@ -363,7 +363,7 @@ describe("sign-up refusal names the holding provider (spec §5, HTTP)", () => {
     try {
       const res = await signUpAttempt(email);
       expect(res.status).toBe(403);
-      expect(((await res.json()) as { message?: string }).message).toBe(heldEmailMessage(doorName));
+      expect(((await res.json()) as { message?: string }).message).toBe(heldEmailMessage(providerName));
     } finally {
       await setEmailRegistration(null);
     }
@@ -416,49 +416,49 @@ describe("sign-up refusal names the holding provider (spec §5, HTTP)", () => {
 });
 
 describe("sign-up refusal edge pins (T17 review)", () => {
-  // (h) A door row present but `enabled = 0` STILL names its provider:
+  // (h) A provider row present but `enabled = 0` STILL names its provider:
   // disabling takes away sign-in availability, not the fact that the address
-  // arrived through that door. Pinned on HTTP — an `AND p.enabled = 1`
+  // arrived through that provider. Pinned on HTTP — an `AND p.enabled = 1`
   // slipped into the lookup SQL would silently downgrade these holders to
   // the generic sentence and nothing else would notice.
-  it("(h) a disabled door row still names its provider", async () => {
-    const doorName = "T17 Switched-off Gate";
-    const door = await mkDoor({ name: doorName });
-    const email = emailN("disabled-door");
-    expect(await runFlow(door, profileFor(email))).toBe("session"); // arrives while the door is open
+  it("(h) a disabled provider row still names its provider", async () => {
+    const providerName = "T17 Switched-off Gate";
+    const provider = await mkProvider({ name: providerName });
+    const email = emailN("disabled-provider");
+    expect(await runFlow(provider, profileFor(email))).toBe("session"); // arrives while the provider is open
     const holderId = (await userIdFor(email)) ?? "";
     expect(holderId).toBeTruthy();
     fixtureUserIds.push(holderId);
 
-    await doors.update(door, { enabled: 0 });
+    await providers.update(provider, { enabled: 0 });
     invalidateAuth();
     await setEmailRegistration(1);
     try {
       const res = await signUpAttempt(email);
       expect(res.status).toBe(403);
-      expect(((await res.json()) as { message?: string }).message).toBe(heldEmailMessage(doorName));
+      expect(((await res.json()) as { message?: string }).message).toBe(heldEmailMessage(providerName));
     } finally {
       await setEmailRegistration(null);
-      await doors.update(door, { enabled: 1 });
+      await providers.update(provider, { enabled: 1 });
       invalidateAuth();
     }
     await purgeFixture(email);
   });
 
-  // (i) The door row DELETED — the account's providerId names no
+  // (i) The provider row DELETED — the account's providerId names no
   // `auth_providers` row — names nothing and falls through to better-auth's
   // own generic answer. The mirror pin of (h): loosening the JOIN (LEFT JOIN,
   // or dropping the `auth_providers` constraint) would resurrect a name for
-  // a door the admin deliberately erased.
-  it("(i) a deleted door row falls through to the generic answer", async () => {
-    const door = await mkDoor({ name: "T17 Erased Gate" });
-    const email = emailN("deleted-door");
-    expect(await runFlow(door, profileFor(email))).toBe("session");
+  // a provider the admin deliberately erased.
+  it("(i) a deleted provider row falls through to the generic answer", async () => {
+    const provider = await mkProvider({ name: "T17 Erased Gate" });
+    const email = emailN("deleted-provider");
+    expect(await runFlow(provider, profileFor(email))).toBe("session");
     const holderId = (await userIdFor(email)) ?? "";
     expect(holderId).toBeTruthy();
     fixtureUserIds.push(holderId);
 
-    await doors.remove(door); // afterAll repeats this; remove() tolerates absence
+    await providers.remove(provider); // afterAll repeats this; remove() tolerates absence
     invalidateAuth();
     await setEmailRegistration(1);
     try {
@@ -475,15 +475,15 @@ describe("sign-up refusal edge pins (T17 review)", () => {
 
 describe("POST /api/users keeps the generic answer (spec §5 governs)", () => {
   // (f, reverted in the T17 fix round) The admin twin answers GENERIC even
-  // when an OIDC door holds the address: spec §5 says an admin typing an
+  // when an OIDC provider holds the address: spec §5 says an admin typing an
   // email that exists does not need a provider name back. The named refusal
-  // belongs to the public sign-up door alone. (The credential-holder site's
+  // belongs to the public sign-up provider alone. (The credential-holder site's
   // generic sentence is pinned in users-admin.test.ts.)
   it("(f) an admin create for an OIDC-held email answers the generic 409", async () => {
-    const doorName = "T17 Admin-held Gate";
-    const door = await mkDoor({ name: doorName });
+    const providerName = "T17 Admin-held Gate";
+    const provider = await mkProvider({ name: providerName });
     const heldEmail = emailN("admin-held");
-    expect(await runFlow(door, profileFor(heldEmail))).toBe("session");
+    expect(await runFlow(provider, profileFor(heldEmail))).toBe("session");
     const holderId = (await userIdFor(heldEmail)) ?? "";
     expect(holderId).toBeTruthy();
     fixtureUserIds.push(holderId);
@@ -509,7 +509,7 @@ describe("POST /api/users keeps the generic answer (spec §5 governs)", () => {
     expect(res.status).toBe(409);
     const text = await res.text();
     expect(text).toBe("E-mail already registered"); // the generic sentence for every holder
-    expect(text).not.toContain(doorName); // no door named here, held or not
+    expect(text).not.toContain(providerName); // no provider named here, held or not
     expect(await rowCount(heldEmail)).toBe(1); // the refusal created nothing
 
     await purgeFixture(heldEmail);

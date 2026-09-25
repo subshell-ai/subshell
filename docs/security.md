@@ -111,13 +111,13 @@ when unset, served to a caller holding **no credential**. It is read by the
 sign-in page and is what lets a person tell which plane is about to receive
 their password when several answer on the same VPN — a property worth having
 rather than a disclosure merely tolerated. Since spec 2026-09-24 §5a the body
-also names the doors: `providers` lists the open sign-in doors (id, name and
+also names the providers: `providers` lists the open sign-in providers (id, name and
 kind only, never the issuer, the client id, or any secret) and `emailSignIn`
 says whether the password form may render. The login page cannot ask which
-buttons exist *after* it asked for a password, so the door list is as anonymous
-as the name beside it, and knowing which doors are open before choosing one is
+buttons exist *after* it asked for a password, so the provider list is as anonymous
+as the name beside it, and knowing which providers are open before choosing one is
 the same kind of property. What the read costs is one operator-chosen string
-plus the list of doors a stranger may knock on, readable by anyone who can
+plus the list of providers a stranger may knock on, readable by anyone who can
 reach the port.
 
 Three properties hold it there, and all three are load-bearing:
@@ -129,8 +129,8 @@ Three properties hold it there, and all three are load-bearing:
   signed-in `GET /api/settings/public` — did not become anonymous with it.
 - **Its entire key set is asserted by test**, not just the field it should
   carry. A field added to this response later cannot quietly become public;
-  the test grew with the door list and pins the nested `providers` element
-  shape as well (spec 2026-09-24 §5a), so a door discloses exactly the three
+  the test grew with the provider list and pins the nested `providers` element
+  shape as well (spec 2026-09-24 §5a), so a provider discloses exactly the three
   facts its schema names and nothing a row else holds.
 - **The value is normalized on read as well as write** (`normalizeLabel`), so a
   row written by an older release or edited by hand cannot carry CR/LF into a
@@ -280,14 +280,14 @@ storage, holds only the non-secret instance registry and the last push token.
 Sign-in can ride external identity providers, and the admin's provider list is
 the policy. The facts that carry weight:
 
-**Doors are rows, and one table answers.** `auth_providers` (migration 0037)
-holds every way in, including the E-mail door itself: `id = "email"` is a row
+**Providers are rows, and one table answers.** `auth_providers` (migration 0037)
+holds every way in, including the E-mail provider itself: `id = "email"` is a row
 with toggles, undeletable and kind-immutable, and it IS the old global
 registration switch. The `allow_registrations` settings key is gone (spec §2):
-each door carries `registration_enabled`, the E-mail row's NULL means the
+each provider carries `registration_enabled`, the E-mail row's NULL means the
 legacy dynamic window (open exactly until the first account exists, closed
 behind it, which is why a static `true` default was refused: it would have
-frozen the first-run door open), and the settings PATCH for the old key
+frozen the first-run provider open), and the settings PATCH for the old key
 translates to the E-mail row as a compat seam. The audit trail keeps spelling
 its `targetId` `allow_registrations` so rows before and after the move read
 alike. One function decides (`registrationOpen`), as before.
@@ -298,25 +298,28 @@ managing them is the loop the admin rule exists to break). The client secret
 never leaves the row: GET answers `hasSecret`, audits name the fields changed
 and the issuer, never the secret. Discovery is a SAVE gate, never a build
 dependency: the save probes `{issuer}/.well-known/openid-configuration` (400
-`DISCOVERY_FAILED` otherwise) and stores the resolved endpoints beside
+`DISCOVERY_FAILED` otherwise), runs one real client-credentials token request
+where the metadata advertises that grant (400 `CREDENTIALS_REJECTED`; the
+2026-09-25 ruling deleted the separate `POST /test` probe, so the save is the
+only verification), and stores the resolved endpoints beside
 `accountIssuer`, so every later rebuild runs offline and one drifted issuer
 cannot crash-loop boot; a rebuild that throws anyway serves the last-known-good
 auth instance (spec §3). The id slug is `[a-z0-9-]` ≤ 40 chars, `email` is
 reserved, and a collision answers `SLUG_TAKEN` (409). **The last open
-sign-in door cannot be closed**: a write that would leave zero enabled
-`sign_in_enabled` doors is refused with a `LAST_SIGN_IN_DOOR` 409 naming the
+sign-in provider cannot be closed**: a write that would leave zero enabled
+`sign_in_enabled` providers is refused with a `LAST_SIGN_IN_PROVIDER` 409 naming the
 break-glass remedy, before anything saves, and the guard's re-read, count and
-mutation are ONE transaction, so two admins closing two different doors
+mutation are ONE transaction, so two admins closing two different providers
 concurrently cannot both pass on the same snapshot (spec §7; the guard counts
-doors, not users, because the simple form prevents the incident the per-user
+providers, not users, because the simple form prevents the incident the per-user
 join would only describe). Every successful write calls `invalidateAuth()`, so the
 config array in the better-auth singleton is current without a restart.
 
-**Multiple doors of one kind are legal, and that is a naming decision**
+**Multiple providers of one kind are legal, and that is a naming decision**
 (spec §7): `kind` is a PRESET (which endpoints and prefills, `google` or
 generic `oidc`), the id slug is the unique thing, and login buttons label by
-the door's NAME because two Google Workspaces rows rendered kind-first would be
-indistinguishable to the clicker. Doors that share an `accountIssuer` (two
+the provider's NAME because two Google Workspaces rows rendered kind-first would be
+indistinguishable to the clicker. Providers that share an `accountIssuer` (two
 Workspaces of one Google account) land the same person on the same account.
 
 **Adding a provider is the same class of trust decision as installing a
@@ -328,7 +331,7 @@ with a generic "account not linked". The inversion makes the PROVIDER's
 verified claim THE link defense: a generic OIDC provider can assert any email
 it likes, and linking turns that assertion into takeover of the matching
 account. `mapProfileToUser` sets `emailVerified` only from the provider's
-verified claim, never from an email's mere presence, and the door policy
+verified claim, never from an email's mere presence, and the provider policy
 refuses an unverified `link-account` (`unverified_email`). Which seam speaks is
 measured: on the implicit link path better-auth's own gate answers
 `account_not_linked` before the hook runs, so the hook's branch is the second
@@ -337,16 +340,16 @@ create, no session, no audit row (matrix case 9). One side effect is owned
 rather than discovered: a verified match flips the local user's
 `emailVerified` to true, a one-time, provider-granted fact. The domain gate
 (`allowed_domains`) is the mitigation an admin actually reaches for: it binds
-the door itself (spec §5), so a non-matching email cannot link, create, or
+the provider itself (spec §5), so a non-matching email cannot link, create, or
 land in the queue, including a previously-linked account once domains are
 added.
 
-**Door policy lives in one global `user.validateUserInfo` hook** (1.7.1 has
+**Provider policy lives in one global `user.validateUserInfo` hook** (1.7.1 has
 no per-provider hook, measured), branching on method + providerId + action; a
 throw inside it fails closed. The hook never fires on the password or passkey
-SIGN-IN paths, so the closed E-mail door's refusal rides a second layer
-(`auth/door-guards.ts`, `hooks.before` on `/sign-in/email` and
-`/passkey/verify-authentication`): a hidden door is not a closed one, EITHER
+SIGN-IN paths, so the closed E-mail provider's refusal rides a second layer
+(`auth/provider-guards.ts`, `hooks.before` on `/sign-in/email` and
+`/passkey/verify-authentication`): a hidden provider is not a closed one, EITHER
 close flag is enforced at the API — `sign_in_enabled = 0` or the master
 `enabled = 0` (final review, Important 1, 2026-09-24) — while the
 registration gate deliberately never refuses an existing account's sign-in.
@@ -366,7 +369,7 @@ amended 2026-09-24).
 
 **Approval gates account CREATION only; an existing email links straight in**
 (spec §4; the admin already admitted that person). A first arrival at a
-`require_approval` door gets its row created (the queue IS the row), is marked
+`require_approval` provider gets its row created (the queue IS the row), is marked
 `pending` at `account.create.after` (the only seam that sees the provider at
 creation), and is denied the session at `session.create.before`, where pending
 now sits beside disabled; the wire shape is better-auth's generic
@@ -388,10 +391,10 @@ only moves rows OUT of the queue (an already-approved target answers 409
 become a state hammer against members; disabling is that switch, unchanged.
 Email registration refuses a claimed email explicitly, pending holders
 included, and the refusal SPLITS by seam exactly as spec §5 wrote it:
-`/sign-up/email` names the holding door (a `hooks.before` guard,
+`/sign-up/email` names the holding provider (a `hooks.before` guard,
 `auth/held-email-guards.ts`, the only layer that runs before better-auth's own
 already-exists answer; 403, "An account for this email exists. Sign in with
-<Name>."), with the registration gate checked FIRST so a closed door answers
+<Name>."), with the registration gate checked FIRST so a closed provider answers
 held and free addresses alike with the unchanged `registration_closed` and the
 path cannot be probed for who holds what (test-pinned uniformity). Admin user
 creation keeps the generic 409 "Email already registered" for every holder,
@@ -411,9 +414,9 @@ membership, it is a knock that was never opened. Rejection is an explicit
 admin decision and must not silently reopen on a timer. The sweep's residual
 states, each bounded rather than fixed:
 
-- A door edited AFTER someone arrived does not retroactively queue them: the
-  compensating re-mark pass skips any arrival whose row predates the door's
-  `updated_at`, so a mid-window failed-mark arrival of a then-open door stays
+- A provider edited AFTER someone arrived does not retroactively queue them: the
+  compensating re-mark pass skips any arrival whose row predates the provider's
+  `updated_at`, so a mid-window failed-mark arrival of a then-open provider stays
   admitted even after approval is switched on.
 - That re-mark revokes session ROWS but reaches no connected WebSocket; a WS
   authenticates at connect and is never re-checked (§11.5, §11.14), so a live
@@ -424,7 +427,7 @@ states, each bounded rather than fixed:
   live beyond the repair window, and it re-warns every hour until a human
   resolves it (unresolvable states are asked about, not asserted away).
 - Same-second policy flips and hand-SQL flips that never bump `updated_at`
-  sit outside the door-vs-arrival guard, like every other hand edit: hand
+  sit outside the provider-vs-arrival guard, like every other hand edit: hand
   edits outrank the machinery, the standing posture of this file.
 
 ## 3. Authorization
@@ -1056,11 +1059,11 @@ subshell may only be launched in one of them or beneath it.
   cookie ADMIN whose own-row delete affected nothing may then delete ANY row
   (`deleteByIdUnscoped`, audit 2026-09 item 4); that foreign revoke reuses the
   one action name with `{ foreign: true, ownerUserId }` metadata so the trail
-  says whose door it was, and the row names ids, never the key text. The same
+  says whose provider it was, and the row names ids, never the key text. The same
   audit fix gave admins the matching view: `GET /api/nodes/setup-keys?all=1`
   lists every key in the instance with its creator's label, and a plain
   non-admin asking for it gets a 403 rather than a silently-narrowed list. So
-  the doors that revoke are expiry, the creator's own delete, and the admin's
+  the providers that revoke are expiry, the creator's own delete, and the admin's
   foreign one — and an admin seeing an outstanding key they cannot close is
   no longer a thing. The switch bounds the FUTURE; the ≤24 h window it leaves
   is closable from the Setup keys card by the creator or by an admin.
@@ -1101,16 +1104,16 @@ the digest bought, and what was traded against it:
   is that a minted-but-unused key is disclosed by the same read rather than being
   recoverable only from a shell history file or an access log.
 - **What it bought, and why it was worth it.** An unused key the dialog was closed on
-  used to be an open enrollment door that could be CLOSED but not READ, so the only
+  used to be an open enrollment provider that could be CLOSED but not READ, so the only
   remedy was revoke and re-mint — and the operator standing mid-`curl` with a
-  half-copied command had no way back. The card that lists keys exists so those doors
+  half-copied command had no way back. The card that lists keys exists so those providers
   stay visible; listing the text is what makes it useful.
 - **Why the exposure is bounded rather than open-ended.** A key enrolls ONE machine,
   redeems ONCE (`used_at` flips in the redemption transaction, which is the
   single-winner gate), and stops working entirely at `expires_at` (24 h). A used or
   expired row's key is inert on sight, and the card says which state each row is in.
   The list is owner-scoped and cookie-only: a bearer credential cannot enumerate
-  enrollment doors (`GET /api/nodes/setup-keys` answers 403 to a machine token), and
+  enrollment providers (`GET /api/nodes/setup-keys` answers 403 to a machine token), and
   one caller sees its own rows and nobody else's. The one widening is the admin
   view (audit 2026-09 item 4): `?all=1` is cookie-ADMIN only and lists every
   row with its creator's label — the same plaintext, gated like every other
@@ -1124,7 +1127,7 @@ the digest bought, and what was traded against it:
   Client Enroll step requires the field. `POST /api/nodes/setup-keys` therefore takes
   no body at all, and `POST /api/nodes/enroll` normalizes the name with the control
   plane's one label rule (`normalizeNodeName`) before it is stored — the same function
-  rename applies, so the two doors cannot disagree about what a name is.
+  rename applies, so the two providers cannot disagree about what a name is.
 - **The migration drops every outstanding key** (`0033-setup-key-plaintext.ts`
   rebuilds the table): a digest cannot become plaintext, so there was nothing to carry
   across. Keys are ≤24 h credentials and the acts on them are already in the audit log;
@@ -1365,7 +1368,7 @@ The rest is the standing accounting, unchanged by this surface:
 ### Plugin installs from the registry (spec 2026-09-09; instance-level since 2026-09-10)
 
 Phase 3 taught the plugin system a network source, and the 2026-09-10
-inversion moved it to a single door: `POST /api/plugins` may carry a package
+inversion moved it to a single provider: `POST /api/plugins` may carry a package
 spec, and the CONTROL PLANE fetches that npm package, verifies it, and
 installs it into `<SUBSHELL_SERVER_DATA_DIR>/plugins/` — the one store every
 node executes against
@@ -1686,7 +1689,7 @@ iteration 5 found the feed was the one path trusting the store alone; a
 throwing re-ask fails CLOSED there, the asymmetry against the node socket
 being that a node re-asks at its next dial while a feed socket is never
 re-checked again. **The
-fallback, stated because this file long described a stricter door than
+fallback, stated because this file long described a stricter provider than
 exists:** with no token parameter, the upgrade resolves the SESSION COOKIE
 directly, exactly as a REST request does (`attach-resolve.ts:85-91`) —
 which is what same-host WebSockets run on; `SameSite=Lax` suppresses the
@@ -2029,7 +2032,7 @@ These are choices, not oversights, and they follow from §0:
   (`update-subshell-name.route.ts`). Since 2026-09-23 that sentence covers
   EVERY name path, not only the auto ones: the rename route, the create path
   (`subshell-manager.service.ts`, the choke point every caller crosses) and
-  both workspace doors run the human-typed name through the shared
+  both workspace providers run the human-typed name through the shared
   `normalizeLabel` (NFC, control bytes, format characters, cap), because a
   name reaches the restart journal line and other users' renders just like a
   device label does. The journal fields beside it are clamped to the same
@@ -2044,7 +2047,7 @@ These are choices, not oversights, and they follow from §0:
 Audit events are written, grouped by family:
 
 - **Authentication**: `auth.sign_in` (metadata `{ method: "password" |
-  "passkey" }`, plus `userId` on the `oidc:<door id>` arm), `auth.sign_out`
+  "passkey" }`, plus `userId` on the `oidc:<provider id>` arm), `auth.sign_out`
   — seams, dedupe and deliberate exclusions in the paragraph at the end of
   this section.
 - **Users and keys**: `user.create`, `user.role_change`,
@@ -2058,10 +2061,10 @@ Audit events are written, grouped by family:
   `setup_key.revoke`, `settings.update`, and since spec 2026-09-24 the two
   approval decisions `user.approve` and `user.reject` (metadata `{ email,
   providerId }`: the user-management family's email-by-convention rule, plus
-  which door the decision was about). `settings.update` gained
+  which provider the decision was about). `settings.update` gained
   `pending_approval_expiry_days` as one of its keys, and the registration
   flip still writes `targetId: "allow_registrations"` even though the value
-  now lives on the E-mail door row: the trail's stable name for the switch,
+  now lives on the E-mail provider row: the trail's stable name for the switch,
   so rows before and after the move read alike.
 - **Subshells**: `subshell.create`, `subshell.terminate`, `subshell.restart`,
   `subshell.preset_switch` (metadata `{ name, presetId }`, the new value
@@ -2103,7 +2106,7 @@ Read them with `GET /api/audit?limit=50` (admin).
 from the better-auth integration in `src/auth.ts`. A successful sign-in writes
 one row per act, keyed by the endpoint's RESULT — never the request body — with
 metadata carrying only `{ method: "password" | "passkey" }` on those arms, and
-`{ method, userId }` on the OIDC one (`method` spelled `oidc:<door id>`; the
+`{ method, userId }` on the OIDC one (`method` spelled `oidc:<provider id>`; the
 redirect result names no user, and the id read back from the session cookie
 rides the metadata beside the method); the paths that count are
 `/sign-in/email` and the passkey plugin's `/passkey/verify-authentication`. OIDC callbacks ride the same hook through a
@@ -2112,7 +2115,7 @@ success is a thrown redirect whose payload names no user: the success test is
 the actor proof, the response's own `session_token` cookie resolving to a row
 in the `session` table, and nothing else. An earlier formulation gated success
 on the redirect's Location carrying no `error=`, and it was REMOVED: a holder
-of any door credential could complete a real sign-in with a `callbackURL` of
+of any provider credential could complete a real sign-in with a `callbackURL` of
 their own choosing that contains `error=` and buy silence (matrix case 13
 pins that the poisoned Location still writes its row). Refusals write nothing
 because on the shipped dist facts no refusal path reaches the session-cookie
@@ -2273,7 +2276,7 @@ Recorded so they are decisions rather than surprises:
 
    A password reset is therefore a credential rotation, not a session-kill
    switch for every path into the account. Disabling one IS that switch —
-   `dropLiveSocketsFor` and `dropTerminalSocketsFor` close both socket doors
+   `dropLiveSocketsFor` and `dropTerminalSocketsFor` close both socket providers
    and `dropUserTokensFor` destroys the single-use tokens that could
    otherwise walk an attach back in inside their 30 s (§2, "Disabling an
    account") — and a reset keeping neither is the asymmetry, kept on purpose.
@@ -2326,7 +2329,7 @@ What contains what:
 Installing a plugin is therefore an explicit act with a named source, never
 something a catalog does on its own — and an ADMIN act, cookie-only, on the
 one door (`/api/plugins`, [§6](#plugin-installs-from-the-registry-spec-2026-09-09-instance-level-since-2026-09-10)).
-Weaker doors were deleted rather than widened: there is no per-node install
+Weaker providers were deleted rather than widened: there is no per-node install
 route and no agent-side install verb any more.
 
 **The node enforces binaries, not plugins.** With no per-node plugin store
@@ -2483,7 +2486,7 @@ it cannot take itself down. Cookie-admin, bearer refused, audited as
 machines where the question has no answer: nothing installed, the desktop app
 running this server, or a manager that would not say. Switching who runs the
 server at all still has no route, for the original reason — the dashboard
-offers a door into the desktop assistant instead.
+offers a provider into the desktop assistant instead.
 
 **A browser now presses it in ONE direction only**, and that is a UI choice
 rather than a new rule: outside the Subshell Server app the page offers
@@ -3004,7 +3007,7 @@ Spec 2026-09-15. A **network plugin** (`type: "network"`) connects the
 control-plane host to one private network — Tailscale, Headscale, NetBird,
 Cloudflare Tunnel — and publishes Subshell on it, so the address an operator
 used to discover through a 403 becomes something the product knows and writes
-down. It is the same store, the same admin install door and the same seeding
+down. It is the same store, the same admin install provider and the same seeding
 marker as a harness plugin (§6, §11.9); what differs is what it implements and
 therefore what it costs.
 
@@ -3163,7 +3166,7 @@ this project did not write.
 - **The server still trusts no proxy header.** `X-Forwarded-*`,
   `Tailscale-User-Login` and `Cf-Access-Authenticated-User-Email` are all
   ignored. Only the signed Access assertion is verified, and only as a **front
-  door**: the verified email is attached for audit metadata and is never a
+  provider**: the verified email is attached for audit metadata and is never a
   session. Subshell's own cookie is still required behind it.
 - **Login backoff stays per-email** (§8). Under a tunnel every request appears
   to arrive from 127.0.0.1, which costs nothing today because nothing is

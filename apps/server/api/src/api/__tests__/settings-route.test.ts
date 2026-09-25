@@ -554,7 +554,7 @@ describe("settings routes (admin cookie only)", () => {
   });
 
   it("GET /public reports serverVersion tracking package.json, not a literal", async () => {
-    // The regression this pins is one that already happened next door:
+    // The regression this pins is one that already happened next provider:
     // /api/meta/status shipped a hardcoded "1.0.0" and was still claiming it
     // at 1.5.0, because nothing compared the two. Asserting against
     // SERVER_VERSION (not a copied string) is what makes drift impossible —

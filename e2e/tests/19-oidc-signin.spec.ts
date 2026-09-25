@@ -3,7 +3,7 @@ import { BASE_URL, FAKE_IDP_URL } from "../ports";
 import { ADMIN_STATE } from "./helpers";
 
 /**
- * The OIDC sign-in doors, end to end in a REAL browser (spec 2026-09-24 §4/§5/
+ * The OIDC sign-in providers, end to end in a REAL browser (spec 2026-09-24 §4/§5/
  * §7 — the wire matrix that spec's unit twin lives in `oidc-signin-flow.test.ts`
  * drives server-side cannot prove the three things only a browser can):
  * the anonymous `providers[]` read reaching the login page as buttons, an
@@ -23,12 +23,12 @@ import { ADMIN_STATE } from "./helpers";
  * `browser.newContext()` so the stranger's view is never the admin's session.
  */
 
-/** The button-label door: kind `google`, NAME `Acme SSO` — name must win. */
+/** The button-label provider: kind `google`, NAME `Acme SSO` — name must win. */
 const ACME = { id: "acme-sso", kind: "google", name: "Acme SSO", requireApproval: false } as const;
-/** The queue door: require-approval, so arrivals split generic/pending. */
+/** The queue provider: require-approval, so arrivals split generic/pending. */
 const GATEKEEP = { id: "gatekeep", kind: "oidc", name: "Gatekeep", requireApproval: true } as const;
 
-interface DoorView {
+interface ProviderView {
   id: string;
   name: string;
   kind: string;
@@ -39,18 +39,18 @@ interface DoorView {
 let admin: APIRequestContext;
 let anon: APIRequestContext;
 
-/** Seed one door through the real save path; returns its view for assertions. */
-async function seedDoor(door: {
+/** Seed one provider through the real save path; returns its view for assertions. */
+async function seedProvider(provider: {
   id: string;
   kind: "google" | "oidc";
   name: string;
   requireApproval: boolean;
-}): Promise<DoorView> {
+}): Promise<ProviderView> {
   const res = await admin.post("/api/auth-providers", {
     data: {
-      id: door.id,
-      kind: door.kind,
-      name: door.name,
+      id: provider.id,
+      kind: provider.kind,
+      name: provider.name,
       issuer: FAKE_IDP_URL,
       clientId: "e2e-oidc-client",
       clientSecret: "e2e-oidc-secret",
@@ -61,23 +61,23 @@ async function seedDoor(door: {
       // NEW email, and a closed registration gate would refuse it before the
       // policy under test is ever reached.
       registrationEnabled: true,
-      requireApproval: door.requireApproval,
+      requireApproval: provider.requireApproval,
     },
   });
   expect(res.ok(), await res.text()).toBe(true);
-  return (await res.json()) as DoorView;
+  return (await res.json()) as ProviderView;
 }
 
 test.beforeAll(async () => {
   admin = await pwRequest.newContext({ baseURL: BASE_URL, storageState: ADMIN_STATE });
   anon = await pwRequest.newContext({ baseURL: BASE_URL });
 
-  const acme = await seedDoor(ACME);
-  const gatekeep = await seedDoor(GATEKEEP);
+  const acme = await seedProvider(ACME);
+  const gatekeep = await seedProvider(GATEKEEP);
   expect(acme).toMatchObject({ id: ACME.id, kind: "google", requireApproval: false });
   expect(gatekeep).toMatchObject({ id: GATEKEEP.id, kind: "oidc", requireApproval: true });
 
-  // Leg one of the flow: the ANONYMOUS read answers both doors, in stored
+  // Leg one of the flow: the ANONYMOUS read answers both providers, in stored
   // order, with nothing but id/name/kind. (The login page's render of this
   // exact payload is test 1; asserting the wire here means a broken render
   // reads as a render bug, not a route bug.)
@@ -92,7 +92,7 @@ test.beforeAll(async () => {
 
 // biome-ignore lint/correctness/noEmptyPattern: Playwright requires a destructuring first argument to receive testInfo
 test.afterAll(async ({}, testInfo) => {
-  // Both doors leave (the E-mail door stays open, so the last-door guard
+  // Both providers leave (the E-mail provider stays open, so the last-provider guard
   // lets this through); 404 means an earlier failure already removed them.
   const cleanupFailures: string[] = [];
   for (const id of [ACME.id, GATEKEEP.id]) {
@@ -107,17 +107,17 @@ test.afterAll(async ({}, testInfo) => {
   }
   await admin.dispose();
   await anon.dispose();
-  // A swallowed cleanup failure leaks the seeded doors into whatever runs
+  // A swallowed cleanup failure leaks the seeded providers into whatever runs
   // next on this stack, so it must surface — but not over the real reason:
   // teardown only out-reports the tests when the tests themselves passed.
   if (cleanupFailures.length > 0 && testInfo.status === testInfo.expectedStatus) {
-    throw new Error(`door cleanup failed: ${cleanupFailures.join("; ")}`);
+    throw new Error(`provider cleanup failed: ${cleanupFailures.join("; ")}`);
   }
 });
 
 /**
  * The fake issuer answers `/userinfo` with whatever the last `PUT /_profile`
- * carried. The `id` is stable per email because the door has explicit
+ * carried. The `id` is stable per email because the provider has explicit
  * endpoints and no discovery at runtime, so genericOAuth's account subject IS
  * `profile.id` (Task 7's measured quirk, documented in the fixture).
  */
@@ -138,17 +138,17 @@ async function signInAnonymously(browser: import("@playwright/test").Browser) {
   return { context, page };
 }
 
-test("the login page renders a configured door's button by its NAME, not its kind", async ({ browser }) => {
+test("the login page renders a configured provider's button by its NAME, not its kind", async ({ browser }) => {
   const { context, page } = await signInAnonymously(browser);
   try {
     // The button's accessible name is the provider's name (§7's label rule,
-    // `signInButtonLabel`), and this door's kind is `google` on purpose: a
+    // `signInButtonLabel`), and this provider's kind is `google` on purpose: a
     // kind-first label would render "Sign in with Google" here, and two
-    // Google-kind doors would be indistinguishable.
+    // Google-kind providers would be indistinguishable.
     await expect(page.getByRole("button", { name: "Sign in with Acme SSO", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Sign in with Google", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Sign in with Gatekeep", exact: true })).toBeVisible();
-    // The E-mail door is still open, so the form and its button keep their
+    // The E-mail provider is still open, so the form and its button keep their
     // place beside the two new ones.
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
   } finally {
@@ -156,7 +156,7 @@ test("the login page renders a configured door's button by its NAME, not its kin
   }
 });
 
-test("clicking the door round-trips the fake IdP and lands signed in", async ({ browser }) => {
+test("clicking the provider round-trips the fake IdP and lands signed in", async ({ browser }) => {
   const email = `e2e-oidc-${crypto.randomUUID()}@subshell.test`;
   await setProfile(email, "E2E Acme User");
 
@@ -184,7 +184,7 @@ test("clicking the door round-trips the fake IdP and lands signed in", async ({ 
   }
 });
 
-test("a require-approval door: first arrival the generic line, second arrival /pending", async ({ browser }) => {
+test("a require-approval provider: first arrival the generic line, second arrival /pending", async ({ browser }) => {
   const email = `e2e-pending-${crypto.randomUUID()}@subshell.test`;
   await setProfile(email, "E2E Pending User");
 

@@ -30,9 +30,9 @@ export function storedDomainsToView(raw: string | null): string[] | null {
     .filter((d) => d !== "");
 }
 
-/** One door as the admin list serves it — spec §8: the secret is NOT here. */
+/** One provider as the admin list serves it — spec §8: the secret is NOT here. */
 export const ProviderViewSchema = t.Object({
-  id: t.String({ description: "Door id slug; the callback path segment, immutable after create" }),
+  id: t.String({ description: "Provider id slug; the callback path segment, immutable after create" }),
   kind: ProviderKindSchema,
   name: t.String({ description: "Display name shown on the sign-in page" }),
   issuer: t.Nullable(t.String({ description: "OIDC issuer URL; null only on the email row" })),
@@ -40,7 +40,7 @@ export const ProviderViewSchema = t.Object({
   hasSecret: t.Boolean({ description: "Whether a client secret is stored. Never the secret itself" }),
   entryOrigins: t.Array(t.String({ description: "Bare origin, canonical URL.origin spelling" }), {
     description:
-      "Origins this door may be reached from; position 0 is canonical (spec §5a). Empty only on the email row",
+      "Origins this provider may be reached from; position 0 is canonical (spec §5a). Empty only on the email row",
   }),
   allowedDomains: t.Nullable(
     t.Array(t.String({ description: "One allowed e-mail domain, lowercase bare form" }), {
@@ -48,16 +48,16 @@ export const ProviderViewSchema = t.Object({
     }),
   ),
   enabled: t.Boolean({
-    description: "Master switch: a disabled door does nothing, however open its half-switches are",
+    description: "Master switch: a disabled provider does nothing, however open its half-switches are",
   }),
-  signInEnabled: t.Boolean({ description: "Whether this door may sign accounts in" }),
+  signInEnabled: t.Boolean({ description: "Whether this provider may sign accounts in" }),
   registrationEnabled: t.Nullable(
     t.Boolean({
       description:
-        "Whether this door may create accounts; null is the legacy dynamic gate, legal only on the email row",
+        "Whether this provider may create accounts; null is the legacy dynamic gate, legal only on the email row",
     }),
   ),
-  requireApproval: t.Boolean({ description: "Whether accounts this door creates land on pending (spec §6)" }),
+  requireApproval: t.Boolean({ description: "Whether accounts this provider creates land on pending (spec §6)" }),
   endpointsResolved: t.Boolean({
     description: "Whether discovery endpoints were captured at save; drives the table's badge (spec §7)",
   }),

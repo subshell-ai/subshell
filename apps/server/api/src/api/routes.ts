@@ -52,7 +52,7 @@ const coreRoutes = new Elysia()
   .use(pluginsRoutes)
   .use(metaRoutes)
   .use(usersRoutes)
-  // The sign-in doors belong with the user-management surfaces they gate
+  // The sign-in providers belong with the user-management surfaces they gate
   // (spec 2026-09-24 §8): same admin family, same admin gate.
   .use(authProvidersRoutes)
   .use(auditRoutes)

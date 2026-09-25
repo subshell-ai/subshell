@@ -11,19 +11,19 @@ import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /**
- * The admin door CRUD (spec 2026-09-24 §8): create with discovery as the save
+ * The admin provider CRUD (spec 2026-09-24 §8): create with discovery as the save
  * gate, patch with the re-probe rule and the empty-string domain clear, the
- * reserved email row's immutability, the last-door guard on every write, the
+ * reserved email row's immutability, the last-provider guard on every write, the
  * probe route, and the audit rows that never carry the secret.
  *
- * The shared per-process DB is never assumed empty: the last-door scenario
- * force-closes every door it does not own for its duration and restores the
+ * The shared per-process DB is never assumed empty: the last-provider scenario
+ * force-closes every provider it does not own for its duration and restores the
  * exact stored values afterwards, so a file that ran before it — or runs
  * after — sees its own rows untouched.
  */
 const app = new Elysia().use(errorHandlerPlugin).use(authProvidersRoutes);
 
-const doors = new AuthProvidersRepository(db);
+const providers = new AuthProvidersRepository(db);
 
 const ISSUER = "https://idp.test";
 const SECRET = "super-secret-never-echoed";
@@ -37,7 +37,7 @@ let memberCookie: string;
 let adminId: string;
 let adminBearerKey: string;
 const _fixtureUserIds: string[] = [];
-/** Door ids this file created, removed in afterAll. */
+/** Provider ids this file created, removed in afterAll. */
 const createdIds: string[] = [];
 const restoreUserIds: string[] = [];
 
@@ -101,7 +101,7 @@ function req(
   );
 }
 
-/** A complete create body for a fresh door (the shape the SPA dialog sends). */
+/** A complete create body for a fresh provider (the shape the SPA dialog sends). */
 function createBody(id: string, over: Record<string, unknown> = {}) {
   return {
     id,
@@ -165,7 +165,7 @@ describe("auth-providers admin CRUD (spec §8)", () => {
 
   afterAll(async () => {
     globalThis.fetch = realFetch;
-    for (const id of createdIds) await doors.remove(id);
+    for (const id of createdIds) await providers.remove(id);
     for (const id of restoreUserIds) {
       await db.deleteFrom("userMeta").where("userId", "=", id).execute();
       await deleteUserByEmailOrId(id);
@@ -181,7 +181,6 @@ describe("auth-providers admin CRUD (spec §8)", () => {
       // Member POSTs carry schema-valid bodies, so the 403 is the admin gate,
       // never a body-validation slip.
       expect((await req("POST", "/", memberCookie, createBody(freshId("memb")))).status).toBe(403);
-      expect((await req("POST", "/test", memberCookie, { issuer: ISSUER })).status).toBe(403);
       expect((await req("PATCH", "/email", memberCookie, { enabled: true })).status).toBe(403);
       expect((await req("DELETE", "/email", memberCookie)).status).toBe(403);
       // Bodies are schema-VALID so a 403 proves the cookie-only gate, not a
@@ -191,18 +190,17 @@ describe("auth-providers admin CRUD (spec §8)", () => {
         ["POST", "/", createBody(freshId("bearer"))],
         ["PATCH", "/email", { enabled: true }],
         ["DELETE", "/email", undefined],
-        ["POST", "/test", { issuer: ISSUER }],
       ];
       for (const [method, path, body] of bearerCases) {
         const res = await req(method, path, null, body, adminBearerKey);
         expect(res.status, `${method} ${path} as bearer`).toBe(403);
       }
-      expect(await doors.getById("email")).toBeDefined();
+      expect(await providers.getById("email")).toBeDefined();
     });
   });
 
   describe("create + list", () => {
-    it("creates a door: discovery resolved, origins canonicalized, secret stored but never serialized", async () => {
+    it("creates a provider: discovery resolved, origins canonicalized, secret stored but never serialized", async () => {
       const id = freshId("corp");
       // The array form of `allowedDomains`, as the review round's dialog sends
       // it; the comma-string form is pinned in the PATCH clear test.
@@ -223,7 +221,7 @@ describe("auth-providers admin CRUD (spec §8)", () => {
         endpointsResolved: true,
       });
       expect(JSON.stringify(res.json)).not.toInclude(SECRET);
-      const row = await doors.getById(id);
+      const row = await providers.getById(id);
       expect(row?.clientSecret).toBe(SECRET);
       expect(JSON.parse(String(row?.endpointsJson))).toEqual({
         authorizationUrl: `${ISSUER}/authorize`,
@@ -242,7 +240,7 @@ describe("auth-providers admin CRUD (spec §8)", () => {
       const res = await req("POST", "/", adminCookie, createBody(preview, { name }));
       expect(res.status).toBe(200);
       expect(res.json.id).toBe(preview);
-      expect((await doors.getById(preview))?.name).toBe(name);
+      expect((await providers.getById(preview))?.name).toBe(name);
     });
 
     it("the list carries the reserved email row with the null legacy gate and no endpoints", async () => {
@@ -286,7 +284,7 @@ describe("auth-providers admin CRUD (spec §8)", () => {
       );
       expect(emailKindNoName.json.code).toBe("EMAIL_ROW_IMMUTABLE_KIND");
       // And nothing was persisted: the reserved kind never reaches the row.
-      expect(await doors.getById("email")).toMatchObject({ kind: "email" });
+      expect(await providers.getById("email")).toMatchObject({ kind: "email" });
       // The id is required, never derived from the name: empty AND absent are
       // both refused before any discovery or write.
       const noId = await req("POST", "/", adminCookie, { ...createBody(freshId("noid")), id: "" });
@@ -313,7 +311,7 @@ describe("auth-providers admin CRUD (spec §8)", () => {
       const commaId = await req("POST", "/", adminCookie, createBody(`a,${crypto.randomUUID().slice(0, 4)}`));
       expect(commaId.status).toBe(400);
       expect(commaId.json.code).toBe("BAD_REQUEST");
-      expect(await doors.getById("acme-corp")).toBeUndefined();
+      expect(await providers.getById("acme-corp")).toBeUndefined();
     });
 
     it("an empty entryOrigins list is a 400, never a silent default", async () => {
@@ -340,7 +338,7 @@ describe("auth-providers admin CRUD (spec §8)", () => {
       expect(down.json.code).toBe("DISCOVERY_FAILED");
       expect(discoveryCount).toBe(before + 1);
       // Nothing was written by the refused save.
-      expect(await doors.getById(downId)).toBeUndefined();
+      expect(await providers.getById(downId)).toBeUndefined();
     });
 
     it("the name goes through the shared label normalizer, capped like every other NAME path (final review, minor)", async () => {
@@ -382,11 +380,11 @@ describe("auth-providers admin CRUD (spec §8)", () => {
       expect(res.status).toBe(200);
       expect(res.json.name).toBe("Renamed");
       expect(res.json.allowedDomains).toBeNull();
-      const row = await doors.getById(targetId);
+      const row = await providers.getById(targetId);
       expect(row?.allowedDomains).toBeNull();
       // The array spelling of the same clear (both accepted wire shapes).
       await req("PATCH", `/${targetId}`, adminCookie, { allowedDomains: ["Acme.COM", "acme.com"] });
-      expect((await doors.getById(targetId))?.allowedDomains).toBe("acme.com");
+      expect((await providers.getById(targetId))?.allowedDomains).toBe("acme.com");
       const clearedArr = await req("PATCH", `/${targetId}`, adminCookie, { allowedDomains: [] });
       expect(clearedArr.status).toBe(200);
       expect(clearedArr.json.allowedDomains).toBeNull();
@@ -399,10 +397,10 @@ describe("auth-providers admin CRUD (spec §8)", () => {
       const kept = await req("PATCH", `/${targetId}`, adminCookie, { clientSecret: "" });
       expect(kept.status).toBe(200);
       expect(kept.json.hasSecret).toBe(true);
-      expect((await doors.getById(targetId))?.clientSecret).toBe(SECRET);
+      expect((await providers.getById(targetId))?.clientSecret).toBe(SECRET);
       const cleared = await req("PATCH", `/${targetId}`, adminCookie, { clientSecret: null });
       expect(cleared.status).toBe(400);
-      expect((await doors.getById(targetId))?.clientSecret).toBe(SECRET);
+      expect((await providers.getById(targetId))?.clientSecret).toBe(SECRET);
     });
 
     it("a non-empty clientSecret replaces the stored one; the audit names the field only", async () => {
@@ -411,7 +409,7 @@ describe("auth-providers admin CRUD (spec §8)", () => {
       expect(res.status).toBe(200);
       expect(res.json.hasSecret).toBe(true);
       expect(JSON.stringify(res.json)).not.toInclude(replacement);
-      expect((await doors.getById(targetId))?.clientSecret).toBe(replacement);
+      expect((await providers.getById(targetId))?.clientSecret).toBe(replacement);
       const rows = await auditRows("auth_provider.update");
       const last = rows.at(-1);
       expect(String(last?.metadataJson)).toInclude("clientSecret");
@@ -428,13 +426,13 @@ describe("auth-providers admin CRUD (spec §8)", () => {
       fake.discoveryStatus = 200;
       expect(bad.status).toBe(400);
       expect(bad.json.code).toBe("DISCOVERY_FAILED");
-      expect((await doors.getById(targetId))?.issuer).toBe(`${ISSUER}/`);
+      expect((await providers.getById(targetId))?.issuer).toBe(`${ISSUER}/`);
     });
 
     it("id/kind are immutable; a foreign id 404s", async () => {
       const kindChange = await req("PATCH", `/${targetId}`, adminCookie, { kind: "google" });
       expect(kindChange.status).toBe(400);
-      expect((await doors.getById(targetId))?.kind).toBe("oidc");
+      expect((await providers.getById(targetId))?.kind).toBe("oidc");
       const wrongId = await req("PATCH", "/nope-does-not-exist", adminCookie, { name: "x" });
       expect(wrongId.status).toBe(404);
       expect(wrongId.json.code).toBe("PROVIDER_NOT_FOUND");
@@ -442,12 +440,12 @@ describe("auth-providers admin CRUD (spec §8)", () => {
 
     it("PATCH with a body id that mismatches the path id is refused 400", async () => {
       // Path param is the only target selector: a body id cannot steer the
-      // write — the named door keeps its name.
+      // write — the named provider keeps its name.
       const res = await req("PATCH", `/${targetId}`, adminCookie, { id: "email", name: "steered" });
       expect(res.status).toBe(400);
       expect(res.json.code).toBe("BAD_REQUEST");
-      expect((await doors.getById(targetId))?.name).not.toBe("steered");
-      expect((await doors.getById("email"))?.name).toBe("E-mail");
+      expect((await providers.getById(targetId))?.name).not.toBe("steered");
+      expect((await providers.getById("email"))?.name).toBe("E-mail");
     });
 
     it("entry origins are normalized and an empty list is refused", async () => {
@@ -469,7 +467,7 @@ describe("auth-providers admin CRUD (spec §8)", () => {
       const res = await req("DELETE", "/email", adminCookie);
       expect(res.status).toBe(400);
       expect(res.json.code).toBe("EMAIL_ROW_UNDELETABLE");
-      expect(await doors.getById("email")).toBeDefined();
+      expect(await providers.getById("email")).toBeDefined();
     });
 
     it("issuer/clientId/entryOrigins are refused on the E-mail row BEFORE any discovery probe", async () => {
@@ -478,7 +476,7 @@ describe("auth-providers admin CRUD (spec §8)", () => {
       // nonsense email-row issuer. The refusal must precede the network: the
       // fake IdP's counter says nothing was fetched.
       const before = discoveryCount;
-      const row = await doors.getById("email");
+      const row = await providers.getById("email");
       for (const body of [
         { issuer: "https://nowhere.invalid" },
         { clientId: "nope" },
@@ -489,7 +487,7 @@ describe("auth-providers admin CRUD (spec §8)", () => {
         expect(res.json.code).toBe("BAD_REQUEST");
       }
       expect(discoveryCount).toBe(before);
-      const after = await doors.getById("email");
+      const after = await providers.getById("email");
       expect(after?.issuer).toBe(row?.issuer);
       expect(after?.clientId).toBe(row?.clientId);
       expect(after?.entryOrigins).toBe(row?.entryOrigins);
@@ -505,109 +503,120 @@ describe("auth-providers admin CRUD (spec §8)", () => {
     });
   });
 
-  describe("last-door guard", () => {
-    // Isolate the count: every door this file does not own is force-closed
+  describe("last-provider guard", () => {
+    // Isolate the count: every provider this file does not own is force-closed
     // for the duration and restored to its stored value afterwards.
     let restored: { id: string; enabled: number }[] = [];
-    const doorB = "apv-door-b";
+    const providerB = "apv-provider-b";
 
     beforeAll(async () => {
-      const email = await doors.getById("email");
+      const email = await providers.getById("email");
       restored = [{ id: "email", enabled: email?.enabled ?? 1 }];
-      await doors.update("email", { enabled: 1, signInEnabled: 1 });
-      for (const row of await doors.listAll()) {
+      await providers.update("email", { enabled: 1, signInEnabled: 1 });
+      for (const row of await providers.listAll()) {
         if (row.id === "email") continue;
         restored.push({ id: row.id, enabled: row.enabled });
-        if (row.enabled === 1) await doors.update(row.id, { enabled: 0 });
+        if (row.enabled === 1) await providers.update(row.id, { enabled: 0 });
       }
-      createdIds.push(doorB);
+      createdIds.push(providerB);
     });
 
-    it("opens a second door, closes the email row's sign-in, and refuses closing the last one", async () => {
-      // Open door B through the route: a create adds a door and trivially
+    it("opens a second provider, closes the email row's sign-in, and refuses closing the last one", async () => {
+      // Open provider B through the route: a create adds a provider and trivially
       // passes the guard.
-      const opened = await req("POST", "/", adminCookie, createBody(doorB));
+      const opened = await req("POST", "/", adminCookie, createBody(providerB));
       expect(opened.status).toBe(200);
-      // Closing door A's sign-in half is fine: B holds the instance open.
+      // Closing provider A's sign-in half is fine: B holds the instance open.
       const closedA = await req("PATCH", "/email", adminCookie, { signInEnabled: false });
       expect(closedA.status).toBe(200);
-      expect(await doors.openSignInDoorCount()).toBe(1);
+      expect(await providers.openSignInProviderCount()).toBe(1);
       // Closing B too is the refusal, and it saves nothing.
-      const refused = await req("PATCH", `/${doorB}`, adminCookie, { signInEnabled: false });
+      const refused = await req("PATCH", `/${providerB}`, adminCookie, { signInEnabled: false });
       expect(refused.status).toBe(409);
-      expect(refused.json.code).toBe("LAST_SIGN_IN_DOOR");
-      expect(await doors.openSignInDoorCount()).toBe(1);
-      expect((await doors.getById(doorB))?.signInEnabled).toBe(1);
+      expect(refused.json.code).toBe("LAST_SIGN_IN_PROVIDER");
+      expect(await providers.openSignInProviderCount()).toBe(1);
+      expect((await providers.getById(providerB))?.signInEnabled).toBe(1);
       // Disabling B is the same refusal (the guard reads both halves), and so
-      // is deleting it while it is the last open door.
-      const disabled = await req("PATCH", `/${doorB}`, adminCookie, { enabled: false });
+      // is deleting it while it is the last open provider.
+      const disabled = await req("PATCH", `/${providerB}`, adminCookie, { enabled: false });
       expect(disabled.status).toBe(409);
-      const deleted = await req("DELETE", `/${doorB}`, adminCookie);
+      const deleted = await req("DELETE", `/${providerB}`, adminCookie);
       expect(deleted.status).toBe(409);
-      expect(deleted.json.code).toBe("LAST_SIGN_IN_DOOR");
-      expect(await doors.getById(doorB)).toBeDefined();
-      // Re-open the email door, and B can now be deleted: a DELETE answers
+      expect(deleted.json.code).toBe("LAST_SIGN_IN_PROVIDER");
+      expect(await providers.getById(providerB)).toBeDefined();
+      // Re-open the email provider, and B can now be deleted: a DELETE answers
       // 200 with a JSON body (the SPA contract — a bare 204 reads as failure).
       await req("PATCH", "/email", adminCookie, { signInEnabled: true });
-      const removed = await req("DELETE", `/${doorB}`, adminCookie);
+      const removed = await req("DELETE", `/${providerB}`, adminCookie);
       expect(removed.status).toBe(200);
       expect(removed.json).toEqual({ ok: true });
-      expect(await doors.getById(doorB)).toBeUndefined();
+      expect(await providers.getById(providerB)).toBeUndefined();
     });
 
     afterAll(async () => {
       for (const { id, enabled } of restored)
-        await doors.update(id, { enabled, ...(id === "email" ? { signInEnabled: 1 } : {}) });
+        await providers.update(id, { enabled, ...(id === "email" ? { signInEnabled: 1 } : {}) });
     });
   });
 
-  describe("POST /test probe", () => {
-    it("discovery-only probe answers the endpoints", async () => {
-      const res = await req("POST", "/test", adminCookie, { issuer: ISSUER });
-      expect(res.status).toBe(200);
-      expect(res.json).toEqual({
-        ok: true,
-        endpoints: {
-          authorizationUrl: `${ISSUER}/authorize`,
-          tokenUrl: `${ISSUER}/token`,
-          userInfoUrl: `${ISSUER}/userinfo`,
-        },
-      });
+  describe("the save IS the verification (2026-09-25, replacing the probe route)", () => {
+    it("a grant-advertising issuer refuses a save whose credentials the token endpoint rejects", async () => {
+      fake.grantTypes = ["client_credentials", "authorization_code"];
+      fake.tokenStatus = 401;
+      const rejected = await req("POST", "/", adminCookie, createBody("apv-rej"));
+      fake.tokenStatus = 200;
+      fake.grantTypes = ["authorization_code", "refresh_token"];
+      expect(rejected.status).toBe(400);
+      expect(rejected.json.code).toBe("CREDENTIALS_REJECTED");
+      // The refusal names the status, never the bodies, never the secret.
+      expect(JSON.stringify(rejected.json)).not.toInclude(SECRET);
+      expect(await providers.getById("apv-rej")).toBeUndefined();
     });
 
-    it("credentials with the grant offered attempt one token fetch; refusal is a 400 without echo", async () => {
-      fake.tokenUrls = [];
+    it("credentials ride exactly one token request when the grant is offered", async () => {
       fake.grantTypes = ["client_credentials", "authorization_code"];
-      const ok = await req("POST", "/test", adminCookie, { issuer: ISSUER, clientId: "c", clientSecret: SECRET });
+      fake.tokenUrls = [];
+      fake.tokenBodies = [];
+      const ok = await req("POST", "/", adminCookie, createBody("apv-probe", { enabled: false, signInEnabled: false }));
+      fake.grantTypes = ["authorization_code", "refresh_token"];
       expect(ok.status).toBe(200);
       expect(fake.tokenUrls).toEqual([`${ISSUER}/token`]);
-      expect(JSON.stringify(ok.json)).not.toInclude(SECRET);
-      fake.tokenStatus = 401;
-      const bad = await req("POST", "/test", adminCookie, { issuer: ISSUER, clientId: "c", clientSecret: SECRET });
-      fake.tokenStatus = 200;
-      expect(bad.status).toBe(400);
-      expect(bad.json.code).toBe("DISCOVERY_FAILED");
-      expect(JSON.stringify(bad.json)).not.toInclude(SECRET);
+      const sent = new URLSearchParams(fake.tokenBodies.at(-1));
+      expect(sent.get("grant_type")).toBe("client_credentials");
+      expect(sent.get("client_id")).toBe("client-1");
+      expect(sent.get("client_secret")).toBe(SECRET);
+      createdIds.push("apv-probe");
     });
 
-    it("credentials without the advertised grant PASS with the note (Google's shape)", async () => {
-      fake.grantTypes = ["authorization_code"];
-      const res = await req("POST", "/test", adminCookie, { issuer: ISSUER, clientId: "c", clientSecret: SECRET });
+    it("a Google-shaped issuer (grant not offered) saves with NO token call at all", async () => {
+      fake.tokenUrls = [];
+      const res = await req(
+        "POST",
+        "/",
+        adminCookie,
+        createBody("apv-nogrant", { enabled: false, signInEnabled: false }),
+      );
       expect(res.status).toBe(200);
-      expect(res.json.ok).toBe(true);
-      expect(res.json.note).toBe("token-endpoint grant not offered; discovery verified");
-      fake.grantTypes = undefined;
-      const noField = await req("POST", "/test", adminCookie, { issuer: ISSUER, clientId: "c", clientSecret: SECRET });
-      expect(noField.json.note).toBe("token-endpoint grant not offered; discovery verified");
-      fake.grantTypes = ["authorization_code", "refresh_token"];
+      expect(fake.tokenUrls.length).toBe(0);
+      createdIds.push("apv-nogrant");
     });
 
-    it("a dead issuer answers 400 DISCOVERY_FAILED", async () => {
-      fake.discoveryStatus = 503;
-      const res = await req("POST", "/test", adminCookie, { issuer: ISSUER });
-      fake.discoveryStatus = 200;
+    it("an unreachable token endpoint refuses by name, not by guess", async () => {
+      // The grant is advertised but the token fetch itself dies. The stub
+      // answers discovery; the token URL throws, which is the case the
+      // "could not be reached" sentence exists for.
+      fake.grantTypes = ["client_credentials"];
+      const wrapped = globalThis.fetch;
+      globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input) === `${ISSUER}/token`) throw new Error("connect refused");
+        return wrapped(input, init);
+      }) as typeof fetch;
+      const res = await req("POST", "/", adminCookie, createBody("apv-badtok"));
+      globalThis.fetch = wrapped; // fakeIdp was installed once; undo ONLY the wrapper.
+      fake.grantTypes = ["authorization_code", "refresh_token"];
       expect(res.status).toBe(400);
-      expect(res.json.code).toBe("DISCOVERY_FAILED");
+      expect(res.json.code).toBe("CREDENTIALS_REJECTED");
+      expect(res.json.message).toBe("The token endpoint could not be reached.");
     });
   });
 
@@ -623,7 +632,7 @@ describe("auth-providers admin CRUD (spec §8)", () => {
       // Creates always name their issuer; an update on the email row names
       // null — the shape is field names + issuer, never values.
       for (const row of creates) expect(String(row.metadataJson)).toInclude(ISSUER);
-      // The secret was PATCHed onto a door mid-suite; the row names the
+      // The secret was PATCHed onto a provider mid-suite; the row names the
       // field, not the value.
       expect(JSON.stringify(updates.map((r) => r.metadataJson))).toInclude("clientSecret");
     });

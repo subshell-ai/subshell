@@ -79,7 +79,7 @@ export const createUserRoute = new Elysia().use(requireAdmin).post(
         // back (they already see every email per §3 of the security rules,
         // so the name discloses nothing AND remedies nothing they cannot see
         // in the roster). The named refusal belongs to the public sign-up
-        // door alone — `@/auth/held-email-guards`, where the person asking
+        // provider alone — `@/auth/held-email-guards`, where the person asking
         // genuinely cannot see who holds their address.
         throw new UsersError("conflict", "E-mail already registered");
       }

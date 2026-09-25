@@ -32,12 +32,12 @@ export async function accountDisabled(db: Kysely<Database>, userId: string): Pro
 
 /**
  * Whether this account is PENDING APPROVAL — arrived through a
- * require-approval door and not yet admitted (spec 2026-09-24 §4).
+ * require-approval provider and not yet admitted (spec 2026-09-24 §4).
  *
  * The same one-function discipline as {@link accountDisabled}, for the same
  * reason: better-auth's `session.create.before` hook refuses to mint a
- * session for such an account, and the door policy
- * (`auth/door-policy.ts` → `validateUserInfo`) refuses the provisioning
+ * session for such an account, and the provider policy
+ * (`auth/provider-policy.ts` → `validateUserInfo`) refuses the provisioning
  * request that would have led to it. Two readings of `approval_state` are
  * how those surfaces come to disagree about who may sign in; this is the
  * one reader of the session side, and it goes through

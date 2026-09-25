@@ -2,7 +2,7 @@ import type { Server } from "bun";
 
 /** The handle on a running fake issuer: its URL, a mutable profile, and shutdown. */
 export interface FakeIdp {
-  /** Origin of this issuer, e.g. `http://127.0.0.1:<port>` — store it as the door's issuer. */
+  /** Origin of this issuer, e.g. `http://127.0.0.1:<port>` — store it as the provider's issuer. */
   url: string;
   /** Swap the profile `/userinfo` answers with, between flows (null makes it 500). */
   setProfile(p: Record<string, unknown> | null): void;
@@ -19,7 +19,7 @@ export interface FakeIdp {
 
 /**
  * An OIDC issuer small enough to hold in your head, big enough to satisfy
- * genericOAuth's code+userinfo path. NO id_token is issued: the door row
+ * genericOAuth's code+userinfo path. NO id_token is issued: the provider row
  * carries explicit endpoints and a userInfoUrl, so better-auth discovers
  * nothing, verifies no JWT, and reads the profile from `/userinfo` (the
  * measured path through `plugins/generic-oauth`), and nothing needs verifying.

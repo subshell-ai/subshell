@@ -51,7 +51,7 @@ describe("ui/tooltip", () => {
     expect(popup.textContent).toContain("Node: y");
   });
 
-  it("draws no arrow by default", async () => {
+  it("draws an arrow by default (operator rule, 2026-09-25)", async () => {
     render(
       <TooltipProvider>
         <Tooltip open>
@@ -63,8 +63,25 @@ describe("ui/tooltip", () => {
     const popup = await screen.findByText("plain");
     const wrapper = popup.closest("[class*='text-body']");
     // The arrow lives INSIDE the popup as a sibling of the content, which is
-    // why these walk from the wrapper rather than `closest` from the text.
-    expect(wrapper?.querySelector(".rotate-45")).toBeNull();
+    // why these walk from the wrapper rather than `closest` from the text. A
+    // popup with no tip was the old default and it is the defect: the box
+    // floated over a run of elements naming none of them.
+    const arrow = wrapper?.querySelector(".rotate-45");
+    expect(arrow).not.toBeNull();
+    expect(arrow?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("arrow={false} is the opt-out for a surface with no single anchor", async () => {
+    render(
+      <TooltipProvider>
+        <Tooltip open>
+          <TooltipTrigger>t</TooltipTrigger>
+          <TooltipContent arrow={false}>plain</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>,
+    );
+    const popup = await screen.findByText("plain");
+    expect(popup.closest("[class*='text-body']")?.querySelector(".rotate-45")).toBeNull();
   });
 
   it("arrow tracks the rendered side, not just the requested one", async () => {
@@ -72,9 +89,7 @@ describe("ui/tooltip", () => {
       <TooltipProvider>
         <Tooltip open>
           <TooltipTrigger>t</TooltipTrigger>
-          <TooltipContent side="right" arrow>
-            beside
-          </TooltipContent>
+          <TooltipContent side="right">beside</TooltipContent>
         </Tooltip>
       </TooltipProvider>,
     );

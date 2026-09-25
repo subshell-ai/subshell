@@ -78,13 +78,13 @@ export async function expiryDays(db: Kysely<Database>): Promise<number> {
  * elsewhere**: that rule shields MEMBERS — accounts someone was admitted
  * as. A `pending` row is nobody's membership; it is a knock that was never
  * opened (the person holds no session, owns no data, and the spec's own
- * §6 lifecycle says so: an open Google door means anyone can knock, so the
+ * §6 lifecycle says so: an open Google provider means anyone can knock, so the
  * queue "must not be an unbounded junkyard"). A knocked-and-forgotten
  * person who returns simply re-arrives on a fresh row.
  *
  * **Rejected rows never expire**, and that asymmetry is load-bearing: a
  * rejection is an explicit admin decision, and letting it age out on a
- * timer would silently reopen the door nobody reopened. Dedup-by-email
+ * timer would silently reopen the provider nobody reopened. Dedup-by-email
  * keeps repeat knockers on their one row, so there is no pile-up to fear.
  * (An approved or absent row is a member and is out of scope entirely; a
  * `pending` row with a NULL clock has nothing to age against and survives
@@ -226,18 +226,18 @@ export async function expirePendingApprovals(db: Kysely<Database>): Promise<numb
  *
  * - exactly ONE `account` row — the same links-are-not-arrivals test the
  *   hook applies (`accountCount = 1`, counted over ALL accounts, so a user
- *   who linked the gated door beside a second account is not an arrival);
+ *   who linked the gated provider beside a second account is not an arrival);
  * - that account's `providerId` names an `auth_providers` row with
  *   `require_approval = 1`, and is not `credential` — mirroring the hook's
- *   `getById` + skip guard exactly, email-door sign-ups included;
- * - that door row was last updated AT OR BEFORE the user's `createdAt`
+ *   `getById` + skip guard exactly, email-provider sign-ups included;
+ * - that provider row was last updated AT OR BEFORE the user's `createdAt`
  *   (Task 10 review, guard 6): a `require_approval` flip landed AFTER a
  *   person arrived cannot retroactively queue — and DEMOTE — them. The
  *   sharp case is concrete: an instance whose first admin walked through a
- *   then-open door, an admin later flips approval on, and without this
+ *   then-open provider, an admin later flips approval on, and without this
  *   clause the next sweep demotes the sole admin and re-queues them,
  *   bricking the instance against its own policy. (The clause reads the
- *   door's `updated_at` through SQLite `datetime()` because the two tables
+ *   provider's `updated_at` through SQLite `datetime()` because the two tables
  *   spell time differently — see the query.) A hand-SQL flip that never
  *   bumps `updated_at` stays outside the guard's reach, like every other
  *   hand edit this service only bounds conservatively;
@@ -300,7 +300,7 @@ export async function remarkUnmarkedArrivals(db: Kysely<Database>): Promise<numb
   // ever MATCH the gated one — a two-account user must fail the count even
   // though only one row joins. Result aliases pass through the
   // CamelCasePlugin's camelize, so plain identifiers read back unchanged.
-  // The door-vs-user timestamp gate compares through `datetime()` because
+  // The provider-vs-user timestamp gate compares through `datetime()` because
   // the two sides do not carry the SAME spelling of time: `auth_providers`
   // is an app table whose row-creation default is `datetime('now')`
   // (second-precise, space-separated), the repo's own `update` rewrites it
@@ -366,7 +366,7 @@ export async function remarkUnmarkedArrivals(db: Kysely<Database>): Promise<numb
     });
     remarked += 1;
     logger.warn(
-      `door policy: re-queued unmarked arrival user ${candidate.userId} on provider ${candidate.providerId} — ` +
+      `provider policy: re-queued unmarked arrival user ${candidate.userId} on provider ${candidate.providerId} — ` +
         `account.create.after's marking was lost; the account is pending again and ${revokedSessions} session(s) were revoked`,
     );
   }

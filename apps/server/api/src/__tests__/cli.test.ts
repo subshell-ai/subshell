@@ -852,16 +852,19 @@ describe("dispatchCli — service verbs", () => {
   });
 
   test("install accepts --no-autostart, and only install does", async () => {
-    // ISOLATED: with no `runCmd` injected, `DEFAULT_DEPS` builds the real one
-    // and `configDir` resolves to the DEVELOPER'S `~/.config/subshell-server`
-    // — so on a Linux box with a config.env and a live user session this test
-    // would write a unit file and run `systemctl --user start` for real. The
-    // flag parse happens before any of that; everything else here is stubbed
-    // so the test proves the parse and touches nothing.
+    // ISOLATED, and now provably so: `configDir` is pinned to a directory
+    // that cannot hold a config.env, because on a DEVELOPER'S box the real
+    // `~/.config/subshell-server/config.env` exists and `installService`
+    // sails past its own "run init first" refusal into the write path, where
+    // the service-write safety guard throws (the same host-leak class as the
+    // "update refuses" case: the ladder sees the operator's install, CI does
+    // not). With the refusal intact, nothing is written, no manager is
+    // asked, and the test proves only what it means to: the flag PARSE.
     const calls: string[][] = [];
     const { deps, err } = collectingDeps({
       platform: "linux",
       home: "/home/nobody-here",
+      configDir: "/no/such/config/subshell-server",
       runCmd: (cmd: string[]) => {
         calls.push(cmd);
         return { code: 0, out: "", err: "" };

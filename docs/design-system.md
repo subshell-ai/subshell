@@ -109,6 +109,21 @@ admitted here.
   12; a plugin's description was 12 in one card and 14 in the other; the
   assistant's `.hint` was 14. Three sizes for one idea, because the table used
   to file "hints" under `body`.)*
+- **Tooltip** — the popup carries an arrow pointing back at its control:
+  `TooltipContent` draws it by default, and `arrow={false}` is the rare opt-out
+  for a surface with no single anchor. A floating box beside a run of elements
+  does not say which one is speaking; the arrow is the pointer that names it.
+  *(A disabled control's explanation floated over the whole row until it grew
+  the tip; the rail's rows needed the same arrow a day earlier. Operator rule,
+  2026-09-25.)*
+- **Tab group** — a page's tab strip is CONTENT-SIZED (`Segmented fill={false}`),
+  never stretched across the container: two tab labels sharing the page's full
+  width read as data columns rather than as choices, and the stretch grows the
+  dead space with the window. Equal-share fill stays right only for a switch
+  INSIDE a bounded row or dialog, where a half-empty pill would read as one
+  control plus dead space (2026-09-18), not as a page tab. *(Users page at a
+  wide window: "Members" and "Pending approval" each took half the page
+  (operator ruling, 2026-09-25).)*
 - **Choice group** — radios inside `role="radiogroup"` with an `aria-label`; a
   dependent setting sits BELOW the group after a rule, never indented under one
   option; its dependency is a disabled control that says why and names what

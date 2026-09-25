@@ -4,20 +4,21 @@ import { db } from "@/db/index.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 
-/** One queue row: a person a door let through who is not a member yet (spec §6). */
+/** One queue row: a person a provider let through who is not a member yet (spec §6). */
 const PendingUserSchema = t.Object({
   id: t.String({ description: "User id" }),
-  email: t.String({ description: "The email the door's profile carried" }),
-  name: t.String({ description: "Display name; empty for a door arrival that carried none" }),
+  email: t.String({ description: "The email the provider's profile carried" }),
+  name: t.String({ description: "Display name; empty for a provider arrival that carried none" }),
   providerId: t.Nullable(
     t.String({
-      description: "The door this arrival came through; null for an account with no sign-in row (should not happen)",
+      description:
+        "The provider this arrival came through; null for an account with no sign-in row (should not happen)",
     }),
   ),
   providerName: t.Nullable(
     t.String({
       description:
-        "The door's current name, resolved live; null when the provider has since been removed, which the queue renders as a removed-provider label",
+        "The provider's current name, resolved live; null when the provider has since been removed, which the queue renders as a removed-provider label",
     }),
   ),
   arrivedAt: t.Nullable(
@@ -39,10 +40,10 @@ const PendingResponseSchema = t.Object({
 export const listPendingApprovalsRoute = new Elysia().use(requireAdmin).get(
   "/pending",
   async () => {
-    // The queue list. Provider NAMES resolve live, from a read of the door
+    // The queue list. Provider NAMES resolve live, from a read of the provider
     // table, rather than by a JOIN that would vanish the row: a deleted
     // provider must render as "removed provider" (spec §6) — the queue is
-    // the record of who knocked at a door this instance used to have.
+    // the record of who knocked at a provider this instance used to have.
     const rows = await new UsersRepository(db).listApprovalQueue();
     const names = new Map((await new AuthProvidersRepository(db).listAll()).map((row) => [row.id, row.name]));
     return {

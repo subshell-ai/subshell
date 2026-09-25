@@ -46,7 +46,7 @@ runner reason) reused from Task 7's in-test fake. Unlike the registry it is
 BROWSER-reachable, because spec 19's round trip is a real navigation through
 `/authorize`. `PUT /_profile` swaps the `/userinfo` answer between flows —
 that is the subprocess's addition over the in-test `setProfile`. Spec 19 seeds
-its doors via the admin cookie at `POST /api/auth-providers` (whose save gate
+its providers via the admin cookie at `POST /api/auth-providers` (whose save gate
 runs discovery against this fake), and no spec ever dials a real IdP.
 
 Every fixed port in `ports.ts` takes an env override (`E2E_PORT_BACKEND`,
@@ -73,7 +73,7 @@ against ONE shared database:
   `helpers.ts` (`04`–`19`, less `15` — which boots its own clean
   machine and loads no state; `02` deliberately stays anonymous — it pins
   the 401 boundary itself; `19` reads it through an admin `APIRequestContext`
-  for its door seeding, while every browser context it drives stays
+  for its provider seeding, while every browser context it drives stays
   anonymous).
 - Two files share the `06-` prefix: `06-split-to-workspace` sorts before
   `06-subshell-lifecycle` and so runs between `05` and it. Both depend only on

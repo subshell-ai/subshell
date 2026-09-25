@@ -88,7 +88,7 @@ describe("users-admin + audit routes", () => {
     expect(adminRow?.role).toBe("admin");
     expect(adminRow?.createdAt).toBeTruthy();
     // Every fixture here signs up with a password, so the providers column the
-    // users page renders (spec 2026-09-24 §7) is exactly the credential door.
+    // users page renders (spec 2026-09-24 §7) is exactly the credential provider.
     expect(adminRow?.providers).toEqual(["credential"]);
   });
 

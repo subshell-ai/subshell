@@ -1,6 +1,6 @@
 /**
  * Discovery resolution and the entry-validation rules for admin-managed
- * OIDC doors (spec 2026-09-24 §3/§5).
+ * OIDC providers (spec 2026-09-24 §3/§5).
  *
  * `resolveEndpoints` runs ONLY on the admin write path and the in-dialog
  * probe; the auth BUILD reads the stored endpoints and never touches the
@@ -89,6 +89,62 @@ export async function resolveEndpoints(issuer: string): Promise<ResolvedEndpoint
   return endpointsFromDocument(await fetchDiscoveryDocument(issuer));
 }
 
+/** What {@link verifyOnSave} answers: the endpoints to store, or a refusal. */
+export type VerifyOutcome =
+  | { ok: true; endpoints: ResolvedEndpoints }
+  | { ok: false; stage: "discovery" | "credentials"; message: string };
+
+/**
+ * The verification a provider SAVE runs (operator ruling 2026-09-25: THE
+ * SAVE IS THE VERIFY — the standalone in-dialog probe route was deleted,
+ * because a save that refuses before writing costs a retry, not a broken
+ * row, and that had always been true).
+ *
+ * Discovery first; then, when the issuer advertises the `client_credentials`
+ * grant, ONE real token request with the offered pair — the soft-signal
+ * ladder the probe route carried: a Google-shaped issuer that does not offer
+ * the grant is verified as far as it can be with NO token call (the honest
+ * ceiling, spec §8), while one that does offers no excuse to store a pair it
+ * would refuse. The token response BODY is never read into the outcome and
+ * never logged; a failure names the status only, and the secret never
+ * appears in any message.
+ */
+export async function verifyOnSave(issuer: string, clientId: string, clientSecret: string): Promise<VerifyOutcome> {
+  let doc: Record<string, unknown>;
+  let endpoints: ResolvedEndpoints;
+  try {
+    doc = await fetchDiscoveryDocument(issuer);
+    endpoints = endpointsFromDocument(doc);
+  } catch (err) {
+    if (err instanceof DiscoveryError)
+      return { ok: false, stage: "discovery", message: `Discovery failed: ${err.reason}.` };
+    throw err;
+  }
+  if (clientId === "" || clientSecret === "") return { ok: true, endpoints };
+  const grantTypes = Array.isArray(doc.grant_types_supported)
+    ? doc.grant_types_supported.filter((g): g is string => typeof g === "string")
+    : [];
+  if (!grantTypes.includes("client_credentials")) return { ok: true, endpoints };
+  try {
+    const res = await fetch(endpoints.tokenUrl, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "client_credentials", client_id: clientId, client_secret: clientSecret }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      return {
+        ok: false,
+        stage: "credentials",
+        message: `The token endpoint refused the client credentials (HTTP ${res.status}).`,
+      };
+    }
+  } catch {
+    return { ok: false, stage: "credentials", message: "The token endpoint could not be reached." };
+  }
+  return { ok: true, endpoints };
+}
+
 /**
  * Bare-origin validation for entry hosts (§5a): http(s) scheme, a host,
  * credentials and wildcards refused — the trusted-origin component rule, and
@@ -148,7 +204,7 @@ export function normalizeDomains(raw: string): string[] {
   return out;
 }
 
-/** The reserved id of the credential door — never a choosable slug. */
+/** The reserved id of the credential provider — never a choosable slug. */
 const RESERVED_PROVIDER_ID = "email";
 
 /**
@@ -162,8 +218,8 @@ const RESERVED_PROVIDER_ID = "email";
  * this function is the gate.
  *
  * `email` is refused as a user-chosen slug: it is the reserved row's id, and
- * a door whose callback is `/api/auth/callback/email` would collide with the
- * credential door's identity.
+ * a provider whose callback is `/api/auth/callback/email` would collide with the
+ * credential provider's identity.
  */
 export function slugifyProviderId(name: string): string {
   // The leading/trailing-dash trim runs AFTER the 40-char cap. Capping last
@@ -182,7 +238,7 @@ export function slugifyProviderId(name: string): string {
     throw new EntryInputError(`name "${name}" contains no characters a provider id can be built from`);
   }
   if (slug === RESERVED_PROVIDER_ID) {
-    throw new EntryInputError('"email" is the reserved id of the credential door; pick another name');
+    throw new EntryInputError('"email" is the reserved id of the credential provider; pick another name');
   }
   return slug;
 }

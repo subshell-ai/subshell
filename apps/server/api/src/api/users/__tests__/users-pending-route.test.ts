@@ -30,7 +30,7 @@ const app = new Elysia().use(errorHandlerPlugin).use(usersRoutes);
 
 const users = new UsersRepository(db);
 const meta = new UserMetaRepository(db);
-const doors = new AuthProvidersRepository(db);
+const providers = new AuthProvidersRepository(db);
 
 const pw = "pending-pass-1";
 const adminEmail = `ap-admin-${crypto.randomUUID()}@subshell.local`;
@@ -40,7 +40,7 @@ let adminCookie: string;
 let memberCookie: string;
 let adminBearerKey: string;
 const subshellId = `ap-sub-${crypto.randomUUID()}`;
-/** Door rows created by this file; removed in afterAll. */
+/** Provider rows created by this file; removed in afterAll. */
 const providerIds: string[] = [];
 /** User rows created by this file; removed in afterAll. */
 const fixtureUserIds: string[] = [];
@@ -54,13 +54,13 @@ async function mkCookieUser(email: string, role: "admin" | "user"): Promise<stri
 async function mkProvider(kind: "google" | "oidc", name: string): Promise<string> {
   const id = `ap-${kind}-${crypto.randomUUID().slice(0, 8)}`;
   providerIds.push(id);
-  await doors.create({ id, kind, name });
+  await providers.create({ id, kind, name });
   return id;
 }
 
 /**
  * Creates a queue row the shape production leaves behind: a user whose one
- * account row names its door (`providerId` re-parented, the way better-auth's
+ * account row names its provider (`providerId` re-parented, the way better-auth's
  * OAuth link writes it) and whose meta row is `pending`/`rejected` with the
  * given arrival stamp.
  */
@@ -120,7 +120,7 @@ async function roster(): Promise<{ id: string; email: string; providers: string[
 }
 
 describe("approval queue routes (spec §6/§8)", () => {
-  let googleDoor: string;
+  let googleProvider: string;
   let pendingId: string;
   let rejectedId: string;
   let systemId: string;
@@ -149,14 +149,14 @@ describe("approval queue routes (spec §6/§8)", () => {
     });
     adminBearerKey = await issueSubshellToken(subshellId, adminId);
 
-    googleDoor = await mkProvider("google", "Acme Google");
-    pendingId = await mkQueueUser(pendingEmail, googleDoor, "pending", "2026-09-20T10:00:00.000Z");
+    googleProvider = await mkProvider("google", "Acme Google");
+    pendingId = await mkQueueUser(pendingEmail, googleProvider, "pending", "2026-09-20T10:00:00.000Z");
     // The rejected row lives the production lifecycle: it ARRIVED pending with
     // a stamp, then the admin rejected it — which CLEARS the stamp (leaving
     // pending NULLs it, the setApproval rule), so queue ordering puts it below
     // still-pending rows. Seeding it pre-rejected would have skipped the
     // lifecycle that produces the NULL.
-    rejectedId = await mkQueueUser(rejectedEmail, googleDoor, "pending", "2026-09-24T10:00:00.000Z");
+    rejectedId = await mkQueueUser(rejectedEmail, googleProvider, "pending", "2026-09-24T10:00:00.000Z");
     await meta.setApproval(rejectedId, "rejected");
   });
 
@@ -165,7 +165,7 @@ describe("approval queue routes (spec §6/§8)", () => {
       await db.deleteFrom("userMeta").where("userId", "=", id).execute();
       await deleteUserByEmailOrId(id);
     }
-    for (const id of providerIds) await doors.remove(id);
+    for (const id of providerIds) await providers.remove(id);
     await db.deleteFrom("subshells").where("id", "=", subshellId).execute();
   });
 
@@ -184,7 +184,7 @@ describe("approval queue routes (spec §6/§8)", () => {
     expect(p).toBeDefined();
     expect(p?.id).toBe(pendingId);
     expect(p?.name).toBe(pendingEmail);
-    expect(p?.providerId).toBe(googleDoor);
+    expect(p?.providerId).toBe(googleProvider);
     expect(p?.providerName).toBe("Acme Google");
     expect(p?.arrivedAt).toBe("2026-09-20T10:00:00.000Z");
     expect(p?.approvalState).toBe("pending");
@@ -197,15 +197,15 @@ describe("approval queue routes (spec §6/§8)", () => {
   });
 
   it("a removed provider renders providerName null with the id kept", async () => {
-    const ghostDoor = `ap-ghost-${crypto.randomUUID().slice(0, 8)}`;
-    await doors.create({ id: ghostDoor, kind: "oidc", name: "Ghost" });
+    const ghostProvider = `ap-ghost-${crypto.randomUUID().slice(0, 8)}`;
+    await providers.create({ id: ghostProvider, kind: "oidc", name: "Ghost" });
     const ghostEmail = `ap-ghost-${crypto.randomUUID()}@subshell.local`;
-    const ghostId = await mkQueueUser(ghostEmail, ghostDoor, "pending", "2026-09-23T10:00:00.000Z");
-    await doors.remove(ghostDoor);
+    const ghostId = await mkQueueUser(ghostEmail, ghostProvider, "pending", "2026-09-23T10:00:00.000Z");
+    await providers.remove(ghostProvider);
     try {
       const rows = await queue();
       const row = rows.find((r) => r.id === ghostId);
-      expect(row?.providerId).toBe(ghostDoor);
+      expect(row?.providerId).toBe(ghostProvider);
       // The UI turns null into "removed provider" (spec §6) — the route's
       // half of that promise is the null, never a 500.
       expect(row?.providerName).toBeNull();
@@ -242,13 +242,13 @@ describe("approval queue routes (spec §6/§8)", () => {
     expect(audit).toHaveLength(1);
     expect(audit[0]?.actorUserId).toBe(adminId);
     // The user-management family names its subject by email; providerId says
-    // which door they came through.
-    expect(JSON.parse(String(audit[0]?.metadataJson))).toEqual({ email: pendingEmail, providerId: googleDoor });
+    // which provider they came through.
+    expect(JSON.parse(String(audit[0]?.metadataJson))).toEqual({ email: pendingEmail, providerId: googleProvider });
   });
 
   it("reject answers 200, audits user.reject, and keeps the row off the roster", async () => {
     const lateEmail = `ap-late-${crypto.randomUUID()}@subshell.local`;
-    const lateId = await mkQueueUser(lateEmail, googleDoor, "pending", "2026-09-25T10:00:00.000Z");
+    const lateId = await mkQueueUser(lateEmail, googleProvider, "pending", "2026-09-25T10:00:00.000Z");
     const res = await req("PATCH", `/${lateId}/approval`, adminCookie, { approvalState: "rejected" });
     expect(res.status).toBe(200);
     expect(((await res.json()) as { approvalState: string }).approvalState).toBe("rejected");
@@ -263,7 +263,7 @@ describe("approval queue routes (spec §6/§8)", () => {
       .where("targetId", "=", lateId)
       .execute();
     expect(audit).toHaveLength(1);
-    expect(JSON.parse(String(audit[0]?.metadataJson))).toEqual({ email: lateEmail, providerId: googleDoor });
+    expect(JSON.parse(String(audit[0]?.metadataJson))).toEqual({ email: lateEmail, providerId: googleProvider });
     expect((await roster()).some((u) => u.id === lateId)).toBe(false);
   });
 
@@ -303,7 +303,7 @@ describe("approval queue routes (spec §6/§8)", () => {
     // check+write now live in one repository transaction; the invariant is
     // what this pins regardless of how the awaits happen to interleave.
     const raceEmail = `ap-race-${crypto.randomUUID()}@subshell.local`;
-    const raceId = await mkQueueUser(raceEmail, googleDoor, "pending", new Date().toISOString());
+    const raceId = await mkQueueUser(raceEmail, googleProvider, "pending", new Date().toISOString());
     const results = await Promise.all([
       req("PATCH", `/${raceId}/approval`, adminCookie, { approvalState: "approved" }),
       req("PATCH", `/${raceId}/approval`, adminCookie, { approvalState: "approved" }),

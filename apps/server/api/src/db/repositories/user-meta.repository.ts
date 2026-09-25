@@ -286,7 +286,7 @@ export class UserMetaRepository extends BaseRepository {
   /**
    * Writes an approval decision ONLY when the row is not already APPROVED,
    * with the check and the write in ONE transaction (final review, minor —
-   * the {@link setRole} / `patchGuardingLastDoor` precedent).
+   * the {@link setRole} / `patchGuardingLastProvider` precedent).
    *
    * The route used to ask {@link approvalState} and then {@link setApproval}
    * as two statements: two concurrent approves on one pending row could both
@@ -356,7 +356,7 @@ export class UserMetaRepository extends BaseRepository {
    * that is sound rather than sloppy: the guard exists so an instance never
    * LOSES an administrator someone relied on. Here the "admin" is seconds
    * old, was never observable by anyone (the account is being created right
-   * now), and its arrival through a require-approval door means the instance
+   * now), and its arrival through a require-approval provider means the instance
    * was admin-less a moment before this request. Refusing the demote would
    * leave an unapproved OIDC arrival as the operator of the whole control
    * plane — the exact inversion §6 exists to prevent. `setup_step` clears in
@@ -376,7 +376,7 @@ export class UserMetaRepository extends BaseRepository {
   /**
    * Re-stamps the §6 arrival clock for the pending row owning `email`, and
    * ONLY a pending row (spec 2026-09-24 §6 dedup: a repeat knock on a still
-   * unapproved door refreshes its position in the expiry queue; an approved,
+   * unapproved provider refreshes its position in the expiry queue; an approved,
    * rejected or absent row is never touched). Raw SQL because it spans
    * better-auth's `user` table and the app's `user_meta` in one statement —
    * physical snake_case names per the plugin-bypass rule; `email` arrives

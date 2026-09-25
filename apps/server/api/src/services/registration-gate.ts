@@ -24,8 +24,8 @@ export const ALLOW_NODE_ENROLLMENT_KEY = "allow_node_enrollment";
  * Whether this instance currently accepts a NEW E-MAIL sign-up — i.e. the
  * E-mail provider row's `registration_enabled` (spec 2026-09-24 §2). NULL on
  * that row means the legacy dynamic window: open exactly while no real
- * account exists, closed behind the first one. OIDC doors answer their own
- * `registration_enabled` in `auth/door-policy.ts`; this function is the one
+ * account exists, closed behind the first one. OIDC providers answer their own
+ * `registration_enabled` in `auth/provider-policy.ts`; this function is the one
  * answer three surfaces share (the sign-up hook, the settings read, the
  * Auth page's E-mail row).
  *
@@ -47,7 +47,7 @@ export const ALLOW_NODE_ENROLLMENT_KEY = "allow_node_enrollment";
  * softening of it: the FIRST account registered becomes the admin, so a
  * closed instance with nobody in it could never mint the one person able to
  * open it — a fresh install would be bricked behind a sign-up form that
- * refuses. The door is open exactly until someone walks through it, and
+ * refuses. The provider is open exactly until someone walks through it, and
  * closes behind them.
  *
  * The legacy `allow_registrations` settings row this gate used to read — and

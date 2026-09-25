@@ -64,8 +64,8 @@ surfaces), and defines the `status`-carrying error classes Elysia maps to HTTP
 codes. `src/server.ts` composes the app; `src/index.ts` boots it (runs
 migrations, then listens).
 
-**Sign-in doors (spec 2026-09-24).** Provider config lives in the
-`auth_providers` table (migration 0037; the E-mail door is row `email` and IS
+**Sign-in providers (spec 2026-09-24).** Provider config lives in the
+`auth_providers` table (migration 0037; the E-mail provider is row `email` and IS
 the old global registration switch, its `registration_enabled` NULL meaning
 the legacy dynamic window; migration 0038 adds `user_meta.approval_state`).
 `buildAuth()` filters enabled non-email rows into the `genericOAuth` config
@@ -75,19 +75,19 @@ sibling of `resetAuthForTests()`) drops the memo so every successful
 built FAIL-TOLERANT: each config entry pins `accountIssuer` to the stored
 issuer and carries the endpoints discovery resolved AT SAVE TIME, so a rebuild
 never re-fetches a dead issuer, `genericOAuth` stays out of `AUTH_OPTIONS`
-(a throwing door must not crash boot's migration path), and a throwing
-rebuild serves the last-known-good instance. **Door policy is one global
-seam**, `options.user.validateUserInfo` → `auth/door-policy.ts` (1.7.1 has no
+(a throwing provider must not crash boot's migration path), and a throwing
+rebuild serves the last-known-good instance. **Provider policy is one global
+seam**, `options.user.validateUserInfo` → `auth/provider-policy.ts` (1.7.1 has no
 per-provider hook); it never fires on the password/passkey SIGN-IN paths, so
-`auth/door-guards.ts` (`hooks.before`) carries those two refusals for a
-closed E-mail door — `closed` meaning EITHER flag: the guard reads
+`auth/provider-guards.ts` (`hooks.before`) carries those two refusals for a
+closed E-mail provider — `closed` meaning EITHER flag: the guard reads
 `enabled = 0` beside `sign_in_enabled = 0` (final review, Important 1: the
-master switch was hiding the door in the UI while the API kept signing
+master switch was hiding the provider in the UI while the API kept signing
 people in), with break-glass exempted by a server-held nonce, and — equally
 load-bearing — `registration_enabled` does NOT gate SIGN-IN, only creation:
 the legacy dynamic window closes the gate while every member keeps their way
-in (pinned both ways in `door-guards.test.ts`). A
-`require_approval` door's first arrival is marked pending at
+in (pinned both ways in `provider-guards.test.ts`). A
+`require_approval` provider's first arrival is marked pending at
 `databaseHooks.account.create.after` (the only seam that sees the provider at
 creation; it also undoes any first-admin promotion its own write caused,
 clearing the `setup_step` bookmark with it) and its session dies at
@@ -96,12 +96,14 @@ clearing the `setup_step` bookmark with it) and its session dies at
 hook with the code the login page maps to `/pending`. The hourly sweep
 (`services/pending-approvals.ts`) expires stale `pending` rows (never
 `rejected`) and re-marks failed-mark arrivals. `/api/auth-providers` is
-cookie-admin only; discovery is the save gate (400 `DISCOVERY_FAILED`), the
-client secret is never serialized or audited, and no write may close the
-LAST open sign-in door (409 `LAST_SIGN_IN_DOOR`). The PATCH also refuses
+cookie-admin only; verification is the save gate — discovery plus, where the
+issuer advertises the grant, one token request (400 `DISCOVERY_FAILED` /
+`CREDENTIALS_REJECTED`; the separate probe route was deleted by the 2026-09-25
+ruling), the client secret is never serialized or audited, and no write may close the
+LAST open sign-in provider (409 `LAST_SIGN_IN_PROVIDER`). The PATCH also refuses
 `issuer`/`clientId`/`entryOrigins` on the E-mail row (that row runs no
 exchange; the route used to accept them and even probe discovery against a
-nonsense email-row issuer), and every door's `name` goes through the shared
+nonsense email-row issuer), and every provider's `name` goes through the shared
 `normalizeLabel` + 120-code-point cap like every other user-visible NAME —
 it renders on the anonymous login buttons. On the §5a entry origins: what
 reaches the IdP is ALWAYS the stored canonical entry (list position 0),
@@ -115,7 +117,7 @@ case 14 pins the emitted URI. The security accounting is
 ```
 src/
 ├── api/            # Routes: flat *.route.ts (incl. downloads.route.ts — the subshell binaries; admin-status.route.ts — the whole instance in one admin-only read; plugins.route.ts — /api/plugins, the instance plugin store, writes cookie-admin) + per-resource dirs (subshells/, workspaces/, channels/, nodes/, users/, auth-providers/) + auth-guard.ts + routes.ts; install-script.ts renders root-mounted GET /install.sh
-├── auth/           # Api-key store, DB handle, system user, the sign-in doors (door-policy.ts, door-guards.ts, provider-rows.ts, oidc-discovery.ts; better-auth config: ../auth.ts)
+├── auth/           # Api-key store, DB handle, system user, the sign-in providers (provider-policy.ts, provider-guards.ts, provider-rows.ts, oidc-discovery.ts; better-auth config: ../auth.ts)
 ├── db/             # Kysely setup, migrations (static provider map), types/, repositories/
 ├── lib/            # context.ts (ApiContext + getRequestlessContext), api-error.ts (apiErrorBody)
 ├── plugins/        # auth.plugin.ts (better-auth handler mount), context.plugin.ts, error-handler.plugin.ts, static.plugin.ts

@@ -6,12 +6,11 @@ import { b2n, CreateProviderFieldsSchema } from "@/api/auth-providers/provider-f
 import { normalizeOriginList, PROVIDER_NAME_MAX } from "@/api/auth-providers/provider-inputs.js";
 import { domainsInput, ProviderViewSchema, toView } from "@/api/auth-providers/provider-view.js";
 import {
-  DiscoveryError,
   EntryInputError,
   normalizeDomains,
   normalizeEntryOrigin,
-  resolveEndpoints,
   slugifyProviderId,
+  verifyOnSave,
 } from "@/auth/oidc-discovery.js";
 import { invalidateAuth } from "@/auth.js";
 import { APP_BASE_URL } from "@/constants.js";
@@ -22,11 +21,13 @@ import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
 
 /**
- * `POST /api/auth-providers` — adds an OIDC sign-in door (cookie-admin only).
- * Discovery must resolve the issuer's endpoints or the save is refused with
- * 400 DISCOVERY_FAILED; the id slug is refused with 409 SLUG_TAKEN when taken.
- * The new door is a fresh door, so the last-door guard can never refuse a
- * create.
+ * `POST /api/auth-providers` — adds an OIDC sign-in provider (cookie-admin
+ * only). The SAVE verifies (2026-09-25): discovery must resolve the issuer
+ * and, when the issuer advertises the client_credentials grant, the token
+ * endpoint must accept the offered pair — refusals answer 400
+ * DISCOVERY_FAILED / CREDENTIALS_REJECTED and nothing is written. The id slug
+ * is refused with 409 SLUG_TAKEN when taken. A fresh row can never trip the
+ * last-open-provider guard.
  */
 export const createProviderRoute = new Elysia()
   .use(requireAdmin)
@@ -40,7 +41,7 @@ export const createProviderRoute = new Elysia()
           400,
           apiErrorBody({
             code: BackendErrorCodes.EMAIL_ROW_IMMUTABLE_KIND,
-            message: "The E-mail door already exists as the reserved credential row; it cannot be created.",
+            message: "The E-mail provider already exists as the reserved credential row; it cannot be created.",
           }),
         );
       }
@@ -66,7 +67,7 @@ export const createProviderRoute = new Elysia()
           400,
           apiErrorBody({
             code: BackendErrorCodes.BAD_REQUEST,
-            message: "An OIDC door needs an issuer, a client id and a client secret.",
+            message: "An OIDC provider needs an issuer, a client id and a client secret.",
           }),
         );
       }
@@ -85,7 +86,7 @@ export const createProviderRoute = new Elysia()
           }),
         );
       }
-      // The reserved credential-door id is the collision it is: the row
+      // The reserved credential-provider id is the collision it is: the row
       // EXISTS, so the answer is 409 SLUG_TAKEN naming the reservation —
       // not the generic grammar 400 below, and not a normalization.
       if (rawId === "email") {
@@ -93,7 +94,7 @@ export const createProviderRoute = new Elysia()
           409,
           apiErrorBody({
             code: BackendErrorCodes.SLUG_TAKEN,
-            message: '"email" is the reserved id of the credential door; pick another.',
+            message: '"email" is the reserved id of the credential provider; pick another.',
           }),
         );
       }
@@ -126,24 +127,26 @@ export const createProviderRoute = new Elysia()
           409,
           apiErrorBody({
             code: BackendErrorCodes.SLUG_TAKEN,
-            message: `A door with the id "${id}" already exists. Ids are the callback URL's identity and never move.`,
+            message: `A provider with the id "${id}" already exists. Ids are the callback URL's identity and never move.`,
           }),
         );
       }
-      // Discovery is the save gate: an unreachable or endpoint-less issuer
-      // cannot become a door at all (spec §3), so nothing is written first.
-      let endpoints;
-      try {
-        endpoints = await resolveEndpoints(issuer);
-      } catch (err) {
-        if (err instanceof DiscoveryError) {
-          return status(
-            400,
-            apiErrorBody({ code: BackendErrorCodes.DISCOVERY_FAILED, message: `Discovery failed: ${err.reason}.` }),
-          );
-        }
-        throw err;
+      // Discovery AND the credential check are the save gate (spec §3 + the
+      // operator's ruling of 2026-09-25 that the save IS the verification —
+      // the separate in-dialog probe route is gone), so nothing is written
+      // first and a refusal costs the admin a retry, not a broken row.
+      const check = await verifyOnSave(issuer, clientId, clientSecret);
+      if (!check.ok) {
+        return status(
+          400,
+          apiErrorBody({
+            code:
+              check.stage === "discovery" ? BackendErrorCodes.DISCOVERY_FAILED : BackendErrorCodes.CREDENTIALS_REJECTED,
+            message: check.message,
+          }),
+        );
       }
+      const endpoints = check.endpoints;
       // entryOrigins is required whenever the client sends the field — an
       // empty list is a refusal, never a silent default. Omitting it entirely
       // is the one case the instance's own origin stands in for (spec §5a).
@@ -212,7 +215,7 @@ export const createProviderRoute = new Elysia()
         operationId: "createAuthProvider",
         tags: ["auth-providers"],
         description:
-          "Adds an OIDC sign-in door (cookie-admin only). Discovery must resolve the issuer's endpoints or the save is refused with 400 DISCOVERY_FAILED; the id slug is refused with 409 SLUG_TAKEN when taken. The new door is a fresh door, so the last-door guard can never refuse a create",
+          "Adds an OIDC sign-in provider (cookie-admin only). The save runs the verification: discovery must resolve the issuer, and where the issuer advertises client_credentials the token endpoint must accept the pair (400 DISCOVERY_FAILED / CREDENTIALS_REJECTED, nothing written). The id slug is refused with 409 SLUG_TAKEN when taken",
       },
     },
   );

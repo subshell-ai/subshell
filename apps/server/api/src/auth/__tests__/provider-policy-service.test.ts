@@ -1,17 +1,17 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "kysely";
-import { evaluateDoorPolicy } from "@/auth/door-policy.js";
-import { markApprovalDoorArrival, setAuthPolicyDb } from "@/auth.js";
+import { evaluateProviderPolicy } from "@/auth/provider-policy.js";
+import { markApprovalProviderArrival, setAuthPolicyDb } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 
 /**
- * The DB-backed door policy (spec 2026-09-24 §3–§6): door resolution, the
+ * The DB-backed provider policy (spec 2026-09-24 §3–§6): provider resolution, the
  * existing user's approval state, and the §6 re-stamp — driven directly,
  * because the hook that runs it (`user.validateUserInfo`) fires for exactly
- * the four provisioning seams measured in `door-guards.test.ts`, and the
+ * the four provisioning seams measured in `provider-guards.test.ts`, and the
  * cascade deserves its own matrix.
  *
  * The data shape here is the MEASURED `validateUserInfo` input — 1.7.1 hands
@@ -22,7 +22,7 @@ import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
  */
 
 const createdUserIds: string[] = [];
-const createdDoorIds: string[] = [];
+const createdProviderIds: string[] = [];
 const createdAccountIds: string[] = [];
 
 async function makeUser(email: string): Promise<string> {
@@ -34,13 +34,13 @@ async function makeUser(email: string): Promise<string> {
   return id;
 }
 
-/** An oidc door row that any mid-run auth rebuild could safely build. */
-async function makeOidcDoor(id: string, over: Record<string, unknown> = {}): Promise<void> {
+/** An oidc provider row that any mid-run auth rebuild could safely build. */
+async function makeOidcProvider(id: string, over: Record<string, unknown> = {}): Promise<void> {
   await new AuthProvidersRepository(db)
     .create({
       id,
       kind: "oidc",
-      name: `Door ${id}`,
+      name: `Provider ${id}`,
       endpointsJson: JSON.stringify({
         authorizationUrl: "https://issuer.invalid/authorize",
         tokenUrl: "https://issuer.invalid/token",
@@ -53,7 +53,7 @@ async function makeOidcDoor(id: string, over: Record<string, unknown> = {}): Pro
       // A rerun of this file in the same process: the row exists already.
       await new AuthProvidersRepository(db).update(id, over);
     });
-  createdDoorIds.push(id);
+  createdProviderIds.push(id);
 }
 
 /** One `account` row (better-auth's table: physical camelCase, raw SQL). */
@@ -74,21 +74,21 @@ beforeAll(async () => {
 
 afterAll(async () => {
   for (const id of createdAccountIds) await sql`DELETE FROM account WHERE id = ${id}`.execute(db);
-  for (const id of createdDoorIds) await new AuthProvidersRepository(db).remove(id);
+  for (const id of createdProviderIds) await new AuthProvidersRepository(db).remove(id);
   for (const userId of createdUserIds) {
     await sql`DELETE FROM user_meta WHERE user_id = ${userId}`.execute(db);
     await sql`DELETE FROM user WHERE id = ${userId}`.execute(db);
   }
 });
 
-describe("evaluateDoorPolicy", () => {
+describe("evaluateProviderPolicy", () => {
   test("a pending row answers with the named code and echoes the email", async () => {
     const id = `acme-${crypto.randomUUID().slice(0, 8)}`;
-    await makeOidcDoor(id, { registrationEnabled: 1, requireApproval: 1 });
+    await makeOidcProvider(id, { registrationEnabled: 1, requireApproval: 1 });
     const email = `${id}@example.test`;
     const userId = await makeUser(email);
     await new UserMetaRepository(db).setApproval(userId, "pending", { arrivedAt: new Date().toISOString() });
-    const decision = await evaluateDoorPolicy(db, {
+    const decision = await evaluateProviderPolicy(db, {
       user: { email, emailVerified: true },
       source: { action: "sign-in", method: "oauth", oauth: { providerId: id, profile: {} } },
     });
@@ -102,7 +102,7 @@ describe("evaluateDoorPolicy", () => {
     expect(stale.pendingArrivedAt).not.toBeNull();
     const past = new Date(Date.parse(stale.pendingArrivedAt ?? "") - 60_000).toISOString();
     await sql`UPDATE user_meta SET pending_arrived_at = ${past} WHERE user_id = ${userId}`.execute(db);
-    await evaluateDoorPolicy(db, {
+    await evaluateProviderPolicy(db, {
       user: { email, emailVerified: true },
       source: { action: "sign-in", method: "oauth", oauth: { providerId: id, profile: {} } },
     });
@@ -119,7 +119,7 @@ describe("evaluateDoorPolicy", () => {
     // rejection is not waiting on an admin, and refreshing its clock would
     // misrepresent the queue the expiry sweep reads.
     const id = `rej-${crypto.randomUUID().slice(0, 8)}`;
-    await makeOidcDoor(id, { registrationEnabled: 1, requireApproval: 1 });
+    await makeOidcProvider(id, { registrationEnabled: 1, requireApproval: 1 });
     const email = `${id}@example.test`;
     const userId = await makeUser(email);
     const meta = new UserMetaRepository(db);
@@ -131,7 +131,7 @@ describe("evaluateDoorPolicy", () => {
       .where("userId", "=", userId)
       .executeTakeFirstOrThrow();
     expect(before.pendingArrivedAt).toBeNull();
-    const decision = await evaluateDoorPolicy(db, {
+    const decision = await evaluateProviderPolicy(db, {
       user: { email, emailVerified: true },
       source: { action: "sign-in", method: "oauth", oauth: { providerId: id, profile: {} } },
     });
@@ -144,47 +144,47 @@ describe("evaluateDoorPolicy", () => {
     expect(after.pendingArrivedAt).toBeNull();
   });
 
-  test("an unconfigured providerId refuses door_closed", async () => {
-    const decision = await evaluateDoorPolicy(db, {
+  test("an unconfigured providerId refuses provider_closed", async () => {
+    const decision = await evaluateProviderPolicy(db, {
       user: { email: "x@y.z", emailVerified: true },
       source: { action: "sign-in", method: "oauth", oauth: { providerId: "nope-none", profile: {} } },
     });
-    expect(decision).toEqual({ error: "door_closed" });
+    expect(decision).toEqual({ error: "provider_closed" });
   });
 
-  test("a disabled door row is no door (defence against out-of-band writes)", async () => {
-    // buildAuth never builds a disabled door, so this seam is unreachable via
+  test("a disabled provider row is no provider (defence against out-of-band writes)", async () => {
+    // buildAuth never builds a disabled provider, so this seam is unreachable via
     // a real callback — but evaluate answers from the TABLE, and a row that
-    // says `enabled = 0` is not a door whatever put it there.
+    // says `enabled = 0` is not a provider whatever put it there.
     const id = `off-${crypto.randomUUID().slice(0, 8)}`;
-    await makeOidcDoor(id, { enabled: 0, signInEnabled: 1, registrationEnabled: 1 });
-    const decision = await evaluateDoorPolicy(db, {
+    await makeOidcProvider(id, { enabled: 0, signInEnabled: 1, registrationEnabled: 1 });
+    const decision = await evaluateProviderPolicy(db, {
       user: { email: "x@y.z", emailVerified: true },
       source: { action: "sign-in", method: "oauth", oauth: { providerId: id, profile: {} } },
     });
-    expect(decision).toEqual({ error: "door_closed" });
+    expect(decision).toEqual({ error: "provider_closed" });
   });
 
   test("an oidc row with registrationEnabled NULL reads CLOSED on create-user (FOLD d)", async () => {
     // The route normalizes oidc rows to explicit 0/1; NULL there is a hand
-    // edit. The legacy dynamic window belongs to the EMAIL door alone, so
+    // edit. The legacy dynamic window belongs to the EMAIL provider alone, so
     // evaluate coerces NULL→closed on non-email rows rather than letting the
     // pure cascade's `=== false` read it as open.
     const id = `nullreg-${crypto.randomUUID().slice(0, 8)}`;
-    await makeOidcDoor(id, { signInEnabled: 1 }); // registrationEnabled left NULL by the DB default
-    const decision = await evaluateDoorPolicy(db, {
+    await makeOidcProvider(id, { signInEnabled: 1 }); // registrationEnabled left NULL by the DB default
+    const decision = await evaluateProviderPolicy(db, {
       user: { email: `new@${id}.example.test`, emailVerified: true },
       source: { action: "create-user", method: "oauth", oauth: { providerId: id, profile: {} } },
     });
     expect(decision).toEqual({ error: "registration_closed" });
   });
 
-  test("the email door consults registrationOpen (explicit 0 refuses create-user)", async () => {
+  test("the email provider consults registrationOpen (explicit 0 refuses create-user)", async () => {
     const emailRow = new AuthProvidersRepository(db);
     const stored = (await emailRow.getById("email"))?.registrationEnabled;
     try {
       await emailRow.update("email", { registrationEnabled: 0, signInEnabled: 1 });
-      const decision = await evaluateDoorPolicy(db, {
+      const decision = await evaluateProviderPolicy(db, {
         user: { email: "newcomer@example.test", emailVerified: false },
         source: { action: "create-user", method: "email-password" },
       });
@@ -194,12 +194,12 @@ describe("evaluateDoorPolicy", () => {
     }
   });
 
-  test("the email door with an explicit 1 lets create-user through", async () => {
+  test("the email provider with an explicit 1 lets create-user through", async () => {
     const emailRow = new AuthProvidersRepository(db);
     const stored = (await emailRow.getById("email"))?.registrationEnabled;
     try {
       await emailRow.update("email", { registrationEnabled: 1, signInEnabled: 1 });
-      const decision = await evaluateDoorPolicy(db, {
+      const decision = await evaluateProviderPolicy(db, {
         user: { email: `ok-${crypto.randomUUID()}@example.test`, emailVerified: false },
         source: { action: "create-user", method: "email-password" },
       });
@@ -211,15 +211,15 @@ describe("evaluateDoorPolicy", () => {
 
   test("emailVerified falls back to the raw provider profile's claim", async () => {
     const id = `ver-${crypto.randomUUID().slice(0, 8)}`;
-    await makeOidcDoor(id, { registrationEnabled: 1 });
+    await makeOidcProvider(id, { registrationEnabled: 1 });
     // The link path hands the UNMAPPED profile beside the user record; the
     // verified claim may live in either spelling.
-    const denied = await evaluateDoorPolicy(db, {
+    const denied = await evaluateProviderPolicy(db, {
       user: { email: `u@${id}.example.test`, emailVerified: false },
       source: { action: "link-account", method: "oauth", oauth: { providerId: id, profile: {} } },
     });
     expect(denied).toEqual({ error: "unverified_email" });
-    const allowed = await evaluateDoorPolicy(db, {
+    const allowed = await evaluateProviderPolicy(db, {
       user: { email: `u@${id}.example.test`, emailVerified: false },
       source: { action: "link-account", method: "oauth", oauth: { providerId: id, profile: { email_verified: true } } },
     });
@@ -231,8 +231,8 @@ describe("evaluateDoorPolicy", () => {
     // gain the registration gate's benefit of the doubt in the wrong
     // direction. Sign-in is the action that never consults registration.
     const id = `act-${crypto.randomUUID().slice(0, 8)}`;
-    await makeOidcDoor(id, { registrationEnabled: 0 });
-    const decision = await evaluateDoorPolicy(db, {
+    await makeOidcProvider(id, { registrationEnabled: 0 });
+    const decision = await evaluateProviderPolicy(db, {
       user: { email: `s@${id}.example.test`, emailVerified: true },
       source: { action: "some-future-action", method: "oauth", oauth: { providerId: id, profile: {} } },
     } as never);
@@ -244,10 +244,10 @@ describe("evaluateDoorPolicy", () => {
     // sail past the pending gate as if they were new), and an absent meta
     // row is the `asApprovalState` "approved" reading, not null.
     const id = `orphan-${crypto.randomUUID().slice(0, 8)}`;
-    await makeOidcDoor(id, { registrationEnabled: 0 });
+    await makeOidcProvider(id, { registrationEnabled: 0 });
     const email = `orphan@${id}.example.test`;
     await makeUser(email);
-    const decision = await evaluateDoorPolicy(db, {
+    const decision = await evaluateProviderPolicy(db, {
       user: { email, emailVerified: true },
       source: { action: "sign-in", method: "oauth", oauth: { providerId: id, profile: {} } },
     });
@@ -255,19 +255,19 @@ describe("evaluateDoorPolicy", () => {
   });
 });
 
-describe("markApprovalDoorArrival (account.create.after)", () => {
-  test("a fresh arrival at a require-approval door is marked pending and demoted", async () => {
+describe("markApprovalProviderArrival (account.create.after)", () => {
+  test("a fresh arrival at a require-approval provider is marked pending and demoted", async () => {
     // The exact §6 moment: `user.create.after` has just minted admin for this
     // brand-new user (an instance with no admin yet), and the provider's
     // account row now lands. One account on the user IS the arrival proof.
     const id = `arrive-${crypto.randomUUID().slice(0, 8)}`;
-    await makeOidcDoor(id, { registrationEnabled: 1, requireApproval: 1 });
+    await makeOidcProvider(id, { registrationEnabled: 1, requireApproval: 1 });
     const userId = await makeUser(`${id}@example.test`);
     const meta = new UserMetaRepository(db);
     await meta.upsert({ userId, role: "admin" }); // what promotion would have written
     await meta.setSetupStep(userId, "network");
     const accountId = await makeAccount(userId, id);
-    await markApprovalDoorArrival({ id: accountId, providerId: id, userId });
+    await markApprovalProviderArrival({ id: accountId, providerId: id, userId });
     const row = await db
       .selectFrom("userMeta")
       .select(["role", "setupStep", "approvalState", "pendingArrivedAt"])
@@ -282,18 +282,18 @@ describe("markApprovalDoorArrival (account.create.after)", () => {
     expect(row.pendingArrivedAt).not.toBeNull();
   });
 
-  test("a LINK at a require-approval door is not pended and never demotes", async () => {
+  test("a LINK at a require-approval provider is not pended and never demotes", async () => {
     // The hazard the arrival gate closes: `linkAccount` runs through the
     // same adapter create, and the linking user here is an EXISTING admin —
     // hooking the link would pend them and bypass the last-admin guard.
     const id = `link-${crypto.randomUUID().slice(0, 8)}`;
-    await makeOidcDoor(id, { registrationEnabled: 1, requireApproval: 1 });
+    await makeOidcProvider(id, { registrationEnabled: 1, requireApproval: 1 });
     const userId = await makeUser(`${id}@example.test`);
     const meta = new UserMetaRepository(db);
     await meta.upsert({ userId, role: "admin" });
     await makeAccount(userId, "credential"); // the pre-existing credential account
     const linkId = await makeAccount(userId, id); // the link firing this seam
-    await markApprovalDoorArrival({ id: linkId, providerId: id, userId });
+    await markApprovalProviderArrival({ id: linkId, providerId: id, userId });
     const row = await db
       .selectFrom("userMeta")
       .select(["role", "approvalState", "pendingArrivedAt"])
@@ -302,15 +302,15 @@ describe("markApprovalDoorArrival (account.create.after)", () => {
     expect(row).toEqual({ role: "admin", approvalState: "approved", pendingArrivedAt: null });
   });
 
-  test("the email door (credential) and non-approval doors are skipped", async () => {
+  test("the email provider (credential) and non-approval providers are skipped", async () => {
     const id = `plain-${crypto.randomUUID().slice(0, 8)}`;
-    await makeOidcDoor(id, { registrationEnabled: 1 }); // requireApproval left at 0
+    await makeOidcProvider(id, { registrationEnabled: 1 }); // requireApproval left at 0
     const userId = await makeUser(`${id}@example.test`);
     await new UserMetaRepository(db).upsert({ userId, role: "admin" });
     const a1 = await makeAccount(userId, "credential");
-    await markApprovalDoorArrival({ id: a1, providerId: "credential", userId });
+    await markApprovalProviderArrival({ id: a1, providerId: "credential", userId });
     const a2 = await makeAccount(userId, id);
-    await markApprovalDoorArrival({ id: a2, providerId: id, userId });
+    await markApprovalProviderArrival({ id: a2, providerId: id, userId });
     const row = await db
       .selectFrom("userMeta")
       .select(["role", "approvalState"])
@@ -323,7 +323,7 @@ describe("markApprovalDoorArrival (account.create.after)", () => {
     const userId = await makeUser(`pk-${crypto.randomUUID()}@example.test`);
     await new UserMetaRepository(db).upsert({ userId, role: "admin" });
     const a = await makeAccount(userId, "passkey");
-    await markApprovalDoorArrival({ id: a, providerId: "passkey", userId });
+    await markApprovalProviderArrival({ id: a, providerId: "passkey", userId });
     const row = await db
       .selectFrom("userMeta")
       .select(["role", "approvalState"])

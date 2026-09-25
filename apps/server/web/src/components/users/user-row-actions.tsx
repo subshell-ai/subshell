@@ -193,7 +193,7 @@ export function UserRowActions({ user, viewerId, onChanged }: UserRowActionsProp
     return <span className="text-detail text-muted-foreground">Your account</span>;
   }
 
-  // A door-only account has no password to reset — offering the item would
+  // A provider-only account has no password to reset — offering the item would
   // promise an act the server refuses. `providers` absent (a payload cached
   // before the field existed) keeps the item: the server's 409 is still the
   // truth there, and hiding it would UNDO a control for accounts that have

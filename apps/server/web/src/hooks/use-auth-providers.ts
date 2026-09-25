@@ -1,20 +1,15 @@
 import { apiFetch, apiPost } from "@internal/node-admin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type {
-  CreateAuthProviderBody,
-  PatchAuthProviderBody,
-  ProviderAdminView,
-  TestProviderResult,
-} from "@/types/auth-provider";
+import type { CreateAuthProviderBody, PatchAuthProviderBody, ProviderAdminView } from "@/types/auth-provider";
 
 /** Query key of the admin provider list. */
 export const AUTH_PROVIDERS_QUERY_KEY = ["auth-providers"] as const;
 
 /**
  * The login page's instance read (`["instance-name"]` in `routes/login.tsx`).
- * Task 9 grows that anonymous body with the door list the login page renders,
- * so every provider write invalidates it: an admin who adds a door sees the
- * signed-out preview answer with the new door on the next mount.
+ * Task 9 grows that anonymous body with the provider list the login page renders,
+ * so every provider write invalidates it: an admin who adds a provider sees the
+ * signed-out preview answer with the new provider on the next mount.
  */
 export const INSTANCE_NAME_QUERY_KEY = ["instance-name"] as const;
 
@@ -41,7 +36,7 @@ export function useAuthProviders(enabled: boolean) {
 /**
  * Every successful write lands the list and the login page's preview: the
  * list because it changed, the preview because the anonymous read now names
- * a different set of doors. `PUBLIC_SETTINGS_QUERY_KEY` is deliberately NOT
+ * a different set of providers. `PUBLIC_SETTINGS_QUERY_KEY` is deliberately NOT
  * touched — the public settings body is not what these routes change.
  */
 function useAuthProvidersInvalidation() {
@@ -81,10 +76,6 @@ export function useDeleteAuthProvider() {
   });
 }
 
-/** `POST /api/auth-providers/test` — the in-dialog discovery probe; saves nothing. */
-export function useTestAuthProvider() {
-  return useMutation({
-    mutationFn: (body: { issuer: string; clientId?: string; clientSecret?: string }) =>
-      apiPost<TestProviderResult>("/api/auth-providers/test", body),
-  });
-}
+// The `POST /api/auth-providers/test` probe hook is GONE with its route
+// (operator ruling 2026-09-25): the save is the verification, so `create`
+// and `patch` above are the only writes and the only checks.

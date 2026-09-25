@@ -39,8 +39,8 @@ import { logger } from "@/utils/logger.js";
 
 /**
  * How the credential was presented, recorded in `auth.sign_in` metadata.
- * The `oidc:` arm carries the `auth_providers` row id of the door that signed
- * the user in — an id only, never the door's name, issuer, or the person's
+ * The `oidc:` arm carries the `auth_providers` row id of the provider that signed
+ * the user in — an id only, never the provider's name, issuer, or the person's
  * address (the auth-family never-values rule above).
  */
 export type SignInMethod = "password" | "passkey" | `oidc:${string}`;
@@ -210,9 +210,9 @@ function nonceEquals(a: string, b: string): boolean {
 
 /**
  * True when `nonce` names a LIVE (unexpired, unconsumed) emergency mark on
- * ANY user — read-only. The door guards (spec §9: "break-glass unchanged")
+ * ANY user — read-only. The provider guards (spec §9: "break-glass unchanged")
  * ask this to exempt the wrapper's forwarded sign-in from a closed E-mail
- * door, whose refusal would otherwise land AFTER the rewrite had already
+ * provider, whose refusal would otherwise land AFTER the rewrite had already
  * destructively reset the admin's credential. It deliberately does NOT
  * consume: {@link consumeEmergencySignIn} stays the only site that spends a
  * mark, so the guard's check cannot starve the audit dedupe that reads the
@@ -235,7 +235,7 @@ export function hasActiveEmergencyMark(nonce: string | null): boolean {
 /** The minimal slice of better-auth's after-hook context this module reads. */
 interface AuthAfterHookContext extends AuthHookRequestSlice {
   path?: unknown;
-  /** Route params; the callback branch reads `id` (the door row id). */
+  /** Route params; the callback branch reads `id` (the provider row id). */
   params?: unknown;
   context?: {
     returned?: unknown;
@@ -311,7 +311,7 @@ function sessionTokenFromResponse(headers: Headers): string | undefined {
  * controller decision): a fresh `session_token` cookie on the response whose
  * raw token resolves to a row in the `session` table. The earlier Location
  * `error=` gate was REMOVED — it made the row self-suppressible: a holder of
- * any door credential could complete a real sign-in with a `callbackURL` of
+ * any provider credential could complete a real sign-in with a `callbackURL` of
  * `"/x?error=1"` and answer a redirect carrying a live session while writing
  * no audit row at all. Refusals need no separate gate, on dist facts
  * (better-auth 1.7.1, `dist/api/routes/callback.mjs`):
@@ -334,7 +334,7 @@ function sessionTokenFromResponse(headers: Headers): string | undefined {
  * The provider id comes from the ROUTE PARAM, not the brief's path slice:
  * measured in the after-hook context, `path` carries the endpoint PATTERN
  * (`/callback/:id` — better-call's own context field), so `params.id` is the
- * only site that holds the concrete door id.
+ * only site that holds the concrete provider id.
  *
  * Every failure inside — a throwing sql, a throwing sink — is caught by the
  * caller's outer handler and warns: audit never breaks a sign-in.
@@ -358,7 +358,7 @@ async function auditOidcCallbackSignIn(ctx: AuthAfterHookContext): Promise<void>
     action: "auth.sign_in",
     targetType: "user",
     targetId: userId,
-    // ids only: the door id and the user id — never the email, the token, or
+    // ids only: the provider id and the user id — never the email, the token, or
     // a cookie value (the auth-family never-values rule).
     metadataJson: JSON.stringify({ method, userId }),
   });

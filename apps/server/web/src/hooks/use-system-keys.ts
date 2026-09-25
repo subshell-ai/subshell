@@ -1,4 +1,4 @@
-import { apiFetch } from "@internal/node-admin";
+import { ApiError, apiFetch } from "@internal/node-admin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 /** One admin-managed system API key (never the secret — only its preview). */
@@ -69,4 +69,10 @@ export function useDeleteSystemKey() {
       void queryClient.invalidateQueries({ queryKey: SYSTEM_KEYS_QUERY_KEY });
     },
   });
+}
+
+/** Turns an apiFetch failure on a system-key surface into short user copy. */
+export function keyErrorMessage(err: unknown): string {
+  if (err instanceof ApiError && err.status === 403) return "Admin sign-in required to manage API keys.";
+  return "Something went wrong. The change was not saved.";
 }

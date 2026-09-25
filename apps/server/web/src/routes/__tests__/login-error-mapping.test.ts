@@ -5,8 +5,8 @@ import type { InstanceSignInProvider } from "@/types/auth-provider";
 /**
  * The login page's reading of a failed OAuth round trip (spec 2026-09-24 §4).
  * better-auth returns to `/login` with `?error=<code>&error_description=<text>`
- * appended by the server; the door policy's refusal codes are STABLE WIRE
- * STRINGS (`decideDoorPolicy` names them, and `pending_approval` in
+ * appended by the server; the provider policy's refusal codes are STABLE WIRE
+ * STRINGS (`decideProviderPolicy` names them, and `pending_approval` in
  * particular is the code whose whole job is to select `/pending`), so this
  * mapper is the seam between that vocabulary and the screen. Pure, and tested
  * as such: no router, no DOM, no clock.
@@ -55,12 +55,12 @@ describe("mapAuthError", () => {
     expect(mapAuthError({})).toEqual({ kind: "none" });
     // A provider's own refusal renders the provider's own words as PROSE —
     // never as an address; that reading belongs to `pending_approval` alone.
-    expect(mapAuthError({ error: "door_closed", error_description: "That door is closed." })).toEqual({
+    expect(mapAuthError({ error: "provider_closed", error_description: "That provider is closed." })).toEqual({
       kind: "refused",
-      message: "That door is closed.",
+      message: "That provider is closed.",
     });
-    // The door policy's other named refusals, description-less: the fallback.
-    for (const code of ["registration_closed", "domain_not_allowed", "door_closed"]) {
+    // The provider policy's other named refusals, description-less: the fallback.
+    for (const code of ["registration_closed", "domain_not_allowed", "provider_closed"]) {
       expect(mapAuthError({ error: code })).toEqual({ kind: "refused", message: ROUND_TRIP_REFUSED });
     }
     // A URL param is no reason for a long render: whitespace collapses and
@@ -82,7 +82,7 @@ describe("mapAuthError", () => {
 /**
  * The sign-in button's label (operator contract, 2026-09-24, overriding the
  * brief's kind-special-case copy): the NAME is worn for every kind, because
- * same-kind doors are legal and a mis-click between two indistinguishable
+ * same-kind providers are legal and a mis-click between two indistinguishable
  * "Sign in with Google" buttons lands the visitor on the WRONG IdP's consent
  * screen. `routes/login.tsx` renders exactly this helper per provider.
  */

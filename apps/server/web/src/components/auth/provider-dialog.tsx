@@ -5,7 +5,7 @@ import { EntryPointsEditor } from "@/components/auth/entry-points-editor";
 import { RegistrationPanel } from "@/components/auth/registration-panel";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useCreateAuthProvider, usePatchAuthProvider, useTestAuthProvider } from "@/hooks/use-auth-providers";
+import { useCreateAuthProvider, usePatchAuthProvider } from "@/hooks/use-auth-providers";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { EMAIL_PROVIDER_ID, GOOGLE_ISSUER, type ProviderAdminView, previewProviderId } from "@/types/auth-provider";
 
@@ -13,7 +13,7 @@ import { EMAIL_PROVIDER_ID, GOOGLE_ISSUER, type ProviderAdminView, previewProvid
 const SAVE_ERROR_FALLBACK = "Couldn't save the provider.";
 
 /**
- * The add/edit dialog for one OIDC door (spec §7). The email row never opens
+ * The add/edit dialog for one OIDC provider (spec §7). The email row never opens
  * it: its kind and id are fixed and it has nothing to register, so the table
  * toggles are its whole surface.
  *
@@ -101,7 +101,6 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
 
   const create = useCreateAuthProvider();
   const patch = usePatchAuthProvider();
-  const test = useTestAuthProvider();
   const busy = create.isPending || patch.isPending;
 
   const slug = previewProviderId(name);
@@ -163,7 +162,7 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
     saveError !== null &&
     !(
       saveError instanceof ApiError &&
-      ["DISCOVERY_FAILED", "SLUG_TAKEN", "LAST_SIGN_IN_DOOR"].includes(saveError.code ?? "")
+      ["DISCOVERY_FAILED", "CREDENTIALS_REJECTED", "SLUG_TAKEN", "LAST_SIGN_IN_PROVIDER"].includes(saveError.code ?? "")
     )
       ? errMessage(saveError, SAVE_ERROR_FALLBACK)
       : null;
@@ -186,7 +185,7 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label id="ap-kind-label">Provider kind</Label>
+          <Label id="ap-kind-label">Provider</Label>
           <Select
             value={kind}
             // A created row's kind is immutable (the route refuses it too).
@@ -220,6 +219,21 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
         <div className="space-y-2">
           <Label htmlFor="ap-name">Name</Label>
           <Input id="ap-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Google" />
+          {/* The slug id caption (operator ask 2026-09-25): the login-button NAME is free text that can be renamed
+              at any time, and what carries the callback URL and the account links is the slug under it. Show it
+              live while it is being chosen, and state its stillness when it is already stored. */}
+          {/* The value reads as a FACT, not a description (operator,
+              2026-09-25): muted word, mono foreground value, same `detail`
+              size the chip experiment settled at. Inline flow, not flex —
+              flex centers the mono value's BOX, and a mono box sits a few
+              pixels off the sans label's baseline, which is the skew seen. */}
+          {!editing && slug === "" ? null : (
+            <p className="text-detail">
+              <span className="text-muted-foreground">slug id:</span>{" "}
+              <code className="font-mono text-foreground">{editing ? provider.id : slug}</code>
+              {editing && <span className="text-muted-foreground">. Renaming never changes it</span>}
+            </p>
+          )}
           {errorText(["SLUG_TAKEN"]) && (
             <p role="alert" className="text-destructive text-detail">
               {errorText(["SLUG_TAKEN"])}
@@ -237,7 +251,8 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
           placeholder="https://id.example/"
         />
         <p className="text-detail text-muted-foreground">
-          Discovery runs on save; the door is refused before it exists if the issuer answers nothing.
+          The save verifies: discovery must resolve the issuer, and where the provider can check them, so must the
+          credentials. A failure refuses the provider before it exists.
         </p>
         {errorText(["DISCOVERY_FAILED"]) && (
           <p role="alert" className="text-destructive text-detail">
@@ -246,10 +261,25 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
         )}
       </div>
 
+      <EntryPointsEditor entries={entries} setEntries={setEntries} candidates={candidates} />
+
+      <RegistrationPanel entries={entries} providerId={displayId} />
+
+      {/* Below the panel on purpose (operator ruling 2026-09-25): the pair
+          usually does not exist until the URI rows above have been
+          registered, so the form's order is the errand's order. The same
+          ruling deleted the separate Verify button: the SAVE runs the
+          credential check, so a refusal lands here, under the field it
+          questions. */}
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="ap-client">Client ID</Label>
           <Input id="ap-client" value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" />
+          {errorText(["CREDENTIALS_REJECTED"]) && (
+            <p role="alert" className="text-destructive text-detail">
+              {errorText(["CREDENTIALS_REJECTED"])}
+            </p>
+          )}
         </div>
         <div className="space-y-2">
           <Label htmlFor="ap-secret">Client secret</Label>
@@ -264,11 +294,7 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
         </div>
       </div>
 
-      <EntryPointsEditor entries={entries} setEntries={setEntries} candidates={candidates} />
-
-      <RegistrationPanel entries={entries} providerId={displayId} />
-
-      {/* The three door half-switches (spec §7), each with one or two
+      {/* The three provider half-switches (spec §7), each with one or two
           sentences of help at `detail`. */}
       <div className="space-y-3">
         <div className="flex items-start gap-4">
@@ -276,7 +302,7 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
           <div>
             <Label className="font-strong">Allow sign-in</Label>
             <p className="text-detail text-muted-foreground">
-              Shows this door on the login page. Turning it off hides the button and refuses callbacks.
+              Shows this provider on the login page. Turning it off hides the button and refuses callbacks.
             </p>
           </div>
         </div>
@@ -303,14 +329,14 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
           <div>
             <Label className="font-strong">Require approval</Label>
             <p className="text-detail text-muted-foreground">
-              New accounts from this door wait for an admin to approve them. People who already have accounts sign in
-              normally.
+              New accounts from this provider wait for an admin to approve them. People who already have accounts sign
+              in normally.
             </p>
           </div>
         </div>
-        {errorText(["LAST_SIGN_IN_DOOR"]) && (
+        {errorText(["LAST_SIGN_IN_PROVIDER"]) && (
           <p role="alert" className="text-destructive text-detail">
-            {errorText(["LAST_SIGN_IN_DOOR"])}
+            {errorText(["LAST_SIGN_IN_PROVIDER"])}
           </p>
         )}
       </div>
@@ -326,33 +352,6 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
         <p className="text-detail text-muted-foreground">
           Leave blank to admit any e-mail domain. A listed domain also admits its subdomains.
         </p>
-      </div>
-
-      <div className="space-y-1">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-auto p-0 text-detail"
-          disabled={issuer.trim() === "" || test.isPending}
-          onClick={() =>
-            void test.mutateAsync({
-              issuer: issuer.trim(),
-              ...(clientId.trim() === "" ? {} : { clientId: clientId.trim() }),
-              ...(secret === "" ? {} : { clientSecret: secret }),
-            })
-          }
-        >
-          Verify credentials
-        </Button>
-        {test.data && (
-          <p className="text-detail text-success">{test.data.note ?? "Discovery answered. The door can be saved."}</p>
-        )}
-        {test.error && (
-          <p role="alert" className="text-destructive text-detail">
-            {errMessage(test.error, "Verification failed.")}
-          </p>
-        )}
       </div>
 
       {generalError && (

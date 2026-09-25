@@ -15,17 +15,17 @@ import { registrationOpen } from "@/services/registration-gate.js";
  * `USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL` (422) BEFORE it reaches
  * `internalAdapter.createUser` — and `createUser` is where `with-hooks.mjs`
  * fires `databaseHooks.user.create.before` AND where `assertValidUserInfo`
- * (`dist/utils/validate-user-info.mjs`) runs the door policy. So for a HELD
+ * (`dist/utils/validate-user-info.mjs`) runs the provider policy. So for a HELD
  * email neither the create hook nor `validateUserInfo` ever runs: the
  * registration gate's `registration_closed` answers only free addresses, and
- * a held one gets better-auth's generic sentence whatever the door table
+ * a held one gets better-auth's generic sentence whatever the provider table
  * says. `hooks.before` is the only layer that runs earlier — dispatch
  * (`dist/api/dispatch.mjs` `dispatchAuthEndpoint`) runs the user's before
  * hooks over the whole input context (`path` and the PARSED `body` are both
  * on it — better-auth's own username plugin matches `/sign-up/email` there
  * and reads `ctx.body`) and reaches the endpoint handler only afterwards.
  *
- * The refusal is a THROWN `APIError(403)`, the shape `door-guards.ts`
+ * The refusal is a THROWN `APIError(403)`, the shape `provider-guards.ts`
  * established for this seam, so the better-auth client surfaces `message` as
  * `error.message` and the login/wizard forms render the sentence plainly
  * (their refusal path is `setError(err.message ?? ...)`).
@@ -34,7 +34,7 @@ import { registrationOpen } from "@/services/registration-gate.js";
  * better-auth's own path. Under a closed gate the answer is the instance's
  * existing `registration_closed` refusal, byte-identical on the wire to what
  * `validateUserInfo` writes for a free address (`{code, message}` both
- * "registration_closed", 403) — so a closed door gives EVERY sign-up attempt
+ * "registration_closed", 403) — so a closed provider gives EVERY sign-up attempt
  * the same reply, held address or not, and cannot be probed for which address
  * an OIDC account owns. That uniformity replaces one old leak rather than
  * adding one: until this guard sat on the path, a closed gate answered
@@ -51,7 +51,7 @@ import { registrationOpen } from "@/services/registration-gate.js";
  * Audit posture: like every other auth-family refusal, this writes NOTHING.
  * A thrown before-hook short-circuits the dispatch pipeline before its after
  * half runs, so `auditAuthAfterRequest` never sees the request at all — the
- * same mechanism by which the closed-door sign-in refusal already writes no
+ * same mechanism by which the closed-provider sign-in refusal already writes no
  * `auth.sign_in` row.
  */
 const GUARDED_PATH = "/sign-up/email";
@@ -60,34 +60,34 @@ const GUARDED_PATH = "/sign-up/email";
  * The refusal sentence (exact spelling pinned by the flow test). UI-copy
  * rules: at most two sentences, no em dash; the provider name interpolates
  * the row's `name` verbatim, because that is the label the sign-in page
- * already shows for the same door.
+ * already shows for the same provider.
  */
 export function heldEmailMessage(providerName: string): string {
   return `An account for this e-mail exists. Sign in with ${providerName}.`;
 }
 
 /**
- * The display name of the OIDC door holding `email`, or `undefined` when
+ * The display name of the OIDC provider holding `email`, or `undefined` when
  * nobody does or the holder is credential-only.
  *
- * Raw SQL for the same reason as `door-policy.ts`'s `stateByEmail`: the read
+ * Raw SQL for the same reason as `provider-policy.ts`'s `stateByEmail`: the read
  * spans better-auth's `user` and `account` (physical camelCase, outside the
  * typed `Database` builders) and the app's `auth_providers` in one statement.
  *
- * Multiple doors may hold the same address (an arrival that later linked a
+ * Multiple providers may hold the same address (an arrival that later linked a
  * second one). The pick is the LOWEST matching `providerId` — the SAME
  * ordering rule the approval queue applies (`UsersRepository.listApprovalQueue`
  * / `primaryProviderId` picks MIN(providerId) too), but over a DIFFERENT
  * domain: the queue sorts across the person's providers credential-included,
- * while this lookup answers for configured OIDC doors only. The two lowest
+ * while this lookup answers for configured OIDC providers only. The two lowest
  * ids are therefore not guaranteed to be the same row — what is shared is the
  * tie-break rule, not a shared pick.
  *
  * `providerId <> 'credential'` is the spec's own exclusion (password rows);
  * the JOIN on `auth_providers` is what makes "an OIDC account" mean *a
- * configured door*: a leftover row whose provider was deleted from the table
+ * configured provider*: a leftover row whose provider was deleted from the table
  * names nothing and falls through to the generic answer. A row that exists
- * but is `enabled = 0` still names its door — disabling a door takes away
+ * but is `enabled = 0` still names its provider — disabling a provider takes away
  * sign-in availability, not the fact that the address arrived through it,
  * and it is DELETING the row that erases the name to give.
  */
@@ -106,7 +106,7 @@ export async function oidcHolderNameByEmail(db: Kysely<Database>, email: string)
 
 /**
  * Builds the `hooks.before` handler for `/sign-up/email`. The factory exists
- * for the same reason as `createDoorGuardBeforeHook`'s: the check must read
+ * for the same reason as `createProviderGuardBeforeHook`'s: the check must read
  * the app database LAZILY through the boot-injected handle (`setAuthPolicyDb`),
  * because importing it at module evaluation would break the import-purity
  * invariant (`auth-import-purity.test.ts`). `getDb()` returning `undefined`
@@ -116,7 +116,7 @@ export async function oidcHolderNameByEmail(db: Kysely<Database>, email: string)
  * or non-string email passes through to better-auth's own `INVALID_EMAIL`
  * rather than becoming this guard's business; the address is normalized the
  * way every other holder lookup in the app normalizes it (`trim` +
- * `toLowerCase`, matching `evaluateDoorPolicy` and `POST /api/users`).
+ * `toLowerCase`, matching `evaluateProviderPolicy` and `POST /api/users`).
  */
 export function createHeldEmailGuardBeforeHook(
   getDb: () => Kysely<Database> | undefined,
@@ -130,9 +130,9 @@ export function createHeldEmailGuardBeforeHook(
     if (typeof body?.email !== "string") return;
     const email = body.email.trim().toLowerCase();
 
-    // Gate FIRST (spec §5's order, so a closed door never leaks which
+    // Gate FIRST (spec §5's order, so a closed provider never leaks which
     // provider holds an address): the instance's own registration answer,
-    // written on the same code and message the door policy already uses —
+    // written on the same code and message the provider policy already uses —
     // see the module doc for why this must not merely fall through.
     if (!(await registrationOpen(db))) {
       throw new APIError(403, { message: "registration_closed", code: "registration_closed" });

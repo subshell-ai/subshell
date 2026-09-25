@@ -10,6 +10,7 @@ import {
 } from "@internal/node-admin";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { Plus } from "lucide-react";
 import { useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { Segmented } from "@/components/ui/segmented";
@@ -101,13 +102,22 @@ function UsersPage() {
     <main className="mx-auto w-full max-w-5xl space-y-6 p-6">
       <PageHeader
         title="Users"
-        subtitle="Who can sign in to this instance (admins)"
-        action={isAdmin ? <Button onClick={() => setAddOpen(true)}>Add user</Button> : undefined}
+        subtitle="Who can sign in to this instance"
+        action={
+          isAdmin ? (
+            <Button onClick={() => setAddOpen(true)}>
+              <Plus /> Add user
+            </Button>
+          ) : undefined
+        }
       />
       {viewerIsAdmin === undefined ? null : isAdmin ? (
         <>
           <Segmented
             ariaLabel="Which list"
+            // A page's tab strip is content-sized, never a half-page-each
+            // stretch (design-system.md rule, 2026-09-25).
+            fill={false}
             // The tab words live in USERS_TABS; only the Pending one ever
             // wears a count, and it wears its own word plus the number.
             options={USERS_TABS.map((t) =>

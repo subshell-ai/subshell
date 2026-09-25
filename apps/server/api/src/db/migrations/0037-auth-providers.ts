@@ -1,7 +1,7 @@
 import { type Kysely, sql } from "kysely";
 
 /**
- * `auth_providers` — the admin-managed sign-in door table (spec 2026-09-24 §2).
+ * `auth_providers` — the admin-managed sign-in provider table (spec 2026-09-24 §2).
  *
  * camelCase identifiers below: the app migrator's handle carries the
  * CamelCasePlugin, so every physical column is snake_case (pinned by test).

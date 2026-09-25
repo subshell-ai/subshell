@@ -23,7 +23,7 @@ import {
  */
 
 const createdUserIds: string[] = [];
-const createdDoorIds: string[] = [];
+const createdProviderIds: string[] = [];
 const createdAccountIds: string[] = [];
 const createdSessionIds: string[] = [];
 const createdVerificationIds: string[] = [];
@@ -42,13 +42,13 @@ async function makeUser(email: string, createdAtIso: string): Promise<string> {
   return id;
 }
 
-/** An oidc door; `requireApproval` is the field this sweep reads. */
-async function makeDoor(id: string, requireApproval: 0 | 1): Promise<void> {
+/** An oidc provider; `requireApproval` is the field this sweep reads. */
+async function makeProvider(id: string, requireApproval: 0 | 1): Promise<void> {
   await new AuthProvidersRepository(db)
     .create({
       id,
       kind: "oidc",
-      name: `Door ${id}`,
+      name: `Provider ${id}`,
       endpointsJson: JSON.stringify({
         authorizationUrl: "https://issuer.invalid/authorize",
         tokenUrl: "https://issuer.invalid/token",
@@ -61,7 +61,7 @@ async function makeDoor(id: string, requireApproval: 0 | 1): Promise<void> {
       // A rerun of this file in the same process: the row exists already.
       await new AuthProvidersRepository(db).update(id, { requireApproval });
     });
-  createdDoorIds.push(id);
+  createdProviderIds.push(id);
 }
 
 /** One `account` row (better-auth's table: physical camelCase, raw SQL). */
@@ -172,7 +172,7 @@ afterAll(async () => {
   for (const id of createdSessionIds) await sql`DELETE FROM session WHERE id = ${id}`.execute(db);
   for (const id of createdVerificationIds) await sql`DELETE FROM verification WHERE id = ${id}`.execute(db);
   for (const id of createdAccountIds) await sql`DELETE FROM account WHERE id = ${id}`.execute(db);
-  for (const doorId of createdDoorIds) await new AuthProvidersRepository(db).remove(doorId);
+  for (const providerId of createdProviderIds) await new AuthProvidersRepository(db).remove(providerId);
   for (const userId of createdUserIds) {
     await sql`DELETE FROM user_meta WHERE user_id = ${userId}`.execute(db);
     await sql`DELETE FROM user WHERE id = ${userId}`.execute(db);
@@ -210,14 +210,14 @@ describe("expiryDays", () => {
 describe("expirePendingApprovals", () => {
   test("deletes the expired pending arrival from every table and leaves every survivor by id", async () => {
     await new SettingsRepository(db).delete(PENDING_APPROVAL_EXPIRY_KEY); // ⇒ 30 days
-    const doorId = `expiry-door-${crypto.randomUUID().slice(0, 8)}`;
-    await makeDoor(doorId, 1);
+    const providerId = `expiry-provider-${crypto.randomUUID().slice(0, 8)}`;
+    await makeProvider(providerId, 1);
     const staleClock = daysAgo(31); // one stamp: two daysAgo calls differ by ms
 
     // The victim: pending 31 days ago, with the defensive rows a pending
     // person "never has" — the sweep must not depend on that being true.
     const oldPending = await makeUser(`expiry-old-${crypto.randomUUID().slice(0, 8)}@example.test`, staleClock);
-    await makeAccount(oldPending, doorId);
+    await makeAccount(oldPending, providerId);
     await new UserMetaRepository(db).setApproval(oldPending, "pending", { arrivedAt: staleClock });
     await makeSession(oldPending);
     await makeVerification(oldPending);
@@ -230,11 +230,11 @@ describe("expirePendingApprovals", () => {
 
     // The survivors, each a different reason a row must still exist after.
     const freshPending = await makeUser(`expiry-fresh-${crypto.randomUUID().slice(0, 8)}@example.test`, daysAgo(1));
-    await makeAccount(freshPending, doorId);
+    await makeAccount(freshPending, providerId);
     await new UserMetaRepository(db).setApproval(freshPending, "pending", { arrivedAt: daysAgo(1) });
 
     const rejectedAncient = await makeUser(`expiry-rej-${crypto.randomUUID().slice(0, 8)}@example.test`, daysAgo(60));
-    await makeAccount(rejectedAncient, doorId);
+    await makeAccount(rejectedAncient, providerId);
     await new UserMetaRepository(db).setApproval(rejectedAncient, "rejected");
     await forceClock(rejectedAncient, staleClock); // §6: rejected NEVER expires, even with a stale clock
 
@@ -242,7 +242,7 @@ describe("expirePendingApprovals", () => {
       `expiry-noclock-${crypto.randomUUID().slice(0, 8)}@example.test`,
       daysAgo(40),
     );
-    await makeAccount(pendingNoClock, doorId);
+    await makeAccount(pendingNoClock, providerId);
     await new UserMetaRepository(db).setApproval(pendingNoClock, "pending");
     await forceClock(pendingNoClock, null); // no arrival clock ⇒ nothing to age out
 
@@ -250,7 +250,7 @@ describe("expirePendingApprovals", () => {
       `expiry-member-${crypto.randomUUID().slice(0, 8)}@example.test`,
       daysAgo(90),
     );
-    await makeAccount(approvedAncient, doorId);
+    await makeAccount(approvedAncient, providerId);
     await new UserMetaRepository(db).setApproval(approvedAncient, "approved");
 
     const deleted = await expirePendingApprovals(db);
@@ -295,12 +295,12 @@ describe("expirePendingApprovals", () => {
     // `ownerUserId`), and `subshells` rides the same `userId` clause as
     // `workspaces` without its seeding weight.
     await new SettingsRepository(db).delete(PENDING_APPROVAL_EXPIRY_KEY); // ⇒ 30 days
-    const doorId = `expiry-owned-door-${crypto.randomUUID().slice(0, 8)}`;
-    await makeDoor(doorId, 1);
+    const providerId = `expiry-owned-provider-${crypto.randomUUID().slice(0, 8)}`;
+    await makeProvider(providerId, 1);
     const clock = daysAgo(31);
 
     const owner = await makeUser(`expiry-owner-${crypto.randomUUID().slice(0, 8)}@example.test`, clock);
-    await makeAccount(owner, doorId);
+    await makeAccount(owner, providerId);
     await new UserMetaRepository(db).setApproval(owner, "pending", { arrivedAt: clock });
     createdOwnerUserIds.push(owner);
     await db
@@ -317,7 +317,7 @@ describe("expirePendingApprovals", () => {
       .execute();
 
     const cleanVictim = await makeUser(`expiry-clean-${crypto.randomUUID().slice(0, 8)}@example.test`, clock);
-    await makeAccount(cleanVictim, doorId);
+    await makeAccount(cleanVictim, providerId);
     await new UserMetaRepository(db).setApproval(cleanVictim, "pending", { arrivedAt: clock });
 
     await expirePendingApprovals(db);
@@ -343,12 +343,12 @@ describe("expirePendingApprovals", () => {
     // zero blast radius — deleting it is the cascade the missing FKs would
     // have been.
     await new SettingsRepository(db).delete(PENDING_APPROVAL_EXPIRY_KEY); // ⇒ 30 days
-    const doorId = `expiry-config-door-${crypto.randomUUID().slice(0, 8)}`;
-    await makeDoor(doorId, 1);
+    const providerId = `expiry-config-provider-${crypto.randomUUID().slice(0, 8)}`;
+    await makeProvider(providerId, 1);
     const clock = daysAgo(31);
 
     const victim = await makeUser(`expiry-config-${crypto.randomUUID().slice(0, 8)}@example.test`, clock);
-    await makeAccount(victim, doorId);
+    await makeAccount(victim, providerId);
     await new UserMetaRepository(db).setApproval(victim, "pending", { arrivedAt: clock });
     const tokenId = await makeDeviceToken(victim);
     const favId = await makeFavorite(victim);
@@ -363,10 +363,10 @@ describe("expirePendingApprovals", () => {
   });
 
   test("expiryDays 0 keeps even an expired pending row forever", async () => {
-    const doorId = `expiry-forever-door-${crypto.randomUUID().slice(0, 8)}`;
-    await makeDoor(doorId, 1);
+    const providerId = `expiry-forever-provider-${crypto.randomUUID().slice(0, 8)}`;
+    await makeProvider(providerId, 1);
     const userId = await makeUser(`expiry-forever-${crypto.randomUUID().slice(0, 8)}@example.test`, daysAgo(400));
-    await makeAccount(userId, doorId);
+    await makeAccount(userId, providerId);
     await new UserMetaRepository(db).setApproval(userId, "pending", { arrivedAt: daysAgo(400) });
 
     await new SettingsRepository(db).set(PENDING_APPROVAL_EXPIRY_KEY, 0);
@@ -382,8 +382,8 @@ describe("expirePendingApprovals", () => {
 
 describe("remarkUnmarkedArrivals", () => {
   test("a fresh one-account arrival sitting approved is re-queued, demoted if auto-promoted", async () => {
-    const doorId = `remark-door-${crypto.randomUUID().slice(0, 8)}`;
-    await makeDoor(doorId, 1);
+    const providerId = `remark-provider-${crypto.randomUUID().slice(0, 8)}`;
+    await makeProvider(providerId, 1);
 
     // (a) The measured failure shape: `user.create.after` promoted the
     // first arrival and wrote its meta row (approval_state defaults
@@ -395,7 +395,7 @@ describe("remarkUnmarkedArrivals", () => {
       `remark-promoted-${crypto.randomUUID().slice(0, 8)}@example.test`,
       new Date().toISOString(),
     );
-    await makeAccount(promotedArrival, doorId);
+    await makeAccount(promotedArrival, providerId);
     await db.insertInto("userMeta").values({ userId: promotedArrival, role: "admin", setupStep: "network" }).execute();
     // The consequence of the failed mark: session.create.before read
     // `approved`, so this person HOLDS a session. Re-marking must revoke
@@ -408,7 +408,7 @@ describe("remarkUnmarkedArrivals", () => {
       `remark-metaless-${crypto.randomUUID().slice(0, 8)}@example.test`,
       new Date().toISOString(),
     );
-    await makeAccount(metalessArrival, doorId);
+    await makeAccount(metalessArrival, providerId);
 
     const remarked = await remarkUnmarkedArrivals(db);
     expect(remarked).toBeGreaterThanOrEqual(2);
@@ -440,13 +440,13 @@ describe("remarkUnmarkedArrivals", () => {
     // can see (present row, approved, NULL clock, one gated account, fresh
     // user). The `user.approve` audit row — which only the approval route
     // writes — is what distinguishes them, and it must win.
-    const doorId = `remark-approved-door-${crypto.randomUUID().slice(0, 8)}`;
-    await makeDoor(doorId, 1);
+    const providerId = `remark-approved-provider-${crypto.randomUUID().slice(0, 8)}`;
+    await makeProvider(providerId, 1);
     const approved = await makeUser(
       `remark-approved-${crypto.randomUUID().slice(0, 8)}@example.test`,
       new Date().toISOString(),
     );
-    await makeAccount(approved, doorId);
+    await makeAccount(approved, providerId);
     // The route's own write pair: pending (marked, clock stamped), then
     // approved (clock cleared by setApproval's leave-pending rule).
     const meta = new UserMetaRepository(db);
@@ -457,7 +457,7 @@ describe("remarkUnmarkedArrivals", () => {
       action: "user.approve",
       targetType: "user",
       targetId: approved,
-      metadataJson: JSON.stringify({ email: "x@example.test", providerId: doorId }),
+      metadataJson: JSON.stringify({ email: "x@example.test", providerId: providerId }),
     });
     createdApprovalTargetIds.push(approved);
 
@@ -470,22 +470,22 @@ describe("remarkUnmarkedArrivals", () => {
 
   test("a require_approval flip AFTER arrival does not retroactively queue (and demote) the already-in", async () => {
     // Guard 6(review): the brick shape. The sole admin arrived through a
-    // then-OPEN door minutes ago; an admin flips `require_approval` on.
-    // Without the door-vs-arrival timestamp gate the next sweep would read
+    // then-OPEN provider minutes ago; an admin flips `require_approval` on.
+    // Without the provider-vs-arrival timestamp gate the next sweep would read
     // this row as a failed-mark arrival (approved, no audit trail, one
     // gated account, fresh) and DEMOTE + RE-QUEUE the instance's only
-    // admin. `updatedAt > createdAt` on the door is what says "this person
-    // walked through a door that did not yet ask".
-    const doorId = `remark-flip-door-${crypto.randomUUID().slice(0, 8)}`;
-    await makeDoor(doorId, 0); // OPEN when they arrived
+    // admin. `updatedAt > createdAt` on the provider is what says "this person
+    // walked through a provider that did not yet ask".
+    const providerId = `remark-flip-provider-${crypto.randomUUID().slice(0, 8)}`;
+    await makeProvider(providerId, 0); // OPEN when they arrived
     const arrivedAt = new Date(Date.now() - 5 * 60_000).toISOString(); // well inside the 2 h window
     const soleAdmin = await makeUser(`remark-flip-${crypto.randomUUID().slice(0, 8)}@example.test`, arrivedAt);
-    await makeAccount(soleAdmin, doorId);
+    await makeAccount(soleAdmin, providerId);
     await db.insertInto("userMeta").values({ userId: soleAdmin, role: "admin", setupStep: "network" }).execute();
 
     // The flip, through the repo — the real CRUD path, which stamps
     // `updatedAt` as a fresh ISO now, seconds after the arrival's createdAt.
-    await new AuthProvidersRepository(db).update(doorId, { requireApproval: 1 });
+    await new AuthProvidersRepository(db).update(providerId, { requireApproval: 1 });
 
     await remarkUnmarkedArrivals(db);
 
@@ -500,37 +500,37 @@ describe("remarkUnmarkedArrivals", () => {
     expect(meta.setupStep).toBe("network");
   });
 
-  test("established members, linked users, open doors and rejected rows are never touched", async () => {
-    const approvalDoor = `remark-gated-door-${crypto.randomUUID().slice(0, 8)}`;
-    await makeDoor(approvalDoor, 1);
-    const openDoor = `remark-open-door-${crypto.randomUUID().slice(0, 8)}`;
-    await makeDoor(openDoor, 0);
+  test("established members, linked users, open providers and rejected rows are never touched", async () => {
+    const approvalProvider = `remark-gated-provider-${crypto.randomUUID().slice(0, 8)}`;
+    await makeProvider(approvalProvider, 1);
+    const openProvider = `remark-open-provider-${crypto.randomUUID().slice(0, 8)}`;
+    await makeProvider(openProvider, 0);
 
-    // An OLD approved member whose door gained require_approval at some
+    // An OLD approved member whose provider gained require_approval at some
     // point: turning the flag on later must not un-approve established
     // membership. Outside the 2 h window, so the rule alone protects it —
     // and its explicit 'approved' row is the state the rule must respect.
     const oldMember = await makeUser(`remark-old-${crypto.randomUUID().slice(0, 8)}@example.test`, daysAgo(3));
-    await makeAccount(oldMember, approvalDoor);
+    await makeAccount(oldMember, approvalProvider);
     await new UserMetaRepository(db).setApproval(oldMember, "approved");
 
-    // A fresh user who LINKED the approval door beside their credential
+    // A fresh user who LINKED the approval provider beside their credential
     // account — two accounts means not an arrival (the hook's own skip).
     const linked = await makeUser(
       `remark-linked-${crypto.randomUUID().slice(0, 8)}@example.test`,
       new Date().toISOString(),
     );
     await makeAccount(linked, "credential");
-    await makeAccount(linked, approvalDoor);
+    await makeAccount(linked, approvalProvider);
     await new UserMetaRepository(db).setApproval(linked, "approved");
 
-    // A fresh single-account arrival through a door that asks nothing.
-    const openDoorUser = await makeUser(
+    // A fresh single-account arrival through a provider that asks nothing.
+    const openProviderUser = await makeUser(
       `remark-open-${crypto.randomUUID().slice(0, 8)}@example.test`,
       new Date().toISOString(),
     );
-    await makeAccount(openDoorUser, openDoor);
-    await new UserMetaRepository(db).setApproval(openDoorUser, "approved");
+    await makeAccount(openProviderUser, openProvider);
+    await new UserMetaRepository(db).setApproval(openProviderUser, "approved");
 
     // A fresh REJECTED row: rejection is terminal until an admin acts; a
     // re-mark pass must not pull it back into the queue.
@@ -538,12 +538,12 @@ describe("remarkUnmarkedArrivals", () => {
       `remark-rejected-${crypto.randomUUID().slice(0, 8)}@example.test`,
       new Date().toISOString(),
     );
-    await makeAccount(rejected, approvalDoor);
+    await makeAccount(rejected, approvalProvider);
     await new UserMetaRepository(db).setApproval(rejected, "rejected");
 
     await remarkUnmarkedArrivals(db);
 
-    for (const id of [oldMember, linked, openDoorUser]) {
+    for (const id of [oldMember, linked, openProviderUser]) {
       const state = await metaState(id);
       expect(state?.approvalState).toBe("approved");
       expect(state?.pendingArrivedAt).toBeNull();

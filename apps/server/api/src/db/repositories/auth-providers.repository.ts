@@ -7,7 +7,7 @@ import type { Database } from "@/db/types/index.js";
  * Data access for `auth_providers` (spec 2026-09-24 §2). Routes and the auth
  * build path read through this; no raw SQL leaves the class. The `email` row
  * is a row like any other here — what refuses its deletion lives in the
- * ROUTE, next to the last-door guard that reads the same table.
+ * ROUTE, next to the last-provider guard that reads the same table.
  */
 export class AuthProvidersRepository extends BaseRepository {
   // Rows are typed `AuthProviderRow` (the plain SELECT shape); the table
@@ -44,10 +44,10 @@ export class AuthProvidersRepository extends BaseRepository {
   }
 
   /**
-   * How many doors are currently open for signing in: rows with
-   * `enabled = 1 AND signInEnabled = 1`. The last-door guard's count.
+   * How many providers are currently open for signing in: rows with
+   * `enabled = 1 AND signInEnabled = 1`. The last-provider guard's count.
    */
-  async openSignInDoorCount(): Promise<number> {
+  async openSignInProviderCount(): Promise<number> {
     return await this.countOpenIn(this.db);
   }
 
@@ -58,7 +58,7 @@ export class AuthProvidersRepository extends BaseRepository {
    * hands out ONE shared connection, so the awaits between the SELECT and the
    * write never yield, and concurrent calls serialize in practice. A
    * check-then-write split across statements does NOT: two admins closing two
-   * different doors would both read "2 open", both pass, and land the
+   * different providers would both read "2 open", both pass, and land the
    * instance at zero ways to sign in.
    *
    * The row is RE-READ inside the transaction, so `wasOpen` is the committed
@@ -67,21 +67,21 @@ export class AuthProvidersRepository extends BaseRepository {
    * its patch (the route owns what the fields mean; this owns the arithmetic
    * and the atomicity).
    *
-   * @returns "not_found" when no row bears `id`, "last_door" when applying
-   *   the patch would close the final open door (nothing written), "ok" when
+   * @returns "not_found" when no row bears `id`, "last_provider" when applying
+   *   the patch would close the final open provider (nothing written), "ok" when
    *   the patch is committed.
    */
-  async patchGuardingLastDoor(
+  async patchGuardingLastProvider(
     id: string,
     patch: Partial<Omit<AuthProviderRow, "id" | "kind">>,
     nextOpen: boolean,
-  ): Promise<"not_found" | "last_door" | "ok"> {
+  ): Promise<"not_found" | "last_provider" | "ok"> {
     return await this.db.transaction().execute(async (trx) => {
       const row = await trx.selectFrom("authProviders").selectAll().where("id", "=", id).executeTakeFirst();
       if (!row) return "not_found" as const;
       const wasOpen = row.enabled === 1 && row.signInEnabled === 1;
       const openOthers = (await this.countOpenIn(trx)) - (wasOpen ? 1 : 0);
-      if (openOthers + (nextOpen ? 1 : 0) <= 0) return "last_door" as const;
+      if (openOthers + (nextOpen ? 1 : 0) <= 0) return "last_provider" as const;
       await trx
         .updateTable("authProviders")
         .set({ ...patch, updatedAt: new Date().toISOString() })
@@ -92,17 +92,17 @@ export class AuthProvidersRepository extends BaseRepository {
   }
 
   /**
-   * {@link patchGuardingLastDoor}'s delete twin: removing an OPEN door is
-   * refused when it is the only open one; a closed door can always go (the
+   * {@link patchGuardingLastProvider}'s delete twin: removing an OPEN provider is
+   * refused when it is the only open one; a closed provider can always go (the
    * count arithmetic is the same shape, with the row simply not re-appearing).
    */
-  async deleteGuardingLastDoor(id: string): Promise<"not_found" | "last_door" | "ok"> {
+  async deleteGuardingLastProvider(id: string): Promise<"not_found" | "last_provider" | "ok"> {
     return await this.db.transaction().execute(async (trx) => {
       const row = await trx.selectFrom("authProviders").selectAll().where("id", "=", id).executeTakeFirst();
       if (!row) return "not_found" as const;
       const wasOpen = row.enabled === 1 && row.signInEnabled === 1;
       const openOthers = (await this.countOpenIn(trx)) - (wasOpen ? 1 : 0);
-      if (openOthers <= 0) return "last_door" as const;
+      if (openOthers <= 0) return "last_provider" as const;
       await trx.deleteFrom("authProviders").where("id", "=", id).execute();
       return "ok" as const;
     });

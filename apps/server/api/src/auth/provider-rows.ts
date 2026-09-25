@@ -7,23 +7,23 @@ import { logger } from "@/utils/logger.js";
 
 /** The discovery-resolved endpoints captured at save time (§3). */
 export interface StoredEndpoints {
-  /** Authorization endpoint, resolved from discovery when the door was saved. */
+  /** Authorization endpoint, resolved from discovery when the provider was saved. */
   authorizationUrl: string;
-  /** Token endpoint, resolved from discovery when the door was saved. */
+  /** Token endpoint, resolved from discovery when the provider was saved. */
   tokenUrl: string;
-  /** UserInfo endpoint; null when the door's discovery had none. */
+  /** UserInfo endpoint; null when the provider's discovery had none. */
   userInfoUrl: string | null;
 }
 
 /**
- * The build-time shape of one door. DB rows arrive as `AuthProviderRow`
+ * The build-time shape of one provider. DB rows arrive as `AuthProviderRow`
  * (raw integers and JSON text); this is the parsed form every consumer reads,
  * so the coercion happens exactly once. Corrupt JSON throws inside the
  * loader's per-row guard — the row is skipped with a warn (spec §3's
- * fail-tolerant rule): a junk column costs one door, not the auth instance.
+ * fail-tolerant rule): a junk column costs one provider, not the auth instance.
  */
 export interface StoredProviderRow {
-  /** Door id; also the genericOAuth `providerId` and the callback path segment. */
+  /** Provider id; also the genericOAuth `providerId` and the callback path segment. */
   id: string;
   /** Credential family, narrowed from the text column by `asProviderKind`. */
   kind: AuthProviderKind;
@@ -33,32 +33,32 @@ export interface StoredProviderRow {
   issuer: string | null;
   /** OAuth client id (null only on malformed/hand-edited rows; config gets ""). */
   clientId: string | null;
-  /** OAuth client secret; null means the door authenticates without one. */
+  /** OAuth client secret; null means the provider authenticates without one. */
   clientSecret: string | null;
-  /** Endpoints captured at save time; null when the door was saved without them (§3: rebuilds never re-fetch discovery). */
+  /** Endpoints captured at save time; null when the provider was saved without them (§3: rebuilds never re-fetch discovery). */
   endpoints: StoredEndpoints | null;
   /** Entry origins from the stored list; position 0 is canonical (§5a). */
   entryOrigins: string[];
   /** Allowed e-mail domains; empty list = any domain (§5). */
   allowedDomains: string[];
-  /** Whether this door may sign in at all. */
+  /** Whether this provider may sign in at all. */
   signInEnabled: boolean;
-  /** Read by the door policy's registration case, never mapped to `disableSignUp` (finding F1: the belt short-circuited the create path before the hook could answer `registration_closed`); NULL is the legacy dynamic gate, legal on the email row only (§2). */
+  /** Read by the provider policy's registration case, never mapped to `disableSignUp` (finding F1: the belt short-circuited the create path before the hook could answer `registration_closed`); NULL is the legacy dynamic gate, legal on the email row only (§2). */
   registrationEnabled: boolean | null;
-  /** Whether accounts this door creates land on "pending" (§6). */
+  /** Whether accounts this provider creates land on "pending" (§6). */
   requireApproval: boolean;
 }
 
 /**
- * The synchronous door read: the auth build (`buildAuth`) and, from Task 5,
- * the door policy — ONE reader shape for both, so the configuration a sign-in
+ * The synchronous provider read: the auth build (`buildAuth`) and, from Task 5,
+ * the provider policy — ONE reader shape for both, so the configuration a sign-in
  * is refused under is always the configuration that was built.
  *
  * It opens its OWN short-lived bun:sqlite connection because it must run
  * inside `betterAuth()` construction synchronously, where the app's Kysely
  * handle (async-only at the query boundary) cannot be awaited. Raw SQL, so
  * physical snake_case names are spelled directly (the CamelCasePlugin rule).
- * The WHERE is a door's purpose: enabled, and either sign-in-able or holding
+ * The WHERE is a provider's purpose: enabled, and either sign-in-able or holding
  * an explicit registration decision; ORDER BY position is what makes row
  * order — and so canonical origin — stable.
  *
@@ -73,12 +73,12 @@ export interface StoredProviderRow {
  */
 export function loadProviderRowsSync(path: string = DATABASE_PATH): StoredProviderRow[] {
   // No database file yet — a cold scratch DB, or `:memory:`, which Bun opens
-  // as a fresh handle rather than a path — is a database with ZERO doors, not
+  // as a fresh handle rather than a path — is a database with ZERO providers, not
   // an unreadable one: the auth build creates the file right after this read,
-  // and "no doors configured" is the honest answer for a file that does not
+  // and "no providers configured" is the honest answer for a file that does not
   // exist. (An EXISTING but unreadable file still throws, below.)
   if (!existsSync(path)) return [];
-  const rows = selectDoors(path, { readonly: true }) ?? selectDoors(path, { readwrite: true, create: false });
+  const rows = selectProviders(path, { readonly: true }) ?? selectProviders(path, { readwrite: true, create: false });
   if (!rows) {
     throw new Error(`could not read auth_providers from ${path}`);
   }
@@ -92,7 +92,7 @@ export function loadProviderRowsSync(path: string = DATABASE_PATH): StoredProvid
   });
 }
 
-const DOOR_QUERY = `
+const PROVIDER_QUERY = `
   SELECT id, kind, name, issuer, client_id, client_secret, endpoints_json,
          entry_origins, allowed_domains, enabled, sign_in_enabled,
          registration_enabled, require_approval
@@ -101,7 +101,7 @@ const DOOR_QUERY = `
   ORDER BY position, id
 `;
 
-function selectDoors(
+function selectProviders(
   path: string,
   mode: { readonly: true } | { readwrite: true; create: false },
 ): Record<string, unknown>[] | null {
@@ -109,11 +109,11 @@ function selectDoors(
   try {
     db = new Database(path, mode);
     // A database where `auth_providers` was never created (app migrations not
-    // run yet) is a READABLE database with ZERO doors, not a broken one — an
-    // email-only instance is the legal pre-door state, and the probe shape is
+    // run yet) is a READABLE database with ZERO providers, not a broken one — an
+    // email-only instance is the legal pre-provider state, and the probe shape is
     // `commands/status.ts`'s: an absent table must never read as corruption.
     if (!db.query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'auth_providers'`).get()) return [];
-    return db.query<Record<string, unknown>, never[]>(DOOR_QUERY).all();
+    return db.query<Record<string, unknown>, never[]>(PROVIDER_QUERY).all();
   } catch {
     return null;
   } finally {
@@ -162,7 +162,7 @@ function parseEndpoints(raw: unknown): StoredEndpoints | null {
   const parsed = JSON.parse(String(raw)) as unknown;
   if (typeof parsed !== "object" || parsed === null) throw new Error("endpoints_json: expected an object");
   const o = parsed as Record<string, unknown>;
-  // A door whose saved endpoints lack the two REQUIRED URLs cannot be built;
+  // A provider whose saved endpoints lack the two REQUIRED URLs cannot be built;
   // the endpoint pair is exactly what makes re-fetching discovery unnecessary.
   return {
     authorizationUrl: text(o.authorizationUrl),
@@ -189,7 +189,7 @@ function splitDomains(raw: unknown): string[] {
 }
 
 /**
- * One door's genericOAuth config (measured member set, 1.7.1): explicit
+ * One provider's genericOAuth config (measured member set, 1.7.1): explicit
  * endpoints + accountIssuer so plugin init NEVER fetches discovery — the
  * failure mode that otherwise throws at build and, since AUTH_OPTIONS feeds
  * `runAuthMigrations`, crash-loops boot (spec §3). Explicit endpoints are
@@ -217,10 +217,10 @@ export function toGenericOAuthConfig(row: StoredProviderRow, canonicalOrigin: st
     // that is a MEASURED decision (spec 2026-09-24 §4, Task 7 finding): the
     // callback's create path checks the config flag BEFORE it reaches
     // internalAdapter.createUser, so a config-level belt would answer
-    // `signup_disabled` — a code the login page does not map — and the door
+    // `signup_disabled` — a code the login page does not map — and the provider
     // policy's `registration_closed` (§4's named refusal) would never reach
-    // the browser. The one seam the spec puts per-door registration on is
-    // `user.validateUserInfo` (`door-policy.ts`), and it fires on every path
+    // the browser. The one seam the spec puts per-provider registration on is
+    // `user.validateUserInfo` (`provider-policy.ts`), and it fires on every path
     // that could create a user.
     mapProfileToUser: (p) => ({
       // §5: the provider's verified claim, never the mere presence of an email.

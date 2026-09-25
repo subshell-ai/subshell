@@ -19,9 +19,9 @@ describe("getAuth", () => {
     expect(getAuth()).not.toBe(a);
   });
 
-  test("a zero-door table still builds: no genericOAuth plugin over an email-only auth_providers", () => {
+  test("a zero-provider table still builds: no genericOAuth plugin over an email-only auth_providers", () => {
     // Task 4's regression: AUTH_OPTIONS must keep working untouched by the
-    // door wiring, and the lone EMAIL row (kind "email") is a door for POLICY
+    // provider wiring, and the lone EMAIL row (kind "email") is a provider for POLICY
     // only — buildAuth filters it, so genericOAuth never enters the plugin
     // list at all when no oidc/google row exists.
     resetAuthForTests();

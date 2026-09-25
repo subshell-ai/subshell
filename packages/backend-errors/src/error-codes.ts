@@ -15,9 +15,16 @@ export enum BackendErrorCodes {
   CONFIG_INVALID = "CONFIG_INVALID",
   /** `PATCH /api/admin/server/config`: the key is set in the server's environment, so a config.env write would be masked at the next boot. */
   CONFIG_KEY_FROM_ENV = "CONFIG_KEY_FROM_ENV",
-  /** `/api/auth-providers`: OIDC discovery could not resolve the issuer's endpoints; the message names why. Raised on save and on the in-dialog probe (spec 2026-09-24 §8). */
+  /**
+   * A `/api/auth-providers` SAVE whose issuer advertises the
+   * client_credentials grant got a real token-endpoint refusal for the
+   * offered pair. Nothing was written (operator ruling 2026-09-25: the save
+   * IS the verification; the standalone probe route is gone).
+   */
+  CREDENTIALS_REJECTED = "CREDENTIALS_REJECTED",
+  /** `/api/auth-providers`: OIDC discovery could not resolve the issuer's endpoints; the message names why. Raised on save, which IS the verification (spec 2026-09-24 §8, amended 2026-09-25). */
   DISCOVERY_FAILED = "DISCOVERY_FAILED",
-  /** `PATCH /api/auth-providers/:id`: the reserved `email` row's kind is the credential door's identity — it cannot be changed into an OIDC kind (or back). */
+  /** `PATCH /api/auth-providers/:id`: the reserved `email` row's kind is the credential provider's identity — it cannot be changed into an OIDC kind (or back). */
   EMAIL_ROW_IMMUTABLE_KIND = "EMAIL_ROW_IMMUTABLE_KIND",
   /** `DELETE /api/auth-providers/:id`: the reserved `email` row can be closed but never deleted (spec §2). */
   EMAIL_ROW_UNDELETABLE = "EMAIL_ROW_UNDELETABLE",
@@ -29,15 +36,15 @@ export enum BackendErrorCodes {
   INVALID_PRESET = "INVALID_PRESET",
   /**
    * A write to `/api/auth-providers` would leave the instance with ZERO open
-   * sign-in doors (spec 2026-09-24 §8's last-door guard). Nothing was written;
-   * the remedy is in the message — open another door first, or break-glass
+   * sign-in providers (spec 2026-09-24 §8's last-provider guard). Nothing was written;
+   * the remedy is in the message — open another provider first, or break-glass
    * from the CLI.
    */
-  LAST_SIGN_IN_DOOR = "LAST_SIGN_IN_DOOR",
+  LAST_SIGN_IN_PROVIDER = "LAST_SIGN_IN_PROVIDER",
   /** `PUT /api/admin/server/logging`: `SUBSHELL_DEBUG_LOGGING` is set in the environment, so the setting is read-only. */
   LOGGING_FROM_ENV = "LOGGING_FROM_ENV",
   NOT_FOUND_ERROR = "NOT_FOUND_ERROR",
-  /** `/api/auth-providers/:id`: no door row with that id. */
+  /** `/api/auth-providers/:id`: no provider row with that id. */
   PROVIDER_NOT_FOUND = "PROVIDER_NOT_FOUND",
   /**
    * The phase-1 placeholder refusing any non-local `POST /api/subshells` body.
@@ -184,16 +191,20 @@ export const BackendErrorCodeDefs = {
     message: "That setting is fixed by the server's environment",
     statusCode: 409,
   },
+  [BackendErrorCodes.CREDENTIALS_REJECTED]: {
+    message: "The OIDC token endpoint rejected the supplied client credentials",
+    statusCode: 400,
+  },
   [BackendErrorCodes.DISCOVERY_FAILED]: {
     message: "OIDC discovery could not resolve this issuer",
     statusCode: 400,
   },
   [BackendErrorCodes.EMAIL_ROW_IMMUTABLE_KIND]: {
-    message: "The E-mail door's kind cannot be changed",
+    message: "The E-mail provider's kind cannot be changed",
     statusCode: 400,
   },
   [BackendErrorCodes.EMAIL_ROW_UNDELETABLE]: {
-    message: "The E-mail door can be closed but never deleted",
+    message: "The E-mail provider can be closed but never deleted",
     statusCode: 400,
   },
   [BackendErrorCodes.EXISTS_ERROR]: {
@@ -216,7 +227,7 @@ export const BackendErrorCodeDefs = {
     message: "Invalid preset",
     statusCode: 400,
   },
-  [BackendErrorCodes.LAST_SIGN_IN_DOOR]: {
+  [BackendErrorCodes.LAST_SIGN_IN_PROVIDER]: {
     message: "This would leave no way to sign in",
     statusCode: 409,
   },

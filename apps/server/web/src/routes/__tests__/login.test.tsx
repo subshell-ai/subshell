@@ -9,7 +9,7 @@ import { setFetchRouter } from "@/test-setup";
 /**
  * What the login page DOES with an unrecognized OAuth round-trip refusal
  * (final review, Important 2). The mapper classifies the codes, but the
- * review's finding was about the PAGE: `?error=door_closed` (and every other
+ * review's finding was about the PAGE: `?error=provider_closed` (and every other
  * code outside the two special readings) used to be stripped out of the URL
  * while nothing rendered — a visitor back from a full IdP round trip on a
  * pristine form with zero feedback. These cases pin the shipped pair: the
@@ -88,15 +88,15 @@ describe("/login round-trip refusals", () => {
 
   it("renders an unrecognized refusal's description and survives the param strip", async () => {
     stubWires();
-    const router = renderLogin("/login?error=door_closed&error_description=That%20door%20is%20closed.");
-    await screen.findByText("That door is closed.");
+    const router = renderLogin("/login?error=provider_closed&error_description=That%20provider%20is%20closed.");
+    await screen.findByText("That provider is closed.");
     // The consumed params leave the URL (a later form error must not sit
     // beside the old refusal — Task 14 review, minor 1). TanStack exposes
     // the PARSED search, so "stripped" means an empty object, not ""…
     await waitFor(() => expect(router.state.location.search).toEqual({}));
     // …and the LINE stays: it was decided at mount, not read from the live
     // params, so the strip cannot blink it out with them.
-    expect(screen.getByText("That door is closed.")).toBeDefined();
+    expect(screen.getByText("That provider is closed.")).toBeDefined();
   });
 
   it("renders the generic fallback when the refusal carried no description", async () => {
@@ -107,7 +107,7 @@ describe("/login round-trip refusals", () => {
 
   it("a fresh sign-in attempt retires the captured refusal", async () => {
     stubWires();
-    renderLogin("/login?error=door_closed&error_description=Old%20refusal");
+    renderLogin("/login?error=provider_closed&error_description=Old%20refusal");
     await screen.findByText("Old refusal");
     fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: "ada@example.com" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "wrong" } });

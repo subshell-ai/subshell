@@ -24,7 +24,7 @@ import { SETTINGS_QUERY_KEY } from "@/lib/query-keys";
 
 /**
  * The two instance switches this page owns. Registration is NOT one of them:
- * it lives per door on Settings → Auth now (spec 2026-09-24 §5).
+ * it lives per provider on Settings → Auth now (spec 2026-09-24 §5).
  */
 type SettingKey = "allowNodeEnrollment" | "allowServerSubshells";
 
@@ -44,7 +44,7 @@ export const Route = createFileRoute("/settings")({
  * moved to the `local` node's own page. What is left is the five things this
  * page is named for — the instance's name, who may add nodes, whether the
  * Server is itself a place subshells run, the lockdown, and the reset.
- * Registration moved to Settings → Auth, where each door carries its own
+ * Registration moved to Settings → Auth, where each provider carries its own
  * switch (spec 2026-09-24 §5).
  */
 function SettingsPage() {
@@ -106,7 +106,7 @@ function SettingsPage() {
     // failures there too — under a control the person had not touched, and on
     // a narrow window possibly off screen. That is the same silent-feedback
     // failure the shared function exists to prevent, arriving by a different
-    // door. The success half is now gone entirely (a moved switch reports
+    // provider. The success half is now gone entirely (a moved switch reports
     // itself); the keying stays because a REFUSAL must still appear beside the
     // switch that earned it.
     setOutcome(null);
@@ -134,7 +134,7 @@ function SettingsPage() {
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
       {/* No action slot: Status and Plugins were buttons here because the rail
           did not list them. The Server Settings group does now. */}
-      <PageHeader title="General" subtitle="Instance name, nodes, and reset (admins)" />
+      <PageHeader title="General" subtitle="Instance name, nodes, and reset" />
       {/* Gating mirrors the nav rule: these cards hit admin-only endpoints, so
           rendering them for a non-admin would only produce error banners. The
           server-side gates remain the actual enforcement either way. */}
@@ -152,7 +152,7 @@ function SettingsPage() {
           <InstanceNameCard />
 
           {/* Registration left this page with the OIDC work (spec
-              2026-09-24 §5): the answer lives on each door now, and Settings →
+              2026-09-24 §5): the answer lives on each provider now, and Settings →
               Auth carries one switch per provider. The load-failure banner
               came along to the card that still reads these settings. */}
           <Card>

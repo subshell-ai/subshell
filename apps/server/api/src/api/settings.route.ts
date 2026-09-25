@@ -355,7 +355,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         // this route's own response included — answers through
         // `registrationOpen`, so a write that did not land cannot report
         // itself as a success. The row's existence is migration 0037's
-        // guarantee (it seeds the E-mail door at upgrade time).
+        // guarantee (it seeds the E-mail provider at upgrade time).
         const before = await registrationOpen(db);
         await new AuthProvidersRepository(db).update("email", {
           registrationEnabled: body.allowRegistrations ? 1 : 0,

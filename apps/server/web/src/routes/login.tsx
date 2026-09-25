@@ -55,7 +55,7 @@ function LoginPage() {
   // with an infinite stale time because `needsSetup` is true exactly once in
   // an instance's life, and a renameable value must not inherit that.
   // Since the OIDC work (spec 2026-09-24 §7) the same anonymous read answers
-  // WHICH DOORS exist — the login page cannot ask that AFTER it asked for a
+  // WHICH PROVIDERS exist — the login page cannot ask that AFTER it asked for a
   // password. Both newer fields are optional: an older server omits them and
   // the page behaves exactly as it always did (form shown, no buttons).
   const { data: instance } = useQuery({
@@ -66,9 +66,9 @@ function LoginPage() {
   const instanceName = instance?.instanceName;
   const providers = instance?.providers ?? [];
   // Absent (an older server) reads OPEN, like every other optional field
-  // here: a door this read cannot see is a door this page must not hide.
+  // here: a provider this read cannot see is a provider this page must not hide.
   const emailSignIn = instance?.emailSignIn !== false;
-  const noDoors = !emailSignIn && providers.length === 0;
+  const noProviders = !emailSignIn && providers.length === 0;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -77,7 +77,7 @@ function LoginPage() {
   // The failed round trip better-auth returned us to (`?error=…`, spec §4).
   // A pending identity is not an error to print, it is a screen to move to;
   // the sessionless refusal and every other code the trip can carry get
-  // their own line above the door block — the generic sentence, or the
+  // their own line above the provider block — the generic sentence, or the
   // sanitized description. A fresh attempt retires the captured decision.
   //
   // DECIDED ONCE, from the params as this component MOUNTED with them: the
@@ -204,18 +204,18 @@ function LoginPage() {
           <CardDescription>Manage your agent harness subshells.</CardDescription>
         </CardHeader>
         <CardContent>
-          {/* The generic round-trip refusal lives ABOVE the door block, not in
+          {/* The generic round-trip refusal lives ABOVE the provider block, not in
               the form: it names what the OAuth trip did, and with the E-mail
-              door closed the form is not on this page to carry the line. The
+              provider closed the form is not on this page to carry the line. The
               form's own errors (a wrong password, a dropped request) stay
               where they always were. */}
           {(authError.kind === "generic" || authError.kind === "refused") && (
             <p className="mb-4 text-destructive text-detail">{authError.message}</p>
           )}
-          {/* No door open at all (spec §7): say so rather than paint an empty
-              card. The email flag's ABSENCE is not "no doors" — an older
+          {/* No provider open at all (spec §7): say so rather than paint an empty
+              card. The email flag's ABSENCE is not "no providers" — an older
               server answers neither field, and the form stays. */}
-          {noDoors ? (
+          {noProviders ? (
             <p className="text-detail text-muted-foreground">No sign-in methods are configured on this instance.</p>
           ) : (
             <>
@@ -249,13 +249,13 @@ function LoginPage() {
                   </Button>
                 </form>
               )}
-              {/* The OAuth doors, above the passkey block (spec §7): each one
+              {/* The OAuth providers, above the passkey block (spec §7): each one
                   is a full-page redirect, not the fetch-style call the form
                   makes — the IdP round trip leaves this document and better-
                   auth returns to errorCallbackURL with the outcome appended
                   as `?error=…`, which the mapper above reads. The label is
                   the provider's NAME for every kind (operator contract,
-                  2026-09-24): same-kind doors are legal, and a kind-first
+                  2026-09-24): same-kind providers are legal, and a kind-first
                   label would render two Google rows indistinguishable — a
                   mis-click lands on the wrong IdP's consent screen.
                   `signInButtonLabel` owns that copy, tested. */}
@@ -286,8 +286,8 @@ function LoginPage() {
           {/* Hidden where WebAuthn does not exist — an embedded webview has no
             platform authenticator, so the button could only ever fail. The
             note goes with it: it explains a control that is not there.
-            Hidden with the closed E-mail door too (spec §7): a passkey is a
-            credential account, so it rides the credential door. */}
+            Hidden with the closed E-mail provider too (spec §7): a passkey is a
+            credential account, so it rides the credential provider. */}
           {emailSignIn && passkeysSupported() && (
             <div className="mt-4">
               <Button

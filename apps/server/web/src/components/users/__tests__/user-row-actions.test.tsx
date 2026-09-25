@@ -107,7 +107,7 @@ describe("UserRowActions", () => {
     expect(screen.getByRole("menuitem", { name: "Enable account" })).toBeDefined();
   });
 
-  it("offers no password reset to a door-only account", async () => {
+  it("offers no password reset to a provider-only account", async () => {
     // `providers` present without "credential" means there is no password to
     // reset: the item is omitted, and the two items that still make sense
     // stay live. An empty list is the same answer ("no credential row"), not
@@ -122,7 +122,7 @@ describe("UserRowActions", () => {
   });
 
   it("keeps the reset for a credential account and for a payload without the field", async () => {
-    // Both doors: reset still applies. Absent field = a payload cached before
+    // Both providers: reset still applies. Absent field = a payload cached before
     // providers existed; hiding the item there would UNDO a control on the
     // strength of a field that never arrived, so it stays and the server's
     // 409 remains the truth.

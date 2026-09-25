@@ -66,7 +66,7 @@ export const setUserApprovalRoute = new Elysia()
         targetType: "user",
         targetId: target.id,
         // The user-management family names its subject by email, and the
-        // provider says which door this decision was about (spec §8).
+        // provider says which provider this decision was about (spec §8).
         metadataJson: JSON.stringify({ email: target.email, providerId }),
       });
       return { id: target.id, approvalState: body.approvalState } as const;

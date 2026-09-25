@@ -20,13 +20,13 @@ export const Route = createFileRoute("/pending")({
  * no admin has approved yet. Bare frame, like `/login` and `/setup`.
  *
  * There is deliberately NO copy distinguishing pending from rejected: the
- * door policy answers both with the same refusal, and telling a stranger
+ * provider policy answers both with the same refusal, and telling a stranger
  * "an admin decided no" versus "an admin has not looked yet" is information
  * this surface does not have and must not invent.
  *
  * "Sign in again" walks back through `/login`, which is the design: the round
  * trip re-lands HERE while the row is still pending, so the wait re-checks
- * the door for free rather than holding a stale screen.
+ * the provider for free rather than holding a stale screen.
  *
  * A signed-in visitor is NOT waiting: the screen asks the session the same
  * question login does, and one that exists goes to `/` instead (Task 14

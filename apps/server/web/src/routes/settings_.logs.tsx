@@ -66,11 +66,13 @@ function LogsPage() {
       {/* Deliberately not either card's own description reworded — the old
           audit page's comment kept that rule for a duplicated-string reason
           (header text made every e2e locator ambiguous), and it travels. */}
-      <PageHeader title="Logs" subtitle="What this server logged, and what was done to it (admins)" />
+      <PageHeader title="Logs" subtitle="What this server logged, and what was done to it" />
       {viewerIsAdmin === undefined ? null : isAdmin ? (
         <>
           <Segmented
             ariaLabel="Which log"
+            // Content-sized tab strip, like the Users page (2026-09-25).
+            fill={false}
             options={[...LOGS_TABS]}
             value={active}
             onChange={(next) => void navigate({ search: next === "audit" ? { tab: "audit" } : {} })}

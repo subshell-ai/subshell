@@ -106,9 +106,9 @@ describe("PendingUsersTable", () => {
     expect(tr?.textContent).toContain("—");
   });
 
-  it("renders a deleted door as a standing label, not a vanished row", () => {
-    // The backend sends providerName null when the door is gone; the queue is
-    // the record of who knocked at a door this instance used to have.
+  it("renders a deleted provider as a standing label, not a vanished row", () => {
+    // The backend sends providerName null when the provider is gone; the queue is
+    // the record of who knocked at a provider this instance used to have.
     renderTable([row({ id: "a4", providerId: "old-sso", providerName: null })]);
     const tr = screen.getByText("a4@example.com").closest("tr");
     expect(tr?.textContent).toContain("Removed provider");

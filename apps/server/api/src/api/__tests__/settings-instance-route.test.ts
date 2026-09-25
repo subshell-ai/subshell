@@ -14,8 +14,8 @@ import { setupAuthTables } from "./helpers/auth-tables.js";
  * `GET /api/settings/instance` is the app's first anonymous read outside the
  * first-run setup window, so both halves are pinned here: that it answers with
  * no credential at all, and that it answers with NOTHING BUT the three fields
- * the sign-in page renders — the name, the open provider doors, and whether
- * the E-mail door is open at all (spec 2026-09-24 §7).
+ * the sign-in page renders — the name, the open provider providers, and whether
+ * the E-mail provider is open at all (spec 2026-09-24 §7).
  */
 const app = new Elysia().use(errorHandlerPlugin).use(instancePublicRoutes).use(settingsRoutes);
 
@@ -42,30 +42,30 @@ describe("GET /api/settings/instance (anonymous)", () => {
     expect(typeof body.emailSignIn).toBe("boolean");
   });
 
-  it("carries ONLY the instance name, the provider doors, and the E-mail flag", async () => {
+  it("carries ONLY the instance name, the provider providers, and the E-mail flag", async () => {
     // The whole key set, not just these fields: this endpoint sits OUTSIDE
     // authGuard, so a field added here later would become anonymous silently.
     // The guarded /public payload carries viewerIsAdmin, appBaseUrl and
     // nodeArtifactTargets — none of which may ever appear here. Growing the
     // pin is itself the decision the spec (§7) makes: sign-in needs to know
-    // WHICH doors to paint before anyone has a cookie.
+    // WHICH providers to paint before anyone has a cookie.
     //
-    // Seed an open door FIRST: the nested pin iterates `providers`, and on the
+    // Seed an open provider FIRST: the nested pin iterates `providers`, and on the
     // shared temp DB it can be empty at this point in file order (every other
-    // suite removes its doors in its own finally), which would make the loop
+    // suite removes its providers in its own finally), which would make the loop
     // vacuous. With a seeded row the list is determinately non-empty and the
     // exact-shape check below can fail.
-    const doors = new AuthProvidersRepository(db);
+    const providers = new AuthProvidersRepository(db);
     const seeded = `si-keys-${crypto.randomUUID().slice(0, 8)}`;
-    await doors.create({ id: seeded, kind: "oidc", name: "Pinned door", position: 60 });
+    await providers.create({ id: seeded, kind: "oidc", name: "Pinned provider", position: 60 });
     try {
       const body = (await (await app.fetch(anon("/api/settings/instance"))).json()) as Record<string, unknown>;
       expect(Object.keys(body)).toEqual(["instanceName", "providers", "emailSignIn"]);
       const providers = body.providers as Record<string, unknown>[];
       for (const p of providers) expect(Object.keys(p)).toEqual(["id", "name", "kind"]);
-      expect(providers.find((p) => p.id === seeded)).toEqual({ id: seeded, name: "Pinned door", kind: "oidc" });
+      expect(providers.find((p) => p.id === seeded)).toEqual({ id: seeded, name: "Pinned provider", kind: "oidc" });
     } finally {
-      await doors.remove(seeded);
+      await providers.remove(seeded);
     }
   });
 
@@ -81,37 +81,37 @@ describe("GET /api/settings/instance (anonymous)", () => {
     expect(body.instanceName).toBe("Prod plane");
   });
 
-  it("lists only open google/oidc doors, and reads emailSignIn off the E-mail row", async () => {
+  it("lists only open google/oidc providers, and reads emailSignIn off the E-mail row", async () => {
     // Membership is asserted around rows THIS test seeds (filtered by id),
     // never by comparing the whole list — the shared test DB can carry other
-    // suites' doors, and the list is ordered by position, so a full-list
+    // suites' providers, and the list is ordered by position, so a full-list
     // equality would be a cross-suite coordination nobody owns.
-    const doors = new AuthProvidersRepository(db);
+    const providers = new AuthProvidersRepository(db);
     const open = `si-open-${crypto.randomUUID().slice(0, 8)}`;
     const muted = `si-muted-${crypto.randomUUID().slice(0, 8)}`;
-    await doors.create({ id: open, kind: "google", name: "Open door", position: 50 });
-    await doors.create({ id: muted, kind: "oidc", name: "Muted door", position: 51, signInEnabled: 0 });
+    await providers.create({ id: open, kind: "google", name: "Open provider", position: 50 });
+    await providers.create({ id: muted, kind: "oidc", name: "Muted provider", position: 51, signInEnabled: 0 });
     try {
       const body = (await (await app.fetch(anon("/api/settings/instance"))).json()) as {
         providers: { id: string; name: string; kind: string }[];
         emailSignIn: boolean;
       };
-      expect(body.providers.find((p) => p.id === open)).toEqual({ id: open, name: "Open door", kind: "google" });
+      expect(body.providers.find((p) => p.id === open)).toEqual({ id: open, name: "Open provider", kind: "google" });
       // signInEnabled = 0 (or enabled = 0, by the same filter) is invisible
-      // pre-auth: the button must not appear for a door no one may use.
+      // pre-auth: the button must not appear for a provider no one may use.
       expect(body.providers.some((p) => p.id === muted)).toBe(false);
       // The E-mail row is never listed as a provider button (it is the
       // password form) — and its switches answer through emailSignIn instead.
       expect(body.providers.some((p) => p.id === "email")).toBe(false);
       expect(body.emailSignIn).toBe(true);
 
-      await doors.update("email", { signInEnabled: 0 });
+      await providers.update("email", { signInEnabled: 0 });
       const closed = (await (await app.fetch(anon("/api/settings/instance"))).json()) as { emailSignIn: boolean };
       expect(closed.emailSignIn).toBe(false);
     } finally {
-      await doors.update("email", { signInEnabled: 1, enabled: 1 });
-      await doors.remove(open);
-      await doors.remove(muted);
+      await providers.update("email", { signInEnabled: 1, enabled: 1 });
+      await providers.remove(open);
+      await providers.remove(muted);
     }
   });
 

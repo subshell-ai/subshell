@@ -54,13 +54,13 @@ describe("toGenericOAuthConfig", () => {
     // genericOAuth's `disableSignUp` short-circuits the create path with the
     // generic `signup_disabled` BEFORE `user.validateUserInfo` runs, which
     // would swap the spec's named `registration_closed` for a code the login
-    // page does not map. The door policy is the ONE registration seam.
+    // page does not map. The provider policy is the ONE registration seam.
     expect(cfg.disableSignUp).toBeUndefined();
   });
 
   test("registrationEnabled false/NULL both leave the config gate unset — the hook decides (§4)", () => {
-    // The refusal itself is the door policy's, and it is pinned where it lives
-    // (`door-policy.test.ts`); what this file pins is that the BUILD does not
+    // The refusal itself is the provider policy's, and it is pinned where it lives
+    // (`provider-policy.test.ts`); what this file pins is that the BUILD does not
     // shadow that seam whatever the stored registration decision says.
     expect(toGenericOAuthConfig(row({ registrationEnabled: false }), "https://sub.acme").disableSignUp).toBeUndefined();
     expect(toGenericOAuthConfig(row({ registrationEnabled: null }), "https://sub.acme").disableSignUp).toBeUndefined();
@@ -157,7 +157,7 @@ describe("loadProviderRowsSync (shared temp DB)", () => {
       expect(loadProviderRowsSync(DATABASE_PATH).find((r) => r.id === id)).toBeUndefined();
 
       // Disabled: absent from the loader entirely — the same filter the auth
-      // build reads, so a disabled door has neither a plugin config nor a row.
+      // build reads, so a disabled provider has neither a plugin config nor a row.
       await repo.update(id, { enabled: 0, entryOrigins: "[]" });
       expect(loadProviderRowsSync(DATABASE_PATH).find((r) => r.id === id)).toBeUndefined();
     } finally {
@@ -165,7 +165,7 @@ describe("loadProviderRowsSync (shared temp DB)", () => {
     }
   });
 
-  test("the email row is served (the door policy reads rows through this same loader)", () => {
+  test("the email row is served (the provider policy reads rows through this same loader)", () => {
     const email = loadProviderRowsSync(DATABASE_PATH).find((r) => r.id === "email");
     expect(email?.kind).toBe("email");
     expect(email?.signInEnabled).toBe(true);

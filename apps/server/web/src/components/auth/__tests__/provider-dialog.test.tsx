@@ -42,7 +42,9 @@ describe("callbackUrlFor", () => {
     expect(callbackUrlFor("https://plane.example", "google")).toBe("https://plane.example/api/auth/callback/google");
   });
   it("keeps a loopback origin's port", () => {
-    expect(callbackUrlFor("http://localhost:3080", "door-2")).toBe("http://localhost:3080/api/auth/callback/door-2");
+    expect(callbackUrlFor("http://localhost:3080", "provider-2")).toBe(
+      "http://localhost:3080/api/auth/callback/provider-2",
+    );
   });
   it("adds nothing but the path (the entry is stored bare)", () => {
     expect(callbackUrlFor("https://mesh.netbird.example", "x")).toBe(
@@ -157,13 +159,13 @@ describe("ProviderDialog", () => {
       expect(issuerInput().value).toBe(GOOGLE_ISSUER);
       expect((screen.getByLabelText("Client ID") as HTMLInputElement).value).toBe("");
       // Switching away retracts the preset the dialog itself wrote…
-      await pickOption("Provider kind", "Generic OIDC");
+      await pickOption("Provider", "Generic OIDC");
       expect(issuerInput().value).toBe("");
       // …but a hand-entered issuer is the admin's answer, not ours to eat.
       fireEvent.change(issuerInput(), { target: { value: "https://hand-entered.example" } });
-      await pickOption("Provider kind", "Google");
+      await pickOption("Provider", "Google");
       expect(issuerInput().value).toBe("https://hand-entered.example");
-      await pickOption("Provider kind", "Generic OIDC");
+      await pickOption("Provider", "Generic OIDC");
       expect(issuerInput().value).toBe("https://hand-entered.example");
     } finally {
       restore();
@@ -195,9 +197,11 @@ describe("ProviderDialog", () => {
     try {
       renderDialog();
       await settle();
-      // Spec §5a: position 1 on create is APP_BASE_URL's origin, badged.
-      expect(screen.getByRole("button", { name: "Remove https://plane.example" })).toBeDefined();
-      expect(screen.getByText("Canonical")).toBeDefined();
+      // Spec §5a: position 1 on create is APP_BASE_URL's origin. It is the
+      // PUBLIC BASE URL row and pinned there (operator 2026-09-25): badged,
+      // and with no Remove or move controls at all.
+      expect(screen.getAllByText("Public base URL").length).toBeGreaterThan(0);
+      expect(screen.queryByRole("button", { name: "Remove https://plane.example" })).toBeNull();
     } finally {
       restore();
     }
@@ -208,7 +212,9 @@ describe("ProviderDialog", () => {
     try {
       renderDialog();
       await settle();
-      expect(screen.getByRole("button", { name: `Remove ${window.location.origin}` })).toBeDefined();
+      // The fallback seed is the pinned row too, so it carries no Remove.
+      expect(screen.getAllByText("Public base URL").length).toBeGreaterThan(0);
+      expect(screen.queryByRole("button", { name: `Remove ${window.location.origin}` })).toBeNull();
     } finally {
       restore();
     }
@@ -242,7 +248,7 @@ describe("ProviderDialog", () => {
     }
   });
 
-  it("the panel renders before the door is named, and only the URIs wait", async () => {
+  it("the panel renders before the provider is named, and only the URIs wait", async () => {
     const { restore } = mockFetch({ trustedOrigins: ["https://plane.example"], appBaseUrl: "https://plane.example" });
     try {
       // Operator ask 2026-09-25: a FRESH dialog showed no panel at all (the
@@ -254,11 +260,11 @@ describe("ProviderDialog", () => {
       const panel = within(screen.getByRole("group", { name: "Finish the setup at your provider" }));
       expect(panel.getByText(/Create one web-application OIDC client/)).toBeDefined();
       expect(panel.getByText("https://plane.example")).toBeDefined();
-      expect(panel.getByText("Appears once you name the door.")).toBeDefined();
+      expect(panel.getByText("Appears once you name the provider.")).toBeDefined();
       fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Work SSO" } });
       await settle();
       expect(panel.getByText("https://plane.example/api/auth/callback/work-sso")).toBeDefined();
-      expect(panel.queryByText("Appears once you name the door.")).toBeNull();
+      expect(panel.queryByText("Appears once you name the provider.")).toBeNull();
     } finally {
       restore();
     }
@@ -309,7 +315,7 @@ describe("ProviderDialog", () => {
     try {
       renderDialog({ provider: view() });
       await settle();
-      expect((screen.getByRole("combobox", { name: "Provider kind" }) as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByRole("combobox", { name: "Provider" }) as HTMLButtonElement).disabled).toBe(true);
     } finally {
       restore();
     }

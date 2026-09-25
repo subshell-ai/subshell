@@ -5,9 +5,9 @@ import { genericOAuth } from "better-auth/plugins";
 import { sql } from "kysely";
 import { auditAuthAfterRequest, auditSessionDeleted } from "@/auth/audit-hooks.js";
 import { authDatabase } from "@/auth/database.js";
-import { createDoorGuardBeforeHook } from "@/auth/door-guards.js";
-import { type DoorValidationData, evaluateDoorPolicy } from "@/auth/door-policy.js";
 import { createHeldEmailGuardBeforeHook } from "@/auth/held-email-guards.js";
+import { createProviderGuardBeforeHook } from "@/auth/provider-guards.js";
+import { evaluateProviderPolicy, type ProviderValidationData } from "@/auth/provider-policy.js";
 import { loadProviderRowsSync, toGenericOAuthConfig } from "@/auth/provider-rows.js";
 import { APP_BASE_URL, AUTH_SECRET } from "@/constants.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
@@ -20,8 +20,8 @@ import { normalizeUserName } from "@/services/user-name.js";
 import { logger } from "@/utils/logger.js";
 
 // Built over the lazily-injected app handle (the import-purity invariant
-// above applies to it too); see `@/auth/door-guards` for what it refuses.
-const doorGuardBeforeHook = createDoorGuardBeforeHook(() => appDb);
+// above applies to it too); see `@/auth/provider-guards` for what it refuses.
+const providerGuardBeforeHook = createProviderGuardBeforeHook(() => appDb);
 // The sign-up twin, same handle, same seam (spec §5's named refusal); see
 // `@/auth/held-email-guards` for why this path needs the before hook and not
 // the provisioning hooks.
@@ -49,15 +49,15 @@ export const AUTH_OPTIONS = {
   user: {
     // §3: the one policy seam 1.7.1 offers (measured: there is no
     // per-provider hook, and no `validateUserInfo` call anywhere on the
-    // email-password SIGN-IN path — that refusal is `door-guards`'s job).
+    // email-password SIGN-IN path — that refusal is `provider-guards`'s job).
     // Rejection is a RETURNED `{ error, errorDescription }` — NOT a thrown
     // string and NOT the literal "reject" (a returned string's `.error` is
     // undefined ⇒ ALLOWED; assertValidUserInfo reads `result?.error`). The
     // codes ride out as a 403 APIError whose `code` is exactly this `error`,
     // which is how `/pending` and the login page map the refusal (§4).
-    validateUserInfo: async (data: DoorValidationData, _ctx: unknown) => {
+    validateUserInfo: async (data: ProviderValidationData, _ctx: unknown) => {
       if (!appDb) return undefined; // pre-boot: matches the other policy reads' gap behavior
-      return await evaluateDoorPolicy(appDb, data);
+      return await evaluateProviderPolicy(appDb, data);
     },
   },
   account: {
@@ -66,7 +66,7 @@ export const AUTH_OPTIONS = {
       // emailVerified by default, and every account this instance writes has
       // it FALSE — the spec's core linking requirement would die with a
       // generic "account not linked". The inversion makes the PROVIDER's
-      // verified claim the link defense; that claim's enforcement (door-policy
+      // verified claim the link defense; that claim's enforcement (provider-policy
       // + mapProfileToUser) is what pays for it, and docs/security.md §5
       // accounting lands with it (final docs task). 1.7.1 marks the member
       // deprecated ("gate becomes unconditional"); upgrading better-auth
@@ -159,7 +159,7 @@ export const AUTH_OPTIONS = {
     },
     account: {
       create: {
-        after: markApprovalDoorArrival,
+        after: markApprovalProviderArrival,
       },
     },
     session: {
@@ -193,15 +193,15 @@ export const AUTH_OPTIONS = {
   // better-auth request, so the path table short-circuits everything else.
   hooks: {
     // One user-level before hook exists per options object, so the two path
-    // guards compose here. They match disjoint paths — the door guard owns the
+    // guards compose here. They match disjoint paths — the provider guard owns the
     // two credential-VERIFICATION paths, the held-email guard owns
     // `/sign-up/email` — so no request can see both and the order cannot
     // matter; it is spelled this way only for reading.
     before: async (rawCtx: unknown) => {
-      // The closed E-mail door's sign-in refusal (spec §7) — see
-      // `@/auth/door-guards` for why THIS layer and not `validateUserInfo`
+      // The closed E-mail provider's sign-in refusal (spec §7) — see
+      // `@/auth/provider-guards` for why THIS layer and not `validateUserInfo`
       // carries it (measured: that hook never fires on the sign-in paths).
-      await doorGuardBeforeHook(rawCtx);
+      await providerGuardBeforeHook(rawCtx);
       // Spec §5's named refusal of OIDC-held addresses on the sign-up path —
       // see `@/auth/held-email-guards` for why it must sit HERE (measured:
       // better-auth's duplicate-email throw precedes both `validateUserInfo`
@@ -224,22 +224,22 @@ export const AUTH_OPTIONS = {
  *
  * `genericOAuth` joins the plugin list HERE and not in `AUTH_OPTIONS`:
  * AUTH_OPTIONS also feeds `runAuthMigrations`, which receives the FULL
- * options — a door row that made plugin init throw (a bad config, a discovery
+ * options — a provider row that made plugin init throw (a bad config, a discovery
  * fallback) would then crash-loop BOOT, since migrations run before anything
  * listens (spec §3). genericOAuth registers no tables of its own, so the
- * migration path never needs it, and a broken door costs the auth instance
+ * migration path never needs it, and a broken provider costs the auth instance
  * only — which {@link getAuth}'s last-known-good rule then papers over.
- * The email row is a door for POLICY purposes (§2) and never an OAuth one:
+ * The email row is a provider for POLICY purposes (§2) and never an OAuth one:
  * it is filtered here, before the config array is built.
  */
 function buildAuth() {
-  const doors = loadProviderRowsSync().filter((r) => r.kind !== "email");
+  const providers = loadProviderRowsSync().filter((r) => r.kind !== "email");
   // Canonical = list position 0 (§5a). On better-auth 1.7.1 this is also the
   // ONLY entry that can ever reach the wire: genericOAuth's `redirectURI` is
   // a plain config string (measured: plugins/generic-oauth/types.d.mts:116)
   // and the core builder emits it verbatim, so follow-the-visitor waits on
   // the upstream capability — flow-matrix case 14 pins the emitted URI.
-  const config = doors.map((r) => toGenericOAuthConfig(r, r.entryOrigins[0] ?? APP_BASE_URL));
+  const config = providers.map((r) => toGenericOAuthConfig(r, r.entryOrigins[0] ?? APP_BASE_URL));
   return betterAuth({
     ...AUTH_OPTIONS,
     database: authDatabase(),
@@ -306,7 +306,7 @@ export function setAuthPolicyDb(db: import("kysely").Kysely<import("@/db/types/i
  * Whether this user may be given a session at all.
  *
  * Delegates to `services/account-status.ts`, which `authGuard` reads through
- * as well — this hook closes the door on new sessions, the guard closes it on
+ * as well — this hook closes the provider on new sessions, the guard closes it on
  * credentials already issued, and a second reading of the row is how the two
  * come to disagree.
  *
@@ -332,17 +332,17 @@ async function signInAllowed(userId: string): Promise<boolean> {
  *
  * The ONLY seam that sees the provider at creation time (user.create.after
  * fires before the account row exists — measured, review finding 5). Marks
- * require-approval doors' ARRIVALS pending and undoes the first-admin
+ * require-approval providers' ARRIVALS pending and undoes the first-admin
  * promotion that `user.create.after` just wrote for them (§6): an OIDC-arrival
  * creator can never end up admin, on an instance with no admin yet or one
  * with an existing admin miscounted as none. The `credential` skip is the
- * email door (its account rows spell their provider that way — measured,
+ * email provider (its account rows spell their provider that way — measured,
  * `dist/api/routes/sign-up.mjs`); the `getById` miss covers every other
- * non-door providerId (a passkey row says "passkey").
+ * non-provider providerId (a passkey row says "passkey").
  *
  * ARRIVALS ONLY, decided by account count: `linkAccount` runs through the
  * same adapter create (`db/internal-adapter.mjs` — measured), so an approved
- * EXISTING user linking an approval door would otherwise be marked pending
+ * EXISTING user linking an approval provider would otherwise be marked pending
  * and, if they were the sole admin, DEMOTED by the clause below — the
  * instance losing its last admin to a link. The pure cascade already answers
  * links (approved links pass; pending/rejected refuse), so marking here would
@@ -358,15 +358,15 @@ async function signInAllowed(userId: string): Promise<boolean> {
  * for an operator; the compensating sweep-check lands with the expiry pass
  * (Task 10).
  */
-export async function markApprovalDoorArrival(account: {
+export async function markApprovalProviderArrival(account: {
   id: string;
   providerId: string;
   userId: string;
 }): Promise<void> {
   if (account.providerId === "credential" || !appDb) return;
   try {
-    const door = await new AuthProvidersRepository(appDb).getById(account.providerId);
-    if (door === undefined || door.requireApproval !== 1) return;
+    const provider = await new AuthProvidersRepository(appDb).getById(account.providerId);
+    if (provider === undefined || provider.requireApproval !== 1) return;
     // Raw SQL: better-auth's `account` table, physical camelCase names.
     const others = await sql<{ n: number }>`
       SELECT COUNT(*) AS n FROM account WHERE userId = ${account.userId} AND id <> ${account.id}
@@ -377,7 +377,7 @@ export async function markApprovalDoorArrival(account: {
     await meta.demoteAdminIfAutoPromoted(account.userId);
   } catch (err) {
     logger.error(
-      `door policy: approval marking FAILED for arrival user ${account.userId} on provider ${account.providerId} — the account is committed but unmarked: ${err instanceof Error ? err.message : String(err)}`,
+      `provider policy: approval marking FAILED for arrival user ${account.userId} on provider ${account.providerId} — the account is committed but unmarked: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }

@@ -80,7 +80,7 @@ async function userExists(email: string): Promise<boolean> {
 }
 
 /**
- * Opens or closes the E-MAIL sign-up door the way the gate now reads it: the
+ * Opens or closes the E-MAIL sign-up provider the way the gate now reads it: the
  * `auth_providers` row with id `email` (spec 2026-09-24 §2). The settings
  * row this helper used to write is no longer consulted.
  */
@@ -150,7 +150,7 @@ beforeAll(async () => {
 afterAll(async () => {
   // The shared DB persists across files and the other suites depend on the
   // gate sitting at its seeded default: the E-mail row's NULL (closed-by-
-  // default-while-users-exist). Every case that opened the door leaves it
+  // default-while-users-exist). Every case that opened the provider leaves it
   // here again.
   await new AuthProvidersRepository(db).update("email", { registrationEnabled: null });
   for (const id of createdUserIds) {

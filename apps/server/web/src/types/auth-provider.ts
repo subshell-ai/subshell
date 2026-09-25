@@ -4,7 +4,7 @@
  * and the route that serves it is Task 8's, not this bundle's.
  */
 
-/** The three door kinds; `email` is the reserved credential row (§2). */
+/** The three provider kinds; `email` is the reserved credential row (§2). */
 export type AuthProviderKind = "email" | "google" | "oidc";
 
 /** The reserved row's id — it renders in the table but has no edit dialog. */
@@ -47,7 +47,7 @@ export interface ProviderAdminView {
   entryOrigins: string[];
   /** Allowed email domains, empty/null = any (§5); normalized server-side */
   allowedDomains: string[] | null;
-  /** Master switch: an unchecked door does nothing, however open its half-switches are */
+  /** Master switch: an unchecked provider does nothing, however open its half-switches are */
   enabled: boolean;
   signInEnabled: boolean;
   /**
@@ -82,25 +82,17 @@ export interface CreateAuthProviderBody {
  * `id`/`kind` are immutable and never sent. */
 export type PatchAuthProviderBody = Partial<Omit<CreateAuthProviderBody, "id" | "kind">>;
 
-/** Result of `POST /api/auth-providers/test` (§8). */
-export interface TestProviderResult {
-  ok: boolean;
-  endpoints?: { authorizationUrl: string; tokenUrl: string; userInfoUrl: string | null };
-  /** The soft signal when the token-endpoint grant is not offered (Google) */
-  note?: string;
-}
-
 /**
- * One sign-in door as the ANONYMOUS instance read (`GET /api/settings/instance`)
+ * One sign-in provider as the ANONYMOUS instance read (`GET /api/settings/instance`)
  * serves it (spec 2026-09-24 §7): id, name and kind only — never issuer,
  * client id, or anything secret.
  */
 export interface InstanceSignInProvider {
-  /** The door's row id — the provider id the OAuth round trip carries */
+  /** The provider's row id — the provider id the OAuth round trip carries */
   id: string;
   /** The admin-chosen display name rendered on the sign-in button */
   name: string;
-  /** The E-mail door is never in this list: it is the password form, not a button */
+  /** The E-mail provider is never in this list: it is the password form, not a button */
   kind: Exclude<AuthProviderKind, "email">;
 }
 
@@ -113,7 +105,7 @@ export interface InstanceSignInProvider {
  */
 export interface InstanceSignInRead {
   instanceName: string;
-  /** Open sign-in doors, in the admin's own arrangement (position order) */
+  /** Open sign-in providers, in the admin's own arrangement (position order) */
   providers?: InstanceSignInProvider[];
   /** Whether the password form may render; an absent field reads OPEN */
   emailSignIn?: boolean;

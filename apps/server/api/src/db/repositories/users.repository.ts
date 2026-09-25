@@ -38,7 +38,7 @@ export interface UserWithRole {
 }
 
 /**
- * One row of the approval queue (spec 2026-09-24 §6): a person a door let
+ * One row of the approval queue (spec 2026-09-24 §6): a person a provider let
  * THROUGH who is not a member yet. `providerName` is NOT here — the route
  * resolves it live through the AuthProvidersRepository, because a deleted
  * provider must render as "removed provider" rather than vanish the row.
@@ -46,11 +46,11 @@ export interface UserWithRole {
 export interface PendingApprovalRow {
   /** better-auth user id */
   id: string;
-  /** Email the door's profile carried */
+  /** Email the provider's profile carried */
   email: string;
-  /** Display name (better-auth's `user.name`; empty for a door arrival that carried none) */
+  /** Display name (better-auth's `user.name`; empty for a provider arrival that carried none) */
   name: string;
-  /** The door's `providerId` on the account row, or null for a user with no account row */
+  /** The provider's `providerId` on the account row, or null for a user with no account row */
   providerId: string | null;
   /** When the row last landed in (or knocked again on) `pending`; null once resolved */
   arrivedAt: string | null;
@@ -138,7 +138,7 @@ export class UsersRepository extends BaseRepository {
    *
    * A rejected row that left `pending` carries a NULL arrival, and SQLite
    * sorts NULLs last on DESC, so resolved rejections sink below fresh
-   * knocks — the ordering a queue wants. `providerId` is the one door the
+   * knocks — the ordering a queue wants. `providerId` is the one provider the
    * account has; a user with several account rows (credential added by an
    * admin later) reads its minimum, a stable pick rather than a scan-order
    * accident.
@@ -164,10 +164,10 @@ export class UsersRepository extends BaseRepository {
   }
 
   /**
-   * The door that created this account, for audit metadata and the approval
+   * The provider that created this account, for audit metadata and the approval
    * route — the same MIN pick {@link listApprovalQueue} makes, in both
    * spellings of "which one" so the queue row and the audit row can never
-   * name different doors for the same person.
+   * name different providers for the same person.
    */
   async primaryProviderId(userId: string): Promise<string | null> {
     const { rows } = await sql<{ providerId: string | null }>`
@@ -297,7 +297,7 @@ export class UsersRepository extends BaseRepository {
    *
    * The service account is excluded because no credential row exists for it
    * and it can never sign in, so it is not somebody having registered —
-   * counting it would close the door before anyone walked through it and
+   * counting it would close the provider before anyone walked through it and
    * brick a fresh install. Same `email !== SYSTEM_USER_EMAIL` rule
    * `users/list-users.route.ts` already applies to decide manageability.
    */

@@ -1,21 +1,16 @@
-import { Badge, CopyableValue, Label } from "@internal/node-admin";
-import { CopyCommandRow } from "@/components/copy-command-row";
-import { isLoopbackUrl } from "@/lib/loopback";
+import { CopyableValue, Label } from "@internal/node-admin";
 import { callbackUrlFor } from "@/types/auth-provider";
-
-/** Per-entry lines of the copy-all block, in the order an IdP form wants them. */
-function registrationBlock(entries: readonly string[], id: string): string {
-  const uris = entries.map((origin) => callbackUrlFor(origin, id));
-  return `Redirect URIs:\n${uris.join("\n")}\n\nAuthorized JavaScript origins:\n${entries.join("\n")}`;
-}
 
 /**
  * The registration-info panel (spec §5a), split out of `provider-dialog.tsx`
- * by review Minor 5, and reworded on the operator's ask of 2026-09-25: the
- * block LEADS with what to DO at the provider (create a web-application OIDC
- * client, register these values, paste the returned pair back), because an
- * admin holding an unregistered app has no way to map these strings to the
- * IdP form in front of them.
+ * by review Minor 5, and cut to the operator's ruling of 2026-09-25: THE
+ * ROWS ARE THE INSTRUCTIONS. The copy-all block restated the URIs the rows
+ * already show, and the loopback blurb and the canonical-entry sentence
+ * explained what the badge and the rows already say, so all three are gone.
+ * What remains is one sentence of what to DO at the provider and one row
+ * pair per entry point. The dialog's own order follows the provider's
+ * sequence: register these values first, and the client ID and secret that
+ * come back are the fields UNDER this panel.
  *
  * It renders whenever there are entries, NOT only once the id exists: a
  * fresh dialog showed nothing at all before, which read as the instructions
@@ -25,54 +20,58 @@ function registrationBlock(entries: readonly string[], id: string): string {
  *
  * `providerId` is the id that WILL be stored (the dialog sends its own slug
  * preview on create), so what the panel showed is byte-identically what gets
- * stored. The per-entry sentence describes the SHIPPED behavior (final
- * review, Important 3): on better-auth 1.7.1 the redirect is always the
- * canonical entry — see the spec's §5a amendment and `pickEntryOrigin`'s pin
- * in the server.
+ * stored. The redirect itself always goes to the canonical entry on
+ * better-auth 1.7.1 (final review, Important 3; spec §5a amendment,
+ * `pickEntryOrigin`'s server pin); that row is FIRST here because it is
+ * first in the list, and the badge that names it lives on the entry-point
+ * editor above — the operator's ruling 2026-09-25 took it out of this panel,
+ * where one per entry said what the order already says.
  */
 export function RegistrationPanel({ entries, providerId }: { entries: readonly string[]; providerId: string }) {
   if (entries.length === 0) return null;
   const named = providerId !== "";
   return (
-    <fieldset className="space-y-3 rounded-md border p-3">
+    // `pt-0`: a LEGEND straddles the fieldset's border, so half its line
+    // already hangs inside the box — a full top padding stacked on that is
+    // the gap the operator flagged (2026-09-25). The other sides keep p-3.
+    <fieldset className="space-y-3 rounded-md border px-3 pt-0 pb-3">
       <legend className="font-strong text-label">Finish the setup at your provider</legend>
       <p className="text-detail text-muted-foreground">
-        Create one web-application OIDC client with your provider and register every value below. Then paste the client
-        ID and secret it gives you back into the fields above.
+        Create one web-application OIDC client with your provider and register every value below. The client ID and
+        secret it gives you are the two fields underneath.
       </p>
-      <div className="space-y-3">
-        {entries.map((origin, i) => (
-          <div key={origin} className="space-y-1">
-            {i === 0 && <Badge variant="secondary">Canonical fallback</Badge>}
-            <div className="flex items-baseline gap-2">
-              <Label className="w-40 shrink-0 text-detail">Redirect URI</Label>
-              {named ? (
-                <CopyableValue value={callbackUrlFor(origin, providerId)} label="Redirect URI" />
-              ) : (
-                <span className="text-detail text-muted-foreground">Appears once you name the door.</span>
-              )}
-            </div>
-            <div className="flex items-baseline gap-2">
-              <Label className="w-40 shrink-0 text-detail">JavaScript origin</Label>
-              <CopyableValue value={origin} label="JavaScript origin" />
-            </div>
-            {i === 0 && (
-              <p className="text-detail text-muted-foreground">
-                {entries.length === 1
-                  ? "Every round trip lands on the canonical entry."
-                  : "Round trips land on the canonical entry. The other entries register the door with your provider so each host stands ready."}
-              </p>
-            )}
-          </div>
-        ))}
+      {/* Grouped by FIELD, not by entry, and in the ORDER the provider's own
+          form goes (operator ask 2026-09-25): Google's credential screen
+          asks for Authorized JavaScript origins first, then Redirect URIs,
+          so the panel reads the same way and nothing has to be re-ordered
+          in the admin's head. Each header once, its values listed under it;
+          font-mono because these strings are pasted. */}
+      <div className="space-y-4">
+        <div className="space-y-1">
+          <Label className="text-detail">JavaScript origin</Label>
+          <ul className="list-disc space-y-1 pl-4 font-mono text-detail">
+            {entries.map((origin) => (
+              <li key={origin}>
+                <CopyableValue value={origin} label="JavaScript origin" />
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-detail">Redirect URI</Label>
+          {named ? (
+            <ul className="list-disc space-y-1 pl-4 font-mono text-detail">
+              {entries.map((origin) => (
+                <li key={origin}>
+                  <CopyableValue value={callbackUrlFor(origin, providerId)} label="Redirect URI" />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-detail text-muted-foreground">Appears once you name the provider.</p>
+          )}
+        </div>
       </div>
-      {named && <CopyCommandRow text={registrationBlock(entries, providerId)} label="registration block" />}
-      {entries.some((origin) => isLoopbackUrl(origin)) && (
-        <p className="text-detail text-muted-foreground">
-          Google accepts http://localhost redirect URIs for development. Set APP_BASE_URL to your public https address
-          before registering production apps.
-        </p>
-      )}
     </fieldset>
   );
 }

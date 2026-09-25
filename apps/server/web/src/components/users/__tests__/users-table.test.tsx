@@ -78,22 +78,22 @@ describe("UsersTable", () => {
       return tr?.textContent ?? "";
     }
 
-    it("badges both doors when an account has both", async () => {
+    it("badges both providers when an account has both", async () => {
       const text = await renderOne({ id: "both", providers: ["credential", "google"] });
       expect(text).toContain("E-mail");
       expect(text).toContain("Google");
     });
 
-    it("badges only the door for a google-only account", async () => {
-      // "Email" is the credential door's word (spelled like the Auth page's
-      // kind label), and a door-only arrival must not borrow it.
+    it("badges only the provider for a google-only account", async () => {
+      // "Email" is the credential provider's word (spelled like the Auth page's
+      // kind label), and a provider-only arrival must not borrow it.
       const text = await renderOne({ id: "goned", providers: ["google"] });
       expect(text).toContain("Google");
       expect(text).not.toContain("E-mail");
     });
 
-    it("renders an unknown door id verbatim", async () => {
-      // A custom OIDC door's admin-chosen name is not in this payload; the id
+    it("renders an unknown provider id verbatim", async () => {
+      // A custom OIDC provider's admin-chosen name is not in this payload; the id
       // is the honest fallback rather than a guess.
       const text = await renderOne({ id: "oidc", providers: ["acme-sso"] });
       expect(text).toContain("acme-sso");

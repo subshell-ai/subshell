@@ -4,7 +4,7 @@ import { sql } from "kysely";
 import { seedLocalPluginsForTests } from "@/api/__tests__/helpers/auth-tables.js";
 import { authRateLimitRoutes } from "@/api/auth-rate-limit.route.js";
 import { BREAKGLASS_NONCE_HEADER, markEmergencySignIn, resetEmergencySignInMarksForTests } from "@/auth/audit-hooks.js";
-import { createDoorGuardBeforeHook } from "@/auth/door-guards.js";
+import { createProviderGuardBeforeHook } from "@/auth/provider-guards.js";
 import { getAuth, setAuthPolicyDb } from "@/auth.js";
 import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
@@ -13,7 +13,7 @@ import { AuthProvidersRepository } from "@/db/repositories/auth-providers.reposi
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 
 /**
- * The E-mail door guard (spec 2026-09-24 §7) and the MEASUREMENT that fixes
+ * The E-mail provider guard (spec 2026-09-24 §7) and the MEASUREMENT that fixes
  * its role.
  *
  * Measured on the installed better-auth 1.7.1 (`dist/api/routes/sign-in.mjs`
@@ -22,10 +22,10 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
  * `api/routes/callback.mjs`): `user.validateUserInfo` fires for FOUR seams
  * only — email-password CREATE (sign-up), OAuth create, OAuth link, OAuth
  * repeat sign-in. It never fires for `/sign-in/email` or
- * `/passkey/verify-authentication`. So for a closed E-mail door at SIGN-IN
+ * `/passkey/verify-authentication`. So for a closed E-mail provider at SIGN-IN
  * this hooks.before guard is the load-bearing server-side refusal — not a
  * redundancy beside validateUserInfo. (The runtime proof is below: a closed
- * door answers 403 on the real handler with a CORRECT password.)
+ * provider answers 403 on the real handler with a CORRECT password.)
  */
 
 const email = `guarded-${crypto.randomUUID()}@subshell.local`;
@@ -57,7 +57,7 @@ beforeAll(async () => {
   await runAuthMigrations();
   setAuthPolicyDb(db);
   await seedLocalPluginsForTests();
-  // The user must exist with a working credential while the door is open,
+  // The user must exist with a working credential while the provider is open,
   // so the refused case below cannot be confused with a wrong-password 401.
   await setEmailSignIn(true);
   const reg = new AuthProvidersRepository(db);
@@ -94,9 +94,9 @@ afterAll(async () => {
   await sql`DELETE FROM auth_attempts WHERE email = ${email}`.execute(db);
 });
 
-describe("doorGuardBeforeHook (unit)", () => {
+describe("providerGuardBeforeHook (unit)", () => {
   test("a closed E-mail row refuses both sign-in paths with a 403", async () => {
-    const hook = createDoorGuardBeforeHook(() => db);
+    const hook = createProviderGuardBeforeHook(() => db);
     await setEmailSignIn(false);
     try {
       for (const path of ["/sign-in/email", "/passkey/verify-authentication"]) {
@@ -114,14 +114,14 @@ describe("doorGuardBeforeHook (unit)", () => {
     }
   });
 
-  test("the master switch closes the door too: the enabled/signInEnabled matrix (final review, Important 1)", async () => {
+  test("the master switch closes the provider too: the enabled/signInEnabled matrix (final review, Important 1)", async () => {
     // `enabled = 0` on the E-mail row is writable (the PATCH route's
     // `booleanField("enabled")` accepts it, and the admin table renders the
     // switch on the email row), and every OTHER reader treats it as closed —
-    // the last-door count, the anonymous `emailSignIn`, the door policy's
+    // the last-provider count, the anonymous `emailSignIn`, the provider policy's
     // create branch. The sign-in guard must give the same answer; a hidden
-    // door that still signs people in is the §7 violation this closes.
-    const hook = createDoorGuardBeforeHook(() => db);
+    // provider that still signs people in is the §7 violation this closes.
+    const hook = createProviderGuardBeforeHook(() => db);
     const cases: [0 | 1, 0 | 1][] = [
       [0, 1], // master OFF, half-switch on
       [1, 0], // master on, half-switch off (the shipped rule, re-pinned)
@@ -141,12 +141,12 @@ describe("doorGuardBeforeHook (unit)", () => {
     }
   });
 
-  test("an open door passes every path through untouched, and so does an unreadable db", async () => {
-    const hook = createDoorGuardBeforeHook(() => db);
+  test("an open provider passes every path through untouched, and so does an unreadable db", async () => {
+    const hook = createProviderGuardBeforeHook(() => db);
     await expect(hook({ path: "/sign-in/email" })).resolves.toBeUndefined();
     await expect(hook({ path: "/sign-up/email" })).resolves.toBeUndefined();
     await expect(hook({ path: "/session" })).resolves.toBeUndefined();
-    const noDb = createDoorGuardBeforeHook(() => undefined);
+    const noDb = createProviderGuardBeforeHook(() => undefined);
     await setEmailSignIn(false);
     try {
       await expect(noDb({ path: "/sign-in/email" })).resolves.toBeUndefined(); // pre-boot gap
@@ -155,20 +155,20 @@ describe("doorGuardBeforeHook (unit)", () => {
     }
   });
 
-  test("an absent email row (pre-migration db) is not a closed door", async () => {
-    const empty = createDoorGuardBeforeHook(() => undefined);
+  test("an absent email row (pre-migration db) is not a closed provider", async () => {
+    const empty = createProviderGuardBeforeHook(() => undefined);
     // `undefined` models the gap; the absent-ROW case is the same answer
     // through the repository: getById finds nothing, `=== 0` never holds.
     await expect(empty({ path: "/sign-in/email" })).resolves.toBeUndefined();
   });
 
   test("a live break-glass mark exempts the guarded paths; a forged nonce does not", async () => {
-    const hook = createDoorGuardBeforeHook(() => db);
+    const hook = createProviderGuardBeforeHook(() => db);
     await setEmailSignIn(false);
     // Simulated mark: exactly what the emergency wrapper mints for an act
     // whose rewrite fired (hasActiveEmergencyMark reads the same store the
     // audit dedupe owns — no second store to fake).
-    const nonce = markEmergencySignIn("door-guard-mark-holder");
+    const nonce = markEmergencySignIn("provider-guard-mark-holder");
     const marked = new Request("http://localhost:3080/api/auth/sign-in/email", {
       method: "POST",
       headers: { [BREAKGLASS_NONCE_HEADER]: nonce },
@@ -198,8 +198,8 @@ describe("doorGuardBeforeHook (unit)", () => {
   });
 });
 
-describe("door guard on the real handler (HTTP)", () => {
-  test("a closed E-mail door answers 403 on the CORRECT password", async () => {
+describe("provider guard on the real handler (HTTP)", () => {
+  test("a closed E-mail provider answers 403 on the CORRECT password", async () => {
     await setEmailSignIn(false);
     try {
       const res = await signInRequest();
@@ -211,7 +211,7 @@ describe("door guard on the real handler (HTTP)", () => {
     }
   });
 
-  test("the open door signs the same credential in (the guard is not a blanket denial)", async () => {
+  test("the open provider signs the same credential in (the guard is not a blanket denial)", async () => {
     const res = await signInRequest();
     expect(res.status).toBe(200);
   });
@@ -243,7 +243,7 @@ describe("door guard on the real handler (HTTP)", () => {
     }
   });
 
-  test("a forged break-glass header does NOT exempt a closed-door sign-in (HTTP)", async () => {
+  test("a forged break-glass header does NOT exempt a closed-provider sign-in (HTTP)", async () => {
     // The wrapper copies incoming headers onto the forwarded request, so a
     // client CAN put the header there — the point is that a header without
     // a live server-minted mark changes nothing.
@@ -256,13 +256,13 @@ describe("door guard on the real handler (HTTP)", () => {
     }
   });
 
-  test("the armed break-glass signs an admin in through a CLOSED door (spec §9)", async () => {
+  test("the armed break-glass signs an admin in through a CLOSED provider (spec §9)", async () => {
     // The full chain: the wrapper rewrites the admin's credential, mints the
     // mark, sets the nonce header, and the forwarded sign-in reaches the
     // REAL hook inside the REAL auth instance — and must not be refused by
-    // the closed door it would otherwise answer 403 to.
+    // the closed provider it would otherwise answer 403 to.
     const envName = "SUBSHELL_EMERGENCY_PASSWORD";
-    const envValue = "door-guard-breakglass-7";
+    const envValue = "provider-guard-breakglass-7";
     const savedEnv = process.env[envName];
     const adminEmail = `breakglass-${crypto.randomUUID()}@subshell.local`;
     const adminId = await new UsersRepository(db).createUser({
@@ -292,7 +292,7 @@ describe("door guard on the real handler (HTTP)", () => {
     }
   });
 
-  test("a closed registration door refuses sign-up at the SERVER with 403 registration_closed", async () => {
+  test("a closed registration provider refuses sign-up at the SERVER with 403 registration_closed", async () => {
     // The seam-shift proof: the refusal moved from `user.create.before`
     // (a silent false) to validateUserInfo — and it still refuses at the
     // server, now with a machine-readable code.

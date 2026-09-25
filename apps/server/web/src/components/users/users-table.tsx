@@ -6,9 +6,9 @@ import { asUserRole, USER_ROLE_LABELS } from "@/types/user-role";
 /**
  * The Provider column's word for one better-auth `providerId`. `credential`
  * is spelled like the Auth table's email kind (`KIND_LABELS.email`) so the
- * two pages cannot name the same door differently; `google` is the preset's
+ * two pages cannot name the same provider differently; `google` is the preset's
  * id and gets the same word. Anything else renders the id itself — a custom
- * OIDC door's row cannot be resolved to its admin-chosen name from this
+ * OIDC provider's row cannot be resolved to its admin-chosen name from this
  * payload alone, and guessing a name would be worse than printing the id.
  */
 function providerBadgeLabel(providerId: string): string {
@@ -44,7 +44,7 @@ export interface UserRow {
   disabled?: boolean;
   /**
    * Auth provider ids this account has sign-in rows for — `credential`,
-   * `google`, or a custom door's id. Absent = older payload: the Provider
+   * `google`, or a custom provider's id. Absent = older payload: the Provider
    * column renders nothing and the menu keeps Reset password (the server's
    * 409 stays the truth) rather than guessing from a field that never
    * arrived.
@@ -52,7 +52,7 @@ export interface UserRow {
   providers?: string[];
 }
 
-/** One badge per sign-in row, the credential door spelled like the Auth page. */
+/** One badge per sign-in row, the credential provider spelled like the Auth page. */
 function ProviderBadges({ providers }: { providers: readonly string[] }) {
   return (
     <div className="flex flex-wrap items-center gap-1">
@@ -120,7 +120,7 @@ export function UsersTable({
               <td className={cn("py-2 pr-4", u.disabled && "text-muted-foreground")}>{u.name}</td>
               <td className={cn("py-2 pr-4", u.disabled && "text-muted-foreground")}>{u.email}</td>
               {/* Absent = an older payload: render nothing rather than guess a
-                  set of doors. An empty list IS the payload's answer — the
+                  set of providers. An empty list IS the payload's answer — the
                   `system` account has no sign-in row — and it renders as the
                   same nothing, which keeps that row exactly as it read
                   before this column existed. */}

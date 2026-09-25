@@ -208,7 +208,7 @@ describe("NodeServiceCard", () => {
   it("promises what installing a definition actually buys, on both platforms", async () => {
     const asked: string[] = [];
     const previousConfirm = setConfirmHandler(async (request) => {
-      asked.push(request.description ?? "");
+      asked.push(String(request.description ?? ""));
       return false;
     });
     restore.push(() => {

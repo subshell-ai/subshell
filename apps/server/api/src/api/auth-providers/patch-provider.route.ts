@@ -3,9 +3,9 @@ import { normalizeLabel } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { requireAdmin } from "@/api/auth-guard.js";
 import { b2n, PatchProviderSchema } from "@/api/auth-providers/provider-fields.js";
-import { LAST_DOOR_MESSAGE, normalizeOriginList, PROVIDER_NAME_MAX } from "@/api/auth-providers/provider-inputs.js";
+import { LAST_PROVIDER_MESSAGE, normalizeOriginList, PROVIDER_NAME_MAX } from "@/api/auth-providers/provider-inputs.js";
 import { domainsInput, ProviderViewSchema, toView } from "@/api/auth-providers/provider-view.js";
-import { DiscoveryError, EntryInputError, normalizeDomains, resolveEndpoints } from "@/auth/oidc-discovery.js";
+import { EntryInputError, normalizeDomains, verifyOnSave } from "@/auth/oidc-discovery.js";
 import { invalidateAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
@@ -15,11 +15,13 @@ import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
 
 /**
- * `PATCH /api/auth-providers/:id` — changes one door (cookie-admin only).
- * id and kind are immutable; an issuer or client-id change re-runs discovery
- * and the save is refused when discovery fails; an empty allowedDomains clears
- * the list to any-domain. Refused with 409 LAST_SIGN_IN_DOOR when it would
- * close the last open way to sign in.
+ * `PATCH /api/auth-providers/:id` — changes one provider (cookie-admin only).
+ * id and kind are immutable; a change to issuer, client id or secret re-runs
+ * the FULL verification (discovery plus the credential check — the save is
+ * the verification, operator ruling 2026-09-25) and the save is refused with
+ * 400 DISCOVERY_FAILED / CREDENTIALS_REJECTED when it fails; an empty
+ * allowedDomains clears the list to any-domain. Refused with 409
+ * LAST_SIGN_IN_PROVIDER when it would close the last open way to sign in.
  */
 export const patchProviderRoute = new Elysia()
   .use(requireAdmin)
@@ -42,12 +44,15 @@ export const patchProviderRoute = new Elysia()
           400,
           apiErrorBody({
             code: row.kind === "email" ? BackendErrorCodes.EMAIL_ROW_IMMUTABLE_KIND : BackendErrorCodes.BAD_REQUEST,
-            message: "A door's kind is immutable; delete it and add another.",
+            message: "A provider's kind is immutable; delete it and add another.",
           }),
         );
       }
       if (body.id !== undefined && body.id !== params.id) {
-        return status(400, apiErrorBody({ code: BackendErrorCodes.BAD_REQUEST, message: "A door's id is immutable." }));
+        return status(
+          400,
+          apiErrorBody({ code: BackendErrorCodes.BAD_REQUEST, message: "A provider's id is immutable." }),
+        );
       }
       // The E-mail row has no OAuth identity (spec §2): issuer, clientId and
       // entryOrigins describe an exchange that row never runs. The route used
@@ -62,7 +67,8 @@ export const patchProviderRoute = new Elysia()
           400,
           apiErrorBody({
             code: BackendErrorCodes.BAD_REQUEST,
-            message: "The E-mail door has no issuer, client id or entry origins — those fields describe OIDC doors.",
+            message:
+              "The E-mail provider has no issuer, client id or entry origins. Those fields describe OIDC providers.",
           }),
         );
       }
@@ -93,7 +99,7 @@ export const patchProviderRoute = new Elysia()
             400,
             apiErrorBody({
               code: BackendErrorCodes.BAD_REQUEST,
-              message: "An OIDC door cannot have its issuer cleared.",
+              message: "An OIDC provider cannot have its issuer cleared.",
             }),
           );
         }
@@ -107,7 +113,7 @@ export const patchProviderRoute = new Elysia()
             400,
             apiErrorBody({
               code: BackendErrorCodes.BAD_REQUEST,
-              message: "An OIDC door cannot have its client id cleared.",
+              message: "An OIDC provider cannot have its client id cleared.",
             }),
           );
         }
@@ -117,37 +123,52 @@ export const patchProviderRoute = new Elysia()
       // A secret is only ever REPLACED, never cleared: the schema rejects a
       // null (the SPA's contract), "" means leave the stored one, and a
       // non-empty string stores over it. "Clear the secret" would be the
-      // broken-door-by-save state (spec §8).
+      // broken-provider-by-save state (spec §8).
       const storeSecret = body.clientSecret !== undefined && body.clientSecret !== "";
       if (storeSecret) {
         patch.clientSecret = body.clientSecret;
         changed.push("clientSecret");
       }
-      // Identity of the OAuth exchange changed ⇒ the endpoints must describe
-      // the NEW issuer before the row carries it (spec §8's re-probe rule).
-      if (issuerChanged || clientIdChanged) {
-        const probeIssuer = body.issuer !== undefined ? body.issuer.trim() : row.issuer;
-        if (probeIssuer === null || probeIssuer === "") {
+      // Identity of the OAuth exchange changed ⇒ the pair must VERIFY against
+      // the (possibly new) issuer before the row carries any of it — the save
+      // IS the verification (operator ruling 2026-09-25), so a changed
+      // secret alone triggers it too, not just a changed issuer or id. The
+      // effective triple is what is checked: an unchanged half keeps its
+      // stored value. A re-verify REPLACES the endpoints even when only the
+      // credentials moved — the endpoints always describe the issuer the
+      // check just reached.
+      const verifyNeeded = issuerChanged || clientIdChanged || storeSecret;
+      if (verifyNeeded && row.kind !== "email") {
+        const vIssuer = body.issuer !== undefined ? body.issuer.trim() : row.issuer;
+        if (vIssuer === null || vIssuer === "") {
           return status(
             400,
             apiErrorBody({
               code: BackendErrorCodes.BAD_REQUEST,
-              message: "This door has no issuer to run discovery against.",
+              message: "This provider has no issuer to run discovery against.",
             }),
           );
         }
-        try {
-          patch.endpointsJson = JSON.stringify(await resolveEndpoints(probeIssuer));
-          changed.push("endpoints");
-        } catch (err) {
-          if (err instanceof DiscoveryError) {
-            return status(
-              400,
-              apiErrorBody({ code: BackendErrorCodes.DISCOVERY_FAILED, message: `Discovery failed: ${err.reason}.` }),
-            );
-          }
-          throw err;
+        // A stored null client id means the row never had credentials to
+        // check; `verifyOnSave` reads "" as exactly that and answers with
+        // discovery alone.
+        const vClientId = (body.clientId !== undefined ? body.clientId.trim() : row.clientId) ?? "";
+        const vSecret = storeSecret ? (body.clientSecret as string) : (row.clientSecret ?? "");
+        const check = await verifyOnSave(vIssuer, vClientId, vSecret);
+        if (!check.ok) {
+          return status(
+            400,
+            apiErrorBody({
+              code:
+                check.stage === "discovery"
+                  ? BackendErrorCodes.DISCOVERY_FAILED
+                  : BackendErrorCodes.CREDENTIALS_REJECTED,
+              message: check.message,
+            }),
+          );
         }
+        patch.endpointsJson = JSON.stringify(check.endpoints);
+        changed.push("endpoints");
       }
       if (body.entryOrigins !== undefined) {
         try {
@@ -191,14 +212,17 @@ export const patchProviderRoute = new Elysia()
 
       // The guard and the write are ONE transaction in the repository (the
       // setRole precedent): a count read here followed by a separate write
-      // would let two admins closing two different doors both pass on the
-      // same snapshot and land the instance at zero open doors. The route
+      // would let two admins closing two different providers both pass on the
+      // same snapshot and land the instance at zero open providers. The route
       // only says what the row's post-patch open state would be; the count
       // arithmetic and the row re-read happen inside the transaction.
       const nextOpen = (body.enabled ?? row.enabled === 1) && (body.signInEnabled ?? row.signInEnabled === 1);
-      const outcome = await repo.patchGuardingLastDoor(params.id, patch, nextOpen);
-      if (outcome === "last_door") {
-        return status(409, apiErrorBody({ code: BackendErrorCodes.LAST_SIGN_IN_DOOR, message: LAST_DOOR_MESSAGE }));
+      const outcome = await repo.patchGuardingLastProvider(params.id, patch, nextOpen);
+      if (outcome === "last_provider") {
+        return status(
+          409,
+          apiErrorBody({ code: BackendErrorCodes.LAST_SIGN_IN_PROVIDER, message: LAST_PROVIDER_MESSAGE }),
+        );
       }
       if (outcome === "not_found") {
         return status(
@@ -219,7 +243,7 @@ export const patchProviderRoute = new Elysia()
       return toView(after);
     },
     {
-      params: t.Object({ id: t.String({ description: "Id slug of the door to change" }) }),
+      params: t.Object({ id: t.String({ description: "Id slug of the provider to change" }) }),
       body: PatchProviderSchema,
       response: {
         200: ProviderViewSchema,
@@ -233,7 +257,7 @@ export const patchProviderRoute = new Elysia()
         operationId: "patchAuthProvider",
         tags: ["auth-providers"],
         description:
-          "Changes one door (cookie-admin only). id and kind are immutable; an issuer or client-id change re-runs discovery and the save is refused when discovery fails; an empty allowedDomains clears the list to any-domain. Refused with 409 LAST_SIGN_IN_DOOR when it would close the last open way to sign in",
+          "Changes one provider (cookie-admin only). id and kind are immutable; a change to issuer, client id or secret re-runs the full verification (discovery plus the credential check where the issuer offers the grant) and the save is refused when it fails; an empty allowedDomains clears the list to any-domain. Refused with 409 LAST_SIGN_IN_PROVIDER when it would close the last open way to sign in",
       },
     },
   );
