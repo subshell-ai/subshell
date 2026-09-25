@@ -106,7 +106,7 @@ export function NewAccountFields({
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor={id("email")}>Email</Label>
+        <Label htmlFor={id("email")}>E-mail</Label>
         <Input
           id={id("email")}
           type="email"

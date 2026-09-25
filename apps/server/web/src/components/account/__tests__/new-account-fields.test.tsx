@@ -98,7 +98,7 @@ describe("NewAccountFields", () => {
   it("renders the four labelled boxes setup has always asked for", () => {
     renderFields();
     expect(screen.getByLabelText("Name")).toBeDefined();
-    expect(screen.getByLabelText("Email")).toBeDefined();
+    expect(screen.getByLabelText("E-mail")).toBeDefined();
     expect(screen.getByLabelText("Password")).toBeDefined();
     expect(screen.getByLabelText("Confirm password")).toBeDefined();
   });
@@ -156,7 +156,7 @@ describe("NewAccountFields", () => {
   it("prefixes every id so two copies on one page cannot collide", () => {
     renderFields({}, { idPrefix: "new-user" });
     expect(screen.getByLabelText("Name").id).toBe("new-user-name");
-    expect(screen.getByLabelText("Email").id).toBe("new-user-email");
+    expect(screen.getByLabelText("E-mail").id).toBe("new-user-email");
     expect(screen.getByLabelText("Password").id).toBe("new-user-password");
     expect(screen.getByLabelText("Confirm password").id).toBe("new-user-password-confirm");
     expect(screen.getByLabelText("Password").getAttribute("aria-describedby")).toBe("new-user-password-requirement");

@@ -109,7 +109,7 @@ describe("/login round-trip refusals", () => {
     stubWires();
     renderLogin("/login?error=door_closed&error_description=Old%20refusal");
     await screen.findByText("Old refusal");
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ada@example.com" } });
+    fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: "ada@example.com" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "wrong" } });
     fireEvent.click(screen.getByRole("button", { name: /^Sign in$/ }));
     // The form's OWN error surface takes the stage; the stale round-trip
@@ -123,7 +123,7 @@ describe("/login round-trip refusals", () => {
   it("a fresh mount with no params paints no refusal line", async () => {
     stubWires();
     renderLogin("/login");
-    await screen.findByLabelText("Email");
+    await screen.findByLabelText("E-mail");
     expect(screen.queryByText(ROUND_TRIP_REFUSED)).toBeNull();
     expect(screen.queryByText(/refused/i)).toBeNull();
   });

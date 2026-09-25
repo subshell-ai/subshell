@@ -186,7 +186,7 @@ describe("users-admin + audit routes", () => {
       }),
     );
     expect(dup.status).toBe(409);
-    expect(await dup.text()).toBe("Email already registered");
+    expect(await dup.text()).toBe("E-mail already registered");
 
     // Cleanup: user row (cascades account/session) + user_meta row.
     await db.deleteFrom("userMeta").where("userId", "=", created.id).execute();

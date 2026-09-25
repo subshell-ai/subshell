@@ -80,7 +80,7 @@ describe("UsersTable", () => {
 
     it("badges both doors when an account has both", async () => {
       const text = await renderOne({ id: "both", providers: ["credential", "google"] });
-      expect(text).toContain("Email");
+      expect(text).toContain("E-mail");
       expect(text).toContain("Google");
     });
 
@@ -89,7 +89,7 @@ describe("UsersTable", () => {
       // kind label), and a door-only arrival must not borrow it.
       const text = await renderOne({ id: "goned", providers: ["google"] });
       expect(text).toContain("Google");
-      expect(text).not.toContain("Email");
+      expect(text).not.toContain("E-mail");
     });
 
     it("renders an unknown door id verbatim", async () => {
@@ -103,9 +103,9 @@ describe("UsersTable", () => {
       // Absent = an older payload; empty = the payload's own answer (the
       // `system` account has no sign-in row). Both read as an empty cell.
       const absent = await renderOne({ id: "old" });
-      expect(absent).not.toContain("Email");
+      expect(absent).not.toContain("E-mail");
       const empty = await renderOne({ id: "svc", providers: [] });
-      expect(empty).not.toContain("Email");
+      expect(empty).not.toContain("E-mail");
     });
   });
 });

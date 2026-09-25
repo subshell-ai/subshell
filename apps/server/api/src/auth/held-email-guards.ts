@@ -63,7 +63,7 @@ const GUARDED_PATH = "/sign-up/email";
  * already shows for the same door.
  */
 export function heldEmailMessage(providerName: string): string {
-  return `An account for this email exists. Sign in with ${providerName}.`;
+  return `An account for this e-mail exists. Sign in with ${providerName}.`;
 }
 
 /**

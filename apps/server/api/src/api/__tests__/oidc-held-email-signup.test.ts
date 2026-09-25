@@ -304,7 +304,7 @@ describe("sign-up refusal names the holding provider (spec §5, HTTP)", () => {
       // door name and exact punctuation — not `heldEmailMessage(doorName)`,
       // so a copy rewrite fails here instead of passing on both sides.
       expect(((await res.json()) as { message?: string }).message).toBe(
-        "An account for this email exists. Sign in with T17 Approving Co.",
+        "An account for this e-mail exists. Sign in with T17 Approving Co.",
       );
       expect(await rowCount(email)).toBe(1); // nobody new behind the refusal
       expect(await sessionCount(holderId)).toBe(0); // and no session for the attempt
@@ -508,7 +508,7 @@ describe("POST /api/users keeps the generic answer (spec §5 governs)", () => {
     );
     expect(res.status).toBe(409);
     const text = await res.text();
-    expect(text).toBe("Email already registered"); // the generic sentence for every holder
+    expect(text).toBe("E-mail already registered"); // the generic sentence for every holder
     expect(text).not.toContain(doorName); // no door named here, held or not
     expect(await rowCount(heldEmail)).toBe(1); // the refusal created nothing
 

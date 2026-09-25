@@ -21,7 +21,7 @@ export const GOOGLE_ISSUER = "https://accounts.google.com";
  * dialog's kind Select names its options itself: "Generic OIDC" there is the
  * choice being made, not a second spelling of the badge word. */
 export const KIND_LABELS: Record<AuthProviderKind, string> = {
-  email: "Email",
+  email: "E-mail",
   google: "Google",
   oidc: "OIDC",
 };

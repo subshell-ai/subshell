@@ -181,7 +181,7 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
       {/* One trust sentence for the whole dialog (§5's accounting, told at the
           act that makes it true). */}
       <p className="text-detail text-muted-foreground">
-        A provider that asserts an email address links straight into the matching account. Add only issuers you trust.
+        A provider that asserts an e-mail address links straight into the matching account. Add only issuers you trust.
       </p>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -316,7 +316,7 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="ap-domains">Allowed email domains</Label>
+        <Label htmlFor="ap-domains">Allowed e-mail domains</Label>
         <Input
           id="ap-domains"
           value={domains}
@@ -324,7 +324,7 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
           placeholder="acme.com, other.example"
         />
         <p className="text-detail text-muted-foreground">
-          Leave blank to admit any email domain. A listed domain also admits its subdomains.
+          Leave blank to admit any e-mail domain. A listed domain also admits its subdomains.
         </p>
       </div>
 

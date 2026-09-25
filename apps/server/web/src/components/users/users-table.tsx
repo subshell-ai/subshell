@@ -12,7 +12,7 @@ import { asUserRole, USER_ROLE_LABELS } from "@/types/user-role";
  * payload alone, and guessing a name would be worse than printing the id.
  */
 function providerBadgeLabel(providerId: string): string {
-  if (providerId === "credential") return "Email";
+  if (providerId === "credential") return "E-mail";
   if (providerId === "google") return "Google";
   return providerId;
 }
@@ -94,7 +94,7 @@ export function UsersTable({
         <thead>
           <tr className="border-b text-left text-muted-foreground">
             <th className="pr-4 pb-2 font-strong">Name</th>
-            <th className="pr-4 pb-2 font-strong">Email</th>
+            <th className="pr-4 pb-2 font-strong">E-mail</th>
             <th className="pr-4 pb-2 font-strong">Provider</th>
             <th className="pr-4 pb-2 font-strong">Role</th>
             <th className="pr-4 pb-2 font-strong">Created</th>

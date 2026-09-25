@@ -81,7 +81,7 @@ export const createUserRoute = new Elysia().use(requireAdmin).post(
         // in the roster). The named refusal belongs to the public sign-up
         // door alone — `@/auth/held-email-guards`, where the person asking
         // genuinely cannot see who holds their address.
-        throw new UsersError("conflict", "Email already registered");
+        throw new UsersError("conflict", "E-mail already registered");
       }
       throw err;
     }

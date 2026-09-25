@@ -34,7 +34,7 @@ export function PendingUsersTable({ rows }: { rows: readonly PendingUserRow[] })
         <thead>
           <tr className="border-b text-left text-muted-foreground">
             <th className="pr-4 pb-2 font-strong">Name</th>
-            <th className="pr-4 pb-2 font-strong">Email</th>
+            <th className="pr-4 pb-2 font-strong">E-mail</th>
             <th className="pr-4 pb-2 font-strong">Provider</th>
             <th className="pr-4 pb-2 font-strong">Arrived</th>
             <th className="pr-4 pb-2 font-strong">Status</th>

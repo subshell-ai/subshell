@@ -40,7 +40,7 @@ export const createProviderRoute = new Elysia()
           400,
           apiErrorBody({
             code: BackendErrorCodes.EMAIL_ROW_IMMUTABLE_KIND,
-            message: "The email door already exists as the reserved credential row; it cannot be created.",
+            message: "The E-mail door already exists as the reserved credential row; it cannot be created.",
           }),
         );
       }

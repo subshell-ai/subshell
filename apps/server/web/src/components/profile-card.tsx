@@ -87,7 +87,7 @@ export function ProfileCard({ updateUser = (input) => authClient.updateUser(inpu
     <Card>
       <CardHeader>
         <CardTitle>Profile</CardTitle>
-        <CardDescription>Your display name and sign-in email.</CardDescription>
+        <CardDescription>Your display name and sign-in e-mail.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {/* Unknown ≠ shown: the fields appear only once the session query has
@@ -115,7 +115,7 @@ export function ProfileCard({ updateUser = (input) => authClient.updateUser(inpu
               {saved && <span className="text-detail text-success">saved</span>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="profile-email">Email</Label>
+              <Label htmlFor="profile-email">E-mail</Label>
               {/* Read-only by design: the email IS the credential; changing it
                   is not offered here (muted to say so at a glance). */}
               <Input id="profile-email" value={user.email} readOnly className="text-muted-foreground" />

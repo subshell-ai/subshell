@@ -62,7 +62,7 @@ export const patchProviderRoute = new Elysia()
           400,
           apiErrorBody({
             code: BackendErrorCodes.BAD_REQUEST,
-            message: "The email door has no issuer, client id or entry origins — those fields describe OIDC doors.",
+            message: "The E-mail door has no issuer, client id or entry origins — those fields describe OIDC doors.",
           }),
         );
       }
