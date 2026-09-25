@@ -4,7 +4,7 @@
 
 ## Changed
 
-- `src/components/ui/dialog.tsx` — `@radix-ui/react-dialog` ->
+- `src/components/ui/dialog.tsx`: `@radix-ui/react-dialog` ->
   `Dialog as DialogPrimitive` from `@base-ui/react/dialog`.
   Part mapping Overlay->`Backdrop`, Content->`Popup` (centered modal: NO
   Positioner, per the overlays reference), rest 1:1. All exported wrapper
@@ -17,10 +17,10 @@
     sr-only "Close" span replaced by `aria-label="Close"` on the X button
     (AccessibleIcon -> aria-label pattern).
   - `DialogPrimitive.Portal` renders a wrapper `<div>` (Radix rendered
-    nothing extra) — harmless; consumers style via Popup/Backdrop only.
+    nothing extra), harmless; consumers style via Popup/Backdrop only.
 - Consumers: **zero edits needed.** All four (`confirm-dialog.tsx`,
   `notes-dialog.tsx`, `add-session-dialog.tsx`, `system-api-keys-card.tsx`)
-  use only `Dialog open + single-arg onOpenChange` and content parts —
+  use only `Dialog open + single-arg onOpenChange` and content parts;
   Base UI's callback only widens (event-details second arg). No consumer used
   `onOpenAutoFocus`/`onEscapeKeyDown`/`forceMount`/`DialogTrigger`/
   `DialogPortal` directly (grep: zero hits outside the wrapper).
@@ -36,7 +36,7 @@
 
 ## Left alone
 
-- `notes-dialog.tsx`'s `onOpenChange: (open: boolean) => void` prop type —
+- `notes-dialog.tsx`'s `onOpenChange: (open: boolean) => void` prop type:
   still exactly what its call sites pass; Base UI's wider signature is
   assignable to it.
 
@@ -46,7 +46,7 @@
   does the same but the exact target for dialogs whose first tabbable is the
   X button may feel different (Base prefers the popup container when the
   first tabbable is a close button). No call site set `initialFocus`.
-- Escape/outside-press dismissal now flows through `eventDetails.reason` —
+- Escape/outside-press dismissal now flows through `eventDetails.reason`;
   nobody consumed the per-interaction callbacks, so no behavior was lost.
 
 ## Verify by hand

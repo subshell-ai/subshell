@@ -1,24 +1,24 @@
 # Desktop client AGENTS.md
 
-`apps/client/desktop` (`@internal/desktop-client`) — **Subshell Client**, a
+`apps/client/desktop` (`@internal/desktop-client`) is **Subshell Client**, a
 **Tauri v2** shell that is a user's interface to a control plane, and the place
-their machine is registered as a node — so neither job needs a CLI binary.
+their machine is registered as a node, so neither job needs a CLI binary.
 
 Read `docs/superpowers/specs/2026-09-07-app-vocabulary-design.md` first if the
 words are new. Three of them each name exactly one thing: a **server** is a
 control plane, a **node** is a machine that runs agents, a **client** is a human
 interface to a control plane. This app is a client that can also make its
-machine a node — which is why "node" appears all over it without contradiction:
+machine a node, which is why "node" appears all over it without contradiction:
 the machine it registers IS a node, the `node_*` commands act on it, the
 server's Nodes page lists it, and the sidecar stem names the node it wraps.
 
 It is the counterpart of `apps/server/desktop`, and the two are shaped alike:
 each has a window holding a remote page and a window holding its own bundled
-one. Read that app's `AGENTS.md` too — most of the machinery is documented there
+one. Read that app's `AGENTS.md` too; most of the machinery is documented there
 once.
 
-**Styling follows `docs/design-system.md`** — six type roles, two weights,
-shadcn colour names — and `bun run lint:design` fails on a literal size,
+**Styling follows `docs/design-system.md`** (six type roles, two weights,
+shadcn colour names), and `bun run lint:design` fails on a literal size,
 weight or colour outside the token file. Pick a role, never a number.
 
 ## Two windows, and why that is the whole design
@@ -26,12 +26,12 @@ weight or colour outside the token file. Pick a role, never a number.
 | window | page | granted |
 |---|---|---|
 | `main` | the control plane's own UI, at the plane's origin | **one command**: `desktop_open_in_browser` |
-| `node` | `ui/dist/index.html`, from the bundle — the assistant | every `node_*` command |
+| `node` | `ui/dist/index.html`, the bundled assistant | every `node_*` command |
 
 `main` loads the plane's own page rather than a bundled copy because
-`apps/server/web` is hard same-origin — relative `apiFetch` with
+`apps/server/web` is hard same-origin (relative `apiFetch` with
 `credentials: "include"`, an auth client with no `baseURL`, a WebSocket URL
-built from `window.location.host` — so a `tauri://` page could not carry the
+built from `window.location.host`), so a `tauri://` page could not carry the
 `SameSite=Lax` session cookie to any of them.
 
 **`capabilities/main.json` grants that window ONE command, and the narrowness
@@ -39,15 +39,15 @@ is in the ARGUMENT rather than in the scope.** `apps/server/desktop` can pin
 its remote window to loopback because it manages the server serving it; a
 control plane can live on any host, so there is no equivalent pin here. The
 capability's `remote.urls` is therefore a WILDCARD (`http://*:*`,
-`https://*:*` — `http://*` alone does not match a non-default port in the
+`https://*:*`; `http://*` alone does not match a non-default port in the
 `urlpattern` crate Tauri 2.11.5 uses, which would silently exclude the default
 `:3080` plane), and the command is what has to be safe.
 
 Until 2026-09-14 that file did not exist, and the ABSENCE was the boundary.
 That was right while a plane's page had nothing useful to ask for. "Open in
 browser" is useful: a webview has no address bar and no second tab, and the
-page a person wants in their real browser — with their profiles, their password
-manager, their extensions — is the one they are looking at.
+page a person wants in their real browser (with their profiles, their password
+manager, their extensions) is the one they are looking at.
 
 - **`desktop_open_in_browser` takes a PATH.** It must start with `/`, must not
   start with `//` (protocol-relative names a HOST), and may contain no `://`,
@@ -55,7 +55,7 @@ manager, their extensions — is the one they are looking at.
   same attack in another spelling), no whitespace and no control characters.
   The rule and its tests are `crates/desktop-core`'s `browser` module, shared
   with the other app so the two cannot disagree about what a path is. The
-  ORIGIN comes from `PlanePin` — the origin this window was OPENED with, which
+  ORIGIN comes from `PlanePin`: the origin this window was OPENED with, which
   is no longer what `on_navigation` enforces (it follows any http(s) URL since
   2026-09-18, so a plane behind an OAuth proxy can complete its sign-in). That
   is precisely why the command reads the pin rather than the page: a page
@@ -75,17 +75,17 @@ manager, their extensions — is the one they are looking at.
   The SPA branches on the PRODUCT TOKEN now: `isServerDesktop()` gates Subshell
   Server's chrome (overlay title bar, update, reset, supervision, native
   notifications) and is false here, while `isDesktop()` gates only the two
-  "Open in browser" surfaces — the sidebar row and a subshell's actions menu.
+  "Open in browser" surfaces, the sidebar row and a subshell's actions menu.
   So there is still no `shell_ready` handshake and no `bridge.rs` CustomEvent
   bus here: this window's whole Tauri surface is one command.
   `withGlobalTauri` is `true` for the same reason (see below).
 - **What IS kept:** an `on_navigation` SCHEME refusal (the origin pin went on
-  2026-09-18 — see above; the window follows http(s) so a proxied sign-in
+  2026-09-18, see above; the window follows http(s) so a proxied sign-in
   works, and non-http(s) is still refused so it cannot be steered into
   anything the OS would act on), `disable_drag_drop_handler`
   (Tauri's native file-drop handler otherwise swallows the HTML5 drags behind
   drag-a-subshell-into-a-workspace and the terminal's uploads), and a 360x240
-  minimum size — a third of the SPA's 1024px tiling breakpoint, so the window
+  minimum size (a third of the SPA's 1024px tiling breakpoint), so the window
   can be parked in a corner and renders the SPA's narrow chrome when it is.
 
 **The node window is a FIXED 1024x720 assistant frame** (spec 2026-09-12 § 6.4),
@@ -93,7 +93,7 @@ non-resizable and centred, and the window-state plugin is DENYLISTED for it.
 Both halves matter: the screens are drawn to that arithmetic, and the plugin
 restores geometry after the builder sets it, so a saved size from the window's
 resizable 760x720 era wins silently. `apps/server/desktop` found exactly this
-by running its app (43f6682) and the fix is the same — denylist the label
+by running its app (43f6682) and the fix is the same: denylist the label
 rather than drop `StateFlags::SIZE`, because `main` shows a control plane's UI
 and THAT window's size is a real user choice.
 
@@ -108,7 +108,7 @@ test. Until 2026-09-18 a stored `planeUrl` (else the enrolled node's own
 `serverUrl`) made the DASHBOARD lead, which is the defect the first-run work
 removed: pressing the one button on a fresh install threw the plane's window on
 screen while the setup carried on in the window behind it. A client never opens
-the control plane's dashboard by itself now — a configured client lands on its
+the control plane's dashboard by itself now; a configured client lands on its
 own client-status screen and the dashboard opens from the button there.
 
 **It must always have a route home, and the tray is not one.** The plane window
@@ -118,7 +118,7 @@ icon is silently invisible wherever no StatusNotifier host is registered. So:
 macOS gets **Window → Open Client App** in the menu bar (always drawn, which also
 covers the notched-display hazard in `tray.rs`); everywhere else,
 `node_window_has_a_route_home()` asks `desktop-core`'s tray probe and, when the
-answer is no, `focus_any` RE-CREATES the node window — so relaunching, which is
+answer is no, `focus_any` RE-CREATES the node window, so relaunching, which is
 what `tray.rs` calls the way back from an invisible tray, actually is one.
 `open_at_startup` no longer consults that probe, and does not need to: it opens
 the node window on every desktop, which is strictly more than the check ever
@@ -127,16 +127,16 @@ probe survives exactly there.
 
 The `csp` in `tauri.conf.json` governs the **bundled** page only. The plane's
 window carries whatever CSP the plane sends, which is the same split
-`apps/server/desktop` has — and the reason nothing privileged lives there.
+`apps/server/desktop` has, and the reason nothing privileged lives there.
 
-## The page (`ui/`) — React, on the same stack as `apps/server/web`
+## The page (`ui/`): React, on the same stack as `apps/server/web`
 
 `ui/` is a small **React + Vite + Tailwind v4 + TanStack Query** app, built to
 `ui/dist` (the `frontendDist`). It mirrors `apps/server/web`'s stack minus what
 the bundled page has no use for: no router (one page and a step machine, so
 there are no URLs), no xterm, no dockview, no better-auth, no
 `@internal/backend-client`. Every shared version is pinned to the same string
-`apps/server/web/package.json` uses — `bun run syncpack:lint` fails otherwise.
+`apps/server/web/package.json` uses: `bun run syncpack:lint` fails otherwise.
 
 Three things about it are load-bearing:
 
@@ -146,17 +146,17 @@ Three things about it are load-bearing:
   `permissions/desktop.toml` and `capabilities/node.json` and asserts the
   granted command set is exactly the invoked one. That three-way mismatch is a
   runtime permission rejection, not a compile error. The same file asserts what
-  the `main` window holds — one permission, one scope, one Rust signature.
+  the `main` window holds: one permission, one scope, one Rust signature.
 - **`withGlobalTauri` is `true`, and it is the OTHER window that needs it.**
   This page imports `invoke` from `@tauri-apps/api/core` and has no use for a
   global; it was `false` from the day that import landed. What changed on
   2026-09-14 is that the plane's window has something to invoke, and
   `apps/server/web`'s bridge (`src/lib/desktop.ts`) reads `window.__TAURI__`
-  and imports nothing by design — it must not pull `@tauri-apps/api` into a
+  and imports nothing by design: it must not pull `@tauri-apps/api` into a
   bundle served to browsers, and the repo forbids the dynamic import that would
   avoid that. The global GRANTS nothing; `capabilities/main.json` does. Turning
   it back off would not close a hole, it would make that one command silently
-  unreachable — the bridge never throws, which is exactly the failure
+  unreachable: the bridge never throws, which is exactly the failure
   `apps/server/desktop` measured on 2026-09-10 when its config was copied from
   this one. `ui/src/__tests__/tauri-config.test.ts` pins the PAIR: while
   `windows.rs` ships a marker, the global must exist.
@@ -168,9 +168,9 @@ Three things about it are load-bearing:
 ## Native prerequisites
 
 **`bun install` covers none of these, and the root README no longer keeps a
-prerequisites list** — this section is the list. Every workflow that builds this app runs INSIDE
+prerequisites list**: this section is the list. Every workflow that builds this app runs INSIDE
 `ghcr.io/subshell-ai/desktop-builder:ubuntu24.04`
-(`docker/desktop-builder.Dockerfile`), which already carries them — so CI can
+(`docker/desktop-builder.Dockerfile`), which already carries them, so CI can
 never discover that a bare machine cannot build here, and the list lived only
 in that Dockerfile until it was written down here.
 
@@ -189,11 +189,11 @@ sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
 `desktop-rust` CI job) runs `cargo fmt --check` and
 `cargo clippy --all-targets -- -D warnings` before `cargo test`.
 
-macOS needs only the Xcode command-line tools — the system WebKit is what Tauri
+macOS needs only the Xcode command-line tools: the system WebKit is what Tauri
 links against there, so none of the packages above have a Homebrew counterpart.
 
 **The minimum glibc is 2.39, by choice**, because the builder image is
-ubuntu24.04 — which excludes Ubuntu 22.04 and Debian 12. Building on an older
+ubuntu24.04, which excludes Ubuntu 22.04 and Debian 12. Building on an older
 host is not a supported configuration; the root `AGENTS.md` carries the
 reasoning and the lever.
 
@@ -231,7 +231,7 @@ cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 There is deliberately **no `dev` script**: root `bun run start` is
 `turbo watch dev`, and a `dev` task here would spawn a Vite server for everyone
 working on the backend. The Vite port is **5177**, not a neighbour of
-`apps/server/web`'s 5174 — Vite walks upward from a taken port, and `devUrl` is a
+`apps/server/web`'s 5174: Vite walks upward from a taken port, and `devUrl` is a
 fixed string, so 5175 is exactly where the SPA lands when its own port is busy.
 
 **Two `bun test` runs, two configs.** `bun test src` covers the release script
@@ -261,7 +261,7 @@ clone cannot even `cargo test` until something is staged:
 cd src-tauri && install -m 755 /dev/null "binaries/subshell-node-bundled-$(rustc --print host-tuple)"
 ```
 
-A zero-byte stub is correct for the Rust tests — none of them executes the
+A zero-byte stub is correct for the Rust tests: none of them executes the
 sidecar, and `tauri-build` only checks that the path EXISTS. A real one comes
 from `bun run compile:release`, which builds `apps/node/agent` first.
 
@@ -276,10 +276,10 @@ bundle finds nothing, 100% of the time.
 **Why the `-bundled` suffix.** Tauri puts an `externalBin` in `/usr/bin` on
 Debian. A sidecar named `subshell` would own that name system-wide on every
 machine this app is installed on, and would collide with a hand-installed
-node — which is exactly the file this app has to be able to tell apart from
+node, which is exactly the file this app has to be able to tell apart from
 its own.
 
-## Identity — four strings that must differ from `apps/server/desktop`
+## Identity: four strings that must differ from `apps/server/desktop`
 
 | | desktop-server | desktop-client |
 | --- | --- | --- |
@@ -295,12 +295,12 @@ Both packages can be installed on one machine and both put a binary in
 additionally the macOS settings directory
 (`crates/desktop-core`'s `SettingsPaths`), the notification permission grant,
 the single-instance lock and the window-state store, and macOS tracks an app BY
-it — an identity rather than a label, which is why
+it (an identity rather than a label), which is why
 `src/scripts/__tests__/release.test.ts` and `src-tauri/src/lib.rs` both pin it.
 
 **The Linux settings directory is `subshell-desktop-client`, not `subshell`.**
 `~/.config/subshell` is the AGENT's own config home
-(`apps/node/agent/src/config.ts` — `config.json` and the 0600 node key), and this
+(`apps/node/agent/src/config.ts`: `config.json` and the 0600 node key), and this
 app writing `settings.json` in beside it would put two programs' state in one
 directory. `apps/server/desktop` is prefixed for the same reason, against the
 server CLI's `~/.config/subshell-server`.
@@ -311,17 +311,17 @@ sidecar stem names the binary this app WRAPS rather than the app.
 
 `productName` may contain a space: Tauri derives the `.app` directory name, the
 DMG volume and the `.deb` file name from it, and the Debian one goes through a
-package-name sanitizer nobody can predict without running the Linux bundler —
+package-name sanitizer nobody can predict without running the Linux bundler,
 so the release script does not predict names. It globs `bundle/<dir>` for the
 ONE artifact that appeared and publishes it under the name
 `desktopArtifactFileName` chooses (space-free: these are download URLs and
 shell arguments). The `.app` inside that mounted image is `Subshell Client.app`,
 space included, which is why the smoke quotes its paths. Tauri only SIGNS the
 image (it notarizes/staples the `.app` and stops), so the pipeline runs
-`notarizeAndStapleDmg` before digesting — and the smoke's `stapler validate` on
+`notarizeAndStapleDmg` before digesting, and the smoke's `stapler validate` on
 the IMAGE is what proves it.
 
-The window title, tray tooltip and menu titles read "Subshell Client" — those
+The window title, tray tooltip and menu titles read "Subshell Client"; those
 are free-form and are not `productName`.
 
 ## Where things live
@@ -352,7 +352,7 @@ Shared with `apps/server/desktop` via `crates/desktop-core`: process spawning
 with a login PATH and a deadline, the login-shell PATH probe, semver
 comparison, the settings file, the atomic sidecar install, and the tray
 capability probe that gates close-to-tray. Do not re-implement any of those
-here. (`src-tauri/src/tray.rs` is the ICON — builder, menu, ids;
+here. (`src-tauri/src/tray.rs` is the ICON: builder, menu, ids;
 `desktop-core`'s `tray.rs` is the different question of whether an icon is
 drawn on this desktop at all.)
 
@@ -361,7 +361,7 @@ drawn on this desktop at all.)
 **`node_install_cli` has two paths, and the split is whether there is an
 installed CLI to ask** (spec 2026-09-15 § 7.1):
 
-- **A REPLACE of the managed copy** (`probe.managed` — the binary this machine
+- **A REPLACE of the managed copy** (`probe.managed`: the binary this machine
   actually runs IS `~/.local/bin/subshell`) runs
   `<installed> update --from <staged sidecar> --yes --no-restart --json`. The
   node has no database, so this buys less than it does on the server side:
@@ -377,15 +377,15 @@ Two things went away with the stop, and neither was a loss:
   are gone. They existed because `install_bundled` writes the file the daemon
   is executing; the CLI's swap is a `rename(2)` a running daemon does not
   notice, so there is nothing left for them to warn about. The deliberate
-  no-restart is unchanged — `--no-restart` says it — and since spec 2026-09-18
+  no-restart is unchanged (`--no-restart` says it), and since spec 2026-09-18
   § 7.1 the screen OFFERS the restart rather than telling the person to start
   something that was never stopped. `rename(2)` leaves the running process on
   its original inode, so after a successful install the file is the new node
   and the daemon is the old one, and nothing on screen used to say so.
 - **`node_install_cli` also settles the update marker.** It counts an
   attempt before the install and drops the marker after one that succeeded, so
-  every route into the node half — the resumed act, the Retry the screen
-  offers once it has halted, and the status screen's own door — is bounded and
+  every route into the node half (the resumed act, the Retry the screen
+  offers once it has halted, and the status screen's own door) is bounded and
   finishing by the same code. An attempt is an attempt whoever asked for it.
 - **The flags are a CONTRACT, held in one place.**
   `desktop-core`'s `cli_update::update_args` spells them for both apps, and its
@@ -393,8 +393,8 @@ Two things went away with the stop, and neither was a loss:
   app can never spell one of them itself.
 
 **A node older than the verb falls back to the plain copy, and SAYS so.**
-Every `subshell` node that existed on 2026-09-15 predates `update` — 0.8.0 was
-cut before it was written — so without a fallback the app's offer would fail
+Every `subshell` node that existed on 2026-09-15 predates `update` (0.8.0 was
+cut before it was written), so without a fallback the app's offer would fail
 with a usage dump on exactly the upgrade it exists for. The fallback is
 `install_bundled`, the same `rename(2)` swap this path used before, and the
 screen carries `legacy_install_summary`'s sentence: *Installed 0.9.0 over
@@ -402,7 +402,7 @@ screen carries `legacy_install_summary`'s sentence: *Installed 0.9.0 over
 command, so this install cannot be undone automatically.*
 
 **It claims no missing DATABASE backup, unlike the server app's.** The node
-has none, and its own `update` takes none either — so naming one would alarm
+has none, and its own `update` takes none either, so naming one would alarm
 about something that was never going to happen, which is the defect
 `RESET_LABEL`'s history documents at length. What this install really loses is
 `<binary>.previous`, so that is what the sentence names
@@ -411,31 +411,31 @@ about something that was never going to happen, which is the defect
 **What makes the fallback safe is how NARROW the detection is.**
 `cli_update::lacks_update_verb` requires the run to have finished, to have
 failed, and to carry `unknown command 'update'` in its own output. It keys on
-that MARKER rather than an exit code because the two CLIs disagree —
+that MARKER rather than an exit code because the two CLIs disagree:
 `node-v0.8.0` routes usage errors through `fail(2, UsageError)` and exits **2**
-where `server-v0.6.0` exits **1**, both measured at the tags — so a number
+where `server-v0.6.0` exits **1**, both measured at the tags, so a number
 pinned here would have silently excluded one app. Every other failure stays a
 failure: falling back on a pane-safety refusal or a version mismatch would
 leave no `.previous` while reporting success.
 
 ## Updating the app itself
 
-`src-tauri/src/app_update.rs` and the `update` screen — a near-twin of
+`src-tauri/src/app_update.rs` and the `update` screen, a near-twin of
 `apps/server/desktop`'s, which documents the design once; read it there. What
 differs here is only what is `tauri`-typed: the tag prefix
 (`desktop-client-v`), the progress event (`node-app-update-progress`), the two
 command names (`node_check_app_update` / `node_install_app_update`, both
 `node`-window-only), and the screen, which is a React component rather than a
-DOM render. Everything with no `tauri` type in it — the endpoint, the tag
-parse, the semver pick, the manifest URL, the 24-hour schedule — is
+DOM render. Everything with no `tauri` type in it (the endpoint, the tag
+parse, the semver pick, the manifest URL, the 24-hour schedule) is
 `desktop-core`'s `release_feed`, shared.
 
 Two facts specific to this app:
 
 - **The node CLI is NOT touched by the app install itself**, which is why
   the act has a second half. Replacing this app replaces the node it BUNDLES,
-  which is a source to install FROM and is on no rung of the resolution ladder
-  — so a running `subshell` daemon keeps running `~/.local/bin/subshell`
+  which is a source to install FROM and is on no rung of the resolution
+  ladder, so a running `subshell` daemon keeps running `~/.local/bin/subshell`
   whatever lands. See "Updating is one act" below for what finishes it.
 - **The signing key is the SAME one `apps/server/desktop` pins**, because the
   two apps are one publisher and a public key is the publisher's identity
@@ -443,10 +443,10 @@ Two facts specific to this app:
   ~/.tauri/subshell-desktop.key`, the `.pub` contents committed as
   `plugins.updater.pubkey` in BOTH `tauri.conf.json` files, and two repo
   secrets: `TAURI_SIGNING_PRIVATE_KEY` (the key file's **CONTENTS**, not a
-  path — measured 2026-09-15, tauri 2.11 ignores the `_PATH` spelling) and
+  path; measured 2026-09-15, tauri 2.11 ignores the `_PATH` spelling) and
   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. **The `.key` in your password manager
   IS the backup, and losing it means every already-installed app can never
-  auto-update again** — a new key is a new publisher to those installs, and
+  auto-update again**: a new key is a new publisher to those installs, and
   the only way back is a hand download.
 
 Local cost, same as the other app: because the pubkey is configured and
@@ -457,8 +457,8 @@ unaffected.
 ## Updating is ONE act, in two phases
 
 Spec `docs/superpowers/specs/2026-09-18-one-update-act-design.md`. **This app
-SHIPS the node it drives** — every desktop bundle carries the CLI it wraps
-(root `AGENTS.md`) — so "update Subshell Client" and "update the node CLI"
+SHIPS the node it drives**. Every desktop bundle carries the CLI it wraps
+(root `AGENTS.md`), so "update Subshell Client" and "update the node CLI"
 were never independent: the second is the tail of the first. Until 2026-09-18
 they were two screens with two buttons whose names differed by a possessive,
 and the pair produced a loop that reads as a bug: update the app, and the next
@@ -467,19 +467,19 @@ again.
 
 There is one screen now, id **`update`** (`components/assistant/update-screen.tsx`,
 replacing `app-update-screen.tsx`). `app-update` is DELETED from `NodeScreenId`
-rather than aliased — this product has no installed base to keep compatible —
+rather than aliased (this product has no installed base to keep compatible),
 so the tray emits `"update"` and an id this build does not know is ignored, as
 it always was. The status screen's **"Update the node to X"** stays where it
 is, because that is the natural place to notice the node is behind, but it is
 a DOOR to this screen rather than a standalone install (§ 7.4). Beside it sits
 **"Check for updates…"**, the same door for a machine that knows of nothing
-behind — and it is HIDDEN while the first one shows, because two adjacent
+behind, and it is HIDDEN while the first one shows, because two adjacent
 buttons opening one screen under two names is the defect § 1 exists to
 remove.
 
 **The two phases are separated by the relaunch, and the marker is what crosses
 it.** `node_install_app_update` writes `pending_bundled_install` into this
-app's `settings.json` AFTER the install and BEFORE `app.restart()` — never
+app's `settings.json` AFTER the install and BEFORE `app.restart()`; never
 after, because a crash between the two must leave a machine that knows what it
 was doing. The new build reads it back, and four things about how are worth
 holding:
@@ -488,7 +488,7 @@ holding:
   `resume_decision(marker, bundled, installed)` answers install / clear / halt
   for both apps; Subshell Server then installs and restarts its service, this
   app installs and OFFERS the restart. The marker converts an offer into a
-  continuation and nothing more — whether work EXISTS is still the machine's
+  continuation and nothing more; whether work EXISTS is still the machine's
   answer, so a marker whose work was done by a hand `subshell update` in
   between is cleared without acting.
 - **It rides the PROBE** (`Probe.pendingInstall`, built by `control::resume_view`),
@@ -499,8 +499,8 @@ holding:
 - **`node_install_cli` counts and clears.** An attempt is counted before the
   install, the marker dropped after one that succeeded, so the resumed act, the
   Retry, and the status screen's door are all bounded and finishing by one
-  piece of code. `MAX_RESUME_ATTEMPTS` is 2: at the limit the marker STAYS —
-  the screen still names the update and offers Retry — and only the automatic
+  piece of code. `MAX_RESUME_ATTEMPTS` is 2: at the limit the marker STAYS (the
+  screen still names the update and offers Retry), and only the automatic
   firing stops. That is the one place this design refuses to keep trying on
   someone's behalf.
 - **`forced` never crosses into this app.** It is the marker's pane-safety
@@ -511,7 +511,7 @@ holding:
 STRUCTURAL.** `PendingInstall`, `pendingInstall` and `halted` are that app's
 spellings, adopted here on 2026-09-18 (this app said `PendingUpdateView`,
 `pendingUpdate` and `exhausted`) so a diff of the two update screens shows a
-difference in design rather than in vocabulary — they are read side by side
+difference in design rather than in vocabulary; they are read side by side
 whenever either changes. `attempts` is the field this app had first, and its
 rule is now the shared one: **an attempt is counted at the FIRE**, in
 `node_install_cli`, because an attempt is an attempt whoever asked for it.
@@ -521,18 +521,18 @@ rule is now the shared one: **an attempt is counted at the FIRE**, in
   `raisedUpdate` effect: the first probe carrying a marker sets the `update`
   override, once per launch); Subshell Server raises its own in Rust at boot.
   Ours is sound only because **`windows.rs`'s `open_at_startup` opens the node
-  window unconditionally** — the webview that reads the probe is guaranteed to
+  window unconditionally**: the webview that reads the probe is guaranteed to
   exist on every launch. That dependency is load-bearing and it is the whole
   reason no Rust-side raise was needed: make the node window conditional again
   and a relaunched update would sit unfinished behind a window nobody opened.
 - **Who clears a done marker.** `resume_view` clears it HERE, on the poll that
-  noticed — the one write that function makes. The server app's `resume_view`
+  noticed, the one write that function makes. The server app's `resume_view`
   is read-only and its boot path does the clearing, which it can be because it
   has a boot path that runs. Nothing of ours runs at boot, so the read the page
   already makes is the only place that can notice.
 
 **Phase 2 ends by OFFERING the restart** (§ 7.1), through the existing
-`commands.restart()` — which already surfaces the CLI's verbatim refusal,
+`commands.restart()`, which already surfaces the CLI's verbatim refusal,
 offers `--force` behind it and points at *Rewrite the service definition*. The
 pane-safety sentence lives THERE and not on the install: the swap is a
 `rename(2)` a running daemon never notices, so nothing about installing an
@@ -544,7 +544,7 @@ One shape in `update-screen.tsx` is a fix for a measured defect rather than a
 style: the press records the `runner.output` it saw, and a verdict is read only
 once a DIFFERENT one arrives. `runner.run`'s `isPending` does not land in the
 same commit as the press, so an effect guarded on `busy` alone ran once with
-the previous action's output still in place — and read the node install's
+the previous action's output still in place, and read the node install's
 success as the restart's, retiring the offer nobody had taken.
 
 **It is a SELECTION, not always both halves** (§ 13, 2026-09-18). One act is a
@@ -552,17 +552,17 @@ simplification exactly while the two halves point the same way; when they
 diverge it is a claim about the machine that is wrong. They diverge whenever
 somebody installs a `subshell` by hand that is NEWER than the one this bundle
 ships: `decide_node` ADOPTS it (it never downgrades), so phase 2 would answer
-`Resume::Clear` and install nothing — while the screen named that newer version
+`Resume::Clear` and install nothing, while the screen named that newer version
 as a target it would be replaced by, and the press promised the install
 underneath it. Reported against Subshell Server; identical here.
 
-So the screen is a table — component, what it runs, what it would become, and a
+So the screen is a table: component, what it runs, what it would become, and a
 checkbox where there is something to do. Four rules, each closing one of the
 defects above:
 
 - **The table is all-or-nothing.** Where nothing is in question there are no
-  rows at all — that is this app's "everything is current", and what
-  `upToDate` and `settled` read — and where anything is, BOTH components are
+  rows at all (that is this app's "everything is current", and what
+  `upToDate` and `settled` read), and where anything is, BOTH components are
   stated. Asked as two separate gates it could drop a component from a table
   its sibling had opened (review, 2026-09-18): an air-gapped check beside a
   current node said nothing about the node, a current app beside a behind
@@ -571,16 +571,16 @@ defects above:
   same rule with one.
 - **A row with an available act carries a checkbox, ticked by default**, so
   both halves behind is still ONE press. That default is D1 unchanged.
-- **A row with no available act states WHY where its checkbox would be** —
-  *runs another binary*, *you run a newer one*, *this build does not say which
-  node it ships*, *up to date*, *cannot be checked* — and **never a disabled
+- **A row with no available act states WHY where its checkbox would be**
+  (*runs another binary*, *you run a newer one*, *this build does not say which
+  node it ships*, *up to date*, *cannot be checked*), and **never a disabled
   checkbox**, which says "not now" without saying anything. (*installs with the
   app* was one of these until 2026-09-18; that row is a checkbox now, and its
   target cell is what says so.)
 - **Both halves are checkboxes, on either footing.** Under an app press the
-  node half is that act's TAIL — the node that lands is the NEW bundle's,
+  node half is that act's TAIL (the node that lands is the NEW bundle's,
   whose version this build cannot know, so the cell reads "ships with the new
-  app" rather than a number — but it is still a choice: clearing it makes
+  app" rather than a number), but it is still a choice: clearing it makes
   `node_install_app_update(install_node: false)` write NO marker, so phase 2
   never runs and a deliberately older `~/.local/bin/subshell` survives the app
   update. Untick the app instead and the node row becomes an act of its own,
@@ -589,8 +589,8 @@ defects above:
   It was not a choice until review on 2026-09-18, and the reason recorded for
   that is worth keeping as a warning: "the marker carries no selection" was
   true of the command as written and was filed as a structural fact. Subshell
-  Server had already disproved it — it makes the marker's PRESENCE the
-  selection — so what the sentence actually described was one missing boolean.
+  Server had already disproved it (it makes the marker's PRESENCE the
+  selection), so what the sentence actually described was one missing boolean.
 - **Every sentence promising the node half reads off `pressInstallsNodeCli`**,
   including the air-gapped refusal's "can still be installed". A promise that
   outlives the half it describes is the defect, not the act.
@@ -605,13 +605,13 @@ absence.
 The same amendment added one refusal that is not cosmetic: a marker on a
 machine running a NEWER node is dropped here as well as in Rust, because
 § 13.2 forbids installing an older bundled CLI over a newer installed one under
-any consent — and an auto-firing marker is a consent given before the machine
+any consent, and an auto-firing marker is a consent given before the machine
 was in that state.
 
 Everything with a contract rather than a rendering is `lib/update-act.ts`:
 which rows the screen states, which of them carry a checkbox and which carry a
 reason, which phase it is in, which halves are refused and what the press says
-it will do. It is mirrored, not shared, with the server app's — one is React
+it will do. It is mirrored, not shared, with the server app's: one is React
 and one is vanilla DOM, exactly as the tmux screens are, and a diff between
 them is the drift signal.
 
@@ -620,7 +620,7 @@ them is the drift signal.
 `permissions/desktop.toml` is the app's ACL manifest and it is load-bearing **by
 existence**, not only by contents: Tauri gates an app command when
 `plugin_command.is_some() || has_app_acl_manifest || !is_local`. Delete it and
-every command becomes ungated for every local window — which now matters
+every command becomes ungated for every local window, which now matters
 concretely, because there are two windows and only one of them may drive the
 CLI.
 
@@ -628,7 +628,7 @@ Command names live in that file and in `capabilities/node.json`. Changing one
 without the other produces a command that is refused at runtime with a message
 about permissions, not a compile error. `ui/src/__tests__/ipc-acl.test.ts`
 reads both files and the invocations in `ui/src/lib/ipc.ts`, and fails on any
-three-way mismatch — add the command in all three or the test names the one
+three-way mismatch: add the command in all three or the test names the one
 you missed.
 
 **Two commands arrived with the first run** (spec 2026-09-18), both granted to
@@ -636,11 +636,11 @@ the `node` window alone:
 
 - **`node_install_tmux`** installs tmux, so this app can offer what Subshell
   Server always could. The table it runs is `crates/desktop-core`'s
-  `tmux::install_argv` — SHARED with the server rather than copied, which is
+  `tmux::install_argv`, SHARED with the server rather than copied, which is
   why the argv lives in the crate and not here: brew on macOS (nothing
   runnable without it), `pkexec apt-get` on Linux (never a bare `sudo`, which
   from a GUI has no tty and hangs to the timeout). The install is streamed
-  through a `LineSink`, `emit_to` the NODE window — not a broadcast, because
+  through a `LineSink`, `emit_to` the NODE window, not a broadcast, because
   this app's other window is a control plane's own page and a package
   manager's output is not its business. (This bullet said the sink was a no-op
   "because its tmux screen listens for nothing"; that stopped being true when
@@ -649,8 +649,8 @@ the `node` window alone:
 
   **A failed install is a state the screen renders** (2026-09-18, spec
   `2026-09-17-zero-touch-desktop-setup-design.md` § 11): `tmuxInstallFailure`
-  in `lib/copy.ts` — mirrored from the server app beside `manualTmuxRoutes`,
-  so a diff between the copies is the drift signal — forks on the result AND
+  in `lib/copy.ts` (mirrored from the server app beside `manualTmuxRoutes`,
+  so a diff between the copies is the drift signal) forks on the result AND
   on whether tmux turned up, because an install that exits ZERO and leaves
   none was indistinguishable from a button nobody had pressed. It matters more
   here than there: the runner's generic failure line is "That did not work.
@@ -658,39 +658,39 @@ the `node` window alone:
   to point at, so a failed install said nothing at all. The card carries the
   app's own headline, the manager's last word and both streams behind Show
   output; the button relabels to **Try again**, and `NodeCommands.installTmux`
-  re-probes before it spawns anything — the poll is paused while an action is
+  re-probes before it spawns anything: the poll is paused while an action is
   in flight, so someone who fixed the machine in a terminal is pressing that
   button to say "look again". A tmux found there returns without spawning, and
   the screen leaves by itself as it always did.
 - **`node_plane_add`** remembers a control plane WITHOUT opening anything.
   It exists because `node_open_plane` does both, and the first run's connect
-  step must do only the first — a dashboard that appears mid-setup is the
+  step must do only the first: a dashboard that appears mid-setup is the
   defect that whole flow removed. Its pair `node_plane_remove` Errs on a row
   that is not stored (the page names only rows it renders; silence would
   lie); both compute through pure `plane_list_*` helpers that canonicalize,
   dedupe, and refuse the node's own address, because that address renders as
   the pinned row and two rows for one plane is what the pinned row exists to
-  prevent. `node_set_plane` — the single-address ancestor — is GONE with the
+  prevent. `node_set_plane`, the single-address ancestor, is GONE with the
   plane-list ruling below.
 
 `node_service` also gained `autostart` beside `force`. It has two jobs and no
-others: on `install`, `false` spells `--no-autostart` — the flag that installs
-and runs the service but does not arm login start; on the `autostart` VERB
-(rails addendum, 2026-09-22 — the day-2 login toggle the server's supervision
+others: on `install`, `false` spells `--no-autostart` (the flag that installs
+and runs the service but does not arm login start); on the `autostart` VERB
+(rails addendum, 2026-09-22: the day-2 login toggle the server's supervision
 screen always had), the boolean IS the request and spells the CLI's two-word
 `service autostart on|off`. The Rust side passes the flag on `install` and the
 word on `autostart` and refuses both anywhere else, exactly as it refuses
 `--force` outside `restart`: the CLI's flag allowlists are per-subcommand, so
 the wrong pairing is a usage error rather than a no-op. The probe surfaces the
 service's answer `autostart` the way it surfaces the whole `service status
---json` body — verbatim, an untyped passthrough — so no Rust field could
+--json` body (verbatim, an untyped passthrough) so no Rust field could
 disagree with the CLI's, and an agent too old to answer it reads through
 `enabled`, the same fact every agent has always reported.
 
 ## The node page is an assistant
 
 One screen at a time, each asking exactly one question, in the same frame
-Subshell Server's setup assistant uses — so the two apps read as one product
+Subshell Server's setup assistant uses, so the two apps read as one product
 (spec 2026-09-12 § 6.4). It was seven stacked cards that showed everything at
 once and asked nothing in particular.
 
@@ -698,40 +698,40 @@ once and asked nothing in particular.
 2026-09-18). It answered "which screen does this machine imply", and the first
 run needs the question that comes BEFORE that one: what did this person come
 to do. `clientScreen({probe, settings, step, override})` answers both, in that
-order — nothing read yet ⇒ `null`; a screen the user asked for; the in-memory
+order: nothing read yet ⇒ `null`; a screen the user asked for; the in-memory
 walk (`FteStep`), which outranks the next rule because enrolling settles an
 address mid-chain; a CONFIGURED client ⇒ **status**; a half-built machine ⇒
 **register**; otherwise **welcome**. `lib/node-assistant-state.ts` keeps the
-vocabulary — `NodeScreenId`, `screenTitle`, `serviceAction` — and no longer
+vocabulary (`NodeScreenId`, `screenTitle`, `serviceAction`) and no longer
 decides anything. There is ONE router, deliberately: two functions answering
 "which screen" is how they come to disagree.
 
 **The rail is for the standing screens, and only for a settled machine**
-(wave 3 and its follow-ups; the same rulings the server wave carried —
+(wave 3 and its follow-ups; the same rulings the server wave carried, by the
 operator, 2026-09-22). `railFor(screen, settled)` in `lib/client-flow.ts` is
-the rule as data: the six sections — **Control Plane**, **Status**,
+the rule as data: the six sections **Control Plane**, **Status**,
 **Service**, **Update**, **About**, **Reset** (destructive, styled in the
-destructive token) — appear only when the machine is settled (`configured()`
+destructive token) appear only when the machine is settled (`configured()`
 and no `FteStep` in progress) and the screen is one of the standing kinds,
 and they answer `null` for every step of the FTE walk, for the focused act
-(re-enroll, the same kind of moment) and for the not-read state — and for
+(re-enroll, the same kind of moment) and for the not-read state, and for
 any standing screen while the machine is NOT settled, because the exclusion
 is about the machine's journey, not about who asked: the tray can raise
 About mid-walk, and that render keeps its Back. A select is the navigation:
 every select sets its override now (see the landing ruling below). Reset's
 CONFIRMATION rides the rail (operator ruling 2026-09-22, final word on the
 reset layout, superseding the frame-replacing premise for the confirmation
-(now itself superseded — see the dialog addendum below):
-the sidebar was being lost today and that is not wanted) — the room is the
+(now itself superseded; see the dialog addendum below):
+the sidebar was being lost today and that is not wanted); the room is the
 RUNNING chain: from the confirm press to the chain's end, reset-screen.tsx
 hides the rail off the runner's busy and renders no exit, and no navigation
 sits beside a chain that is deleting this machine's node. The press itself
-STAYS through the chain, disabled and labelled "Resetting…" — the bar
+STAYS through the chain, disabled and labelled "Resetting…"; the bar
 emptying the moment the one irreversible button is pressed reads as a hung
 window, not a running chain. That is the server room's busy affordance; the
 server can also draw its step meter, and this app has no step events to draw
 one from, so the label is the whole of it here. There is NO CANCEL
-where the rail is present (operator ruling 2026-09-22, screenshot 59) — the
+where the rail is present (operator ruling 2026-09-22, screenshot 59): the
 rail is the way out of the confirmation, and the room keeps no Cancel
 regardless; the not-registered refusal reads "This machine is not registered
 with a control plane." and the subtitle is "Removes the machine's Subshell
@@ -740,34 +740,34 @@ screenshot); and where the rail
 is up, the standing
 screens' own leave buttons (About's and Update's Back) render only where the
 rail does not. The tray's `desktop-screen` events select their section by
-the same override state — no new command.
+the same override state: no new command.
 
 **The status screen keeps machine state, not the node's machinery** (the
 follow-up rulings, 2026-09-22, live screenshots). What moved out of it and
 where: the node's install offer (the bordered card titled **Register as a
-node** — addendum 3, the operator's exact words; the explainer sentence pair
-is DELETED, a later ruling the same day — the button speaks for itself, and
+node**, addendum 3, the operator's exact words; the explainer sentence pair
+is DELETED, a later ruling the same day; the button speaks for itself, and
 it reads **Install the Subshell Node CLI**; the disabled-no-bundled case
 keeps the title and shows only its sentence), its
 refusal for a CLI that cannot state its own status, the contextual service
-verbs, the pane-safety rewrite door and the unrecognised-state card — all to
+verbs, the pane-safety rewrite door and the unrecognised-state card, all to
 the **Service** section, whose subtitle carries the "what is a node" half the
 explainer dropped (the node's reveals joined them on 2026-09-22, left with
 the bar, and came back onto Status's OWN fact rows on the same day's second
-round — misplaced, not surplus); the
+round, misplaced, not surplus); the
 configured plane address, the way to change it, "Open in browser instead",
 and the node's own view of the same server (its repoint machinery, the
-loopback notice and the coherence card) — all to the **Control Plane**
+loopback notice and the coherence card), all to the **Control Plane**
 section, which shows the address labeled rather than narrating "This app
 opens <url>". **Re-enroll…** moved there too, later the same day (operator
 ruling 2026-09-22): overwriting `config.json` and minting a second node row
 is an act on this machine's relationship to the plane, not on the machine
 itself, and the enroll screen's confirm gate is unchanged. **Register this
 machine** moved to the Service section beside the install offer (later the
-same day, screenshot 60, the node's machinery home) — same handler, same
+same day, screenshot 60, the node's machinery home); same handler, same
 walk entry, its override-clearing wiring re-traced to the new screen, the
 card titled **Enroll this machine as a node** (the operator's exact words,
-the one card-title style) with its long blurb deleted — so the status
+the one card-title style) with its long blurb deleted, so the status
 screen offers NO act at all. The node-behind
 doors the status screen carried ("Update the
 node to X…", "Check for updates…") are GONE: the Update section is the door,
@@ -777,37 +777,37 @@ the facts render INLINE (no disclosure) on the STATUS screen ALONE
 scoping: one list, one panel, the `bundled` and `tmux` rows back in). A
 screen that needs a fact to explain a state says it in its own card's
 sentence; the CLI's last words render as the output block on the screen
-that owns the action, and the config fact's value is PLAIN LANGUAGE —
+that owns the action, and the config fact's value is PLAIN LANGUAGE:
 "Not enrolled. Go to Service to enroll." for the enroll-pointing reason,
-"The node's configuration could not be read." for any other — the raw CLI
+"The node's configuration could not be read." for any other; the raw CLI
 words render only as an action's failure output. Unregister is not a link on the status
-screen — the rail's Reset item is its ONLY entry (one act, one door, one
+screen; the rail's Reset item is its ONLY entry (one act, one door, one
 label), and since the dialog ruling that item opens the confirmation over
 the standing section instead of selecting one. There is no Refresh button
 anywhere: the probe query re-reads the machine on its own five-second interval
-(operator ruling, 2026-09-22) — the poll is the refresh.
+(operator ruling, 2026-09-22): the poll is the refresh.
 
 **The output block travels with the screen that owns the action** (operator
 ruling 2026-09-22, extending the same day's opens-record-nothing rule). An
-OPEN records no receipt — the window or browser opening is the feedback —
-and an instantaneous save records none either; the runner output's remaining
+OPEN records no receipt (the window or browser opening is the feedback), and
+an instantaneous save records none either; the runner output's remaining
 job is LONG actions' CLI words and FAILURES. What is recorded renders only
 on the screen the action was pressed on: `App` tags each outcome with its
 screen at press (`useActionRunner`'s `onRun`) and gates the render, so the
 reset screen never shows another action's line. The Update screen's own
 watch-verdict reads the raw runner output, which is why the rule gates the
 render rather than the record. **Every screen that renders the block is
-gated** — the fix wave (2026-09-22) found Service and Control Plane still
+gated**: the fix wave (2026-09-22) found Service and Control Plane still
 handing it the raw `runner.output`, a half-gated state where Service's Start
 answer followed the person onto the plane cards while the explaining failure
 line stayed honest. And a SUCCESSFUL enroll records no visible receipt under
 the same ruling: the enroll screen unmounts on success, its words render
-nowhere, and the status facts ARE the proof — the opens-record-nothing
+nowhere, and the status facts ARE the proof, the opens-record-nothing
 precedent, not an oversight; no handoff mechanism exists or is wanted.
 
 **The doors rearranged the same day, twice** (operator rulings 2026-09-22,
 screenshots 52/53 and a superseding addendum). The FINAL state: the status
-screen carries NO door at all — anything that opens the control plane lives
+screen carries NO door at all: anything that opens the control plane lives
 on the Control Plane section alone, under a **Dashboard** card with both
 doors, **Open in browser** (`node_open_plane_url`, the system browser) and
 **Open in app** (`node_open_plane`, the in-app window at the re-read settled
@@ -817,21 +817,21 @@ Plane | Status | Service | Update | About | Reset, and because "clear the
 override" no longer meant "show Status", EVERY rail select is an override
 now, Status included. The plane address row is the server Addresses card's
 form shape (screenshot 53: the one-line value with its buttons beside it
-wrapped the URL character-broken) — since addendum 4 a bordered CARD
+wrapped the URL character-broken); since addendum 4 a bordered CARD
 labeled **Control plane URL** (the operator's exact words) holding the value
 and the acts (Change server…, Re-enroll…), with the Dashboard card below
 it. The `no-node` badge
 reads **Not registered as a node** (house sentence case, over the operator's
 typed capital-N), and the status screen's "This machine is not a node yet…"
-sentence is DELETED — the badge already says what the machine is not. The
+sentence is DELETED: the badge already says what the machine is not. The
 plane-coherence notice leads with the conflict now (review, 2026-09-22):
 "This machine's node reports to <node>, not <plane>.".
 
 **Service joins the server's layout, and the badge joins the header** (the
 same day's follow-up, rails addendum: "consistency in offering and UI").
 The Service section now offers what Subshell Server's Service offers, adapted
-to a node: the arrangement stated as one card — **In the background**, naming
-no manager — the run-at-login switch nested under it
+to a node: the arrangement stated as one card (**In the background**, naming
+no manager), the run-at-login switch nested under it
 ("Start automatically on startup"). The named thing is the **Subshell
 Node Service** (the server app: the **Subshell Server Service**), and the
 card STATES THE CURRENT CONDITION ("Currently the Subshell Node Service
@@ -841,20 +841,20 @@ question keeps its shorter "Start at login": the walk's own wording stands).
 For an installed service come the lifecycle verbs (Start when it is down,
 Stop and Restart when it is up with the pane-safety force flow unchanged,
 Uninstall confirmed in its own words), and the install-service door for a machine whose
-node CLI is installed but whose service is not — driven by the definition,
+node CLI is installed but whose service is not, driven by the definition,
 not only the step word, so no enrolled "nothing installed" answer can miss it.
 Node-specific differences stay: there is no app-managed-child supervision
 choice, because this app does not supervise its node that way. The two
 bottom-bar **reveals are gone from the bar** ("feels out of place... remove
-them") — and round two (same day) put the affordance back where the server's
+them"), and round two (same day) put the affordance back where the server's
 has always sat: inline on the Status fact rows whose value IS a path, with
 `node_open_path` restored unchanged, permission included, as one atomic ACL
 commit. On both standing screens the
 STATE BADGE reads in the Frame header between the title and the subtitle:
 the client's `Frame` grew an optional `badge` slot; the shared package Frame
 is untouched, because the server's Status section has no badge to move. The
-switch is only honest because the node CLI gained the verb behind it — see
-`apps/node/agent/AGENTS.md`, "service autostart" — and it is gated on that
+switch is only honest because the node CLI gained the verb behind it (see
+`apps/node/agent/AGENTS.md`, "service autostart"), and it is gated on that
 verb: an agent older than `0.15.0` can READ the state (it has answered
 `enabled` forever) but cannot WRITE it, so the switch shows the answer
 greyed with "Currently the installed version cannot change this. Updating
@@ -864,7 +864,7 @@ sentence for its gate). Where neither `autostart` nor `enabled` answered,
 the switch greys showing no guessed value, the help line stays empty, and
 the card itself carries the fact: "Whether it starts on startup is not
 reported." The switch's help states the CURRENT condition in every state it
-can speak — armed, disarmed, too-old — operator ruling 2026-09-22: the card
+can speak (armed, disarmed, too-old). Operator ruling 2026-09-22: the card
 says what is, the toggle says what flipping it changes.
 
 **Control Plane became a list, and the node's binding moved to Service** (the
@@ -873,21 +873,21 @@ cards, the Dashboard card's two doors and where Re-enroll… lives: "the
 control plane section is for connecting to other control planes, not
 necessarily tied with the node"). The section is a BARE TABLE, not a card:
 the node's own address renders as a PINNED first row badged **this node**
-(`probe.status.serverUrl` — a probe fact Rust refuses to store as an entry),
+(`probe.status.serverUrl`: a probe fact Rust refuses to store as an entry),
 stored addresses below it. Pressing a row IS the dashboard door; the `⋮` opens
-a real ACTION MENU — Open in dashboard, Open in browser, Copy URL, Remove — positioned
+a real ACTION MENU (Open in dashboard, Open in browser, Copy URL, Remove) positioned
 BY CLASS (`absolute right-0 top-full` in the row's own `relative` box) at a
 FIXED width, which the CSP permits even though it outlaws the style attributes
 a measuring popper writes. Both rulings of constraint came from the live
 window the same hour: the auto-width panel sized itself to the ROW rather
 than its labels once the `w-full` items counted in ("why is the action menu
 so wide"), and button-sized items made the panel read oversized (items are
-the dense menu scale — `h-7`, `font-regular`, `text-detail` — shorter than
+the dense menu scale: `h-7`, `font-regular`, `text-detail`, shorter than
 the app's smallest button). Escape and an outside press dismiss it, one is
 open at a time, and `ipc-acl`'s argument pins keep every plane command to the
 one argument: the address. The pinned row's menu holds the SAME opens plus
-Copy URL ("what about open in browser?" — to connect, it is a plane like any
-other), no Remove, and no sentence explaining the absence either — but the
+Copy URL ("what about open in browser?": to connect, it is a plane like any
+other), no Remove, and no sentence explaining the absence either, but the
 ROUTE stayed as a plain **Go to Service** item ("what happened to going to
 the Service section": the explanatory note was deleted the same hour
 Un-enroll… stood up there; the pointer to it survived as one item, because
@@ -896,11 +896,11 @@ is the `CopyButton` affordance in text form: the menu's dismiss is the
 success flash, and a refused clipboard keeps the menu open and renames the
 item rather than flashing nothing. The add is the frame's bottom bar in the bar's
 own grammar: opener primary-right. The FORM is a dialog (the audit's last
-inline pane), Add its primary, Cancel its ghost, Enter submits — and like
+inline pane), Add its primary, Cancel its ghost, Enter submits, and like
 every save after it the dialog CLOSES on submit, because the refetched list
 underneath is the entire validation and dedupe feedback and a modal that
 stays open says nothing. `plane-coherence.ts` was deleted with the
-two-address state it existed to detect — the pinned row IS the notice — and
+two-address state it existed to detect (the pinned row IS the notice), and
 the Status subtitle now states the MACHINE ("This machine is a node of
 <url>." / "This machine is not a node."), because a watcher has many planes
 and none of them is current. `settings.plane_url` became `planes:
@@ -914,8 +914,8 @@ only ever fed a `debug_assert`. FTE Connect retargeted to `addPlane`.
 the address, the enroll-time loopback notice that moved with it, **Re-enroll…**
 and **Un-enroll…**, the destructive half. Re-enroll… is the ENROLLMENT
 WIZARD's door (operator ruling 2026-09-22, an hour after the dialog wave:
-"Re-enroll should go through the enrollment wizard") — it opens the same walk
-the Register card opens, seeded with the current address — and the bespoke
+"Re-enroll should go through the enrollment wizard"); it opens the same walk
+the Register card opens, seeded with the current address, and the bespoke
 free-form repoint field it displaced went all the way down with its
 `node_configure` command, from `ipc.ts` to the capability file. Re-enrolling
 IS enrolling again: it spends a setup key and mints a fresh node row, and the
@@ -923,29 +923,29 @@ guard against overwriting a live config is the walk's own two-phase confirm,
 not a second gentler surface that taught the cheap CLI act (`subshell
 configure --server`, still a CLI verb, now one this app never calls) is what
 the button does. The two are deliberately SEPARATE commands (operator, same
-day: "let's keep them as separate commands") — Uninstall on the background
+day: "let's keep them as separate commands"): Uninstall on the background
 card keeps its narrower meaning even though the un-enroll chain happens to
 tolerate a machine with no service. Its confirm states the orphans ("Subshells that are still running keep
 running, but nothing will manage them." / "The control plane keeps its node
 row until its owner deletes it there."); accepting makes ONE `node_unenroll`
-call, whose chain is Rust's — stop, uninstall the definition (each tolerating
+call, whose chain is Rust's: stop, uninstall the definition (each tolerating
 "nothing installed" so a Retry converges), then the node CLI's new
 `unenroll --yes --json`. The order is the safety property: a kept definition
 respawns a daemon against a deleted config, so the definition goes first; the
-chain deliberately carries NO copy of the reset's tmux-kill half — panes
+chain deliberately carries NO copy of the reset's tmux-kill half: panes
 outliving their node is this product's design, and the confirm is where that
 truth is read, not discovered. The card is gated on the verb existing
 (`lib/unenroll-gate.ts`, `MIN_UNENROLL_NODE_VERSION = "0.15.0"`, the
 autostart gate's twin over the shared `lib/semver.ts`): an older agent would
 have its service stopped, its definition uninstalled, and only THEN answer
-`unenroll` with a usage error — unmanaged and still enrolled.
+`unenroll` with a usage error, unmanaged and still enrolled.
 
 **The press narrates its own button** (two more live-window rulings of the
 same hour: "when clicking restart, there should be a spinner saying
 restarting. same with the stop / start button", and "when restarting this
 additional message occurs, can we remove it"). The runner carries the
 in-flight submission's `label` (`start`, `stop`, `restart`, `uninstall`,
-`unenroll`, `rewrite` — set at the `runner.run` call), and the button
+`unenroll`, `rewrite`: set at the `runner.run` call), and the button
 wearing that label shows a spinner and the progressive word; the row's other
 buttons keep their plain words even while disabled, so what is waiting is
 never ambiguous. `accept()` carries the label through a confirmation, so the
@@ -956,11 +956,11 @@ does not END when the CLI returns: the runner's `confirmStarted` re-reads
 the probe until the node is ONLINE, or until `START_CONFIRM_MS` (30 s) says
 it is not coming within the window, so the spinner means exactly "confirmed
 started or unable to start" (ruling, same window: "keep it spinning /
-disabled until it's confirmed started or unable to start" — measured, a
+disabled until it's confirmed started or unable to start"; measured, a
 throttled launchd kick takes 10–30 s and the CLI returns instantly).
 `stop` keeps the bounded settle; its answer is the absence and it arrives
 fast. While a starting act runs, the header state chip wears the act's word
-too ("why does it say online while it's restarting?") — the probe's last
+too ("why does it say online while it's restarting?"): the probe's last
 read is stale for seconds on purpose (its online verdict is heartbeat
 freshness, which outlives the kill signal, and the manager's exit timeout
 outlives the click), so repeating it mid-restart reads as a lie; the chip
@@ -974,19 +974,19 @@ probably be written as a yellow warning"), on a probe that is no longer
 anyone's in-flight press. No timer of ours narrates the hush's end: the
 probe's own poll re-renders the quiet away. STOPPED keeps no sentence at all
 (later ruling the same night: "just remove this, the badge already shows the
-status" — the chip reads "Service stopped" and the sentence said it twice);
+status"; the chip reads "Service stopped" and the sentence said it twice);
 OFFLINE keeps its pair because it names a disagreement the chip cannot show,
 and NO-SERVICE's because the sentence stands beside the door that ends it.
 And a SUCCESS on this section
 leaves no receipt line (same hour's ruling, on the "subshell restarted."
 block: "just remove it, the user won't notice it anyways"): the card
 rendering `ActionOutput` gates on `output?.ok === false`, so refusals still
-answer verbatim in the monospace block and successes say nothing — the
+answer verbatim in the monospace block and successes say nothing; the
 runner still RECORDS the success, because the Update screen's verdict watch
 reads that record; the Service section just declines to show it. (This is
 also why the confirm wait refetches BEFORE its first cache read: the cached
 probe is the pre-kick machine, and checking it first returned the wait
-instantly — the live window called that out as the old bug back.)
+instantly; the live window called that out as the old bug back.)
 
 **Confirmations answer in a dialog now** (operator ruling 2026-09-22: "use a
 dialog when it comes to user confirmation … rather than rendering another
@@ -994,17 +994,17 @@ pane in the panel", then the audit ask). The audit's answer is ONE mount
 point, so the change is one component: every confirmation the app raises is a
 runner `asks()` outcome, every `asks()` outcome renders through
 `ConfirmPanel` at the single `shell.confirm` slot in `app.tsx`, and
-`ConfirmPanel` is now the app's own `Dialog` (`components/ui/dialog.tsx`) —
+`ConfirmPanel` is now the app's own `Dialog` (`components/ui/dialog.tsx`),
 a class-positioned fixed overlay with no measuring popper, so the CSP note
 in `confirm-panel.tsx` still holds (style ATTRIBUTES are outlawed; classes
 are not). Escape and a backdrop press ARE the cancel; the accept keeps its
 weight on the right. The dialog is labelled, which is what keeps an accept
 button that shares its words with the button behind it ("Enroll this
-machine") tellable apart by both a screen reader and a test —
+machine") tellable apart by both a screen reader and a test:
 `confirmPanel()` scopes to `role=dialog` now. Reset followed within the
 hour: the rail keeps its **Reset** item and pressing it opens **Reset
-everything?** as a dialog over whatever section stands — paths, the five
-disclosures, and the typed-hostname gate all inside it — and it is a DOOR,
+everything?** as a dialog over whatever section stands (paths, the five
+disclosures, and the typed-hostname gate all inside it), and it is a DOOR,
 not a section: it overrides nothing and activates nothing in the rail, so
 the standing screen keeps its highlight underneath. While the chain runs the
 dialog cannot be dismissed (Escape and backdrop inert, Cancel disabled, the
@@ -1016,9 +1016,9 @@ subtitles; `CLIENT_RAIL_SECTIONS` keeps the danger entry as the door).
 
 Three screen ids went with it, and their absence is the design.
 **`connected`**, **`service`** and **`install-agent`** were the probe-derived
-landings; their content is distributed across the rail now — the service
+landings; their content is distributed across the rail now: the service
 verbs on **Service**, the split that decides whether
-registering may be offered at all on **Status** (below) — and the configured
+registering may be offered at all on **Status** (below); the configured
 client lands on **Control Plane** (operator ruling 2026-09-22, second
 addendum; it was `status` until that afternoon). A screen nothing can
 route to is not a recovery path; it is dead code that reads like one.
@@ -1028,7 +1028,7 @@ An address no longer comes first, either, and that reversal is load-bearing:
 because the walk ends at Register and Register on a node mints a second node
 row and discards its node key. Screens a person ASKS for rather than states
 a machine implies (re-enrol, reset, plus about and update) arrive as the
-`override` — and since the landing moved to Control Plane, EVERY rail select
+`override`, and since the landing moved to Control Plane, EVERY rail select
 is an override too, Status included, or a Status select would clear the
 override and land on Control Plane with Status highlighted nowhere. `update`
 is the one the MACHINE may also raise: an app update left a marker, and the
@@ -1038,7 +1038,7 @@ process that boots into it opens the screen once per launch to finish the act
 **`no-node` reads two ways, and status must keep them apart.** The Rust side
 folds "nothing on the ladder answered" and "a binary answered `version` but not
 `status --json`" into one step on purpose (control.rs says why). Where nothing
-answered, installing is safe unconfirmed and is offered ON ITS OWN — not folded
+answered, installing is safe unconfirmed and is offered ON ITS OWN, not folded
 into Register, because a machine with no node cannot say whether it is already
 a node and the register chain enrols with `confirm: true`. Where a binary
 answered but could not report, NOTHING is offered: the remedy is a different
@@ -1058,29 +1058,29 @@ What the shape changed, and why:
   still the only reader of the probe's shapes; only where it renders moved.
 - **Stop and Uninstall left the app, then came back.** Restarting a node is a
   control-plane action too (spec 2026-09-12 § 6.3, `POST /api/nodes/:id/restart`),
-  and Reset tears everything down — but the rails addendum (2026-09-22,
+  and Reset tears everything down, but the rails addendum (2026-09-22,
   server parity) put the full lifecycle back on the Service section: an
   installed service that is running gets Stop, Restart and Uninstall there,
   one that is down gets Start. The pane-safety rule is unchanged: Restart is
   still the two-phase refusal read before `--force`, Uninstall still names
-  its cost before it runs, and the one REMEDY the refusal names by label —
-  rewriting a definition that would SIGKILL live panes — is still a card of
+  its cost before it runs, and the one REMEDY the refusal names by label,
+  rewriting a definition that would SIGKILL live panes, is still a card of
   its own because the confirmation points at that button.
 - **There is ONE word for where you are, on both platforms** (operator's call,
   2026-09-12): "This Machine" in a title, "this machine" mid-sentence. The
   `darwin ? "this Mac"` split is gone from titles AND subtitles, and
   `screenTitle`/`subtitleFor` take no platform argument at all. The macOS feel
-  this assistant is after comes from its SHAPE — one decision per full-window
-  screen, fixed bar positions, screens that ask nothing never appearing — not
+  this assistant is after comes from its SHAPE (one decision per full-window
+  screen, fixed bar positions, screens that ask nothing never appearing), not
   from its vocabulary, and the split cost a branch, a test matrix on every
   string, and one real misreading: a label ending on "Mac" is a prefix of the
   other platform's own word and was reported as a truncated layout bug. A
-  genuine platform FACT still branches — which tmux installer to name
-  (`TMUX_INSTALL_CMD`), launchd versus systemd — because that is a difference
+  genuine platform FACT still branches: which tmux installer to name
+  (`TMUX_INSTALL_CMD`), launchd versus systemd, because that is a difference
   in what the user must do, not in voice.
 - **The About footer is ONE LINE** under the bottom bar. It still owns no
-  strings — `node_about`, so the facts live only in
-  `crates/desktop-core/src/legal.rs` — but the colophon it used to render
+  strings (`node_about`, so the facts live only in
+  `crates/desktop-core/src/legal.rs`), but the colophon it used to render
   competed with the one question each screen asks. It also sets
   `retryOnMount: false`: swapping screens remounts the footer, and a failed
   read of a compiled-in constant has nothing to retry for.
@@ -1097,27 +1097,27 @@ by any of that:
   an inline Reveal on each path fact, naming an intent for Rust to
   re-resolve from its own fresh probe. Round two restored the whole surface
   unchanged and moved the buttons onto Status's `config file` and `logs`
-  rows — restore and grant are ONE commit, command + permission +
+  rows: restore and grant are ONE commit, command + permission +
   capability + pin, the same atomicity rule from the other direction. A
   hint row reveals nothing: on Linux there is no file to reveal, and the
   `journalctl` sentence IS the remedy, rendered on the facts row and on the
   Service screen's offline card.
 - **`node-log` resolves the node's OWN capped file first**, on every
-  platform (2026-09-18) — `~/.config/subshell/logs/agent.log`, the same
+  platform (2026-09-18): `~/.config/subshell/logs/agent.log`, the same
   JSON-lines file the plane's node log view serves, so the path the facts
   list names and the log a browser reads cannot be two different documents. That is
   the order `apps/server/desktop`'s `desktop_logs` reads the server's log in,
   for the same reason. The service manager's redirect is the FALLBACK and a
   genuinely different artifact: `~/Library/Logs/subshell.log` holds the raw
   stdout of a node that died before opening its own file (Linux has no such
-  file — the unit redirects nothing, so the fallback is the journal sentence).
+  file: the unit redirects nothing, so the fallback is the journal sentence).
   A rung counts only when it has CONTENT, not merely when it exists, because
-  the capped writer truncates to zero and starts over — the same rule
+  the capped writer truncates to zero and starts over, the same rule
   `server_log_tail` follows. `node_log_paths_from` takes its two roots and a
   content predicate so the ORDER is tested without a machine in a particular
   state.
 - **The Status section's Node log pane (round two, 2026-09-22).** A group
-  heading over a scroll-stick `pre`, fed by the new `node_logs` command —
+  heading over a scroll-stick `pre`, fed by the new `node_logs` command,
   ARGUMENT-LESS, like the server's `desktop_logs`: Rust locates the file
   through the same `node_paths` the probe reports (so a page can name no
   file), renders the capped JSON-lines to `HH:MM:SS level message` with
@@ -1129,14 +1129,14 @@ by any of that:
   because structural sharing hands an unchanged machine the same data
   reference and a fast poll even the same-millisecond timestamp
   (both measured). What is deliberately NOT ported from the server's
-  StatusDetails: its "Last action" pane — this app's output-ownership
+  StatusDetails: its "Last action" pane; this app's output-ownership
   ruling already decides where an action's words render (the screen the
   press happened on), and a second always-on copy on Status would
   contradict it. That, the missing app-managed-child choice, and the switch
   gate naming 0.15.0 where the server's names its own floor, are the three
   honest places the two sections read differently, each on purpose.
 - **The plane's second door.** `node_open_plane_url` opens a row in the
-  SYSTEM browser — for what the in-app window is wrong for (a different
+  SYSTEM browser, for what the in-app window is wrong for (a different
   profile, a share, passkeys). Since the plane-list ruling both opens take
   `url: String` from the page (the signature pin in `ipc-acl.test.ts` covers
   all four plane commands) and persist NOTHING: the row the person pressed
@@ -1144,7 +1144,7 @@ by any of that:
   required died with it.
 - **tmux is a gate, not a caption.** Enroll and the service verbs that START
   things (Install, Start, Restart) are disabled while the probe cannot find
-  tmux — `enroll` refuses CLI-side and a tmux-less node comes up online with
+  tmux: `enroll` refuses CLI-side and a tmux-less node comes up online with
   no harnesses, so a live button only manufactures the failure. The verbs
   that cannot manufacture it stay live: Stop and Uninstall take things down,
   the run-at-login switch writes only the NEXT login, the Status rows'
@@ -1154,17 +1154,17 @@ by any of that:
   tmux re-arms it.
 - **The manager row says what the manager said.** `probe-facts` appends the
   service `detail` verbatim (`launchd: spawn scheduled` is the crash-throttle
-  wait) and paints `state: unknown` bad — a manager that would not answer is
+  wait) and paints `state: unknown` bad; a manager that would not answer is
   not the same fact as a stopped node.
 
 ## Text size is Rust's, not the page's
 
 ⌘+ / ⌘− / ⌘0 (View, on macOS), the same three **Ctrl** chords as WINDOW
-accelerators (on Linux, BOTH windows — node assistant and plane alike; the
+accelerators (on Linux, BOTH windows, node assistant and plane alike; the
 menu bar is macOS-only by design and the tray submenu was otherwise the only
 door, no door where no tray host answers), and the tray's **Text Size**
-submenu walk a fixed ladder — `0.8 · 0.9 · 1.0 · 1.1 · 1.25 · 1.5 · 1.75 ·
-2.0` — stored as `zoom` in this app's own `settings.json` and applied with
+submenu walk a fixed ladder (`0.8 · 0.9 · 1.0 · 1.1 · 1.25 · 1.5 · 1.75 ·
+2.0`), stored as `zoom` in this app's own `settings.json` and applied with
 `WebviewWindow::set_zoom`. The ladder, the clamp, the frame arithmetic and
 the keyval→rung decision are `desktop-core`'s `zoom` module; `src/zoom.rs`
 here is the level, the menu ids, the apply, and the Linux attach. The
@@ -1174,10 +1174,10 @@ no command to a page it has never granted one.
 **Tauri's own `zoom_hotkeys_enabled` was rejected, and the reason is the trust
 boundary.** On macOS and Linux it injects a page script that invokes
 `plugin:webview|set_webview_zoom`, so it works only on a window granted that
-command — and this app's `main` window is granted exactly one, which opens a browser rather than resizing anything, since a control plane's origin cannot be enumerated ahead of time and the grant there has to stay argument-narrow. It also keeps its level in a page-local variable, which a
+command, and this app's `main` window is granted exactly one, which opens a browser rather than resizing anything, since a control plane's origin cannot be enumerated ahead of time and the grant there has to stay argument-narrow. It also keeps its level in a page-local variable, which a
 reload resets. `set_zoom` called from Rust touches no ACL at all.
 
-**Both menus' items share one id set, and it is routed in exactly one place** —
+**Both menus' items share one id set, and it is routed in exactly one place**:
 `lib.rs`'s app-level `on_menu_event`, registered on every platform. A Tauri
 menu event is GLOBAL: that handler receives the tray's items and the tray's
 handler receives the menu bar's, so an id matched in both steps the ladder
@@ -1193,11 +1193,11 @@ diff:
   the ladder, which is what lets a step always land on a rung.
 - **The SPA's floor scales with the level.** The floor is a promise about the
   VIEWPORT and zoom is what divides physical pixels into CSS pixels, so at 150%
-  an unscaled 360px window would lay out in 240 CSS pixels — narrower than
+  an unscaled 360px window would lay out in 240 CSS pixels, narrower than
   anything the SPA is drawn for. Scaling it keeps the promise at every rung.
 - **The assistant frame scales too, clamped to the work area.** It is fixed and
   non-resizable, so bigger text in an unchanged frame is just less room to say
-  the same thing. The clamp is the same one `wizard_height` always was — a
+  the same thing. The clamp is the same one `wizard_height` always was: a
   non-resizable window whose bottom edge is past the work area takes the bar
   carrying Continue with it. Content that overflows the frame is the safe case:
   the bar is its own row and the region above it scrolls.
@@ -1215,8 +1215,8 @@ question per screen, and a line about who owns the product read as part of that
 question.
 
 What replaced it is `components/assistant/about-screen.tsx`, one of the
-`NodeUserScreen` overrides beside `enroll` and `reset` — screens a PERSON asks
-for, which no probe ever implies. The routes to it:
+`NodeUserScreen` overrides beside `enroll` and `reset` (screens a PERSON asks
+for, which no probe ever implies). The routes to it:
 
 - **macOS**: the system's own About panel, which `menu.rs` already built from
   the same constants. Unchanged.
@@ -1229,23 +1229,23 @@ for, which no probe ever implies. The routes to it:
 **The emit fires on "a page is LISTENING", never on "a window exists".** The
 request is stashed first and a booting page PULLS it (`node_pending_screen`),
 because a window's existence is true the moment the builder returns and a
-`listen()` registers over IPC well after that — Tauri queues nothing in
+`listen()` registers over IPC well after that; Tauri queues nothing in
 between. `PendingScreen.listening` is the flag that tells the two apart: the
 pull sets it, building a window clears it, and only a set flag takes the emit
 path. Window existence was the proxy here until 2026-09-12, and two About
-clicks in quick succession were enough to lose the second one entirely — the
+clicks in quick succession were enough to lose the second one entirely, the
 same defect `apps/server/desktop`'s reset screen was reported for.
 
 The content still comes from one `node_about` call, so the facts live only in
 `crates/desktop-core/src/legal.rs`, which `scripts/license-fields.ts` holds
 equal to the TypeScript copy and to the root LICENSE. The AGENT's version comes
-from the probe instead — a different program's version, and the pair is what a
+from the probe instead (a different program's version), and the pair is what a
 person opens an About for.
 
 ## The tray preference is in the tray
 
 `close_to_tray` is a `CheckMenuItem` in the tray menu, and `node_settings` no
-longer carries it. The preference is ABOUT the tray, so it belongs there — and
+longer carries it. The preference is ABOUT the tray, so it belongs there, and
 putting it there REMOVED two commands (`node_set_close_to_tray` and the
 settings payload's tray trio) rather than moving them to a screen that now asks
 one question at a time.
@@ -1271,21 +1271,21 @@ flat "Open Subshell Client / Open in Browser" pair stopped being honest the
 moment the list could hold more than one plane, because neither item said
 WHICH. The tray now mirrors the Control Plane section:
 
-- **Control Plane ▸ Open Last / — / `<address>` ▸ Open in App | Open in
-  Browser** — one submenu per address, the node's own connected address FIRST
+- **Control Plane ▸ Open Last / separator / `<address>` ▸ Open in App | Open in
+  Browser**: one submenu per address, the node's own connected address FIRST
   (the page's pinned-row rule, same live read: `config.json`, never a probe),
   the stored list behind it, deduped by exact canonical match.
 - **The ids carry the canonical URL as data** (`tray:plane-app:<url>`), so a
   click acts on exactly the address the person read, and both arms
-  RE-VALIDATE before acting — an id string is data, never a trusted URL.
+  RE-VALIDATE before acting: an id string is data, never a trusted URL.
 - **"Open Last" replays the last deliberate open, URL AND door** (app window
   or system browser), remembered in settings (`lastPlaneOpen`) by every
-  opener's success path — `windows::open_plane` for the app door, both
+  opener's success path: `windows::open_plane` for the app door, both
   browser arms for the other. Greyed until the first open; reset clears it
   with the list.
 - **The menu is rebuilt from live state** (`tray_menu`), and `tray::refresh`
   re-runs exactly that and swaps it in. It is called on every mutation the
-  submenu reflects — plane add/remove, enroll, un-enroll, reset — and NOT
+  submenu reflects (plane add/remove, enroll, un-enroll, reset), and NOT
   from inside the tray's own menu handler (replacing a menu from within its
   event handler is a re-entrancy question this app does not answer; opens
   FROM the tray record but do not repaint).
@@ -1295,7 +1295,7 @@ WHICH. The tray now mirrors the Control Plane section:
 `Open Client App` (was "This machine…", same ruling: the label is the verb) is
 the one window item and reaches the bundled node page, which no plane row can.
 
-## Reset — returning this machine to un-enrolled
+## Reset: returning this machine to un-enrolled
 
 `src-tauri/src/reset.rs`, and the shape is `apps/server/desktop`'s deliberately:
 **the page supplies a hostname, never a path.**
@@ -1304,7 +1304,7 @@ the one window item and reaches the bundled node page, which no plane row can.
 node's own `subshell status --json` `paths` block; `node_reset` deletes exactly
 that, gated on the typed hostname. The plan is stashed at press time rather than
 re-read inside the chain because the chain UNINSTALLS the very node whose
-report names those paths — re-reading afterwards would be asking a removed
+report names those paths; re-reading afterwards would be asking a removed
 binary where its own data lived.
 
 - **All-or-nothing.** Every one of `configFile`, `lockFile`, `dataDir` present,
@@ -1318,13 +1318,13 @@ binary where its own data lived.
   test rather than something only a real wipe would show.
 - **The guards are the shared ones** in `subshell_desktop_core::reset_guards`:
   `path_rules_ok`, `delete_guard_ok`, `is_subshell_socket`, `consent_granted`,
-  and `machine_hostname` — which moved there in 2026-09-12 when this chain
+  and `machine_hostname`, which moved there in 2026-09-12 when this chain
   needed it, because it is the value `consent_granted` compares against and two
   copies of a fail-closed rule is one copy that can drift open.
 - **The probe reports the hostname so the screen can SHOW it.** The gate is
   deliberate consent, not a memory test, and a box demanding a string the page
   cannot display would be both. An empty memo (hostname(1) would not run) is
-  refused by name — the empty box it would otherwise match is the one thing
+  refused by name: the empty box it would otherwise match is the one thing
   this gate may never accept.
 - **Three paths, not the server's five, and NO window dance.** That app has one
   manage window and a zero-window moment quits it; resetting a node here
@@ -1347,7 +1347,7 @@ would take it), and a Subshell Server on the same machine is untouched.
 
 - **The CSP blocks inline style ATTRIBUTES, not just `<style>` elements.**
   `style-src 'self'` with no `'unsafe-inline'` means a React `style={{…}}` prop
-  is a silently unstyled element — no error, no warning, and it looks correct
+  is a silently unstyled element: no error, no warning, and it looks correct
   under `tauri dev`, where `app.security.devCsp` relaxes exactly that rule so
   Vite's HMR works. Tailwind classes only; `ui/src/__tests__/no-inline-styles.test.ts`
   fails on a `style` prop or `dangerouslySetInnerHTML` anywhere under `ui/src`.
@@ -1356,7 +1356,7 @@ would take it), and a Subshell Server on the same machine is untouched.
   styles. And Vite's module-preload polyfill is an inline `<script>`, which is
   why `modulePreload.polyfill` is off in `vite.config.ts`.
 - **Base UI's `Switch` needs a stylesheet workaround for that.** `Switch.Root`
-  renders a hidden native checkbox — as a SIBLING of the root, not a child — and
+  renders a hidden native checkbox (as a SIBLING of the root, not a child), and
   hides it with an inline style, so under the shipped CSP it becomes a visible
   stray checkbox. `ui/src/styles.css` restates the hiding from a stylesheet;
   `ui/src/__tests__/switch-csp.test.tsx` fails if Base UI stops emitting that
@@ -1365,13 +1365,13 @@ would take it), and a Subshell Server on the same machine is untouched.
   hint; the JSON body on stdout is the answer. Treating non-zero as "the command
   failed" turns every stopped node into an error dialog.
 - **`subshell status --probe` is destructive.** The control plane's node registry
-  is newest-wins, so a probe supersede-kicks a live node (close 4409) —
+  is newest-wins, so a probe supersede-kicks a live node (close 4409),
   possibly one running on another machine for the same node. Nothing in this app
   may call it: not on a timer, not behind a button.
 - **`enroll` has no already-enrolled guard.** It overwrites `config.json`, mints
   a SECOND node row on the server, and discards the old node key whose only home
   was that 0600 file. `node_enroll` therefore takes a `confirm` flag and spawns
-  nothing until it is true — and since the plane-list wave that flag guards the
+  nothing until it is true, and since the plane-list wave that flag guards the
   app's ONLY re-binding door too: Re-enroll… opens this same walk, so
   overwriting a live config can only happen behind the two-phase confirm. The
   cheap alternative the app once offered, `node_configure`
@@ -1384,16 +1384,16 @@ would take it), and a Subshell Server on the same machine is untouched.
   single `planeUrl` with its `plane_url_from` fallback ladder and
   `plane-coherence.ts`, all three deleted by the plane-list wave: with the
   node's address a row of the same list, "the app opens one plane while the
-  node dials another" has no rendering left — the rows ARE the notice.
+  node dials another" has no rendering left: the rows ARE the notice.
 - **The node's address shows in two places, neither as a fact row**: the
   Control Plane section's pinned row (its menu points at Service for the
   detaching acts) and Service's Enrolled to Control Plane card, where the
   enroll-time loopback warning sits with it and with the walk door. The
-  Status fact rows never carry a plane address — the subtitle states the
+  Status fact rows never carry a plane address; the subtitle states the
   machine, and a test pins the address's absence from the facts list.
 - **A setup key is single-use and lasts 24 hours.** Everything checkable is
   checked before the server consumes it, but a 409 (name already taken) or a 500
-  arrives AFTER — and spends it. Those say "mint a new key", never "retry".
+  arrives AFTER, and spends it. Those say "mint a new key", never "retry".
   What is NOT spent is a retry's name: `clearSpentKey` clears the credential and
   LEAVES the name, because the next attempt is usually the same machine with a
   fresh key, and wiping a field the operator typed to make them retype it is a
@@ -1404,17 +1404,17 @@ would take it), and a Subshell Server on the same machine is untouched.
   without it). It is the same question `subshell setup` asks on a terminal, asked
   here instead because this app hands the CLI arguments rather than a keyboard:
   `NodeCommand::Enroll` carries `name: String`, so a nameless enroll is not
-  representable. What the control plane stores is `normalizeNodeName`'s output —
-  imported from `@internal/subshell-protocol` rather than re-implemented here —
+  representable. What the control plane stores is `normalizeNodeName`'s output
+  (imported from `@internal/subshell-protocol` rather than re-implemented here),
   so a pasted name cannot be clean in this app and collapsed only at the server.
 - **A GUI process's PATH is `/usr/bin:/bin:/usr/sbin:/sbin`.** `service install`
   bakes `Environment=PATH=` from the environment it runs in, so without the
   login PATH the node comes up ONLINE with an empty harness inventory and 409s
-  every launch — far from the cause. Every spawn goes through
+  every launch, far from the cause. Every spawn goes through
   `desktop_core::proc`, which injects the login PATH.
-- **Never spawn `subshell run`** — it never resolves, and it competes with the
+- **Never spawn `subshell run`**: it never resolves, and it competes with the
   installed service for the same node; both restart on exit, so they flap.
-  **Never spawn `subshell mcp`** — it is per-pane internal plumbing.
+  **Never spawn `subshell mcp`**: it is per-pane internal plumbing.
 - **`SUBSHELL_CONFIG_HOME` is scrubbed from the process at startup**, because
   the service definition bakes only PATH: a node enrolled under a relocated
   config home is started by a service that looks in `~/.config/subshell`, finds
@@ -1424,25 +1424,25 @@ would take it), and a Subshell Server on the same machine is untouched.
   `KillMode=process` / `AbandonProcessGroup` takes them all down. The CLI
   refuses such a restart without `--force`; surface the refusal and make the
   override a separate, labelled action.
-- **The Linux tray may be silently invisible — so it is PROBED, not assumed.**
+- **The Linux tray may be silently invisible, so it is PROBED, not assumed.**
   `TrayIconEvent` is never emitted there, and the icon is drawn only where a
   StatusNotifier **host** is registered on the session bus (KDE yes, stock
   GNOME no until the AppIndicator extension). `crates/desktop-core/src/tray.rs`
   asks, by shelling out to
   `busctl --user get-property … IsStatusNotifierHostRegistered`, and every
-  non-affirmative outcome — no bus, no watcher, no tool, a timeout — means "no
+  non-affirmative outcome (no bus, no watcher, no tool, a timeout) means "no
   tray". Close-to-tray defaults ON since 2026-09-07 (the tray-resident
   controller is the point of these apps) and the CLAMP, not the default, is
   what makes that safe on a tray-less desktop; `node_set_close_to_tray` refuses
   `true` where none answered; `node_settings` clamps the stored value on READ
   too; and the window-close handler **re-probes**, which is the guard that
-  actually protects the user — the setting may have been made on a session that
+  actually protects the user: the setting may have been made on a session that
   had a tray. The probe is deliberately not memoized for that reason, and the
   page draws the switch DISABLED with the reason plus a re-check (never hidden)
   when `trayStatus` is `not-detected`, because naming the extension is
   actionable and an absent control is not. It is a false negative on the older
   XEmbed tray, which is why every string says "none was detected".
-- **The two apps' icons differ only by BACKGROUND COLOUR** (`brand/generate.ts`
-  — plum here, near-black for the server), which is also why the tray icon is
+- **The two apps' icons differ only by BACKGROUND COLOUR** (`brand/generate.ts`:
+  plum here, near-black for the server), which is also why the tray icon is
   NOT `icon_as_template(true)` on macOS: a template icon is drawn from the alpha
   channel alone and both would collapse to the same filled square.

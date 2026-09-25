@@ -1,18 +1,18 @@
 # Server web AGENTS.md
 
 Documentation for the React SPA the control plane serves (`apps/server/web`,
-`@internal/server-web`). It is the SERVER's web UI and nothing else's — which
+`@internal/server-web`). It is the SERVER's web UI and nothing else's, which
 is what its place in the tree says: it sits beside `apps/server/api`, which
 builds it into its binary and serves it. The two desktop apps carry their own
 small bundled pages under `<app>/ui/` and share nothing with this one.
 
-**Styling follows `docs/design-system.md`** — six type roles, two weights,
-shadcn colour names — and `bun run lint:design` fails on a literal size,
+**Styling follows `docs/design-system.md`** (six type roles, two weights,
+shadcn colour names), and `bun run lint:design` fails on a literal size,
 weight or colour outside the token file. Pick a role, never a number.
 
 ## URLs
 
-- Dev server: http://localhost:5174 (Vite) — proxies `/api` and `/ws` to the
+- Dev server: http://localhost:5174 (Vite), which proxies `/api` and `/ws` to the
   backend at 127.0.0.1:3080 so cookies and WS auth just work on one origin.
 - Production: the app is built to `dist/` and served by the backend itself.
 
@@ -40,7 +40,7 @@ src/
 Route files stay thin: URL state + handlers + composition; data logic goes in
 `hooks/`, reusable UI in `components/`, shared types/constants in `lib/`.
 
-**The node-admin surface does NOT live here — it is `@internal/node-admin`
+**The node-admin surface does NOT live here: it is `@internal/node-admin`
 (Apache-2.0).** The six node cards (runtime, service, log, maintenance, control
 plane, allowed-dirs), the seven UI primitives they render, `lib/api` +
 `lib/confirm`, `lib/node-maintenance` + `lib/node-confirmations`, the
@@ -50,7 +50,7 @@ so the node's own loopback dashboard can render the same machine in the same
 words; this app imports them from the package. The move was also a deliberate
 AGPL→Apache relicense (root AGENTS.md: "Decide it, don't discover it"). What
 stays plane-only: the harness card, sharing, key rotation, setup keys,
-`DirectoryPickerInput`, and `lib/supervision.ts`'s SUPERVISION half — and the
+`DirectoryPickerInput`, and `lib/supervision.ts`'s SUPERVISION half. The
 cards' plane-side fallout reaches the package through props
 (`onMaintenanceChanged`, `renderEditor`/`onDirsSaved`), never the other way.
 
@@ -58,17 +58,17 @@ cards' plane-side fallout reaches the package through props
 than nav.** Recent subshell rows carry a status dot and are the drag source of
 "drag a session into a workspace" (targets: `workspace-dock.tsx`'s tiles
 wrapper and the `/workspaces` cards; the payload contract is
-`lib/subshell-dnd.ts` — handlers react ONLY to its MIME, which is what keeps
+`lib/subshell-dnd.ts`: handlers react ONLY to its MIME, which is what keeps
 xterm's file-drop and dockview's tab-drag untouched). Status words/precedence
 live once in `lib/subshell-indicator.ts`, and `SubshellDot`
-(`components/subshell-dot.tsx` — moved out of `components/sidebar/` on
+(`components/subshell-dot.tsx`, moved out of `components/sidebar/` on
 2026-09-24 because it is no longer sidebar-only) is its only renderer: the
 rail's rows, the subshell page header, the home cards' corner and the list
 rows' name cell. The text chips (`StatusChip`/`WaitingChip`, kept in
 `subshell-status.tsx`) now survive only in the add-subshell picker, where
 `RowStatusBadges` still spells the state out. Subshell lists everywhere are kept current by ONE
-live socket — `hooks/use-live-subshells-feed.tsx`, mounted in `__root.tsx`
-signed-in-only — which writes `/ws/live`'s frames into `SUBSHELLS_QUERY_KEY`;
+live socket (`hooks/use-live-subshells-feed.tsx`, mounted in `__root.tsx`
+signed-in-only), which writes `/ws/live`'s frames into `SUBSHELLS_QUERY_KEY`;
 read via `useSubshellsList`/`useLiveSubshells`, never by opening a second one.
 It is a WebSocket rather than the `EventSource` it replaced (spec 2026-09-19)
 because an SSE stream holds one of the browser's six per-origin HTTP/1.1
@@ -77,7 +77,7 @@ dashboard tabs spent half the pool before any fetch.
 
 **The recent list is GROUPED by the machine each subshell runs on** (spec
 2026-09-20, `lib/subshell-node-groups.ts`). Three rules ride the grouping and
-each can be gotten wrong quietly. **The cap is PER NODE** — `RECENT_LIMIT` rows
+each can be gotten wrong quietly. **The cap is PER NODE**: `RECENT_LIMIT` rows
 per group, so the rail can be 8×N rows deep (the `nav`'s `overflow-y-auto`
 scrolls that; the liveliest-member sort keeps the group needing attention at
 the top, and the group's rank is the MINIMUM across its rows because activity
@@ -85,29 +85,29 @@ re-derives against the clock while the input's sort ran once). **A collapsed
 group is a per-DEVICE preference** (`lib/sidebar-node-group-pref.ts`,
 localStorage, keyed by node ID so an admin's rename moves every label and
 reopens nothing). **While the filter box has text every group forces open AND
-its header goes inert** — a live chevron there would write the collapse behind
+its header goes inert**: a live chevron there would write the collapse behind
 a screen that moves nothing and shut the group the moment the filter cleared.
 Header labels read `node.name`, never the id, and the unresolved ladder is
 "never succeeded (in flight, or failed with nothing cached) → short id, with
 the full one as the hover title; answered-without-the-id → `unknown node`",
-NOT "deleted node" — a revoked share is indistinguishable from deletion, and
+NOT "deleted node"; a revoked share is indistinguishable from deletion, and
 this header labels `local` too (the retired card pill could dodge by
 returning null; a section header cannot). The flag is `nodeData === undefined`, not `isError`: TanStack reports
 `isError` on a failed BACKGROUND refresh while keeping the cache, and
 relabeling resolved names on a blip is the bug that shape caused once. A
-row's tooltip carries Name/Node/Agent/(Preset — only when the launch has
-one)/Status/Directory — the asked-for facts framed by the two strings the
+row's tooltip carries Name/Node/Agent/(Preset, only when the launch has
+one)/Status/Directory, the asked-for facts framed by the two strings the
 rail truncates, which the PRE-grouping title existed to reveal. It is a `ui/tooltip` popup (the shadcn Base UI split
 form, `TooltipTrigger render={...}`) merged onto the row's own `Link` rather
 than a native `title` (2026-09-24 reversal: the browser paints native
 tooltips at the SYSTEM font size, so page zoom grew the rail and left the
 reveal behind; `render` composes the fourth consumer without the wrapper
-that used to be the reason not to). Base `ui/tooltip` text is `text-body` —
+that used to be the reason not to). Base `ui/tooltip` text is `text-body`,
 one step up from `detail`, same day's call.
 **Above the groups sits a `Needs Attention` spotlight** (spec 2026-09-24,
 `needsAttention()` in the same lib): the owner's rows whose push has not been
 opened since, filtered by the same rule as the bell. It is a sibling, never a
-group — no chevron, no collapse pref, and an unseen row stays in its machine
+group: no chevron, no collapse pref, and an unseen row stays in its machine
 group too (spotlight, not extraction: group counts stay true and no row jumps
 when a pane is opened). It filters with the box and vanishes entirely when
 nothing is unseen; the home page's identically-named `TileSection` is the same
@@ -115,23 +115,23 @@ selector over its own list.
 
 **The home page reads its state as a dot and segments by machine** (operator
 calls, 2026-09-24). The cards' corner chip and the list's STATUS column are
-gone — both draw `SubshellDot` beside the title instead, `accessible` because
+gone; both draw `SubshellDot` beside the title instead, `accessible` because
 there it is the ONLY thing carrying the state word (the rail keeps its dot
 `aria-hidden`; its row text already speaks). Two colour calls, both
 2026-09-24: offline is the dot's RED (`bg-destructive`, a reversal of the
-orange it launched with — a machine you cannot reach is an error, not a
-caution), and idle is DIM GREEN (`bg-success/50`, not gray — green is the
-ALIVE family; gray may now only mean not-running). The printing dot BLINKS
-— a hard on/off square wave (`subshell-dot-blink`, defined in `styles.css`
+orange it launched with; a machine you cannot reach is an error, not a
+caution), and idle is DIM GREEN (`bg-success/50`, not gray: green is the
+ALIVE family; gray may now only mean not-running). The printing dot BLINKS,
+a hard on/off square wave (`subshell-dot-blink`, defined in `styles.css`
 beside the motion gate; the operator's "like Claude Code's in-progress
 work", first built as a halo pulse and deliberately replaced): the alive
 pair now differs by motion as well as brightness, the loop being honest
-only because the dot's DOM node never remounts — stable keys plus the
-feed's structural sharing — and under `prefers-reduced-motion` the class
-carries nothing, so the dot is plainly green. The bell never blinks. The tiles are segmented on the group-by axis (By machine | By status | No grouping selector, machine default; operator ask 2026-09-24), and BOTH views segment on the SAME `SubshellSection`s — tiles get headings, the list gets a band row per section (`lib/subshell-sections.ts`, banding on the shared indicator, never a second status model). Machine sections ride the RAIL's own machinery — `sortByStatus` into
-`groupSubshellsByNode`/`nodeLabelFor` — with no per-group cap and no collapse
+only because the dot's DOM node never remounts (stable keys plus the
+feed's structural sharing), and under `prefers-reduced-motion` the class
+carries nothing, so the dot is plainly green. The bell never blinks. The tiles are segmented on the group-by axis (By machine | By status | No grouping selector, machine default; operator ask 2026-09-24), and BOTH views segment on the SAME `SubshellSection`s: tiles get headings, the list gets a band row per section (`lib/subshell-sections.ts`, banding on the shared indicator, never a second status model). Machine sections ride the RAIL's own machinery (`sortByStatus` into
+`groupSubshellsByNode`/`nodeLabelFor`) with no per-group cap and no collapse
 (a grid of cards is not a rail), and the old Running/Paused/Completed bands
-left with the chips — and the group-by selector can band by status again, on the dots'
+left with the chips, and the group-by selector can band by status again, on the dots'
 own indicator precedence, never a second status model `nodePill` left the card
 with the corner chip, so the section header is the one place a tile says which
 machine it is on. The toolbar is two deliberate rows (operator ask 2026-09-24): search full-width on top; machine combobox (`flex-1`), group-by select, and the view toggle share the row under it. A searchable machine combobox (`SearchableSelect`) narrows BOTH views
@@ -139,12 +139,12 @@ machine it is on. The toolbar is two deliberate rows (operator ask 2026-09-24): 
 (`machineIds`, never an option that answers nothing), a stale selection is
 kept in the list so the control never blanks itself out from under its own
 value, and it is ALWAYS drawn (operator ruling 2026-09-24, deleting the
-`showMachineFilter` gate that hid it until a second machine had rows — on a
+`showMachineFilter` gate that hid it until a second machine had rows; on a
 Server-only instance the control read as the feature being missing).
 **The Server can stop being a launch target** (2026-09-24): `allow_server_subshells`
 (Settings → General, the Nodes card's second switch; absent row = ON; audited
 `settings.update`) refuses EVERY new launch and restart on the host, admins
-included — but non-destructively: running panes finish, the `local` row stays
+included, but non-destructively: running panes finish, the `local` row stays
 visible and manageable (deliberately not maintenance, which kills panes and
 says so). The gate is `nodeCanLaunchOn`'s fifth input server-side, so
 `canLaunch`, the pickers and the create/restart refusals all follow one
@@ -157,7 +157,7 @@ branches; every other empty case keeps the ordinary "No subshells yet" card.
 **Lockdown mode is the instance-wide stop** (2026-09-24 operator ask): a
 `lockdown` settings row (absent = OFF; audited `settings.update` whose
 metadata carries the stopped ids). ON stops every running subshell everywhere
-and 403s every create and restart before any machine is chosen — it is NOT
+and 403s every create and restart before any machine is chosen; it is NOT
 maintenance worn as a hat (that is one machine, its owner, mirrored onto the
 box; the node view keeps `canLaunch: true` during lockdown because refusing
 everything is the BANNER's story, not a lie about one row). Turning it ON is
@@ -165,11 +165,11 @@ typed: the PATCH must carry `lockdownConfirm` equal to the admin read's
 `localNodeName`, the dialog's button lights only on that equality (operator
 ruling 2026-09-24), and the server re-checks live for the rename-mid-dialog
 race. BOTH directions are typed with the same name (a way out is as instance-wide an
-act as the way in, operator ruling 2026-09-24 — only the dialog's words
+act as the way in, operator ruling 2026-09-24; only the dialog's words
 differ), and ending restarts nothing. A re-submitted ON is INERT (the echo
 neither asks nor acts), so the retry path for a row an ON reported in
 `failed[]` is ending and re-starting the lockdown, or terminating that row
-directly — no press-again retry (operator ruling 2026-09-24).
+directly: no press-again retry (operator ruling 2026-09-24).
 Everyone signed-in learns the state from the shared public read:
 `components/lockdown-banner.tsx` is a non-dismissible amber alert mounted in
 `__root` (absent field = a server older than the feature = no banner, and the
@@ -178,16 +178,16 @@ General page's `LockdownCard` does not render at all without its two fields).
 **There is no cadence, and that is the design.** One snapshot at connect, then
 a frame only when something changed: the server publishes domain events to Bun
 pub/sub topics, and the socket subscribes to the ones its viewer may see. What
-the old 1.5 s beat re-sent was almost entirely static — `alive`, `startedAt`,
+the old 1.5 s beat re-sent was almost entirely static (`alive`, `startedAt`,
 the auto-title `name` and local `lastOutputAt` are written by the 60 s
-reconcile sweep, everything else by a user action — and each rebuild captured
+reconcile sweep, everything else by a user action), and each rebuild captured
 every running pane's screen server-side. Three consequences the client owns:
 
 - **A snapshot must not clobber a newer event.** The socket subscribes BEFORE
   the list read, so the read may predate an event delivered first; the client
   keeps any row it has received an event for since this connect and lets the
   snapshot decide the rest, including which rows exist. No sequence numbers.
-- **A broadcast carries no `access`** — one payload reaches every subscriber,
+- **A broadcast carries no `access`**: one payload reaches every subscriber,
   so the per-viewer stamp cannot ride it. The client keeps the access it holds;
   a row arriving before any snapshot is skipped rather than guessed at.
 - **Previews are PULLED** (`hooks/use-card-previews.ts`). The snapshot carries
@@ -197,8 +197,8 @@ every running pane's screen server-side. Three consequences the client owns:
 
 **Which caches the feed writes, exactly**, because a reader that this page
 missed is invisible until somebody notices a screen that never changes:
-`SUBSHELLS_QUERY_KEY` always, and `["subshell", id]` — the per-id entry
-`use-subshell-data.ts` reads — WHEN that entry already exists, never creating
+`SUBSHELLS_QUERY_KEY` always, and `["subshell", id]` (the per-id entry
+`use-subshell-data.ts` reads), WHEN that entry already exists, never creating
 one. Those are different keys, and for one review cycle only the first was
 written: `/subshells/$id` then learned nothing after mount, its own pane dying
 included, while workspace panes were fine because `use-subshell-row.ts` is a
@@ -210,17 +210,17 @@ of a subshell should be a selector over the list, or it needs a line here.
 **The feed is not the only writer of that cache, and the page must follow the
 CACHE rather than the feed's own copy.** Every mutation's
 `invalidateQueries` refetches the list and writes the same key. `useLiveSubshells`
-used to return `feed.lastList ?? rest.data`, which shadowed exactly that — and
+used to return `feed.lastList ?? rest.data`, which shadowed exactly that, and
 Close does both at once: the refetch removed the row, then `subshell-gone`
 arrived, found nothing left to drop, returned early, and left `lastList`
 holding a subshell that no longer existed. The card outlived it until the tab
 reloaded. The old 1.5 s cadence hid this by re-sending the whole list; nothing
-corrects it now. `lastList` answers ONE question — has the socket ever
-delivered — which is what keeps a failed REST fallback from being reported as
+corrects it now. `lastList` answers ONE question (has the socket ever
+delivered), which is what keeps a failed REST fallback from being reported as
 an error on a page that has live data.
 
 **Quiet frames still cost nothing**: the write is structurally shared (an
-unchanged row keeps its object, an unchanged list keeps the array — and
+unchanged row keeps its object, an unchanged list keeps the array, and
 `lastList` is set from the cache read-back, so the provider re-renders only on
 real change), and a consumer that needs ONE row uses
 `hooks/use-subshell-row.ts`.
@@ -229,14 +229,14 @@ real change), and a consumer that needs ONE row uses
 answers active/idle from `lastOutputAt` against `Date.now()`, because with no
 cadence nothing arrives to mark elapsed time and a subshell that simply went
 quiet would read as working forever. `hooks/use-clock-tick.ts` re-renders the
-surfaces that show it — ONE tick each for the home list and the rail, never one
+surfaces that show it: ONE tick each for the home list and the rail, never one
 per row. Any NEW surface rendering `subshellIndicator` needs its own tick.
 
 **The admin surface is TEN pages behind one collapsible group** (spec
 2026-09-11 grouped-navigation, spec 2026-09-24 §7): General (`/settings`),
 Users (`/settings/users`), Auth (`/settings/auth`, the sign-in providers), API
 keys, Plugins, Service, Networking, Updates, Status and Logs, listed in the
-rail under **Server Settings** and gated as a WHOLE — a member's rail lists
+rail under **Server Settings** and gated as a WHOLE: a member's rail lists
 none of them, and none of them renders for a member who types the URL. The
 roster page moved INTO the namespace on 2026-09-14 and lost its read-only
 member view with it: the roster exists so the sharing picker can name people,
@@ -246,20 +246,20 @@ Status and `/settings/logs` are where they see what it currently IS and what
 has happened to it.
 
 **`/settings/updates` is ONE Components table, not three cards** (2026-09-17).
-The two desktop apps, the Server and the fleet share one grid — name / running
-/ newest / act — because those are the same four questions in every row, and a
+The two desktop apps, the Server and the fleet share one grid (name / running
+/ newest / act), because those are the same four questions in every row, and a
 card each put "newest" at a different x per section, so the table's read (scan
 the middle two columns, spot the mismatch) had to be reconstructed by the
-reader instead of seen. The mechanics are `installed-plugins-card.tsx`'s — its
-long comment carries the track sizing and the `display: contents` rows — with
+reader instead of seen. The mechanics are `installed-plugins-card.tsx`'s (its
+long comment carries the track sizing and the `display: contents` rows), with
 one deliberate divergence: plugins get one grid PER GROUP because their groups
 are different kinds of thing, while here the columns must agree ACROSS
-sections or the table says nothing. Everything that is not a cell — job
+sections or the table says nothing. Everything that is not a cell (job
 phases, `canApply` blockers, the backup sentence, held-node reasons, a run's
-failure — is a `col-span-full` detail line inside its row, in the order the
+failure) is a `col-span-full` detail line inside its row, in the order the
 old cards carried them, and below `sm` the version pair folds into the name
-cell as `running → newest` (`row-cells.tsx`). The row order — desktop apps,
-Server, Nodes last — is the operator's 2026-09-17 call and is pinned by
+cell as `running → newest` (`row-cells.tsx`). The row order (desktop apps,
+Server, Nodes last) is the operator's 2026-09-17 call and is pinned by
 `updates-table.test.tsx`, since nothing else on the page would notice a swap.
 The old card descriptions ("X is available. Running Y.", "Nodes can be updated
 to X.") are gone on purpose: the two version cells state that per row, in one
@@ -271,34 +271,34 @@ stating the old version forever (operator: "the update did work but it didn't
 update the version or say that it was success"). While any row is installing,
 the rows ride a 2 s poll of `NODES_QUERY_KEY` (`enabled`-gated, self-stopping
 when every watch is terminal) and the row says accepted-installing, then
-"Updated to X." with the version cells invalidated, then — after two minutes
-without a return — says the machine has not come back rather than hold a
+"Updated to X." with the version cells invalidated, then (after two minutes
+without a return) says the machine has not come back rather than hold a
 green line forever. `nextPhase` is exported and pure for exactly that
 three-branch test.
 
 **Inside Subshell Server the app row and the Server row are ONE row** (spec
 2026-09-18 D4, `folded-server-row.tsx`). That app SHIPS the server it would
 install, so on that machine "update the app" and "update the server" are one
-act whose second half is the first half's tail — two rows and three controls
+act whose second half is the first half's tail. Two rows and three controls
 for it was our packaging presented as the user's decision. The folded row
 states BOTH pairs (the app's in the cells, since the row is named for the app;
 the server's as its detail line) and offers ONE control, which opens the
-assistant — the only surface allowed to drive either install. `DesktopRows` is
+assistant, the only surface allowed to drive either install. `DesktopRows` is
 asked for the client alone there, and its server branch is DELETED rather than
 left unreachable. A browser is untouched and keeps both rows, the
 release-source Update and the release links, because nothing there can install
 anything on a machine the page is not running on.
 
 **Re-check lives in the card header**, not in the Server row (operator's call,
-2026-09-18). It always invalidated the whole `UPDATES_QUERY_KEY` —
-deliberately, so no row keeps stating what the previous read said while the
-Server row moves — so sitting in that row's action cell only made a global
+2026-09-18). It always invalidated the whole `UPDATES_QUERY_KEY`
+(deliberately, so no row keeps stating what the previous read said while the
+Server row moves), so sitting in that row's action cell only made a global
 control read as a server-only one. Its behaviour did not change.
 
 **There is ONE new-account form.** `components/account/new-account-fields.tsx`
 renders the four fields (name, email, password, confirmation) plus the two
-rules that make them usable — the password requirement stated before it is
-broken, and a mismatch reported only once the confirm box is left — and both
+rules that make them usable (the password requirement stated before it is
+broken, and a mismatch reported only once the confirm box is left), and both
 callers use it: the first-run wizard's first screen and the Add user dialog on
 `/settings/users`, which adds only the Role select that setup has no use for.
 The admin's form used to be a thinner copy, so the person creating an account
@@ -318,7 +318,7 @@ that code's `error_description` is the only free text that may render as an
 address; `unable_to_create_session` (the first arrival at a
 `require_approval` provider; the redirect cannot tell pending from disabled)
 renders one honest line true for both, and a fresh sign-in attempt retires
-the consumed refusal. Everything else the trip can carry renders too —
+the consumed refusal. Everything else the trip can carry renders too:
 the `refused` reading shows the sanitized, capped `error_description` as
 prose, or the generic fallback sentence, above the provider block; unrecognized
 codes used to be stripped and paint NOTHING (final review, Important 2),
@@ -340,7 +340,7 @@ password" for rows with no credential account.
 `routes/settings_.status.tsx` (`/settings/status`, components in
 `components/admin-status/`, data in `hooks/use-admin-status.ts`) is the model
 for the gate the others copy: server-derived `viewerIsAdmin`, with `undefined`
-counting as NOT admin — the query is `enabled`-gated on it so a non-admin
+counting as NOT admin: the query is `enabled`-gated on it so a non-admin
 mount fires no doomed 403. It reads TWO routes: `GET /api/admin/status` for
 the instance, and `GET /api/admin/server` for the **Locations** card, which
 moved here from `/settings/service` on 2026-09-14 because it is the one
@@ -348,7 +348,7 @@ Service card carrying no act (the paths live only in the deployment view, so
 the page mounts `useServerDeployment` beside `useAdminStatus`). It mounts it
 at **60 s**, not the hook's 5 s default: `/settings/service` needs 5 s because
 an operator watches it while changing the machine elsewhere, while this page
-reads only paths that are fixed for the life of the process — and each poll
+reads only paths that are fixed for the life of the process, and each poll
 of that route is a `Bun.spawnSync` stall for the whole server, so inheriting
 the fast cadence would triple the probe load for data that cannot change.
 TanStack Query keeps `refetchInterval` per observer, so the two pages really
@@ -359,12 +359,12 @@ since Locations states the path once, copyably.
 
 **The admin's two read-only logs are one tabbed page** (2026-09-20,
 `/settings/logs`): the trail that owned `/settings/audit` is the Audit tab,
-and the server's own log tail moved off Service for the System tab —
+and the server's own log tail moved off Service for the System tab:
 "what did it do" and "what happened to it" are one errand, and Service's
 subtitle shrank to "Who supervises this server." to match. The tab is URL
 state (`?tab=audit`; ABSENCE is System, so the plain path is the default's
 address), the route owns the gate so both cards' queries are unconditional,
-and the switch gates with the page — a member sees no tabs at all. The
+and the switch gates with the page: a member sees no tabs at all. The
 System tab mounts `useServerDeployment` itself (the log card's debug switch
 reads the view's `logging.source`, and the switch writes the fresh view back
 into this same cache) at the Status page's 60 s and **only while its tab is
@@ -375,14 +375,14 @@ above's last row as a `(createdAt, id)` PAIR (`beforeCreatedAt`+`beforeId`,
 the route 400s a half-cursor) because two events can share a millisecond and
 a one-column cursor would skip or repeat the tie; the client stacks the
 cursors it has stepped through, so Newer pops back without re-deriving
-anything, and a short page — not a count, which would cost a second query
-per read — is what disables Older. `staleTime: 0` rides along from the page
+anything, and a short page (not a count, which would cost a second query
+per read) is what disables Older. `staleTime: 0` rides along from the page
 era: mounting the trail is the only thing that refreshes it.
 
 **A directory is a claim about ONE machine** (2026-09-20, operator report):
 changing the launch form's Machine clears `workingDir` and re-arms the
 per-machine seed (that node's most-recent path, else its home), because the
-carried-over path was another filesystem's answer — the picker used to open
+carried-over path was another filesystem's answer; the picker used to open
 on it and make the person wait out a remote 404 before "Start over". This is
 the Agent-resets-Preset rule one axis over; a caller-supplied node+path pair
 (the clone dialog) survives, since the clear rides a CHANGE, not a mount.
@@ -391,25 +391,24 @@ the new node answers there is no data to fill from.
 
 **The folder picker is machine-scoped end to end** (migration 0034):
 `explore`'s Recent/Favorites sections, the star mutation and the stored rows
-all carry the browsed machine — walking node X shows X's shortcuts and
+all carry the browsed machine: walking node X shows X's shortcuts and
 starring there stars X's path. Favorites used to be a control-plane-only
 concept and the remote panel HID the star, because a node path starred into
 an unscoped table became a dead click in every later local panel; scoping
-beat hiding. A machine change re-anchors an open panel to home (`~` — the
+beat hiding. A machine change re-anchors an open panel to home (`~`: the
 route expands it locally, the remote service maps it to the AGENT's home).
-`/recent` answers the node's rules in BOTH halves — recents filtered,
+`/recent` answers the node's rules in BOTH halves: recents filtered,
 and `home` nulled when it sits where this caller cannot launch, so the
 seed can never be a directory that 403s at launch. The favorite PATCH
 omits `node` for the control plane, so the local wire stays
 byte-identical; a node star is 404'd for invisible nodes (the no-oracle
-rule `/recent` and `/explore` apply) and 400'd for relative paths — the
+rule `/recent` and `/explore` apply) and 400'd for relative paths: the
 plane never resolves a node path against this host's filesystem.
 
 **The launch form asks nothing it cannot answer.** `new-subshell-form.tsx`
 filters its node options on the server's own `canLaunch` (never a re-derived
-rule), hides the Machine field when the sole target is the control-plane host —
-a single AGENT node keeps it, because once a second machine exists the answer
-is news — and replaces itself with `no-launch-targets.tsx` when nothing is
+rule), hides the Machine field when the sole target is the control-plane host (a single AGENT node keeps it, because once a second machine exists the answer
+is news), and replaces itself with `no-launch-targets.tsx` when nothing is
 SELECTABLE. Three pure exports carry it (`isSelectable`, `launchableNodes`,
 `hideMachineField`), tested without opening a dropdown.
 
@@ -418,28 +417,27 @@ SELECTABLE. Three pure exports carry it (`isSelectable`, `launchableNodes`,
 never granted" is not a choice, and one sentence in the empty state beats the
 same sentence on every row. A node in **maintenance** is KEPT and greyed,
 labelled ` (maintenance)` as the label's last segment the way `(offline)`
-already is — it is a choice with a reason and a way back, and hiding it leaves
+already is: it is a choice with a reason and a way back, and hiding it leaves
 a person hunting for a node that simply disappeared. The sole-host-in-
 maintenance case belongs to the EMPTY STATE, not to the field: the form returns
 `NoLaunchTargets` whenever nothing is selectable, so it never renders with one
-greyed row. `hideMachineField` still requires its sole row to be selectable —
-zero answers is not one — but as a belt against a caller that skips that gate,
+greyed row. `hideMachineField` still requires its sole row to be selectable (zero answers is not one), but as a belt against a caller that skips that gate,
 not as the thing that puts a reason on screen.
 
 `no-launch-targets.tsx` therefore takes the node LIST, not `local` alone, and
-answers per machine — what is in the way (maintenance first, even on a machine
+answers per machine: what is in the way (maintenance first, even on a machine
 that is also offline: waking it would change nothing), and for a viewer who
 cannot move it, who can. Every route out goes through `leaveFor`, which closes
 the containing dialog before navigating; `QuickAddProvider` mounts these
 dialogs above the route, so a button that only navigates changes the page
 underneath a modal still showing this same empty state. Ending a maintenance
-window navigates to the node's page rather than PUTting from here — it re-opens
+window navigates to the node's page rather than PUTting from here: it re-opens
 the machine to everyone it is shared with, so it belongs beside the card that
 says what maintenance means and which end declared it. The other unlaunchable
 kind gets a different offer for a different remedy: a host nobody is granted
 launch access on is fixed by a SHARE, so the button says so and lands on the
 page whose header opens the sharing dialog. It used to read "Enable on {name}"
-and point at `LocalLaunchCard`, which is gone — an offer that ends nowhere is
+and point at `LocalLaunchCard`, which is gone: an offer that ends nowhere is
 worse than no offer, and it ended nowhere for the one person who could take it.
 
 **The form asks Agent → Preset → Node → Working directory** (spec
@@ -447,42 +445,42 @@ worse than no offer, and it ended nowhere for the one person who could take it.
 the e2e handles, `lib/subshell-compat.ts` holds the pure rules). The Agent
 select offers the whole `GET /api/plugins` set, greyed never hidden, and its
 default (`defaultAgentId`) is the agent of the user's most recent subshell when
-usable — evaluated only after the subshells LIST has ANSWERED, so an
-unanswered read cannot outvote the recent one — else the first usable
+usable (evaluated only after the subshells LIST has ANSWERED, so an
+unanswered read cannot outvote the recent one), else the first usable
 non-terminal agent, else anything usable; `useSubshellsList()` already holds
 the data, so the rule costs no request. Preset lists only the chosen agent's
 presets with **None** first and selected; changing the agent resets it to None,
 and its `+` opens `create-preset-dialog.tsx` nested in the launch dialog with
-the agent locked — a created preset is selected on return. First run hides the
+the agent locked; a created preset is selected on return. First run hides the
 Preset row entirely: a new account has zero presets, so the row would offer
 only "None". The saved set lives at `/presets`, grouped by agent under real
 `<h2>` headers. There the row menu's **Clone preset** opens the SAME
 `create-preset-dialog.tsx`, seeded through `initialForm`: the clone IS a plain
 create, and the agent rides locked because a preset's harness is immutable.
 The suggested `… (2)` name mirrors the UNIQUE index's collision rule, so the
-prefill is a name the server can accept. A presetless launch omits `presetId`
-— absence, never null.
+prefill is a name the server can accept. A presetless launch omits `presetId`:
+absence, never null.
 
 **Two cards, because they are two kinds of thing.** `ServiceCard` is about the
-running PROCESS — who supervises it, since when, and Restart. `SupervisionCard`
+running PROCESS: who supervises it, since when, and Restart. `SupervisionCard`
 is about the MACHINE: whether anything brings this server back by itself. In
-the desktop app that is a choice — which of the two modes it is in, and, below
+the desktop app that is a choice: which of the two modes it is in, and, below
 both, a settings pane's own shape, whether it starts at login. That switch is genuinely
 dependent on the background mode (the route 409s under the app, and there is no
 definition to arm), but the dependency is carried by a disabled reason naming
 the other mechanism, not by nesting: indenting it under the first radio wedged a
-control between the two choices so they stopped reading as a pair. They were one card, and it read wrong —
+control between the two choices so they stopped reading as a pair. They were one card, and it read wrong:
 "Restart server" and "change what supervises this machine from now on" sat as
 sibling buttons, the second a bare "Run with the app instead…" that named no
 alternative and explained nothing.
 
 **`SupervisionCard` is two cards wearing one name, and `isServerDesktop()` is
-the seam.** Inside Subshell Server it is a CHOICE — both modes, current one
+the seam.** Inside Subshell Server it is a CHOICE: both modes, current one
 marked, and the login switch. In a browser it is a FACT and at most one fix.
 It used to show the choice everywhere, disabled, which was wrong in both
 directions on the machine that matters most: a headless Linux host was offered
 "With the Subshell Server app" under a line telling you to change it in an app
-that machine does not have, and the control beneath — "Start at login" — asked
+that machine does not have, and the control beneath ("Start at login") asked
 a question a server does not have. That label reads as a desktop session, so an
 operator who wants no GUI switches it off and loses the server at the next
 reboot.
@@ -490,14 +488,14 @@ reboot.
 **In the app: the radio IS the choice, and the confirmation is a dialog on this
 page.** Clicking the unselected mode opens `SupervisionDialog`, which lists what
 the switch does and calls `desktop_set_supervision` through the desktop bridge
-(`useSetSupervision`) — no assistant window (operator's call, 2026-09-12;
+(`useSetSupervision`), no assistant window (operator's call, 2026-09-12;
 `docs/security.md` carries the accounting for granting that command to the
-SPA window). The radio shows the MACHINE, not the pick — it does not move until
-the machine reports the change — so dismissing the dialog cannot leave the
+SPA window). The radio shows the MACHINE, not the pick (it does not move until
+the machine reports the change), so dismissing the dialog cannot leave the
 card claiming a mode that never took effect.
 
 **In a browser: `persistence()` answers the one question a person not sitting
-at that machine actually has** — will this still be running after a reboot, or
+at that machine actually has**: will this still be running after a reboot, or
 after I log out? One sentence, then a remedy only where the answer is
 unsatisfying: the `loginctl enable-linger $USER` command, a **Start
 automatically** button (`POST /api/admin/server/autostart`, the `true`
@@ -512,7 +510,7 @@ later. It stays a CLI act (`subshell-server service disable`).
 **The command returning is NOT the switch being done, and that gap needs a
 state of its own.** `desktop_set_supervision` answers once the new server is
 STARTING; the card cannot move until that server answers. So `useSetSupervision`
-has a second phase — `settling` — which polls `GET /api/admin/server` directly
+has a second phase, `settling`, which polls `GET /api/admin/server` directly
 until `currentMode` reports the mode that was asked for, then WRITES the view
 it already holds into the cache (invalidating alone costs another round trip on
 the exact sentence that is the confirmation). The card renders a spinner and
@@ -526,17 +524,17 @@ screen saying why, and it read as a page that had ignored the click.
 `currentMode`, `loginDisabledReason` and `modeLabel` live there because the
 HOOK needs `currentMode` to know when the switch has landed, and importing it
 from the component would make a real value-level cycle. `currentMode` answers
-`null` for a server nobody supervises — started by hand, a container, the e2e
-stack — rather than defaulting to the background mode, which put "A launchd
+`null` for a server nobody supervises (started by hand, a container, the e2e
+stack), rather than defaulting to the background mode, which put "A launchd
 agent runs it" directly under `ServiceCard`'s "Running, not supervised".
 
 `persistence()` lives there too, and is shared with a card on a different page:
 a node's Runtime card asks the identical question about a machine that is
 never the one serving this page, so the two answer it in one voice. It returns
 a sentence plus a `PersistenceFix` discriminated union and NOT the remedy's
-copy, because what "install it" looks like differs per surface — the server
+copy, because what "install it" looks like differs per surface (the server
 page copies a command, a node page points at the Install service button below
-it (the Runtime card renders first) — and a model that shipped the words
+it (the Runtime card renders first)), and a model that shipped the words
 would be answering a question it
 cannot see. `machine` is a parameter for the same reason: "this machine" on
 the Service page, the node's own name on a node's.
@@ -544,7 +542,7 @@ the Service page, the node's own name on a node's.
 **The mode and the login switch are two axes, and the in-app copy has to keep
 them apart.** The radio answers WHO runs the server; the switch answers whether
 it comes back BY ITSELF next time you log in. Both managers run the server
-inside the user's own login session, so it stops at logout either way — which
+inside the user's own login session, so it stops at logout either way, which
 is why "keeps it running whether or not the app is open" was misread as
 covering logins and now reads "runs it, whether or not Subshell Server is
 open", with the switch saying what it adds ("nothing brings it back after you
@@ -563,7 +561,7 @@ is what lets the browser state which machine you have instead of explaining
 both cases at everyone. The in-app radios are unchanged by this, and that is a
 DECISION rather than an oversight: the Subshell Server app is the one surface
 that measures `linger` and does not show it. Someone sitting at that machine
-logs in to it by definition, which answers the reboot half — it does NOT
+logs in to it by definition, which answers the reboot half; it does NOT
 answer the logout half, and on Linux that half is real even there. What makes
 it tolerable is that this surface never claimed otherwise: it offers a choice
 about who runs the server, not a promise about how long it lasts. Revisit it
@@ -574,19 +572,19 @@ one.** Switching needs an actor that outlives the server: going to app mode
 uninstalls the service (stopping the server) and the desktop app is what must
 then start it; going back means installing a service while the process holding
 the port IS this page's server. So the card carries the choice and the
-desktop app carries the act, reached over the webview's IPC — which survives
+desktop app carries the act, reached over the webview's IPC, which survives
 the server going away, unlike anything the server serves.
 
 Start-at-login itself IS a route (`POST /api/admin/server/autostart`) because
 it changes nothing about the running process. `loginDisabledReason` mirrors
-that route's three 409s — nothing installed, the app running this server, a
-manager that would not say — as a pure export, so the UI never offers what the
+that route's three 409s (nothing installed, the app running this server, a
+manager that would not say) as a pure export, so the UI never offers what the
 server will refuse.
 
 **A node's page mirrors the Service page's behaviour, where a node has the
 same question.** Same follow/pause log at one second, same focusable scroller,
 same debug switch, same spinner while a restart lands, and `useNode` polls at
-5 s — for the change no action on that page causes, the node going offline.
+5 s: for the change no action on that page causes, the node going offline.
 That poll is affordable in a way the server's is not: `GET /api/nodes/:id` is
 DB reads plus an in-memory registry lookup, where `GET /api/admin/server`
 spawns `netstat` and the service manager synchronously and needs a memo behind
@@ -596,24 +594,24 @@ state, and a value this plane does not store).
 
 Two places deliberately DIVERGE. There is no supervision card: Subshell Client
 has no supervisor, so a node has no "the app runs it as a child" mode to
-choose. And the Control plane card's "Restart to apply" has no wait-for-return
-— that restart sends the node to a DIFFERENT plane, so watching for it here
+choose. And the Control plane card's "Restart to apply" has no wait-for-return:
+that restart sends the node to a DIFFERENT plane, so watching for it here
 would time out and report a failure for the thing working exactly as asked.
 
 **Whether "Add node" is offered is `lib/node-enrollment.ts`, not an expression
-at each call site.** Two surfaces ask — the Nodes page and the launch picker's
-empty state — and both mirror `POST /api/nodes/setup-keys`'s own gate
+at each call site.** Two surfaces ask (the Nodes page and the launch picker's
+empty state), and both mirror `POST /api/nodes/setup-keys`'s own gate
 (`allow_node_enrollment`, admins exempt) so neither offers a button the route
 refuses. The half a second copy gets wrong is the UNKNOWN one: an unanswered
 settings read counts as ALLOWED, matching the server's absent-row default,
 because reading `undefined` as "off" hides the control from everyone on every
-load until the request lands. The argument is `Partial<>` for the same reason —
+load until the request lands. The argument is `Partial<>` for the same reason:
 a payload from a server older than the setting carries no such field. The
 button is ALWAYS DRAWN, disabled where it does not apply (operator ruling
 2026-09-24, reversing the earlier hidden-not-disabled choice: a hidden button
 makes the feature itself look missing). `NODE_ENROLLMENT_OFF_COPY` is the
 single source of the why, and it reaches people on three carriers: the dead
-button's tooltip (hover — the trigger SPAN holds the tab stop and
+button's tooltip (hover: the trigger SPAN holds the tab stop and
 `aria-describedby`, since a disabled button cannot be focused and Base UI
 wires nothing itself), the SAME sentence as the empty state's visible
 description (a touch viewer cannot hover, and review round 2026-09-24 refused
@@ -622,17 +620,17 @@ PERMANENT paragraph above the list, not the explanation.
 
 **Maintenance is one flag on the node, and the SPA writes it in one place.**
 `NodeMaintenanceCard` sits on every node's Overview (`local` has no other
-section) and replaced `LocalLaunchCard`, which was never a switch — ON was the
+section) and replaced `LocalLaunchCard`, which was never a switch: ON was the
 seeded Everyone/`edit` grant and OFF was its removal. Turning it on stops every
 subshell on that machine, other people's included, so the confirmation names a
 count: `runningSubshells`, which rides the DETAIL view only and only for a
 manager. The Nodes LIST has no such number, which is why `node-list-row.tsx`
-exists — it fetches the detail through the query cache at the moment the menu
+exists: it fetches the detail through the query cache at the moment the menu
 item is picked, and hedges the prompt rather than refusing the act if that read
 fails. `useSetNodeMaintenance` invalidates the subshell list beside the two
 node keys, for `useRotateNodeKey`'s reason: rows went `terminated` the instant
 it answered. Its response is a `MaintenanceResult`, not a node view, and both
-callers SURFACE the `failed` array — a subshell whose kill the node refused is
+callers SURFACE the `failed` array: a subshell whose kill the node refused is
 deliberately not in `stopped`, and everything else on screen (the switch, the
 badge, the menu item) moves as if the flip were clean, so dropping it tells
 someone a machine is quiet while panes are still alive on it. The wording is
@@ -661,27 +659,27 @@ can offer, rather than reinstalling the same binary.
 The Nodes UI (`routes/nodes.tsx`, `routes/nodes_.$id.tsx`, components grouped in
 `components/nodes/`, data in `hooks/use-nodes.ts` + `use-node-shares.ts`): the
 **Add-node dialog is ONE screen** (operator's call, 2026-09-18) titled
-**"Install Subshell client"** — the trigger button stays "Add node", but opening it
+**"Install Subshell client"**: the trigger button stays "Add node", but opening it
 lands on the instructions; the old first screen, whose whole content was one
 button, is gone. Its address dropdown is labelled **"Select Subshell server
 address"**, and it **names what the node dials forever** (operator's call,
-2026-09-18), not merely the curl's host — and it sits ABOVE the mint press and the
+2026-09-18), not merely the curl's host, and it sits ABOVE the mint press and the
 Terminal / Desktop App switch rather than inside the terminal panel, because both
 paths need the same address: the script bakes it, and the app's Connect step is
 typed this same URL. Between it and the switch sits the **Generate setup key**
 button: until it is pressed NO KEY EXISTS, and the screen says so instead of showing
-a hole — the app path's key row reads "Generate setup key first" where the copy row
+a hole: the app path's key row reads "Generate setup key first" where the copy row
 will be, and the terminal one-liner is on screen from the start with
 `<generate setup key first>` in its token slot and COPY DISABLED (the panel being
 never empty is the operator's call; a copied placeholder would run nowhere, so only
 the mint makes the command real). The address row IS copyable
 from the start; it needs no key. Rows come
-from the same `lib/install-addresses.ts` the mobile picker builds — the
+from the same `lib/install-addresses.ts` the mobile picker builds: the
 trusted-origin allowlist, loopback dropped when anything else is known,
 falling back to `appBaseUrl` alone when nothing is (`window.location.origin`
 only while settings load). The chosen address rides to `GET /install.sh` as
 `server=`, which the route bakes **only on exact membership in the live
-registry** (`api/install-script.ts`) — because the process cannot observe its
+registry** (`api/install-script.ts`), because the process cannot observe its
 own external address (a TLS proxy shows it loopback, the `Host` header is
 client-written, and several names are simultaneously true), so the operator's
 choice has to arrive written down, like NetBird's `--management-url` and the
@@ -689,12 +687,12 @@ dialog's own `subshell setup --server`. `&server=` is carried ONLY when the
 pick deviates from `APP_BASE_URL`, so the stock command is byte-identical to
 the one this predates. The amber "APP_BASE_URL points at loopback… replace
 the host" paragraph is GONE (operator's call, 2026-09-18): its advice could
-not work — hand-editing the curl host changed only the download source, while
-the baked `SERVER` came from config — and the dropdown replaced the whole
+not work (hand-editing the curl host changed only the download source, while
+the baked `SERVER` came from config), and the dropdown replaced the whole
 sentence with the control it was telling you to build by hand. The script's
 runtime loopback guard stays: it fires on the new machine, where "is this
-address wrong *from here*" is finally knowable. The dialog also reads `nodeArtifactTargets` — the
-triples the server actually serves — and names the missing ones IN THE TERMINAL PANEL
+address wrong *from here*" is finally knowable. The dialog also reads `nodeArtifactTargets` (the
+triples the server actually serves) and names the missing ones IN THE TERMINAL PANEL
 (both the refusal and the copyable `subshell setup` fallback it drives live beside the
 command they describe, not in the generate slot above; `setup`, not `enroll`, because
 `enroll` requires `--name` and a person reading a command off a browser should be
@@ -702,14 +700,14 @@ ASKED for the name instead): a binary-only server install publishes no node
 binaries until `release:cli-node` runs, and the one-liner 404s on every machine
 until then. The field being ABSENT (older server behind a cached PWA) stays
 silent; the query still loading or errored shows a "could not check" line
-instead — no verdict without data. Opening the dialog refetches so a just-
+instead: no verdict without data. Opening the dialog refetches so a just-
 published artifact set is visible at once. The **Desktop App** panel sees NONE of
 this, and that is the point of that path: the app ships its own node binary, so what
 this server has or has not published is nobody's problem on that machine. The amber
 refusal DOES name the app as the third door while the operator is still choosing.
 **The dialog asks no name, and the invariant about the key moved.** Its first
 screen used to be a "Node name" field whose text became only the setup key's
-`label` — the one-liner never passed it on, so the node was named by its own
+`label`: the one-liner never passed it on, so the node was named by its own
 hostname whatever was typed. With the 2026-09-17 revamp the field is gone, the mint
 takes no body, and the name is asked on the machine (`subshell setup`'s first
 question, `--name` for a script, Subshell Client's required Enroll field).
@@ -719,20 +717,20 @@ explanatory prose was cut on 2026-09-18 (operator's call): the terminal panel ha
 paragraph walking through what the script does ("installs the node CLI to
 `~/.local/bin`, asks what to call this machine, enrolls it, and then asks about the
 background service…") and the app panel had one walking through opening the app
-("In Subshell Client, open Window → This machine…"). **Both are gone** — the command
+("In Subshell Client, open Window → This machine…"). **Both are gone**: the command
 and the two labelled value rows ARE the instruction, and the script narrates itself on
 the machine it runs on. `add-node-dialog.test.tsx` asserts each absence, so neither
 regrows as a well-meant restoration. So: **on the terminal panel the key lives inside
-a command and never outside one** (one row in the common shape, two — curl and the
-`setup` fallback, alternatives that each carry it — on the air-gapped branch), while
+a command and never outside one** (one row in the common shape, two (curl and the
+`setup` fallback, alternatives that each carry it) on the air-gapped branch), while
 the app panel shows the two VALUES its Enroll step takes, address and key, each with
 its own copy button that `label`s what it copies. The standalone key box, its "shown
-once" subtitle and the tmux paragraph stay gone too — and so, same day, does the
+once" subtitle and the tmux paragraph stay gone too, and so, same day, does the
 first-run-per-platform sentence (operator's call, 2026-09-18): NOTHING sits between
 the address picker and the Generate button but its own failure line. One sentence of
 guidance survives, and it sits where it can change what the operator does: the amber
 no-binary refusal, INSIDE the terminal panel beside the command it refuses (the
-verdict is about the command, and the command is on screen from the start — its key
+verdict is about the command, and the command is on screen from the start; its key
 slot holds `<generate setup key first>` and copy is DISABLED until the mint, since
 the shape is the instruction but a copied placeholder would run nowhere). The same
 verdict drives the `setup` fallback row two lines below it.
@@ -740,24 +738,24 @@ verdict drives the `setup` fallback row two lines below it.
 **The fields are their own component**, `components/nodes/node-key-setup.tsx`
 (`NodeKeySetup`, plus `installCommandFor` / `setupCommandFor` / `useSetupKeyVerdict`),
 because a second surface needs it: the address picker, the `Terminal | Desktop App`
-switch and both panels are a function of a key (which may be `null` — the not-yet-
+switch and both panels are a function of a key (which may be `null`, the not-yet-
 minted state above) and of public settings, not of a key that was minted thirty
 seconds ago. The mint itself is an OPTIONAL `generate` slot between the picker and the
-switch — the dialog passes the button and its failure line (the two verdicts live
+switch: the dialog passes the button and its failure line (the two verdicts live
 inside `NodeKeySetup`'s own terminal panel, not the slot); the card
 passes nothing. `AddNodeDialog` therefore keeps only the mint press and the enrollment
 watcher, and `SetupKeysSection` renders the same fields for a key minted earlier.
 
 `components/nodes/setup-keys-section.tsx` is that card, and it is the reason the
 server can show a key after the mint: `GET /api/nodes/setup-keys` returns each of the
-caller's own rows WITH its key text (owner-scoped, cookie-only — a bearer credential
+caller's own rows WITH its key text (owner-scoped, cookie-only; a bearer credential
 cannot enumerate enrollment doors). The row's title is the key, with
 `CopyableValue`'s copy affordance, because the label that used to title it named
 nothing a person could match to a machine. `keyState` still decides
 unused / used / expired from `usedAt` and `expiresAt`, which is what keeps the
 disclosure honest: a spent or stale row's key is inert, and the badge says so.
 
-The row also carries **`Setup`, on the `unused` rows only** — the card hands back the
+The row also carries **`Setup`, on the `unused` rows only**: the card hands back the
 COMMAND as well as the key. That was the remaining half of the defect: closing the
 dialog mid-copy lost the one-liner, and the only way to re-read instructions that had
 never actually been lost was to mint a SECOND single-use key. The button opens
@@ -768,7 +766,7 @@ walking someone to a 401 they cannot act on is not an instruction.
 ## Subshell for Mobile (the PWA install dialog)
 
 `components/mobile-install-dialog.tsx`, opened from a row of the rail's
-`<nav>`, above "Open in browser". Ungated, desktop shells included — it was
+`<nav>`, above "Open in browser". Ungated, desktop shells included; it was
 `!isDesktop()` for half a day on the reasoning that a Tauri webview cannot
 install a PWA, which is true and beside the point: the dialog's payload is a
 QR code, read by a DIFFERENT device, and somebody at Subshell Server on their
@@ -778,25 +776,25 @@ The gate hid it from exactly them.
 **The steps are the easy half.** The person looking them up is usually at a
 desk on an address their phone cannot reach, so the dialog's first control is
 an address picker. Candidates come from `lib/install-addresses.ts` (the
-shared half, since the Add-node dialog grew the same picker) —
+shared half, since the Add-node dialog grew the same picker):
 `window.location.origin`, `appBaseUrl` and `trustedOrigins` merged, normalized
 to origins and ordered by insertion (the address this browser is
 demonstrably on is the best guess for the phone beside it). **And the picker
 now explains nothing about itself** (operator's call, 2026-09-18): the
 "every address this server accepts a sign-in from…" paragraph and the amber
-plain-http note are gone — the audience is developers, and every clause
+plain-http note are gone: the audience is developers, and every clause
 restated the address bar. The test pins the absence.
 
 **Loopback rows are DROPPED in `installAddresses`, not labelled here.** They
-used to be listed and captioned "this device only" — never hidden, never
-disabled — because on a stock instance every address looked like that (the
+used to be listed and captioned "this device only" (never hidden, never
+disabled) because on a stock instance every address looked like that (the
 `0.0.0.0` bind contributed none, so the list was the two loopback spellings
 plus the dev Vite ports): a disabled version of that picker shipped for an
 hour and could not be operated at all, and a hidden one makes the address
 someone is looking at vanish. What made the caption survivable was that it
 named the cost of a real choice; what makes dropping honest is the server's
 LAN derivation (`services/lan-origins.ts`, server side), which puts rows a
-phone CAN dial into that same list — a localhost row was never a choice for
+phone CAN dial into that same list: a localhost row was never a choice for
 the device this picker is for. When an instance genuinely knows no
 phone-dialable address (a loopback bind, or a server predating the
 derivation), the refusal renders WHERE THE QR WOULD BE, so nothing
@@ -807,15 +805,15 @@ and no restart, and the empty state says to JOIN a network rather than publish
 on one for exactly that reason.
 
 `trustedOrigins` is a field on `GET /api/settings/public` added for this, and
-it is the EFFECTIVE allowlist — local origins ∪ this machine's derived LAN
+it is the EFFECTIVE allowlist: local origins ∪ this machine's derived LAN
 interfaces ∪ the Addresses card's extras ∪ every enabled network plugin's
 addresses, computed live, and re-asked of the kernel by the read itself so a
 laptop that switched Wi-Fi stops offering the network it left; its disclosure
 is accounted in `docs/security.md` §3. Optional in the client type for the
-usual reason — a cached PWA can outlive its server — and the dialog falls back
+usual reason (a cached PWA can outlive its server), and the dialog falls back
 to the origin this browser is already on. `lib/setup-checklist.ts`'s
-`lan-origin` item judges this same effective list, so a joined network — or,
-since the derivation, the machine's own address on a wildcard bind — silences
+`lan-origin` item judges this same effective list, so a joined network (or,
+since the derivation, the machine's own address on a wildcard bind) silences
 it.
 
 Two details that are not decoration. The QR's plate is `bg-white`
@@ -835,15 +833,15 @@ at sign-out and after sign-in.
 
 **Two predicates, and picking the wrong one is a control that cannot work:**
 
-- **`isServerDesktop()` — "am I inside Subshell Server".** What every gate that
+- **`isServerDesktop()`: "am I inside Subshell Server".** What every gate that
   predates 2026-09-14 means. It switches on the overlay title bar and its drag
   strip (`useDesktopShellReady` in `routes/__root.tsx`), the server pill, native
   notifications, and the update, reset and supervision surfaces. Each of those
   either invokes a command only that app grants or describes a
   `subshell-server` only that app manages. Taking the title-bar branch inside
-  Subshell Client would leave a window with no title bar and no drag strip —
+  Subshell Client would leave a window with no title bar and no drag strip,
   unmovable.
-- **`isDesktop()` — "am I inside EITHER shell".** Exactly two surfaces use it,
+- **`isDesktop()`: "am I inside EITHER shell".** Exactly two surfaces use it,
   and both work in both apps: the rail's **Open in browser** row
   (`components/app-sidebar.tsx`, last in the `<nav>`) and the same item in
   `components/subshell-actions-menu.tsx` (`sidebar: true`, so the rail's
@@ -853,18 +851,18 @@ at sign-out and after sign-in.
 where that is structural** (spec 2026-09-17 §5.3):
 `components/desktop/desktop-app-update-row.tsx`, read via
 `hooks/use-desktop-app-update.ts`, rides `desktop-sidebar.tsx`'s `footerEnd`
-above `UserMenu` — the rail `__root.tsx` only renders on `isServerDesktop()`, so
+above `UserMenu`: the rail `__root.tsx` only renders on `isServerDesktop()`, so
 neither Subshell Client nor a browser can reach it. `desktop_app_update` reports
 THAT app's version and is granted to that window alone. It shows and never
 applies: [Update] raises the assistant at `app-update`. A shell predating the
-command answers nothing and the row is simply absent — as is every claim of
+command answers nothing and the row is simply absent, as is every claim of
 being "up to date", since `availableVersion: null` means "no known update", not
 "checked and current". The × is `sessionStorage` keyed to the dismissed VERSION
 (`lib/desktop-app-update.ts`), so the next release re-shows the row with no
 expiry logic to drift.
 
 **"Open in browser" sends a PATH and never a URL.** `desktopInvoke(
-"desktop_open_in_browser", { path })` — the forgiving variant, so an older
+"desktop_open_in_browser", { path })`, the forgiving variant, so an older
 shell that knows no such command simply does nothing. Rust joins the path onto
 the window's OWN origin (the server app's loopback origin; the client app's
 pinned plane), and refuses anything that could name a host. The rail sends
@@ -874,7 +872,7 @@ Two things the person will notice, and neither is something this feature
 tries to fix:
 
 - **They sign in again over there.** Cookies do not cross from the webview to
-  the browser — different cookie jars, same origin or not — so the browser
+  the browser (different cookie jars, same origin or not), so the browser
   arrives signed out.
 - **Subshell Server opens its LOOPBACK origin**, because that is the only
   origin its window is ever pointed at. Passkeys are bound to the configured
@@ -892,25 +890,25 @@ and disabled, which short-circuit before any of them) are a sequence a person
 passes once, and a second implementation of it would be a second place for
 "what can I do from here" to be answered differently on two pages met minutes
 apart. The wizard step passes `compact`, which changes the FRAME and never the
-acts — it drops card chrome, the description, the supervisor line and every
+acts: it drops card chrome, the description, the supervisor line and every
 non-required settings field, because hiding a required one would leave a
 Connect button nothing on screen could satisfy.
 
 **The page itself is two cards and a form, since 2026-09-17.** The
-`AddressesCard` moved in from `/settings/service` — where this server listens
+`AddressesCard` moved in from `/settings/service` (where this server listens
 and which addresses a browser may use is the same question this page answers,
-asked of config.env — so its 60 s `useServerDeployment` poll now feeds the
+asked of config.env), so its 60 s `useServerDeployment` poll now feeds the
 card alone (the card's save writes the fresh view into that cache itself,
 which is why the cadence did not move with the card; the "This server's
-address" summary line the read used to feed is GONE — the card states the
+address" summary line the read used to feed is GONE: the card states the
 value in its field, saved-vs-running included), and the page mounts
 `useServerRestart` + `useAdminStatus` for its restart half. Below it sits ONE
-grouped **Networks** card holding the installed plugins as collapsed rows —
+grouped **Networks** card holding the installed plugins as collapsed rows;
 `NetworkRow`'s `full` prop became `body="compact"|"full"` because the group
 drew the distinction the per-network card frame used to: two surfaces, one
-flat row frame, different bodies. The card is UNCONDITIONAL — a failed
+flat row frame, different bodies. The card is UNCONDITIONAL: a failed
 deployment read renders it with the failure and a Retry inside rather than
-losing the page's main form, as it first did (review, 2026-09-17) — and an
+losing the page's main form, as it first did (review, 2026-09-17), and an
 answered-empty networks list answers in place ("No networks installed yet");
 `AddNetworkCard` below carries the install affordance.
 
@@ -918,35 +916,35 @@ Three rules the card keeps, each with a defect behind it:
 
 - **The plugin owns its copy.** Hints, labels and step text render verbatim.
   What this page owns is the shape, and the consequences that are the SERVER's
-  rather than the network's — what a non-secure-context address costs, that
+  rather than the network's: what a non-secure-context address costs, that
 `subshell-server backup` does not include a plugin secret. Publishing moves
   no boot-time identity and writes no config: the base URL is the Addresses
-  card's field — that card moved onto THIS page from `/settings/service` on
+  card's field (that card moved onto THIS page from `/settings/service` on
   2026-09-17, the one config.env writer here, saving through the same
-  `PATCH /api/admin/server/config` the Service page used to host it — and
-  the server's allowlist is a LIVE registry — its own local
+  `PATCH /api/admin/server/config` the Service page used to host it), and
+  the server's allowlist is a LIVE registry: its own local
   origins ∪ the Addresses card's `TRUSTED_ORIGINS` extras (consulted on every
   request) ∪ every ENABLED network plugin's addresses (a `private` network
   from `joined` up; a `public-with-gate` one only while published). So a join
   to a tailnet is enough for a phone to sign in, a publish trusts its
   addresses the moment the plugin reports them, and an unpublish, a leave or a
-  Disable takes back exactly what THAT act ends trusting — now, not at a
+  Disable takes back exactly what THAT act ends trusting, now, not at a
   restart (2026-09-16; the restart notice, `config-write-outcome.tsx` and the
   card's `useServerRestart` went with the config write they described): a
   gated unpublish its published set, a leave or a Disable everything the
-  plugin held, and a private unpublish NOTHING — membership is what trusts a
+  plugin held, and a private unpublish NOTHING: membership is what trusts a
   private network's addresses, so those stay until a leave or a Disable ends
   the membership (ruling R-D-lite v2: the wire's `origins` is that per-act
   diff, which is why the result line never overstates what stopped). For the
   implicit kind the JOIN is the publish: the join route records it and its
   `done` frame lands on `published`, which is what the card keys its
-  announcement on. The result grammar is `lib/network-result-copy.ts` —
-  outcome first, no key named, present tense only — pinned in
+  announcement on. The result grammar is `lib/network-result-copy.ts`
+  (outcome first, no key named, present tense only) pinned in
   `lib/__tests__/`. The card's Disable is `useSetPluginEnabled` from
   `use-instance-plugins.ts`, the same `PATCH /api/plugins/:id` Settings →
   Plugins toggles (the server unpublishes first and 409s if it cannot); it
   confirms only when there are addresses to name, and a disabled row collapses
-  to one line plus Enable. The `compact` frame carries no Disable — first run
+  to one line plus Enable. The `compact` frame carries no Disable: first run
   is not where someone toggles plugins.
 - **Nothing privileged is ever a button**, including the numbered install steps.
   Same rule as the wizard's tmux screen (`components/setup/tmux-step.tsx`):
@@ -954,13 +952,13 @@ Three rules the card keeps, each with a defect behind it:
   over hints that carry a COMMAND, so a plugin's explanatory sentence is not
   rendered as an instruction to perform.
 - **A refusal is an ANSWER.** A publish returning `ok:false` with a `refused`
-  hint renders inline where the button was, with no alert role — the server
+  hint renders inline where the button was, with no alert role: the server
   worked correctly and said why not.
 
 `hooks/use-network.ts` holds the query and six mutations; the three streaming
 ones (install, join, publish) reuse `readInstallStream` from
 `use-install-agent.ts` rather than a second NDJSON reader. Every act that
-changes what is trusted — publish, unpublish, leave, and join — invalidates
+changes what is trusted (publish, unpublish, leave, and join) invalidates
 `PUBLIC_SETTINGS_QUERY_KEY`, because `GET /api/settings/public → trustedOrigins`
 is the effective allowlist and the mobile dialog and the setup checklist read
 it; `useSetPluginEnabled` does the same, plus `NETWORK_QUERY_KEY`. Every act
@@ -970,7 +968,7 @@ unpublish that undid it until that was true.
 
 `types/network.ts` is a HAND-WRITTEN mirror of `apps/server/api/src/api/network/schemas.ts`.
 Elysia strips fields a schema does not declare, so a mismatch is silent in
-exactly the way `lib/split-workspace-refusal.ts` records — check both when you
+exactly the way `lib/split-workspace-refusal.ts` records: check both when you
 touch either.
 
 **A network plugin must never be launchable.** Every picker filters
@@ -980,25 +978,25 @@ whole type audit, and reverting either filter fails a test.
 
 **The wizard's optional steps carry ONE primary button, and its label names
 what the press actually IS** (operator's call, 2026-09-18): "Continue" only
-when the step has something to continue with — a joined or published network
+when the step has something to continue with (a joined or published network
 (`isNetworkUsable`, deliberately narrower than the `hasStarted` sort key: an
 installed-but-signed-out daemon still leads the list and still says skip), or
-a detected agent — and "Skip for now" otherwise. The network step used to
+a detected agent), and "Skip for now" otherwise. The network step used to
 ship a ghost skip beside an unconditional Continue, two buttons for the one
 `goNext` they both ran and a label that promised a continuation on a machine
 joined to nothing. Unknown reads as the skip label, the OPPOSITE polarity
-from `lib/node-enrollment.ts`, which defaults unknown to allowed — there an
+from `lib/node-enrollment.ts`, which defaults unknown to allowed: there an
 unknown hid a control that works; here it would mislabel an action a failed
 check cannot vouch for, and skipping must work exactly when the check cannot
-speak. **The tmux step is not one of the optional steps — it GATES**
+speak. **The tmux step is not one of the optional steps: it GATES**
 (operator's ruling, 2026-09-18, deliberately reversing spec 2026-09-15
 § 5.1's non-blocking choice): its button always reads "Continue" and stays
 disabled until the admin-status read reports a `tmuxPath`, because skipping
 tmux just moves the refusal from the step to the launch button without saving
-anyone a step; a failed read therefore grows the body's ErrorBanner + Retry —
+anyone a step; a failed read therefore grows the body's ErrorBanner + Retry:
 a gate with no way to answer is the trap § 5.1 was written to avoid, inverted.
 The launch step keeps a real ghost Skip because there Skip and Start are
-different acts — the one case where two buttons are honest.
+different acts, the one case where two buttons are honest.
 
 ## Talking to the backend
 
@@ -1011,7 +1009,7 @@ components are the better-auth sign-in/sign-out posts:
   better-auth `get-session` endpoint through `apiFetch`. Sign-in (`routes/login.tsx`)
   and sign-out (`components/app-sidebar.tsx`) POST straight to better-auth's
   `/api/auth/*` endpoints.
-- Terminal attach: `src/lib/use-subshell-ws.ts` — a short-lived (30 s) single-use
+- Terminal attach: `src/lib/use-subshell-ws.ts`: a short-lived (30 s) single-use
   WS token minted over REST, then the `/ws` connection. Never put the subshell
   bearer token in a URL.
 - Uploads/streaming: the fetch paths in `src/lib/subshell-uploads.ts` (driven by
@@ -1021,7 +1019,7 @@ components are the better-auth sign-in/sign-out posts:
 redirects** (2026-09-18). better-auth derives cookie security from
 `APP_BASE_URL` rather than from the request, so an instance whose base URL is
 an https address marks its session cookie `Secure` and prefixes it
-`__Secure-` — which a browser on an http page discards on receipt. The POST
+`__Secure-`, which a browser on an http page discards on receipt. The POST
 succeeds, the redirect to `/` finds no session and bounces straight back, and
 the form reads as having rejected a correct password. So `routes/login.tsx`
 pays one extra `getSessionUser()` round trip on the one press where being wrong
@@ -1032,7 +1030,7 @@ There are THREE outcomes, not two, and `lib/sign-in-diagnosis.ts` owns the
 words for the ones that are not a redirect. A session that exists redirects; a
 session that does not gets the diagnosis (which never blames the credentials,
 and whose remedy inside Subshell Server names the assistant's Server Addresses
-screen — the dashboard cannot be reached without the session just lost). A
+screen; the dashboard cannot be reached without the session just lost). A
 check that could not RUN is its own answer: `getSessionUser` throws on anything
 that is not a 401/403 precisely so a failed read is never read as signed-out,
 and folding it into the second case would tell someone to change an address
@@ -1044,7 +1042,7 @@ that works.
 happy-dom globals for component tests). Component and
 lib tests live in `__tests__/` next to the code (`components/__tests__/`,
 `lib/__tests__/`). Tests are pure-function and component-level; browser-level
-end-to-end coverage lives in the repo-root `e2e/` workspace (Playwright) —
+end-to-end coverage lives in the repo-root `e2e/` workspace (Playwright):
 `bun run test:e2e` from the repo root boots its own backend and needs a real
 tmux + a one-time `bunx playwright install chromium`.
 
@@ -1055,7 +1053,7 @@ opens the same add-subshell dialog the dock uses, creates a DRAFT workspace
 around the current subshell (`POST /api/workspaces { draft: true, subshellId }`)
 and navigates to `/workspaces/$id?add=<subshellId>&dir=<direction>`. The dock
 and the tab strip consume that intent once dockview is ready, through their
-ordinary `handleAdd`, then strip the params — so the first split and every later
+ordinary `handleAdd`, then strip the params, so the first split and every later
 add run one code path, and the picker's direction is honoured.
 
 Three rules keep a draft honest, and each is load-bearing:
@@ -1069,15 +1067,15 @@ Three rules keep a draft honest, and each is load-bearing:
   "In N workspaces" opening a menu of all of them. Drafts lead and read
   "Unsaved workspace" rather than their placeholder name, and the sort is
   stable so rows the server already ordered by recency keep that order when
-  their timestamps tie — which they do, a split writing several rows inside
+  their timestamps tie, which they do, a split writing several rows inside
   one millisecond. Menu rows are real links (`render={<Link/>}` +
   `nativeButton={false}`), so middle-click still works.
-- **A draft below two panes is discarded** — server-side when a pane is removed
+- **A draft below two panes is discarded**: server-side when a pane is removed
   (`removePane` resolves `{ workspaceDeleted }`), and client-side on read by
   `hooks/use-discard-thin-draft.ts`, which sends the person back to the
   remaining subshell. That hook is GUARDED by the `?add=` intent: a freshly
   created draft is one pane for as long as its second pane is in flight, and the
-  presentations strip the params only after the refetch shows both — and only
+  presentations strip the params only after the refetch shows both, and only
   when the add actually LANDED. A failed add keeps the params, so the guard
   stays engaged and the error banner stays on screen instead of the draft
   being discarded from under it with nothing said (review, 2026-09-14). Break
@@ -1087,14 +1085,14 @@ Three rules keep a draft honest, and each is load-bearing:
 - **The create response is CHECKED, not trusted** (`lib/split-workspace-refusal.ts`).
   Elysia strips body fields a schema does not declare, so a server older than
   this page answers the split with a plain 200 and silently drops both `draft`
-  and `subshellId` — landing the person on a workspace missing the subshell
+  and `subshellId`, landing the person on a workspace missing the subshell
   they split from. That happened on 2026-09-14 against a dev SPA proxying to an
   installed binary built hours earlier. The button now refuses a response that
   is not `{ draft: true, subshellCount: 1 }`, deletes the empty workspace such
   a server did create, and says the server is behind.
 
 `WorkspaceHeader` renders a draft with a static "Unsaved workspace" title plus
-**Save workspace…** (`PUT /:id { name, draft: false }` — the one transition) and
+**Save workspace…** (`PUT /:id { name, draft: false }`, the one transition) and
 **Discard**; the presentation supplies `onDiscarded` so a discard lands on the
 active pane's subshell. Copy says "unsaved workspace"; code says `draft`.
 
@@ -1102,7 +1100,7 @@ active pane's subshell. Copy says "unsaved workspace"; code says `draft`.
 
 Workspace panes hold live xterm.js terminals inside dockview panels. A dockview
 panel remount disposes its terminal, closes the WS, and forces a history
-replay — every panel must keep `renderer: "always"`, which is what keeps the
+replay; every panel must keep `renderer: "always"`, which is what keeps the
 DOM alive when a panel is hidden.
 
 ### Upgrading `dockview-react`
@@ -1117,7 +1115,7 @@ covers the promise. After any `dockview-react` upgrade, re-run the probe:
 
 If one does, the upgrade is not safe: pin back to the last known-good version.
 
-### Touch: tap types, swipe reads — and BOTH halves are ours
+### Touch: tap types, swipe reads, and BOTH halves are ours
 
 `lib/terminal-touch-scroll.ts`'s `gateTouchKeyboard` decides whether a touch
 on the pane raises the soft keyboard, in both directions, because xterm
@@ -1127,7 +1125,7 @@ decides neither on a touch device. It has shipped broken each way:
   keyboard over half the pane. Those touches are un-focused.
 - **2026-09-18: nothing raised it.** xterm focuses its helper textarea only
   from `mousedown`, and xterm 6's `Gesture` registers `.xterm-screen` as a
-  target and `preventDefault()`s the `touchstart` it dispatches gestures for —
+  target and `preventDefault()`s the `touchstart` it dispatches gestures for,
   which suppresses the compatibility mouse events in both WebKit and Blink. So
   no `mousedown` ever reaches the grid and `document.activeElement` stayed at
   `body`. The gate now focuses the terminal itself from `touchend`, inside the
@@ -1144,18 +1142,18 @@ the contract; the classification is unit-tested):
   .xterm-scrollbar.xterm-vertical`. The gate matches both selectors; on the
   6.1 DOM only the second fires. (`attachWheelScroll` still tests
   `.xterm-viewport` alone for "this is xterm's own scrollbar, leave the wheel
-  native" — on this DOM that check never fires, which costs nothing today
+  native"; on this DOM that check never fires, which costs nothing today
   because the fallback also scrolls the buffer. Fix it together with the next
   version bump.)
 - **A flick's momentum frames carry no coordinates.** `Gesture._inertia`
   builds its `-xterm-gesturechange` event with only `translationX/Y`, so a
-  pane with mouse reporting on gets `ESC[<65;NaN;NaNM` — measured, 45 frames
-  from one flick, typed into the harness prompt. `lib/terminal-input.ts`
+  pane with mouse reporting on gets `ESC[<65;NaN;NaNM` (measured, 45 frames
+  from one flick, typed into the harness prompt). `lib/terminal-input.ts`
   drops SGR reports whose parameters are not decimals, on the one path xterm's
   own output becomes pane input (`use-subshell-ws.ts`'s `onData`); well-formed
   reports still flow, so swipe-scrolling inside a mouse-reporting program
-  works. It is a deliberate copy of `apps/client/mobile/src/lib/terminal-input.ts`
-  — the two UI surfaces run the same xterm and hit the same upstream defect.
+  works. It is a deliberate copy of `apps/client/mobile/src/lib/terminal-input.ts`:
+  the two UI surfaces run the same xterm and hit the same upstream defect.
 
 ### Swipe navigation
 
@@ -1164,7 +1162,7 @@ to, from the same effect that governs binding. It exists for the e2e suite,
 whose difficulty with this feature was that nothing observable said when a
 swipe could work: the gesture is only bound once the subshell LIST has loaded
 and neighbours exist, the terminal mounts well before that, and a swipe
-dispatched in between is silently a no-op — the page just does not move, with
+dispatched in between is silently a no-op: the page just does not move, with
 no error anywhere. Waiting on `.xterm`, and later on the list response, both
 still raced (a response arriving is not the app having rendered from it).
 Anything driving a swipe should wait for this attribute; it is the fact
@@ -1177,7 +1175,7 @@ itself lives in `@internal/subshell-protocol` (`shared-geometry.ts`) so the
 server can APPLY it and the browser can EXPLAIN it from one definition:
 smallest visible viewer wins, hidden viewers drop out, a pin overrides both.
 `decideSharedGrid` returns the grid plus the viewer ids holding each axis;
-`describeDevices` (also in the protocol package, beside the rule it explains — the phone needs it too) turns that into the rows `<SubshellDevices>` renders —
+`describeDevices` (also in the protocol package, beside the rule it explains; the phone needs it too) turns that into the rows `<SubshellDevices>` renders:
 in the subshell header, and floated over a workspace pane's top-right corner
 (dockview owns that panel's frame, and a row of our own would cost every pane
 vertical space for a control that is absent whenever one device is attached).
@@ -1192,7 +1190,7 @@ real (2026-09-04):
 - **Do not report `term.cols`/`term.rows` as this client's size.** The
   container is pinned to the grid the server announced, so the terminal's own
   grid is an ECHO of the server's answer. Sending it back makes this viewer
-  claim it can show no more than the smallest one — after which the pane never
+  claim it can show no more than the smallest one, after which the pane never
   grows back when that viewer leaves. The client's only size statement is
   `measureCapacity()`, measured from the OUTER (pane) box.
   A null measurement is NOT a fallback to the terminal's grid either: it
@@ -1207,8 +1205,8 @@ real (2026-09-04):
   dropped when it wins, and nothing re-sends it until the tab is shown.
 - **Decide the letterbox font from the size the user CHOSE, never from the
   one this function last left behind.** Testing overflow against an
-  already-shrunken cell says "it fits" — which is only true because it was
-  shrunk — so the font flapped between the two on alternate frames. And cell
+  already-shrunken cell says "it fits", which is only true because it was
+  shrunk, so the font flapped between the two on alternate frames. And cell
   metrics read back immediately after assigning `options.fontSize` may be
   stale, so anything that changes the font re-runs on the next frame
   (`applyLetterboxSettled`).

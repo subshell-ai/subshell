@@ -6,7 +6,7 @@ This Contributor License Agreement ("Agreement") records the terms under which
 You contribute to Subshell. It protects You, it protects Disaresta, LLC ("the
 Maintainer"), which owns the Subshell copyright, and it protects everyone
 who relies on the project. **You keep the copyright in everything You write.**
-This Agreement grants the Maintainer a licence to use it — it does not take
+This Agreement grants the Maintainer a licence to use it; it does not take
 it away from You.
 
 ## Why this exists
@@ -30,8 +30,8 @@ first pull request.
 **"You"** means the individual or legal entity accepting this Agreement.
 
 **"Contribution"** means any work of authorship You intentionally submit to the
-Maintainer for inclusion in Subshell — code, documentation, configuration,
-designs or anything else — including any modification of existing work.
+Maintainer for inclusion in Subshell (code, documentation, configuration,
+designs or anything else), including any modification of existing work.
 "Submit" means any form of communication sent to the Maintainer or its
 representatives, including pull requests, issues, patches and electronic
 mailing lists, but excluding communication conspicuously marked "Not a
@@ -73,8 +73,8 @@ You represent that:
 1. Each Contribution is Your original creation, or You have the right to submit
    it under this Agreement.
 2. You are legally entitled to grant the licences above. If Your employer has
-   rights to intellectual property You create — including anything You write on
-   their equipment or within the scope of Your employment — You represent that
+   rights to intellectual property You create (including anything You write on
+   their equipment or within the scope of Your employment), You represent that
    You have received permission to make the Contributions on their behalf, or
    that Your employer has waived those rights, or that Your employer has
    executed this Agreement with the Maintainer.
@@ -94,12 +94,12 @@ merchantability or fitness for a particular purpose.
 1. Subshell's open-source licences are irrevocable for every version already
    published. Relicensing future versions can never retract a licence already
    granted.
-2. Your Contribution will be published under an open-source licence — AGPL-3.0
-   for `apps/server/`, Apache-2.0 elsewhere — as part of Subshell.
+2. Your Contribution will be published under an open-source licence (AGPL-3.0
+   for `apps/server/`, Apache-2.0 elsewhere) as part of Subshell.
 3. Self-hosting Subshell will remain free of charge, with no time limit, no
    user cap, and no feature clock.
-4. The API Type Surface exception in `apps/server/LICENSE` — which lets anyone
-   build API clients and SDKs against Subshell under Apache-2.0 — applies to
+4. The API Type Surface exception in `apps/server/LICENSE`, which lets anyone
+   build API clients and SDKs against Subshell under Apache-2.0, applies to
    your Contribution too, and is itself an additional permission that cannot be
    retracted from versions already published.
 

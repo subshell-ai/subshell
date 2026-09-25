@@ -7,10 +7,10 @@ Expo SDK 57. Design:
 It is not a second web app. Its reason to exist is the four things a web page
 cannot do: background push, app-icon badge, lock-screen actions, and a
 Keychain-held credential behind Face ID. Subshell *viewing* on a phone is
-already served by the responsive web shell — do not re-ship it here.
+already served by the responsive web shell; do not re-ship it here.
 
-**Styling follows `docs/design-system.md`** — six type roles, two weights,
-shadcn colour names — and `bun run lint:design` fails on a literal size,
+**Styling follows `docs/design-system.md`** (six type roles, two weights,
+shadcn colour names), and `bun run lint:design` fails on a literal size,
 weight or colour outside the token file. Pick a role, never a number.
 
 ## Commands
@@ -39,11 +39,11 @@ adding `dev` here would silently start Metro for everyone who runs it. Use
 **Node is a runtime, not a package manager.** `.claude/rules/package-manager.md`
 still governs: `bun install`, `bunx`, never npm. Node exists because Metro, the
 `expo` CLI and `eas` are Node programs. `npx expo install <pkg>` is the one
-exception — it delegates to the workspace's own client and is the only
+exception: it delegates to the workspace's own client and is the only
 dependable way to get SDK-57-compatible versions.
 
 **Versions: Expo's picks, pinned exactly, no syncpack exemption.** Use
-`npx expo install <pkg>` — it resolves the version SDK 57 is built for, which
+`npx expo install <pkg>`: it resolves the version SDK 57 is built for, which
 is often *not* npm's latest (`react-native-webview` is 13.16.1 here, npm offers
 14.x; `@shopify/flash-list` 2.0.2 vs 2.3.2). It writes `~` ranges, so follow
 every install with `bunx syncpack fix && bun install`.
@@ -51,25 +51,25 @@ every install with `bunx syncpack fix && bun install`.
 **⚠️ `bunx syncpack fix` is repo-wide and will edit the *other* apps.** Adding
 `@tanstack/react-query@5.102.8` here caused it to bump
 `apps/server/web/package.json` from 5.101.4 to match. Either pin the new dep to the
-version the web app already uses (what this app does now — 5.101.4), or
+version the web app already uses (what this app does now, 5.101.4), or
 `git checkout` the collateral file. Never commit a drive-by dependency bump to
 `@internal/server-web` from mobile work.
 
 Two things were verified rather than assumed, and both were luckier than
 expected: the repo's `react@19.2.8` satisfies RN 0.86's `^19.2.3` (Expo did not
 downgrade it), and **`typescript@7.0.2` typechecks the whole Expo/RN surface
-cleanly** — so no `versionGroups` carve-out was needed. If a future SDK bump
+cleanly**, so no `versionGroups` carve-out was needed. If a future SDK bump
 breaks that, add the exemption in `syncpack.config.js`; do not loosen the
 exact-pin rule.
 
 `npx expo install --check` will keep reporting `react` and `typescript` as
-"outdated". That is expected and currently harmless — both are JS-side, and the
+"outdated". That is expected and currently harmless: both are JS-side, and the
 native build works at the repo's pins. Don't "fix" them by guessing; the real
 constraint is the one below.
 
 **⚠️ Never let a `*` peer resolve freely.** `expo-router` declares
 `react-native-reanimated: "*"`, so bun installed reanimated 4.6.0, which needs
-`react-native-worklets@0.12.x` — and 0.12 removed
+`react-native-worklets@0.12.x`, and 0.12 removed
 `WorkletRuntime::executeSync`, which `expo-modules-core@57.0.14` still calls
 (its peer range is `^0.7.4 || … || ^0.10.0`). The Android build died in C++:
 `error: no member named 'executeSync' in 'worklets::WorkletRuntime'`. The fix is
@@ -86,13 +86,13 @@ inline in `tsconfig.json`.
 `experiments.tsconfigPaths` in `app.json` (for Metro). Change one, the other
 goes red at runtime rather than at typecheck.
 
-**`assets/terminal.html` is generated — never hand-edit, never lint.** The
-Live tab's xterm page (JS + CSS inlined, zero network requests — the WebView
+**`assets/terminal.html` is generated: never hand-edit, never lint.** The
+Live tab's xterm page (JS + CSS inlined, zero network requests: the WebView
 owns no network and cannot reach the token) is produced by
 `bun scripts/sync-terminal-assets.ts` (from `apps/client/mobile`), which re-inlines
 the pinned `@xterm/*` files from `node_modules`. After bumping either dep,
 re-run it and commit the regenerated file. The root `biome.json` excludes
-`**/assets/terminal.html` — the exclusion is cwd-agnostic on purpose, because
+`**/assets/terminal.html`: the exclusion is cwd-agnostic on purpose, because
 the pre-commit `lint:staged` task runs biome from `apps/client/mobile` and a
 path-anchored pattern silently stopped matching there.
 
@@ -126,20 +126,20 @@ token in the JSON body is the *unsigned* one and 401s on every guarded route.
 Proven live by the M1 transport harness (`bun run harness:m1`): body-token →
 401, Set-Cookie-token → 200. `SubshellClient.signIn` keeps the body value only as
 a no-cookie fallback. This whole flow is exactly what the harness exists to
-falsify — run it against a scratch instance after any auth-transport change.
+falsify; run it against a scratch instance after any auth-transport change.
 
 **The Live socket stays open in the background, so it must say it is not
 watching.** The pane is sized to the smallest VISIBLE viewer across every
 device, and this app deliberately keeps its socket attached while
 backgrounded (push and the badge are the point). Without the `visibility`
 frame a phone in a pocket holds every laptop watching the same subshell at
-phone size, with nothing on any screen to explain it — `LiveHost` passes
+phone size, with nothing on any screen to explain it. `LiveHost` passes
 `hidden: !useForeground()` into `useSubshellSocket`, which announces it on
 open and on every foreground change.
 
 **The Devices strip mirrors the web's, from the same code.** `describeDevices`
 and the sizing rule live in `@internal/subshell-protocol` precisely so all
-three clients explain one decision identically — the browser's explanation
+three clients explain one decision identically: the browser's explanation
 once drifted from the server's by a single dropped field, and a per-client
 copy is how that happens. On a phone the question is usually inverted: this
 device is normally the SMALLEST viewer, so it is the one shrinking everyone
@@ -165,26 +165,26 @@ re-home in `src/lib/node-pick.ts` and the default-agent rule in
 `src/lib/agent-default.ts`) is the mobile mirror of the web
 `apps/server/web/src/components/subshell-picker/new-subshell-form.tsx` of the
 same shape (spec 2026-09-13: agent chips, optional preset chips, the pin is
-gone) — change one, change both. On the wire `local` is OMITTED from the
+gone). Change one, change both. On the wire `local` is OMITTED from the
 create body (the server default), keeping single-machine payloads
 byte-identical to pre-nodes ones; a presetless launch omits `presetId` the
-same way — absence, never null.
+same way: absence, never null.
 
 **Tokens mirror the web by CHECK, not by comment.** `src/lib/tokens.ts` is the
 mobile column of the design system (`docs/design-system.md`): the same six type
 roles and ten colour roles as the web, at platform-native sizes. `bun run
 lint:design` re-derives every colour from the SPA's oklch and fails if this
-file drifts by more than one 8-bit step — because this file once said "port of
+file drifts by more than one 8-bit step, because this file once said "port of
 the web stylesheet" and was a whole palette behind. Consume type through
 `font(role)` and colour through `colors.*`; the check refuses a literal
 `fontSize` or hex anywhere else.
 
-Two divergences from web are ACCEPTED here — decisions, not omissions,
-recorded so the next reader does not "fix" them by accident:
+Two divergences from web are ACCEPTED here (decisions, not omissions,
+recorded so the next reader does not "fix" them by accident):
 
 - **A greyed agent chip carries no reason text.** `new.tsx` only dims the chip
   (`opacity: 0.5`); web's picker states spec 2026-09-13 §5's reason beside the
-  disabled row. A phone chip row has no room for a sentence — the dimming is
+  disabled row. A phone chip row has no room for a sentence: the dimming is
   the whole message.
 - **The Preset row hides entirely when the chosen agent has zero presets**
   (`new.tsx` gates the row on `agentPresets.length > 0`). Web shows the row
@@ -194,13 +194,13 @@ recorded so the next reader does not "fix" them by accident:
 
 ## Verifying on Android
 
-**Use the `*_34` AVDs: `subshell_tablet34` (1280×800dp — the only place the wide
+**Use the `*_34` AVDs: `subshell_tablet34` (1280×800dp, the only place the wide
 shell appears besides iPad landscape) and `subshell_phone34` (Pixel 9).** The API 37
 image (rev 6) is unusable headless: surfaceflinger aborts in a loop with
 `Assertion failed: !rcEnc->featureInfo()->hasReadColorBufferDma…` in
-`RegionSamplingThread`, taking system_server and the launcher with it — an
+`RegionSamplingThread`, taking system_server and the launcher with it (an
 upstream emulator bug in host colour-buffer readback, hit with both
-`swiftshader_indirect` and `swangle`. API 34 is rev 14 and boots clean in ~12s
+`swiftshader_indirect` and `swangle`). API 34 is rev 14 and boots clean in ~12s
 with zero errors.
 
 ```bash
@@ -211,34 +211,34 @@ adb reverse tcp:8081 tcp:8081    # the app reaches Metro through this
 ```
 
 Health check is functional, not by property: **`init.svc.system_server` is empty
-even when the framework is fine** — use `adb shell pm list packages | grep -c .`
+even when the framework is fine**: use `adb shell pm list packages | grep -c .`
 and `adb logcat -b crash -d | grep -c 'F DEBUG'`.
 
 Because `expo-dev-client` is installed, launching `MainActivity` opens the **dev
 launcher**, not the app: type `http://localhost:8081` into its field and tap
 Connect (dismiss the soft keyboard first, or the tap lands on the keyboard).
 A `pm clear` drops the remembered server, but mDNS usually re-displays the
-Metro card a moment later — one tap beats typing.
+Metro card a moment later; one tap beats typing.
 
 **The flaky `mqt_v_js` SIGSEGV seen at cold start is not (yet) attributable
 to app code.** Observed on API 34 x86_64 debug builds: `SEGV_ACCERR` on the
 JS thread seconds after `Running "main" … "fabric":true`, ~119 native frames,
-no JS output yet — so it dies inside engine startup, not inside our modules.
+no JS output yet, so it dies inside engine startup, not inside our modules.
 It is intermittent: the same APK cold-booted again reaches the app. A web
 search for an upstream tracker entry did not surface a matching issue, so no
 reference is given here (one research pass produced fabricated issue
-numbers — deleted; verify before citing). Practical stance: relaunch before
+numbers, and they were deleted; verify before citing). Practical stance: relaunch before
 debugging, and reproduce on a real device / release variant before blaming
 the app.
 
 Driving the UI over adb has three traps, all hit for real: `input text` drops
 the first characters if it fires immediately after `input tap` (sleep ~1-2 s);
-`keyevent 66` (Enter) does not advance focus between RN `TextInput`s — use
+`keyevent 66` (Enter) does not advance focus between RN `TextInput`s: use
 `keyevent 61` (Tab); and a mis-timed tap can type the password into the email
 field, so verify with a screenshot before submitting. Reset a stuck sign-in
 with `adb shell pm clear nu.suteki.subshell` instead of fighting the fields.
 
-For a throwaway backend to sign into, reuse `e2e/stack.ts` (`startStack` —
+For a throwaway backend to sign into, reuse `e2e/stack.ts` (`startStack`,
 fresh temp DB on :3199, PI stub harness) with `adb reverse tcp:3199 tcp:3199`;
 do not point the app at the live :3080 instance, and never reset a real
 account's password to get test credentials.
@@ -249,7 +249,7 @@ keyboard behaviour, push delivery, badge counts, lock-screen actions.
 **Push cannot be end-to-end tested from this repo as-is.** A bare
 `expo run:android` dev build carries no `google-services.json` (verified in
 logcat: `Default FirebaseApp failed to initialize … google-services was not
-applied`), so `getExpoPushTokenAsync` throws and `enrollPush` no-ops — no
+applied`), so `getExpoPushTokenAsync` throws and `enrollPush` no-ops: no
 token ever reaches the backend, so nothing can ring. Before any push/badge
 device test: `eas login` + `eas init` (writes `projectId`/`owner` to
 `app.json`) + `eas credentials` → download `google-services.json` → set
@@ -260,7 +260,7 @@ probes (typed-field validation is at ticket time; unknown keys tolerated).
 **Hardware GL on this dev host is not available headless.** `-gpu host` fails
 `Failed to get EGL display` because GLES host mode needs a display-backed
 context; headless Vulkan does reach the RTX 5080, so ANGLE (`-gpu host -angle`)
-is the only route, and software rendering is fine for layout work — it also
+is the only route, and software rendering is fine for layout work; it also
 keeps the two RTX PRO 6000s clear for the LLMs. Never bind a second X server to
 the output the desktop is scanning out from: it takes DRM master and the
 compositor keeps running blind.

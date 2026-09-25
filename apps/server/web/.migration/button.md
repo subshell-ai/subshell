@@ -1,18 +1,18 @@
 # button
 
-2026-08-30, transformation engine (no components.json in this repo — style
+2026-08-30, transformation engine (no components.json in this repo: style
 unattributed, so the project's own classes are the source of truth). Verdict:
 migrated.
 
 ## Changed
 
-- `src/components/ui/button.tsx` — `@radix-ui/react-slot` + `forwardRef` +
+- `src/components/ui/button.tsx`: `@radix-ui/react-slot` + `forwardRef` +
   `asChild` replaced by `Button as ButtonPrimitive` from
   `@base-ui/react/button` (per the skill's hard rule: real Button primitive,
   never a hand-rolled useRender wrapper). cva variant/size classes kept
   byte-identical. `ButtonProps` is now `ButtonPrimitive.Props & VariantProps`.
 - `src/routes/bookmarks_.$id.tsx:39`, `src/routes/profiles_.$id.tsx:39`,
-  `src/routes/workspaces_.$id.tsx:52` — the only three `asChild` call sites:
+  `src/routes/workspaces_.$id.tsx:52`, the only three `asChild` call sites:
   `<Button asChild><Link/></Button>` -> `<Button render={<Link/>} />`.
 - Leftover scan clean: `grep -n "radix-ui|@radix-ui|asChild|IconPlaceholder"`
   on these four files returns nothing.

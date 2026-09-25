@@ -6,11 +6,11 @@ implements.
 A plugin teaches Subshell how to drive one agent CLI: how to build its launch
 command, how to register the cross-subshell MCP server with it, and what its
 settings are. Subshell ships six built in (Claude Code, Codex, OpenCode,
-Hermes, pi, and Terminal — a plain shell that drives no agent CLI); this
+Hermes, pi, and Terminal, a plain shell that drives no agent CLI); this
 package is what you build against to add another.
 
 A plugin can also teach Subshell how to **connect its host to one network** and
-publish the server there — a mesh VPN, or a tunnel. Same package, same store,
+publish the server there: a mesh VPN, or a tunnel. Same package, same store,
 same install door, different interface: see [Network plugins](#network-plugins)
 below.
 
@@ -53,11 +53,11 @@ detect its binary without importing or running a line of your code:
 }
 ```
 
-A preset is an optional saved customisation for one harness — the host builds
+A preset is an optional saved customisation for one harness; the host builds
 a launch on no preset at all by handing `buildCommand` an empty one.
 
 `detect.knownPaths` names the install locations PATH may not reach from a
-service — HOME-relative (`.local/bin/mytool`), or absolute when an entry starts
+service: HOME-relative (`.local/bin/mytool`), or absolute when an entry starts
 with `/` (`/opt/homebrew/bin/mytool`,
 `/Applications/MyTool.app/Contents/MacOS/MyTool`). Each entry is a candidate to
 search, so one that does not exist costs nothing and the ladder carries on.
@@ -116,7 +116,7 @@ you, rather than letting a restart silently begin a fresh conversation.
 
 **The capability union is shared; the applicable SET is per type, and that is
 validated too.** A harness declaring `publish`, or a network plugin declaring
-`resume`, is refused by name at load — not ignored — because a silently dropped
+`resume`, is refused by name at load, not ignored, because a silently dropped
 capability leaves whatever it implements unreachable with nothing said.
 
 | capability | type | what you must implement |
@@ -124,7 +124,7 @@ capability leaves whatever it implements unreachable with nothing said.
 | `mcp` | harness | `mcpRegistration` (a per-subshell config file) or `mcpSetup` (one-time manual steps) |
 | `resume` | harness | `resume.allocateHarnessSessionId` and the pure `resume.resumePath` |
 | `attention` | harness | `supportsAttentionHooks: true`, with the hooks wired in `buildCommand` |
-| `publish` | network | **both** `publish()` and `unpublish()` — a publish nothing can undo is not a capability |
+| `publish` | network | **both** `publish()` and `unpublish()`: a publish nothing can undo is not a capability |
 | `supervise` | network | `supervisedProcess()` |
 | `guard` | network | `requestGuard()` |
 | `settings` | both | `presetSettings()` on a harness, `settingsFields()` on a network plugin |
@@ -167,7 +167,7 @@ interface NetworkPlugin {
 }
 ```
 
-`status` is your only reporting surface — the host renders what it returns and
+`status` is your only reporting surface; the host renders what it returns and
 infers nothing. It runs on every page load and before every act, so make it
 cheap, and never throw from it: an unreachable daemon is `daemon-down` with a
 hint, not a rejection. A `PublishRefusal` is likewise an answer rather than a
@@ -176,8 +176,8 @@ console") instead of an error to log.
 
 ### A URL you report becomes a link, so it is checked
 
-Anything you put in a `docsUrl` — on a hint, on an `install` block, on a
-privileged step — is rendered as the `href` of an anchor on an admin's page.
+Anything you put in a `docsUrl` (on a hint, on an `install` block, on a
+privileged step) is rendered as the `href` of an anchor on an admin's page.
 An `href` is not inert, so **only `http:` and `https:` are accepted**, and the
 two halves fail differently on purpose:
 
@@ -192,7 +192,7 @@ That last case is the one worth designing around. If you read a URL out of a
 vendor CLI, the CLI read it from its control server, and on a self-hosted
 deployment that server is not the vendor's. Tailscale's `AuthURL` under
 `--login-server` is exactly this. Validate it where it enters your plugin and
-report nothing rather than passing it along — the host's drop is a backstop,
+report nothing rather than passing it along; the host's drop is a backstop,
 not your input validation.
 
 ### The manifest block
@@ -225,7 +225,7 @@ commands before your CLI is anywhere on the machine.
 
 **`privileged` is the copy-only channel and `install.command` is the runnable
 one.** Every mesh daemon needs one root install, and the host has no terminal
-to answer a password prompt — so the manifest parser refuses an
+to answer a password prompt, so the manifest parser refuses an
 `install.command` that starts with `sudo`, and `host.run` throws on an `argv[0]`
 whose basename is `sudo`, `doas` or `pkexec`. Put anything privileged under
 `network.privileged`, where a page prints it for a human to run.
@@ -255,7 +255,7 @@ front, and every surface states that before the publish button.
 ### You hold no state
 
 `NetworkContext` carries the server's port, your stored non-secret settings,
-and which of your secrets are set — on **every** call:
+and which of your secrets are set (on **every** call):
 
 ```ts
 interface NetworkContext {
@@ -310,11 +310,11 @@ a credential that must survive a restart.
 ### First exercise of `supervise` and `guard`
 
 `supervise` and `guard` shipped in the phase-1 contract with no shipping
-consumer — the Cloudflare Tunnel plugin (`@subshell-ai/plugin-cloudflare-tunnel`,
+consumer; the Cloudflare Tunnel plugin (`@subshell-ai/plugin-cloudflare-tunnel`,
 spec 2026-09-15 phase 3) is their first real use. Two rough edges that use
 turned up are recorded in the code it exercised, not papered over here:
 `supervisedProcess` may return a promise (boot re-asks it before any async
-binary lookup could have been cached — see the member's own comment), and the
+binary lookup could have been cached; see the member's own comment), and the
 host promotes a supervised plugin's `joined` row to `published` from its own
 supervisor state, because a plugin whose daemon IS that child has no honest
 way to observe it. What remains genuinely unproven is vendor-shaped: § 10.5
@@ -328,7 +328,7 @@ lower number refuses the plugin outright, naming both versions so the operator
 knows which side to upgrade. A host at a higher number lets the plugin through
 that manifest gate, but that is not a compatibility window: the loader checks
 members by name, so a rename across API versions refuses the older plugin at
-load with a named diagnosis — a v1 plugin (the `profile` spelling) comes back
+load with a named diagnosis: a v1 plugin (the `profile` spelling) comes back
 as missing `validatePreset`, never as silently working. Host members are
 additive within a version line; across one, rebuild. This release is exactly
 that across: rename the members and declare 2.
@@ -348,7 +348,7 @@ const plugin = createPlugin(createTestHost());
 ## Trust
 
 A plugin runs in the control plane's process, with that user's privileges and
-no sandbox — a malicious one reaches every enrolled node, not one machine.
+no sandbox; a malicious one reaches every enrolled node, not one machine.
 Installing one is the same trust decision as installing the CLI it drives,
 made once for the instance. Say so honestly in your README, and prefer
 manifest data over code wherever both would work.
