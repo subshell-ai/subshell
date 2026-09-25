@@ -3,8 +3,11 @@ import type { ReactNode } from "react";
 export interface PageHeaderProps {
   /** Page title (h1) — a plain noun like "Subshells" or "Presets" */
   title: ReactNode;
-  /** One-line description under the title */
-  subtitle: ReactNode;
+  /** One-line description under the title. Omit it when the page's own first
+   * card already carries that sentence — the header must not say it twice
+   * (API keys page, operator ruling 2026-09-25), and an empty paragraph would
+   * leave the gap. */
+  subtitle?: ReactNode;
   /** Optional right-aligned affordance, usually the "New X" button */
   action?: ReactNode;
 }
