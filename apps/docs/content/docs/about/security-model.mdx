@@ -14,7 +14,7 @@ This page is a reader's guide to that model, not a replacement for it. The [full
 
 The recurring shape: credentials are required, scoped, and revoked; guesses are slowed; ciphertext is all the server keeps of your messages.
 
-- **Any unauthenticated API call** — one guard sits in front of every API route except auth, setup status, and one deliberate exception: the sign-in page may read the instance's display name anonymously, so you can see which plane you are about to give a password to.
+- **Any unauthenticated API call** — one guard sits in front of every API route except auth, setup status, and one deliberate exception: the sign-in page may read the instance's display name and its **list of open sign-in providers** anonymously (id, name, kind — never issuer, client id, or any secret), so you can see which plane you are about to give a password to, and through which doors it will let you.
 - **Probing other people's subshells** — foreign ids answer 404, never 403, so nothing can be enumerated.
 - **A runaway agent** — per-subshell tokens hold a permission map, are bound to their own row, and are rejected on every admin surface; a pane cannot enumerate the machine's disk through the file API.
 - **Replayed terminal access** — WebSocket attach tokens live thirty seconds and work once.
@@ -29,6 +29,10 @@ The recurring shape: credentials are required, scoped, and revoked; guesses are 
 ### Enrolling a node
 
 Read the honest sentence first: registering a node **delegates arbitrary command execution on that machine, under the node's OS user, to the control plane**. Everything else follows from that. Sharing a node is a second axis and it is wide: **any share, even view, lets the grantee launch their own subshells there** — invisible to the node's owner unless separately shared. Whoever owns the node's OS user owns every pane launched there, files and process-visible tokens included. And because one signing key rules the fleet, a control-plane compromise is a compromise of every enrolled node; the reverse holds too — a node's key can do nothing on the REST API at all. Details on [Adding a Node](/nodes/add-node) and [Node Sharing](/nodes/sharing).
+
+### Adding a sign-in provider
+
+An external provider — Google or any OIDC system — becomes a second definer of who someone is. The weight of it: **when your provider says an email address is verified, Subshell links the arrival to the account with that address.** That is the design (the provider's verified assertion is the credential), and it means an issuer you add can hand people a way into any account whose address it can assert. Add only issuers you trust to decide identity, the same way you trust your mail domain to run password resets; each provider's own switches (sign-in, account creation, required approval, allowed domains) then bound what that provider may do. Provider management itself is admin-only and cookie-only — no machine credential can touch the list — and the last open provider cannot be closed, so no edit can lock the instance out of itself. The accounting and the approval queue are on [Sign-in Providers](/server/sign-in-providers).
 
 ### Sharing a subshell
 
