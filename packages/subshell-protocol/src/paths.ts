@@ -27,16 +27,14 @@ export type NodeTarget = (typeof NODE_TARGETS)[number];
  * The closed set of platform triples the `subshell` agent is published for
  * (spec §8).
  *
- * No `darwin-x64`: Intel Macs are not a target. Apple is ending support for
- * them, and the agent is the last thing here that was still built for one —
- * carrying a triple nobody wants costs a cross-build and a release shard every
- * cut. An Intel Mac therefore has no published agent: `install.sh` refuses it
- * by name rather than resolving a target that 404s, and running from a
- * checkout is the only path left. Note that `darwin-arm64` is NOT a fallback —
- * an arm64 binary does not run on Intel, and Rosetta only translates the other
- * direction.
+ * Includes `darwin-x64` (Intel Macs): bun 1.4.2 cross-builds the target from
+ * Apple Silicon with `--bytecode` (measured), and the retired pipeline shipped
+ * this exact artifact with its smoke run under Rosetta on the mac runner
+ * (proven, spec 2026-09-03 §187). It is an ordinary member of the set, not a
+ * special case — and `darwin-arm64` is NOT a fallback for it: an arm64 Mach-O
+ * does not run on Intel, and Rosetta translates only the other direction.
  */
-export const NODE_TARGETS = ["linux-x64", "linux-arm64", "darwin-arm64"] as const;
+export const NODE_TARGETS = ["linux-x64", "linux-arm64", "darwin-arm64", "darwin-x64"] as const;
 
 /** One {@link SERVER_TARGETS} entry. */
 export type ServerTarget = (typeof SERVER_TARGETS)[number];
@@ -45,17 +43,15 @@ export type ServerTarget = (typeof SERVER_TARGETS)[number];
  * The closed set of platform triples the `subshell-server` is published for
  * (spec 2026-09-03 §7).
  *
- * Identical to {@link NODE_TARGETS} today — it was the narrower of the two
- * until the agent's Intel-Mac build was dropped. They stay separate constants
+ * Identical to {@link NODE_TARGETS} today. They stay separate constants
  * because they describe different products and may diverge again, not because
  * they currently differ.
  *
- * No `darwin-x64`, for the same reason as the agent: Intel Macs are not a
- * target. The comment here used to say an Intel host "runs the linux build or
- * the source path", and the first half of that was simply false — a linux
- * binary is not a macOS fallback. A checkout is the only path.
+ * `darwin-x64` is included for the same proven reason as the agent's; the
+ * old note here that an Intel host "runs the linux build" was simply false —
+ * a linux binary is not a macOS fallback. The artifact is the fallback now.
  */
-export const SERVER_TARGETS = ["linux-x64", "linux-arm64", "darwin-arm64"] as const;
+export const SERVER_TARGETS = ["linux-x64", "linux-arm64", "darwin-arm64", "darwin-x64"] as const;
 
 /**
  * Carried by every published CLI artifact name, so a downloaded file says
@@ -109,16 +105,20 @@ export type DesktopTarget = (typeof DESKTOP_TARGETS)[number];
 /**
  * The closed set of platform triples `apps/server/desktop` is published for.
  *
- * NARROWER than {@link SERVER_TARGETS}, and for a different reason than the
- * server's own narrowing:
+ * NARROWER than {@link SERVER_TARGETS}, and for the pipeline's own reasons:
  *
  * - No `linux-arm64`. There is no native arm64 Linux runner, and every
  *   existing arm64 artifact in this repo is cross-built with a `file(1)` magic
  *   check as its only proof. That is defensible for a headless Bun binary and
  *   indefensible for a GTK/WebKit GUI whose characteristic failure is an
  *   INVISIBLE WINDOW — the one thing a magic check cannot see.
- * - No `darwin-x64`, because {@link SERVER_TARGETS} has none. A desktop build
- *   ships a server; a triple with no server to bundle cannot be built at all.
+ * - No `darwin-x64`, even though {@link SERVER_TARGETS} has one again: the
+ *   desktop pipeline hands `tauri build` no `--target` and reads a
+ *   host-relative bundle root, so it builds only the host arch. Restoring the
+ *   CLI triple did not restore a build path for the bundle; that cross-build
+ *   work (tauri `--target`, `RUST_TARGET_TRIPLES`, dmg name, updater platform
+ *   key `darwin-x86_64`, a real-Intel smoke) is the desktop prototype, not a
+ *   constant to flip.
  *
  * Every entry here must therefore also be a {@link ServerTarget}.
  */

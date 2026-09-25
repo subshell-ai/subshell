@@ -488,12 +488,14 @@ describe("POST /api/nodes/:id/update", () => {
   it("a platform with no published artifact → 409 NODE_UPDATE_UNAVAILABLE", async () => {
     useFakeRelease();
     const id = await mkNode();
-    // An Intel Mac: a real platform this project publishes nothing for.
+    // A darwin host on an arch nobody publishes: Intel Macs resolved when the
+    // darwin-x64 triple was restored, so the no-artifact stand-in moves one
+    // step further out.
     await nodes.applyReady(id, {
       agentVersion: "0.8.0",
       protocolVersion: NODE_PROTOCOL_VERSION,
       os: "darwin",
-      arch: "x64",
+      arch: "ppc64",
       hostname: "box",
       capabilities: [],
     });
@@ -502,7 +504,7 @@ describe("POST /api/nodes/:id/update", () => {
     expect(res.status).toBe(409);
     const err = (await res.json()) as { code: string; message: string };
     expect(err.code).toBe("NODE_UPDATE_UNAVAILABLE");
-    expect(err.message).toContain("darwin/x64");
+    expect(err.message).toContain("darwin/ppc64");
   });
 
   // ── nothing-to-do refusals, before any artifact work ──────────────────────

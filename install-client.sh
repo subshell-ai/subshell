@@ -35,10 +35,11 @@ fail() {
 }
 
 # --- 1. which bundle does this machine need? ---------------------------------
-# Desktop targets are NOT the CLI's three (spec 2026-09-23 §6): there is no
-# linux-arm64 desktop build, and no Intel Mac build. Refused BY NAME so the
-# message is that fact rather than a 404 the reader misattributes to a
-# broken release.
+# Desktop targets are NOT the CLI's four (spec 2026-09-23 §6): there is no
+# linux-arm64 desktop build, and the desktop pipeline builds no Intel Mac
+# bundle (the CLI binaries cross-build with bun; tauri gets no --target here).
+# Refused BY NAME so the message is that fact rather than a 404 the reader
+# misattributes to a broken release.
 if [ -n "${SUBSHELL_CLIENT_TARGET:-}" ]; then
   TARGET="$SUBSHELL_CLIENT_TARGET"
 else

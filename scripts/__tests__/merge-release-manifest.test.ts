@@ -105,10 +105,10 @@ describe("findShardManifests / loadShardManifests", () => {
       mkdirSync(out, { recursive: true });
       writeFileSync(join(out, RELEASE_MANIFEST_NAME), "{}"); // would fail to PARSE if picked up
       const paths = findShardManifests(root, out);
-      expect(paths.length).toBe(3);
+      expect(paths.length).toBe(NODE_TARGETS.length);
       expect(paths.every((p) => p.includes("node-linux") || p.includes("node-darwin"))).toBe(true);
-      // And it round-trips: exactly the three shard files parse.
-      expect(loadShardManifests(paths).length).toBe(3);
+      // And it round-trips: exactly the shard files written parse.
+      expect(loadShardManifests(paths).length).toBe(NODE_TARGETS.length);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -118,7 +118,7 @@ describe("findShardManifests / loadShardManifests", () => {
     // A re-run WITHOUT `--out` in a directory a previous run already merged
     // into: the old scan took `out` only when the flag was given, so the
     // previous merged output — sitting at the top level of `dir`, exactly
-    // where the scan looks — came back as a fourth "shard". The write happens
+    // where the scan looks — came back as an extra "shard". The write happens
     // after the scan, so that file can never be input this run needs.
     const root = mkdtempSync(join(tmpdir(), "merge-manifest-reuse-"));
     try {
@@ -140,10 +140,12 @@ describe("findShardManifests / loadShardManifests", () => {
         ),
       );
       const paths = findShardManifests(root, root);
-      expect(paths.length).toBe(3);
+      expect(paths.length).toBe(NODE_TARGETS.length);
       expect(paths.some((p) => p === join(root, RELEASE_MANIFEST_NAME))).toBe(false);
       // And the merge over them stays clean — the exclusion is the whole fix.
-      expect(Object.keys(mergeReleaseManifests(loadShardManifests(paths)).assets).length).toBe(3);
+      expect(Object.keys(mergeReleaseManifests(loadShardManifests(paths)).assets).length).toBe(
+        NODE_TARGETS.length,
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -165,7 +167,7 @@ describe("findShardManifests / loadShardManifests", () => {
       shard("cli-node", { [releaseAssetNames("cli-node", t).binary]: digestFor(i + 1) }),
     );
     const parsed = parseReleaseManifest(JSON.stringify(mergeReleaseManifests(shards)));
-    expect(Object.keys(parsed?.assets ?? {}).length).toBe(3);
+    expect(Object.keys(parsed?.assets ?? {}).length).toBe(NODE_TARGETS.length);
   });
 });
 
@@ -221,7 +223,7 @@ describe("merge-release-manifest CLI", () => {
     // The reused-directory case end to end: a previous run's merged manifest
     // sits at the top level of the scanned dir (where the without-`--out`
     // output lands) and disagrees with a shard on one digest. Before the
-    // always-exclude fix that file was ingested as a fourth "shard" and the
+    // always-exclude fix that file was ingested as an extra "shard" and the
     // run died with "two digests across shards" — an error naming nothing
     // about reuse. Now the merge passes and the only refusal left is the one
     // this environment genuinely deserves: no signing key.

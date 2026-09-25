@@ -37,8 +37,8 @@ import { SERVER_VERSION } from "@/version.js";
  * The host triple is the one thing that cannot be faked: `runJob` asks
  * `hostReleaseTarget(process.platform, process.arch)` which asset to fetch, so
  * the fixture publishes the asset THIS machine would ask for. On a platform
- * with no published artifact (an Intel Mac) that answer is null, which is
- * itself one of the cases below.
+ * with no published artifact (a darwin/ppc64 host, a 32-bit Linux) that answer
+ * is null, which is itself one of the cases below.
  */
 
 const HOST_TARGET = hostReleaseTarget(process.platform, process.arch);

@@ -116,9 +116,20 @@ describe("GET /api/admin/updates", () => {
     const body = await read(fx.adminCookie);
     const byId = new Map(body.nodes.rows.map((r) => [r.id, r]));
     expect(byId.get(linux)?.target).toBe("linux-x64");
-    // An Intel Mac is a real population with no published artifact; the row
-    // says so instead of guessing a nearby triple.
-    expect(byId.get(intel)?.target).toBeNull();
+    // An Intel Mac now resolves to its published triple rather than null.
+    expect(byId.get(intel)?.target).toBe("darwin-x64");
+    // A platform nobody publishes still answers null instead of guessing a
+    // nearby triple — a darwin host with an unshipped arch must not be handed
+    // the Intel artifact.
+    const ppc = await agent({
+      name: `upd-ppc-${crypto.randomUUID()}`,
+      os: "darwin",
+      arch: "ppc64",
+      version: "0.8.0",
+    });
+    const body2 = await read(fx.adminCookie);
+    const byId2 = new Map(body2.nodes.rows.map((r) => [r.id, r]));
+    expect(byId2.get(ppc)?.target).toBeNull();
   });
 
   it("never lists `local` — the control-plane host updates with the server", async () => {

@@ -42,9 +42,10 @@ echo "== publish the locally compiled agent as this instance's artifact"
 # sandbox had none of (exit 1, not the usage refusal under test).
 case "$(uname)-$(uname -m)" in
   Darwin-arm64)  TRIPLE="darwin-arm64" ;;
+  Darwin-x86_64) TRIPLE="darwin-x64" ;;
   Linux-x86_64)  TRIPLE="linux-x64" ;;
   Linux-aarch64) TRIPLE="linux-arm64" ;;
-  *) fail "no artifact name for $(uname)-$(uname -m); the served triples are linux-x64, linux-arm64, darwin-arm64" ;;
+  *) fail "no artifact name for $(uname)-$(uname -m); the served triples are linux-x64, linux-arm64, darwin-arm64, darwin-x64" ;;
 esac
 cp "$ROOT/apps/node/agent/dist/subshell" "$SUBSHELL_NODE_ARTIFACTS_DIR/subshell-node-cli-$TRIPLE"
 shasum -a 256 "$SUBSHELL_NODE_ARTIFACTS_DIR/subshell-node-cli-$TRIPLE" | awk '{print $1}' \

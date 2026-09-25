@@ -23,8 +23,9 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
 ```
 
 - `release:cli-node` runs `apps/node/agent`'s `compile:release` (`src/scripts/release.ts`):
-  the three served triples (`linux-x64`, `linux-arm64`, `darwin-arm64`; no
-  Intel Mac), each cross-built WITH
+  the four served triples (`linux-x64`, `linux-arm64`, `darwin-arm64`,
+  `darwin-x64` — Intel Macs publish again, proven by bun 1.4.2's cross-build),
+  each cross-built WITH
   `--bytecode` (uniform since spec 2026-09-03 §5); `SUBSHELL_RELEASE_TRIPLES`
   scopes a subset (CI uses this); each digested and published as
   `subshell-node-cli-<triple>` + a fresh `.sha256` sidecar via temp-file + `rename()`
@@ -566,8 +567,9 @@ which is why they share their own smoke, parameterized by app id.
   The plan job pushes the missing tag(s) FIRST, then one build shard per
   app×triple on GitHub-hosted runners (linux on `ubuntu-24.04`:
   linux-arm64 cross-built there, `file` magic check only, never exec'd;
-  darwin on `macos-14`, natively; nothing is cross-arch smoked now that
-  Intel Macs are not a target, so the Rosetta smoke mode is gone). Native shards exec `version`; server shards also
+  darwin on `macos-14`: darwin-arm64 natively, darwin-x64 cross-built and
+  exec-smoked under Rosetta — the `rosetta` smoke mode every darwin-x64 launch
+  runs through `arch -x86_64`). Native shards exec `version`; server shards also
   BOOT on a temp DB with `apps/server/web/dist` hidden (the embedded-SPA
   proof). Publish = softprops draft-with-assets → second invocation flips
   live; any build failure ⇒ no release.
