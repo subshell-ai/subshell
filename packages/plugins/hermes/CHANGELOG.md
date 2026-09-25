@@ -1,5 +1,12 @@
 # @subshell-ai/plugin-hermes
 
+## 1.0.0
+
+### Major Changes
+
+- [#184](https://github.com/subshell-ai/subshell/pull/184) [`711b5fa`](https://github.com/subshell-ai/subshell/commit/711b5fa4e8ab31db801800fc1733b0c370c78e58) Thanks [@theogravity](https://github.com/theogravity)! - Marked 1.0.0. Every harness and network plugin still below 1.0 joins the
+  product line's first stable release.
+
 ## 0.2.0
 
 ### Minor Changes

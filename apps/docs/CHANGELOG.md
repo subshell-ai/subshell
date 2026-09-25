@@ -1,5 +1,31 @@
 # @internal/docs
 
+## 0.4.0
+
+### Minor Changes
+
+- [#183](https://github.com/subshell-ai/subshell/pull/183) [`f9286b9`](https://github.com/subshell-ai/subshell/commit/f9286b99f56afd07e60058adaca2563e7d3f62be) Thanks [@theogravity](https://github.com/theogravity)! - The docs meet the MCP DX wave. `mcp-tools` is the fifteen-tool reference now: `list_nodes`, `read_subshell_log` and `send_to_subshell` documented, the `node` and `prompt` arguments covered, and the mcp-server, rest-api, architecture and channels pages updated to match the agent surface.
+
+### Patch Changes
+
+- [#180](https://github.com/subshell-ai/subshell/pull/180) [`b28726a`](https://github.com/subshell-ai/subshell/commit/b28726a67fa5f5190358eff9845e5822de6b5b7d) Thanks [@theogravity](https://github.com/theogravity)! - No em dashes in the docs (operator ruling, 2026-09-25). The voice rule the UI has carried since 2026-09-21 now extends to the documentation site: prose, headings, frontmatter and callouts carry a comma, a colon, parentheses, or a full stop instead, and the content test fails any page carrying U+2014 so the rule is enforced, not aspirational. The whole content tree was swept (about 1,800 occurrences across 77 pages); en dashes in ranges and hyphens are untouched, and code fences still quote whatever they quote.
+
+- [#180](https://github.com/subshell-ai/subshell/pull/180) [`b28726a`](https://github.com/subshell-ai/subshell/commit/b28726a67fa5f5190358eff9845e5822de6b5b7d) Thanks [@theogravity](https://github.com/theogravity)! - Docs for sign-in providers. A new Server page (Sign-in Providers) covers the Settings → Auth list: adding a provider as a trust decision (a provider's verified email claim links straight into the matching account), what the save verifies, the per-provider switches, the last-open-provider guard, and the approval queue. Registration & Enrollment moves its switch from Settings → General to the E-mail provider's row (where spec 2026-09-24 put it) and points at the providers for the per-provider answers. The security overview's anonymous-read sentence now names the open-provider list the sign-in page reads, and gains the provider trust accounting; the Users page's Pending tab and the audit trail's provider and approval rows are documented.
+
+- [#169](https://github.com/subshell-ai/subshell/pull/169) [`78fd431`](https://github.com/subshell-ai/subshell/commit/78fd4318fd6721da2b41cfaa32a65889dc2f26e1) Thanks [@theogravity](https://github.com/theogravity)! - Fix the fresh-terminal replay so typing lands on the visible prompt.
+  
+  The attach replay ended with the client's cursor at the bottom of the grid
+  while the pane's cursor sat at the prompt near the top, so every live byte
+  (echo included) painted below the visible prompt (the "prompt at the top,
+  typing off-screen" report). The replay now ends with an absolute move to the
+  pane's real cursor: a new `pane_cursor` node command (protocol 12 → 13) feeds
+  it, and an older agent that cannot answer simply gets the previous behavior.
+  A booting pane's first frame now waits for the shell's first paint instead of
+  shipping the blank grid, the log file is waited for (the whole-grid poll
+  fallback stays for panes that never get one), and bytes already queued at a
+  booting viewer are dropped rather than replayed on top of the capture, which
+  double-painted prompt sequences into ghost prompts.
+
 ## 0.3.2
 
 ### Patch Changes

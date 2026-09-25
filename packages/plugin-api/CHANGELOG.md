@@ -1,5 +1,14 @@
 # @subshell-ai/plugin-api
 
+## 3.0.0
+
+### Major Changes
+
+- [#184](https://github.com/subshell-ai/subshell/pull/184) [`711b5fa`](https://github.com/subshell-ai/subshell/commit/711b5fa4e8ab31db801800fc1733b0c370c78e58) Thanks [@theogravity](https://github.com/theogravity)! - Versioned to 3.0.0 in step with the 1.0 launch. These two packages passed
+  1.0 before the product line marked it; rather than reach backward they
+  take the next major, so every published component is now at 1.0.0 or
+  deliberately past it.
+
 ## 2.1.2
 
 ### Patch Changes

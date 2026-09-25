@@ -1,5 +1,22 @@
 # @internal/desktop-client
 
+## 1.0.0
+
+### Major Changes
+
+- [#184](https://github.com/subshell-ai/subshell/pull/184) [`711b5fa`](https://github.com/subshell-ai/subshell/commit/711b5fa4e8ab31db801800fc1733b0c370c78e58) Thanks [@theogravity](https://github.com/theogravity)! - Marked 1.0.0. The control plane, the node daemon, and both desktop apps
+  all mark their first stable release. This entry changes no behavior; it
+  records the milestone, and the entries below it are what the milestone is
+  made of.
+
+### Minor Changes
+
+- [#180](https://github.com/subshell-ai/subshell/pull/180) [`b28726a`](https://github.com/subshell-ai/subshell/commit/b28726a67fa5f5190358eff9845e5822de6b5b7d) Thanks [@theogravity](https://github.com/theogravity)! - Text size on Linux now answers Ctrl+= / Ctrl+- / Ctrl+0 in every window of both desktop apps. Until now those keys lived only on the macOS menu bar (a GTK menu bar is per-window chrome, so Linux carries none), leaving the tray's Text Size submenu as the only door, and no door at all on a session with no tray host. The tray submenu and the shared zoom ladder are unchanged.
+
+### Patch Changes
+
+- [#182](https://github.com/subshell-ai/subshell/pull/182) [`6955725`](https://github.com/subshell-ai/subshell/commit/6955725c3f45d0945adc18dae6234f4b44814fa4) Thanks [@theogravity](https://github.com/theogravity)! - The no-em-dash voice rule applied to shipped copy: every string a person reads on a screen or in a terminal now carries its breath with a comma, colon, parentheses, or a full stop. The tray update item reads "Update available: Subshell Server 0.8.0" (both apps), the node window title "Subshell Client: Node", network plugin hints, both CLIs' refusals and prompts, and the browser-rendered error messages lose their dashes, and so do the /docs endpoint descriptions, the shared MCP tool descriptions, and the desktop apps' permission prose. No wire name, error code, id, or log line changed.
+
 ## 0.12.0
 
 ### Minor Changes
