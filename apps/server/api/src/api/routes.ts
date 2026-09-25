@@ -3,7 +3,7 @@ import { adminServerRoutes } from "@/api/admin-server/index.js";
 import { adminStatusRoutes } from "@/api/admin-status.route.js";
 import { adminUpdatesRoutes } from "@/api/admin-updates.route.js";
 import { auditRoutes } from "@/api/audit.route.js";
-import { authProvidersRoutes } from "@/api/auth-providers.route.js";
+import { authProvidersRoutes } from "@/api/auth-providers/index.js";
 import { channelRoutes } from "@/api/channels/index.js";
 import { devicesRoutes } from "@/api/devices.route.js";
 import { downloadsRoutes } from "@/api/downloads.route.js";

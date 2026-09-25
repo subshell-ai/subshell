@@ -114,7 +114,7 @@ case 14 pins the emitted URI. The security accounting is
 
 ```
 src/
-├── api/            # Routes: flat *.route.ts (incl. downloads.route.ts — the subshell binaries; admin-status.route.ts — the whole instance in one admin-only read; plugins.route.ts — /api/plugins, the instance plugin store, writes cookie-admin) + per-resource dirs (subshells/, workspaces/, channels/, nodes/, users/) + auth-guard.ts + routes.ts; install-script.ts renders root-mounted GET /install.sh
+├── api/            # Routes: flat *.route.ts (incl. downloads.route.ts — the subshell binaries; admin-status.route.ts — the whole instance in one admin-only read; plugins.route.ts — /api/plugins, the instance plugin store, writes cookie-admin) + per-resource dirs (subshells/, workspaces/, channels/, nodes/, users/, auth-providers/) + auth-guard.ts + routes.ts; install-script.ts renders root-mounted GET /install.sh
 ├── auth/           # Api-key store, DB handle, system user, the sign-in doors (door-policy.ts, door-guards.ts, provider-rows.ts, oidc-discovery.ts; better-auth config: ../auth.ts)
 ├── db/             # Kysely setup, migrations (static provider map), types/, repositories/
 ├── lib/            # context.ts (ApiContext + getRequestlessContext), api-error.ts (apiErrorBody)
