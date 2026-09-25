@@ -292,7 +292,12 @@ describe("users-admin + audit routes", () => {
     // this file write real audit events with now-stamps, so page 1 belongs to
     // whatever is newest, and the assertions below are against that whole
     // order — which is exactly the property that matters for paging ANY trail.
-    const all = await auditRepo.listLatest(500);
+    // The limit is a sentinel, not a cap: a full-suite run leaves MANY events
+    // above these fixtures (this file moved to `users/` on 2026-09-24 and
+    // landed later in the shared-DB order, where the old 500-row snapshot ran
+    // off the end of the walk), and a truncated snapshot makes the
+    // slice-equality walk and its tail checks lie.
+    const all = await auditRepo.listLatest(1_000_000);
     const ids = all.map((e) => e.id);
     // The tie: id descending inside one timestamp, adjacent.
     expect(ids.indexOf("p-3a")).toBe(ids.indexOf("p-3b") + 1);
@@ -309,7 +314,10 @@ describe("users-admin + audit routes", () => {
     const collected: string[] = [];
     let cursor: { createdAt: string; id: string } | undefined;
     for (let guard = 0; ; guard++) {
-      expect(guard).toBeLessThan(200);
+      // Pages of 2 walk ≤ ids.length/2 + 1 pages; the slack is the short
+      // tail page. A fixed cap would be another ledger-size assumption — the
+      // loop is bounded by the ledger itself.
+      expect(guard).toBeLessThan(ids.length + 4);
       const q = cursor
         ? `limit=2&beforeCreatedAt=${encodeURIComponent(cursor.createdAt)}&beforeId=${cursor.id}`
         : "limit=2";
