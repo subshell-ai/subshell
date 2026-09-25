@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   buildManifest,
   checkReleases,
+  desktopAssetsProbe,
   desktopBundleNames,
   parseLsRemote,
   SCHEMA_VERSION,
@@ -141,6 +142,35 @@ describe("verifiedReleaseAssets — the signed-manifest rule at the site's door"
     expect(await verifiedReleaseAssets("cli-node", "9.9.9", noSig, pubkey)).toBeNull();
     expect(await verifiedReleaseAssets("cli-node", "9.9.9", noManifest, pubkey)).toBeNull();
     expect(await verifiedReleaseAssets("cli-node", "9.9.9", throwing, pubkey)).toBeNull();
+  });
+});
+
+describe("desktopAssetsProbe — the default seam keeps NULL meaning 'could not ask'", () => {
+  const manifest = readFileSync(join(FIX, "release-manifest.json"), "utf8");
+  const sig = readFileSync(join(FIX, "release-manifest.sig"), "utf8");
+  const pubkey = readFileSync(join(FIX, "publisher-pubkey.txt"), "utf8");
+  const otherPubkey = readFileSync(join(FIX, "other-pubkey.txt"), "utf8");
+  const servingFixture = async (url: string): Promise<string | null> => {
+    if (url.endsWith("/release-manifest.json")) return manifest;
+    if (url.endsWith("/release-manifest.json.sig")) return sig;
+    return null;
+  };
+
+  test("an absent/offline release answers null, NOT [] (writeReleases omits the field)", async () => {
+    // The wave's own bug: `?? []` collapsed "the probe could not ask" into
+    // "the release ships no bundles". The site renders the same either way,
+    // but the committed file's contract (and its header comment) is absence.
+    expect(await desktopAssetsProbe("desktop-server", "1.2.3", async () => null, pubkey)).toBeNull();
+  });
+
+  test("a bad signature also answers null", async () => {
+    expect(await desktopAssetsProbe("cli-node", "9.9.9", servingFixture, otherPubkey)).toBeNull();
+  });
+
+  test("verified with nothing renderable answers [] (the only meaning left)", async () => {
+    // The fixture release is a CLI one: verified, and no .dmg/.deb among its
+    // assets. [] now says exactly that, never "unknown".
+    expect(await desktopAssetsProbe("cli-node", "9.9.9", servingFixture, pubkey)).toEqual([]);
   });
 });
 

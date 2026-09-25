@@ -802,7 +802,7 @@ jobs:
             linux-x64)     HINT='ELF 64-bit.*x86-64' ;;
             linux-arm64)   HINT='ELF 64-bit.*ARM aarch64' ;;
             darwin-arm64)  HINT='Mach-O 64-bit.*arm64' ;;
-            darwin-x64)    HINT='Mach-O 64-bit.*x86-64' ;;
+            darwin-x64)    HINT='Mach-O 64-bit.*x86_64' ;;
           esac
           file "$BIN" | grep -Eq "$HINT" || { echo "file(1) says: $(file "$BIN")"; exit 1; }
 
@@ -815,7 +815,14 @@ jobs:
           run_target() {
             # $EXEC_PREFIX is repo-authored, fixed text; word-splitting it is
             # the point (empty in exec mode, `arch -x86_64` in rosetta mode).
-            if [ -n "$EXEC_PREFIX" ]; then $EXEC_PREFIX "$@"; else "$@"; fi
+            # exec, not a bare call: boot_smoke backgrounds this, and a
+            # backgrounded shell function forks a wrapper subshell bash does
+            # not exec-replace through its function frame (measured on bash
+            # 3.2, the mac runners' shell). Without exec, $! and the EXIT
+            # trap's kill aim at the wrapper and the binary survives; with it
+            # $! IS the binary. Both call sites are subshells ($(...) and &)
+            # so exec never touches the running script.
+            if [ -n "$EXEC_PREFIX" ]; then exec $EXEC_PREFIX "$@"; else exec "$@"; fi
           }
 
           exec_smoke() {

@@ -94,6 +94,32 @@ describe("ArchSplitButton", () => {
     expect(screen.queryByRole("menu")).not.toBeNull();
   });
 
+  // Pins for the chevron's explicit Enter/Space handler: native buttons
+  // already activate on Enter, the handler is for engines with odd defaults,
+  // and its preventDefault is what stops the keypress from ALSO firing the
+  // click toggle (which would reopen→close). Nothing else exercises it.
+  test("Enter on the chevron opens the menu (keyboard activation, not just click)", () => {
+    setup();
+    chevron().focus();
+    fireEvent.keyDown(chevron(), { key: "Enter" });
+    expect(screen.queryByRole("menu")).not.toBeNull();
+  });
+
+  test("Space on the chevron opens the menu", () => {
+    setup();
+    chevron().focus();
+    fireEvent.keyDown(chevron(), { key: " " });
+    expect(screen.queryByRole("menu")).not.toBeNull();
+  });
+
+  test("while open, the chevron's aria-controls names the menu it owns", () => {
+    setup();
+    fireEvent.click(chevron());
+    const menuId = screen.getByRole("menu").getAttribute("id");
+    expect(menuId).toBeTruthy();
+    expect(chevron().getAttribute("aria-controls")).toBe(menuId);
+  });
+
   test("re-opening resets focus to the selection, not the last hovered row", () => {
     setup();
     fireEvent.click(chevron());

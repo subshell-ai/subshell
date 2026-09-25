@@ -196,21 +196,37 @@ function runnerErrorMessage(err: unknown): string {
 }
 
 /**
+ * The default desktopAssets probe: fetch the release's own manifest, verify
+ * its signature, and report its bundle names. An unverifiable answer (absent,
+ * offline, bad signature) stays NULL rather than collapsing to `[]`: the
+ * header documents "unverifiable ⇒ the field is omitted", and `[]` would
+ * claim the probe SAW a release that ships no bundles, not that the probe
+ * could not ask.
+ */
+export async function desktopAssetsProbe(
+  component: ReleaseComponent,
+  version: string,
+  fetchText: FetchText = fetchTextLive,
+  pubkey: string = RELEASE_PUBKEY,
+): Promise<string[] | null> {
+  const names = await verifiedReleaseAssets(component, version, fetchText, pubkey);
+  return names === null ? null : desktopBundleNames(names);
+}
+
+/**
  * Write mode: generate the manifest and write it to `out`. Returns the
  * process exit code; a failing `lsRemoteTags` aborts BEFORE any write.
  *
- * `assetsFor` is the desktop probe (default: fetch the release's own manifest
- * and verify its signature). It runs only for the two desktop components, and
- * a null answer leaves `desktopAssets` ABSENT — the site's Intel button is
- * driven by a fact, never by hope.
+ * `assetsFor` is the desktop probe (default: {@link desktopAssetsProbe}). It
+ * runs only for the two desktop components, and a null answer leaves
+ * `desktopAssets` ABSENT — the site's Intel button is driven by a fact,
+ * never by hope.
  */
 export async function writeReleases(
   runner: () => LsRemoteResult = defaultLsRemote,
   out: string = OUT,
-  assetsFor: (component: ReleaseComponent, version: string) => Promise<string[] | null> = async (
-    component,
-    version,
-  ) => desktopBundleNames((await verifiedReleaseAssets(component, version, fetchTextLive)) ?? []),
+  assetsFor: (component: ReleaseComponent, version: string) => Promise<string[] | null> = (component, version) =>
+    desktopAssetsProbe(component, version),
 ): Promise<number> {
   let manifest: SiteReleasesManifest;
   try {

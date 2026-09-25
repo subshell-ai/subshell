@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 export interface ArchOption<K extends string> {
   key: K;
@@ -39,6 +39,9 @@ export function ArchSplitButton<K extends string>({
   const root = useRef<HTMLSpanElement>(null);
   const chevronRef = useRef<HTMLButtonElement>(null);
   const itemRefs = useRef(new Map<K, HTMLButtonElement>());
+  // The menu's id: useId (not a literal) because both install columns can
+  // mount one at once, and a duplicated id would mis-wire aria-controls.
+  const menuId = useId();
 
   // Opening focuses the current selection (the row a keyboard visitor would
   // re-pick is the one under the cursor already). Re-opening re-runs this,
@@ -102,6 +105,7 @@ export function ArchSplitButton<K extends string>({
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
         aria-label="Choose which Mac build"
         onClick={() => setOpen((was) => !was)}
         onKeyDown={(event) => {
@@ -123,6 +127,7 @@ export function ArchSplitButton<K extends string>({
       </button>
       {open && (
         <span
+          id={menuId}
           role="menu"
           aria-label="Mac build"
           onKeyDown={(event) => {
