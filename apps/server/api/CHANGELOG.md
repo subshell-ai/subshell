@@ -1,5 +1,17 @@
 # @internal/server
 
+## 1.0.1
+
+### Patch Changes
+
+- [#185](https://github.com/subshell-ai/subshell/pull/185) [`cafda7d`](https://github.com/subshell-ai/subshell/commit/cafda7db3179a5d5ed02941a3b3b1f708b6523b4) Thanks [@theogravity](https://github.com/theogravity)! - The plane can fetch from GitHub again. The egress pin's host list carried
+  GitHub's old release-asset hostname, so the renamed host every release
+  download now redirects to was refused by name: a fresh server answered
+  "could not provide a linux-x64 node binary" and refused to verify a
+  release's signature (the 1.0.0 post-cut proof measured the failing hop and
+  this patch is its fix). Both spellings are allowed now, the test pins both,
+  and `docs/security.md` names them.
+
 ## 1.0.0
 
 ### Major Changes
