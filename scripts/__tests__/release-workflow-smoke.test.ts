@@ -119,3 +119,42 @@ describe("release.yml run_target", () => {
     }
   });
 });
+
+/** The Smoke step's script body, from the env line that hands it the smoke
+ * mode to the magic-mode echo that closes it. Both anchors are unique. */
+function smokeStepBody(): string {
+  const start = WORKFLOW.indexOf("SMOKE: ${{ matrix.smoke }}");
+  const end = WORKFLOW.indexOf("no exec smoke (digest sidecar");
+  if (start < 0 || end < 0) throw new Error("release.yml: the Smoke step body was not found (reworded?)");
+  return WORKFLOW.slice(start, end);
+}
+
+describe("release.yml rosetta smoke (cut 36194869947 taught this the hard way)", () => {
+  test("the darwin-x64 shard provisions Rosetta before anything execs x86", () => {
+    const body = smokeStepBody();
+    const install = body.indexOf("softwareupdate --install-rosetta --agree-to-license");
+    expect(install).toBeGreaterThanOrEqual(0);
+    // Guarded: an install attempt on a non-x64 shard (or an Intel image
+    // without the command) must not become a new failure mode.
+    expect(new RegExp(`if \\[ "\\$TRIPLE" = darwin-x64 \\]; then\\n\\s*softwareupdate --install-rosetta`).test(body)).toBe(
+      true,
+    );
+    // BEFORE both consumers: the desktop early-exit case (its bundle smoke
+    // execs the x64 sidecar directly) and the arch prefix assignment.
+    expect(install).toBeLessThan(body.indexOf("desktop-*)"));
+    expect(install).toBeLessThan(body.indexOf('EXEC_PREFIX="arch -x86_64"'));
+  });
+
+  test("a failed version exec surfaces its output instead of dying silent", () => {
+    // Cut 36194869947's real lesson was diagnostic as much as Rosetta:
+    // `|| return 1` on the capture threw the failure's own words away, and
+    // the job died in 13 silent seconds. The failure path must echo.
+    const body = smokeStepBody();
+    const line = body.split("\n").find((l) => l.includes('out=$(run_target "$BIN" version 2>&1)'));
+    expect(line).toBeTruthy();
+    expect(line).toMatch(/\|\|\s*\{\s*echo/);
+    // And it must echo WHAT THE BINARY SAID, not just that it said nothing:
+    // the pin's whole point is that the next silent death is impossible.
+    expect(line).toContain("$out");
+  });
+});
