@@ -1,5 +1,20 @@
 # @subshell-ai/plugin-claude-code
 
+## 3.0.0
+
+### Major Changes
+
+- [#184](https://github.com/subshell-ai/subshell/pull/184) [`711b5fa`](https://github.com/subshell-ai/subshell/commit/711b5fa4e8ab31db801800fc1733b0c370c78e58) Thanks [@theogravity](https://github.com/theogravity)! - Versioned to 3.0.0 in step with the 1.0 launch. These two packages passed
+  1.0 before the product line marked it; rather than reach backward they
+  take the next major, so every published component is now at 1.0.0 or
+  deliberately past it.
+
+### Patch Changes
+
+- [#173](https://github.com/subshell-ai/subshell/pull/173) [`766d4a7`](https://github.com/subshell-ai/subshell/commit/766d4a7b30546c3f03130fe5596eddfc486af3a8) Thanks [@theogravity](https://github.com/theogravity)! - Notifications get quieter. A Stop hook no longer rings "Done, waiting for you" while the session is parked on background work; approval pushes fire only for the notification types that genuinely need a human; a pane pushes at most once until its owner opens it, escalation excepted; and the sidebar dot becomes a bell for exactly as long as a push sits unanswered.
+
+- [#176](https://github.com/subshell-ai/subshell/pull/176) [`db5951a`](https://github.com/subshell-ai/subshell/commit/db5951ae26bbc8cd4ea6a32be3114b84df786396) Thanks [@theogravity](https://github.com/theogravity)! - "Waiting for you" now clears on agent nodes. The only alive-path clearer was the plane's idle watcher, which can only observe a log on the plane's own disk, so a pane running on a node stayed amber from its last Stop or approval until the process died, however hard it worked. Claude Code's hooks now report a third attention kind, `resumed` (prompt submitted, or a tool starting after an approval), and the pane's own report clears the stamp from wherever it runs; it never reads the hook payload and never rings. Rollout: update the nodes FIRST, then the Server. The Server ships the new hook, and an older `subshell` binary rejects `resumed` as an unknown argument with exit 2, which Claude Code reads as a blocking error on every prompt and tool, so a node left behind stalls its panes until it updates. An updated node against an older Server is harmless: the report is a silent no-op there.
+
 ## 2.0.0
 
 ### Major Changes

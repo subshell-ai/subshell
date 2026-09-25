@@ -1,5 +1,0 @@
----
-"@internal/server": minor
----
-
-Instance lockdown, and a Server that can decline to host subshells. Settings → General grows a Lockdown card: one button in each direction, and both open a dialog that lights its confirm only when the admin types the machine's name. Turning it ON stops every running subshell on every machine and refuses every new launch and restart (admins included) until it ends, which it does by the same typed ask; a pane that could not be stopped is reported to the admin rather than passed off as quiet, and everyone signed in sees the amber banner for as long as it holds. One switch up, the Server can now be switched off as a place to run subshells: running panes finish on their own, the machine's row stays visible and manageable, and every picker and refusal follows that one reading. On Nodes, "Add node" is always drawn and disabled with a tooltip naming who holds the switch (the same sentence is the empty state's line, so touch users are not left hovering for it), and the home page tells a viewer with nowhere to launch what to do about it: add a machine, or ask an admin.
