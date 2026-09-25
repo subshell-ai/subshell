@@ -433,18 +433,27 @@ describe("the assistant's IPC contract", () => {
     expect(wizard.has("desktop_request_notifications")).toBe(true);
     expect(wizard.has("desktop_request_photos")).toBe(true);
     expect(wizard.has("desktop_open_system_settings")).toBe(true);
-    // Neither request takes an argument either, so neither can be aimed at a
+    // Neither request takes a PAGE argument, so neither can be aimed at a
     // permission this screen did not say out loud. Same reasoning as the read's
     // above, applied to the two that ACT — and `rust` is the file read once at
-    // the top of this test for exactly that reason.
-    for (const name of ["desktop_request_notifications", "desktop_request_photos"]) {
+    // the top of this test for exactly that reason. `desktop_request_photos`
+    // carries one INJECTED parameter since the 2026-09-25 crash fix: the
+    // PhotoKit consent request must be made on the main thread, and the hop
+    // goes through `AppHandle::run_on_main_thread` — a handle Tauri supplies
+    // is not a value a page can send, so the pin allows exactly that word and
+    // nothing else.
+    const PAGE_ARG_FREE_PARAMS: Record<string, string> = {
+      desktop_request_notifications: "",
+      desktop_request_photos: "app: AppHandle",
+    };
+    for (const [name, allowed] of Object.entries(PAGE_ARG_FREE_PARAMS)) {
       // Asserted present before it is sliced: `indexOf` of a missing command is
       // -1, and a slice from -1 reads the tail of the file — a green assertion
       // about a command that no longer exists.
-      expect(rust, `${name} is gone from control.rs`).toContain(`pub fn ${name}()`);
+      expect(rust, `${name} is gone from control.rs`).toContain(`pub fn ${name}(`);
       const ask = rust.slice(rust.indexOf(`pub fn ${name}(`));
       const askParams = ask.slice(ask.indexOf("(") + 1, ask.indexOf(")"));
-      expect(askParams.trim(), `${name} gained an argument`).toBe("");
+      expect(askParams.trim(), `${name} gained an argument`).toBe(allowed);
     }
   });
 
