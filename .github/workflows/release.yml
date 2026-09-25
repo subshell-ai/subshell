@@ -704,8 +704,16 @@ jobs:
           # target/ tree whose .fingerprint entries point at source paths that
           # no longer exist, and actions/cache skips its save on an exact hit,
           # so the stale tree would persist until Cargo.lock next changed.
-          key: ${{ runner.os }}-cargo-release-v2-${{ matrix.app }}-${{ hashFiles(format('apps/{0}/src-tauri/Cargo.lock', matrix.dir), 'crates/desktop-core/**/*.rs') }}
-          restore-keys: ${{ runner.os }}-cargo-release-v2-${{ matrix.app }}-
+          # `runner.arch` is load-bearing the same way: runner.os is plain
+          # "macOS" on BOTH hosted labels, and with `--target` cargo keeps
+          # host-arch build scripts and proc-macro dylibs in the
+          # UNQUALIFIED target/release/ — an Intel shard that restores an
+          # arm64 host's tree dies executing binaries the CPU cannot run
+          # ("Bad CPU type"), and an exact-key hit means the poisoned slot
+          # is never rewritten. It sits in restore-keys too, because a
+          # prefix restore would re-cross the line the full key just drew.
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-release-v2-${{ matrix.app }}-${{ hashFiles(format('apps/{0}/src-tauri/Cargo.lock', matrix.dir), 'crates/desktop-core/**/*.rs') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-cargo-release-v2-${{ matrix.app }}-
 
       - name: Desktop release build (scoped to ${{ matrix.triple }})
         if: startsWith(matrix.app, 'desktop-')
