@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The compiled-server `mcp` smoke, ONE contract in ONE place — consumed by
-# .github/workflows/test.yml (dev-compiled binary) and release.yml (each
-# release triple, darwin included). It re-implements nothing of the binary;
-# it asserts its refusal contract:
+# .github/workflows/test.yml (dev-compiled binary) and release.yml (the
+# exec-smoked triples: the binary must RUN here, per the usage note below).
+# It re-implements nothing of the binary; it asserts its refusal contract:
 #
 #   1. `mcp` WITHOUT the pane env exits NON-ZERO (the env-contract refusal),
 #   2. the refusal names SUBSHELL_API_KEY (the human-actionable half of
@@ -14,23 +14,23 @@
 #      runners RUN this product, and a future pane-env variable can never
 #      silently flip the expected refusal into a connect attempt.
 #
-# Usage: smoke-mcp-refusal.sh <binary> [exec-prefix]
-#   exec-prefix: optional command prefix, word-split by design. The release
-#                darwin-x64 shard passes `arch -x86_64` so the cross-built
-#                Intel binary is refused UNDER Rosetta, proving the refusal is
-#                not an artifact of the translation. Everything else passes it
-#                empty and spawns bare.
+# Usage: smoke-mcp-refusal.sh <binary>
+#   Every caller spawns bare, on a runner whose ISA hosts the binary: the
+#   darwin-x64 release shard once refused "under Rosetta" behind a
+#   translation prefix, and that venue was hopeless anyway — its own crash
+#   banner proved an Apple Silicon runner cannot run this bun build at all
+#   (SSE4.2 ceiling vs AVX2 need). The shard reaches this script natively
+#   now, on GitHub's hosted Intel macOS runner.
 set -euo pipefail
 
 BIN="$(realpath "$1")"
-PREFIX="${2:-}"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 cd "$tmp"
 
 set +e
-out="$($PREFIX env -i PATH="$PATH" HOME="$tmp" "$BIN" mcp </dev/null 2>&1)"
+out="$(env -i PATH="$PATH" HOME="$tmp" "$BIN" mcp </dev/null 2>&1)"
 code=$?
 set -e
 

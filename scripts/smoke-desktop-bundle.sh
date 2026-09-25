@@ -254,10 +254,15 @@ codesign --verify --strict --verbose=2 "$DIST/$ARTIFACT" || fail "codesign --ver
 xcrun stapler validate "$DIST/$ARTIFACT" || fail "the notarization ticket is not stapled to the image"
 
 [ -x "$APP_BUNDLE/Contents/MacOS/$SIDECAR" ] || fail "the sidecar is missing or not executable inside the bundle"
-# The arch of the nested sidecar is the one thing a mislabeled cross-build
-# would get wrong SILENTLY: `check_sidecar_runs` below execs it, and Rosetta
-# answers x86_64 on this runner either way. The Mach-O slice is the fact; the
-# bundle's own arch has to match the triple being cut.
+# The arch of the nested sidecar is the one thing a mislabeled build would
+# get wrong, so the Mach-O slice is asserted first — and then it RUNS, both
+# Mac triples alike. Each darwin shard is smoked on hardware that IS its
+# arch (arm64 on the Apple Silicon label, x86_64 on the hosted Intel one),
+# and that venue is what makes the run check honest. It was always the
+# venue, not the check: the x64 bundle on an Apple Silicon runner could
+# never pass it — that image's Rosetta ceiling is SSE4.2 while bun's x86_64
+# build needs AVX2, settled by the cross-built sidecar's own crash banner
+# (run 36196527394: `CPU: sse42 popcnt`).
 case "$TRIPLE" in
   darwin-arm64) MACHO_HINT="arm64" ;;
   darwin-x64) MACHO_HINT="x86_64" ;;
@@ -267,6 +272,8 @@ case "$sidecar_magic" in
   *"Mach-O"*"$MACHO_HINT"*) ;;
   *) fail "the sidecar is not a $MACHO_HINT Mach-O: $sidecar_magic" ;;
 esac
+# The sidecar is a CLI, not the GUI: this exec is not the launch this
+# script's header declines to do, and it is the whole point of the bundle.
 check_sidecar_runs "$APP_BUNDLE/Contents/MacOS/$SIDECAR"
 
 echo "smoke: verifying the merged Info.plist"

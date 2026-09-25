@@ -34,20 +34,21 @@
 #                 `refresh_manifest=true` output that wakes site-manifest alone.
 #   build       — matrix over app×triple, pinned to hardware per triple:
 #                 linux-* → ubuntu-24.04 (pinned for the glibc-2.39 floor;
-#                 linux-arm64 is CROSS-BUILT — no native arm64 Linux runner
-#                 is available to public repos, hosted included; bytecode
-#                 cross is proven on bun 1.4.0), darwin-* → macos-14
-#                 (GitHub-hosted Apple Silicon: darwin-arm64 native,
-#                 darwin-x64 cross-built and exec-smoked under Rosetta).
+#                 linux-arm64 is CROSS-BUILT — bytecode cross is proven on
+#                 bun 1.4.0; the hosted ubuntu-24.04-arm image exists and
+#                 moving this shard onto it is the open arm-Linux follow-up),
+#                 darwin-arm64 → macos-14 (GitHub-hosted Apple Silicon),
+#                 darwin-x64 → macos-15-intel (GitHub-hosted Intel — see
+#                 the smoke-mode table in the plan job for why the x64
+#                 shards live on Intel hardware rather than translated).
 #                 Each shard runs the app's OWN release script scoped to its
 #                 one triple (SUBSHELL_(SERVER_)RELEASE_TRIPLES + the release
-#                 dir env pointed at dist-rel/), then SMOKE-tests: native
-#                 triples execute `version` (the server additionally boots on
-#                 a temp DB with the on-disk frontend dist hidden — / and
-#                 /docs must answer from the EMBEDDED bytes), darwin-x64 does
-#                 the same through Rosetta, linux-arm64 gets a `file` magic
-#                 check only
-#                 (degrading to the magic check). Uploads binary + .sha256 +
+#                 dir env pointed at dist-rel/), then SMOKE-tests: every
+#                 triple whose runner IS its arch executes `version` (the
+#                 server additionally boots on a temp DB with the on-disk
+#                 frontend dist hidden — / and /docs must answer from the
+#                 EMBEDDED bytes), leaving cross-built linux-arm64 the only
+#                 `file` magic check. Uploads binary + .sha256 +
 #                 the shard's own release-manifest.json (+ its publisher sig
 #                 on the CLI shards, spec 2026-09-17 — the publish job merges
 #                 and re-signs those into the ONE release manifest below).
@@ -398,6 +399,14 @@ jobs:
           }
           LINUX='"ubuntu-24.04"'
           MAC='"macos-14"'
+          # GitHub's hosted INTEL macOS label. The darwin-x64 shards build
+          # and exec-smoke here rather than on Apple Silicon under
+          # translation, because translation is a dead venue for these
+          # binaries: run 36196527394's own crash banner ("CPU: sse42
+          # popcnt") proved the macos-14 Rosetta ceiling is SSE4.2 while
+          # bun's x86_64 build needs AVX2 — no exec claim there can ever
+          # pass, and SIGILL is not a flaky signal worth retrying.
+          MAC_INTEL='"macos-15-intel"'
           entries=""
           appsjson=""
           for app in $apps; do
@@ -447,14 +456,14 @@ jobs:
             case "$app" in
               cli-server) triples="linux-x64 linux-arm64 darwin-arm64 darwin-x64" ;;
               cli-node) triples="linux-x64 linux-arm64 darwin-arm64 darwin-x64" ;;
-              # No linux-arm64: there is no native arm64 Linux runner, and a
-              # file(1) magic check cannot see a GUI's characteristic failure,
-              # which is an invisible window. darwin-x64 is in: the pipeline
-              # cross-builds it with tauri `--target` on the arm64 runner
-              # (measured 2026-09-25: full crate graph compiles, links the
-              # SDK's universal WebKit, the x86_64 app runs), and the bundle
-              # smoke verifies signing, the staple, and the sidecar's Mach-O
-              # slice rather than launching the GUI.
+              # No linux-arm64: the desktop-builder container is amd64-only
+              # (a container cannot run under the other arch's kernel), and
+              # the magic-check fallback cannot see a GUI's characteristic
+              # failure, which is an invisible window; the arm spike's first
+              # step is an arm64 build of that image. darwin-x64 is in, and
+              # it now BUILDS on Intel hardware, so the bundle smoke
+              # verifies signing, the staple, and RUNS the sidecar, still
+              # without launching the GUI.
               desktop-server|desktop-client) triples="linux-x64 darwin-arm64 darwin-x64" ;;
               # $triples is an ordinary shell variable that OUTLIVES the loop
               # iteration. Without this arm a new app silently inherits the
@@ -462,15 +471,30 @@ jobs:
               *) echo "::error::no triples defined for app '$app'"; exit 1 ;;
             esac
             for triple in $triples; do
+              # Each triple's runner IS its arch, deliberately: an exec
+              # smoke claim needs hardware that hosts the instructions
+              # (MAC_INTEL note above), and a desktop bundle's sidecar RUN
+              # check is only honest on matching silicon. One runner per
+              # triple, and it proves its own arch.
               case "$triple" in
-                linux-*) runner="$LINUX" ;;
-                darwin-*) runner="$MAC" ;;
+                linux-*)      runner="$LINUX" ;;
+                darwin-arm64) runner="$MAC" ;;
+                darwin-x64)   runner="$MAC_INTEL" ;;
                 *) echo "::error::no runner for triple '$triple'"; exit 1 ;;
               esac
+              # Exec smoke runs where the runner's own ISA hosts the binary,
+              # which is now everywhere but linux-arm64. The x64 Mac shards
+              # moved onto the hosted Intel label rather than degrade to
+              # magic, because the translated venue could never exec these
+              # builds at all (MAC_INTEL note above) — magic there would
+              # have been a permanent blind spot, not a compromise.
+              # linux-arm64 stays a cross-build on x64 hardware; its
+              # upgrade is the hosted ubuntu-24.04-arm image, an open
+              # follow-up tracked with the desktop arm spike.
               case "$triple" in
-                linux-x64|darwin-arm64) smoke="exec" ;;    # native on its runner
-                darwin-x64) smoke="rosetta" ;;            # cross-built; exec'd through Rosetta on the arm runner
-                *) smoke="magic" ;;                       # linux-arm64: cross-built, never exec'd here
+                linux-arm64) smoke="magic" ;;  # cross-built: file(1) + digest prove the arch
+                darwin-x64)  smoke="exec" ;;   # Intel artifact, Intel hardware
+                *) smoke="exec" ;;             # native on its runner
               esac
               # The desktop artifact is a BUNDLE, not a bare binary, so it gets
               # its own smoke: digests, the nested sidecar, Debian deps, and on
@@ -659,8 +683,9 @@ jobs:
           toolchain: stable
           # Both Mac stds on every darwin desktop shard: `tauri build` is
           # passed an explicit `--target` for EVERY triple (a shard must never
-          # be able to silently build its runner's arch), and the arm64 shard
-          # naming its own host triple resolves through the same install step.
+          # be able to silently build an arch other than the one it claims),
+          # and with both stds installed the named target always resolves,
+          # whichever Mac image the fleet hands the shard.
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache cargo
@@ -781,21 +806,6 @@ jobs:
           SMOKE: ${{ matrix.smoke }}
         run: |
           set -euo pipefail
-          # Apple Silicon hosted runners do not hand every job a usable
-          # Rosetta: the first darwin-x64 cut (run 36194869947, 2026-09-25)
-          # watched every x86 exec die instantly on that runner, while the
-          # same binaries ran on dev hosts that had Rosetta installed years
-          # ago. Provision it before ANY path that execs an x86 slice: the
-          # CLI version/boot smoke below, and the desktop bundle smoke the
-          # early-exit case dispatches (its sidecar check execs directly and
-          # relies on the same translation). Idempotent and exits 0 once
-          # present (reviewer-measured on macOS 26.6: it re-runs the package
-          # install for a few seconds rather than skipping), the first
-          # install downloads the package and takes longer, and the guard
-          # keeps it off every other triple.
-          if [ "$TRIPLE" = darwin-x64 ]; then
-            softwareupdate --install-rosetta --agree-to-license
-          fi
           # A desktop artifact is a BUNDLE, not a bare binary — different
           # checks entirely, so it exits before the binary smoke below.
           case "$APP" in
@@ -821,33 +831,18 @@ jobs:
           esac
           file "$BIN" | grep -Eq "$HINT" || { echo "file(1) says: $(file "$BIN")"; exit 1; }
 
-          # Every smoke launch goes through run_target. `exec` runs bare;
-          # `rosetta` prefixes `arch -x86_64` so the cross-built Intel artifact
-          # really executes on the Apple Silicon runner — the mode the
-          # pre-retirement pipeline proved (spec 2026-09-03 §187).
-          EXEC_PREFIX=""
-          [ "$SMOKE" = rosetta ] && EXEC_PREFIX="arch -x86_64"
-          run_target() {
-            # $EXEC_PREFIX is repo-authored, fixed text; word-splitting it is
-            # the point (empty in exec mode, `arch -x86_64` in rosetta mode).
-            # exec, not a bare call: boot_smoke backgrounds this, and a
-            # backgrounded shell function forks a wrapper subshell bash does
-            # not exec-replace through its function frame (measured on bash
-            # 3.2, the mac runners' shell). Without exec, $! and the EXIT
-            # trap's kill aim at the wrapper and the binary survives; with it
-            # $! IS the binary. Both call sites are subshells ($(...) and &)
-            # so exec never touches the running script.
-            if [ -n "$EXEC_PREFIX" ]; then exec $EXEC_PREFIX "$@"; else exec "$@"; fi
-          }
-
           exec_smoke() {
             local out
-            # On failure, print the captured output before returning: the
-            # first rosetta cut failed here and died silent, because `||
-            # return 1` threw away the very line that named the cause. A
-            # nonzero exec from the cross-built binary is the one failure
-            # mode whose whole diagnosis is in its own stderr.
-            out=$(run_target "$BIN" version 2>&1) || { echo "version exec failed under '${EXEC_PREFIX:-bare}': $out"; return 1; }
+            # On failure, print the captured output before returning: an
+            # early cut failed this exec and died silent, because `|| return
+            # 1` threw away the very line that named the cause. A nonzero
+            # exec is the one failure whose whole diagnosis is in its own
+            # stderr. (Backgrounding keeps its own never-silent rule at
+            # boot_smoke: launch the binary as a DIRECT simple command, so
+            # $! is the process the kill and the EXIT trap aim at, a shape
+            # pinned behaviorally by release-workflow-smoke.test.ts after a
+            # helper function around it once silently broke exactly that.)
+            out=$("$BIN" version 2>&1) || { echo "version exec failed: $out"; return 1; }
             echo "$out"
             # Pinned against the CLIs' real output: the server prints exactly
             # "subshell-server <v>"; the agent adds "(node protocol vN)".
@@ -865,9 +860,8 @@ jobs:
               # server binary SERVES `mcp` itself — the refusal contract
               # (clean-env `env -i` refusal + no-CWD-litter) lives in ONE
               # script shared with test.yml, so the two can never check
-              # different contracts. The exec-prefix argument exists for
-              # exactly this rosetta shard.
-              bash scripts/smoke-mcp-refusal.sh "$BIN" "$EXEC_PREFIX"
+              # different contracts.
+              bash scripts/smoke-mcp-refusal.sh "$BIN"
             fi
           }
 
@@ -885,7 +879,7 @@ jobs:
             SUBSHELL_SERVER_CONFIG_DIR="$cfgdir" \
             BETTER_AUTH_SECRET="$(head -c 32 /dev/urandom | base64)" \
             SERVER_PORT="$port" HOST=127.0.0.1 APP_BASE_URL="http://127.0.0.1:$port" \
-              run_target "$PWD/$BIN" >server-boot.log 2>&1 &
+              "$PWD/$BIN" >server-boot.log 2>&1 &
             pid=$!
             trap 'kill '"$pid"' 2>/dev/null || true; restore' EXIT
             for i in $(seq 1 120); do
@@ -906,7 +900,7 @@ jobs:
           }
 
           case "$SMOKE" in
-            exec|rosetta)
+            exec)
               exec_smoke
               ;;
             magic)
