@@ -19,10 +19,10 @@ import { logger } from "@/utils/logger.js";
  *   the rate-limit route's log lines).
  *   OIDC provider sign-ins ride the SAME hook through a dedicated
  *   `/callback/` branch (spec 2026-09-24 §4): their success is a thrown FOUND
- *   redirect whose result payload names no user, so the actor is looked up in
- *   the `session` table against the raw token carried by the response's own
- *   `session_token` cookie, and the metadata is `{ method, userId }` —
- *   `method` spelled `oidc:<provider id>`.
+ *   redirect whose result payload names no user, so the success test is the
+ *   actor proof — the raw token of the response's own `session_token` cookie
+ *   resolving to a row in the `session` table — and the metadata is
+ *   `{ method, userId }`, `method` spelled `oidc:<provider id>`.
  * - `auth.sign_out` — written from `databaseHooks.session.delete.after`,
  *   which fires exactly when a session row is ACTUALLY deleted (the hook runs
  *   per found entity, so a sign-out against an already-dead cookie deletes
@@ -305,17 +305,31 @@ function sessionTokenFromResponse(headers: Headers): string | undefined {
  *
  * Why a dedicated branch: the callback's success is a THROWN `FOUND` APIError
  * (`c.redirect`), so there is no JSON payload and `context.returned.user`
- * — the password/passkey success test — does not exist here. The measured
- * shapes (all proven by the flow matrix):
+ * — the password/passkey success test — does not exist here.
  *
- * - success: `location` to the callback URL (no `error=`), AND a fresh
- *   `session_token` cookie whose raw token exists in the `session` table;
- * - every refusal — both the generic session-hook one (`unable_to_create_
- *   session`) and the hook-code ones (`pending_approval`, `registration_
- *   closed`, `domain_not_allowed`, `account_not_linked`) — puts `error=` in
- *   the Location query and mints no session cookie;
- * - the form-POST→GET relay also answers a clean Location but mints no
- *   session, and the DB lookup refuses to name an actor for it.
+ * THE success test is the actor proof, and nothing else (T11 review,
+ * controller decision): a fresh `session_token` cookie on the response whose
+ * raw token resolves to a row in the `session` table. The earlier Location
+ * `error=` gate was REMOVED — it made the row self-suppressible: a holder of
+ * any door credential could complete a real sign-in with a `callbackURL` of
+ * `"/x?error=1"` and answer a redirect carrying a live session while writing
+ * no audit row at all. Refusals need no separate gate, on dist facts
+ * (better-auth 1.7.1, `dist/api/routes/callback.mjs`):
+ *
+ * - `setSessionCookie` has EXACTLY ONE call site on this endpoint — after a
+ *   successful `handleOAuthUserInfo`, the line before the success redirect;
+ *   every refusal (`unable_to_create_session`, `pending_approval`,
+ *   `registration_closed`, `domain_not_allowed`, `account_not_linked`, the
+ *   early `redirectOnError` shapes) answers without ever reaching it, so no
+ *   refusal carries a mintable cookie;
+ * - the form-POST→GET relay likewise mints nothing, and the `/link-social`
+ *   completion branch redirects WITHOUT a session cookie — it is not a
+ *   sign-in act and correctly writes no row.
+ *
+ * So "cookie resolves to a user" is TRUE exactly of successes; the Location
+ * was only ever able to subtract true rows. (Note the prefix does not match
+ * the `oauth-popup` plugin's `/oauth2/callback/:id` route shape, if that
+ * plugin were ever enabled — such a completion would not be audited here.)
  *
  * The provider id comes from the ROUTE PARAM, not the brief's path slice:
  * measured in the after-hook context, `path` carries the endpoint PATTERN
@@ -331,13 +345,8 @@ async function auditOidcCallbackSignIn(ctx: AuthAfterHookContext): Promise<void>
   if (providerId === "") return;
   const response = ctx.context?.responseHeaders;
   if (!(response instanceof Headers)) return;
-  const location = response.get("location");
-  if (!location) return; // not a redirect ⇒ nothing this branch recognizes as a completed sign-in
-  const q = location.indexOf("?");
-  const query = q === -1 ? "" : location.slice(q + 1);
-  if (/(?:^|&)error=/.test(query)) return; // both refusal shapes carry error= in the query (measured)
   const token = sessionTokenFromResponse(response);
-  if (!token) return;
+  if (!token) return; // no minted cookie on the response ⇒ the dist fact says: not a success
   // Raw SQL: better-auth's `session` table is outside the typed Database
   // (camelCase physical columns, same spelling the flow matrix queries with).
   const { rows } = await sql<{ userId: string }>`SELECT userId FROM session WHERE token = ${token}`.execute(db);

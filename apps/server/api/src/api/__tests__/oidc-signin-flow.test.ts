@@ -115,23 +115,42 @@ type FlowResult =
     };
 
 /**
- * Drives one full flow and classifies the callback response. Success is the
- * 3xx to `/` WITH a session cookie (a redirect without one is a `http`, never
- * a pass); a refusal is the 3xx to `/login?error=<code>` and carries the code
- * and `error_description` verbatim for the caller to assert.
+ * Every flow-state this file minted. better-auth 1.7.1 persists the OAuth
+ * state as a `verification` row whose `identifier` is the RANDOM STATE STRING
+ * itself (`dist/state.mjs` — `createVerificationValue({ identifier: state })`,
+ * and the consuming `deleteVerificationByIdentifier(state)`), NOT the email,
+ * so this is the only key the afterAll can purge (and prove) by.
  */
-async function runFlow(doorId: string, profile: Record<string, unknown>): Promise<FlowResult> {
+const flowStates: string[] = [];
+
+/**
+ * Drives one full flow and classifies the callback response. Success is the
+ * 3xx to `callbackURL` WITH a session cookie (a redirect without one is a
+ * `http`, never a pass); a refusal is the 3xx to `/login?error=<code>` and
+ * carries the code and `error_description` verbatim for the caller to assert.
+ * `callbackURL` is overridable so a case can hand the callback a destination
+ * of its own choosing (the audit-suppression case passes one carrying
+ * `error=` — the response is then a success-shaped 3xx whose Location ALSO
+ * contains `error=`, which the classifier must not read as a refusal: the
+ * `/login`-prefix test is shape, not substring).
+ */
+async function runFlow(doorId: string, profile: Record<string, unknown>, callbackURL = "/"): Promise<FlowResult> {
   idp.setProfile(profile);
   const start = (await app.fetch(
     new Request(`${ORIGIN}/api/auth/sign-in/social`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ provider: doorId, callbackURL: "/", errorCallbackURL: "/login" }),
+      body: JSON.stringify({ provider: doorId, callbackURL, errorCallbackURL: "/login" }),
     }),
   )) as Response;
   expect(start.status).toBe(200);
   const { url: authorizeUrl } = (await start.json()) as { url?: string };
   if (typeof authorizeUrl !== "string") throw new Error("sign-in/social returned no authorize URL");
+  // Capture the state the moment the flow exists server-side: the sign-in
+  // start above already wrote the `verification` row, so even a later throw
+  // in this driver must not orphan it past the afterAll purge.
+  const state = new URL(authorizeUrl).searchParams.get("state");
+  if (state) flowStates.push(state);
   // The flow's state lives in a cookie better-auth sets on this response and
   // re-reads on the callback (CSRF binding); carry every pair back verbatim.
   const cookie = start.headers
@@ -265,6 +284,27 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     await sql`UPDATE auth_providers SET sign_in_enabled = 1, registration_enabled = NULL WHERE id = 'email'`.execute(
       db,
     );
+    // OAuth-state cleanup (T11 review). Every flow start mints a
+    // `verification` row whose `identifier` is the flow's RANDOM STATE STRING
+    // (`dist/state.mjs`: `createVerificationValue({ identifier: state })`) —
+    // the email identifies nothing here. Success and refusal both consume the
+    // row (`deleteVerificationByIdentifier(state)`), and a measured green run
+    // leaves ZERO rows, so this purge is a guard, not a bug fix: a failure
+    // thrown between the flow's start and its state consumption would otherwise
+    // orphan rows in the shared per-process DB past this file. The delete is
+    // keyed by the captured identifiers and nothing else, and the assertions
+    // are the proof — a throwing expect inside `afterAll` fails the file, so
+    // "gone after cleanup" is checked, not assumed. The non-empty check makes
+    // a broken CAPTURE (which would otherwise turn the purge into a silent
+    // no-op) fail loudly too.
+    expect(flowStates.length).toBeGreaterThan(0);
+    for (const state of flowStates) {
+      await sql`DELETE FROM verification WHERE identifier = ${state}`.execute(db);
+    }
+    const { rows } = await sql<{ n: number }>`
+      SELECT COUNT(*) AS n FROM verification WHERE identifier IN (${sql.join(flowStates.map((s) => sql`${s}`))})
+    `.execute(db);
+    expect(Number(rows[0]?.n ?? 0)).toBe(0);
     // A final rebuild so the next file's first getAuth() sees a door-less,
     // email-default instance rather than this file's last configuration.
     invalidateAuth();
@@ -568,7 +608,10 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     const closed = await signIn();
     expect(closed.status).toBe(403);
     const body = (await closed.json().catch(() => null)) as { message?: string } | null;
-    expect(String(body?.message ?? "")).toContain("disabled");
+    // The FULL door-guards sentence, not a substring (T11 review): the wire
+    // copy is part of what case 11 pins, and a rewrite that keeps the word
+    // "disabled" while changing the sentence must fail here, not ride past.
+    expect(body?.message).toBe("Password and passkey sign-in are disabled on this instance");
     expect(await signInRows(pwId)).toHaveLength(1); // the refused password act writes nothing
 
     // The refusal is the E-mail door's, not a blanket auth outage.
@@ -629,5 +672,28 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     // migration, not to this file.
     await new AuthProvidersRepository(db).update("email", { registrationEnabled: null });
     invalidateAuth();
+  });
+
+  // Case 13 — T11 review Important 1: the audit row is NOT self-suppressible.
+  // The Location `error=` gate used to be part of the success test, which made
+  // silence purchasable: completing a REAL sign-in with a `callbackURL` of
+  // one's own choosing that carries `error=` would answer a live-session
+  // redirect and write nothing. The gate is gone (a cookie resolving to a
+  // session row IS the success test — dist: setSessionCookie is reached only
+  // by successes), and this case drives exactly the adversarial shape: a
+  // success whose redirect Location CONTAINS `error=` must still land exactly
+  // one `auth.sign_in` row.
+  it("13. a success whose callbackURL carries error= still writes its audit row", async () => {
+    const door = await mkDoor();
+    const email = emailN("suppress");
+    const r = await runFlow(door, profileFor(email), "/?error=boom");
+    expect(r.kind).toBe("session");
+    expect(r.location).toBe("/?error=boom"); // the redirect really does carry the poison word
+    const id = (await userIdFor(email)) ?? "";
+    expect(id).toBeTruthy();
+    const rows = await signInRows(id);
+    expect(rows).toHaveLength(1);
+    expect(metaOf(rows[0])).toEqual({ method: `oidc:${door}`, userId: id });
+    await purgeByEmail(email);
   });
 });
