@@ -3,17 +3,20 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ApiError, SubshellApi } from "../api-client.js";
+import { postChannel, readChannel } from "../channel-tools.js";
 import { generateKeypair, open, seal } from "../crypto.js";
 import { reloadPinSettingsForTests } from "../pin-store.js";
 import {
   createSubshell,
-  describeToolError,
+  getSubshell,
+  listNodes,
   listPresets,
-  postChannel,
-  readChannel,
-  type ToolApi,
-  type ToolDeps,
-} from "../tools.js";
+  listSubshells,
+  readSubshellLog,
+  restartSubshell,
+  sendToSubshell,
+} from "../subshell-tools.js";
+import { describeToolError, type ToolApi, type ToolDeps } from "../tools.js";
 
 /** In-memory fake: tools talk to this, never to a server. */
 interface Recorded {
@@ -325,6 +328,7 @@ describe("mcp tools (handler-level, real crypto)", () => {
           },
         ];
       }
+      if (req.path === "/api/plugins") return { plugins: [] };
       throw new Error(`unexpected ${req.method} ${req.path}`);
     });
     const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
@@ -337,5 +341,306 @@ describe("mcp tools (handler-level, real crypto)", () => {
   it("describeToolError turns a 401 into restart guidance", () => {
     expect(describeToolError(new ApiError(401, "no")).message).toContain("restart this subshell");
     expect(describeToolError(new ApiError(403, "Recipient")).message).toContain("permission denied");
+  });
+});
+
+describe("mcp tools: the 2026-09-25 agent surface", () => {
+  const depsFor = async (
+    handler: (req: { path: string; method: string; body?: Record<string, unknown> }) => unknown,
+  ) => {
+    const own = await generateKeypair();
+    const { api, calls } = fakeApi(handler);
+    return { deps: { api, own: { principalId: "sess:me", ...own } } as ToolDeps, calls };
+  };
+
+  /** One node row as GET /api/nodes sends it, extras included (the projection must drop them). */
+  function nodeWireRow(over: Record<string, unknown> = {}) {
+    return {
+      id: "n-1",
+      name: "Build Box",
+      kind: "agent",
+      os: "linux",
+      arch: "x64",
+      hostname: "buildbox",
+      status: "online",
+      lastSeenAt: "t",
+      agentVersion: "1.2.3",
+      protocolVersion: 14,
+      access: "owner",
+      canManage: true,
+      canLaunch: true,
+      capabilities: ["pane-pipe"],
+      allowedDirs: ["/srv/secret"],
+      harnesses: [{ harnessId: "claude-code", name: "Claude Code", installed: true, version: "2.0.1" }],
+      inventoryStale: true,
+      maintenance: false,
+      maintenanceAt: null,
+      maintenanceSource: null,
+      held: null,
+      ...over,
+    };
+  }
+
+  /** One subshell row as GET /api/subshells sends it, every wire field present. */
+  function subshellWireRow(over: Record<string, unknown> = {}) {
+    return {
+      id: "s-1",
+      presetId: "pre-1",
+      harnessId: "claude-code",
+      nodeId: "n-1",
+      name: "worker",
+      workingDir: "/srv/app",
+      status: "running",
+      createdAt: "t0",
+      endedAt: null,
+      lastOutputAt: "t1",
+      activity: "active",
+      preview: ["hi"],
+      alive: true,
+      exitCode: null,
+      startedAt: "t0",
+      backoffCount: 0,
+      restartOnExit: false,
+      nextRestartAt: null,
+      nameLocked: false,
+      notify: true,
+      waitingSince: null,
+      unseenPush: false,
+      access: "owner",
+      nodeOffline: false,
+      shareCount: 3,
+      sharedWithEveryone: true,
+      ...over,
+    };
+  }
+
+  const SUBSHELL_VIEW_KEYS = [
+    "access",
+    "activity",
+    "alive",
+    "exitCode",
+    "harnessId",
+    "id",
+    "lastOutputAt",
+    "name",
+    "nodeId",
+    "nodeOffline",
+    "preview",
+    "status",
+    "waitingSince",
+    "workingDir",
+  ];
+
+  it("list_nodes projects to the launch-relevant fields and drops the rest", async () => {
+    const { deps } = await depsFor(() => [nodeWireRow()]);
+    const [row] = await listNodes(deps);
+    expect(Object.keys(row).sort()).toEqual([
+      "access",
+      "canLaunch",
+      "harnesses",
+      "id",
+      "inventoryStale",
+      "kind",
+      "maintenance",
+      "name",
+      "status",
+    ]);
+    // `maintenance` is on NodeViewSchema (checked there), so it is required,
+    // not optional, in the projection.
+    expect(row.maintenance).toBe(false);
+    expect(row.inventoryStale).toBe(true);
+    // Harness entries keep identity + the refusal reason, drop the version.
+    expect(row.harnesses).toEqual([{ harnessId: "claude-code", name: "Claude Code", installed: true }]);
+    const withReason = await listNodes(
+      (
+        await depsFor(() => [
+          nodeWireRow({
+            harnesses: [{ harnessId: "codex", name: "Codex", installed: false, reason: "not-on-path" }],
+          }),
+        ])
+      ).deps,
+    );
+    expect(withReason[0].harnesses).toEqual([
+      { harnessId: "codex", name: "Codex", installed: false, reason: "not-on-path" },
+    ]);
+    // Machine noise never rides along: hostname, paths, versions, held state.
+    expect(JSON.stringify(row)).not.toContain("buildbox");
+    expect(JSON.stringify(row)).not.toContain("/srv/secret");
+    expect(JSON.stringify(row)).not.toContain("1.2.3");
+    expect(JSON.stringify(row)).not.toContain("2.0.1");
+  });
+
+  it("create_subshell resolves node by exact id, then exact name, then insensitive name", async () => {
+    const nodes = [
+      nodeWireRow(),
+      nodeWireRow({ id: "n-2", name: "Laptop", hostname: "lap" }),
+      // A node whose NAME is another node's id: the id wins first.
+      nodeWireRow({ id: "lab", name: "Odd", hostname: "odd" }),
+    ];
+    for (const [want, expected] of [
+      ["n-2", "n-2"], // exact id
+      ["Build Box", "n-1"], // exact name
+      ["laptop", "n-2"], // case-insensitive name
+      ["lab", "lab"], // exact id beats the same spelling as another node's name
+    ] as const) {
+      const { deps, calls } = await depsFor((req) => {
+        if (req.path === "/api/nodes") return nodes;
+        if (req.path === "/api/subshells") return { id: "s-new", tmuxSocket: "sk", promptDelivered: false };
+        throw new Error(`unexpected ${req.method} ${req.path}`);
+      });
+      const res = await createSubshell(deps, { harness: "terminal", workingDir: "/srv/app", node: want });
+      expect(res).toEqual({ id: "s-new", promptDelivered: false });
+      const create = calls.find((c) => c.path === "/api/subshells");
+      expect(create?.body?.nodeId).toBe(expected);
+    }
+  });
+
+  it("create_subshell refuses a node-name tie listing the spellings, and zero matches listing the names", async () => {
+    const tied = [nodeWireRow({ name: "Mac" }), nodeWireRow({ id: "n-2", name: "MAC" })];
+    const { deps, calls } = await depsFor((req) => (req.path === "/api/nodes" ? tied : []));
+    await expect(createSubshell(deps, { harness: "terminal", workingDir: "/tmp", node: "mac" })).rejects.toThrow(
+      /more than one node matches 'mac' \('Mac', 'MAC'\)/,
+    );
+    // Refused at resolution; no launch was attempted.
+    expect(calls.filter((c) => c.path === "/api/subshells")).toHaveLength(0);
+
+    const { deps: alone } = await depsFor((req) =>
+      req.path === "/api/nodes" ? [nodeWireRow(), nodeWireRow({ id: "n-2", name: "Laptop" })] : [],
+    );
+    await expect(createSubshell(alone, { harness: "terminal", workingDir: "/tmp", node: "nope" })).rejects.toThrow(
+      /no node 'nope'; available: Build Box, Laptop/,
+    );
+  });
+
+  it("create_subshell without a node never reads /api/nodes and sends no nodeId", async () => {
+    const { deps, calls } = await depsFor(() => ({ id: "s", tmuxSocket: "sk", promptDelivered: false }));
+    await createSubshell(deps, { harness: "terminal", workingDir: "/tmp" });
+    expect(calls.map((c) => c.path)).toEqual(["/api/subshells"]);
+    expect(calls[0]?.body?.nodeId).toBeUndefined();
+  });
+
+  it("list_subshells and get_subshell project to the honest SubshellView key set", async () => {
+    const { deps } = await depsFor((req) => {
+      if (req.path === "/api/subshells") return [subshellWireRow()];
+      if (req.path.startsWith("/api/subshells/")) return subshellWireRow();
+      throw new Error(`unexpected ${req.method} ${req.path}`);
+    });
+    const [row] = await listSubshells(deps);
+    expect(Object.keys(row).sort()).toEqual(SUBSHELL_VIEW_KEYS);
+    const one = await getSubshell(deps, { id: "s-1" });
+    expect(Object.keys(one).sort()).toEqual(SUBSHELL_VIEW_KEYS);
+    expect(one).toMatchObject({ id: "s-1", nodeId: "n-1", nodeOffline: false, preview: ["hi"] });
+    // UI noise an agent has no surface for never rides along.
+    const wire = JSON.stringify(await listSubshells(deps));
+    for (const dropped of ["shareCount", "sharedWithEveryone", "unseenPush", "backoffCount", "notify", "presetId"]) {
+      expect(wire).not.toContain(dropped);
+    }
+  });
+
+  it("get_subshell resolves a name through the list with the shared grammar", async () => {
+    const rows = [subshellWireRow({ id: "s-1", name: "Deploy" }), subshellWireRow({ id: "s-2", name: "Scout" })];
+    const { deps } = await depsFor(() => rows);
+    expect((await getSubshell(deps, { name: "Scout" })).id).toBe("s-2");
+    expect((await getSubshell(deps, { name: "scout" })).id).toBe("s-2");
+    await expect(getSubshell(deps, { name: "ghost" })).rejects.toThrow(
+      /no subshell named 'ghost'; find ids with list_subshells/,
+    );
+    const tied = await depsFor(() => [subshellWireRow({ name: "Mac" }), subshellWireRow({ id: "s-9", name: "MAC" })]);
+    await expect(getSubshell(tied.deps, { name: "mac" })).rejects.toThrow(
+      /more than one subshell named 'mac' \('Mac', 'MAC'\)/,
+    );
+    await expect(getSubshell(deps, {})).rejects.toThrow(/needs an id or a name/);
+  });
+
+  it("read_subshell_log passes the tail through untouched", async () => {
+    const { deps, calls } = await depsFor(() => ({ lines: ["a", "b"], truncated: true }));
+    expect(await readSubshellLog(deps, "s 1")).toEqual({ lines: ["a", "b"], truncated: true });
+    expect(calls[0]?.path).toBe("/api/subshells/s%201/log");
+  });
+
+  it("send_to_subshell posts text with submit defaulting to true", async () => {
+    const { deps, calls } = await depsFor(() => ({ ok: true }));
+    expect(await sendToSubshell(deps, { id: "s-1", text: "make it go" })).toEqual({ ok: true });
+    expect(calls[0]?.path).toBe("/api/subshells/s-1/input");
+    expect(calls[0]?.body).toEqual({ text: "make it go", submit: true });
+    await sendToSubshell(deps, { id: "s-1", text: "draft", submit: false });
+    expect(calls[1]?.body).toEqual({ text: "draft", submit: false });
+  });
+
+  it("restart_subshell carries an optional prompt and returns {id, promptDelivered}", async () => {
+    const { deps, calls } = await depsFor(() => ({ id: "s-1", tmuxSocket: "sk", promptDelivered: true }));
+    // No prompt: the body-less POST it has always been (no content-type on the wire).
+    expect(await restartSubshell(deps, { id: "s-1" })).toEqual({ id: "s-1", promptDelivered: true });
+    expect(calls[0]?.body).toBeUndefined();
+    await restartSubshell(deps, { id: "s-1", prompt: "continue the task" });
+    expect(calls[1]?.path).toBe("/api/subshells/s-1/restart");
+    expect(calls[1]?.body).toEqual({ prompt: "continue the task" });
+  });
+
+  it("create_subshell returns {id, promptDelivered}, dropping tmuxSocket", async () => {
+    const { deps } = await depsFor(() => ({ id: "s-1", tmuxSocket: "sock-9", promptDelivered: true }));
+    const res = await createSubshell(deps, { harness: "terminal", workingDir: "/tmp" });
+    expect(res).toEqual({ id: "s-1", promptDelivered: true });
+    expect(JSON.stringify(res)).not.toContain("sock-9");
+  });
+
+  it("list_presets answers with the harness catalog too, filtering it honestly", async () => {
+    const plugins = [
+      { id: "claude-code", name: "Claude Code", type: "agent-harness", installed: true, enabled: true },
+      { id: "terminal", name: "Terminal", type: "terminal", installed: true, enabled: true },
+      { id: "tailscale", name: "Tailscale", type: "network", installed: true, enabled: true },
+      { id: "opencode", name: "OpenCode", type: "agent-harness", installed: false, enabled: true },
+      { id: "codex", name: "Codex", type: "agent-harness", installed: true, enabled: false },
+    ];
+    // Zero presets: exactly when the catalog is the only answer (spec 2026-09-13).
+    const { deps } = await depsFor((req) => {
+      if (req.path === "/api/presets") return [];
+      if (req.path === "/api/plugins") return { plugins };
+      throw new Error(`unexpected ${req.method} ${req.path}`);
+    });
+    expect(await listPresets(deps)).toEqual([
+      { id: "claude-code", name: "Claude Code", harnessId: "claude-code", catalogOnly: true },
+      { id: "terminal", name: "Terminal", harnessId: "terminal", catalogOnly: true },
+    ]);
+    // With presets: rows first, unflagged; catalog entries after, flagged.
+    const merged = await depsFor((req) => {
+      if (req.path === "/api/presets") return [{ id: "pre-1", name: "Dev", harnessId: "claude-code", userId: "u" }];
+      if (req.path === "/api/plugins") return { plugins };
+      throw new Error(`unexpected ${req.method} ${req.path}`);
+    });
+    const rows = await listPresets(merged.deps);
+    expect(rows[0]).toEqual({ id: "pre-1", name: "Dev", harnessId: "claude-code" });
+    expect("catalogOnly" in (rows[0] as unknown as Record<string, unknown>)).toBe(false);
+    expect(rows[1]?.catalogOnly).toBe(true);
+  });
+
+  it("describeToolError maps the codes the server rides by name to their next call", () => {
+    expect(
+      describeToolError(new ApiError(400, "Multiple online nodes; pick one (2 are online)", "NODE_REQUIRED")).message,
+    ).toMatch(/list_nodes.*node/);
+    expect(describeToolError(new ApiError(409, "That node has no live connection", "NODE_OFFLINE")).message).toMatch(
+      /offline/i,
+    );
+    expect(describeToolError(new ApiError(409, "Row is not running", "SUBSHELL_NOT_RUNNING")).message).toContain(
+      "restart_subshell",
+    );
+    expect(describeToolError(new ApiError(409, "workbox is in maintenance", "NODE_IN_MAINTENANCE")).message).toContain(
+      "maintenance",
+    );
+    expect(describeToolError(new ApiError(404, "Node not found", "NOT_FOUND_ERROR")).message).toContain(
+      "list_subshells",
+    );
+  });
+
+  it("describeToolError's 409 branch answers the genericized harness refusal (it never rides as harness_disabled)", () => {
+    // The server's SubshellCreateError carries only .status, so the error
+    // handler genericizes its code: the create-path refusal for a disabled
+    // harness arrives as EXISTS_ERROR (409) naming the condition in MESSAGE.
+    // The mapping must therefore live in the 409 branch, not on a code that
+    // cannot reach the wire.
+    const err = new ApiError(409, "That harness is disabled or not installed on that node", "EXISTS_ERROR");
+    const message = describeToolError(err).message;
+    expect(message).toContain("disabled or not installed");
+    expect(message).toContain("list_nodes");
   });
 });
