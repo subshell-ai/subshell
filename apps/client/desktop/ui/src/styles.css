@@ -85,6 +85,17 @@
   --button-primary-foreground: oklch(0.9 0.05 320);
   --nav-active-from: oklch(0.3 0.1 322);
   --nav-active-to: oklch(0.38 0.11 340);
+  /* The rail's flat-grid machine plates, verbatim from the SPA's styles.css
+     (2026-09-25); `tokens-match-spa.test.ts` keeps the copy honest. */
+  --node-tint-1: oklch(0.3 0.05 278);
+  --node-tint-2: oklch(0.35 0.05 296);
+  --node-tint-3: oklch(0.3 0.05 314);
+  --node-tint-4: oklch(0.35 0.05 332);
+  --node-tint-5: oklch(0.35 0.05 278);
+  --node-tint-6: oklch(0.3 0.05 296);
+  --node-tint-7: oklch(0.35 0.05 314);
+  --node-tint-8: oklch(0.3 0.05 332);
+
   --edit-badge-border: oklch(0.48 0.1 322);
   --edit-badge-bg: oklch(0.38 0.09 322);
   --edit-badge-foreground: oklch(0.92 0.06 318);
@@ -125,6 +136,14 @@
   --color-warning: var(--warning);
   --color-scrim: var(--scrim);
   --color-qr-plate: var(--qr-plate);
+  --color-node-tint-1: var(--node-tint-1);
+  --color-node-tint-2: var(--node-tint-2);
+  --color-node-tint-3: var(--node-tint-3);
+  --color-node-tint-4: var(--node-tint-4);
+  --color-node-tint-5: var(--node-tint-5);
+  --color-node-tint-6: var(--node-tint-6);
+  --color-node-tint-7: var(--node-tint-7);
+  --color-node-tint-8: var(--node-tint-8);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
