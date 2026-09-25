@@ -242,6 +242,28 @@ describe("ProviderDialog", () => {
     }
   });
 
+  it("the panel renders before the door is named, and only the URIs wait", async () => {
+    const { restore } = mockFetch({ trustedOrigins: ["https://plane.example"], appBaseUrl: "https://plane.example" });
+    try {
+      // Operator ask 2026-09-25: a FRESH dialog showed no panel at all (the
+      // old early-return on an empty id), which read as the provider-side
+      // instructions being missing. The instructions and the JS origins are
+      // knowable from the first paint; only the URI rows need the slug.
+      renderDialog();
+      await settle();
+      const panel = within(screen.getByRole("group", { name: "Finish the setup at your provider" }));
+      expect(panel.getByText(/Create one web-application OIDC client/)).toBeDefined();
+      expect(panel.getByText("https://plane.example")).toBeDefined();
+      expect(panel.getByText("Appears once you name the door.")).toBeDefined();
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Work SSO" } });
+      await settle();
+      expect(panel.getByText("https://plane.example/api/auth/callback/work-sso")).toBeDefined();
+      expect(panel.queryByText("Appears once you name the door.")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
   it("the copy panel lists the redirect URI and JS origin for every entry", async () => {
     const { restore } = mockFetch({ trustedOrigins: ["https://plane.example"], appBaseUrl: "https://plane.example" });
     try {
