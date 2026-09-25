@@ -118,6 +118,38 @@ describe("useSwipeNav — a keyboard must not drive a touch swipe", () => {
     expect(calls).toEqual({ prev: 0, next: 1 }); // left swipe = next
   });
 
+  it("does not navigate on a MOUSE pointer drag — desktop text selection is not a swipe", () => {
+    // The 2026-09-25 desktop report: highlighting text in the terminal jumped
+    // between subshells. `pointer: { touch: true }` only binds TOUCH events on
+    // browsers that support them ('ontouchstart' in window); on a plain
+    // desktop the gesture falls through to POINTER events, and a mouse drag
+    // fires those too — the engine's only start filter is the button count,
+    // and left-mouse `buttons` is 1, the same as one finger. Same geometry as
+    // the touch test above: this must navigate NOTHING.
+    const calls = { prev: 0, next: 0 };
+    const view = render(<Zone onPrev={() => (calls.prev += 1)} onNext={() => (calls.next += 1)} />);
+    const zone = view.getByTestId("zone");
+    const mouse = (type: string, x: number) =>
+      zone.dispatchEvent(
+        new PointerEvent(type, {
+          pointerId: 1,
+          pointerType: "mouse",
+          clientX: x,
+          clientY: 200,
+          buttons: type === "pointerup" ? 0 : 1,
+          bubbles: true,
+        }),
+      );
+
+    mouse("pointerdown", 300);
+    for (let x = 290; x >= 150; x -= 20) mouse("pointermove", x); // 150px leftward
+    mouse("pointerup", 150);
+
+    expect(calls).toEqual({ prev: 0, next: 0 });
+    // ...and the page never slid sideways under the selection drag.
+    expect(zone.style.transform).toBe("");
+  });
+
   it("leaves the zone untransformed after arrow keys — no creeping viewport", () => {
     const view = render(<Zone onPrev={() => {}} onNext={() => {}} />);
     const input = view.getByTestId("terminal-input");

@@ -29,8 +29,9 @@ export interface SwipeNavOptions {
  * Shift+Arrow cleared the threshold on its own. Measured: nine ArrowRight
  * presses produced `movement.x = 87`.
  *
- * `pointer: { touch: true }` does NOT cover this — it constrains pointer
- * TYPES, and the keyboard path is bound separately (`if (config.keys)`).
+ * `pointer: { touch: true }` does NOT cover this — the keyboard path is bound
+ * separately (`if (config.keys)`). And it does not keep the MOUSE out either:
+ * see the latch in `useSwipeNav`.
  *
  * @param ref - The element the gesture binds to
  * @param enabled - Whether to bind at all
@@ -59,7 +60,18 @@ export const SWIPE_DRAG_CONFIG = (ref: RefObject<HTMLElement | null>, enabled: b
  * phase (preventDefault on touchmove, selection handlers), and a capture
  * sibling survives all of it (same reasoning as `gateTouchKeyboard`). We never
  * preventDefault: the browser's vertical pan and xterm's own gestures stay
- * untouched, and `pointer: { touch: true }` keeps mouse/touchpad out.
+ * untouched.
+ *
+ * Touch-only is enforced HERE, in the handler, not by the config: @use-gesture
+ * only binds TOUCH events for `pointer: { touch: true }` on browsers that
+ * support touch events (`'ontouchstart' in window` — `dragConfigResolver.device`).
+ * On a plain desktop it falls through to the POINTER device, where the engine's
+ * only start filter is the button count, and a left-drag's `buttons` is 1 —
+ * the same as one finger. A mouse text-selection drag across the terminal
+ * (horizontal, past 70px) therefore read as a swipe and navigated to a
+ * neighbour (2026-09-25 desktop report). The end-of-gesture `getSelection()`
+ * guard cannot catch this inside xterm: it paints its own selection, so the
+ * DOM never has one.
  */
 export function useSwipeNav(
   ref: RefObject<HTMLElement | null>,
@@ -97,11 +109,27 @@ export function useSwipeNav(
     if (!enabled) el.style.transform = "";
   }, [enabled, ref]);
 
+  // Latched from the gesture's FIRST event: the latest-handler closure is
+  // re-applied on every render, so this has to outlive any re-render mid-drag
+  // (same reason as the `live` ref above).
+  const touchGesture = useRef(false);
+
   useDrag(
-    ({ first, last, movement: [mx, my], initial: [startX] }) => {
+    ({ first, last, movement: [mx, my], initial: [startX], event }) => {
       const el = ref.current;
       if (!el) return;
-      if (first) el.style.transform = "";
+      if (first) {
+        // The recognizer's own touch-only gate — the config does not provide
+        // it on a non-touch desktop (see the hook doc). Accept exactly the two
+        // shapes a finger produces: a TouchEvent (the touch-device binding;
+        // `touches` is the library's own discriminator) or a PointerEvent
+        // naming `touch`. Everything else is refused — mouse, pen, and the
+        // plain MouseEvents a `pointer: { mouse: true }` config would hand
+        // over if anyone ever added one.
+        touchGesture.current = !!event && ("touches" in event || (event as PointerEvent).pointerType === "touch");
+        el.style.transform = "";
+      }
+      if (!touchGesture.current) return;
       if (!last) {
         // Follow-finger only in the commit-able regime: horizontal-dominant
         // AND outside the edge guard (a swipe that can never navigate must
