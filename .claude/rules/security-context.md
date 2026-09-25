@@ -164,7 +164,7 @@ Auth `auth.sign_in` / `auth.sign_out` · users/keys `user.create|role_change|pas
 
 ## Deliberate non-validation & accepted risks
 
-- **No string length limits on log or subshell free-text fields**; with the qualified half: **labels are capped and normalized**, and a subshell rename enforces 120 chars (§9). **No pagination on small per-user lists** (services, channels). Channel slugs and long-poll waits ARE bounded (above).
+- **No string length limits on log or subshell free-text fields**; with the qualified half: **labels are capped and normalized**, and a subshell rename enforces 120 chars (§9). **No pagination on small per-user lists** (services, channels). Channel slugs and long-poll waits ARE bounded (Encrypted channels).
 - Accepted, do not "fix" (§11): the OS-user trust boundary; `ps`-visible bearer tokens and typed input; control-plane compromise = all nodes; the host filesystem browsable by default; unconstrained admins (a one-click password reset of any other account; passkeys and live sockets survive it); system keys as bearer-equals-full-access; no DoS protection; the in-process post bus (a multi-process deployment loses cross-process wakeups).
 
 ## When this changes
