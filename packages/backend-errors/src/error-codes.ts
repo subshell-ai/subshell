@@ -189,11 +189,11 @@ export const BackendErrorCodeDefs = {
     statusCode: 400,
   },
   [BackendErrorCodes.EMAIL_ROW_IMMUTABLE_KIND]: {
-    message: "The e-mail door's kind cannot be changed",
+    message: "The email door's kind cannot be changed",
     statusCode: 400,
   },
   [BackendErrorCodes.EMAIL_ROW_UNDELETABLE]: {
-    message: "The e-mail door can be closed but never deleted",
+    message: "The email door can be closed but never deleted",
     statusCode: 400,
   },
   [BackendErrorCodes.EXISTS_ERROR]: {
