@@ -1,12 +1,17 @@
 /**
  * What the permissions screen says (spec 2026-09-14 § 3, § 3.1).
  *
- * Three rows, in the order a first run meets them, each one a glyph, a label, a
- * sentence and at most one button. The whole screen is data here so its WORDS
- * are testable: they are the point of the feature — a person who has been told
- * what macOS is about to ask, and why, answers the sheet rather than dismissing
- * it — and a sentence that lives only inside a render is a sentence nothing
- * ever checks.
+ * Three rows, ordered by what the person can DO on this screen: the two rows
+ * that own a sheet it can raise come first, and the row that only explains
+ * comes last (operator's ruling 2026-09-25, replacing "the order a first run
+ * meets them", which put the one explanation-only row between the two
+ * questions someone might press). Each question row a glyph, a label, a
+ * sentence and at most one button; the explanation row carries the label, the
+ * sentence and no state glyph (`info`, ruling 2026-09-25). The whole screen is
+ * data here so its WORDS are testable:
+ * they are the point of the feature — a person who has been told what macOS is
+ * about to ask, and why, answers the sheet rather than dismissing it — and a
+ * sentence that lives only inside a render is a sentence nothing ever checks.
  *
  * The fourth row this screen shipped with — Background Items — is gone
  * (operator's request, 2026-09-17). It explained the "Background Items Added"
@@ -25,35 +30,57 @@
  *   appears only while the state is `not-determined`: anything else there is a
  *   control that silently no-ops, which teaches people that this screen's
  *   controls are decoration. Opening a System Settings pane, on the other
- *   hand, ALWAYS does something — the pane is there whether or not the
- *   question has been asked — so it is offered wherever this screen is the
- *   answer to a person's problem.
+ *   hand, does something wherever the pane has an entry to flip — so it is
+ *   offered wherever this screen is the answer to a person's problem.
  *
- * That second half is why the `files` row carries a button in every state. The
- * dashboard raises this screen as the fix for "Blocked by macOS" on a folder
- * it could not list (spec § 5), and that row's state is UNREADABLE by
- * construction — so a row that offered a button only when denied would offer
- * one never, and a person sent here by the notice would land on lines of prose
- * with nothing to press. A dead end at the end of a Fix… button is
- * worse than no button at all.
+ * That second half is why the `files` row carries its button ON THE RECOVERY
+ * DOOR AND NOT THE FIRST-RUN ONE. The dashboard raises this screen as the fix
+ * for "Blocked by macOS" on a folder it could not list (spec § 5), and that
+ * row's state is UNREADABLE by construction — so a row that offered a button
+ * only when denied would offer one never, and a person sent here by the notice
+ * would land on lines of prose with nothing to press; the notice only appears
+ * once a refusal is already in the pane. A dead end at the end of a Fix…
+ * button is worse than no button at all. The first-run door inverts the fact,
+ * not the rule: macOS has not been ASKED yet there, so the Files and Folders
+ * pane holds no entry for this app, and a button onto an empty pane is the
+ * same dead end the `photos` row's `restricted` arm refuses below. The door
+ * decides, never the (unreadable) state.
  */
 import type { Permission, Probe, SettingsPane } from "./ipc";
 
-/** The three rows, by the moment they arrive rather than by severity. */
-export type PermissionRowId = "notifications" | "files" | "photos";
+/** The three rows, in the order the screen lists them: actionable rows first. */
+export type PermissionRowId = "notifications" | "photos" | "files";
 
 /**
  * A row's glyph state, borrowed from the setup checklist so "allowed" looks
  * the same everywhere this app says it. `active` is the spinner a row wears
- * while its own system sheet is up.
+ * while its own system sheet is up. `info` is a row with no system question
+ * this screen raises: NO glyph at all, on any door (operator's ruling
+ * 2026-09-25, from a live screenshot — the `files` row's empty pending ring
+ * read as "a checklist item not yet done", but pending means "this row's own
+ * question is unasked", and this row has no question here to tick).
  */
-export type PermissionRowState = "pending" | "done" | "failed" | "active";
+export type PermissionRowState = "pending" | "done" | "failed" | "active" | "info";
 
 /** What a row's button does, or `null` when it has none. */
 export type PermissionAction = "allow" | "open-settings";
 
 /** Which of this screen's two system sheets a press raises. */
 export type PermissionRequest = "notifications" | "photos";
+
+/**
+ * Which door raised this screen, and therefore whether macOS has already
+ * refused something on this machine.
+ *
+ * `"first-run"`: the ready screen's Continue on a Mac's first run. Nothing has
+ * been asked yet, so the Files and Folders pane holds no entry for this app
+ * and opening it lands on an empty list. `"recovery"`: a dashboard notice,
+ * which appears only AFTER a folder access was refused — so that pane has a
+ * toggle to flip. The `files` row's Settings button (and the sentence that
+ * points at it) is the only thing the answer changes; the row keeps its label,
+ * suffix and explanation on either door.
+ */
+export type PermissionDoor = "first-run" | "recovery";
 
 export interface PermissionRow {
   id: PermissionRowId;
@@ -166,8 +193,16 @@ export interface PermissionRequests {
  *
  * @param probe - the machine's own answers; both permission states ride on it
  * @param requesting - which request this screen raised a moment ago
+ * @param door - why this screen is up, and whether macOS has already refused
+ *   something. It decides only the `files` row's Settings door; the default is
+ *   `"recovery"` because that is today's whole behaviour and the withholding
+ *   is the exception, which the caller opts into by naming its door.
  */
-export function permissionRows(probe: Probe, requesting: PermissionRequests = {}): PermissionRow[] {
+export function permissionRows(
+  probe: Probe,
+  requesting: PermissionRequests = {},
+  door: PermissionDoor = "recovery",
+): PermissionRow[] {
   const notifications = probe.notificationPermission;
   const photos = probe.photosPermission;
 
@@ -189,6 +224,15 @@ export function permissionRows(probe: Probe, requesting: PermissionRequests = {}
         ? "Attaching an image to an agent can read your Photos library if you pick from there. macOS is refusing it without asking: a profile or Screen Time restriction, or a Mac with no Photos library yet. Nothing on this screen changes that."
         : "Attaching an image to an agent can read your Photos library if you pick from there. Asked now, if you allow it, otherwise the first time you pick one.";
 
+  // The finder hint travels with the button it describes: on the recovery door
+  // there is a toggle in System Settings to flip, and pointing at it is the
+  // answer; on the first-run door the pane is empty, so the sentence must not
+  // gesture at it.
+  const filesDetail =
+    door === "recovery"
+      ? `The directory picker lists your home folder. macOS asks the first time you open Desktop, Documents or Downloads, and that prompt names ${asker}, shown in System Settings with a plain generic icon.`
+      : `The directory picker lists your home folder. macOS asks the first time you open Desktop, Documents or Downloads, and that prompt names ${asker}.`;
+
   return [
     {
       id: "notifications",
@@ -201,22 +245,6 @@ export function permissionRows(probe: Probe, requesting: PermissionRequests = {}
       action: notifications === "not-determined" ? "allow" : notifications === "denied" ? "open-settings" : null,
       allow: notifications === "not-determined" ? { label: "Allow", request: "notifications" } : null,
       pane: notifications === "denied" ? "notifications" : null,
-    },
-    {
-      id: "files",
-      label: "Files and Folders",
-      detail: `The directory picker lists your home folder. macOS asks the first time you open Desktop, Documents or Downloads, and that prompt names ${asker}.`,
-      // Unreadable by design: asking would mean a `readdir` of each folder
-      // under home, which is the exact act that fires the prompt. So this row
-      // says when, and never what — the suffix is a moment, not a state.
-      state: "pending",
-      suffix: "Asked later",
-      // Always, precisely BECAUSE the state is unreadable: this is the row the
-      // dashboard's "Blocked by macOS" sends people to, and the pane it opens
-      // is where a refusal is undone whether or not macOS has asked yet.
-      action: "open-settings",
-      allow: null,
-      pane: "files-and-folders",
     },
     {
       id: "photos",
@@ -237,6 +265,30 @@ export function permissionRows(probe: Probe, requesting: PermissionRequests = {}
       action: photos === "not-determined" ? "allow" : photos === "denied" ? "open-settings" : null,
       allow: photos === "not-determined" ? { label: "Allow", request: "photos" } : null,
       pane: photos === "denied" ? "photos" : null,
+    },
+    {
+      id: "files",
+      label: "Files and Folders",
+      detail: filesDetail,
+      // Unreadable by design: asking would mean a `readdir` of each folder
+      // under home, which is the exact act that fires the prompt. So this row
+      // says when, and never what — the suffix is a moment, not a state, and
+      // `info` says the same thing with the glyph: a pending ring means "this
+      // row's own question is unasked, and this screen will tick it", which
+      // this row can never earn — it has no question to ask from here, so it
+      // could never leave pending (operator's ruling 2026-09-25).
+      state: "info",
+      suffix: "Asked later",
+      // On the recovery door: always, precisely BECAUSE the state is
+      // unreadable — this is the row the dashboard's "Blocked by macOS"
+      // sends people to, and the pane it opens holds the refusal they came
+      // to undo. On the first-run door: nothing to press, because macOS has
+      // not been asked yet and the pane has no entry — a button there opens
+      // an empty list, which is the `restricted` dead end in another row's
+      // clothes. The door, not the state, decides.
+      action: door === "recovery" ? "open-settings" : null,
+      allow: null,
+      pane: door === "recovery" ? "files-and-folders" : null,
     },
   ];
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { Permission, Probe } from "../lib/ipc";
-import { DEV_BUILD_NOTE, type PermissionRequests, permissionRows } from "../lib/permissions-model";
+import { DEV_BUILD_NOTE, type PermissionDoor, type PermissionRequests, permissionRows } from "../lib/permissions-model";
 
 function probe(over: Partial<Probe> = {}): Probe {
   return {
@@ -25,8 +25,8 @@ function probe(over: Partial<Probe> = {}): Probe {
   } as Probe;
 }
 
-const row = (p: Probe, id: string, requesting: PermissionRequests = {}) => {
-  const found = permissionRows(p, requesting).find((r) => r.id === id);
+const row = (p: Probe, id: string, requesting: PermissionRequests = {}, door: PermissionDoor = "recovery") => {
+  const found = permissionRows(p, requesting, door).find((r) => r.id === id);
   if (!found) throw new Error(`no ${id} row`);
   return found;
 };
@@ -34,15 +34,25 @@ const row = (p: Probe, id: string, requesting: PermissionRequests = {}) => {
 const ALL: Permission[] = ["not-determined", "denied", "restricted", "authorized", "provisional", "unavailable"];
 
 describe("permissionRows", () => {
-  it("is the three things macOS will ask, in the order a first run meets them", () => {
-    // The order is the point: it is the sequence of moments, not a ranking by
-    // severity, so someone reading down the screen reads their own next hour.
+  it("is the three things macOS will ask, actionable rows first, on either door", () => {
+    // Operator's ruling 2026-09-25: the order reads the DECISIONS before the
+    // prose — notifications and photos each own a sheet this screen can raise,
+    // and files is the row with nothing to press on a first run. (The old rule
+    // was "the order a first run meets them", the sequence of moments, which
+    // put the one explanation-only row between the two questions.) The door
+    // changes the files row's button, never the order — files is last on
+    // either, so the screen never lists the explanation where a decision was.
     //
     // `login` left the list on 2026-09-17. It explained the "Background Items
     // Added" banner, which does appear, but it is not a permission: no state to
     // read, no pane to open, nothing to press, and therefore a row that could
     // never change — prose standing in the column a person reads for decisions.
-    expect(permissionRows(probe()).map((r) => r.id)).toEqual(["notifications", "files", "photos"]);
+    for (const door of ["first-run", "recovery"] as const) {
+      expect(
+        permissionRows(probe(), {}, door).map((r) => r.id),
+        door,
+      ).toEqual(["notifications", "photos", "files"]);
+    }
   });
 
   it("pairs an `allow` button with its request exactly when it offers to ask", () => {
@@ -257,9 +267,13 @@ describe("the photos row", () => {
  * malware: a sheet naming a binary the person never typed.
  */
 describe("the files row", () => {
-  it("names the binary under a service and the app under app supervision", () => {
-    expect(row(probe({ supervision: "service" }), "files").detail).toContain("subshell-server");
-    expect(row(probe({ supervision: "app" }), "files").detail).toContain("Subshell Server");
+  it("names the binary under a service and the app under app supervision, on either door", () => {
+    // The attribution is the row's whole reason to exist, and the door takes
+    // away the button and the finder hint, never the name on the prompt.
+    for (const door of ["first-run", "recovery"] as const) {
+      expect(row(probe({ supervision: "service" }), "files", {}, door).detail, door).toContain("subshell-server");
+      expect(row(probe({ supervision: "app" }), "files", {}, door).detail, door).toContain("Subshell Server");
+    }
   });
 
   it("does not name the CLI when the app is the one that will ask", () => {
@@ -270,15 +284,24 @@ describe("the files row", () => {
   });
 
   it("is a later moment, and says so without claiming a state it cannot read", () => {
-    expect(row(probe(), "files").suffix).toBe("Asked later");
-    expect(row(probe(), "files").state).toBe("pending");
+    // `info` on both doors (operator's ruling 2026-09-25): a pending ring
+    // says "this row's own question is unasked, and this screen will tick
+    // it" — a promise the files row can never keep, because this screen
+    // never asks its question. The suffix stays, because "Asked later" is
+    // the one true thing the row can say about timing.
+    for (const door of ["first-run", "recovery"] as const) {
+      expect(row(probe(), "files", {}, door).state, door).toBe("info");
+      expect(row(probe(), "files", {}, door).suffix, door).toBe("Asked later");
+    }
   });
 
-  it("always offers System Settings, because its state can never say when to", () => {
+  it("offers System Settings on every state of the recovery door, because its state can never say when to", () => {
     // The dashboard raises this screen as the fix for a folder it could not
     // list, and this row's answer is unreadable by construction — so a button
     // gated on `denied` would be a button that never appears, and Fix… would
-    // land on four lines of prose. Opening the pane always does something.
+    // land on four lines of prose. A refusal is already in the pane by then;
+    // it is what sent the person here. The default door, because a notice IS
+    // the recovery door.
     for (const state of ALL) {
       const r = row(probe({ notificationPermission: state, photosPermission: state }), "files");
       expect(r.action, state).toBe("open-settings");
@@ -286,8 +309,32 @@ describe("the files row", () => {
     }
   });
 
+  it("withholds its button on the first-run door, where the pane is empty", () => {
+    // macOS has not been ASKED yet on the handoff, so the Files and Folders
+    // pane holds no entry for this app, and a door onto an empty list is the
+    // dead end the photos row's `restricted` arm already refuses. The row
+    // keeps everything it can say without a button: the moment, the
+    // stateless `info` glyph, and the sentence.
+    const r = row(probe(), "files", {}, "first-run");
+    expect(r.action).toBeNull();
+    expect(r.allow).toBeNull();
+    expect(r.pane).toBeNull();
+    expect(r.suffix).toBe("Asked later");
+    expect(r.state).toBe("info");
+  });
+
+  it("points at System Settings only where there is a button to use", () => {
+    // The finder hint travels with the door it describes. On first run the
+    // sentence gestures at a pane with nothing in it, which is the button lie
+    // in prose form.
+    expect(row(probe(), "files").detail).toContain("System Settings");
+    expect(row(probe(), "files", {}, "first-run").detail).not.toContain("System Settings");
+  });
+
   it("offers the same button under either supervision", () => {
-    // Which process raises the prompt changes the SENTENCE, never the way back.
+    // Which process raises the prompt changes the SENTENCE, never the way
+    // back — on the door that has one. (The first-run door withholds the
+    // button under BOTH supervisions; that is pinned next to its own arm.)
     for (const supervision of ["service", "app"] as const) {
       expect(row(probe({ supervision }), "files").pane, supervision).toBe("files-and-folders");
     }
@@ -300,7 +347,10 @@ describe("the files row", () => {
  * the rule each row states for itself: the notices in the SPA
  * (`components/desktop/permission-notice.tsx`) name three panes, and a Fix…
  * button that lands on a row with no control is a dead end that reads as a
- * broken app.
+ * broken app. The default door is correct for this block and load-bearing:
+ * a notice IS the recovery door, and the first-run handoff is not a fix for
+ * anything — its withheld Files button is pinned on the other side of that
+ * line, not here.
  */
 describe("no notice dead-ends here", () => {
   it("gives the notifications row a control in both states the dashboard notices", () => {
