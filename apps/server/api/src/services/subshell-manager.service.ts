@@ -69,12 +69,17 @@ export interface SubshellTokenProvider {
   revoke(subshellId: string): Promise<void>;
 }
 
-/** How long to wait for a fresh pane to show output before giving up typing. */
-const PROMPT_SETTLE_TIMEOUT_MS = 15_000;
+/**
+ * How long to wait for a fresh pane to show output before giving up typing.
+ * Exported because the restart route's optional prompt delivers through the
+ * same seam with the SAME constants: one settle policy for both typed-prompt
+ * paths, not two that drift (spec 2026-09-25).
+ */
+export const PROMPT_SETTLE_TIMEOUT_MS = 15_000;
 /** tmux's initial `pane_title` on an untouched pane is the host name. */
 const HOST_NAME = hostname();
-/** Poll interval while waiting for the pane to settle. */
-const PROMPT_POLL_MS = 400;
+/** Poll interval while waiting for the pane to settle. Exported for the same reason as the budget. */
+export const PROMPT_POLL_MS = 400;
 /**
  * Subshell ids per `probe` command in the reconcile sweep (spec §6.3): one
  * round-trip probes this many panes (liveness + exit + title + opportunistic

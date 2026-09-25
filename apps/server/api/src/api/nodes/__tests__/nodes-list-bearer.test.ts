@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { nodesRoutes } from "@/api/nodes/index.js";
+import { systemKeysRoutes } from "@/api/system-keys.route.js";
+import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -10,7 +12,7 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
+import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /**
  * `GET /api/nodes` for a bearer actor (spec 2026-09-25 MCP DX): the machine
@@ -24,15 +26,19 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/
  *
  * Mirrors the shape and rigor of `subshells-list-visibility.test.ts`: a REAL
  * pane token mints the bearer, enumerate-ok pairs with act-denied, and every
- * invisibility is an ABSENCE, never a 403.
+ * invisibility is an ABSENCE, never a 403. The last bearer class is pinned
+ * too: a SYSTEM key resolves as the `system` service user, whose owner-only
+ * set is exactly the seeded `local` row.
  */
 describe("GET /api/nodes bearer visibility (enumerate-ok / act-denied)", () => {
   const pw = "nodes-bearer-1";
   const bobEmail = `nb-bob-${crypto.randomUUID()}@subshell.local`;
   const aliceEmail = `nb-alice-${crypto.randomUUID()}@subshell.local`;
+  const adminEmail = `nb-admin-${crypto.randomUUID()}@subshell.local`;
   let bobId: string;
   let aliceId: string;
   let bobCookie: string;
+  let adminCookie: string;
   /** A REAL subshell bearer key: Bob's pane's MCP token, the machine credential under test. */
   let bobSubshellKey: string;
 
@@ -41,6 +47,7 @@ describe("GET /api/nodes bearer visibility (enumerate-ok / act-denied)", () => {
   const nodeShares = new NodeSharesRepository(db);
   const createdNodeIds: string[] = [];
   const createdSubshellIds: string[] = [];
+  const createdKeyIds: string[] = [];
 
   async function mkNode(ownerId: string, name: string): Promise<string> {
     const id = crypto.randomUUID();
@@ -68,7 +75,17 @@ describe("GET /api/nodes bearer visibility (enumerate-ok / act-denied)", () => {
       passwordHash: await hashPassword(pw),
       role: "user",
     });
+    // Only needed to MINT the system key the last case presents: minting is
+    // cookie-admin, and the key then authenticates as the `system` service
+    // user, not as this admin.
+    await new UsersRepository(db).createUser({
+      email: adminEmail,
+      name: adminEmail,
+      passwordHash: await hashPassword(pw),
+      role: "admin",
+    });
     bobCookie = await signIn(bobEmail, pw);
+    adminCookie = await signIn(adminEmail, pw);
     await ensureLocalNode(db); // the seeded control-plane host row
 
     bobNode = await mkNode(bobId, `nb-own-${crypto.randomUUID().slice(0, 8)}`);
@@ -96,9 +113,10 @@ describe("GET /api/nodes bearer visibility (enumerate-ok / act-denied)", () => {
   });
 
   afterAll(async () => {
+    for (const kid of createdKeyIds) authDatabase().run("DELETE FROM apikey WHERE id = ?", [kid]);
     for (const id of createdNodeIds) await nodes.deleteById(id);
     await db.deleteFrom("subshells").where("id", "in", createdSubshellIds).execute();
-    for (const email of [bobEmail, aliceEmail]) await deleteUserByEmailOrId(email);
+    for (const email of [bobEmail, aliceEmail, adminEmail]) await deleteUserByEmailOrId(email);
   });
 
   function bearerList(key: string) {
@@ -165,6 +183,32 @@ describe("GET /api/nodes bearer visibility (enumerate-ok / act-denied)", () => {
     expect(detail.status).toBe(403);
     // And the rename really did not happen: the 403 is a refusal, not a lie.
     expect((await nodes.findById(bobNode))?.name).not.toBe("machine-renamed");
+  });
+
+  // The disclosure decision Task 1's review asked to be pinned: a SYSTEM
+  // key's principal is the `system` service user (auth-guard resolves the
+  // key's referenceId, not the admin who minted it), and that user owns
+  // exactly one node row: the seeded `local`. So the full-access credential
+  // sees exactly the control-plane host through this door and nothing else.
+  // No human's agent node rides a listByOwner under the system id.
+  it("a system key sees exactly the system-owned `local` row", async () => {
+    const created = await systemKeysRoutes.fetch(
+      authedRequest("/api/system-keys", adminCookie, { method: "POST", body: JSON.stringify({ name: "nb-pin" }) }),
+    );
+    expect(created.status).toBe(200);
+    const { key, id } = (await created.json()) as { key: string; id: string };
+    createdKeyIds.push(id);
+
+    const res = await bearerList(key);
+    expect(res.status).toBe(200);
+    const rows = ((await res.json()) as { nodes: Row[] }).nodes;
+    // EXACTLY one row, and it is `local`: the same exactness argument the
+    // first case makes for Bob, nobody else's node is owned by the system
+    // user, so no concurrent suite can add a row to this set.
+    expect(rows.map((r) => r.id)).toEqual(["local"]);
+    // Honest rendering for this actor class: the system user owns the row,
+    // and the owner reading is what `nodeCanLaunchOn` will apply to it.
+    expect(rows[0]?.access).toBe("owner");
   });
 
   it("cookie behavior is unchanged: grants still widen the human's list exactly as before", async () => {

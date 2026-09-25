@@ -27,7 +27,8 @@ export const CreateSubshellResponseSchema = t.Object({
   id: t.String({ description: "New subshell id" }),
   tmuxSocket: t.String({ description: "tmux socket name" }),
   promptDelivered: t.Boolean({
-    description: "Whether a creation prompt was typed into the pane (false when absent or the pane never settled)",
+    description:
+      "Whether a creation (or restart) prompt was typed into the pane (false when absent, blank, or the pane never settled)",
   }),
 });
 

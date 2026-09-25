@@ -4,6 +4,7 @@ import { deleteSubshellRoute } from "@/api/subshells/delete-subshell.route.js";
 import { extendSubshellTokenRoute } from "@/api/subshells/extend-subshell-token.route.js";
 import { getSubshellRoute } from "@/api/subshells/get-subshell.route.js";
 import { getSubshellLogRoute } from "@/api/subshells/get-subshell-log.route.js";
+import { inputSubshellRoute } from "@/api/subshells/input-subshell.route.js";
 import { listSubshellsRoute } from "@/api/subshells/list-subshells.route.js";
 import { restartSubshellRoute } from "@/api/subshells/restart-subshell.route.js";
 import { subshellAttentionRoute } from "@/api/subshells/subshell-attention.route.js";
@@ -34,6 +35,7 @@ export const subshellRoutes = new Elysia({ prefix: "/api/subshells" })
   .use(subshellHarnessSessionRoute)
   .use(subshellExitRoute)
   .use(updateSubshellNameRoute)
+  .use(inputSubshellRoute)
   .use(restartSubshellRoute)
   .use(terminateSubshellRoute)
   .use(extendSubshellTokenRoute)

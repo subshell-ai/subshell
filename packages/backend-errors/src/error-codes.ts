@@ -102,6 +102,12 @@ export enum BackendErrorCodes {
   /** `POST /api/admin/server/restart`: this server is not running under a service manager, so exiting would stop it. */
   RESTART_UNAVAILABLE = "RESTART_UNAVAILABLE",
   /**
+   * `POST /api/subshells/:id/input`: the row is not RUNNING, so there is no
+   * pane to type into. Nothing was written and no input was sent; the caller's
+   * remedy is a restart, not a retry of the same POST.
+   */
+  SUBSHELL_NOT_RUNNING = "SUBSHELL_NOT_RUNNING",
+  /**
    * `POST /api/subshells`: the row was retired between its INSERT and its
    * spawn — a maintenance window opening on that node, or a plain terminate.
    * A lost race with a legitimate concurrent act, not a fault: the pane is
@@ -261,6 +267,10 @@ export const BackendErrorCodeDefs = {
   },
   [BackendErrorCodes.NODE_IN_MAINTENANCE]: {
     message: "Node is in maintenance",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SUBSHELL_NOT_RUNNING]: {
+    message: "The subshell is not running",
     statusCode: 409,
   },
   [BackendErrorCodes.SUBSHELL_STOPPED_WHILE_STARTING]: {
