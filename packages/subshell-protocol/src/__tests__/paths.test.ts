@@ -66,13 +66,13 @@ describe("resolveNodeArtifactsDir", () => {
 });
 
 describe("NODE_TARGETS / SERVER_TARGETS", () => {
-  test("node set is the three served triples — no Intel Mac (spec 2026-08-31 §8)", () => {
-    expect(NODE_TARGETS).toEqual(["linux-x64", "linux-arm64", "darwin-arm64"]);
+  test("node set is the four served triples — the Intel Mac triple is restored", () => {
+    expect(NODE_TARGETS).toEqual(["linux-x64", "linux-arm64", "darwin-arm64", "darwin-x64"]);
   });
 
-  test("server set is the plan-2 triple set — narrower: NO darwin-x64", () => {
-    expect(SERVER_TARGETS).toEqual(["linux-x64", "linux-arm64", "darwin-arm64"]);
-    expect((SERVER_TARGETS as readonly string[]).includes("darwin-x64")).toBe(false);
+  test("server set matches the node set — darwin-x64 included", () => {
+    expect(SERVER_TARGETS).toEqual(["linux-x64", "linux-arm64", "darwin-arm64", "darwin-x64"]);
+    expect(SERVER_TARGETS as readonly string[]).toContain("darwin-x64");
   });
 
   test("the two artifact names never collide on a shared triple", () => {

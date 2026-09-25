@@ -341,7 +341,7 @@ Three rules about that binary:
 | | this app |
 | --- | --- |
 | `productName` (the `.app` a user installs) | `Subshell Server`: `Subshell Server.app`, space included |
-| published macOS asset | `Subshell-Server-Desktop-<version>-darwin-arm64.dmg` |
+| published macOS asset | `Subshell-Server-Desktop-<version>-<darwin-arm64\|darwin-x64>.dmg` (one per Mac triple) |
 | published Debian asset | `subshell-server-desktop_<version>_amd64.deb` |
 | the CLI it bundles, as that CLI publishes it | `subshell-server-cli-<triple>` |
 | bundle identifier | `dev.subshell.server` |

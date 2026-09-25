@@ -18,6 +18,13 @@ export const ReleasesManifestSchema = z.object({
         // zod-5 sweep: migrate to z.url() repo-wide, not here alone
         url: z.string().url(),
         installScript: z.string().min(1).optional(),
+        // Desktop components: the bundle names the release verifiably
+        // carries, put there by scripts/site-releases.ts after checking the
+        // release's own signature. Additive-optional (schemaVersion stays
+        // 1) so generator and site deploy in either order: an old reader
+        // strips the field, a new reader on an old file sees none and keeps
+        // the pre-Intel UI.
+        desktopAssets: z.array(z.string()).optional(),
       })
       .optional(),
   ),

@@ -52,6 +52,7 @@ describe("the platform key", () => {
   // no error anywhere.
   it("is Tauri's spelling, not this repo's", () => {
     expect(updaterPlatformKey("darwin-arm64")).toBe("darwin-aarch64");
+    expect(updaterPlatformKey("darwin-x64")).toBe("darwin-x86_64");
     expect(updaterPlatformKey("linux-x64")).toBe("linux-x86_64");
   });
 
@@ -222,9 +223,14 @@ describe("finding the shards on disk", () => {
     try {
       mkdirSync(join(root, "desktop-server-darwin-arm64"));
       mkdirSync(join(root, "desktop-server-linux-x64"));
+      mkdirSync(join(root, "desktop-server-darwin-x64"));
       writeFileSync(
         join(root, "desktop-server-darwin-arm64", "latest.darwin-arm64.json"),
         JSON.stringify(shard("darwin-arm64", DESKTOP_SERVER_PRODUCT, "desktop-server-v0.7.0")),
+      );
+      writeFileSync(
+        join(root, "desktop-server-darwin-x64", "latest.darwin-x64.json"),
+        JSON.stringify(shard("darwin-x64", DESKTOP_SERVER_PRODUCT, "desktop-server-v0.7.0")),
       );
       writeFileSync(
         join(root, "desktop-server-linux-x64", "latest.linux-x64.json"),
@@ -234,9 +240,9 @@ describe("finding the shards on disk", () => {
       // is full of other files.
       writeFileSync(join(root, "desktop-server-linux-x64", "release-manifest.json"), "{}");
       const found = findShardManifests(root);
-      expect(found).toHaveLength(2);
+      expect(found).toHaveLength(3);
       const merged = mergeFrom(found);
-      expect(Object.keys(merged.platforms).sort()).toEqual(["darwin-aarch64", "linux-x86_64"]);
+      expect(Object.keys(merged.platforms).sort()).toEqual(["darwin-aarch64", "darwin-x86_64", "linux-x86_64"]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

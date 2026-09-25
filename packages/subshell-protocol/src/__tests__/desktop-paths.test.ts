@@ -44,9 +44,16 @@ describe("desktop targets", () => {
     expect(DESKTOP_TARGETS).not.toContain("linux-arm64" as never);
   });
 
+  // Intel is IN: the macOS SDK is universal, so tauri's `--target` cross-build
+  // has a real build path (unlike arm64 Linux, which has no runner at all).
+  test("the desktop set is the three built triples, Intel Mac included", () => {
+    expect(DESKTOP_TARGETS).toEqual(["linux-x64", "darwin-arm64", "darwin-x64"]);
+  });
+
   test("every target maps to a Rust triple", () => {
     expect(rustTargetTriple("linux-x64")).toBe("x86_64-unknown-linux-gnu");
     expect(rustTargetTriple("darwin-arm64")).toBe("aarch64-apple-darwin");
+    expect(rustTargetTriple("darwin-x64")).toBe("x86_64-apple-darwin");
     for (const target of DESKTOP_TARGETS) {
       expect(rustTargetTriple(target)).toMatch(/^[a-z0-9_]+-[a-z-]+$/);
     }
@@ -321,6 +328,7 @@ describe("the published artifact set (all four producers)", () => {
     for (const target of NODE_TARGETS) expect(nodeArtifactFileName(target).endsWith(target)).toBe(true);
     for (const product of [DESKTOP_SERVER_PRODUCT, DESKTOP_CLIENT_PRODUCT]) {
       expect(desktopArtifactFileName(product, "darwin-arm64", VERSION).endsWith("-darwin-arm64.dmg")).toBe(true);
+      expect(desktopArtifactFileName(product, "darwin-x64", VERSION).endsWith("-darwin-x64.dmg")).toBe(true);
       expect(desktopArtifactFileName(product, "linux-x64", VERSION).endsWith("_amd64.deb")).toBe(true);
     }
   });

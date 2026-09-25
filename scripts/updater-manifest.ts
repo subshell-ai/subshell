@@ -50,6 +50,7 @@ export const LATEST_MANIFEST_NAME = "latest.json";
  */
 export function updaterPlatformKey(target: string): string {
   if (target === "darwin-arm64") return "darwin-aarch64";
+  if (target === "darwin-x64") return "darwin-x86_64";
   if (target === "linux-x64") return "linux-x86_64";
   throw new Error(`no updater platform key for '${target}'`);
 }
@@ -71,7 +72,7 @@ export function updaterPlatformKey(target: string): string {
  * @param target - a `DESKTOP_TARGETS` member
  */
 export function updaterArtifactName(bundleName: string, target: string): string {
-  if (target === "darwin-arm64") {
+  if (target === "darwin-arm64" || target === "darwin-x64") {
     if (!bundleName.endsWith(".dmg")) throw new Error(`expected a .dmg for ${target}, got '${bundleName}'`);
     return `${bundleName.slice(0, -".dmg".length)}.app.tar.gz`;
   }

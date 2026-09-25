@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { nodeArtifactFileName, SERVER_TARGETS, serverArtifactFileName } from "../paths.js";
+import { DESKTOP_TARGETS, nodeArtifactFileName, SERVER_TARGETS, serverArtifactFileName } from "../paths.js";
 import {
   assertBunFloor,
   type BuiltArtifact,
@@ -105,10 +105,11 @@ describe("parseScope (generalized from the client pipeline, Task E)", () => {
     expect(() => parseScope("win32-x64", SERVER_TARGETS, "TEST_TRIPLES")).toThrow(/linux-x64/);
   });
 
-  test("a target known to the OTHER pipeline is unknown here (darwin-x64 ∉ SERVER_TARGETS)", () => {
-    expect(() => parseScope("darwin-x64", SERVER_TARGETS, "TEST_TRIPLES")).toThrow(/unknown target/);
-    // …and the generalization is parameterized, not server-hardcoded:
-    expect(parseScope("darwin-x64", ["linux-x64", "darwin-x64"], "TEST_TRIPLES")).toEqual(["darwin-x64"]);
+  test("darwin-x64 is known to every pipeline that ships it — CLI and desktop alike", () => {
+    expect(parseScope("darwin-x64", SERVER_TARGETS, "TEST_TRIPLES")).toEqual(["darwin-x64"]);
+    expect(parseScope("darwin-x64", DESKTOP_TARGETS, "TEST_TRIPLES")).toEqual(["darwin-x64"]);
+    // and linux-arm64 is STILL unknown to desktop — the no-native-runner rule stands:
+    expect(() => parseScope("linux-arm64", DESKTOP_TARGETS, "TEST_TRIPLES")).toThrow(/unknown target/);
   });
 });
 

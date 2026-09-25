@@ -172,11 +172,13 @@ const APPS: readonly DesktopApp[] = [
  * This machine, as a {@link DesktopTarget}, or `null` where the desktop apps
  * are not built at all.
  *
- * `DESKTOP_TARGETS` is deliberately narrower than the CLI targets — there is no
- * native arm64 Linux runner and Intel Macs are not a target — so an Intel Mac
- * or an arm64 Linux box has no triple here, and `rustTargetTriple` would throw
- * a message about release targets that reads as a bug rather than as "this host
- * is not supported".
+ * `DESKTOP_TARGETS` is deliberately narrower than the CLI targets — there is
+ * no native arm64 Linux runner and the GTK/WebKit GUI cannot be cross-built or
+ * honestly magic-checked — so an arm64 Linux box has no triple here, and
+ * `rustTargetTriple` would throw a message about release targets that reads as
+ * a bug rather than as "this host is not supported". Both Mac triples are
+ * desktop targets: an Intel Mac dev host resolves `darwin-x64` and builds
+ * natively, exactly as an arm64 one resolves `darwin-arm64`.
  */
 function hostTarget(): DesktopTarget | null {
   // Node's own spellings already match this repo's target names on every host

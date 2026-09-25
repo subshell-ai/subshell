@@ -9,14 +9,34 @@
  * api.github.com. Version selection reuses the product's own `newestRelease`
  * (semver, never date) so the site can never disagree with an updater.
  *
+ * The one extra hop: for the two DESKTOP components, write mode fetches each
+ * release's own `release-manifest.json` + `.sig` from the release DOWNLOAD
+ * host (which is not the API) and verifies the signature against the
+ * committed publisher pubkey before trusting one byte of it — the same
+ * signed-manifest rule every update path follows. What comes back is the
+ * release's real asset list, so the site can offer a download only when the
+ * release actually carries it (the Intel dmg's existence is a fact about the
+ * newest cut, never a guess). Unverifiable → field omitted → site degrades
+ * to the conservative view. `--check` never fetches: the field is stripped
+ * from both sides before the drift comparison, because it is probe data the
+ * check cannot re-derive deterministically.
+ *
  * Modes:
  *   bun scripts/site-releases.ts           write releases.json from live tags
  *   bun scripts/site-releases.ts --check   exit 1 if the committed file drifts
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { verifyReleaseManifest } from "../packages/subshell-protocol/src/release-signature.js";
 import type { ReleaseComponent } from "../packages/subshell-protocol/src/releases.js";
-import { newestRelease, RELEASE_COMPONENTS, SUBSHELL_REPO_SLUG } from "../packages/subshell-protocol/src/releases.js";
+import {
+  newestRelease,
+  RELEASE_COMPONENTS,
+  RELEASE_MANIFEST_NAME,
+  RELEASE_MANIFEST_SIG_NAME,
+  RELEASE_PUBKEY,
+  SUBSHELL_REPO_SLUG,
+} from "../packages/subshell-protocol/src/releases.js";
 
 export const SCHEMA_VERSION = 1;
 const ROOT = join(import.meta.dir, "..");
@@ -33,6 +53,14 @@ export interface SiteReleaseEntry {
   tag: string;
   url: string;
   installScript?: string;
+  /**
+   * Desktop components only: the bundle file names the release verifiably
+   * carries (`.dmg` / `.deb`), read from its signed `release-manifest.json`.
+   * Additive-optional by decision — `schemaVersion` stays 1, because an old
+   * reader strips an unknown field and a new reader on an old file simply
+   * sees no field, so the generator and the site can deploy in either order.
+   */
+  desktopAssets?: string[];
 }
 
 export interface SiteReleasesManifest {
@@ -78,6 +106,60 @@ function liveInstallScripts(): Partial<Record<ReleaseComponent, string>> {
   return found;
 }
 
+/** Text-only fetch: a published JSON/sig file is UTF-8 by definition, and
+ * `verifyReleaseManifest` re-encodes the text to bytes before verifying —
+ * for well-formed UTF-8 that round trip is the exact published bytes. */
+export type FetchText = (url: string) => Promise<string | null>;
+
+/**
+ * The asset names a release verifiably carries, or null for "you may not
+ * state anything about this release's contents".
+ *
+ * Every failure mode answers null — missing manifest, missing signature,
+ * foreign key, a payload naming a different release, a dead network. Null is
+ * not a retry hint, it is the site behaving as if it had never asked.
+ */
+export async function verifiedReleaseAssets(
+  component: ReleaseComponent,
+  version: string,
+  fetchText: FetchText,
+  pubkey: string = RELEASE_PUBKEY,
+): Promise<string[] | null> {
+  const base = `https://github.com/${SUBSHELL_REPO_SLUG}/releases/download/${component}-v${version}`;
+  try {
+    const manifest = await fetchText(`${base}/${RELEASE_MANIFEST_NAME}`);
+    if (manifest === null) return null;
+    const sig = await fetchText(`${base}/${RELEASE_MANIFEST_SIG_NAME}`);
+    if (sig === null) return null;
+    const verified = await verifyReleaseManifest(manifest, sig, pubkey, { component, version });
+    if (!verified.ok) return null;
+    return Object.keys(verified.manifest.assets).sort();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Of a release's asset names, the ones the site may put behind a download
+ * button: the bundles themselves. Updater tarballs (`.app.tar.gz`), sigs and
+ * digests stay invisible to the page — the button grammar knows DMGs and
+ * debs by extension because those ARE the two bundle shapes this repo ships.
+ */
+export function desktopBundleNames(assetNames: readonly string[]): string[] {
+  return assetNames.filter((n) => n.endsWith(".dmg") || n.endsWith(".deb"));
+}
+
+/** The live network default for {@link FetchText}: non-2xx, and any throw, is null. */
+const fetchTextLive: FetchText = async (url) => {
+  try {
+    const res = await fetch(url, { headers: { accept: "*/*" } });
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  }
+};
+
 /** What a tag-listing run reports: git's exit code and raw stdout. */
 export interface LsRemoteResult {
   exitCode: number;
@@ -114,10 +196,38 @@ function runnerErrorMessage(err: unknown): string {
 }
 
 /**
+ * The default desktopAssets probe: fetch the release's own manifest, verify
+ * its signature, and report its bundle names. An unverifiable answer (absent,
+ * offline, bad signature) stays NULL rather than collapsing to `[]`: the
+ * header documents "unverifiable ⇒ the field is omitted", and `[]` would
+ * claim the probe SAW a release that ships no bundles, not that the probe
+ * could not ask.
+ */
+export async function desktopAssetsProbe(
+  component: ReleaseComponent,
+  version: string,
+  fetchText: FetchText = fetchTextLive,
+  pubkey: string = RELEASE_PUBKEY,
+): Promise<string[] | null> {
+  const names = await verifiedReleaseAssets(component, version, fetchText, pubkey);
+  return names === null ? null : desktopBundleNames(names);
+}
+
+/**
  * Write mode: generate the manifest and write it to `out`. Returns the
  * process exit code; a failing `lsRemoteTags` aborts BEFORE any write.
+ *
+ * `assetsFor` is the desktop probe (default: {@link desktopAssetsProbe}). It
+ * runs only for the two desktop components, and a null answer leaves
+ * `desktopAssets` ABSENT — the site's Intel button is driven by a fact,
+ * never by hope.
  */
-export function writeReleases(runner: () => LsRemoteResult = defaultLsRemote, out: string = OUT): number {
+export async function writeReleases(
+  runner: () => LsRemoteResult = defaultLsRemote,
+  out: string = OUT,
+  assetsFor: (component: ReleaseComponent, version: string) => Promise<string[] | null> = (component, version) =>
+    desktopAssetsProbe(component, version),
+): Promise<number> {
   let manifest: SiteReleasesManifest;
   try {
     manifest = buildManifest(lsRemoteTags(runner), {
@@ -127,6 +237,12 @@ export function writeReleases(runner: () => LsRemoteResult = defaultLsRemote, ou
   } catch (err) {
     console.error(runnerErrorMessage(err));
     return 1;
+  }
+  for (const component of ["desktop-server", "desktop-client"] as const) {
+    const entry = manifest.components[component];
+    if (entry === undefined) continue;
+    const names = await assetsFor(component, entry.version);
+    if (names !== null) entry.desktopAssets = names;
   }
   writeFileSync(out, `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(`wrote releases.json (${Object.keys(manifest.components).length} components)`);
@@ -151,7 +267,20 @@ export function checkReleases(runner: () => LsRemoteResult = defaultLsRemote, ou
     return 1;
   }
   const committed = JSON.parse(readFileSync(out, "utf8")) as SiteReleasesManifest;
-  const norm = (m: SiteReleasesManifest) => JSON.stringify({ s: m.schemaVersion, c: m.components });
+  // desktopAssets is probe data write mode gathered over the network; check
+  // mode re-derives only the tag view, so the field is stripped from BOTH
+  // sides. Its presence, absence, or content is never drift — a version or
+  // tag that no longer matches still is.
+  const norm = (m: SiteReleasesManifest) =>
+    JSON.stringify({
+      s: m.schemaVersion,
+      c: Object.fromEntries(
+        Object.entries(m.components).map(([k, v]) => [
+          k,
+          v === undefined ? v : Object.fromEntries(Object.entries(v).filter(([f]) => f !== "desktopAssets")),
+        ]),
+      ),
+    });
   if (norm(fresh) !== norm(committed)) {
     console.error(`releases.json is stale.\n  committed: ${norm(committed)}\n  from tags: ${norm(fresh)}`);
     return 1;
@@ -161,5 +290,5 @@ export function checkReleases(runner: () => LsRemoteResult = defaultLsRemote, ou
 }
 
 if (import.meta.main) {
-  process.exit(process.argv[2] === "--check" ? checkReleases() : writeReleases());
+  process.exit(process.argv[2] === "--check" ? checkReleases() : await writeReleases());
 }

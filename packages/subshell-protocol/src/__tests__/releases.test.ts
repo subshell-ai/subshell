@@ -219,16 +219,18 @@ describe("parseReleaseManifest", () => {
 });
 
 describe("hostReleaseTarget", () => {
-  it("maps the three published platforms", () => {
+  it("maps the four published platforms", () => {
     expect(hostReleaseTarget("darwin", "arm64")).toBe("darwin-arm64");
+    expect(hostReleaseTarget("darwin", "x64")).toBe("darwin-x64");
     expect(hostReleaseTarget("linux", "x64")).toBe("linux-x64");
     expect(hostReleaseTarget("linux", "arm64")).toBe("linux-arm64");
   });
 
   it("answers null for every platform this repo does not publish", () => {
-    // An Intel Mac is the real population here, and the answer has to be
-    // "there is no artifact for you", never a nearby triple.
-    expect(hostReleaseTarget("darwin", "x64")).toBeNull();
+    // The answer for an unpublished platform has to be "there is no artifact
+    // for you", never a nearby triple — an arm64 binary does not run on Intel,
+    // and a darwin/ppc64 host must not be handed the Intel artifact either.
+    expect(hostReleaseTarget("darwin", "ppc64")).toBeNull();
     expect(hostReleaseTarget("linux", "ia32")).toBeNull();
     expect(hostReleaseTarget("win32", "x64")).toBeNull();
     expect(hostReleaseTarget("freebsd", "x64")).toBeNull();

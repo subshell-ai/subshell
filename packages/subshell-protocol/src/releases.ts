@@ -281,14 +281,17 @@ export function parseReleaseManifest(text: string): ReleaseManifest | null {
 /**
  * Which published artifact THIS host runs, from `process.platform`/`process.arch`.
  *
- * `null` is a real answer with a real population behind it — an Intel Mac, a
- * 32-bit Linux, a BSD — and every caller refuses BY NAME rather than guessing
- * a nearby triple, exactly as `install-server.sh` does. `SERVER_TARGETS` and
- * `NODE_TARGETS` are the same three strings today, so one function answers for
- * both; the return type is `ServerTarget` because that is the wider promise.
+ * `null` is a real answer with a real population behind it — a 32-bit Linux,
+ * a BSD, a darwin host on an arch nobody ships — and every caller refuses BY
+ * NAME rather than guessing a nearby triple, exactly as `install-server.sh`
+ * does. `SERVER_TARGETS` and `NODE_TARGETS` are the same four strings today,
+ * so one function answers for both; the return type is `ServerTarget` because
+ * that is the wider promise. `darwin`/`x64` resolves to `darwin-x64`: the
+ * Intel artifact is published again.
  */
 export function hostReleaseTarget(platform: string, arch: string): ServerTarget | null {
   if (platform === "darwin" && arch === "arm64") return "darwin-arm64";
+  if (platform === "darwin" && arch === "x64") return "darwin-x64";
   if (platform === "linux" && arch === "x64") return "linux-x64";
   if (platform === "linux" && arch === "arm64") return "linux-arm64";
   return null;

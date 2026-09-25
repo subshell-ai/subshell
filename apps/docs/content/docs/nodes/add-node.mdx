@@ -24,7 +24,7 @@ curl -fsSL "http://your-server:3080/install.sh?setup_key=<your-key>" | bash
 On the target machine this:
 
 1. **Checks for tmux** and warns (with the right install command for the platform) if it is missing. A node without tmux can run no subshell at all. The install itself continues; enrollment is what refuses.
-2. **Downloads the node binary** for your platform (`linux-x64`, `linux-arm64`, or `darwin-arm64`; Intel Macs are refused by name) from that same server, to `~/.local/bin/subshell`.
+2. **Downloads the node binary** for your platform (`linux-x64`, `linux-arm64`, `darwin-arm64`, or `darwin-x64` for Intel Macs) from that same server, to `~/.local/bin/subshell`.
 3. **Verifies the published `.sha256` digest** of the download before the file is ever made executable, and replaces nothing until the digest matches. A corrupt or partial download leaves any existing install untouched.
 4. **Runs `subshell setup`**, which asks what to call the machine, enrols it, and offers the background service, as step 3 describes.
 

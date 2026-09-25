@@ -43,17 +43,10 @@ case "$OS/$ARCH" in
   Linux/x86_64)              TARGET="linux-x64" ;;
   Linux/aarch64|Linux/arm64) TARGET="linux-arm64" ;;
   Darwin/arm64)              TARGET="darwin-arm64" ;;
-  Darwin/x86_64)
-    # Refused BY NAME rather than resolved to a triple whose asset does not
-    # exist. Intel Macs are not a published target for any component, so "the
-    # release has no asset for darwin-x64" would read as "the release is
-    # incomplete" — a different problem with a different fix.
-    fail "Intel Macs are not supported: no server binary is published for darwin-x64." \
-      "Apple silicon and Linux have binaries; on an Intel Mac, run the server from a checkout."
-    ;;
+  Darwin/x86_64)             TARGET="darwin-x64" ;;
   *)
     fail "unsupported platform: $OS/$ARCH" \
-      "Published targets are linux-x64, linux-arm64 and darwin-arm64."
+      "Published targets are linux-x64, linux-arm64, darwin-arm64 and darwin-x64."
     ;;
 esac
 
@@ -122,7 +115,8 @@ case "$HTTP" in
   404)
     rm -f "$TMP"
     fail "$TAG publishes no $TARGET binary (asset $ASSET is missing)." \
-      "Published targets are linux-x64, linux-arm64 and darwin-arm64." \
+      "Current published targets are linux-x64, linux-arm64, darwin-arm64 and darwin-x64;" \
+      "older releases may carry fewer." \
       "Pick another release with SUBSHELL_SERVER_VERSION=X.Y.Z, or build from a checkout."
     ;;
   *)

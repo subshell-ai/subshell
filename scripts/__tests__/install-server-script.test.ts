@@ -237,12 +237,11 @@ describe("install-server.sh", () => {
     expect(existsSync(join(r1.home, "second-argv.txt"))).toBe(false);
   });
 
-  test("refuses an Intel Mac by name, before any download", async () => {
+  test("an Intel Mac resolves to the published darwin-x64 asset", async () => {
     const r = await run({}, { s: "Darwin", m: "x86_64" });
-    expect(r.code).not.toBe(0);
-    expect(r.stderr).toContain("Intel Macs are not supported");
-    expect(r.stderr).toContain("darwin-x64");
-    expect(existsSync(r.dest)).toBe(false);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("subshell-server-cli-darwin-x64");
+    expect(existsSync(r.dest)).toBe(true);
   });
 
   test("refuses any other platform by name", async () => {

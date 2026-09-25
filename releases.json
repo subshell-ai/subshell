@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-25T17:02:28.967Z",
+  "generatedAt": "2026-09-25T21:04:11.789Z",
   "components": {
     "cli-server": {
       "version": "1.0.1",
@@ -16,13 +16,21 @@
     "desktop-server": {
       "version": "1.0.3",
       "tag": "desktop-server-v1.0.3",
-      "url": "https://github.com/subshell-ai/subshell/releases/tag/desktop-server-v1.0.3"
+      "url": "https://github.com/subshell-ai/subshell/releases/tag/desktop-server-v1.0.3",
+      "desktopAssets": [
+        "Subshell-Server-Desktop-1.0.3-darwin-arm64.dmg",
+        "subshell-server-desktop_1.0.3_amd64.deb"
+      ]
     },
     "desktop-client": {
       "version": "1.0.0",
       "tag": "desktop-client-v1.0.0",
       "url": "https://github.com/subshell-ai/subshell/releases/tag/desktop-client-v1.0.0",
-      "installScript": "install-client.sh"
+      "installScript": "install-client.sh",
+      "desktopAssets": [
+        "Subshell-Client-Desktop-1.0.0-darwin-arm64.dmg",
+        "subshell-client-desktop_1.0.0_amd64.deb"
+      ]
     }
   }
 }

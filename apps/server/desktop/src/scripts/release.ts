@@ -36,6 +36,8 @@ import {
   desktopArtifactFileName,
   desktopSidecarFileName,
   RELEASE_MANIFEST_NAME,
+  RELEASE_MANIFEST_SIG_NAME,
+  rustTargetTriple,
   SERVER_SIDECAR_NAME,
   serverArtifactFileName,
 } from "@internal/subshell-protocol";
@@ -96,7 +98,9 @@ export function bundleKind(triple: string): {
   suffix: string;
   intermediates: readonly string[];
 } {
-  if (triple === "darwin-arm64")
+  // Both Macs bundle the same shape; which one you GET is `--target`'s job,
+  // not the bundler's.
+  if (triple === "darwin-arm64" || triple === "darwin-x64")
     return { bundles: "app,dmg", dir: "dmg", suffix: ".dmg", intermediates: ["macos", "share"] };
   if (triple === "linux-x64") return { bundles: "deb", dir: "deb", suffix: ".deb", intermediates: [] };
   throw new Error(`no bundler for '${triple}' (known: ${DESKTOP_TARGETS.join(", ")})`);
@@ -125,7 +129,23 @@ export function bundleKind(triple: string): {
  * fallback is the ordinary Linux path rather than a contingency.
  */
 export function tauriBuildArgs(triple: string): string[] {
-  return ["tauri", "build", "--bundles", bundleKind(triple).bundles];
+  // `--target` for EVERY triple, including the host's own: an omitted flag is
+  // the difference between an x86_64 Mach-O published as darwin-x64 and the
+  // right bytes. Explicit always, so a shard cannot silently build its runner.
+  return ["tauri", "build", "--bundles", bundleKind(triple).bundles, "--target", rustTargetTriple(triple)];
+}
+
+/**
+ * Where `tauri build` for `triple` writes its bundle.
+ *
+ * Cargo puts `--target` output under the target triple — ALWAYS, including
+ * when the triple matches the host, which is why the pipeline passes
+ * `--target` for every triple (a shard that quietly built the runner's arch
+ * would publish a native binary under the cross triple's name) and why this
+ * is one formula, not a native/cross pair.
+ */
+export function bundleRootFor(triple: string): string {
+  return join(DESKTOP_DIR, "src-tauri", "target", rustTargetTriple(triple), "release", "bundle");
 }
 
 /** Injected effects, so the pipeline is testable without building anything. */
@@ -180,6 +200,9 @@ export async function stageSidecar(deps: DesktopReleaseDeps, triple: string): Pr
   // release, and this directory is a Tauri build input, not a publish dir.
   // This app writes its OWN manifest into the publish dir at the end of main().
   await deps.remove(join(SIDECAR_DIR, RELEASE_MANIFEST_NAME));
+  // …and its placeholder `.sig`, which the nested build writes even when the
+  // sign hook is cleared (measured 2026-09-25: desktop runs left a stale one).
+  await deps.remove(join(SIDECAR_DIR, RELEASE_MANIFEST_SIG_NAME));
   await deps.move(built, join(SIDECAR_DIR, desktopSidecarFileName(SERVER_SIDECAR_NAME, triple)));
   return true;
 }
@@ -240,14 +263,19 @@ export function assertBundleSet(present: readonly string[], triple: string): voi
 }
 
 /**
- * The one target this machine can actually build.
+ * The one target to build when NOTHING was scoped: this machine's own.
  *
- * `tauri build` links against the host webview, so a cross-build is not a slow
- * path — it is not a path. CI scopes every shard explicitly; a local run gets
- * the host.
+ * A Mac cross-build IS a path — `--target` compiles the full crate graph for
+ * the other arch and links the SDK's universal WebKit (measured 2026-09-25) —
+ * but it doubles a ~500-crate build for an artifact the local machine cannot
+ * run, so the unscoped default stays the host and CI scopes every cross shard
+ * explicitly. Linux is the true exception: its webview is a host package, so
+ * an arm64 Linux GUI cannot be built here at all, which is why it is not a
+ * desktop target in the first place.
  */
 export function hostTarget(platform: string = process.platform, arch: string = process.arch): string {
   if (platform === "darwin" && arch === "arm64") return "darwin-arm64";
+  if (platform === "darwin" && arch === "x64") return "darwin-x64";
   if (platform === "linux" && arch === "x64") return "linux-x64";
   throw new Error(
     `apps/server/desktop cannot be built on ${platform}-${arch} (buildable here: ${DESKTOP_TARGETS.join(", ")})`,
@@ -300,9 +328,9 @@ export const DEFAULT_DEPS: DesktopReleaseDeps = {
 async function main(): Promise<void> {
   assertBunFloor("1.4.0");
   const scope = parseScope(process.env[DESKTOP_RELEASE_TRIPLES_ENV], DESKTOP_TARGETS, DESKTOP_RELEASE_TRIPLES_ENV);
-  // Unlike the bun pipelines, `tauri build` cannot cross-compile: it links
-  // against the host's own webview. So the unscoped default is the HOST triple,
-  // not the full set — a default nobody can run is not a default.
+  // The unscoped default is the HOST triple: a Mac cross-build works via
+  // `--target` (CI scopes those shards), but building an artifact the local
+  // machine cannot run is never what an unscoped local call is for.
   const targets = scope ?? [hostTarget()];
   const version = await readVersion();
   const deps = DEFAULT_DEPS;
@@ -335,7 +363,7 @@ async function main(): Promise<void> {
       if (!(await stageSidecar(deps, triple))) {
         throw new Error(`the server sidecar for ${triple} failed to build. Nothing published`);
       }
-      const bundleRoot = join(DESKTOP_DIR, "src-tauri", "target", "release", "bundle");
+      const bundleRoot = bundleRootFor(triple);
       // A previous target's output would otherwise make `assertBundleSet` fail
       // a perfectly good build, and its message name a bundler that did not run.
       await rm(bundleRoot, { recursive: true, force: true });
@@ -346,7 +374,7 @@ async function main(): Promise<void> {
       const path = await collectArtifact(deps, bundleRoot, triple, version);
       // Tauri signs the image but stops there; the digest below must describe
       // the NOTARIZED, STAPLED bytes, so the chain completes first.
-      if (triple === "darwin-arm64" && !(await notarizeAndStapleDmg(path, deps))) {
+      if (triple.startsWith("darwin") && !(await notarizeAndStapleDmg(path, deps))) {
         throw new Error(`the ${triple} DMG failed notarization/stapling. Nothing published`);
       }
       artifacts.set(triple, { path, digest: await digestFile(path) });
@@ -501,7 +529,7 @@ export async function collectArtifact(
  * one `tauri signer sign` when it is not needed.
  */
 export function updaterSource(bundleRoot: string, triple: string, product: string, debName: string): string {
-  if (triple === "darwin-arm64") return join(bundleRoot, "macos", `${product}.app.tar.gz`);
+  if (triple === "darwin-arm64" || triple === "darwin-x64") return join(bundleRoot, "macos", `${product}.app.tar.gz`);
   if (triple === "linux-x64") return join(bundleRoot, "deb", debName);
   throw new Error(`no updater artifact for '${triple}'`);
 }

@@ -1,16 +1,28 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { installCopy } from "../lib/install";
+import { installCopy, type MacArch, macIntelAvailable } from "../lib/install";
 import { detectIsMac, refreshReleasesHost } from "../lib/install-client";
 import type { ReleasesManifest } from "../lib/releases";
 import { cn } from "../lib/utils";
+import { ArchSplitButton } from "./ui/arch-split";
 import { Button } from "./ui/button";
+
+/** The menu rows name the file type too, so the choice reads as a download
+ * decision, not a settings toggle. */
+const MAC_ARCH_OPTIONS = [
+  { key: "darwin-arm64", label: "Apple silicon (.dmg)" },
+  { key: "darwin-x64", label: "Intel (.dmg)" },
+] as const;
 
 export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifest }) {
   const [manifest, setManifest] = useState(initial);
   const [isMac, setIsMac] = useState(true);
   const [kind, setKind] = useState<"server" | "client">("server");
+  // Which Mac build the button carries. It persists across the server/client
+  // toggle for the honest reason that both apps run on the SAME machine —
+  // the visitor picked an arch once because that is what their Mac is.
+  const [macArch, setMacArch] = useState<MacArch>("darwin-arm64");
   const [copied, setCopied] = useState(false);
   // The "Copied" reset timer, held so a re-click clears the pending reset
   // instead of racing it, and unmount clears it instead of calling setState
@@ -29,7 +41,12 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
     };
   }, []);
 
-  const copy = installCopy(manifest, kind, isMac);
+  // The live refresh can swap in a manifest whose newest cut carries no
+  // Intel dmg (or none at all, pre-desktopAssets). A selection can only
+  // point at what the release actually ships — otherwise the remembered
+  // "Intel" would render a 404 button.
+  const offerArch = isMac && macIntelAvailable(manifest, kind);
+  const copy = installCopy(manifest, kind, isMac, offerArch ? macArch : "darwin-arm64");
   const why =
     kind === "server" ? (
       <>
@@ -85,12 +102,22 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
         </Button>
       </fieldset>
       <p className={headingClass}>{copy.appHeading}</p>
-      <a
-        href={copy.downloadHref}
-        className="block w-fit rounded-xl border border-[var(--orchid)] bg-[var(--orchid)] px-5 py-3 text-[14.5px] font-semibold text-[var(--void)] hover:bg-[#e3a2e8]"
-      >
-        <span suppressHydrationWarning>{copy.downloadLabel}</span>
-      </a>
+      {offerArch ? (
+        <ArchSplitButton
+          label={copy.downloadLabel}
+          href={copy.downloadHref}
+          options={MAC_ARCH_OPTIONS}
+          selected={macArch}
+          onSelect={setMacArch}
+        />
+      ) : (
+        <a
+          href={copy.downloadHref}
+          className="block w-fit rounded-xl border border-[var(--orchid)] bg-[var(--orchid)] px-5 py-3 text-[14.5px] font-semibold text-[var(--void)] hover:bg-[#e3a2e8]"
+        >
+          <span suppressHydrationWarning>{copy.downloadLabel}</span>
+        </a>
+      )}
       {/* The artifact's name names what the button above downloads, so it
           sits under that button (operator observation, 2026-09-25); printed
           in the small print below the curl row, it read as if the CLI

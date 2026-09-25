@@ -172,15 +172,7 @@ ARCH="$(uname -m)"
 case "$OS/$ARCH" in
   Linux/x86_64)             TARGET="linux-x64" ;;
   Linux/aarch64|Linux/arm64) TARGET="linux-arm64" ;;
-  Darwin/x86_64)
-    # Refused BY NAME rather than resolved to a target that 404s. Intel Macs
-    # are not a published target, and "this server publishes no binary for your
-    # platform" would read as "the operator has not published one yet" — a
-    # different problem with a different fix.
-    echo "subshell: Intel Macs are not supported: no node binary is published for darwin-x64." >&2
-    echo "    Apple silicon and Linux have binaries; on an Intel Mac, run the node from a checkout." >&2
-    exit 1
-    ;;
+  Darwin/x86_64)            TARGET="darwin-x64" ;;
   Darwin/arm64)             TARGET="darwin-arm64" ;;
   *)
     echo "subshell: unsupported platform: $OS/$ARCH" >&2

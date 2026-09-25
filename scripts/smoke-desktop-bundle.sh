@@ -54,7 +54,7 @@ GLIBC_FLOOR="2.39"
 case "$APP" in
   desktop-server)
     PRODUCT="Subshell Server"
-    DMG="Subshell-Server-Desktop-${VERSION}-darwin-arm64.dmg"
+    DMG_SLUG="Subshell-Server-Desktop"
     PKG="subshell-server-desktop"
     SIDECAR="subshell-server-bundled"
     SIDECAR_PREFIX="subshell-server "
@@ -62,7 +62,7 @@ case "$APP" in
     ;;
   desktop-client)
     PRODUCT="Subshell Client"
-    DMG="Subshell-Client-Desktop-${VERSION}-darwin-arm64.dmg"
+    DMG_SLUG="Subshell-Client-Desktop"
     PKG="subshell-client-desktop"
     SIDECAR="subshell-node-bundled"
     SIDECAR_PREFIX="subshell "
@@ -71,11 +71,16 @@ case "$APP" in
   *) fail "unknown app '$APP' (known: desktop-server, desktop-client)" ;;
 esac
 
+# Both Mac triples ship a DMG, named `<slug>-<version>-<triple>.dmg` — the
+# same formula `desktopArtifactFileName` publishes under, with the triple
+# spelled ONCE here from $TRIPLE so a new Mac arch cannot quietly keep the
+# arm64 name.
 case "$TRIPLE" in
   linux-x64) ARTIFACT="${PKG}_${VERSION}_amd64.deb" ;;
-  darwin-arm64) ARTIFACT="$DMG" ;;
+  darwin-arm64|darwin-x64) ARTIFACT="${DMG_SLUG}-${VERSION}-${TRIPLE}.dmg" ;;
   *) fail "unknown triple '$TRIPLE'" ;;
 esac
+DMG="$ARTIFACT"
 
 # The UPDATER artifact for this triple (spec 2026-09-15 § 8). macOS ships a
 # tarball of the `.app` beside the image the human downloads; Linux's update
@@ -84,7 +89,7 @@ esac
 # whichever it is.
 case "$TRIPLE" in
   linux-x64) UPDATER_ASSET="$ARTIFACT" ;;
-  darwin-arm64) UPDATER_ASSET="${DMG%.dmg}.app.tar.gz" ;;
+  darwin-arm64|darwin-x64) UPDATER_ASSET="${DMG%.dmg}.app.tar.gz" ;;
 esac
 MANIFEST="latest.${TRIPLE}.json"
 
@@ -123,6 +128,7 @@ grep -q '"signature": *"[^"]' "$DIST/$MANIFEST" || fail "$MANIFEST carries an em
 case "$TRIPLE" in
   linux-x64) PLATFORM_KEY="linux-x86_64" ;;
   darwin-arm64) PLATFORM_KEY="darwin-aarch64" ;;
+  darwin-x64) PLATFORM_KEY="darwin-x86_64" ;;
 esac
 grep -q "\"$PLATFORM_KEY\"" "$DIST/$MANIFEST" || fail "$MANIFEST does not key this platform as $PLATFORM_KEY"
 # The version in it must be the one being cut, or the plugin compares an
@@ -248,6 +254,19 @@ codesign --verify --strict --verbose=2 "$DIST/$ARTIFACT" || fail "codesign --ver
 xcrun stapler validate "$DIST/$ARTIFACT" || fail "the notarization ticket is not stapled to the image"
 
 [ -x "$APP_BUNDLE/Contents/MacOS/$SIDECAR" ] || fail "the sidecar is missing or not executable inside the bundle"
+# The arch of the nested sidecar is the one thing a mislabeled cross-build
+# would get wrong SILENTLY: `check_sidecar_runs` below execs it, and Rosetta
+# answers x86_64 on this runner either way. The Mach-O slice is the fact; the
+# bundle's own arch has to match the triple being cut.
+case "$TRIPLE" in
+  darwin-arm64) MACHO_HINT="arm64" ;;
+  darwin-x64) MACHO_HINT="x86_64" ;;
+esac
+sidecar_magic="$(file "$APP_BUNDLE/Contents/MacOS/$SIDECAR")"
+case "$sidecar_magic" in
+  *"Mach-O"*"$MACHO_HINT"*) ;;
+  *) fail "the sidecar is not a $MACHO_HINT Mach-O: $sidecar_magic" ;;
+esac
 check_sidecar_runs "$APP_BUNDLE/Contents/MacOS/$SIDECAR"
 
 echo "smoke: verifying the merged Info.plist"

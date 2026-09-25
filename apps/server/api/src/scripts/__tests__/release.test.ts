@@ -67,8 +67,8 @@ describe("parseScope (shared generalized parse, pinned to SERVER_TARGETS)", () =
       new RegExp(`unknown target "win32-x64" in ${ENV_NAME}`),
     ));
 
-  test("darwin-x64 is NOT a server target (client-only triple → refusal)", () =>
-    expect(() => parseScope("darwin-x64", SERVER_TARGETS, ENV_NAME)).toThrow(/unknown target/i));
+  test("darwin-x64 is a server target (the Intel Mac triple is restored)", () =>
+    expect(parseScope("darwin-x64", SERVER_TARGETS, ENV_NAME)).toEqual(["darwin-x64"]));
 });
 
 describe("buildAll", () => {
