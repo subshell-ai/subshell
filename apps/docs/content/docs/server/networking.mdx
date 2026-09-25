@@ -1,32 +1,32 @@
 ---
 title: Networking & Addresses
-description: Which addresses can reach the server and sign in from a browser — bind, base URL, and the trusted-origin allowlist.
+description: "Which addresses can reach the server and sign in from a browser: bind, base URL, and the trusted-origin allowlist."
 ---
 
 Three settings decide which addresses your control plane answers on, and people conflate them constantly. Once you separate them, the infamous sign-in failure becomes a one-field fix.
 
 | setting | question it answers | default |
 |---|---|---|
-| `HOST` | which network interfaces does the server **listen** on? | `0.0.0.0` — all of them |
+| `HOST` | which network interfaces does the server **listen** on? | `0.0.0.0`: all of them |
 | `APP_BASE_URL` | what address does the instance **call itself**? Auth redirects use it, and it is trusted automatically. | `http://localhost:<port>` |
 | `TRUSTED_ORIGINS` | what **other** addresses may a browser sign in from? | the two dev-server ports a source checkout uses |
 
-The bind is the network fact: `0.0.0.0` (the default since 2026-09-08) means remote nodes and devices *can* reach the server; `HOST=127.0.0.1` in `config.env` restores loopback-only. The other two are identity facts: which name the instance vouches for, and which names its browsers may use. A wildcard bind is a listen address, **not** an identity — the string `0.0.0.0` never joins the list; what binding on it does is open the door to the next source below.
+The bind is the network fact: `0.0.0.0` (the default since 2026-09-08) means remote nodes and devices *can* reach the server; `HOST=127.0.0.1` in `config.env` restores loopback-only. The other two are identity facts: which name the instance vouches for, and which names its browsers may use. A wildcard bind is a listen address, **not** an identity: the string `0.0.0.0` never joins the list; what binding on it does is open the door to the next source below.
 
 ## What a browser may use
 
 Every sign-in carries the browser's `Origin`, and the instance keeps an allowlist of origins it will accept it from. The list is assembled **live, per request**, from four sources:
 
-1. the instance's **own origins** — both loopback spellings of the port (`http://localhost:3080` and `http://127.0.0.1:3080`), the base URL's origin, and `http://<host>:<port>` when `HOST` is a concrete address rather than a wildcard;
-2. on a wildcard bind, the machine's **own LAN addresses** — every non-internal IPv4 interface address, derived from the kernel and trusted automatically (since 2026-09-17). A phone on your Wi-Fi signs in at the server's LAN address with nothing to configure; an entry here is a literal IP, which a DNS-rebinding attack can never produce as an `Origin`;
+1. the instance's **own origins**: both loopback spellings of the port (`http://localhost:3080` and `http://127.0.0.1:3080`), the base URL's origin, and `http://<host>:<port>` when `HOST` is a concrete address rather than a wildcard;
+2. on a wildcard bind, the machine's **own LAN addresses**: every non-internal IPv4 interface address, derived from the kernel and trusted automatically (since 2026-09-17). A phone on your Wi-Fi signs in at the server's LAN address with nothing to configure; an entry here is a literal IP, which a DNS-rebinding attack can never produce as an `Origin`;
 3. the operator's `TRUSTED_ORIGINS` extras;
-4. the addresses each **enabled network plugin** reports for this host — trusted the moment a publish earns it, and forgotten when it is undone.
+4. the addresses each **enabled network plugin** reports for this host: trusted the moment a publish earns it, and forgotten when it is undone.
 
-What is deliberately missing is a fifth source: **the request itself.** The list is never derived from the request's `Host` header — "trust the origin that matches the host you dialed" is precisely the DNS-rebinding hole the allowlist exists to close. Because the read is live, a network joined a minute ago is trusted without a restart, and the LAN probe re-asks on every settings read — a laptop that switched Wi-Fi stops offering (and trusting) the address of the network it left.
+What is deliberately missing is a fifth source: **the request itself.** The list is never derived from the request's `Host` header: "trust the origin that matches the host you dialed" is precisely the DNS-rebinding hole the allowlist exists to close. Because the read is live, a network joined a minute ago is trusted without a restart, and the LAN probe re-asks on every settings read: a laptop that switched Wi-Fi stops offering (and trusting) the address of the network it left.
 
 ## 403 "Invalid origin"
 
-This is the symptom everything above is designed to produce when an address is not on the list — and it is famously unhelpful on its own, because it names no key. The classic shape — a phone on the Wi-Fi dialing the server's LAN IP while only loopback was trusted — stopped being possible in 2026-09-17: the machine's own addresses are derived automatically. What still produces it is a **name**: the server **answers** on `http://box.local:3080` — the app renders — but a `.local` host, a DNS entry, or any other name that is not one of its interface addresses sends an `Origin` nothing matches, and sign-in dies. The server is not broken; it is refusing an address it was never told about. Production enforces this strictly, which is where you will meet it.
+This is the symptom everything above is designed to produce when an address is not on the list, and it is famously unhelpful on its own, because it names no key. The classic shape (a phone on the Wi-Fi dialing the server's LAN IP while only loopback was trusted) stopped being possible in 2026-09-17: the machine's own addresses are derived automatically. What still produces it is a **name**: the server **answers** on `http://box.local:3080` (the app renders), but a `.local` host, a DNS entry, or any other name that is not one of its interface addresses sends an `Origin` nothing matches, and sign-in dies. The server is not broken; it is refusing an address it was never told about. Production enforces this strictly, which is where you will meet it.
 
 The fix is to name the address you actually browse from:
 
@@ -35,7 +35,7 @@ subshell-server configure --trusted-origins http://box.local:3080
 subshell-server service restart
 ```
 
-or the same field on Settings → Networking, where a change needs **no restart** — the origins list is re-read live, so the retry works from the page you fixed it on. Two rules pick the right lever:
+or the same field on Settings → Networking, where a change needs **no restart**: the origins list is re-read live, so the retry works from the page you fixed it on. Two rules pick the right lever:
 
 - **"Also reachable at"** → add an origin. Nothing else moves.
 - **"This is the address now"** → change `APP_BASE_URL`, and restart. But read the next section first.
@@ -43,24 +43,24 @@ or the same field on Settings → Networking, where a change needs **no restart*
 `init` still warns at write time when a LAN bind will refuse NAMES, printing the exact command; the addresses the machine holds itself are no longer part of what you must say.
 
 > [!important] Changing the base URL moves your passkeys
-> `APP_BASE_URL` is also the passkey rpID — passkeys are bound to the host they were minted for. Change it and existing passkeys stop working on the old address, the Subshell Server desktop window (which opens on loopback) included. Adding a name to `TRUSTED_ORIGINS` has no such effect, and is the correct lever when the goal is *also*.
+> `APP_BASE_URL` is also the passkey rpID: passkeys are bound to the host they were minted for. Change it and existing passkeys stop working on the old address, the Subshell Server desktop window (which opens on loopback) included. Adding a name to `TRUSTED_ORIGINS` has no such effect, and is the correct lever when the goal is *also*.
 
 ## What the list will not accept
 
-An origin is scheme, host, and optional port — nothing else. Both writers (the CLI flag and the Networking page) validate every entry by component and **store the canonical form** a browser actually sends, which is what admits the spellings people type — a trailing slash, a mixed-case host, an explicit `:443` — while storing the one string the checkers compare. A path, query, or fragment is refused; so are credentials, rather than silently stripped by canonicalization.
+An origin is scheme, host, and optional port, and nothing else. Both writers (the CLI flag and the Networking page) validate every entry by component and **store the canonical form** a browser actually sends, which is what admits the spellings people type (a trailing slash, a mixed-case host, an explicit `:443`) while storing the one string the checkers compare. A path, query, or fragment is refused; so are credentials, rather than silently stripped by canonicalization.
 
-**Wildcards are refused, and that refusal is load-bearing.** The auth stack routes any entry containing `*` or `?` through pattern matching, so a written `https://*` would trust *every* https origin on the internet — dissolving the allowlist the [threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#8-network-boundary) spends this whole page on. An operator who genuinely wants a pattern can still set the env var or hand-edit `config.env` — those bypass the validators by design — and `subshell-server status` then reports per-entry problems telling you what a browser will do with the value.
+**Wildcards are refused, and that refusal is load-bearing.** The auth stack routes any entry containing `*` or `?` through pattern matching, so a written `https://*` would trust *every* https origin on the internet, dissolving the allowlist the [threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#8-network-boundary) spends this whole page on. An operator who genuinely wants a pattern can still set the env var or hand-edit `config.env` (those bypass the validators by design), and `subshell-server status` then reports per-entry problems telling you what a browser will do with the value.
 
 ## Reaching the box from anywhere
 
-The posture is a **trusted network**: no TLS is enforced, so the recommended way to operate from beyond the LAN is to bring the network to the box — WireGuard, Tailscale, an SSH tunnel — rather than the box to the internet. That is exactly what the [network plugins](/server/network-plugins) automate: joining Tailscale, Headscale, or NetBird and publishing Subshell on the mesh, where the plugin's own record makes the new address trusted — nothing is unioned into `TRUSTED_ORIGINS`, and unpublishing forgets it. Cloudflare Tunnel is the one deliberate public exception, and it refuses to publish until an Access application guards the hostname. Every address carries a `secureContext` flag, which is a statement about the *browser* (passkeys and secure cookies need https or loopback), not about encryption — a WireGuard mesh encrypts plain `http://` end to end, and passkeys still won't work on it.
+The posture is a **trusted network**: no TLS is enforced, so the recommended way to operate from beyond the LAN is to bring the network to the box (WireGuard, Tailscale, an SSH tunnel) rather than the box to the internet. That is exactly what the [network plugins](/server/network-plugins) automate: joining Tailscale, Headscale, or NetBird and publishing Subshell on the mesh, where the plugin's own record makes the new address trusted: nothing is unioned into `TRUSTED_ORIGINS`, and unpublishing forgets it. Cloudflare Tunnel is the one deliberate public exception, and it refuses to publish until an Access application guards the hostname. Every address carries a `secureContext` flag, which is a statement about the *browser* (passkeys and secure cookies need https or loopback), not about encryption: a WireGuard mesh encrypts plain `http://` end to end, and passkeys still won't work on it.
 
 Firewall and port specifics are on the reference page; the full enforcement-point-by-enforcement-point accounting lives in the threat model.
 
 ## See also
 
-- [Network Plugins](/server/network-plugins) — joining a mesh and publishing through it
-- [Security Model](/about/security-model) — the trusted-network posture, in product terms
-- [The full threat model — §8 Network boundary](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#8-network-boundary) — the authority behind every claim here
-- [Ports & Firewalls](/reference/ports-and-firewalls) — what needs to be open, per deployment shape
-- [Configuration](/server/configuration) — which writers can touch these keys, and which can't
+- [Network Plugins](/server/network-plugins): joining a mesh and publishing through it
+- [Security Model](/about/security-model): the trusted-network posture, in product terms
+- [The full threat model (§8 Network boundary)](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#8-network-boundary): the authority behind every claim here
+- [Ports & Firewalls](/reference/ports-and-firewalls): what needs to be open, per deployment shape
+- [Configuration](/server/configuration): which writers can touch these keys, and which can't

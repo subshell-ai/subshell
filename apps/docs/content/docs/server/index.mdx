@@ -1,20 +1,20 @@
 ---
 title: Overview
-description: The server is the control plane — the API, the database, and the UI it serves, all on one port.
+description: "The server is the control plane: the API, the database, and the UI it serves, all on one port."
 ---
 
-In Subshell, **server** names exactly one thing: the control plane — the API, its SQLite database, and the web UI it serves, all running as one process on one port. It does not mean "a machine that runs agents." That word is [node](/nodes): the `subshell` daemon on any machine that hosts subshell panes. Your control-plane host usually runs agents too — but then it is doing both jobs, and the docs keep the roles apart. Its row in the Nodes list is named by an admin and defaults to "Server"; underneath, it is the `local` node, launched through the same tmux machinery as any other.
+In Subshell, **server** names exactly one thing, the control plane: the API, its SQLite database, and the web UI it serves, all running as one process on one port. It does not mean "a machine that runs agents." That word is [node](/nodes): the `subshell` daemon on any machine that hosts subshell panes. Your control-plane host usually runs agents too, but then it is doing both jobs, and the docs keep the roles apart. Its row in the Nodes list is named by an admin and defaults to "Server"; underneath, it is the `local` node, launched through the same tmux machinery as any other.
 
 ## One process, one port
 
 A single `subshell-server` process answers everything on one port (default `3080`):
 
 - the REST API under `/api`, and the WebSocket used to attach to live panes;
-- the web UI — the SPA is embedded in the published binary, so the host needs no separate frontend install;
+- the web UI: the SPA is embedded in the published binary, so the host needs no separate frontend install;
 - `/docs`, the OpenAPI page generated from the routes;
 - the node binaries and install script that enrolled machines download.
 
-The published form is one self-contained binary per platform (`linux-x64`, `linux-arm64`, `darwin-arm64`); it needs no Bun, no checkout, and no runtime download to boot. What a running instance keeps on disk lives in two places: the config home at `~/.config/subshell-server` (the `config.env` file and the generated auth secret), and the data directory — database, pane logs, channel keypairs, node signing keys, downloaded node binaries, installed plugins, database backups, and the server's own log. `subshell-server status` prints every one of those paths, and [Files & Paths](/reference/files-and-paths) maps them in full.
+The published form is one self-contained binary per platform (`linux-x64`, `linux-arm64`, `darwin-arm64`); it needs no Bun, no checkout, and no runtime download to boot. What a running instance keeps on disk lives in two places: the config home at `~/.config/subshell-server` (the `config.env` file and the generated auth secret), and the data directory: database, pane logs, channel keypairs, node signing keys, downloaded node binaries, installed plugins, database backups, and the server's own log. `subshell-server status` prints every one of those paths, and [Files & Paths](/reference/files-and-paths) maps them in full.
 
 ## Who decides what
 
@@ -22,27 +22,27 @@ You manage the control plane from three surfaces, and each owns a different kind
 
 | surface | owns |
 |---|---|
-| The dashboard — Settings pages in the web UI the server serves | Everything about a **running** instance: users and roles, registration, plugins, nodes, agent CLIs, API keys, and Settings → Service, Networking, Logs and Updates — the process, the addresses, both log tails, and versions. |
-| The `subshell-server` CLI — on the control-plane host | Everything that must work when the server is **not** running: `init`, `configure`, `service`, `status`, `update`, `backup`. |
-| `config.env` — the file both of the above write through | Keys no tool owns, and the escape hatch when a validator refuses something you genuinely mean. |
+| The dashboard (Settings pages in the web UI the server serves) | Everything about a **running** instance: users and roles, registration, plugins, nodes, agent CLIs, API keys, and Settings → Service, Networking, Logs and Updates: the process, the addresses, both log tails, and versions. |
+| The `subshell-server` CLI (on the control-plane host) | Everything that must work when the server is **not** running: `init`, `configure`, `service`, `status`, `update`, `backup`. |
+| `config.env` (the file both of the above write through) | Keys no tool owns, and the escape hatch when a validator refuses something you genuinely mean. |
 
-The line between the first two follows one rule: **if the act leaves the server unreachable, it cannot be driven from a page the server serves.** So over HTTP an admin can change the address settings, restart the process (only when the service manager reports this very pid — a hand-run server refuses), arm or disarm start-at-login, read logs, and trigger an update. `stop`, `start`, `service install`, `service uninstall` and the reset have no route by design: each one takes down the page you would click it from, so they stay CLI verbs — and reset, which is deliberately off the network entirely, lives in the [Subshell Server desktop assistant](/server/reset).
+The line between the first two follows one rule: **if the act leaves the server unreachable, it cannot be driven from a page the server serves.** So over HTTP an admin can change the address settings, restart the process (only when the service manager reports this very pid; a hand-run server refuses), arm or disarm start-at-login, read logs, and trigger an update. `stop`, `start`, `service install`, `service uninstall` and the reset have no route by design: each one takes down the page you would click it from, so they stay CLI verbs. Reset, which is deliberately off the network entirely, lives in the [Subshell Server desktop assistant](/server/reset).
 
-The Subshell Server desktop app adds no management surface of its own. It wraps the same CLI — it is the page that can act when no server is running (first run, recovery, update, reset) — while everything about a live instance stayed in the dashboard where a browser on the LAN and a headless install can both reach it.
+The Subshell Server desktop app adds no management surface of its own. It wraps the same CLI, the page that can act when no server is running (first run, recovery, update, reset), while everything about a live instance stayed in the dashboard where a browser on the LAN and a headless install can both reach it.
 
 ## This section, one page at a time
 
-- [Headless Install](/server/headless-install) — the SSH-only box: one command, `init`, the first URL.
-- [Configuration](/server/configuration) — `config.env`, the precedence ladder, and who is allowed to write which key.
-- [Running as a Service](/server/service) — systemd user units, launchd agents, lingering, and the pane-safety rule.
-- [Docker](/server/docker) — the container deployment and what dies with the container.
-- [Networking & Addresses](/server/networking) — bind address vs base URL vs the trusted-origin allowlist, and the 403 that names nothing.
-- [Network Plugins](/server/network-plugins) — publishing this server on Tailscale, Headscale, NetBird, or a Cloudflare Tunnel.
-- [Backups](/server/backups), [Updating](/server/updating), [Logs & Debug Logging](/server/logs-debug), [Audit Log](/server/audit-log), [Reset](/server/reset) — the operations an instance performs on itself.
+- [Headless Install](/server/headless-install), for the SSH-only box: one command, `init`, the first URL.
+- [Configuration](/server/configuration): `config.env`, the precedence ladder, and who is allowed to write which key.
+- [Running as a Service](/server/service): systemd user units, launchd agents, lingering, and the pane-safety rule.
+- [Docker](/server/docker): the container deployment and what dies with the container.
+- [Networking & Addresses](/server/networking): bind address vs base URL vs the trusted-origin allowlist, and the 403 that names nothing.
+- [Network Plugins](/server/network-plugins): publishing this server on Tailscale, Headscale, NetBird, or a Cloudflare Tunnel.
+- [Backups](/server/backups), [Updating](/server/updating), [Logs & Debug Logging](/server/logs-debug), [Audit Log](/server/audit-log), [Reset](/server/reset): the operations an instance performs on itself.
 
 ## See also
 
-- [Install the Control Plane](/get-started/install-server) — the three install doors, start to finish
-- [Nodes](/nodes) — the other machine-running-agents word, and what enrolling one delegates
-- [Glossary](/reference/glossary) — the three words and every credential kind, named in one place
-- [subshell-server CLI](/reference/server-cli) — the reference for every verb named above
+- [Install the Control Plane](/get-started/install-server): the three install doors, start to finish
+- [Nodes](/nodes): the other machine-running-agents word, and what enrolling one delegates
+- [Glossary](/reference/glossary): the three words and every credential kind, named in one place
+- [subshell-server CLI](/reference/server-cli): the reference for every verb named above

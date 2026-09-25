@@ -1,9 +1,9 @@
 ---
 title: subshell-server CLI
-description: Every verb of the control plane binary — run, init, configure, status, update, backup, service, mcp, report — with the flags each one accepts and the exit code each one answers with.
+description: Every verb of the control plane binary (run, init, configure, status, update, backup, service, mcp, report), with the flags each one accepts and the exit code each one answers with.
 ---
 
-`subshell-server` is the control plane's single binary: run without a subcommand it boots the server; run with one it is a management tool. This page mirrors the binary's own usage text — the flags below are exactly the flags it parses, and anything else is a usage error.
+`subshell-server` is the control plane's single binary: run without a subcommand it boots the server; run with one it is a management tool. This page mirrors the binary's own usage text: the flags below are exactly the flags it parses, and anything else is a usage error.
 
 ## Usage
 
@@ -54,78 +54,78 @@ Value flags also accept the `--flag=value` form, so a URL containing `=` still w
 
 **The boot path is the no-subcommand form.** A service unit or `launchd` job that names the binary with no subcommand (or with only a leading flag) boots the server. This is a pinned contract: never teach a bare invocation a new meaning. Every other word is a subcommand, and an unknown word is refused with the usage text above and exit 1.
 
-**Exit codes:** `status` and `service status` always exit 0 when the flags were valid — they are views, and a script should not have to tell "not running" from "the call failed". `report` always exits 0 whatever happens, because harness hooks run it and their stderr lands in your session. `mcp` runs until its pane's client disconnects. Every other verb exits 0 on success and 1 on any refusal or failure, including usage errors — unlike the node CLI, which uses exit 2 for those.
+**Exit codes:** `status` and `service status` always exit 0 when the flags were valid: they are views, and a script should not have to tell "not running" from "the call failed". `report` always exits 0 whatever happens, because harness hooks run it and their stderr lands in your session. `mcp` runs until its pane's client disconnects. Every other verb exits 0 on success and 1 on any refusal or failure, including usage errors, unlike the node CLI, which uses exit 2 for those.
 
-## init — first run
+## init: first run
 
 `init` is the headless entry point: it creates the config home (0700), bootstraps `BETTER_AUTH_SECRET`, runs the configure flow, asks one question about the background service, and ends by telling you where to create the admin account.
 
-The secret ladder it writes: a non-empty `BETTER_AUTH_SECRET` already in `config.env` wins (running `init` twice never rotates it), else a non-empty value in the environment is adopted and persisted, else a fresh one is generated — 32 random bytes, base64url. `init` is idempotent; a cancelled service question is not a failed `init` (exit 0, config written, handoff printed).
+The secret ladder it writes: a non-empty `BETTER_AUTH_SECRET` already in `config.env` wins (running `init` twice never rotates it), else a non-empty value in the environment is adopted and persisted, else a fresh one is generated: 32 random bytes, base64url. `init` is idempotent; a cancelled service question is not a failed `init` (exit 0, config written, handoff printed).
 
-Flags: the configure flags below, plus `--service` / `--no-service` (accepted by `init` alone — `configure` installs nothing, so the flag there is an unknown flag rather than a silent no-op). `--yes` or a non-TTY takes every default; the service question defaults to yes.
+Flags: the configure flags below, plus `--service` / `--no-service` (accepted by `init` alone: `configure` installs nothing, so the flag there is an unknown flag rather than a silent no-op). `--yes` or a non-TTY takes every default; the service question defaults to yes.
 
-## configure — (re)write config.env
+## configure: (re)write config.env
 
-Interactive unless you pass `--yes`. It owns five keys in `config.env` — `SERVER_PORT`, `HOST`, `APP_BASE_URL`, `DATABASE_PATH`, and optionally `TRUSTED_ORIGINS` — and preserves every other line of the file untouched. Defaults follow the file: pressing Enter keeps what is configured.
+Interactive unless you pass `--yes`. It owns five keys in `config.env` (`SERVER_PORT`, `HOST`, `APP_BASE_URL`, `DATABASE_PATH`, and optionally `TRUSTED_ORIGINS`) and preserves every other line of the file untouched. Defaults follow the file: pressing Enter keeps what is configured.
 
 - `--port <n>`, `--host <h>`, `--base-url <url>`, `--db-path <path>` set their key.
 - `--trusted-origins <origin,origin>` sets the extra browser origins; an **empty** value is the only way to clear the list non-interactively.
 - `--yes` answers every question with its default and prints nothing but results.
 
-`configure` will write a key the environment already sets — it consults only `config.env`, its flags and your answers. The environment still outranks the file at the next boot, so the write has no effect until the variable goes; the refuse-instead-of-mask guard is the dashboard's Service-page writer, which answers 409 for exactly this reason.
+`configure` will write a key the environment already sets: it consults only `config.env`, its flags and your answers. The environment still outranks the file at the next boot, so the write has no effect until the variable goes; the refuse-instead-of-mask guard is the dashboard's Service-page writer, which answers 409 for exactly this reason.
 
-## status — what would this boot with
+## status: what would this boot with
 
 Opens with the same `subshell-server <version>` line as `version`, then reports: the `config.env` path and whether it exists, each setting tagged with the layer it came from (process env, config.env, or built-in default), the auth secret only as set-or-missing (never its value), tmux presence, the resolved MCP entrypoint, the plugin registry URL, whether the port is already answering, the service definition on disk, and whether the first admin account exists yet. It opens the database read-only and never creates one. `--json` emits the same facts as machine-readable data.
 
-## update — replace this binary, reversibly
+## update: replace this binary, reversibly
 
-`update` installs a newer `subshell-server` over the one the service definition names — never a path by convention — and the swap is a transaction the **new** binary finishes at its next boot: migrations pass and the update is audited; migrations fail and the previous binary and the database snapshot come back. An old binary cannot boot a newer database, which is why every update takes a full database backup first (see [Backups](/server/backups)).
+`update` installs a newer `subshell-server` over the one the service definition names (never a path by convention), and the swap is a transaction the **new** binary finishes at its next boot: migrations pass and the update is audited; migrations fail and the previous binary and the database snapshot come back. An old binary cannot boot a newer database, which is why every update takes a full database backup first (see [Backups](/server/backups)).
 
 Flags:
 
-- `--check` — report what is available and stop.
-- `--to <version>` — install that published version; only the newest published release is resolvable.
-- `--from <file>` — install a local file instead of downloading. There is no digest to check on a file you name, so the binary must answer `version` and report the version it claims.
-- `--force` — allow a downgrade, and override the refusal to restart a service definition that would kill live panes.
-- `--yes` — skip the confirmation.
-- `--json` — machine-readable output.
-- `--no-restart` — swap the binary and let the caller restart.
-- `--rollback` — undo the last update: put the previous binary back with its database snapshot. Takes only `--yes`, `--force` and `--json` alongside it.
+- `--check`: report what is available and stop.
+- `--to <version>`: install that published version; only the newest published release is resolvable.
+- `--from <file>`: install a local file instead of downloading. There is no digest to check on a file you name, so the binary must answer `version` and report the version it claims.
+- `--force`: allow a downgrade, and override the refusal to restart a service definition that would kill live panes.
+- `--yes`: skip the confirmation.
+- `--json`: machine-readable output.
+- `--no-restart`: swap the binary and let the caller restart.
+- `--rollback`: undo the last update by putting the previous binary back with its database snapshot. Takes only `--yes`, `--force` and `--json` alongside it.
 
-`--to` and `--from` name two different sources and cannot be combined. A host with an empty `SUBSHELL_RELEASE_URL` fetches nothing and refuses with a line pointing at `--from`. After the swap the command waits for the restarted binary to settle the transaction — up to sixty seconds.
+`--to` and `--from` name two different sources and cannot be combined. A host with an empty `SUBSHELL_RELEASE_URL` fetches nothing and refuses with a line pointing at `--from`. After the swap the command waits for the restarted binary to settle the transaction, up to sixty seconds.
 
 ## backup
 
-`backup` takes a single-file snapshot of the database now (`VACUUM INTO`), in the same directory and under the same retention as the ones `update` takes automatically — five by default (`SUBSHELL_DB_BACKUPS_KEEP`; `0` keeps everything). `--json` prints the path, size, and how many are kept. Exit 1 names the reason, the ordinary one being a configured server that has never booted and so has no database yet.
+`backup` takes a single-file snapshot of the database now (`VACUUM INTO`), in the same directory and under the same retention as the ones `update` takes automatically, five by default (`SUBSHELL_DB_BACKUPS_KEEP`; `0` keeps everything). `--json` prints the path, size, and how many are kept. Exit 1 names the reason, the ordinary one being a configured server that has never booted and so has no database yet.
 
-## service — the background process
+## service: the background process
 
 One definition, two shapes: a **systemd user unit** on Linux (`~/.config/systemd/user/subshell-server.service`) and a **launchd agent** on macOS (`~/Library/LaunchAgents/dev.subshell.server.plist`).
 
 | Verb | What it does |
 | --- | --- |
-| `install` | Write the definition and start the server. Refuses before writing anything without a `config.env` — run `init` first. `--no-autostart` runs it now but does not arm login start. On Linux it then asks logind whether your user lingers, and prints the `loginctl enable-linger` advice only when the answer is not yes. |
-| `uninstall` | Stop and remove the definition. Deliberately gates on nothing — a stranded unit must always be able to come down. |
+| `install` | Write the definition and start the server. Refuses before writing anything without a `config.env`; run `init` first. `--no-autostart` runs it now but does not arm login start. On Linux it then asks logind whether your user lingers, and prints the `loginctl enable-linger` advice only when the answer is not yes. |
+| `uninstall` | Stop and remove the definition. Deliberately gates on nothing: a stranded unit must always be able to come down. |
 | `enable` / `disable` | Arm or disarm start-at-login **without touching the running process**. On macOS this moves the plist between `~/Library/LaunchAgents` (starts at login) and the config home (runs only when loaded). |
 | `status` | What the manager reports: run state, pid, starts-at-login, whether a teardown keeps live panes, and where the manager's log is. `--json` for scripts. Always exits 0. |
-| `start` / `stop` | Drive an installed service; they never install one. `stop` warns — but proceeds — when the definition predates the pane-sparing directive and would take live panes down. |
+| `start` / `stop` | Drive an installed service; they never install one. `stop` warns (but proceeds) when the definition predates the pane-sparing directive and would take live panes down. |
 | `restart` | Restart the service. **Refuses** unless a teardown is known to keep live panes; pass `--force` to override. An unreadable definition fails closed the same way. |
 
 Each local subshell's tmux server is a child of the service, so an old definition without `KillMode=process` (systemd) or `AbandonProcessGroup=true` (launchd) means a stop or restart kills every running pane. New installs write the sparing directive; `service status` tells you which kind you have.
 
-## mcp and report — internal verbs
+## mcp and report: internal verbs
 
 `mcp` serves the stdio MCP server that a subshell pane's harness spawns ([The subshell MCP server](/automation/mcp-server)). It is the one long-running command; a server-only host resolves its MCP entrypoint through its own binary, which is why this subcommand exists on both products. `report attention <kind>` and `report session` are how harness hooks report a pane's state. Both are built from the pane's environment by the control plane, not typed by humans.
 
 ## version and license
 
-`version` prints `subshell-server <version>` — a machine contract, matched exactly by the release pipeline. `license` prints the copyright and licence terms, since the binary ships as a bare file with no LICENSE beside it.
+`version` prints `subshell-server <version>`, a machine contract, matched exactly by the release pipeline. `license` prints the copyright and licence terms, since the binary ships as a bare file with no LICENSE beside it.
 
 ## See also
 
-- [subshell CLI](/reference/node-cli) — the node's own binary, similar shape, different exit-code convention.
-- [Environment Variables](/reference/environment-variables) — what `config.env` and the process environment can carry.
-- [Files & Paths](/reference/files-and-paths) — every file these verbs create, with its permissions.
-- [Running as a Service](/server/service) — the same ground from the operator's side.
-- [Updating the server](/server/updating) — the dashboard path and the transaction in full.
+- [subshell CLI](/reference/node-cli): the node's own binary, similar shape, different exit-code convention.
+- [Environment Variables](/reference/environment-variables): what `config.env` and the process environment can carry.
+- [Files & Paths](/reference/files-and-paths): every file these verbs create, with its permissions.
+- [Running as a Service](/server/service): the same ground from the operator's side.
+- [Updating the server](/server/updating): the dashboard path and the transaction in full.

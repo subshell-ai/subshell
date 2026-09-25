@@ -1,9 +1,9 @@
 ---
 title: Security Model
-description: The trusted-network posture — what Subshell defends against, what it deliberately does not, and how to read the full threat model.
+description: "The trusted-network posture: what Subshell defends against, what it deliberately does not, and how to read the full threat model."
 ---
 
-Subshell is built for **a machine you run or a network you trust** — a VPN, WireGuard, a tailnet, an SSH tunnel. It is not designed to be exposed to the public internet, and that is a design input rather than a disclaimer: permissive CORS, rate limiting only on sign-in, unbounded free-text fields, and a file picker that browses the host by default are each sound inside that perimeter and unsound outside it. Before you enable anything, read the posture as [stated plainly in the threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#0-the-posture-stated-plainly).
+Subshell is built for **a machine you run or a network you trust**: a VPN, WireGuard, a tailnet, an SSH tunnel. It is not designed to be exposed to the public internet, and that is a design input rather than a disclaimer: permissive CORS, rate limiting only on sign-in, unbounded free-text fields, and a file picker that browses the host by default are each sound inside that perimeter and unsound outside it. Before you enable anything, read the posture as [stated plainly in the threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#0-the-posture-stated-plainly).
 
 This page is a reader's guide to that model, not a replacement for it. The [full document in the repository](https://github.com/subshell-ai/subshell/blob/main/docs/security.md) is authoritative, states every boundary with the code that enforces it, and enumerates the accepted risks with their reasoning. What follows is what you need before deciding which features to turn on.
 
@@ -14,51 +14,51 @@ This page is a reader's guide to that model, not a replacement for it. The [full
 
 The recurring shape: credentials are required, scoped, and revoked; guesses are slowed; ciphertext is all the server keeps of your messages.
 
-- **Any unauthenticated API call** — one guard sits in front of every API route except auth, setup status, and one deliberate exception: the sign-in page may read the instance's display name and its **list of open sign-in providers** anonymously (id, name, kind — never issuer, client id, or any secret), so you can see which plane you are about to give a password to, and through which doors it will let you.
-- **Probing other people's subshells** — foreign ids answer 404, never 403, so nothing can be enumerated.
-- **A runaway agent** — per-subshell tokens hold a permission map, are bound to their own row, and are rejected on every admin surface; a pane cannot enumerate the machine's disk through the file API.
-- **Replayed terminal access** — WebSocket attach tokens live thirty seconds and work once.
-- **Password guessing** — sign-in backs off exponentially, per email.
-- **The server reading your channel messages** — messages are sealed per recipient; the control plane stores ciphertext it cannot open.
-- **A forged launch on a node** — every command is signed, short-lived, single-use, and addressed to one node; the node verifies before executing.
-- **DNS rebinding** — the origin allowlist is derived from configuration and never from the request's own Host header.
-- **Terminal output attacking the UI** — pane bytes are rendered only inside the terminal emulator, never as markup.
+- **Any unauthenticated API call**: one guard sits in front of every API route except auth, setup status, and one deliberate exception: the sign-in page may read the instance's display name and its **list of open sign-in providers** anonymously (id, name, and kind only, never issuer, client id, or any secret), so you can see which plane you are about to give a password to, and through which doors it will let you.
+- **Probing other people's subshells**: foreign ids answer 404, never 403, so nothing can be enumerated.
+- **A runaway agent**: per-subshell tokens hold a permission map, are bound to their own row, and are rejected on every admin surface; a pane cannot enumerate the machine's disk through the file API.
+- **Replayed terminal access**: WebSocket attach tokens live thirty seconds and work once.
+- **Password guessing**: sign-in backs off exponentially, per email.
+- **The server reading your channel messages**: messages are sealed per recipient; the control plane stores ciphertext it cannot open.
+- **A forged launch on a node**: every command is signed, short-lived, single-use, and addressed to one node; the node verifies before executing.
+- **DNS rebinding**: the origin allowlist is derived from configuration and never from the request's own Host header.
+- **Terminal output attacking the UI**: pane bytes are rendered only inside the terminal emulator, never as markup.
 
 ## What enabling each thing costs
 
 ### Enrolling a node
 
-Read the honest sentence first: registering a node **delegates arbitrary command execution on that machine, under the node's OS user, to the control plane**. Everything else follows from that. Sharing a node is a second axis and it is wide: **any share, even view, lets the grantee launch their own subshells there** — invisible to the node's owner unless separately shared. Whoever owns the node's OS user owns every pane launched there, files and process-visible tokens included. And because one signing key rules the fleet, a control-plane compromise is a compromise of every enrolled node; the reverse holds too — a node's key can do nothing on the REST API at all. Details on [Adding a Node](/nodes/add-node) and [Node Sharing](/nodes/sharing).
+Read the honest sentence first: registering a node **delegates arbitrary command execution on that machine, under the node's OS user, to the control plane**. Everything else follows from that. Sharing a node is a second axis and it is wide: **any share, even view, lets the grantee launch their own subshells there**, invisible to the node's owner unless separately shared. Whoever owns the node's OS user owns every pane launched there, files and process-visible tokens included. And because one signing key rules the fleet, a control-plane compromise is a compromise of every enrolled node; the reverse holds too: a node's key can do nothing on the REST API at all. Details on [Adding a Node](/nodes/add-node) and [Node Sharing](/nodes/sharing).
 
 ### Adding a sign-in provider
 
-An external provider — Google or any OIDC system — becomes a second definer of who someone is. The weight of it: **when your provider says an email address is verified, Subshell links the arrival to the account with that address.** That is the design (the provider's verified assertion is the credential), and it means an issuer you add can hand people a way into any account whose address it can assert. Add only issuers you trust to decide identity, the same way you trust your mail domain to run password resets; each provider's own switches (sign-in, account creation, required approval, allowed domains) then bound what that provider may do. Provider management itself is admin-only and cookie-only — no machine credential can touch the list — and the last open provider cannot be closed, so no edit can lock the instance out of itself. The accounting and the approval queue are on [Sign-in Providers](/server/sign-in-providers).
+An external provider (Google or any OIDC system) becomes a second definer of who someone is. The weight of it: **when your provider says an email address is verified, Subshell links the arrival to the account with that address.** That is the design (the provider's verified assertion is the credential), and it means an issuer you add can hand people a way into any account whose address it can assert. Add only issuers you trust to decide identity, the same way you trust your mail domain to run password resets; each provider's own switches (sign-in, account creation, required approval, allowed domains) then bound what that provider may do. Provider management itself is admin-only and cookie-only (no machine credential can touch the list), and the last open provider cannot be closed, so no edit can lock the instance out of itself. The accounting and the approval queue are on [Sign-in Providers](/server/sign-in-providers).
 
 ### Sharing a subshell
 
-A subshell is private until you share it. A **view** grant shows the grantee your full pane output — if a secret is on screen, it is on their screen. An **edit** grant adds the keystroke stream and the ability to type into a live agent session. Everyone attached sees everyone else attached, by device name — a deliberate disclosure, because a shared pane is sized to its smallest viewer and that question is unanswerable otherwise. Pushes never follow shares, and delete, re-sharing and the notification bell stay with the owner even against admins. The full accounting is on [Sharing](/use/sharing).
+A subshell is private until you share it. A **view** grant shows the grantee your full pane output: if a secret is on screen, it is on their screen. An **edit** grant adds the keystroke stream and the ability to type into a live agent session. Everyone attached sees everyone else attached, by device name, a deliberate disclosure, because a shared pane is sized to its smallest viewer and that question is unanswerable otherwise. Pushes never follow shares, and delete, re-sharing and the notification bell stay with the owner even against admins. The full accounting is on [Sharing](/use/sharing).
 
 ### Channels
 
-Channel message bodies are end-to-end encrypted between the subshells that hold the channel — the server relays opaque envelopes, and peer keys are pinned on first contact so a compromised relay cannot swap one silently. What E2EE does not cover is stated loudly in the threat model: **metadata is plaintext** — channel names, membership, timing, ordering, message sizes — and encryption on the wire says nothing about a local OS user with the keypairs on disk. See [Channels](/use/channels).
+Channel message bodies are end-to-end encrypted between the subshells that hold the channel: the server relays opaque envelopes, and peer keys are pinned on first contact so a compromised relay cannot swap one silently. What E2EE does not cover is stated loudly in the threat model: **metadata is plaintext**: channel names, membership, timing, ordering, message sizes. Encryption on the wire says nothing about a local OS user with the keypairs on disk. See [Channels](/use/channels).
 
 ### Publishing on a network
 
-[Network plugins](/server/networking) publish the control plane's address on a mesh you already trust. One of them — Cloudflare Tunnel — inverts the posture to public-with-a-gate, and the [Access guard it requires](/server/network-plugins/cloudflare-tunnel) **is** the perimeter the moment you enable it. That plugin's page carries the accounting.
+[Network plugins](/server/networking) publish the control plane's address on a mesh you already trust. One of them (Cloudflare Tunnel) inverts the posture to public-with-a-gate, and the [Access guard it requires](/server/network-plugins/cloudflare-tunnel) **is** the perimeter the moment you enable it. That plugin's page carries the accounting.
 
 ## What is explicitly not defended
 
 The model names these rather than leaving them as surprises:
 
-- **A local OS user on any host in play** — the boundary, not a threat to mitigate.
-- **Network-level attackers** — no TLS enforcement and no certificate pinning; transport security is your deployment's job. One exception since protocol 14: the node ↔ control-plane link encrypts itself at the application layer whatever the deployment (the node verifies its plane's pinned key on every connection). What still rides your network in the clear is the browser ↔ server traffic and the node-binary downloads — that is what HTTPS in front is for.
-- **Channel metadata analysis** — see above.
-- **Control-plane compromise** — the signing key rules every node.
-- **A malicious admin** — admins hold instance-wide edit, can mint full-access system keys, and can reset other users' passwords; there is no separation of duties.
-- **Denial of service** — only sign-in is rate-limited.
-- **The harnesses' own supply chain** — Subshell launches whatever `claude` (or other CLI) sits on the host's PATH; it verifies nothing about it.
+- **A local OS user on any host in play**: the boundary, not a threat to mitigate.
+- **Network-level attackers**: no TLS enforcement and no certificate pinning; transport security is your deployment's job. One exception since protocol 14: the node ↔ control-plane link encrypts itself at the application layer whatever the deployment (the node verifies its plane's pinned key on every connection). What still rides your network in the clear is the browser ↔ server traffic and the node-binary downloads, and that is what HTTPS in front is for.
+- **Channel metadata analysis**: see above.
+- **Control-plane compromise**: the signing key rules every node.
+- **A malicious admin**: admins hold instance-wide edit, can mint full-access system keys, and can reset other users' passwords; there is no separation of duties.
+- **Denial of service**: only sign-in is rate-limited.
+- **The harnesses' own supply chain**: Subshell launches whatever `claude` (or other CLI) sits on the host's PATH; it verifies nothing about it.
 
-The reasoning behind each — and several more — is in [the accepted risks](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#11-accepted-risks).
+The reasoning behind each, and several more, is in [the accepted risks](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#11-accepted-risks).
 
 ## If you must go wider
 
@@ -66,7 +66,7 @@ Exposing an instance beyond a trusted network is possible, but the checklist in 
 
 ## See also
 
-- [How It Works](/about/how-it-works) — the machinery these boundaries sit around
-- [The full threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md) — authoritative, with the enforcement point for each claim
-- [Nodes](/nodes) — the delegation decision, in product terms
-- [Glossary](/reference/glossary) — where the credential kinds are named
+- [How It Works](/about/how-it-works): the machinery these boundaries sit around
+- [The full threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md): authoritative, with the enforcement point for each claim
+- [Nodes](/nodes): the delegation decision, in product terms
+- [Glossary](/reference/glossary): where the credential kinds are named

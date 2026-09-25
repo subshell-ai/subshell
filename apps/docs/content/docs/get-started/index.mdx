@@ -3,7 +3,7 @@ title: Quickstart
 description: From nothing to a running agent subshell you can watch from any device, in one page.
 ---
 
-Five steps, each linking to its full page. You need one machine you control (Linux x86-64/arm64 or Apple-silicon macOS), tmux, and ideally one agent CLI installed — the plain Terminal harness needs nothing, so you can even start with zero.
+Five steps, each linking to its full page. You need one machine you control (Linux x86-64/arm64 or Apple-silicon macOS), tmux, and ideally one agent CLI installed; the plain Terminal harness needs nothing, so you can even start with zero.
 
 ## 1. Install and start the control plane
 
@@ -13,7 +13,7 @@ On the machine that will run the server:
 curl -fsSL https://raw.githubusercontent.com/subshell-ai/subshell/main/install-server.sh | bash
 ```
 
-It downloads the `subshell-server` binary for your platform from the newest GitHub release, verifies the published `.sha256` digest **before** making the file executable, installs it to `~/.local/bin/subshell-server`, and runs `subshell-server init`. The one question that decides your setup — run in the background and start at login, default yes — is answered there; everything else you can accept with Enter. Prefer a window and a button? That's the [Subshell Server desktop app](/get-started/install-server#subshell-server-desktop-app).
+It downloads the `subshell-server` binary for your platform from the newest GitHub release, verifies the published `.sha256` digest **before** making the file executable, installs it to `~/.local/bin/subshell-server`, and runs `subshell-server init`. The one question that decides your setup (run in the background and start at login, default yes) is answered there; everything else you can accept with Enter. Prefer a window and a button? That's the [Subshell Server desktop app](/get-started/install-server#subshell-server-desktop-app).
 
 The command ends by printing the address:
 
@@ -21,20 +21,20 @@ The command ends by printing the address:
 Open http://localhost:3080/setup in a browser to create the admin account.
 ```
 
-## 2. Create the admin account — promptly
+## 2. Create the admin account, promptly
 
-Open that `/setup` URL now. Until the first account exists the setup endpoints are public — that is what lets you create it — so on a LAN this is a race, and whoever walks through first becomes the admin. The wizard's first screen is **Create Your Account**; after it, the [Networking step](/server/networking) is optional (skipping costs nothing — every choice there is reachable again under Settings). Full walkthrough: [Your First Subshell](/get-started/first-subshell).
+Open that `/setup` URL now. Until the first account exists the setup endpoints are public (that is what lets you create it), so on a LAN this is a race, and whoever walks through first becomes the admin. The wizard's first screen is **Create Your Account**; after it, the [Networking step](/server/networking) is optional (skipping costs nothing; every choice there is reachable again under Settings). Full walkthrough: [Your First Subshell](/get-started/first-subshell).
 
 ## 3. Confirm tmux and an agent
 
-The wizard's **Add an Agent** screen pins a tmux row above the list of agent CLIs it can see on the server's machine — Claude Code, Codex, OpenCode, Hermes Agent, pi. A missing tmux gets an Install button where the command needs no password (Homebrew on macOS); where it would need `sudo`, the screen shows you the command to run instead. A missing agent CLI gets the same: **Install** runs the vendor's own install command on this machine. And **Terminal** — a plain shell pane — is always available with nothing installed. See [Agents](/agents) and [Installing agent CLIs](/agents/installing-agent-clis).
+The wizard's **Add an Agent** screen pins a tmux row above the list of agent CLIs it can see on the server's machine (Claude Code, Codex, OpenCode, Hermes Agent, pi). A missing tmux gets an Install button where the command needs no password (Homebrew on macOS); where it would need `sudo`, the screen shows you the command to run instead. A missing agent CLI gets the same: **Install** runs the vendor's own install command on this machine. And **Terminal** (a plain shell pane) is always available with nothing installed. See [Agents](/agents) and [Installing agent CLIs](/agents/installing-agent-clis).
 
 ## 4. Launch your first subshell
 
-The wizard's last screen is a launch form already filled in: the server's own machine (its node is named "Server" by default), a detected agent, and a starting directory. Pick a project folder, press **Start**. That's it — no preset exists on a fresh instance and none is needed; a launch needs only an agent and a folder. The page that opens is the live pane: type into it, close the tab, reopen from anywhere — the agent keeps running.
+The wizard's last screen is a launch form already filled in: the server's own machine (its node is named "Server" by default), a detected agent, and a starting directory. Pick a project folder, press **Start**. That's it: no preset exists on a fresh instance and none is needed; a launch needs only an agent and a folder. The page that opens is the live pane: type into it, close the tab, reopen from anywhere; the agent keeps running.
 
 ## 5. Open it from a second device
 
-On a laptop or tablet, browse to an address the server accepts sign-ins from — the loopback URL from step 1 is only this machine's own spelling, and the wizard's Network step or Server settings add the LAN or mesh addresses — and sign in: the same live pane, yours to type into. On a phone, open the **Subshell for Mobile** dialog in the sidebar: it offers the addresses this server accepts sign-ins from, with a QR code, and installing to the Home Screen makes it a standalone app with notifications. [Mobile and Tablet](/get-started/mobile) covers the split; [Networking & Addresses](/server/networking) explains what makes an address reachable, including the mesh options under [Server](/server).
+On a laptop or tablet, browse to an address the server accepts sign-ins from (the loopback URL from step 1 is only this machine's own spelling, and the wizard's Network step or Server settings add the LAN or mesh addresses) and sign in: the same live pane, yours to type into. On a phone, open the **Subshell for Mobile** dialog in the sidebar: it offers the addresses this server accepts sign-ins from, with a QR code, and installing to the Home Screen makes it a standalone app with notifications. [Mobile and Tablet](/get-started/mobile) covers the split; [Networking & Addresses](/server/networking) explains what makes an address reachable, including the mesh options under [Server](/server).
 
 Once this works and you want another machine running agents, that is what [Nodes](/nodes) is for.

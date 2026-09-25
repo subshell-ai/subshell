@@ -41,6 +41,13 @@ containing ": " must be quoted — it is YAML).
   phone-first framing — the product is not "a phone app for agents".
 - Second person, plain, user-facing. "You grant view access…", not "the system
   permits…".
+- **No em dashes.** Not in prose, headings, frontmatter or callouts. A comma,
+  a colon, parentheses, or a full stop and a new sentence carry the same
+  breath honestly; the dash is the tell of a sentence that kept growing. This
+  is the UI-copy rule (operator ruling, 2026-09-21) extended to the docs by the
+  operator's ruling of 2026-09-25. The content test fails any `.mdx` file
+  carrying U+2014, so the rule is enforced, not aspirational. En dashes (date
+  and version ranges) and hyphens are untouched by this; do not "fix" them.
 
 ## MDX traps (each has broken a build)
 
@@ -82,7 +89,7 @@ stale counts — verify numbers against current source before writing them.
 ## Verification
 
 ```bash
-cd apps/docs && bun test                      # content tree + link check
+cd apps/docs && bun test                      # content tree + link check + em-dash ban
 bunx turbo build --filter=@internal/docs      # the real MDX compile check
 bun run lint && bun run lint:check            # biome over content + src
 bun run verify-types
