@@ -378,7 +378,11 @@ carries an explicit table and emits BOTH names in every matrix entry:
   the publish job's download pattern and file glob, the dispatch option, and
   every `matrix.app == …` condition. These are PUBLISHED, so moving one is a
   cutover and not a rename: an installed binary looks only for its own
-  compiled-in prefix. 2026-09-18 did exactly that to the CLI pair.
+  compiled-in prefix. 2026-09-18 did exactly that to the CLI pair. The CLI pair carried no form marker
+until then (`server`, `node`); renaming them to `cli-server` and `cli-node`
+also removed a real wart: `desktop-server-v` used to have `server-v` as a
+suffix, which both the TypeScript and the Rust tag parsers carried comments
+about.
 - **directory**: `apps/$dir/package.json` for the version read,
   `repo/apps/$DIR/CHANGELOG.md` for the release-notes slice, and every
   `--cwd`/`working-directory`/cargo path. Nothing else.
