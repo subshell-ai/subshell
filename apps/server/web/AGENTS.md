@@ -442,7 +442,12 @@ worse than no offer, and it ended nowhere for the one person who could take it.
 
 **The form asks Agent → Preset → Node → Working directory** (spec
 2026-09-13, presets replace profiles; `#picker-agent` / `#picker-preset` are
-the e2e handles, `lib/subshell-compat.ts` holds the pure rules). The Agent
+the e2e handles, `lib/subshell-compat.ts` holds the pure rules). The form is
+three files since the 2026-09-25 split: `new-subshell-form.tsx` is the fields
+and their pairing, `launch-form-rules.ts` the pure contract (the value, the
+empty baseline, `canSubmit`, the node-pick rules, the field-id sets), and
+`use-launch-form-defaults.ts` the ONE defaults effect and the picker's
+explicit apply. The Agent
 select offers the whole `GET /api/plugins` set, greyed never hidden, and its
 default (`defaultAgentId`) is the agent of the user's most recent subshell when
 usable (evaluated only after the subshells LIST has ANSWERED, so an
@@ -460,6 +465,39 @@ create, and the agent rides locked because a preset's harness is immutable.
 The suggested `… (2)` name mirrors the UNIQUE index's collision rule, so the
 prefill is a name the server can accept. A presetless launch omits `presetId`:
 absence, never null.
+
+**The launch dialog opens on your last launch** (operator ask 2026-09-25):
+the form's node and directory pre-fill from the newest prior subshell, and a
+**Copy settings from** row above the Agent (`#picker-copy`) applies any listed
+row's four settings as an explicit act. Two arms, one selector:
+`launchTemplateFromList` (`lib/launch-defaults.ts`) reads the SAME
+`sortByCreation` head as `defaultAgentId`'s recent tier, so the agent default
+and the full-settings default can never disagree about which row is "recent";
+the agent and its preset ride the existing blank-only tier, which consumes the
+armed template and applies the preset only when ITS agent survived the
+usability check. The auto arm fires once, only while the form still holds
+`emptyNewSubshellForm()`. A Split `initialForm`, a caller seed, pre-settle
+typing, or `firstRun` (whose Preset row is hidden, so a preset landed there
+would be invisible) all disqualify it; the picker applies over any edit,
+cancels the armed auto tier, and its row RESETS to the placeholder (the copy
+is an action, not a held value the re-pickable fields would contradict).
+Degradation is never a second rule: copying from an offline node re-homes the
+pick and the existing machine-switch arm clears the copied directory and
+re-arms the per-node seed; the preset-membership guard drops a preset that
+does not belong to the landed agent. And nothing guesses at an unanswered
+list: the recents seed WAITS for the subshells list to have answered (a cold
+load where `/recent` lands first would otherwise have the seed mark the form
+touched and disqualify the copy tier for the whole session), so on a final
+list error with the dialog open the directory stays cold until the list next
+answers. The same gate-the-answered-not-the-value rule as the agent tier
+applies, and it self-heals on reopen, feed event, or retry. The picker lists up to 10 newest rows
+(`COPY_SETTINGS_LIMIT`), NEVER disables one, and carries `agent · node · dir`
+as the detail line (short node id for an unresolved machine). No new
+persistence: everything rides `GET /api/subshells`, so a deleted subshell
+leaves the list exactly as the agent default already ignored it. Mobile's New
+screen does NOT mirror this tier (operator scope call: web only;
+`agent-default.ts` keeps its "change one, change both" for the AGENT rule
+only).
 
 **Two cards, because they are two kinds of thing.** `ServiceCard` is about the
 running PROCESS: who supervises it, since when, and Restart. `SupervisionCard`

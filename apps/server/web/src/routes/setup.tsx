@@ -17,9 +17,9 @@ import { TmuxStep } from "@/components/setup/tmux-step";
 import {
   canSubmit,
   emptyNewSubshellForm,
-  NewSubshellForm,
   type NewSubshellFormValue,
-} from "@/components/subshell-picker/new-subshell-form";
+} from "@/components/subshell-picker/launch-form-rules";
+import { NewSubshellForm } from "@/components/subshell-picker/new-subshell-form";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useHarnesses } from "@/hooks/use-harnesses";
@@ -672,6 +672,7 @@ function SetupPage() {
         onChange={setLaunchForm}
         firstRun
         ids={{
+          copy: "setup-copy",
           agent: "setup-agent",
           preset: "setup-preset",
           workingDir: "setup-working-dir",

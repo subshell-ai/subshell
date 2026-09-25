@@ -9,11 +9,8 @@ import {
 } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
-import {
-  emptyNewSubshellForm,
-  NewSubshellForm,
-  type NewSubshellFormValue,
-} from "@/components/subshell-picker/new-subshell-form";
+import { emptyNewSubshellForm, type NewSubshellFormValue } from "@/components/subshell-picker/launch-form-rules";
+import { NewSubshellForm } from "@/components/subshell-picker/new-subshell-form";
 
 /**
  * The pre-fill and scoping contract of the shared launch form. The

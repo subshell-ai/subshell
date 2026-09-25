@@ -9,7 +9,7 @@ export interface ComboboxOption {
   label: string;
   /** Unselectable row (incompatible pair) — `reason` explains why */
   disabled?: boolean;
-  /** Muted trailing copy on a disabled row */
+  /** Muted trailing copy on the row (a disabled row's refusal, or a detail line) */
   reason?: string;
   /** Node shown before the label (aria-hidden — the accessible name stays the label) */
   icon?: ReactNode;
