@@ -205,9 +205,11 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
   }
 
   const newest = fleet.release?.version ?? DASH;
-  // The sequence's 1-based position WITHIN THE CAPTURED RUN; 0 means the
-  // active row is not in it (a single press, or a race with state clearing)
-  // and the header reads un-numbered.
+  // The sequence's 1-based position WITHIN THE CAPTURED RUN. Zero means
+  // either no run (idle, or a single press - there the header keeps its own
+  // "Update all (N)" count) or the active row is momentarily outside the
+  // run; only that second case paints, as a bare un-numbered "Updating…"
+  // inside a running sequence.
   const seqPos = run === null || activeId === null ? 0 : run.ids.indexOf(activeId) + 1;
 
   return (
