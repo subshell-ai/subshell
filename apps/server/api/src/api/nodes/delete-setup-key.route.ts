@@ -71,7 +71,7 @@ export const deleteSetupKeyRoute = new Elysia()
         operationId: "deleteNodeSetupKey",
         tags: ["nodes"],
         description:
-          "Revokes a node setup key and deletes its row — the caller's own for any signed-in user, any key for a cookie admin (audited with foreign metadata)",
+          "Revokes a node setup key and deletes its row: the caller's own for any signed-in user, any key for a cookie admin (audited with foreign metadata)",
       },
     },
   );

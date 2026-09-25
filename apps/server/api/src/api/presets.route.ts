@@ -203,7 +203,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         operationId: "listPresets",
         tags: ["presets"],
         description:
-          "Lists the authenticated user's presets (bearer/machine actors get envJson redacted to null; cookie sessions see full rows). Filtered to harnesses the INSTANCE store offers — installed, enabled, not broken",
+          "Lists the authenticated user's presets (bearer/machine actors get envJson redacted to null; cookie sessions see full rows). Filtered to harnesses the INSTANCE store offers: installed, enabled, not broken",
       },
     },
   )
@@ -218,7 +218,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         operationId: "listHarnessIds",
         tags: ["presets"],
         description:
-          "The harness plugin ids this instance offers (installed, enabled and loadable — not the compiled-in catalog)",
+          "The harness plugin ids this instance offers (installed, enabled and loadable, not the compiled-in catalog)",
       },
     },
   )

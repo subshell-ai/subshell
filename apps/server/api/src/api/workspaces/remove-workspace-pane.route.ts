@@ -8,7 +8,7 @@ const RemovePaneResponseSchema = t.Object({
   ok: t.Boolean({ description: "Always true" }),
   workspaceDeleted: t.Boolean({
     description:
-      "True when the workspace went with the pane — an unsaved draft left with fewer than two panes is discarded, so the caller navigates away instead of closing a panel",
+      "True when the workspace went with the pane. An unsaved draft left with fewer than two panes is discarded, so the caller navigates away instead of closing a panel",
   }),
 });
 

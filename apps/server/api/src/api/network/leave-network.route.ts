@@ -18,7 +18,7 @@ import { originRegistry } from "@/services/trusted-origins.js";
 const LeaveBodySchema = t.Object(
   {
     confirm: t.String({
-      description: "The plugin id, typed back. Anything else is refused — leaving discards this machine's membership",
+      description: "The plugin id, typed back. Anything else is refused: leaving discards this machine's membership",
     }),
   },
   { description: "Typed confirmation, because leaving cannot be undone from here" },
@@ -132,7 +132,7 @@ export const leaveNetworkRoute = new Elysia().use(apiModels).post(
       operationId: "leaveNetwork",
       tags: ["network"],
       description:
-        "Takes this machine off the network (admin cookie only): unpublish, then the plugin's own leave, then the host forgets this plugin's recorded state and the trusted-origin registry forgets the plugin. `confirm` must equal the plugin id. The plugin's stored secrets are NOT deleted — that is an uninstall, not a leave. The response names the origins whose trust this act ended (snapshot taken at request start, so a gated published tunnel IS named) and carries the fresh status; the audit row names the recorded addresses. Audited as network.leave with the origins.",
+        "Takes this machine off the network (admin cookie only): unpublish, then the plugin's own leave, then the host forgets this plugin's recorded state and the trusted-origin registry forgets the plugin. `confirm` must equal the plugin id. The plugin's stored secrets are NOT deleted. That is an uninstall, not a leave. The response names the origins whose trust this act ended (snapshot taken at request start, so a gated published tunnel IS named) and carries the fresh status; the audit row names the recorded addresses. Audited as network.leave with the origins.",
     },
   },
 );

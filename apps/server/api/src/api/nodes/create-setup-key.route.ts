@@ -12,7 +12,7 @@ import { ALLOW_NODE_ENROLLMENT_KEY } from "@/services/registration-gate.js";
 
 const CreateResponseSchema = t.Object({
   id: t.String({ description: "Setup key id (for later revocation)" }),
-  key: t.String({ description: "The setup key itself — the same text the Setup keys page lists" }),
+  key: t.String({ description: "The setup key itself, the same text the Setup keys page lists" }),
   expiresAt: t.String({ description: "ISO 8601 expiry (24 h from creation)" }),
 });
 
@@ -85,7 +85,7 @@ export const createSetupKeyRoute = new Elysia()
       detail: {
         operationId: "createNodeSetupKey",
         tags: ["nodes"],
-        description: "Mints a single-use node setup key (no body — the key names nothing)",
+        description: "Mints a single-use node setup key (no body: the key names nothing)",
       },
     },
   );

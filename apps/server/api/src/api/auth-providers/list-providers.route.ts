@@ -7,7 +7,7 @@ import { AuthProvidersRepository } from "@/db/repositories/auth-providers.reposi
 /** GET /api/auth-providers response. */
 const ListResponseSchema = t.Object({
   providers: t.Array(ProviderViewSchema, {
-    description: "Every provider row, stored order (position, then id) — the email row first",
+    description: "Every provider row, stored order (position, then id), the email row first",
   }),
 });
 

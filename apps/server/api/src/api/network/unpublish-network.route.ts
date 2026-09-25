@@ -107,7 +107,7 @@ export const unpublishNetworkRoute = new Elysia().use(apiModels).post(
       operationId: "unpublishNetwork",
       tags: ["network"],
       description:
-        "Stops publishing this server on the network (admin cookie only): the supervised process is stopped and awaited, the plugin unpublishes, the request guard is dropped, and the record is rewritten — the trusted-origin registry follows the record, so nothing is written to config.env and no restart is needed. The response names the origins that stopped being trusted (normally empty for a private network, whose trust follows membership) and carries the fresh status; the audit row names the recorded addresses. 409 with the child's last lines when the process would not stop. Audited as network.unpublish.",
+        "Stops publishing this server on the network (admin cookie only): the supervised process is stopped and awaited, the plugin unpublishes, the request guard is dropped, and the record is rewritten. The trusted-origin registry follows the record, so nothing is written to config.env and no restart is needed. The response names the origins that stopped being trusted (normally empty for a private network, whose trust follows membership) and carries the fresh status; the audit row names the recorded addresses. 409 with the child's last lines when the process would not stop. Audited as network.unpublish.",
     },
   },
 );

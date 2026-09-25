@@ -40,7 +40,7 @@ const UpdateResponseSchema = t.Object({
   to: t.String({ description: "The version installed" }),
   url: t.String({
     description:
-      "The download URL the node was given, WITHOUT its single-use token — so a page can warn when this server's APP_BASE_URL names loopback and a remote node therefore dialled itself",
+      "The download URL the node was given, WITHOUT its single-use token, so a page can warn when this server's APP_BASE_URL names loopback and a remote node therefore dialled itself",
   }),
 });
 
@@ -462,7 +462,7 @@ export const updateNodeRoute = new Elysia()
         operationId: "updateNode",
         tags: ["nodes"],
         description:
-          "Replace an enrolled node's own binary with the release this server can talk to, and restart it into the new version. Works on a HELD node — one the plane refuses for its version or protocol — which is the case it exists for. 409 when offline, when no compatible release can be offered, when there is no artifact for that platform, when a plane that cannot fetch holds a published binary that is not the release offered, when the node already runs the newest offerable release (NODE_UP_TO_DATE) or reports a newer one (UPDATE_DOWNGRADE), and for every refusal the node itself raises",
+          "Replace an enrolled node's own binary with the release this server can talk to, and restart it into the new version. Works on a HELD node (one the plane refuses for its version or protocol), which is the case it exists for. 409 when offline, when no compatible release can be offered, when there is no artifact for that platform, when a plane that cannot fetch holds a published binary that is not the release offered, when the node already runs the newest offerable release (NODE_UP_TO_DATE) or reports a newer one (UPDATE_DOWNGRADE), and for every refusal the node itself raises",
       },
     },
   );

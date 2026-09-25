@@ -8,16 +8,16 @@ import { apiModels } from "@/schema/index.js";
 
 const SetupKeyRowSchema = t.Object({
   id: t.String({ description: "Setup key id" }),
-  key: t.String({ description: "The setup key — usable until used or expired, inert after" }),
+  key: t.String({ description: "The setup key, usable until used or expired, inert after" }),
   createdAt: t.String({ description: "ISO 8601 creation timestamp" }),
   expiresAt: t.String({ description: "ISO 8601 expiry timestamp" }),
   usedAt: t.Nullable(t.String({ description: "ISO 8601 redemption time, null while unused" })),
   consumedNodeId: t.Nullable(t.String({ description: "Node created by redeeming this key, null while unused" })),
-  ownerUserId: t.Optional(t.String({ description: "Creator's user id — present only on the admin `all=1` listing" })),
+  ownerUserId: t.Optional(t.String({ description: "Creator's user id, present only on the admin `all=1` listing" })),
   ownerLabel: t.Optional(
     t.String({
       description:
-        "Creator's display name, falling back to email, then to the raw user id for a deleted account — present only on the admin `all=1` listing",
+        "Creator's display name, falling back to email, then to the raw user id for a deleted account, present only on the admin `all=1` listing",
     }),
   ),
 });
@@ -128,7 +128,7 @@ export const listSetupKeyRoute = new Elysia()
         operationId: "listNodeSetupKeys",
         tags: ["nodes"],
         description:
-          "Lists node setup keys, each with its key text — the caller's own, or with all=1 every key in the instance with its creator's label (cookie-admin only)",
+          "Lists node setup keys, each with its key text: the caller's own, or with all=1 every key in the instance with its creator's label (cookie-admin only)",
       },
     },
   );
