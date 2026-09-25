@@ -105,13 +105,20 @@ it is refused by an equality check now, not by the whole door being shut.
 Authentication is required on every `/api/*` route except the auth endpoints,
 `GET /api/setup/status`, and one read added in spec 2026-09-08:
 
-`GET /api/settings/instance` → `{ instanceName }`. The operator-chosen display
-name for this control plane, or this host's own name when unset, served to a
-caller holding **no credential**. It is read by the sign-in page and is what
-lets a person tell which plane is about to receive their password when several
-answer on the same VPN — a property worth having rather than a disclosure
-merely tolerated. What it costs is exactly one operator-chosen string, readable
-by anyone who can reach the port.
+`GET /api/settings/instance` → `{ instanceName, providers, emailSignIn }`. The
+operator-chosen display name for this control plane, or this host's own name
+when unset, served to a caller holding **no credential**. It is read by the
+sign-in page and is what lets a person tell which plane is about to receive
+their password when several answer on the same VPN — a property worth having
+rather than a disclosure merely tolerated. Since spec 2026-09-24 §5a the body
+also names the doors: `providers` lists the open sign-in doors (id, name and
+kind only, never the issuer, the client id, or any secret) and `emailSignIn`
+says whether the password form may render. The login page cannot ask which
+buttons exist *after* it asked for a password, so the door list is as anonymous
+as the name beside it, and knowing which doors are open before choosing one is
+the same kind of property. What the read costs is one operator-chosen string
+plus the list of doors a stranger may knock on, readable by anyone who can
+reach the port.
 
 Three properties hold it there, and all three are load-bearing:
 
@@ -121,7 +128,10 @@ Three properties hold it there, and all three are load-bearing:
   why `viewerIsAdmin`, `appBaseUrl` and `nodeArtifactTargets` — all on the
   signed-in `GET /api/settings/public` — did not become anonymous with it.
 - **Its entire key set is asserted by test**, not just the field it should
-  carry. A field added to this response later cannot quietly become public.
+  carry. A field added to this response later cannot quietly become public;
+  the test grew with the door list and pins the nested `providers` element
+  shape as well (spec 2026-09-24 §5a), so a door discloses exactly the three
+  facts its schema names and nothing a row else holds.
 - **The value is normalized on read as well as write** (`normalizeLabel`), so a
   row written by an older release or edited by hand cannot carry CR/LF into a
   log record or an anonymous response body.
@@ -264,6 +274,136 @@ not its storage — attaching a socket or firing an action asks first, and a
 device with no biometric enrollment degrades to allowed rather than locked out
 (`biometric.ts:5-9`). `AsyncStorage`, the unprotected half of the phone's
 storage, holds only the non-secret instance registry and the last push token.
+
+### OIDC sign-in with approval (spec 2026-09-24)
+
+Sign-in can ride external identity providers, and the admin's provider list is
+the policy. The facts that carry weight:
+
+**Doors are rows, and one table answers.** `auth_providers` (migration 0037)
+holds every way in, including the E-mail door itself: `id = "email"` is a row
+with toggles, undeletable and kind-immutable, and it IS the old global
+registration switch. The `allow_registrations` settings key is gone (spec §2):
+each door carries `registration_enabled`, the E-mail row's NULL means the
+legacy dynamic window (open exactly until the first account exists, closed
+behind it, which is why a static `true` default was refused: it would have
+frozen the first-run door open), and the settings PATCH for the old key
+translates to the E-mail row as a compat seam. The audit trail keeps spelling
+its `targetId` `allow_registrations` so rows before and after the move read
+alike. One function decides (`registrationOpen`), as before.
+
+**`/api/auth-providers` is cookie-admin only** (bearer refused, like
+`/api/users`: these rows decide who can sign in, and a machine credential
+managing them is the loop the admin rule exists to break). The client secret
+never leaves the row: GET answers `hasSecret`, audits name the fields changed
+and the issuer, never the secret. Discovery is a SAVE gate, never a build
+dependency: the save probes `{issuer}/.well-known/openid-configuration` (400
+`DISCOVERY_FAILED` otherwise) and stores the resolved endpoints beside
+`accountIssuer`, so every later rebuild runs offline and one drifted issuer
+cannot crash-loop boot; a rebuild that throws anyway serves the last-known-good
+auth instance (spec §3). The id slug is `[a-z0-9-]` ≤ 40 chars, `email` is
+reserved, and a collision answers `SLUG_TAKEN` (409). **The last open
+sign-in door cannot be closed**: a write that would leave zero enabled
+`sign_in_enabled` doors is refused with a `LAST_SIGN_IN_DOOR` 409 naming the
+break-glass remedy, before anything saves, and the guard's re-read, count and
+mutation are ONE transaction, so two admins closing two different doors
+concurrently cannot both pass on the same snapshot (spec §7; the guard counts
+doors, not users, because the simple form prevents the incident the per-user
+join would only describe). Every successful write calls `invalidateAuth()`, so the
+config array in the better-auth singleton is current without a restart.
+
+**Multiple doors of one kind are legal, and that is a naming decision**
+(spec §7): `kind` is a PRESET (which endpoints and prefills, `google` or
+generic `oidc`), the id slug is the unique thing, and login buttons label by
+the door's NAME because two Google Workspaces rows rendered kind-first would be
+indistinguishable to the clicker. Doors that share an `accountIssuer` (two
+Workspaces of one Google account) land the same person on the same account.
+
+**Adding a provider is the same class of trust decision as installing a
+plugin** (spec §5, priced here rather than discovered later). Implicit email
+linking requires `accountLinking: { requireLocalEmailVerified: false }`
+because every account this instance writes has `emailVerified = false`, so
+without the inversion no OIDC arrival ever links and the core feature dies
+with a generic "account not linked". The inversion makes the PROVIDER's
+verified claim THE link defense: a generic OIDC provider can assert any email
+it likes, and linking turns that assertion into takeover of the matching
+account. `mapProfileToUser` sets `emailVerified` only from the provider's
+verified claim, never from an email's mere presence, and the door policy
+refuses an unverified `link-account` (`unverified_email`). Which seam speaks is
+measured: on the implicit link path better-auth's own gate answers
+`account_not_linked` before the hook runs, so the hook's branch is the second
+belt, reachable on the explicit `/link-social` seam; either way no link, no
+create, no session, no audit row (matrix case 9). One side effect is owned
+rather than discovered: a verified match flips the local user's
+`emailVerified` to true, a one-time, provider-granted fact. The domain gate
+(`allowed_domains`) is the mitigation an admin actually reaches for: it binds
+the door itself (spec §5), so a non-matching email cannot link, create, or
+land in the queue, including a previously-linked account once domains are
+added.
+
+**Door policy lives in one global `user.validateUserInfo` hook** (1.7.1 has
+no per-provider hook, measured), branching on method + providerId + action; a
+throw inside it fails closed. The hook never fires on the password or passkey
+SIGN-IN paths, so the closed E-mail door's refusal rides a second layer
+(`auth/door-guards.ts`, `hooks.before` on `/sign-in/email` and
+`/passkey/verify-authentication`): a hidden door is not a closed one, the
+flag is enforced at the API. That refusal is a thrown 403 `APIError` with a
+message but NO machine code (honesty note: the provisioning refusals above
+answer with named codes, this one answers with prose; the UI does not branch
+on it). Break-glass is exempt from the guard via a server-held nonce, because
+the guard fires after the emergency wrapper has already rewritten the
+credential and refusing then would lock the operator out of the account it
+just took. Entry origins follow the CORS rule: a provider's callback host is
+chosen by MEMBERSHIP in the stored list, never composed from the request, and
+the emitted `redirect_uri` is always one of the stored strings (spec §5a).
+
+**Approval gates account CREATION only; an existing email links straight in**
+(spec §4; the admin already admitted that person). A first arrival at a
+`require_approval` door gets its row created (the queue IS the row), is marked
+`pending` at `account.create.after` (the only seam that sees the provider at
+creation), and is denied the session at `session.create.before`, where pending
+now sits beside disabled; the wire shape is better-auth's generic
+`unable_to_create_session` deliberately, because it cannot distinguish
+pending from disabled and neither answer may leak the other. Later arrivals
+are refused at the policy hook with the named code `pending_approval`, which
+the login page maps onto `/pending`; pending and rejected render the
+identical screen, the truth lives in the admin tab (spec §7). The marking
+seam also undoes any first-admin promotion its own creation wrote (and clears
+the auto-promoted row's `setup_step` bookmark with it), so an OIDC arrival can
+never become first admin; the `REAL_ACCOUNT_FILTER` exclusion of
+pending/rejected is hygiene under that, and `GET /api/users` never lists a
+queue row. `PATCH /api/users/:id/approval` only moves rows OUT of the queue
+(an already-approved target answers 409 `APPROVAL_NOOP`), so approval cannot
+become a state hammer against members; disabling is that switch, unchanged.
+Email registration refuses a claimed email explicitly, pending holders
+included, naming the provider that holds it (spec §5).
+
+**The queue expires; a rejection does not** (spec §6). Unactioned `pending`
+rows older than `pending_approval_expiry_days` (settings row, admin-set on
+Settings → Auth, default 30, `0` keeps forever, corrupt reads the default with
+a warn) are deleted by the hourly sweep, one transaction per user across
+`user_meta`, `user`, `account` and defensively `session`/`verification`.
+Deleting a `pending` row is legitimate where "user deletion does not exist"
+elsewhere: that rule shields MEMBERS, and a `pending` row is nobody's
+membership, it is a knock that was never opened. Rejection is an explicit
+admin decision and must not silently reopen on a timer. The sweep's residual
+states, each bounded rather than fixed:
+
+- A door edited AFTER someone arrived does not retroactively queue them: the
+  compensating re-mark pass skips any arrival whose row predates the door's
+  `updated_at`, so a mid-window failed-mark arrival of a then-open door stays
+  admitted even after approval is switched on.
+- That re-mark revokes session ROWS but reaches no connected WebSocket; a WS
+  authenticates at connect and is never re-checked (§11.5, §11.14), so a live
+  tab of a re-queued person keeps streaming until its next reconnect dies at
+  the guard. (Contrast the disable route, which drops sockets deliberately.)
+- An expired `pending` row that OWNS subshells, nodes or workspaces is
+  refused, never deleted; such a row testifies that the failed-mark path was
+  live beyond the repair window, and it re-warns every hour until a human
+  resolves it (unresolvable states are asked about, not asserted away).
+- Same-second policy flips and hand-SQL flips that never bump `updated_at`
+  sit outside the door-vs-arrival guard, like every other hand edit: hand
+  edits outrank the machinery, the standing posture of this file.
 
 ## 3. Authorization
 
@@ -1882,8 +2022,8 @@ These are choices, not oversights, and they follow from §0:
 Audit events are written, grouped by family:
 
 - **Authentication**: `auth.sign_in` (metadata `{ method: "password" |
-  "passkey" }`), `auth.sign_out` — seams, dedupe and deliberate exclusions in
-  the paragraph at the end of this section.
+  "passkey" | "oidc:<door id>" }`), `auth.sign_out` — seams, dedupe and
+  deliberate exclusions in the paragraph at the end of this section.
 - **Users and keys**: `user.create`, `user.role_change`,
   `user.password_reset`, `user.disabled_change` (metadata `{ email,
   disabled, droppedSockets }`, plus — on the DISABLE edge only, the keys
@@ -1892,7 +2032,14 @@ Audit events are written, grouped by family:
   content), `system-key.create`,
   `system-key.enable`, `system-key.disable`, `system-key.delete`,
   `emergency_login.rewrite_credential`, `setup_key.create`,
-  `setup_key.revoke`, `settings.update`.
+  `setup_key.revoke`, `settings.update`, and since spec 2026-09-24 the two
+  approval decisions `user.approve` and `user.reject` (metadata `{ email,
+  providerId }`: the user-management family's email-by-convention rule, plus
+  which door the decision was about). `settings.update` gained
+  `pending_approval_expiry_days` as one of its keys, and the registration
+  flip still writes `targetId: "allow_registrations"` even though the value
+  now lives on the E-mail door row: the trail's stable name for the switch,
+  so rows before and after the move read alike.
 - **Subshells**: `subshell.create`, `subshell.terminate`, `subshell.restart`,
   `subshell.preset_switch` (metadata `{ name, presetId }`, the new value
   `null` included — a restart's carried swap, written only when the swap
@@ -1914,6 +2061,10 @@ Audit events are written, grouped by family:
   `plugin.disable`, `plugin.uninstall`, `plugin.unpublish`,
   `network.configure`, `network.install`, `network.join`, `network.publish`,
   `network.unpublish`, `network.leave`, `agent.install`, `tmux.install`.
+- **Auth providers** (spec 2026-09-24 §8): `auth_provider.create`,
+  `auth_provider.update`, `auth_provider.delete`, with metadata naming the
+  fields changed and the issuer, never the client secret (the never-values
+  rule of the credential family, applied to the one value these rows hold).
 
 Timer- and probe-driven trusted-origin refreshes are observations and write no
 row; the acts that change plugin and network state are the audited events —
@@ -1928,9 +2079,21 @@ Read them with `GET /api/audit?limit=50` (admin).
 "known"; shipped 2026-09-23, audit item R1): `auth.sign_in` and `auth.sign_out`,
 from the better-auth integration in `src/auth.ts`. A successful sign-in writes
 one row per act, keyed by the endpoint's RESULT — never the request body — with
-metadata carrying only `{ method: "password" | "passkey" }`; the paths that
-count are `/sign-in/email` and the passkey plugin's
-`/passkey/verify-authentication`. A FAILED sign-in writes nothing:
+metadata carrying only `{ method: "password" | "passkey" | "oidc:<door id>" }`;
+the paths that count are `/sign-in/email` and the passkey plugin's
+`/passkey/verify-authentication`. OIDC callbacks ride the same hook through a
+dedicated `/callback/` branch (spec 2026-09-24 §4), because that endpoint's
+success is a thrown redirect whose payload names no user: the success test is
+the actor proof, the response's own `session_token` cookie resolving to a row
+in the `session` table, and nothing else. An earlier formulation gated success
+on the redirect's Location carrying no `error=`, and it was REMOVED: a holder
+of any door credential could complete a real sign-in with a `callbackURL` of
+their own choosing that contains `error=` and buy silence (matrix case 13
+pins that the poisoned Location still writes its row). Refusals write nothing
+because on the shipped dist facts no refusal path reaches the session-cookie
+mint; that includes a `/link-social` completion, which mints no session and so
+writes no `auth.sign_in` row (linking an account is not yet signing into one).
+A FAILED sign-in writes nothing:
 credential-stuffing would otherwise spam the trail this exists to reconstruct
 incidents from, and failures already live in the login-backoff domain
 (`authAttempts` + the rate-limit route's log lines). An emergency (break-glass)

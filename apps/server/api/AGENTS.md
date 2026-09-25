@@ -64,10 +64,41 @@ surfaces), and defines the `status`-carrying error classes Elysia maps to HTTP
 codes. `src/server.ts` composes the app; `src/index.ts` boots it (runs
 migrations, then listens).
 
+**Sign-in doors (spec 2026-09-24).** Provider config lives in the
+`auth_providers` table (migration 0037; the E-mail door is row `email` and IS
+the old global registration switch, its `registration_enabled` NULL meaning
+the legacy dynamic window; migration 0038 adds `user_meta.approval_state`).
+`buildAuth()` filters enabled non-email rows into the `genericOAuth` config
+when the better-auth singleton is constructed, and `invalidateAuth()` (a
+sibling of `resetAuthForTests()`) drops the memo so every successful
+`/api/auth-providers` write takes effect without a restart. Providers are
+built FAIL-TOLERANT: each config entry pins `accountIssuer` to the stored
+issuer and carries the endpoints discovery resolved AT SAVE TIME, so a rebuild
+never re-fetches a dead issuer, `genericOAuth` stays out of `AUTH_OPTIONS`
+(a throwing door must not crash boot's migration path), and a throwing
+rebuild serves the last-known-good instance. **Door policy is one global
+seam**, `options.user.validateUserInfo` → `auth/door-policy.ts` (1.7.1 has no
+per-provider hook); it never fires on the password/passkey SIGN-IN paths, so
+`auth/door-guards.ts` (`hooks.before`) carries those two refusals for a
+closed E-mail door, with break-glass exempted by a server-held nonce. A
+`require_approval` door's first arrival is marked pending at
+`databaseHooks.account.create.after` (the only seam that sees the provider at
+creation; it also undoes any first-admin promotion its own write caused,
+clearing the `setup_step` bookmark with it) and its session dies at
+`session.create.before`, where PENDING now sits beside DISABLED
+(`services/account-status.ts`); returning pendings are refused by the policy
+hook with the code the login page maps to `/pending`. The hourly sweep
+(`services/pending-approvals.ts`) expires stale `pending` rows (never
+`rejected`) and re-marks failed-mark arrivals. `/api/auth-providers` is
+cookie-admin only; discovery is the save gate (400 `DISCOVERY_FAILED`), the
+client secret is never serialized or audited, and no write may close the
+LAST open sign-in door (409 `LAST_SIGN_IN_DOOR`). The security accounting is
+`docs/security.md` §2's "OIDC sign-in with approval".
+
 ```
 src/
 ├── api/            # Routes: flat *.route.ts (incl. downloads.route.ts — the subshell binaries; admin-status.route.ts — the whole instance in one admin-only read; plugins.route.ts — /api/plugins, the instance plugin store, writes cookie-admin) + per-resource dirs (subshells/, workspaces/, channels/, nodes/) + auth-guard.ts + routes.ts; install-script.ts renders root-mounted GET /install.sh
-├── auth/           # Api-key store, DB handle, system user (better-auth config: ../auth.ts)
+├── auth/           # Api-key store, DB handle, system user, the sign-in doors (door-policy.ts, door-guards.ts, provider-rows.ts, oidc-discovery.ts; better-auth config: ../auth.ts)
 ├── db/             # Kysely setup, migrations (static provider map), types/, repositories/
 ├── lib/            # context.ts (ApiContext + getRequestlessContext), api-error.ts (apiErrorBody)
 ├── plugins/        # auth.plugin.ts (better-auth handler mount), context.plugin.ts, error-handler.plugin.ts, static.plugin.ts
