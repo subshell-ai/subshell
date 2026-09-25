@@ -1270,6 +1270,10 @@ async function runDev(app: DesktopApp): Promise<number> {
     stdio: ["inherit", "inherit", "inherit"],
     env,
   });
+  // Set the moment the child exists (synchronous, same tick as the spawn):
+  // from here on the handler defers to `proc.exited` and the sweep below,
+  // rather than exiting under the app.
+  tauriRunning = true;
   const code = await proc.exited;
   // The Vite this run started belongs to this run. It is in its OWN process
   // group (spawned detached), so the terminal's Ctrl-C does NOT reach it —

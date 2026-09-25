@@ -55,7 +55,7 @@ export const patchProviderRoute = new Elysia()
         );
       }
       // The E-mail row has no OAuth identity (spec §2, and entry origins are
-      // §5a's concept): issuer, clientId and
+      // §5a's concept): issuer, clientId, clientSecret and
       // entryOrigins describe an exchange that row never runs. The route used
       // to accept them on this row — and a bogus issuer even earned a
       // discovery probe (refused before any fetch here). Create already 400s
