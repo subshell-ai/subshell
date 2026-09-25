@@ -75,7 +75,8 @@ systemctl --user restart subshell-server.service     # 3. the server serves the 
   tracked `embedded-web.ts` stub). Published atomically as
   `subshell-server-cli-<triple>` + `.sha256` to `SUBSHELL_SERVER_RELEASE_DIR`,
   default `<repo-root>/dist-server`, a local drop dir to scp/deploy; there is
-  no data-dir ladder here. See `apps/server/api/AGENTS.md` ("Standalone binary & CLI") for the CLI
+  no data-dir ladder here. See `apps/server/api/AGENTS.md` ("Standalone binary & CLI")
+  and its deep dive `apps/server/api/docs/cli.md` for the CLI
   (`init`/`configure`/`status`/`update`/`backup`/`service install|uninstall|status|start|stop|restart`)
   and config.env.
 
@@ -249,7 +250,7 @@ you touch any of it:
 
 Where each half lives: `apps/server/api/AGENTS.md` ("Updating the server") for
 the four server modules, the measurements and `test:cli`'s `server-update.sh`;
-`apps/node/agent/AGENTS.md` ("Update") for the node, the frozen `update`
+`apps/node/agent/docs/update.md` for the node, the frozen `update`
 command shape and the 4406 revert; each desktop app's `AGENTS.md` for
 `tauri-plugin-updater`, `latest.json` and the `update --from` delegation;
 `docs/security.md` §11.12 for what all of it costs.
