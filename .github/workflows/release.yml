@@ -781,6 +781,21 @@ jobs:
           SMOKE: ${{ matrix.smoke }}
         run: |
           set -euo pipefail
+          # Apple Silicon hosted runners do not hand every job a usable
+          # Rosetta: the first darwin-x64 cut (run 36194869947, 2026-09-25)
+          # watched every x86 exec die instantly on that runner, while the
+          # same binaries ran on dev hosts that had Rosetta installed years
+          # ago. Provision it before ANY path that execs an x86 slice: the
+          # CLI version/boot smoke below, and the desktop bundle smoke the
+          # early-exit case dispatches (its sidecar check execs directly and
+          # relies on the same translation). Idempotent and exits 0 once
+          # present (reviewer-measured on macOS 26.6: it re-runs the package
+          # install for a few seconds rather than skipping), the first
+          # install downloads the package and takes longer, and the guard
+          # keeps it off every other triple.
+          if [ "$TRIPLE" = darwin-x64 ]; then
+            softwareupdate --install-rosetta --agree-to-license
+          fi
           # A desktop artifact is a BUNDLE, not a bare binary — different
           # checks entirely, so it exits before the binary smoke below.
           case "$APP" in
@@ -827,7 +842,12 @@ jobs:
 
           exec_smoke() {
             local out
-            out=$(run_target "$BIN" version 2>&1) || return 1
+            # On failure, print the captured output before returning: the
+            # first rosetta cut failed here and died silent, because `||
+            # return 1` threw away the very line that named the cause. A
+            # nonzero exec from the cross-built binary is the one failure
+            # mode whose whole diagnosis is in its own stderr.
+            out=$(run_target "$BIN" version 2>&1) || { echo "version exec failed under '${EXEC_PREFIX:-bare}': $out"; return 1; }
             echo "$out"
             # Pinned against the CLIs' real output: the server prints exactly
             # "subshell-server <v>"; the agent adds "(node protocol vN)".
