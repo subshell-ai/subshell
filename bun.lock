@@ -300,7 +300,7 @@
     },
     "apps/website": {
       "name": "@internal/website",
-      "version": "0.1.2",
+      "version": "0.1.4",
       "dependencies": {
         "@internal/subshell-protocol": "workspace:*",
         "class-variance-authority": "0.7.1",

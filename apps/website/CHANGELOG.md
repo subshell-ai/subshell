@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.1.4
+
+### Patch Changes
+
+- [#195](https://github.com/subshell-ai/subshell/pull/195) [`97cc590`](https://github.com/subshell-ai/subshell/commit/97cc5908a2a2d82af73ff569644c7df547533b41) Thanks [@theogravity](https://github.com/theogravity)! - Header gains a Docs link to docs.subshell.sh. The install column's buttons now download the release asset for your platform directly instead of linking the release page, and two small headings say which path is the desktop app and which is the CLI (the client's one-liner installs the same app by terminal, and its heading says so).
+
 ## 0.1.2
 
 ### Patch Changes
