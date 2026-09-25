@@ -179,8 +179,9 @@ async function requireOwnSession(request: Request): Promise<string> {
  *
  * Bearer keys are refused on writes even for an admin-owned key: this is
  * machine configuration with no machine consumer (the `subshell mcp` binary
- * never calls it; its endpoint census in packages/mcp-core/src/tools.ts covers
- * subshells, channels, presets reads and identities only).
+ * never calls it; its endpoint census in packages/mcp-core/src/subshell-tools.ts
+ * + channel-tools.ts covers subshells, nodes, channels, presets and plugins
+ * reads and identities only).
  *
  * The pre-auth window stays open, because the wizard runs before any user
  * exists and the first person through it is the admin. What keeps that window

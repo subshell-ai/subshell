@@ -205,7 +205,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     {
       title: "Restart subshell",
       description:
-        "Restart a subshell in place (same id): kills its process tree and respawns it from the same harness, preset and directory. An optional prompt re-types a task into the revived pane once it settles. Calling it on your OWN subshell terminates you.",
+        "Restart a subshell in place (same id): kills its process tree and respawns it from the same harness, preset and directory; an optional prompt re-types a task into the revived pane once it settles. Calling it on your OWN subshell terminates you.",
       inputSchema: z.object({
         id: z.string(),
         prompt: z.string().optional().describe("Task text typed into the revived pane once it settles"),

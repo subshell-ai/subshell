@@ -474,14 +474,20 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
     const nodes = [
       nodeWireRow(),
       nodeWireRow({ id: "n-2", name: "Laptop", hostname: "lap" }),
-      // A node whose NAME is another node's id: the id wins first.
-      nodeWireRow({ id: "lab", name: "Odd", hostname: "odd" }),
+      // A node whose NAME reads exactly like ANOTHER node's id: the
+      // name-lookup path would resolve "n-2" to THIS row (exact spelling),
+      // so the case below only passes if the id really is consulted first.
+      nodeWireRow({ id: "odd-1", name: "n-2", hostname: "odd" }),
     ];
     for (const [want, expected] of [
-      ["n-2", "n-2"], // exact id
+      // exact id beats another node's exactly-matching NAME: ids survive
+      // renames, a name-hijacked launch would land on the wrong machine
+      ["n-2", "n-2"],
       ["Build Box", "n-1"], // exact name
       ["laptop", "n-2"], // case-insensitive name
-      ["lab", "lab"], // exact id beats the same spelling as another node's name
+      // the id read is EXACT, so a case difference falls through to the
+      // name lookup: "N-2" matches no id, and wins on the third row's name
+      ["N-2", "odd-1"],
     ] as const) {
       const { deps, calls } = await depsFor((req) => {
         if (req.path === "/api/nodes") return nodes;
@@ -510,6 +516,20 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
     await expect(createSubshell(alone, { harness: "terminal", workingDir: "/tmp", node: "nope" })).rejects.toThrow(
       /no node 'nope'; available: Build Box, Laptop/,
     );
+  });
+
+  it("create_subshell on a named node with ZERO nodes says no machines are enrolled", async () => {
+    // The other half of the refusal: an empty list has no names to enumerate,
+    // and "available: " with nothing after it is not a sentence an agent can
+    // act on. The empty list is a real wire shape, not a hypothetical: the
+    // owner-only bearer read (spec 2026-09-25) answers [] for a pane whose
+    // owner owns no node rows, which is every human pane until someone
+    // enrolls a machine (the seeded `local` belongs to the system user).
+    const { deps, calls } = await depsFor((req) => (req.path === "/api/nodes" ? [] : []));
+    await expect(createSubshell(deps, { harness: "terminal", workingDir: "/tmp", node: "any" })).rejects.toThrow(
+      /no node 'any'; no machines are enrolled; call list_nodes/,
+    );
+    expect(calls.filter((c) => c.path === "/api/subshells")).toHaveLength(0);
   });
 
   it("create_subshell without a node never reads /api/nodes and sends no nodeId", async () => {

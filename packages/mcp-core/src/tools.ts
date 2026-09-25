@@ -25,14 +25,17 @@ export interface ToolDeps {
 
 /**
  * Maps an ApiError to the plain-English guidance agents act on. The `code`
- * branches name exactly the values the server rides by name: the
- * `throwApiError` paths (NODE_REQUIRED, NODE_OFFLINE, NODE_IN_MAINTENANCE,
- * SUBSHELL_NOT_RUNNING, RESTART_IN_FLIGHT). The create-path refusals an
- * exception class carries (`harness_disabled`, `node_launch_disabled`,
- * `preset_harness_mismatch`) do NOT reach the wire under those names: the
- * error handler genericizes status-carriers by status (a 409 answers
- * `EXISTS_ERROR`), so those ride through the status branches with their
- * message, which is where their remedy sentence already lives.
+ * branches map exactly the four values they name (NODE_REQUIRED,
+ * NODE_OFFLINE, NODE_IN_MAINTENANCE, SUBSHELL_NOT_RUNNING), each of which
+ * the server's `throwApiError` paths ride to the wire under that name;
+ * RESTART_IN_FLIGHT rides by name too but gets no branch of its own here,
+ * it answers through the 409 status branch like any other 409. The
+ * create-path refusals an exception class carries (`harness_disabled`,
+ * `node_launch_disabled`, `preset_harness_mismatch`) do NOT reach the wire
+ * under those names: the error handler genericizes status-carriers by
+ * status (a 409 answers `EXISTS_ERROR`), so those ride through the status
+ * branches with their message, which is where their remedy sentence already
+ * lives. Nothing is mapped that cannot arrive.
  */
 export function describeToolError(err: unknown): Error {
   if (err instanceof ApiError) {
