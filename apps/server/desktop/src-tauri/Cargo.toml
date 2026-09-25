@@ -53,6 +53,7 @@ tauri-plugin-window-state = "2.4.1"
 # 0.18 tauri itself builds against — declaring it adds no second copy.
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18.2"
+webkit2gtk = "2.0.2"
 
 [profile.release]
 codegen-units = 1

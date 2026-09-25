@@ -62,12 +62,27 @@ pub fn attach_accelerators(window: &tauri::WebviewWindow) {
     use gtk::prelude::{AccelGroupExtManual, GtkWindowExt};
     use subshell_desktop_core::zoom::Accel;
 
+    // Once per WINDOW IDENTITY, not per label: a dashboard destroyed by reset
+    // gets a new id and re-registers, while the same window arriving through
+    // every door (boot, the wizard's handoff, the tray) registers exactly
+    // once. Measured cost of getting this wrong is a ladder that steps twice
+    // per press — the 2026-09-12 bug in a new costume.
+    static ATTACHED: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
     let Ok(gtk_window) = window.gtk_window() else {
         // Not a GTK-backed window; the tray submenu remains the door.
         return;
     };
+    let key =
+        gtk::glib::translate::ToGlibPtr::<*mut gtk::ffi::GtkApplicationWindow>::to_glib_none(&gtk_window).0 as usize;
+    {
+        let mut guard = ATTACHED.lock().expect("zoom attach lock poisoned");
+        if guard.contains(&key) {
+            return;
+        }
+        guard.push(key);
+    }
+
     let group = gtk::AccelGroup::new();
-    gtk_window.add_accel_group(&group);
     let control = gtk::gdk::ModifierType::CONTROL_MASK;
     let app = window.app_handle().clone();
     // The table and the mapping are desktop-core's ONE decision, pinned by
@@ -78,15 +93,38 @@ pub fn attach_accelerators(window: &tauri::WebviewWindow) {
             keyval,
             control,
             gtk::AccelFlags::empty(),
-            move |_group, _window, fired, _mods| {
-                match subshell_desktop_core::zoom::zoom_id_for_accel(fired) {
-                    Some(Accel::In) => handle(&app, IN_ID),
-                    Some(Accel::Out) => handle(&app, OUT_ID),
-                    Some(Accel::Reset) => handle(&app, RESET_ID),
-                    None => false,
-                }
+            move |_group, _window, fired, _mods| match subshell_desktop_core::zoom::zoom_id_for_accel(fired) {
+                Some(Accel::In) => handle(&app, IN_ID),
+                Some(Accel::Out) => handle(&app, OUT_ID),
+                Some(Accel::Reset) => handle(&app, RESET_ID),
+                None => false,
             },
         );
+    }
+
+    // The window's accel groups are where GTK consults key events; mounting
+    // the group there is the whole registration. What was defeating it on
+    // some sessions is WebKitGTK's OWN browser-accelerator-keys handler —
+    // its private page-zoom for Ctrl+=, ON by default and never plumbed
+    // through by tauri 2.11 — which consumes the chord inside the webview
+    // before the window ever sees it. Switching it off per webview is what
+    // makes the window group reachable; our ladder then owns those keys.
+    gtk_window.add_accel_group(&group);
+    let label = window.label().to_string();
+    if let Err(err) = window.with_webview(move |platform| {
+        use gtk::glib::object::ObjectExt;
+        let webview = platform.inner();
+        // The property is spelled straight to GObject because the webkit2gtk
+        // binding predates it; `set_property` PANICS on an unknown name, so
+        // it is looked up first — a miss only means there was no private
+        // ladder on this engine to switch off.
+        if let Some(settings) = webkit2gtk::WebViewExt::settings(&webview) {
+            if settings.find_property("enable-browser-accelerator-keys").is_some() {
+                settings.set_property("enable-browser-accelerator-keys", false);
+            }
+        }
+    }) {
+        eprintln!("subshell: could not reach {label}'s webview to disable its private zoom: {err}");
     }
 }
 
