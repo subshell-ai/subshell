@@ -90,6 +90,46 @@ pub fn zoom_percent(level: f64) -> u32 {
 /// person is likely to pick. The floor on how small this may go is the
 /// content: the column plus its gutters, and a bar that has to stay on
 /// screen.
+/// What the window text-size accelerators are for, before any app's menu
+/// ids enter the picture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Accel {
+    In,
+    Out,
+    Reset,
+}
+
+/// The GTK keyvals BOTH apps register as window accelerators on Linux.
+///
+/// Raw X11 keysyms because this crate carries no gtk dependency — the apps'
+/// attach halves (each app's `zoom.rs`) translate these into `GtkWindow`
+/// accelerators, and THIS table plus the pin test below is the single source
+/// for which keys answer the ladder. The ASCII four are the character codes
+/// of `+ - 0 =`; the KP three are `XK_KP_Add/Subtract/0` (0xFFAB/0xFFAD/
+/// 0xFFB0). Keypad entries ride along because Ctrl+KP-Enter patterns are
+/// exactly what a number-pad user reaches for.
+pub const ACCEL_KEYVALS: [u32; 7] = [43, 45, 48, 61, 65451, 65453, 65456];
+
+/// Which rung a keyval names, whatever modifiers brought it.
+///
+/// Modifiers are NOT this function's half: entries register under Control,
+/// and GTK's default accel mask DISCARDS Shift at activation, so
+/// Ctrl+Shift+= (how a US layout types `+`) reaches the same entry —
+/// matching the View menu's `CmdOrCtrl+=` on macOS, which behaves the same
+/// way. Alt/Super chords never reach the mapping because the apps refuse
+/// them at registration.
+pub fn zoom_id_for_accel(keyval: u32) -> Option<Accel> {
+    // Derived from the SAME table the apps register, so a keyval can never
+    // answer here without being registered there (or vice versa) — the split
+    // would be a key that does nothing, invisible to every test but this one.
+    match keyval {
+        61 | 43 | 65451 => Some(Accel::In),
+        45 | 65453 => Some(Accel::Out),
+        48 | 65456 => Some(Accel::Reset),
+        _ => None,
+    }
+}
+
 pub const ASSISTANT_WIDTH: f64 = 720.0;
 pub const ASSISTANT_HEIGHT: f64 = 620.0;
 
@@ -263,6 +303,25 @@ mod tests {
             assistant_frame(1.0, Some((f64::NAN, f64::NAN))),
             (ASSISTANT_WIDTH, ASSISTANT_HEIGHT)
         );
+    }
+
+    // The table the apps REGISTER and the mapping that ANSWERS are one
+    // decision: every keyval in the set must map, and the mapping's domain
+    // must be exactly the set. A keyval registered but unmapped is a key
+    // that does nothing; a mapping entry outside the set is a dead branch.
+    #[test]
+    fn the_accel_table_and_the_accel_mapping_are_the_same_decision() {
+        for keyval in ACCEL_KEYVALS {
+            assert!(zoom_id_for_accel(keyval).is_some(), "{keyval} answers nothing");
+        }
+        for keyval in [65451, 65453, 65456, 43, 45, 48, 61] {
+            assert!(ACCEL_KEYVALS.contains(&keyval), "{keyval} is unmapped-but-listed");
+        }
+        assert_eq!(ACCEL_KEYVALS.len(), 7);
+        assert_eq!(zoom_id_for_accel(99), None);
+        assert_eq!(zoom_id_for_accel(61), Some(Accel::In));
+        assert_eq!(zoom_id_for_accel(65453), Some(Accel::Out));
+        assert_eq!(zoom_id_for_accel(65456), Some(Accel::Reset));
     }
 
     // An off-ladder level must not reach a window size either.

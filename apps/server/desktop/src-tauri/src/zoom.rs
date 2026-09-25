@@ -40,6 +40,60 @@ pub fn apply(app: &AppHandle) {
     crate::windows::refit(app, level);
 }
 
+/// Which rung a GTK keyval names, whatever modifiers brought it.
+///
+/// A separate pure decision because the modifier half is GTK's own: entries
+/// register under Control, and GTK's default accel mask DISCARDS Shift at
+/// activation, so Ctrl+Shift+= (how a US layout types `+`) reaches the same
+/// entry. Alt/Super are refused at registration instead, so a compositor
+/// chord never walks this ladder.
+/// Give one window the Ctrl ladder: `Ctrl+=` / `Ctrl+-` / `Ctrl+0`.
+///
+/// The menu bar that carries these accelerators is macOS-only BY DESIGN — a
+/// GTK menu bar is per-window chrome, not a system bar — which left the
+/// tray's Text Size submenu as the only zoom door on Linux, and NO door at
+/// all where no StatusNotifier host answers (a plain GNOME). Window
+/// accelerators restore the keys without giving Linux a menu bar: they live
+/// on the GtkWindow, fire before the page sees the keystroke, and route
+/// through the SAME `handle` the menus do, so the ladder, the save, and the
+/// refit cannot drift.
+#[cfg(target_os = "linux")]
+pub fn attach_accelerators(window: &tauri::WebviewWindow) {
+    use gtk::prelude::{AccelGroupExtManual, WidgetExt};
+    use subshell_desktop_core::zoom::Accel;
+
+    let Ok(gtk_window) = window.gtk_window() else {
+        // Not a GTK-backed window; the tray submenu remains the door.
+        return;
+    };
+    let group = gtk::AccelGroup::new();
+    gtk_window.add_accel_group(&group);
+    let control = gtk::gdk::ModifierType::CONTROL_MASK;
+    let app = window.app_handle().clone();
+    // The table and the mapping are desktop-core's ONE decision, pinned by
+    // its own test; this loop is registration mechanics only.
+    for keyval in subshell_desktop_core::zoom::ACCEL_KEYVALS {
+        let app = app.clone();
+        group.connect_accel_group(
+            keyval,
+            control,
+            gtk::AccelFlags::EMPTY,
+            move |_group, _window, fired, _mods| {
+                match subshell_desktop_core::zoom::zoom_id_for_accel(fired) {
+                    Some(Accel::In) => handle(&app, IN_ID),
+                    Some(Accel::Out) => handle(&app, OUT_ID),
+                    Some(Accel::Reset) => handle(&app, RESET_ID),
+                    None => false,
+                }
+            },
+        );
+    }
+}
+
+/// No-op off Linux, so the window-build sites call it unconditionally.
+#[cfg(not(target_os = "linux"))]
+pub fn attach_accelerators(_window: &tauri::WebviewWindow) {}
+
 /// Route a zoom menu id, from either menu.
 ///
 /// Returns whether the id was one of ours, so its ONE caller can hand

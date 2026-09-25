@@ -284,6 +284,7 @@ pub fn open_assistant(app: &AppHandle) -> Result<WebviewWindow, String> {
         .map_err(|e| format!("could not open the assistant window: {e}"))
         .inspect(|w| {
             let _ = w.set_zoom(level);
+            crate::zoom::attach_accelerators(w);
         })
 }
 
@@ -483,6 +484,7 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
     // the SPA has to come up at the size the user chose rather than resize
     // under them once it has painted.
     let _ = window.set_zoom(level);
+    crate::zoom::attach_accelerators(&window);
 
     // The native About panel lives on a menu on both platforms (spec
     // 2026-09-17 § 6): macOS hangs it on the app menu (`menu.rs`); there is
