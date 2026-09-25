@@ -14,9 +14,9 @@ The control plane (`subshell-server`, with the web UI embedded in it) and the no
 | Linux x86_64 (`linux-x64`) | ✓ | ✓ |
 | Linux arm64 (`linux-arm64`) | ✓ | ✓ |
 | macOS, Apple silicon (`darwin-arm64`) | ✓ | ✓ |
-| macOS, Intel | ✗ | ✗ |
+| macOS, Intel (`darwin-x64`) | ✓ | ✓ |
 
-No Bun or Node is needed on a host running these; they carry their runtime. Intel Macs are not built for any component, so an x86_64 Mac is out.
+No Bun or Node is needed on a host running these; they carry their runtime. The Intel binary is cross-built and release-smoked under Rosetta, so an x86_64 Mac enrolls, runs the control plane, and self-updates like any other host. What Intel does NOT get is the desktop apps.
 
 ### The Linux floor
 
@@ -31,7 +31,7 @@ The two GUIs, Subshell Server (installs and manages a control plane on this mach
 | Subshell Server | signed, notarized disk image | `.deb` (Ubuntu 24.04+ / Debian 13+) |
 | Subshell Client | signed, notarized disk image | `.deb` (same floor) |
 
-There are no desktop builds for Intel Macs or arm64 Linux, and both apps need the same glibc floor on Linux. Each app bundles the CLI binary it manages, so a desktop install needs no downloads on first run. [Installing the Server](/get-started/install-server) covers which artifact to reach for.
+There are no desktop builds for Intel Macs or arm64 Linux (the CLI binaries for those hosts exist; the GUI bundles do not), and both apps need the same glibc floor on Linux. Each app bundles the CLI binary it manages, so a desktop install needs no downloads on first run. [Installing the Server](/get-started/install-server) covers which artifact to reach for.
 
 ## Universal requirements
 

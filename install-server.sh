@@ -115,7 +115,8 @@ case "$HTTP" in
   404)
     rm -f "$TMP"
     fail "$TAG publishes no $TARGET binary (asset $ASSET is missing)." \
-      "Published targets are linux-x64, linux-arm64 and darwin-arm64." \
+      "Current published targets are linux-x64, linux-arm64, darwin-arm64 and darwin-x64;" \
+      "older releases may carry fewer." \
       "Pick another release with SUBSHELL_SERVER_VERSION=X.Y.Z, or build from a checkout."
     ;;
   *)
