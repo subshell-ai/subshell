@@ -1,6 +1,16 @@
 # Verification
 
-**Always run verification after making code changes.** Don't wait to be asked or until you "feel confident" - run these immediately after any modification:
+**Run verification focused while iterating, and full at task boundaries** (operator ruling 2026-09-24 — the full trio on every edit stopped adding signal and started costing minutes).
+
+**While iterating** — only what your change can break:
+
+```bash
+bun test <the covering test files you touched>        # check the FILE COUNT — bun silently skips paths that don't exist
+bunx turbo verify-types --filter=<pkg>                # the package you changed, not all 52
+bunx biome check <changed paths>                      # read-only; `bun run lint` to fix
+```
+
+**At a task boundary** — before any push, PR, merge, or handoff, run the full set once:
 
 ```bash
 bun run verify-types
@@ -8,7 +18,7 @@ bun run lint:check
 bun run test
 ```
 
-If any of these fail, fix the issues before considering the task complete. Do not proceed to commits or other work until all three pass.
+If any of these fail, fix the issues before considering the task complete. Do not proceed to commits or other work until the checks relevant to that step pass. Subagent gate contracts should name the focused files for the work and reserve the full suite for the boundary.
 
 `pre-push` runs only the first two (types + lint) — CI owns the test suite. Run all three
 yourself before pushing anything you expect to be green on the first try.
