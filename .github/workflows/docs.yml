@@ -182,26 +182,52 @@ jobs:
       # job that downloads only `out/` leaves wrangler config-less, and it then
       # scaffolds a fresh `docs` worker with no route and fails demanding a
       # workers.dev subdomain (measured on the first real deploy, 2026-09-25).
+      # cone-mode is OFF deliberately: cone mode reads a file path as its
+      # DIRECTORY, so the pattern pulled in all of apps/docs, package.json
+      # included, which is what made the second deploy die (see the wrangler
+      # step; the file is all wrangler needs here).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: |
             apps/docs/wrangler.jsonc
+          sparse-checkout-cone-mode: false
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: docs-out
           path: apps/docs/out
 
+      # Wrangler is installed GLOBALLY with bun, which is why this job no
+      # longer uses cloudflare/wrangler-action: the action runs `npm i
+      # wrangler@4` IN workingDirectory, and once that directory holds this
+      # app's package.json npm dies on `workspace:*` (EUNSUPPORTEDPROTOCOL,
+      # measured on the second real deploy, 2026-09-25). A global install
+      # reads no project manifest, and bun is the repo's package manager
+      # anyway: both sites' own `preview` scripts already run `bunx wrangler`.
+      # Toolchains come from the workflow, pinned: bun only installs wrangler
+      # here, and node 24 is the runtime the wrangler CLI's shebang resolves
+      # to (setup-bun puts the global bin dir on PATH).
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Install wrangler
+        run: bun add --global wrangler@4.140.0
+
       # Wrangler reads apps/docs/wrangler.jsonc from here: an assets-only
       # Worker (no script, nothing to build), so `deploy` uploads ./out and
       # moves the custom domain. The token is a scoped API token with
       # Workers:edit; no project secret is bound by this app.
-      - uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/docs
-          command: deploy
+      - name: Deploy
+        working-directory: apps/docs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: wrangler deploy
 
       # The URL is the custom domain from wrangler.jsonc, not the action's
       # `deployment-url` output: a custom-domain Worker has no stable
