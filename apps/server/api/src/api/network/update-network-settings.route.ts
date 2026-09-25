@@ -75,7 +75,7 @@ export const updateNetworkSettingsRoute = new Elysia().use(apiModels).patch(
           409,
           apiErrorBody({
             code: BackendErrorCodes.EXISTS_ERROR,
-            message: `${resolved.entry.manifest.name} is published. Unpublish it first, change these settings, then publish again — otherwise the change would not reach the running publish.`,
+            message: `${resolved.entry.manifest.name} is published. Unpublish it first, change these settings, then publish again. Otherwise the change would not reach the running publish.`,
           }),
         );
       }

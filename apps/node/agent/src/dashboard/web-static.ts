@@ -82,7 +82,7 @@ export function dashboardDistDir(): string {
   return fileURLToPath(new URL("../../../web/dist", import.meta.url));
 }
 
-const NOTICE = `<!doctype html><html><head><meta charset="utf-8"><title>Subshell node — no dashboard bundled</title>
+const NOTICE = `<!doctype html><html><head><meta charset="utf-8"><title>Subshell node: no dashboard bundled</title>
 <style>body{font:15px/1.6 system-ui;margin:12vh auto;max-width:38rem;padding:0 1.5rem;color:#1a1a1a;background:#fff}
 code{background:#f2f2f2;padding:.1em .35em;border-radius:.3em}</style></head>
 <body><h1>This binary embeds no dashboard.</h1>

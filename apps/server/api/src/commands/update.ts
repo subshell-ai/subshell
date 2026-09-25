@@ -265,7 +265,7 @@ async function runInstall(opts: UpdateOpts, deps: UpdateDeps): Promise<number> {
   if (opts.check) {
     if (opts.json) log(JSON.stringify(check));
     else if (check.updateAvailable) log(`${target.version} is available. Running ${SERVER_VERSION}.`);
-    else log(`Running ${SERVER_VERSION} — the newest release.`);
+    else log(`Running ${SERVER_VERSION}, the newest release.`);
     return 0;
   }
   if (target.version === SERVER_VERSION) {
@@ -291,9 +291,9 @@ async function runInstall(opts: UpdateOpts, deps: UpdateDeps): Promise<number> {
       `  database: backed up first`,
       willRestart
         ? lethal
-          ? "  restart:  YES — and this service definition CLOSES every running subshell"
+          ? "  restart:  YES, and this service definition CLOSES every running subshell"
           : "  restart:  yes; open subshells keep running"
-        : "  restart:  no — start it yourself afterwards",
+        : "  restart:  no. Start it yourself afterwards",
     ];
     for (const line of lines) log(line);
     const answer = deps.isTTY ? await deps.confirm("Install it?", true) : true;
@@ -488,7 +488,7 @@ async function runRollback(opts: UpdateOpts, deps: UpdateDeps): Promise<number> 
   // file; the running binary and the marker stay exactly where they are.
   if ((deps.probeVersion ?? defaultProbeVersion)(previousBinary) === null) {
     error(
-      `subshell-server: ${previousBinary} did not answer \`version\`, so it cannot be installed back; the running ${SERVER_VERSION} was left in place — install a fresh binary by hand (\`update --from <file>\`)`,
+      `subshell-server: ${previousBinary} did not answer \`version\`, so it cannot be installed back; the running ${SERVER_VERSION} was left in place. Install a fresh binary by hand (\`update --from <file>\`)`,
     );
     return 1;
   }

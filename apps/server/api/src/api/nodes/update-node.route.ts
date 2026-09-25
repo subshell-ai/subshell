@@ -106,7 +106,7 @@ function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown"
     return {
       code: BackendErrorCodes.NODE_UPDATE_FAILED,
       message:
-        "That node could not download the new binary from this server. Check that the address it dials is reachable from that machine, then try again — the download link is single-use and a fresh one is minted each time",
+        "That node could not download the new binary from this server. Check that the address it dials is reachable from that machine, then try again. The download link is single-use and a fresh one is minted each time",
     };
   }
   if (err.detail === NODE_RESULT_DIGEST_MISMATCH) {

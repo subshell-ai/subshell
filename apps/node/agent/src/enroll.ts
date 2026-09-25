@@ -90,7 +90,7 @@ export async function runEnroll(opts: EnrollOptions): Promise<EnrollResult> {
   }
   const name = normalizeNodeName(raw);
   if (name === "") {
-    throw new Error("a node name needs at least one printable character — pass --name <name>");
+    throw new Error("a node name needs at least one printable character. Pass --name <name>");
   }
   const dataDir = opts.dataDir ?? join(clientHome(), "data");
   const identity = await loadOrCreateIdentity(dataDir);

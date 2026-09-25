@@ -57,7 +57,7 @@ export function makeProbe(overrides: Partial<Probe> = {}): Probe {
       configFile: "/home/u/.config/subshell/config.json",
       dataDir: "/home/u/.config/subshell/data",
       nodeLog: null,
-      nodeLogHint: "the agent logs to the systemd journal on Linux — run `journalctl --user -u subshell.service -f`",
+      nodeLogHint: "the agent logs to the systemd journal on Linux: run `journalctl --user -u subshell.service -f`",
     },
     hostname: "devbox",
     rewriteTearsDown: false,

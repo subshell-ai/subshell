@@ -98,7 +98,7 @@ export function setupHandoffLines(deps: HandoffDeps): string[] {
     const origin = `http://${(deps.hostname ?? hostname)()}:${port}`;
     lines.push(
       "From another machine, this server's LAN address signs in with no setup. By name it is " +
-        `${origin} — add that first (subshell-server configure --trusted-origins ${origin}), ` +
+        `${origin}. Add that first (subshell-server configure --trusted-origins ${origin}), ` +
         `or signing in by name answers 403 "Invalid origin".`,
     );
   }

@@ -29,7 +29,7 @@ export async function publishTunnel(host: PluginHost, ctx: NetworkContext): Prom
   }
   if (!ctx.secrets.has(TOKEN_SECRET)) {
     return {
-      refused: { text: "Paste the tunnel token before publishing — the tunnel runs on its connector's token." },
+      refused: { text: "Paste the tunnel token before publishing: the tunnel runs on its connector's token." },
     };
   }
 

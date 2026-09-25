@@ -185,7 +185,7 @@ pub struct UpdateItem(MenuItem<Wry>);
 /// tray, a menu or a display server.
 pub fn update_label(available: Option<&str>) -> String {
     match available {
-        Some(version) if !version.is_empty() => format!("Update available — Subshell Client {version}"),
+        Some(version) if !version.is_empty() => format!("Update available: Subshell Client {version}"),
         _ => "Check for Updates…".to_string(),
     }
 }
@@ -552,7 +552,7 @@ mod tests {
     /// reverts to being the early door.
     #[test]
     fn the_update_item_announces_or_asks() {
-        assert_eq!(update_label(Some("0.8.0")), "Update available — Subshell Client 0.8.0");
+        assert_eq!(update_label(Some("0.8.0")), "Update available: Subshell Client 0.8.0");
         assert_eq!(update_label(None), "Check for Updates…");
         // An empty stored version is the "nothing known" case, not a version.
         assert_eq!(update_label(Some("")), "Check for Updates…");

@@ -76,7 +76,7 @@ export function validateTunnelSettings(values: Record<string, string>): PresetVa
   if (hostname !== "" && normalizeHostname(hostname) !== hostname.toLowerCase()) {
     issues.push({
       field: "hostname",
-      message: "Hostname should be a bare hostname like subshell.example.com — no scheme, no path, no port.",
+      message: "Hostname should be a bare hostname like subshell.example.com: no scheme, no path, no port.",
     });
   }
   const team = (values.teamDomain?.trim() ?? "").toLowerCase();

@@ -50,7 +50,7 @@ afterEach(cleanup);
 
 const GOOD_KEY = "nsk_0123456789012345678901234567890a";
 
-const JOURNALCTL = "the agent logs to the systemd journal on Linux — run `journalctl --user -u subshell.service -f`";
+const JOURNALCTL = "the agent logs to the systemd journal on Linux: run `journalctl --user -u subshell.service -f`";
 
 /** A registered machine whose service is installed but not running. */
 const STOPPED = makeProbe({
@@ -594,7 +594,7 @@ describe("the register form asks the three answers once", () => {
         node_enroll: () => ({
           ok: false,
           stdout: "",
-          stderr: "subshell: that node name is already taken on this server — mint a new key and try again",
+          stderr: "subshell: that node name is already taken on this server. Mint a new key and try again",
           node: null,
           requiresConfirmation: false,
           confirmations: [],
@@ -608,7 +608,7 @@ describe("the register form asks the three answers once", () => {
     pressRegisterChain();
 
     // The CLI's own sentence, verbatim, and exactly one attempt.
-    await waitFor(() => expect(screen.getByText(/mint a new key and try again/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Mint a new key and try again/)).toBeTruthy());
     expect(fake.callsTo("node_enroll").length).toBe(1);
   });
 
@@ -675,7 +675,7 @@ describe("the register form asks the three answers once", () => {
 
 describe("a restart refused for pane safety", () => {
   const REFUSAL =
-    "subshell: refusing to restart — the installed unit does not set KillMode=process, so this would SIGKILL " +
+    "subshell: refusing to restart: the installed unit does not set KillMode=process, so this would SIGKILL " +
     "every subshell on this machine. Rewrite the service definition with `subshell service install`, or pass " +
     "--force.";
 
@@ -1433,7 +1433,7 @@ describe("the first run", () => {
   // checklist never moves. Editing the details is the only remedy, which is
   // what the operator asked for.
   it("offers a way back to the details after a failed enrolment, key cleared", async () => {
-    const TAKEN = "subshell: that node name is already taken on this server — mint a new key and try again";
+    const TAKEN = "subshell: that node name is already taken on this server. Mint a new key and try again";
     await boot({
       settings: makeSettings({ planes: [] }),
       probe: untouched(),

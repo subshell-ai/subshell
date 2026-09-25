@@ -399,10 +399,10 @@ export async function collectUpdaterArtifact(
     // `TAURI_SIGNING_PRIVATE_KEY` makes clap refuse before anything is signed.
     // A key in argv would be `ps`-visible; the environment is where it belongs.
     const code = await deps.run(["./node_modules/.bin/tauri", "signer", "sign", source], DESKTOP_DIR);
-    if (code !== 0) throw new Error(`could not sign ${source} — nothing published`);
+    if (code !== 0) throw new Error(`could not sign ${source}. Nothing published`);
   }
   const signature = (await deps.read(`${source}.sig`)).trim();
-  if (signature === "") throw new Error(`${source}.sig is empty — nothing published`);
+  if (signature === "") throw new Error(`${source}.sig is empty. Nothing published`);
   const published = join(
     dirname(source),
     updaterArtifactName(desktopArtifactFileName(DESKTOP_CLIENT_PRODUCT, triple, version), triple),
@@ -479,21 +479,21 @@ async function main(): Promise<void> {
   try {
     for (const triple of targets) {
       if (!(await stageSidecar(deps, triple))) {
-        throw new Error(`the node agent sidecar for ${triple} failed to build — nothing published`);
+        throw new Error(`the node agent sidecar for ${triple} failed to build. Nothing published`);
       }
       const bundleRoot = join(DESKTOP_DIR, "src-tauri", "target", "release", "bundle");
       // A previous target's output would otherwise make `assertBundleSet` fail
       // a perfectly good build, and its message name a bundler that did not run.
       await rm(bundleRoot, { recursive: true, force: true });
       if ((await deps.run(["./node_modules/.bin/tauri", ...tauriBuildArgs(triple).slice(1)], DESKTOP_DIR)) !== 0) {
-        throw new Error(`tauri build failed for ${triple} — nothing published`);
+        throw new Error(`tauri build failed for ${triple}. Nothing published`);
       }
       assertBundleSet(await listDirs(bundleRoot), triple);
       const path = await collectArtifact(deps, bundleRoot, triple, version);
       // Tauri signs the image but stops there; the digest below must describe
       // the NOTARIZED, STAPLED bytes, so the chain completes first.
       if (triple === "darwin-arm64" && !(await notarizeAndStapleDmg(path, deps))) {
-        throw new Error(`the ${triple} DMG failed notarization/stapling — nothing published`);
+        throw new Error(`the ${triple} DMG failed notarization/stapling. Nothing published`);
       }
       artifacts.set(triple, { path, digest: await digestFile(path) });
 

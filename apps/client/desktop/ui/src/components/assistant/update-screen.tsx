@@ -322,7 +322,7 @@ export function UpdateScreen(props: {
                     // relaunch.
                     <span className="font-strong">ships with the new app</span>
                   ) : (
-                    <span className="text-muted-foreground">—</span>
+                    <span className="text-muted-foreground">nothing</span>
                   )}
                 </td>
                 <td className="py-1 text-right">

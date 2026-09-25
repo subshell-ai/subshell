@@ -642,7 +642,7 @@ Four more things carry the weight of the app half specifically:
   update this design explicitly does not have (spec § 14).
 - **The tray item is two labels and ONE act: it opens the screen**
   (operator's call, 2026-09-18, replacing spec 2026-09-17 § 5.2's branch).
-  `update_label()` stays pure: `Update available — Subshell Server {version}`
+  `update_label()` stays pure: `Update available: Subshell Server {version}`
   once a check knows, `Check for Updates…` otherwise, but both press through
   to `arm_and_raise(update)`, so the label announces and never re-routes.
 

@@ -70,7 +70,7 @@ export function nodeNameProblem(raw: string): string | undefined {
   // and the same name pass `--name`.
   const typed = [...raw.trim()].length;
   if (typed > NODE_NAME_MAX) {
-    return `At most ${NODE_NAME_MAX} characters — this is ${typed}`;
+    return `At most ${NODE_NAME_MAX} characters (this is ${typed})`;
   }
   return undefined;
 }
@@ -215,7 +215,7 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<Cli
       return {
         code: 1,
         out: "",
-        err: "subshell: cancelled — nothing was enrolled. Name this machine with --name <n> to run unattended.\n",
+        err: "subshell: cancelled. Nothing was enrolled. Name this machine with --name <n> to run unattended.\n",
       };
     }
     name = answer.trim();
@@ -268,7 +268,7 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<Cli
     // The enrollment is DONE and the key is spent, so "it failed" without
     // saying what survived would send someone back to mint a second key.
     lines.push(
-      `The background service was not installed (see the error below). The enrollment is saved — retry with: ${SERVICE_HINT}`,
+      `The background service was not installed (see the error below). The enrollment is saved. Retry with: ${SERVICE_HINT}`,
     );
   } else if (skip === "declined") {
     lines.push(`No background service installed. To run the agent in the background later: ${SERVICE_HINT}`);

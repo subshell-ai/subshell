@@ -79,7 +79,7 @@ export function refuseTmuxInstall(deps: TmuxInstallDeps): { installer: TmuxInsta
   if (!installer) {
     return {
       message:
-        "No supported package manager was found on this host. Install tmux yourself and re-check — an unknown package manager is a hint, not a guess.",
+        "No supported package manager was found on this host. Install tmux yourself and re-check. An unknown package manager is a hint, not a guess.",
     };
   }
   // THE LOAD-BEARING REFUSAL (spec 2026-09-15 § 6). The server has no terminal

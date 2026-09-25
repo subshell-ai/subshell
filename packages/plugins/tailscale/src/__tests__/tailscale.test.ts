@@ -244,7 +244,7 @@ describe("TailscalePlugin.status", () => {
     );
     const status = await plugin.status(CTX);
     expect(status.hints[0]?.text).toBe(
-      "Tailscale is not running on this machine. If you use the Tailscale app, open it and sign in — this page will notice when you do.",
+      "Tailscale is not running on this machine. If you use the Tailscale app, open it and sign in (this page will notice when you do).",
     );
     // The app route needs no command: opening an app is not a sudo line.
     expect(status.hints[0]?.command).toBeUndefined();
@@ -275,7 +275,7 @@ describe("TailscalePlugin.status", () => {
     expect(status.state).toBe("needs-privilege");
     // Says what is not allowed, in the same words as the manifest's step two.
     expect(status.hints[0]?.text).toBe(
-      "This server is not allowed to control Tailscale yet. Grant its user access to the daemon — this page will notice when you do.",
+      "This server is not allowed to control Tailscale yet. Grant its user access to the daemon (this page will notice when you do).",
     );
     expect(status.hints[0]?.command).toBe("sudo tailscale set --operator=test");
   });
@@ -794,10 +794,10 @@ describe("daemonDownHints", () => {
   it("offers the app first and the daemon second on macOS, then the daemon's own words", () => {
     expect(daemonDownHints("darwin", "socket /tmp/tailscaled.sock: no such file")).toEqual([
       {
-        text: "Tailscale is not running on this machine. If you use the Tailscale app, open it and sign in — this page will notice when you do.",
+        text: "Tailscale is not running on this machine. If you use the Tailscale app, open it and sign in (this page will notice when you do).",
       },
       {
-        text: "If you installed the command-line daemon instead, install and start it — this page will notice when you do.",
+        text: "If you installed the command-line daemon instead, install and start it (this page will notice when you do).",
         command: "sudo tailscaled install-system-daemon",
         docsUrl: "https://github.com/tailscale/tailscale/wiki/Tailscaled-on-macOS",
         privileged: true,
@@ -812,7 +812,7 @@ describe("daemonDownHints", () => {
     // an install for a stopped service is advice that changes nothing.
     expect(daemonDownHints("linux", "boom")).toEqual([
       {
-        text: "The Tailscale daemon is not running. Start it — this page will notice when you do.",
+        text: "The Tailscale daemon is not running. Start it (this page will notice when you do).",
         command: "sudo systemctl start tailscaled",
         docsUrl: "https://tailscale.com/kb/1080/cli",
         privileged: true,

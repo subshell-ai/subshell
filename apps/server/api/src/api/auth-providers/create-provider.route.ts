@@ -118,7 +118,7 @@ export const createProviderRoute = new Elysia()
           400,
           apiErrorBody({
             code: BackendErrorCodes.BAD_REQUEST,
-            message: `A provider id must already be a slug — lowercase [a-z0-9-], no commas or spaces (got "${rawId}").`,
+            message: `A provider id must already be a slug: lowercase [a-z0-9-], no commas or spaces (got "${rawId}").`,
           }),
         );
       }

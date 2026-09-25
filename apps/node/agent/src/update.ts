@@ -888,7 +888,7 @@ export async function revertAfterRefusal(
     // this refusal forever.
     const failure: UpdateFailure = {
       ...pending,
-      reason: `${reason}; the rollback copy at ${pending.previousBinary} cannot be run, so ${pending.from} was NOT restored — reinstall by hand`,
+      reason: `${reason}; the rollback copy at ${pending.previousBinary} cannot be run, so ${pending.from} was NOT restored: reinstall by hand`,
       failedAt: new Date().toISOString(),
     };
     await writeMarker(failedMarkerPath(dataDir), failure);
@@ -961,7 +961,7 @@ export async function rollbackUpdate(
   } catch {
     throw new UpdateRefused(
       NODE_RESULT_NOT_COMPILED,
-      `there is no ${previous} to roll back to — an update either never ran here or was already accepted`,
+      `there is no ${previous} to roll back to. An update either never ran here or was already accepted`,
     );
   }
   // A regular file is not evidence of a BOOTABLE one: ask it the same question
@@ -970,7 +970,7 @@ export async function rollbackUpdate(
   if (!(await probe(previous))) {
     throw new UpdateRefused(
       NODE_RESULT_NOT_COMPILED,
-      `${previous} did not answer \`version\`, so it cannot be installed back; the running agent was left in place — install a fresh binary with \`subshell update --from <file>\``,
+      `${previous} did not answer \`version\`, so it cannot be installed back; the running agent was left in place: install a fresh binary with \`subshell update --from <file>\``,
     );
   }
   const marker =
@@ -1107,12 +1107,12 @@ export async function resolveNodeRelease(want?: string): Promise<NodeReleaseOffe
   const sigUrl = assets.get(RELEASE_MANIFEST_SIG_NAME);
   if (!manifestUrl) {
     throw new Error(
-      `${chosen.tag} publishes no ${RELEASE_MANIFEST_NAME}, so this release cannot be verified — install a file with --from`,
+      `${chosen.tag} publishes no ${RELEASE_MANIFEST_NAME}, so this release cannot be verified: install a file with --from`,
     );
   }
   if (!sigUrl) {
     throw new Error(
-      `${chosen.tag} publishes no ${RELEASE_MANIFEST_SIG_NAME}, so this release is not signed — install a file with --from`,
+      `${chosen.tag} publishes no ${RELEASE_MANIFEST_SIG_NAME}, so this release is not signed: install a file with --from`,
     );
   }
   let bytes: string;

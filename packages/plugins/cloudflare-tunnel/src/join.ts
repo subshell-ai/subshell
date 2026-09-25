@@ -27,7 +27,7 @@ export async function joinTunnel(host: PluginHost, input: JoinInput): Promise<Jo
   const credential = input.credential?.trim();
   if (!credential) {
     throw new Error(
-      "Cloudflare Tunnel joins with a tunnel token — there is no interactive sign-in. Copy it from Zero Trust → Networks → Tunnels → the tunnel's connector.",
+      "Cloudflare Tunnel joins with a tunnel token, not an interactive sign-in. Copy it from Zero Trust → Networks → Tunnels → the tunnel's connector.",
     );
   }
   if (!isTunnelTokenShape(credential)) {
