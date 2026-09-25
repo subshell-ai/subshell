@@ -3,7 +3,7 @@
  *
  * **This app SHIPS the node CLI it drives**, so "update Subshell Client" and
  * "update the node CLI" were never two independent things: each desktop
- * bundle carries the CLI it wraps (root `AGENTS.md`, "a desktop cut re-releases
+ * bundle carries the CLI it wraps (`docs/release-and-ci.md`, "a desktop cut re-releases
  * that CLI"), and `node_install_cli` installs precisely that sidecar. Two
  * screens with two buttons made our packaging the person's problem, and
  * produced a loop that reads as a bug — update the app, and the next launch's
@@ -283,7 +283,7 @@ export function updateAct(input: UpdateActInput): UpdateAct {
    * the copy at `~/.local/bin/subshell`" — so a machine whose service names a
    * binary somewhere else is one this app must not write to. Writing a file
    * the service does not invoke is an update that reports success and changes
-   * nothing (root `AGENTS.md`, "never write the installed binary by
+   * nothing (`docs/release-and-ci.md`, "never write the installed binary by
    * convention"). A machine with NO node CLI at all is not that case: there is
    * nothing to disagree with, and the install is a first install.
    */
