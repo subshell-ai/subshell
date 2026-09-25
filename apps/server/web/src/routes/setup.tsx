@@ -672,6 +672,7 @@ function SetupPage() {
         onChange={setLaunchForm}
         firstRun
         ids={{
+          copy: "setup-copy",
           agent: "setup-agent",
           preset: "setup-preset",
           workingDir: "setup-working-dir",
