@@ -100,7 +100,7 @@
     },
     "apps/docs": {
       "name": "@internal/docs",
-      "version": "0.4.1",
+      "version": "0.4.2",
       "dependencies": {
         "fumadocs-core": "16.15.11",
         "fumadocs-mdx": "15.4.1",
@@ -300,7 +300,7 @@
     },
     "apps/website": {
       "name": "@internal/website",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "dependencies": {
         "@internal/subshell-protocol": "workspace:*",
         "class-variance-authority": "0.7.1",
