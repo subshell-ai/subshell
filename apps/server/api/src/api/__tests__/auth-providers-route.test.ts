@@ -342,6 +342,32 @@ describe("auth-providers admin CRUD (spec §8)", () => {
       // Nothing was written by the refused save.
       expect(await doors.getById(downId)).toBeUndefined();
     });
+
+    it("the name goes through the shared label normalizer, capped like every other NAME path (final review, minor)", async () => {
+      // Same `normalizeLabel` the subshell/workspace/node renames use: Cf
+      // format chars dropped (they would ride the ANONYMOUS login buttons),
+      // control chars to a space, whitespace collapsed, capped at 120 code
+      // points. The name is the one column a row carries into the pre-auth
+      // surface verbatim, so it goes through the rule every other NAME path
+      // already pays.
+      const res = await req(
+        "POST",
+        "/",
+        adminCookie,
+        createBody(freshId("clean-name"), { name: "  Acme\u200b Corp\u0001Ltd  " }),
+      );
+      expect(res.status).toBe(200);
+      expect(res.json.name).toBe("Acme Corp Ltd");
+      const long = await req("POST", "/", adminCookie, createBody(freshId("long-name"), { name: "x".repeat(300) }));
+      expect(long.status).toBe(200);
+      expect(long.json.name).toBe("x".repeat(120));
+    });
+
+    it("a name that normalizes to nothing is refused 400", async () => {
+      const res = await req("POST", "/", adminCookie, createBody(freshId("blank-name"), { name: "\u0001\u0002" }));
+      expect(res.status).toBe(400);
+      expect(res.json.code).toBe("BAD_REQUEST");
+    });
   });
 
   describe("patch", () => {
@@ -444,6 +470,38 @@ describe("auth-providers admin CRUD (spec §8)", () => {
       expect(res.status).toBe(400);
       expect(res.json.code).toBe("EMAIL_ROW_UNDELETABLE");
       expect(await doors.getById("email")).toBeDefined();
+    });
+
+    it("issuer/clientId/entryOrigins are refused on the E-mail row BEFORE any discovery probe", async () => {
+      // The email row has no OAuth identity (spec §2) — the PATCH route used
+      // to accept these fields and even run the save-time discovery against a
+      // nonsense email-row issuer. The refusal must precede the network: the
+      // fake IdP's counter says nothing was fetched.
+      const before = discoveryCount;
+      const row = await doors.getById("email");
+      for (const body of [
+        { issuer: "https://nowhere.invalid" },
+        { clientId: "nope" },
+        { entryOrigins: ["https://nowhere.invalid"] },
+      ]) {
+        const res = await req("PATCH", "/email", adminCookie, body);
+        expect(res.status).toBe(400);
+        expect(res.json.code).toBe("BAD_REQUEST");
+      }
+      expect(discoveryCount).toBe(before);
+      const after = await doors.getById("email");
+      expect(after?.issuer).toBe(row?.issuer);
+      expect(after?.clientId).toBe(row?.clientId);
+      expect(after?.entryOrigins).toBe(row?.entryOrigins);
+    });
+
+    it("its display name normalizes like every other row's", async () => {
+      const res = await req("PATCH", "/email", adminCookie, { name: "  Login\u0001with  mail   " });
+      expect(res.status).toBe(200);
+      expect(res.json.name).toBe("Login with mail");
+      // Restore the migration-seeded spelling so sibling suites read what they expect.
+      const restored = await req("PATCH", "/email", adminCookie, { name: "E-mail" });
+      expect(restored.json.name).toBe("E-mail");
     });
   });
 

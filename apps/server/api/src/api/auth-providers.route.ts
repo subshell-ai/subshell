@@ -1,4 +1,5 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
+import { normalizeLabel } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requireAdmin } from "@/api/auth-guard.js";
 import {
@@ -86,6 +87,15 @@ const ListResponseSchema = t.Object({
   }),
 });
 
+/**
+ * The name cap: the same 120 code points the subshell/workspace renames use.
+ * The door's name is rendered on the ANONYMOUS sign-in buttons and inside
+ * `heldEmailMessage`, so it goes through `normalizeLabel` + a cap like every
+ * other user-visible NAME path (the security rule) — a `trim()` alone let the
+ * control-char class the normalizer exists for reach the pre-auth surface.
+ */
+const PROVIDER_NAME_MAX = 120;
+
 /** The POST body field set; PATCH is its Partial (id/kind immutable there). */
 const CreateProviderFieldsSchema = t.Object({
   id: t.Optional(
@@ -95,7 +105,10 @@ const CreateProviderFieldsSchema = t.Object({
     }),
   ),
   kind: ProviderKindSchema,
-  name: t.String({ description: "Display name; trimmed, non-empty" }),
+  name: t.String({
+    description:
+      "Display name shown on the sign-in page; stored through the shared label normalizer (format characters dropped, control characters to spaces, whitespace collapsed) and capped at 120 code points; refused when nothing remains after normalization",
+  }),
   issuer: t.Optional(
     t.String({ description: "OIDC issuer URL. Required for google/oidc kinds; discovery runs against it at save" }),
   ),
@@ -270,9 +283,19 @@ export const authProvidersRoutes = new Elysia({ prefix: "/api/auth-providers" })
           }),
         );
       }
-      const name = body.name.trim();
+      // The shared label normalizer, not a bare trim (final review, minor):
+      // the name renders verbatim on the anonymous login buttons and inside
+      // `heldEmailMessage`, and it is the one row column that reaches the
+      // pre-auth surface — so it pays the rule every other NAME path pays.
+      const name = normalizeLabel(body.name, PROVIDER_NAME_MAX);
       if (name === "") {
-        return status(400, apiErrorBody({ code: BackendErrorCodes.BAD_REQUEST, message: "Name is required." }));
+        return status(
+          400,
+          apiErrorBody({
+            code: BackendErrorCodes.BAD_REQUEST,
+            message: "Name is required (nothing printable remains after normalization).",
+          }),
+        );
       }
       const issuer = body.issuer?.trim() ?? "";
       const clientId = body.clientId?.trim() ?? "";
@@ -457,13 +480,36 @@ export const authProvidersRoutes = new Elysia({ prefix: "/api/auth-providers" })
       if (body.id !== undefined && body.id !== params.id) {
         return status(400, apiErrorBody({ code: BackendErrorCodes.BAD_REQUEST, message: "A door's id is immutable." }));
       }
+      // The E-mail row has no OAuth identity (spec §2): issuer, clientId and
+      // entryOrigins describe an exchange that row never runs. The route used
+      // to accept them on this row — and a bogus issuer even earned a
+      // discovery probe (refused before any fetch here). Create already 400s
+      // `kind: "email"` wholesale, so this guard lives on the PATCH path.
+      if (
+        row.kind === "email" &&
+        (body.issuer !== undefined || body.clientId !== undefined || body.entryOrigins !== undefined)
+      ) {
+        return status(
+          400,
+          apiErrorBody({
+            code: BackendErrorCodes.BAD_REQUEST,
+            message: "The E-mail door has no issuer, client id or entry origins — those fields describe OIDC doors.",
+          }),
+        );
+      }
       const patch: Partial<Omit<AuthProviderRow, "id" | "kind">> = {};
       const changed: string[] = [];
 
       if (body.name !== undefined) {
-        const name = body.name.trim();
+        const name = normalizeLabel(body.name, PROVIDER_NAME_MAX);
         if (name === "") {
-          return status(400, apiErrorBody({ code: BackendErrorCodes.BAD_REQUEST, message: "Name is required." }));
+          return status(
+            400,
+            apiErrorBody({
+              code: BackendErrorCodes.BAD_REQUEST,
+              message: "Name is required (nothing printable remains after normalization).",
+            }),
+          );
         }
         patch.name = name;
         changed.push("name");
