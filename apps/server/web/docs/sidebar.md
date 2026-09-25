@@ -62,3 +62,29 @@ group too (spotlight, not extraction: group counts stay true and no row jumps
 when a pane is opened). It filters with the box and vanishes entirely when
 nothing is unseen; the home page's identically-named `TileSection` is the same
 selector over its own list.
+
+**The whole section lives in `components/sidebar/rail-subshells.tsx`**
+(extracted from `app-sidebar.tsx` 2026-09-25) and renders in three shapes
+behind one per-device toggle (`lib/sidebar-rail-view-pref.ts`): `rows` (the
+default, and the fallback for a corrupt pref), `cells` (the machine groups,
+every row a status square), and `cells-flat` (one headerless grid, machines
+clustered on shared tint plates, most urgent first). All modes read the SAME
+derivation pipeline, so a switch changes shape only — never the caps, and
+never the set once every group is open (a collapsed group is grouped mode's
+privilege; parity-pinned by tests). **A cell is the dot's language at grid
+size, never a second encoding**: fills from `DOT_CLASS`, the bell from
+`BELL_TONE`/`showsBell` (exported for this), the row's gestures whole on one
+element, and the same reveal tooltip — opened BELOW the cell (a right-side
+popup lands on the next cell in the rail), labels bolded by
+`TooltipLabelledLines`. Its working blink is layered (plate, fading fill,
+glyph-sized letter chip): at 24px both the dot's vanishing act and a dark
+letter on the bare plate read broken. Cells wear their PANE's initial, a
+hint never a key, and the flat plates are FNV-1a over the machine NAME into
+eight theme-tuned `--node-tint-*` tokens (278–332, the canvas hue is 296):
+pure function, no per-machine state, a rename can move a colour, two
+machines may share a plate — the tooltip's Node line is the truth. Cluster
+rank is the grouped headers' own liveliest-member rule, over the rows each
+view can see (a capped or comms-led machine may order differently between
+the two — accepted, order is a scan hint). `Segmented`
+grew `tooltip` and `dense` as opt-ins with byte-identity pinned for every
+other caller; the ONE clock tick still lives in `AppSidebar`.

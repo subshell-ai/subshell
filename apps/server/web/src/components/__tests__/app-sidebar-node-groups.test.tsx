@@ -298,10 +298,18 @@ describe("the rail's subshell list, grouped by node", () => {
       const link = await waitFor(() => screen.getByRole("link", { name: /one/ }));
       expect(link.getAttribute("title")).toBeNull();
       fireEvent.focus(link);
-      const popup = await screen.findByText(/Name: one/);
-      expect(popup.textContent).toBe(
-        "Name: one\nNode: mac-mini\nAgent: Claude Code\nStatus: idle\nDirectory: /Users/theo",
-      );
+      // The popup composes each line as a bold-label span plus its value
+      // (TooltipLabelledLines), so anchor on the label, walk to the popup,
+      // and assert every line is present in the assembled text. The newline
+      // string form stays the tested contract of `subshellRowTooltip`
+      // itself; this is its rendering.
+      const nameLabel = await screen.findByText("Name:");
+      const popup = nameLabel.closest("[class*='bg-popover']");
+      expect(popup?.textContent).toContain("Name: one");
+      expect(popup?.textContent).toContain("Node: mac-mini");
+      expect(popup?.textContent).toContain("Agent: Claude Code");
+      expect(popup?.textContent).toContain("Status: idle");
+      expect(popup?.textContent).toContain("Directory: /Users/theo");
     });
   });
 
@@ -310,8 +318,25 @@ describe("the rail's subshell list, grouped by node", () => {
     await withRail([subshell({ id: "a", name: "one", harnessId: "codex" })], async () => {
       const link = await waitFor(() => screen.getByRole("link", { name: /one/ }));
       fireEvent.focus(link);
-      const popup = await screen.findByText(/Name: one/);
-      expect(popup.textContent).toContain("Agent: codex");
+      const nameLabel = await screen.findByText("Name:");
+      const popup = nameLabel.closest("[class*='bg-popover']");
+      expect(popup?.textContent).toContain("Agent: codex");
+    });
+  });
+});
+
+describe("collapsing the RAIL itself", () => {
+  it("keeps the typed filter across a collapse (2026-09-25 review fix)", async () => {
+    // The section unmounts while collapsed. That is only survivable because
+    // the QUERY STATE lives in AppSidebar, not in the section's own state —
+    // this test is the difference between the two designs.
+    await withRail([subshell({ id: "a", name: "one" })], async () => {
+      const input = await screen.findByLabelText("Filter subshells");
+      fireEvent.change(input, { target: { value: "needle" } });
+      fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+      fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+      const again = (await screen.findByLabelText("Filter subshells")) as HTMLInputElement;
+      expect(again.value).toBe("needle");
     });
   });
 });

@@ -89,6 +89,33 @@
   --button-primary-foreground: oklch(0.9 0.05 320);
   --nav-active-from: oklch(0.3 0.1 322);
   --nav-active-to: oklch(0.38 0.11 340);
+
+  /* The rail's flat cell grid: each cell sits on a machine plate whose tint
+     is hashed from the node NAME (`nodeTintBucket`), so cells cluster by
+     machine without headers. Eight swatches tuned to the THEME rather than
+     to the wheel: every surface token in this app sits at hue 296
+     (`--background`, `--card`, `--secondary`, `--accent`) with the orchid
+     accent at 322, so the palette lives in 278–332, alternating lightness
+     0.30/0.35 at chroma 0.05 — plates in the same purple family as the
+     rail they sit on, and still far quieter than every status fill
+     (`--success`/`--warning`/`--destructive` sit at chroma 0.18–0.20, the
+     loudest colours on the chip by design). The even wheel was v1 and read
+     off-theme: its greens fought the purple canvas, and its warm band
+     (40–110° at this lightness) composites to brown, which the operator
+     refused ("i do not like brown"). Slot 2 is the canvas hue itself,
+     lifted — the dark purple plate the operator asked for. The theme is
+     dark-only, so the one `:root, .dark` block carries these too, and two
+     machines sharing a bucket is accepted (the tooltip's Node line is the
+     truth, same hint-not-key rule as the cell's letter). */
+  --node-tint-1: oklch(0.3 0.05 278);
+  --node-tint-2: oklch(0.35 0.05 296);
+  --node-tint-3: oklch(0.3 0.05 314);
+  --node-tint-4: oklch(0.35 0.05 332);
+  --node-tint-5: oklch(0.35 0.05 278);
+  --node-tint-6: oklch(0.3 0.05 296);
+  --node-tint-7: oklch(0.35 0.05 314);
+  --node-tint-8: oklch(0.3 0.05 332);
+
   --edit-badge-border: oklch(0.48 0.1 322);
   --edit-badge-bg: oklch(0.38 0.09 322);
   --edit-badge-foreground: oklch(0.92 0.06 318);
@@ -143,6 +170,18 @@
   --color-terminal-strip: var(--terminal-strip);
   --color-terminal-canvas: var(--terminal-canvas);
   --color-terminal-tab-active: var(--terminal-tab-active);
+  /* The rail's flat-grid machine plates (`--node-tint-1..8`). Mapped into
+     @theme so Tailwind GENERATES `bg-node-tint-N`; the eight classes are
+     literal strings in the cell-grid module's array, which is exactly how
+     the scanner can see them. */
+  --color-node-tint-1: var(--node-tint-1);
+  --color-node-tint-2: var(--node-tint-2);
+  --color-node-tint-3: var(--node-tint-3);
+  --color-node-tint-4: var(--node-tint-4);
+  --color-node-tint-5: var(--node-tint-5);
+  --color-node-tint-6: var(--node-tint-6);
+  --color-node-tint-7: var(--node-tint-7);
+  --color-node-tint-8: var(--node-tint-8);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

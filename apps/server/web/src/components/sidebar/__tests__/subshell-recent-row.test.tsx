@@ -104,11 +104,17 @@ describe("SubshellRecentRow tooltip (2026-09-24: in-page, so it zooms)", () => {
       // that used to break one of the row's other gestures.
       expect(link.hasAttribute("data-base-ui-tooltip-trigger")).toBe(true);
       fireEvent.focus(link);
-      const popup = await screen.findByText(/Name: auth-refactor/);
-      expect(popup.textContent).toContain("Node: mac mini");
-      expect(popup.textContent).toContain("Directory: /home/theo/projects/auth");
+      // Anchor on the bolded label, then walk up to the popup: labels and
+      // values are separate spans now (TooltipLabelledLines), so no single
+      // element carries a whole line any more.
+      const nameLabel = await screen.findByText("Name:");
+      const popup = nameLabel.closest("[class*='bg-popover']");
+      expect(popup).not.toBeNull();
+      expect(popup?.textContent).toContain("Name: auth-refactor");
+      expect(popup?.textContent).toContain("Node: mac mini");
+      expect(popup?.textContent).toContain("Directory: /home/theo/projects/auth");
       // One step up the scale (operator call): body, not detail.
-      expect(popup.closest("[class*='text-body']")).not.toBeNull();
+      expect(popup?.closest("[class*='text-body']")).not.toBeNull();
     } finally {
       restore();
     }

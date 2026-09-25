@@ -26,8 +26,13 @@ import type { SubshellView } from "@/types/subshell";
  * `node-offline` is the palette's RED (2026-09-24, operator call: it read as
  * too gentle as an orange): a machine you cannot reach is an error state, not
  * a caution, and it now outranks `waiting`'s amber on the colour scale.
+ *
+ * Exported because the rail's cell view paints its squares from this SAME
+ * table (`components/sidebar/subshell-cell-grid.tsx`): one state language
+ * means the fill lives in exactly one place, and a cell is the dot at grid
+ * size, never a re-spelling of it.
  */
-const DOT_CLASS: Record<SubshellIndicator, string> = {
+export const DOT_CLASS: Record<SubshellIndicator, string> = {
   // The blink class is CSS-gated on `prefers-reduced-motion: no-preference`
   // (see styles.css); naming it here unconditionally is safe — under reduce
   // the class carries nothing.
@@ -43,9 +48,10 @@ const DOT_CLASS: Record<SubshellIndicator, string> = {
  * Bell tone per state (spec 2026-09-23): the glyph says "pushed and you have
  * not looked", the colour keeps saying what the dot said. Spelled apart from
  * DOT_CLASS on purpose — those are background fills, an icon colors by
- * `text-*`.
+ * `text-*`. Exported for the same one-source reason as {@link DOT_CLASS}:
+ * the cell view's bell squares paint from here too.
  */
-const BELL_TONE: Record<SubshellIndicator, string> = {
+export const BELL_TONE: Record<SubshellIndicator, string> = {
   active: "text-success",
   idle: "text-success/50",
   waiting: "text-warning",
@@ -53,6 +59,34 @@ const BELL_TONE: Record<SubshellIndicator, string> = {
   terminated: "text-muted-foreground",
   "node-offline": "text-destructive",
 };
+
+/**
+ * The one wording for "pushed and unseen": the dot's aria-label/title and
+ * the rail cell's aria-label alike (2026-09-25 review — the cell's bell glyph
+ * is aria-hidden, so without this shared announcement a bell cell and a
+ * quiet one are identical to a screen reader). No em dash — copy rule.
+ */
+export function bellAnnouncement(indicatorWord: string): string {
+  return `unseen notification (${indicatorWord})`;
+}
+
+/**
+ * Whether a subshell's mark is a BELL rather than a plain fill — the
+ * "pushed and you have not looked" state, for its OWNER only.
+ *
+ * One rule, three renderers: the dot swaps its fill for the glyph, the rail's
+ * cells do the same on a neutral square, and the Needs Attention spotlight
+ * (`needsAttention` in `lib/subshell-node-groups.ts`) lists exactly the rows
+ * this says true for. The owner half is load-bearing, not tidy: every clear
+ * site for an unseen push requires the owner's cookie, so a bell on a shared
+ * pane is notification state rendered as grantee state — a mark that can
+ * never clear from that seat. `access` is the client's own per-viewer stamp
+ * (the live feed carries none), which is why the predicate reads it here
+ * rather than anywhere server-side.
+ */
+export function showsBell(subshell: Pick<SubshellView, "unseenPush" | "access">): boolean {
+  return Boolean(subshell.unseenPush && subshell.access === "owner");
+}
 
 /**
  * The 6px state dot for one subshell — the rail's recent rows, the subshell
@@ -112,15 +146,11 @@ export function SubshellDot({
   const indicator = subshellIndicator(subshell);
   const label = INDICATOR_LABEL[indicator];
   // The bell REPLACES the dot while a delivered push goes unseen — for its
-  // OWNER only. Every clear site (pane open, log tail, attach) requires the
-  // owner's cookie, so a bell on a shared pane would be owner notification
-  // state rendered as grantee state: a mark that can never clear from this
-  // seat. `access` is the client's own per-viewer stamp (the live feed carries
-  // none) — this is the layer that knows it. The raw data pair rides along:
+  // OWNER only, per {@link showsBell}. The raw data pair rides along:
   // the e2e liveness assertions read this element in either shape. No em dash
   // in the label — the design-system copy rule.
-  if (subshell.unseenPush && subshell.access === "owner") {
-    const bellLabel = `unseen notification (${label})`;
+  if (showsBell(subshell)) {
+    const bellLabel = bellAnnouncement(label);
     return (
       <span
         {...(accessible ? { role: "img", "aria-label": bellLabel } : { "aria-hidden": true })}
