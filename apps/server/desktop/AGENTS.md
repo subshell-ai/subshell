@@ -993,8 +993,8 @@ Security → Photos: no consent prompt ever reached TCC. PhotoKit's consent shee
 is presentation, and presentation belongs on the main thread; `request_photos`
 now re-dispatches the REQUEST through `run_block_on_main_thread` (a
 `msg_send!` of `+[NSThread performBlockOnMainThread:]`, which
-`objc2-foundation` 0.3.2 does not generate), and only then waits on the channel
-— the wait stays on the worker, so the main thread is never held. The
+`objc2-foundation` 0.3.2 does not generate), and only then waits on the channel.
+The wait stays on the worker, so the main thread is never held. The
 notifications pair keeps calling in place: the UN framework re-dispatches its
 own request internally, which is why the identical pattern worked there and did
 not here. **No check on this host can compile the macOS-gated half;
@@ -1330,7 +1330,7 @@ Four things about that arrangement are load-bearing:
 
 - **No screen imports `host.tsx`.** The host renders the screens and passes
   them what they need as props; a cycle back up to it is the same hazard the
-  old page had — a module-eval dead zone reads as a BLANK window on the
+  old page had: a module-eval dead zone reads as a BLANK window on the
   machine someone is repairing, not a type error. The old `AssistantHost`
   contract is the props lists now; navigation stayed out of them for the old
   reason (a screen that could navigate navigates a structure the host owns).
