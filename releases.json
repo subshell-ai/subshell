@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-25T09:29:06.092Z",
+  "generatedAt": "2026-09-25T11:54:56.567Z",
   "components": {
     "cli-server": {
       "version": "1.0.1",
@@ -14,9 +14,9 @@
       "url": "https://github.com/subshell-ai/subshell/releases/tag/cli-node-v1.0.0"
     },
     "desktop-server": {
-      "version": "1.0.0",
-      "tag": "desktop-server-v1.0.0",
-      "url": "https://github.com/subshell-ai/subshell/releases/tag/desktop-server-v1.0.0"
+      "version": "1.0.1",
+      "tag": "desktop-server-v1.0.1",
+      "url": "https://github.com/subshell-ai/subshell/releases/tag/desktop-server-v1.0.1"
     },
     "desktop-client": {
       "version": "1.0.0",
