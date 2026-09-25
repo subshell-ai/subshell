@@ -700,4 +700,62 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     expect(metaOf(rows[0])).toEqual({ method: `oidc:${door}`, userId: id });
     await purgeByEmail(email);
   });
+
+  // Case 14 — §5a's shipped-truth pin (final review, Important 3; recorded
+  // per the 2026-09-24 amendment). better-auth 1.7.1's genericOAuth
+  // `redirectURI` is a plain string (`plugins/generic-oauth/types.d.mts:116`)
+  // and the URL builder puts the CONFIG value ahead of the route-derived
+  // callback (`@better-auth/core/dist/oauth2/create-authorization-url.mjs:29`,
+  // mirrored by `validate-authorization-code.mjs:41`) — so follow-the-visitor
+  // is not implementable on this version and what ships is canonical-only.
+  // This test records the URI the IdP ACTUALLY received, not the 302 shape:
+  // a door whose stored list is [canonical-not-this-host, this-host] must
+  // emit byte-identically `${canonical}/api/auth/callback/<id>` even though
+  // the flow started on this host — never the request's origin, never the
+  // list's other entry. (A function-valued `redirectURI` is not an option:
+  // line 29 would URL-serialize the function source; measured.)
+  it("14. the emitted redirect_uri is the stored canonical entry byte-for-byte (§5a pin)", async () => {
+    const CANON = "http://canonical.pin.example:4321"; // deliberately NOT this host
+    const door = await mkDoor({ entryOrigins: JSON.stringify([CANON, ORIGIN]) });
+    const email = emailN("canon-pin");
+
+    idp.setProfile(profileFor(email));
+    const start = (await app.fetch(
+      new Request(`${ORIGIN}/api/auth/sign-in/social`, {
+        method: "POST",
+        // No origin header: same-origin, exactly like every other case's start.
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ provider: door, callbackURL: "/", errorCallbackURL: "/login" }),
+      }),
+    )) as Response;
+    expect(start.status).toBe(200);
+    const { url: authorizeUrl } = (await start.json()) as { url?: string };
+    if (typeof authorizeUrl !== "string") throw new Error("sign-in/social returned no authorize URL");
+    const state = new URL(authorizeUrl).searchParams.get("state");
+    if (state) flowStates.push(state);
+    const au = new URL(authorizeUrl);
+
+    // The pin itself: what the IdP receives, read off the authorize URL.
+    expect(au.searchParams.get("redirect_uri")).toBe(`${CANON}/api/auth/callback/${door}`);
+
+    // And the trip still COMPLETES on the canonical spelling: the fake 302s
+    // to that origin, the callback is answered by path, and the session
+    // lands — the degradation is which host arrives at, not whether the
+    // round trip works (§5a's honest-degradation clause).
+    const cookie = start.headers
+      .getSetCookie()
+      .map((c) => c.split(";")[0])
+      .join("; ");
+    const toIdp = await idp.handle(new Request(authorizeUrl));
+    expect(toIdp.status).toBe(302);
+    const callbackUrl = toIdp.headers.get("location");
+    expect(callbackUrl).toStartWith(`${CANON}/api/auth/callback/${door}`);
+    const cb = (await app.fetch(new Request(callbackUrl!, { headers: { cookie } }))) as Response;
+    const token = (cb.headers
+      .getSetCookie()
+      .join("\n")
+      .match(/better-auth\.session_token=([^;]+)/) ?? [])[1];
+    expect(token).toBeTruthy();
+    await purgeByEmail(email);
+  });
 });
