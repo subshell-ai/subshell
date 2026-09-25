@@ -76,7 +76,7 @@ describe("release.yml file(1) arch hints", () => {
 function smokeTable(): string {
   const bodies = [...WORKFLOW.matchAll(/case "\$triple" in\n([\s\S]*?)\n\s*esac/g)].map((m) => m[1]);
   const table = bodies.find((b) => b.includes('smoke="'));
-  if (table === undefined) throw new Error('release.yml: the smoke-mode case block was not found (renamed?)');
+  if (table === undefined) throw new Error("release.yml: the smoke-mode case block was not found (renamed?)");
   return table;
 }
 
@@ -186,4 +186,3 @@ function smokeStepBody(): string {
   if (start < 0 || end < 0) throw new Error("release.yml: the Smoke step body was not found (reworded?)");
   return WORKFLOW.slice(start, end);
 }
-
