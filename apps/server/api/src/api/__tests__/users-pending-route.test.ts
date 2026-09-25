@@ -295,6 +295,33 @@ describe("approval queue routes (spec §6/§8)", () => {
     expect(await meta.approvalState(rejectedId)).toBe("approved");
   });
 
+  it("two concurrent approvals decide once: one 200, one 409 APPROVAL_NOOP, exactly one audit row", async () => {
+    // The guard-race template (auth-providers-guard.test.ts) applied to the
+    // approval PATCH (final review, minor): the already-approved check and
+    // the write used to be two statements, so two approves on one pending
+    // row could both pass the gate and each write a `user.approve`. The
+    // check+write now live in one repository transaction; the invariant is
+    // what this pins regardless of how the awaits happen to interleave.
+    const raceEmail = `ap-race-${crypto.randomUUID()}@subshell.local`;
+    const raceId = await mkQueueUser(raceEmail, googleDoor, "pending", new Date().toISOString());
+    const results = await Promise.all([
+      req("PATCH", `/${raceId}/approval`, adminCookie, { approvalState: "approved" }),
+      req("PATCH", `/${raceId}/approval`, adminCookie, { approvalState: "approved" }),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+    const loser = results.find((r) => r.status === 409);
+    expect(loser).toBeDefined();
+    expect(((await loser!.json()) as { code: string }).code).toBe("APPROVAL_NOOP");
+    expect(await meta.approvalState(raceId)).toBe("approved");
+    const audits = await db
+      .selectFrom("auditEvents")
+      .selectAll()
+      .where("action", "=", "user.approve")
+      .where("targetId", "=", raceId)
+      .execute();
+    expect(audits).toHaveLength(1);
+  });
+
   it("404s an unknown id and 403s the system service account", async () => {
     expect(
       (await req("PATCH", `/${crypto.randomUUID()}/approval`, adminCookie, { approvalState: "approved" })).status,

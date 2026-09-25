@@ -561,10 +561,12 @@ const adminOnly = new Elysia()
       // barred the same way — disabling is that switch). Approving yourself
       // was never pending, so the same 409 covers the self case. This lives
       // as a RETURNED status, not a throw, because the named code is part of
-      // the wire contract the /pending screen branches on.
+      // the wire contract the /pending screen branches on. The already-
+      // approved CHECK and the write are ONE transaction (final review,
+      // minor, the setRole precedent): two concurrent approves could
+      // otherwise both pass a separate gate and double-audit `user.approve`.
       const meta = new UserMetaRepository(db);
-      const current = await meta.approvalState(params.id);
-      if (current === "approved") {
+      if (!(await meta.setApprovalUnlessApproved(params.id, body.approvalState))) {
         return status(
           409,
           apiErrorBody({
@@ -578,7 +580,6 @@ const adminOnly = new Elysia()
       // a session (§9), and rejection of a never-approved arrival has nothing
       // live to cut. The approve edge is the person's first, minted by their
       // next sign-in.
-      await meta.setApproval(params.id, body.approvalState);
       const providerId = await new UsersRepository(db).primaryProviderId(params.id);
       await audit({
         actorUserId: user.id,

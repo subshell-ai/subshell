@@ -284,6 +284,43 @@ export class UserMetaRepository extends BaseRepository {
   }
 
   /**
+   * Writes an approval decision ONLY when the row is not already APPROVED,
+   * with the check and the write in ONE transaction (final review, minor —
+   * the {@link setRole} / `patchGuardingLastDoor` precedent).
+   *
+   * The route used to ask {@link approvalState} and then {@link setApproval}
+   * as two statements: two concurrent approves on one pending row could both
+   * pass the already-approved gate and write the decision twice — two
+   * `user.approve` audit rows for one human act. (Under today's dialect the
+   * interleaving is hard to observe: `bun:sqlite` is synchronous over one
+   * shared connection. The invariant lives in the SHAPE, not the timing —
+   * which is exactly why the precedent folds it in the repository.)
+   *
+   * Absent row and out-of-enum values read APPROVED — the same
+   * {@link approvalState} fail-open the route refused on — so this method's
+   * `false` answer is exactly the 409 the wire contract (APPROVAL_NOOP) is.
+   *
+   * @returns `false` when the target is already approved (nothing written),
+   *   `true` when the decision landed
+   */
+  async setApprovalUnlessApproved(
+    userId: string,
+    state: ApprovalState,
+    opts?: { arrivedAt?: string | null },
+  ): Promise<boolean> {
+    return await this.db.transaction().execute(async (trx) => {
+      const row = await trx
+        .selectFrom("userMeta")
+        .select("approvalState")
+        .where("userId", "=", userId)
+        .executeTakeFirst();
+      if (asApprovalState(row?.approvalState) === "approved") return false;
+      await new UserMetaRepository(trx).setApproval(userId, state, opts);
+      return true;
+    });
+  }
+
+  /**
    * The user's approval state. An ABSENT `user_meta` row reads as APPROVED,
    * exactly like {@link isDisabled} reads an absent row as enabled — every
    * account predating the column must keep signing in on the upgrade that
