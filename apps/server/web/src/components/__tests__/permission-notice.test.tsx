@@ -118,6 +118,7 @@ describe("Preferences → Notifications: the live macOS line", () => {
     authorized: "macOS permission: Allowed",
     provisional: "macOS permission: Allowed",
     denied: "macOS permission: Not allowed",
+    restricted: "macOS permission: Blocked",
     "not-determined": "macOS permission: Not yet asked",
     unavailable: "macOS permission: Unavailable in this build",
   };

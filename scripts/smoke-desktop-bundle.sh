@@ -250,6 +250,24 @@ xcrun stapler validate "$DIST/$ARTIFACT" || fail "the notarization ticket is not
 [ -x "$APP_BUNDLE/Contents/MacOS/$SIDECAR" ] || fail "the sidecar is missing or not executable inside the bundle"
 check_sidecar_runs "$APP_BUNDLE/Contents/MacOS/$SIDECAR"
 
+echo "smoke: verifying the merged Info.plist"
+# `src-tauri/Info.plist` is merged into the bundle's own by tauri-cli's macOS
+# bundling settings (tauri-cli 2.11.4 interface/rust.rs: the file plus the
+# bundle.macOS.infoPlist object), and NOTHING else proves that merge survived
+# to the outside. The four sentences below are the ones macOS prints INSIDE
+# the permission sheets this app raises; a dropped key is not a build failure,
+# it is a sheet with no reason or a privacy-access crash, checked only at a
+# user's first access. (The operator's 2026-09-25 Photos hunt is why this
+# assertion exists: the plist was right, and only reading the bundler proved
+# it — that proof now runs on every darwin cut.)
+for KEY in NSPhotoLibraryUsageDescription \
+           NSDesktopFolderUsageDescription \
+           NSDocumentsFolderUsageDescription \
+           NSDownloadsFolderUsageDescription; do
+  VAL="$(plutil -extract "$KEY" raw "$APP_BUNDLE/Contents/Info.plist" 2>/dev/null || true)"
+  [ -n "$VAL" ] || fail "the bundle's Info.plist is missing $KEY — the src-tauri merge did not reach the bundle"
+done
+
 echo "smoke: verifying the signature chain"
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE" || fail "codesign --verify failed"
 # The sidecar must carry the hardened runtime too, or its entitlements are inert.

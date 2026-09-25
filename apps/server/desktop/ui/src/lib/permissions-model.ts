@@ -114,6 +114,11 @@ function suffixFor(permission: Permission): string {
       return "Allowed";
     case "denied":
       return "Not allowed";
+    // Not the person's "no": a policy, or a refusal before the question
+    // could be asked. One word away from the accusation, and it is the word
+    // that matches a Settings pane with no row in it.
+    case "restricted":
+      return "Blocked";
     case "unavailable":
       return "Unavailable in this build";
     case "not-determined":
@@ -127,11 +132,13 @@ function stateFor(permission: Permission): PermissionRowState {
     case "authorized":
     case "provisional":
       return "done";
-    case "denied":
-      return "failed";
     // An unasked question and an unaskable one are both "nothing has happened
     // yet" to the eye. What separates them is the suffix and the detail, not a
-    // second glyph nobody could tell apart.
+    // second glyph nobody could tell apart. `restricted` wears the ✕ because
+    // the act WILL fail — the ✕ is about attaching, not about blame.
+    case "denied":
+    case "restricted":
+      return "failed";
     case "not-determined":
     case "unavailable":
       return "pending";
@@ -178,7 +185,9 @@ export function permissionRows(probe: Probe, requesting: PermissionRequests = {}
   const photosDetail =
     photos === "unavailable"
       ? `Attaching an image to an agent can read your Photos library if you pick from there. ${DEV_BUILD_NOTE}`
-      : "Attaching an image to an agent can read your Photos library if you pick from there. Asked now, if you allow it, otherwise the first time you pick one.";
+      : photos === "restricted"
+        ? "Attaching an image to an agent can read your Photos library if you pick from there. macOS is refusing it without asking: a profile or Screen Time restriction, or a Mac with no Photos library yet. Nothing on this screen changes that."
+        : "Attaching an image to an agent can read your Photos library if you pick from there. Asked now, if you allow it, otherwise the first time you pick one.";
 
   return [
     {
@@ -219,7 +228,12 @@ export function permissionRows(probe: Probe, requesting: PermissionRequests = {}
       // second door to the same room is in `request_photos`'s own docblock:
       // the panel that normally raises this prompt is THIS app's image picker,
       // so a sheet raised here arms the subject the picker will hit. A refusal
-      // still has only one way back, and that stays System Settings.
+      // by the PERSON has only one way back, and that stays System Settings.
+      // `restricted` gets NOTHING to press: the refusal was not made on the
+      // person's behalf and has no row in the pane (the 2026-09-25 VM report:
+      // "Nothing in the system settings either"), and a Fix button onto an
+      // empty list is the dead end this screen's own rules were built to
+      // prevent. The detail sentence is the whole honest answer there is.
       action: photos === "not-determined" ? "allow" : photos === "denied" ? "open-settings" : null,
       allow: photos === "not-determined" ? { label: "Allow", request: "photos" } : null,
       pane: photos === "denied" ? "photos" : null,

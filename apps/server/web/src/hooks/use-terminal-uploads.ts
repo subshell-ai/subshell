@@ -403,8 +403,12 @@ export function useTerminalUploads({
     if (isServerDesktop()) {
       void fetchDesktopPermissions().then(({ photos }) => {
         // `not-determined` deliberately says nothing: macOS asks in context,
-        // which is the right moment and not ours to pre-empt.
-        if (photos === "denied") setPhotosBlocked(true);
+        // which is the right moment and not ours to pre-empt. Both final
+        // NOs raise the notice: `denied` is the person's, and `restricted`
+        // is a refusal made before the question (a profile, Screen Time, or
+        // no Photos library) — the picker attaches nothing either way, and
+        // the notice is the only thing that says so (2026-09-25).
+        if (photos === "denied" || photos === "restricted") setPhotosBlocked(true);
       });
     }
     const input = document.createElement("input");

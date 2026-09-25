@@ -176,6 +176,14 @@ describe("useTerminalUploads.openImagePicker", () => {
       await waitFor(() => expect(result.current.photosBlocked).toBe(true));
     });
 
+    it("raises the same notice under `restricted` — nothing attached either way", async () => {
+      // The 2026-09-25 VM answer arrives as `restricted`: refused before the
+      // question was asked. The picker still attaches nothing, so the notice
+      // fires exactly as it does under a personal `denied`.
+      const result = openUnder("restricted");
+      await waitFor(() => expect(result.current.photosBlocked).toBe(true));
+    });
+
     it("says nothing while macOS has not asked yet — it asks in context", async () => {
       const result = openUnder("not-determined");
       await new Promise((r) => setTimeout(r, 20));

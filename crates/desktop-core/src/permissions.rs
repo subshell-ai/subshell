@@ -74,9 +74,16 @@ use serde::Serialize;
 pub enum Permission {
     /// macOS has not asked yet. The only state in which asking does anything.
     NotDetermined,
-    /// Refused — by the person, or by policy. macOS will not ask again, so the
-    /// only route back is System Settings.
+    /// Refused — by the person. macOS will not ask again, so the only route
+    /// back is System Settings, where the person's own row is.
     Denied,
+    /// Refused by POLICY rather than by the person, or answered before the
+    /// question could be asked. The 2026-09-25 Mac-VM report is why this is
+    /// its own word: the pane shows NOTHING for such an app, so a row that
+    /// said "denied" and offered "Open Settings" sent the reader to an empty
+    /// list — an accusation plus a dead end. Nothing on this screen can fix
+    /// a policy refusal, and the UI says so instead.
+    Restricted,
     /// Allowed.
     Authorized,
     /// Notifications only: allowed quietly, without having been asked.
@@ -94,6 +101,7 @@ impl Permission {
         match self {
             Permission::NotDetermined => "not-determined",
             Permission::Denied => "denied",
+            Permission::Restricted => "restricted",
             Permission::Authorized => "authorized",
             Permission::Provisional => "provisional",
             Permission::Unavailable => "unavailable",
@@ -212,11 +220,16 @@ pub fn photos_permission() -> Permission {
     let status = unsafe { PHPhotoLibrary::authorizationStatusForAccessLevel(PHAccessLevel::ReadWrite) };
     match status {
         PHAuthorizationStatus::NotDetermined => Permission::NotDetermined,
-        // `Restricted` is a policy denial (a profile, screen time) rather than
-        // the person's, but the two are one fact to everything that acts on
-        // this: attaching from Photos will not work and System Settings is
-        // where to look.
-        PHAuthorizationStatus::Denied | PHAuthorizationStatus::Restricted => Permission::Denied,
+        // `Restricted` is a POLICY denial (a profile, Screen Time) or the
+        // answer PhotoKit gives when the question cannot be asked at all —
+        // a Mac with no Photos library answers this way without ever
+        // prompting. It used to fold into `Denied`; the 2026-09-25 VM report
+        // is why it cannot: the reader saw "Not allowed" beside an Open
+        // Settings button, opened the pane, and found no row — the two words
+        // send you to different places (Settings vs. nowhere) and the screen
+        // must know which it is rendering.
+        PHAuthorizationStatus::Denied => Permission::Denied,
+        PHAuthorizationStatus::Restricted => Permission::Restricted,
         // `Limited` means the person chose WHICH photos this app may see. The
         // picker works, so the only notice this drives — "images picked from
         // Photos will not attach" — would be false.
@@ -400,6 +413,7 @@ mod tests {
         let cases = [
             (Permission::NotDetermined, "not-determined"),
             (Permission::Denied, "denied"),
+            (Permission::Restricted, "restricted"),
             (Permission::Authorized, "authorized"),
             (Permission::Provisional, "provisional"),
             (Permission::Unavailable, "unavailable"),
