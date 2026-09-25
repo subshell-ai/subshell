@@ -96,6 +96,48 @@ async function makeVerification(userId: string): Promise<void> {
   createdVerificationIds.push(id);
 }
 
+/**
+ * A `device_tokens` row — the push-token artifact a failed-mark arrival
+ * could have enrolled (final review, minor: the sweep used to leave it
+ * orphaned).
+ */
+async function makeDeviceToken(userId: string): Promise<string> {
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  await db
+    .insertInto("deviceTokens")
+    .values({ id, userId, token: `ExponentPushToken[${id}]`, platform: "ios", createdAt: now, updatedAt: now })
+    .execute();
+  return id;
+}
+
+/** A `favorites` row — the preference artifact of the same class. */
+async function makeFavorite(userId: string): Promise<string> {
+  const id = crypto.randomUUID();
+  await db
+    .insertInto("favorites")
+    .values({
+      id,
+      userId,
+      nodeId: "local",
+      kind: "directory",
+      ref: `/tmp/fav-${id}`,
+      label: null,
+      createdAt: new Date().toISOString(),
+    })
+    .execute();
+  return id;
+}
+
+async function ownedCount(table: "deviceTokens" | "favorites", userId: string): Promise<number> {
+  const r = await db
+    .selectFrom(table)
+    .select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("userId", "=", userId)
+    .executeTakeFirstOrThrow();
+  return Number(r.n);
+}
+
 /** Force `pending_arrived_at` to a value `setApproval` would never write. */
 async function forceClock(userId: string, iso: string | null): Promise<void> {
   await sql`UPDATE user_meta SET pending_arrived_at = ${iso} WHERE user_id = ${userId}`.execute(db);
@@ -179,6 +221,12 @@ describe("expirePendingApprovals", () => {
     await new UserMetaRepository(db).setApproval(oldPending, "pending", { arrivedAt: staleClock });
     await makeSession(oldPending);
     await makeVerification(oldPending);
+    // The ownership-class artifacts a failed-mark arrival could have created
+    // (final review, minor): device token + favorite. Neither owns anything
+    // live, so the sweep DELETES them with the user (the refused class is
+    // subshells/nodes/workspaces, not config rows).
+    await makeDeviceToken(oldPending);
+    await makeFavorite(oldPending);
 
     // The survivors, each a different reason a row must still exist after.
     const freshPending = await makeUser(`expiry-fresh-${crypto.randomUUID().slice(0, 8)}@example.test`, daysAgo(1));
@@ -215,6 +263,10 @@ describe("expirePendingApprovals", () => {
     const v = await sql`SELECT 1 AS x FROM verification WHERE identifier = ${oldPending}`.execute(db);
     expect(v.rows.length).toBe(0);
     expect(await metaState(oldPending)).toBeUndefined();
+    // No orphaned config rows either (no FK back to `user` exists — the
+    // sweep's delete list is the only cascade).
+    expect(await ownedCount("deviceTokens", oldPending)).toBe(0);
+    expect(await ownedCount("favorites", oldPending)).toBe(0);
 
     // Every survivor is still there BY ID, in the state that saved it.
     expect(await userRowExists(freshPending)).toBe(true);
@@ -277,6 +329,37 @@ describe("expirePendingApprovals", () => {
     expect((await metaState(owner))?.pendingArrivedAt).toBe(clock);
     // Its sibling with nothing behind it goes as before.
     expect(await userRowExists(cleanVictim)).toBe(false);
+  });
+
+  test("a token/favorite-bearing expired arrival is DELETED, not refused into a permanent warning", async () => {
+    // The measured distinction behind the two classes (final review, minor):
+    // subshells/nodes/workspaces own LIVE things (a running pane, an enrolled
+    // socket, another person's layout), so an arrival owning one is an
+    // impossible state a human must resolve. A device token and a favorite
+    // own nothing: the token row receives no push without subshells (which
+    // refusal would then have to exist for), enrollment re-claims a token by
+    // deleting its old row first, and a favorite with no owner is inert.
+    // Refusing this class would strand the row in an hourly warn forever over
+    // zero blast radius — deleting it is the cascade the missing FKs would
+    // have been.
+    await new SettingsRepository(db).delete(PENDING_APPROVAL_EXPIRY_KEY); // ⇒ 30 days
+    const doorId = `expiry-config-door-${crypto.randomUUID().slice(0, 8)}`;
+    await makeDoor(doorId, 1);
+    const clock = daysAgo(31);
+
+    const victim = await makeUser(`expiry-config-${crypto.randomUUID().slice(0, 8)}@example.test`, clock);
+    await makeAccount(victim, doorId);
+    await new UserMetaRepository(db).setApproval(victim, "pending", { arrivedAt: clock });
+    const tokenId = await makeDeviceToken(victim);
+    const favId = await makeFavorite(victim);
+
+    await expirePendingApprovals(db);
+
+    expect(await userRowExists(victim)).toBe(false);
+    expect(
+      await db.selectFrom("deviceTokens").selectAll().where("id", "=", tokenId).executeTakeFirst(),
+    ).toBeUndefined();
+    expect(await db.selectFrom("favorites").selectAll().where("id", "=", favId).executeTakeFirst()).toBeUndefined();
   });
 
   test("expiryDays 0 keeps even an expired pending row forever", async () => {

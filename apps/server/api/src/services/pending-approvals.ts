@@ -93,9 +93,12 @@ export async function expiryDays(db: Kysely<Database>): Promise<number> {
  *
  * ONE transaction: select the ids, refuse the ones that own anything, then
  * delete each remaining user's rows from every table that can hold one —
- * `user_meta` (typed), then better-auth's `session`, `verification` and
- * `account`, then `user` (raw SQL with the physical camelCase names per the
- * plugin-bypass rule; `verification` carries no userId column, so
+ * `user_meta` (typed), better-auth's `session`, `verification` and
+ * `account`, the user-owned config rows `device_tokens` and `favorites`
+ * (measured: they own nothing live, so they cascade here rather than joining
+ * the refusal set — see the delete site), then `user` (raw SQL with the
+ * physical camelCase names per the plugin-bypass rule; `verification`
+ * carries no userId column, so
  * `identifier` is the only principal handle it can match — and NOTE that no
  * current better-auth writer spells `identifier` as a userId (email-verify,
  * password-reset and account-delete tokens all put an email or a token
@@ -185,6 +188,20 @@ export async function expirePendingApprovals(db: Kysely<Database>): Promise<numb
     await sql`DELETE FROM session WHERE userId IN (${list})`.execute(trx);
     await sql`DELETE FROM verification WHERE identifier IN (${list})`.execute(trx);
     await sql`DELETE FROM account WHERE userId IN (${list})`.execute(trx);
+    // The two USER-OWNED CONFIG artifacts a failed-mark arrival (the only
+    // class that ever held a session) could have created — final review,
+    // minor. They join the DELETE set, NOT the refusal set: the refused
+    // class (subshells/nodes/workspaces) is rows that own LIVE things, and a
+    // person with no subshells receiving no pushes owns nothing in a device
+    // token; the enrollment path already re-claims a token by deleting its
+    // old owner's row first (`device-tokens.repository.ts`), and a favorite
+    // with no owner is inert. Orphaning them is dead weight with a globally
+    // unique plaintext token riding in it; refusing would strand the pending
+    // row in the hourly warn over zero blast radius. These deletes are the
+    // cascade the absent FKs would have been (the same argument §6 makes for
+    // deleting account/session rows explicitly).
+    await trx.deleteFrom("deviceTokens").where("userId", "in", doomed).execute();
+    await trx.deleteFrom("favorites").where("userId", "in", doomed).execute();
     await sql`DELETE FROM user WHERE id IN (${list})`.execute(trx);
     await trx.deleteFrom("userMeta").where("userId", "in", doomed).execute();
     return doomed.length;
