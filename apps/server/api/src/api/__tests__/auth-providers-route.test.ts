@@ -178,6 +178,10 @@ describe("auth-providers admin CRUD (spec §8)", () => {
       expect((await req("GET", "/", null)).status).toBe(401);
       expect((await req("POST", "/", null, createBody("apv-anon"))).status).toBe(401);
       expect((await req("GET", "/", memberCookie)).status).toBe(403);
+      // Member POSTs carry schema-valid bodies, so the 403 is the admin gate,
+      // never a body-validation slip.
+      expect((await req("POST", "/", memberCookie, createBody(freshId("memb")))).status).toBe(403);
+      expect((await req("POST", "/test", memberCookie, { issuer: ISSUER })).status).toBe(403);
       expect((await req("PATCH", "/email", memberCookie, { enabled: true })).status).toBe(403);
       expect((await req("DELETE", "/email", memberCookie)).status).toBe(403);
       // Bodies are schema-VALID so a 403 proves the cookie-only gate, not a
@@ -228,6 +232,19 @@ describe("auth-providers admin CRUD (spec §8)", () => {
       });
     });
 
+    it("a 40-char-boundary name is creatable end-to-end via its preview string", async () => {
+      // The dialog's flow for a name that hits the cap: previewProviderId
+      // ("a"*39 + "-b") = "a"*39 (trim runs after the slice in BOTH mirrors),
+      // sent as `id` — the strict gate must accept the preview as-is.
+      const name = `${"a".repeat(39)}-b`;
+      const preview = "a".repeat(39);
+      createdIds.push(preview);
+      const res = await req("POST", "/", adminCookie, createBody(preview, { name }));
+      expect(res.status).toBe(200);
+      expect(res.json.id).toBe(preview);
+      expect((await doors.getById(preview))?.name).toBe(name);
+    });
+
     it("the list carries the reserved email row with the null legacy gate and no endpoints", async () => {
       const res = await req("GET", "/", adminCookie);
       expect(res.status).toBe(200);
@@ -253,7 +270,8 @@ describe("auth-providers admin CRUD (spec §8)", () => {
       // The reserved `email` slug is refused by name (the row's identity),
       // and any other existing id 409s as taken.
       const asEmail = await req("POST", "/", adminCookie, createBody("email"));
-      expect(asEmail.status).toBe(400);
+      expect(asEmail.status).toBe(409);
+      expect(asEmail.json.code).toBe("SLUG_TAKEN");
       expect(JSON.stringify(asEmail.json)).toInclude("reserved");
       const emailKind = await req("POST", "/", adminCookie, createBody(freshId("ek"), { kind: "email" }));
       expect(emailKind.status).toBe(400);

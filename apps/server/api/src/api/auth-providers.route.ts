@@ -301,6 +301,18 @@ export const authProvidersRoutes = new Elysia({ prefix: "/api/auth-providers" })
           }),
         );
       }
+      // The reserved credential-door id is the collision it is: the row
+      // EXISTS, so the answer is 409 SLUG_TAKEN naming the reservation —
+      // not the generic grammar 400 below, and not a normalization.
+      if (rawId === "email") {
+        return status(
+          409,
+          apiErrorBody({
+            code: BackendErrorCodes.SLUG_TAKEN,
+            message: '"email" is the reserved id of the credential door; pick another.',
+          }),
+        );
+      }
       let id: string;
       try {
         id = slugifyProviderId(rawId);
@@ -562,18 +574,23 @@ export const authProvidersRoutes = new Elysia({ prefix: "/api/auth-providers" })
       booleanField("registrationEnabled");
       booleanField("requireApproval");
 
-      // Last-door guard, BEFORE the write: the patch applied to the current
-      // count must not land it at zero. The count includes the email row —
-      // the guard reads the same table the auth build does.
-      const wasOpen = row.enabled === 1 && row.signInEnabled === 1;
-      const willOpen = (body.enabled ?? row.enabled === 1) && (body.signInEnabled ?? row.signInEnabled === 1);
-      const current = await repo.openSignInDoorCount();
-      const wouldBe = current + (willOpen ? 1 : 0) - (wasOpen ? 1 : 0);
-      if (wouldBe <= 0) {
+      // The guard and the write are ONE transaction in the repository (the
+      // setRole precedent): a count read here followed by a separate write
+      // would let two admins closing two different doors both pass on the
+      // same snapshot and land the instance at zero open doors. The route
+      // only says what the row's post-patch open state would be; the count
+      // arithmetic and the row re-read happen inside the transaction.
+      const nextOpen = (body.enabled ?? row.enabled === 1) && (body.signInEnabled ?? row.signInEnabled === 1);
+      const outcome = await repo.patchGuardingLastDoor(params.id, patch, nextOpen);
+      if (outcome === "last_door") {
         return status(409, apiErrorBody({ code: BackendErrorCodes.LAST_SIGN_IN_DOOR, message: LAST_DOOR_MESSAGE }));
       }
-
-      await repo.update(params.id, patch);
+      if (outcome === "not_found") {
+        return status(
+          404,
+          apiErrorBody({ code: BackendErrorCodes.PROVIDER_NOT_FOUND, message: `No auth provider "${params.id}".` }),
+        );
+      }
       invalidateAuth();
       await audit({
         actorUserId: user.id,
@@ -626,13 +643,21 @@ export const authProvidersRoutes = new Elysia({ prefix: "/api/auth-providers" })
           apiErrorBody({ code: BackendErrorCodes.PROVIDER_NOT_FOUND, message: `No auth provider "${params.id}".` }),
         );
       }
-      const current = await repo.openSignInDoorCount();
-      if (row.enabled === 1 && row.signInEnabled === 1 && current <= 1) {
+      // Guard + delete in ONE transaction (the PATCH guard's shape): the
+      // pre-read above answers 404 and the audit's issuer, but the open-door
+      // arithmetic must not trust a snapshot a concurrent write may move.
+      const outcome = await repo.deleteGuardingLastDoor(params.id);
+      if (outcome === "last_door") {
         return status(409, apiErrorBody({ code: BackendErrorCodes.LAST_SIGN_IN_DOOR, message: LAST_DOOR_MESSAGE }));
+      }
+      if (outcome === "not_found") {
+        return status(
+          404,
+          apiErrorBody({ code: BackendErrorCodes.PROVIDER_NOT_FOUND, message: `No auth provider "${params.id}".` }),
+        );
       }
       // Users and accounts the door created stay (spec §7) — deleting the
       // door removes the WAY in, not the people already in.
-      await repo.remove(params.id);
       invalidateAuth();
       await audit({
         actorUserId: user.id,

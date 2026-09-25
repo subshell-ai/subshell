@@ -167,10 +167,14 @@ export function registrationDisplay(row: ProviderAdminView, computedOpen: boolea
  * copy panel showed is byte-identically what gets stored.
  */
 export function previewProviderId(name: string): string {
+  // Trailing-dash trim runs AFTER the 40-char cap, or the cap can leave a
+  // trailing dash that the strict create gate then refuses — a legitimate
+  // provider becoming uncreatable. `slice` before the final trim keeps the
+  // function idempotent: slugify(slugify(x)) === slugify(x).
   return name
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40);
+    .slice(0, 40)
+    .replace(/^-+|-+$/g, "");
 }

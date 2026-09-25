@@ -161,12 +161,18 @@ const RESERVED_PROVIDER_ID = "email";
  * credential door's identity.
  */
 export function slugifyProviderId(name: string): string {
+  // The leading/trailing-dash trim runs AFTER the 40-char cap. Capping last
+  // used to strand a dash at position 40 ("a"*39 + "-b" → "a"*39 + "-"),
+  // which the route's strict-id gate then refused — the admin's own
+  // legitimate preview quoted back as invalid, making a real provider
+  // uncreatable. Trim-after-cap makes the pass idempotent:
+  // slugify(slugify(x)) === slugify(x) for every x.
   const slug = name
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40);
+    .slice(0, 40)
+    .replace(/^-+|-+$/g, "");
   if (slug === "") {
     throw new EntryInputError(`name "${name}" contains no characters a provider id can be built from`);
   }

@@ -89,6 +89,16 @@ describe("previewProviderId", () => {
   it("caps at 40 characters", () => {
     expect(previewProviderId("a".repeat(60))).toBe("a".repeat(40));
   });
+  it("is idempotent at the cap — never strands a trailing dash the server would refuse", () => {
+    // The 41st character was a dash under the old slice-last order, so the
+    // preview came back "a"*39 + "-" and the server's strict-id gate refused
+    // the dialog's own prediction. Trim runs after the cap now, in BOTH
+    // mirrors (this file and the server's slugifyProviderId).
+    expect(previewProviderId(`${"a".repeat(39)}-b`)).toBe("a".repeat(39));
+    for (const x of [`${"a".repeat(39)}-b`, "x".repeat(45), "---y---", "a-".repeat(25)]) {
+      expect(previewProviderId(previewProviderId(x))).toBe(previewProviderId(x));
+    }
+  });
 });
 
 // === dialog smoke ===

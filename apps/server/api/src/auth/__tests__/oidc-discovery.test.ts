@@ -133,4 +133,14 @@ describe("slugifyProviderId", () => {
     expect(() => slugifyProviderId("!! ??")).toThrow(EntryInputError);
     expect(() => slugifyProviderId("Email")).toThrow(/reserved/);
   });
+
+  it("is idempotent — the 40-char cap cannot strand a trailing dash", () => {
+    // The exact boundary bug: 39 a's + "-b" is 41 chars; slicing BEFORE the
+    // dash-trim left "a"*39 + "-", which the route's strict-id gate then
+    // refused — the dialog's own preview quoted back as invalid.
+    expect(slugifyProviderId(`${"a".repeat(39)}-b`)).toBe("a".repeat(39));
+    for (const x of [`${"a".repeat(39)}-b`, "x".repeat(45), "---y---", "Zed!! Co".repeat(6), "a-".repeat(25)]) {
+      expect(slugifyProviderId(slugifyProviderId(x))).toBe(slugifyProviderId(x));
+    }
+  });
 });

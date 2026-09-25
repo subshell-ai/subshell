@@ -1,5 +1,7 @@
+import type { Kysely } from "kysely";
 import { BaseRepository } from "@/db/repositories/base.repository.js";
 import type { AuthProviderRow, NewAuthProvider } from "@/db/types/auth-providers.db-types.js";
+import type { Database } from "@/db/types/index.js";
 
 /**
  * Data access for `auth_providers` (spec 2026-09-24 §2). Routes and the auth
@@ -46,7 +48,68 @@ export class AuthProvidersRepository extends BaseRepository {
    * `enabled = 1 AND signInEnabled = 1`. The last-door guard's count.
    */
   async openSignInDoorCount(): Promise<number> {
-    const { count } = await this.db
+    return await this.countOpenIn(this.db);
+  }
+
+  /**
+   * The guard's COUNT written as one unit with its mutation — the
+   * `UserMetaRepository.setRole` precedent, whose JSDoc states WHY a plain
+   * `db.transaction()` suffices: `bun:sqlite` is synchronous and the dialect
+   * hands out ONE shared connection, so the awaits between the SELECT and the
+   * write never yield, and concurrent calls serialize in practice. A
+   * check-then-write split across statements does NOT: two admins closing two
+   * different doors would both read "2 open", both pass, and land the
+   * instance at zero ways to sign in.
+   *
+   * The row is RE-READ inside the transaction, so `wasOpen` is the committed
+   * state the count agrees with — never a snapshot from before a concurrent
+   * write. `nextOpen` is the post-patch open state the CALLER derived from
+   * its patch (the route owns what the fields mean; this owns the arithmetic
+   * and the atomicity).
+   *
+   * @returns "not_found" when no row bears `id`, "last_door" when applying
+   *   the patch would close the final open door (nothing written), "ok" when
+   *   the patch is committed.
+   */
+  async patchGuardingLastDoor(
+    id: string,
+    patch: Partial<Omit<AuthProviderRow, "id" | "kind">>,
+    nextOpen: boolean,
+  ): Promise<"not_found" | "last_door" | "ok"> {
+    return await this.db.transaction().execute(async (trx) => {
+      const row = await trx.selectFrom("authProviders").selectAll().where("id", "=", id).executeTakeFirst();
+      if (!row) return "not_found" as const;
+      const wasOpen = row.enabled === 1 && row.signInEnabled === 1;
+      const openOthers = (await this.countOpenIn(trx)) - (wasOpen ? 1 : 0);
+      if (openOthers + (nextOpen ? 1 : 0) <= 0) return "last_door" as const;
+      await trx
+        .updateTable("authProviders")
+        .set({ ...patch, updatedAt: new Date().toISOString() })
+        .where("id", "=", id)
+        .execute();
+      return "ok" as const;
+    });
+  }
+
+  /**
+   * {@link patchGuardingLastDoor}'s delete twin: removing an OPEN door is
+   * refused when it is the only open one; a closed door can always go (the
+   * count arithmetic is the same shape, with the row simply not re-appearing).
+   */
+  async deleteGuardingLastDoor(id: string): Promise<"not_found" | "last_door" | "ok"> {
+    return await this.db.transaction().execute(async (trx) => {
+      const row = await trx.selectFrom("authProviders").selectAll().where("id", "=", id).executeTakeFirst();
+      if (!row) return "not_found" as const;
+      const wasOpen = row.enabled === 1 && row.signInEnabled === 1;
+      const openOthers = (await this.countOpenIn(trx)) - (wasOpen ? 1 : 0);
+      if (openOthers <= 0) return "last_door" as const;
+      await trx.deleteFrom("authProviders").where("id", "=", id).execute();
+      return "ok" as const;
+    });
+  }
+
+  private async countOpenIn(handle: Kysely<Database>): Promise<number> {
+    const { count } = await handle
       .selectFrom("authProviders")
       .select((eb) => eb.fn.countAll<string>().as("count"))
       .where("enabled", "=", 1)
