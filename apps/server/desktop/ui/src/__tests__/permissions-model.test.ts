@@ -297,16 +297,23 @@ describe("the files row", () => {
 
   it("offers System Settings on every state of the recovery door, because its state can never say when to", () => {
     // The dashboard raises this screen as the fix for a folder it could not
-    // list, and this row's answer is unreadable by construction — so a button
+    // list, and this row's answer is unreadable by construction, so a button
     // gated on `denied` would be a button that never appears, and Fix… would
-    // land on four lines of prose. A refusal is already in the pane by then;
-    // it is what sent the person here. The default door, because a notice IS
-    // the recovery door.
+    // land on four lines of prose. That notice only appears once a refusal is
+    // already in the pane. The door is the kind of arrival, not which notice
+    // (see `PermissionDoor`), so other notices can bring this button along to
+    // a pane that is not yet populated. The default door, because every
+    // arrival that is not the handoff is a recovery arrival.
     for (const state of ALL) {
       const r = row(probe({ notificationPermission: state, photosPermission: state }), "files");
       expect(r.action, state).toBe("open-settings");
       expect(r.pane, state).toBe("files-and-folders");
     }
+    // And via the model's own default, not just the helper's: an omitted door
+    // must read recovery, or a future call site that forgets the argument
+    // quietly withholds the one control this screen must not lose.
+    const defaulted = permissionRows(probe(), {}).find((r) => r.id === "files");
+    expect(defaulted?.action).toBe("open-settings");
   });
 
   it("withholds its button on the first-run door, where the pane is empty", () => {

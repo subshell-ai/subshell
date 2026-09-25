@@ -36,15 +36,20 @@
  * That second half is why the `files` row carries its button ON THE RECOVERY
  * DOOR AND NOT THE FIRST-RUN ONE. The dashboard raises this screen as the fix
  * for "Blocked by macOS" on a folder it could not list (spec § 5), and that
- * row's state is UNREADABLE by construction — so a row that offered a button
- * only when denied would offer one never, and a person sent here by the notice
- * would land on lines of prose with nothing to press; the notice only appears
- * once a refusal is already in the pane. A dead end at the end of a Fix…
- * button is worse than no button at all. The first-run door inverts the fact,
- * not the rule: macOS has not been ASKED yet there, so the Files and Folders
- * pane holds no entry for this app, and a button onto an empty pane is the
- * same dead end the `photos` row's `restricted` arm refuses below. The door
- * decides, never the (unreadable) state.
+ * row's state is UNREADABLE by construction, so a row that offered a button
+ * only when denied would offer one never, and a person sent here by that
+ * notice would land on lines of prose with nothing to press: the picker's
+ * notice only appears once a refusal is already in the pane. A dead end at
+ * the end of a Fix… button is worse than no button at all. The first-run
+ * door inverts the fact, not the rule: on a machine never asked, the Files
+ * and Folders pane holds no entry for this app, and a button onto an empty
+ * pane is the same dead end the `photos` row's `restricted` arm refuses
+ * below. The door decides, never the (unreadable) state. The door is the
+ * KIND of arrival, not which notice sent the person (`PermissionDoor`):
+ * notices about the other permissions route through the recovery door too,
+ * and there the files pane may not yet hold a row. That is the price of a
+ * door this side can answer without reading TCC, and it buys back the one
+ * arrival that must never be without its button.
  */
 import type { Permission, Probe, SettingsPane } from "./ipc";
 
@@ -72,12 +77,19 @@ export type PermissionRequest = "notifications" | "photos";
  * Which door raised this screen, and therefore whether macOS has already
  * refused something on this machine.
  *
- * `"first-run"`: the ready screen's Continue on a Mac's first run. Nothing has
- * been asked yet, so the Files and Folders pane holds no entry for this app
- * and opening it lands on an empty list. `"recovery"`: a dashboard notice,
- * which appears only AFTER a folder access was refused — so that pane has a
- * toggle to flip. The `files` row's Settings button (and the sentence that
- * points at it) is the only thing the answer changes; the row keeps its label,
+ * `"first-run"`: the ready screen's Continue on a Mac's first run. On a
+ * machine that has never been asked, the Files and Folders pane holds no
+ * entry for this app, so the button would open an empty list. (macOS
+ * verdicts outlive an in-app reset, which clears this app's state but not
+ * TCC; anyone who resets and had denied a folder meets the notice door
+ * the moment something is actually refused, and the button is there.)
+ * `"recovery"`: every other arrival. The typical one is the picker's
+ * "Blocked by macOS" notice, whose refusal is what puts the toggle in the
+ * pane. Notices about the OTHER permissions route through here too, and
+ * their arrival can leave the files pane empty; the door answers "may the
+ * machine's macOS verdicts be offered as fixable", not "a files refusal
+ * exists". The `files` row's Settings button (and the sentence that points
+ * at it) is the only thing the answer changes; the row keeps its label,
  * suffix and explanation on either door.
  */
 export type PermissionDoor = "first-run" | "recovery";

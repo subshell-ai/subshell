@@ -1066,12 +1066,17 @@ the pane has an entry to flip, whether or not the question was asked on this
 machine yet. So the `files` row offers it in EVERY state ON THE RECOVERY DOOR:
 its own state is unreadable by construction, so a button gated on `denied`
 would render never, while the picker's "Blocked by macOS" notice raises this
-screen as the fix regardless, and a notice only appears once a refusal is
-already in the pane. `SettingsPane::FilesAndFolders` being defined, granted
-and sent by nothing was the tell. The 2026-09-25 door ruling WITHHELD that
-button on the FIRST-RUN door: macOS has not been asked yet there, so the
+screen as the fix regardless, and that notice only appears once a refusal is
+already in the pane. The door is the KIND of arrival, not which notice sent
+the person: the notifications notices route through the same door and can
+arrive with the files pane not yet populated, the price of a door Rust can
+answer without reading TCC. `SettingsPane::FilesAndFolders` being defined,
+granted and sent by nothing was the tell. The 2026-09-25 door ruling
+WITHHELD that button on the FIRST-RUN door: on a machine never asked the
 pane holds no row for this app, and a button onto an empty pane is the dead
-end the Photos `restricted` arm below refuses with the identical reason. The
+end the Photos `restricted` arm below refuses with the identical reason
+(macOS verdicts outlive an in-app reset; a person who reset and had denied
+a folder meets the button again at the notice door). The
 row model takes the door as its third argument
 (`permissionRows(probe, requesting, door)`); the button and the sentence's
 finder hint move with it, the suffix and the attribution never do. The same

@@ -148,9 +148,10 @@ export function PermissionsScreen(props: {
           probe,
           { notifications: requestingNotifications, photos: requestingPhotos },
           // The door the screen itself already reads for its leave button.
-          // The handoff has not asked macOS anything yet, so the Files and
-          // Folders pane is empty there and the model withholds that row's
-          // Settings button; from a notice a refusal is already in the pane.
+          // The handoff has not asked macOS anything yet, so the model
+          // withholds the files row's Settings button there; every other
+          // arrival is the recovery door. It is the kind of arrival, not
+          // which notice sent the person, see `PermissionDoor`.
           props.afterHandoff ? "first-run" : "recovery",
         ).map((row) => (
           <li key={row.id} data-state={row.state}>
