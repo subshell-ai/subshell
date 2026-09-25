@@ -432,7 +432,7 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
   ];
 
   it("list_nodes projects to the launch-relevant fields and drops the rest", async () => {
-    const { deps } = await depsFor(() => [nodeWireRow()]);
+    const { deps } = await depsFor(() => ({ nodes: [nodeWireRow()] }));
     const [row] = await listNodes(deps);
     expect(Object.keys(row).sort()).toEqual([
       "access",
@@ -453,11 +453,13 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
     expect(row.harnesses).toEqual([{ harnessId: "claude-code", name: "Claude Code", installed: true }]);
     const withReason = await listNodes(
       (
-        await depsFor(() => [
-          nodeWireRow({
-            harnesses: [{ harnessId: "codex", name: "Codex", installed: false, reason: "not-on-path" }],
-          }),
-        ])
+        await depsFor(() => ({
+          nodes: [
+            nodeWireRow({
+              harnesses: [{ harnessId: "codex", name: "Codex", installed: false, reason: "not-on-path" }],
+            }),
+          ],
+        }))
       ).deps,
     );
     expect(withReason[0].harnesses).toEqual([
@@ -490,7 +492,7 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
       ["N-2", "odd-1"],
     ] as const) {
       const { deps, calls } = await depsFor((req) => {
-        if (req.path === "/api/nodes") return nodes;
+        if (req.path === "/api/nodes") return { nodes };
         if (req.path === "/api/subshells") return { id: "s-new", tmuxSocket: "sk", promptDelivered: false };
         throw new Error(`unexpected ${req.method} ${req.path}`);
       });
@@ -503,7 +505,7 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
 
   it("create_subshell refuses a node-name tie listing the spellings, and zero matches listing the names", async () => {
     const tied = [nodeWireRow({ name: "Mac" }), nodeWireRow({ id: "n-2", name: "MAC" })];
-    const { deps, calls } = await depsFor((req) => (req.path === "/api/nodes" ? tied : []));
+    const { deps, calls } = await depsFor((req) => (req.path === "/api/nodes" ? { nodes: tied } : []));
     await expect(createSubshell(deps, { harness: "terminal", workingDir: "/tmp", node: "mac" })).rejects.toThrow(
       /more than one node matches 'mac' \('Mac', 'MAC'\)/,
     );
@@ -511,7 +513,7 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
     expect(calls.filter((c) => c.path === "/api/subshells")).toHaveLength(0);
 
     const { deps: alone } = await depsFor((req) =>
-      req.path === "/api/nodes" ? [nodeWireRow(), nodeWireRow({ id: "n-2", name: "Laptop" })] : [],
+      req.path === "/api/nodes" ? { nodes: [nodeWireRow(), nodeWireRow({ id: "n-2", name: "Laptop" })] } : [],
     );
     await expect(createSubshell(alone, { harness: "terminal", workingDir: "/tmp", node: "nope" })).rejects.toThrow(
       /no node 'nope'; available: Build Box, Laptop/,
@@ -522,10 +524,10 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
     // The other half of the refusal: an empty list has no names to enumerate,
     // and "available: " with nothing after it is not a sentence an agent can
     // act on. The empty list is a real wire shape, not a hypothetical: the
-    // owner-only bearer read (spec 2026-09-25) answers [] for a pane whose
+    // owner-only bearer read (spec 2026-09-25) answers { nodes: [] } for a pane whose
     // owner owns no node rows, which is every human pane until someone
     // enrolls a machine (the seeded `local` belongs to the system user).
-    const { deps, calls } = await depsFor((req) => (req.path === "/api/nodes" ? [] : []));
+    const { deps, calls } = await depsFor((req) => (req.path === "/api/nodes" ? { nodes: [] } : []));
     await expect(createSubshell(deps, { harness: "terminal", workingDir: "/tmp", node: "any" })).rejects.toThrow(
       /no node 'any'; no machines are enrolled; call list_nodes/,
     );

@@ -60,6 +60,8 @@ export const inputSubshellRoute = new Elysia()
       body: InputBodySchema,
       response: {
         200: InputOkSchema,
+        // Body validation: missing, empty or oversized text (INPUT_VALIDATION_ERROR).
+        400: "ApiErrorResponse",
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
         // Foreign row (bearer or stranger), absent id: never a 403 on the way.

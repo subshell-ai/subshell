@@ -227,8 +227,10 @@ export async function listPresets(deps: ToolDeps): Promise<PresetRow[]> {
 
 /** `list_nodes`: the machines this pane's owner can see, projected for launching. */
 export async function listNodes(deps: ToolDeps): Promise<NodeView[]> {
-  const rows = await deps.api.req<NodeWireRow[]>("/api/nodes");
-  return rows.map((r) => ({
+  // The route answers `{ nodes: [...] }` (its 200 schema declares the wrapper;
+  // list-nodes.route.ts in apps/server/api/src/api/nodes is the shape authority).
+  const nodes = (await deps.api.req<{ nodes: NodeWireRow[] }>("/api/nodes")).nodes;
+  return nodes.map((r) => ({
     id: r.id,
     name: r.name,
     kind: r.kind,
@@ -289,7 +291,8 @@ export async function createSubshell(
   }
   let nodeId: string | undefined;
   if (args.node !== undefined) {
-    const nodes = await deps.api.req<NodeWireRow[]>("/api/nodes");
+    // Same `{ nodes: [...] }` wrapper as listNodes (see the note there).
+    const nodes = (await deps.api.req<{ nodes: NodeWireRow[] }>("/api/nodes")).nodes;
     // Exact id wins FIRST: ids survive renames, and a node whose name happens
     // to read like another node's id must never hijack the id-addressed one.
     const byId = nodes.filter((n) => n.id === args.node);
