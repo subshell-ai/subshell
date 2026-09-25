@@ -90,19 +90,29 @@ test.beforeAll(async () => {
   ]);
 });
 
-test.afterAll(async () => {
+// biome-ignore lint/correctness/noEmptyPattern: Playwright requires a destructuring first argument to receive testInfo
+test.afterAll(async ({}, testInfo) => {
   // Both doors leave (the E-mail door stays open, so the last-door guard
   // lets this through); 404 means an earlier failure already removed them.
+  const cleanupFailures: string[] = [];
   for (const id of [ACME.id, GATEKEEP.id]) {
     try {
       const res = await admin.delete(`/api/auth-providers/${id}`);
-      expect(res.ok() || res.status() === 404, await res.text()).toBe(true);
-    } catch {
-      // Teardown must not out-fail the test whose reason it is reporting.
+      if (!(res.ok() || res.status() === 404)) {
+        cleanupFailures.push(`${id}: HTTP ${res.status()} ${await res.text()}`);
+      }
+    } catch (err) {
+      cleanupFailures.push(`${id}: ${String(err)}`);
     }
   }
   await admin.dispose();
   await anon.dispose();
+  // A swallowed cleanup failure leaks the seeded doors into whatever runs
+  // next on this stack, so it must surface — but not over the real reason:
+  // teardown only out-reports the tests when the tests themselves passed.
+  if (cleanupFailures.length > 0 && testInfo.status === testInfo.expectedStatus) {
+    throw new Error(`door cleanup failed: ${cleanupFailures.join("; ")}`);
+  }
 });
 
 /**

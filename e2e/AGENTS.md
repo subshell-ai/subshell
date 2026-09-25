@@ -83,7 +83,7 @@ against ONE shared database:
 
 `.auth/admin.json` is path-portable: `ADMIN_STATE` in `helpers.ts` resolves it
 to an absolute path from `import.meta.url` (always `e2e/.auth/admin.json`), and
-both the writer (spec `01`) and the readers (`04`–`18`, less `15`) use that same constant —
+both the writer (spec `01`) and the readers (`04`–`19`, less `15`) use that same constant —
 so the CWD the run is launched from never matters.
 
 ## What the terminal assertions may use
