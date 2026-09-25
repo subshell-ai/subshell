@@ -30,7 +30,7 @@
     },
     "apps/client/desktop": {
       "name": "@internal/desktop-client",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "dependencies": {
         "@base-ui/react": "1.7.0",
         "@internal/assistant": "workspace:*",
@@ -100,7 +100,7 @@
     },
     "apps/docs": {
       "name": "@internal/docs",
-      "version": "0.4.2",
+      "version": "0.4.3",
       "dependencies": {
         "fumadocs-core": "16.15.11",
         "fumadocs-mdx": "15.4.1",
@@ -122,7 +122,7 @@
     },
     "apps/node/agent": {
       "name": "@internal/node",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "dependencies": {
         "@clack/prompts": "1.8.1",
         "@internal/backend-errors": "workspace:*",
@@ -175,7 +175,7 @@
     },
     "apps/server/api": {
       "name": "@internal/server",
-      "version": "1.0.2",
+      "version": "1.1.0",
       "dependencies": {
         "@better-auth/api-key": "1.7.1",
         "@better-auth/passkey": "1.7.1",
@@ -220,7 +220,7 @@
     },
     "apps/server/desktop": {
       "name": "@internal/desktop-server",
-      "version": "1.0.3",
+      "version": "1.1.0",
       "dependencies": {
         "@base-ui/react": "1.7.0",
         "@internal/assistant": "workspace:*",
@@ -300,7 +300,7 @@
     },
     "apps/website": {
       "name": "@internal/website",
-      "version": "0.1.4",
+      "version": "0.2.0",
       "dependencies": {
         "@internal/subshell-protocol": "workspace:*",
         "class-variance-authority": "0.7.1",

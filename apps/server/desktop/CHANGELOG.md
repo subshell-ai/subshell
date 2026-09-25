@@ -1,5 +1,17 @@
 # @internal/desktop-server
 
+## 1.1.0
+
+### Minor Changes
+
+- [#212](https://github.com/subshell-ai/subshell/pull/212) [`c3cf1d7`](https://github.com/subshell-ai/subshell/commit/c3cf1d775e590f7fa0a1d4c3aa392d50ada6065e) Thanks [@theogravity](https://github.com/theogravity)! - Intel Macs (darwin-x64) are a published target again, for every component. `install-server.sh`, the server-rendered node enroll one-liner, self-update, and the downloads route resolve an Intel host to the `darwin-x64` artifact instead of refusing it by name. The desktop apps publish a second Mac image, `Subshell-<App>-Desktop-<version>-darwin-x64.dmg`, cross-built by `tauri build --target` on the Apple Silicon runner, and `install-client.sh` now installs it on an Intel Mac instead of refusing. The release pipeline cross-builds and exec-smokes CLI binaries under Rosetta; the desktop smoke verifies the bundle's signing chain, the staple, and the nested sidecar's Mach-O slice.
+  
+  On the marketing site the macOS download button becomes a split control with an Apple silicon / Intel menu. The choice is capability-driven: `releases.json` now carries each desktop release's verified asset list (read from the release's own signed `release-manifest.json`), and the menu appears only when the newest cut actually ships the Intel image. No version numbers are hardcoded anywhere on the page.
+
+### Patch Changes
+
+- [#205](https://github.com/subshell-ai/subshell/pull/205) [`4abd4a7`](https://github.com/subshell-ai/subshell/commit/4abd4a78ffbc00836c2167d84837c42cdba68b54) Thanks [@theogravity](https://github.com/theogravity)! - The macOS permissions screen now lists its rows actionable-first (Notifications, Photos, Files and Folders), and the Files and Folders row is honest about being explanation: it carries no pending ring it could never tick. Its System Settings button appears on every arrival except the first-run handoff, where a machine macOS has never asked would open an empty pane; the picker's "Blocked by macOS" notice, whose refusal is what puts the toggle in the pane, always keeps it.
+
 ## 1.0.3
 
 ### Patch Changes
