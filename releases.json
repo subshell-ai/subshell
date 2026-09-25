@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-23T10:16:49.969Z",
+  "generatedAt": "2026-09-25T08:46:34.647Z",
   "components": {
     "cli-server": {
-      "version": "0.16.2",
-      "tag": "cli-server-v0.16.2",
-      "url": "https://github.com/subshell-ai/subshell/releases/tag/cli-server-v0.16.2",
+      "version": "0.17.1",
+      "tag": "cli-server-v0.17.1",
+      "url": "https://github.com/subshell-ai/subshell/releases/tag/cli-server-v0.17.1",
       "installScript": "install-server.sh"
     },
     "cli-node": {
-      "version": "0.15.0",
-      "tag": "cli-node-v0.15.0",
-      "url": "https://github.com/subshell-ai/subshell/releases/tag/cli-node-v0.15.0"
+      "version": "0.15.1",
+      "tag": "cli-node-v0.15.1",
+      "url": "https://github.com/subshell-ai/subshell/releases/tag/cli-node-v0.15.1"
     },
     "desktop-server": {
       "version": "0.15.0",
