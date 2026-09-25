@@ -7,6 +7,7 @@ import { auditAuthAfterRequest, auditSessionDeleted } from "@/auth/audit-hooks.j
 import { authDatabase } from "@/auth/database.js";
 import { createDoorGuardBeforeHook } from "@/auth/door-guards.js";
 import { type DoorValidationData, evaluateDoorPolicy } from "@/auth/door-policy.js";
+import { createHeldEmailGuardBeforeHook } from "@/auth/held-email-guards.js";
 import { loadProviderRowsSync, toGenericOAuthConfig } from "@/auth/provider-rows.js";
 import { APP_BASE_URL, AUTH_SECRET } from "@/constants.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
@@ -21,6 +22,10 @@ import { logger } from "@/utils/logger.js";
 // Built over the lazily-injected app handle (the import-purity invariant
 // above applies to it too); see `@/auth/door-guards` for what it refuses.
 const doorGuardBeforeHook = createDoorGuardBeforeHook(() => appDb);
+// The sign-up twin, same handle, same seam (spec §5's named refusal); see
+// `@/auth/held-email-guards` for why this path needs the before hook and not
+// the provisioning hooks.
+const heldEmailGuardBeforeHook = createHeldEmailGuardBeforeHook(() => appDb);
 
 /**
  * The raw better-auth options, exported for `runAuthMigrations`:
@@ -187,10 +192,23 @@ export const AUTH_OPTIONS = {
   // success and why failures deliberately write nothing. Runs for every
   // better-auth request, so the path table short-circuits everything else.
   hooks: {
-    // The closed E-mail door's sign-in refusal (spec §7) — see
-    // `@/auth/door-guards` for why THIS layer and not `validateUserInfo`
-    // carries it (measured: that hook never fires on the sign-in paths).
-    before: doorGuardBeforeHook,
+    // One user-level before hook exists per options object, so the two path
+    // guards compose here. They match disjoint paths — the door guard owns the
+    // two credential-VERIFICATION paths, the held-email guard owns
+    // `/sign-up/email` — so no request can see both and the order cannot
+    // matter; it is spelled this way only for reading.
+    before: async (rawCtx: unknown) => {
+      // The closed E-mail door's sign-in refusal (spec §7) — see
+      // `@/auth/door-guards` for why THIS layer and not `validateUserInfo`
+      // carries it (measured: that hook never fires on the sign-in paths).
+      await doorGuardBeforeHook(rawCtx);
+      // Spec §5's named refusal of OIDC-held addresses on the sign-up path —
+      // see `@/auth/held-email-guards` for why it must sit HERE (measured:
+      // better-auth's duplicate-email throw precedes both `validateUserInfo`
+      // and `user.create.before`, so neither provisioning seam ever sees a
+      // held address) and for the gate-first order it enforces.
+      await heldEmailGuardBeforeHook(rawCtx);
+    },
     after: auditAuthAfterRequest,
   },
 };
