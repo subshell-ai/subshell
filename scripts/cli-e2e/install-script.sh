@@ -16,6 +16,19 @@ trap cleanup EXIT
 fail() { echo "FAIL: $*"; exit 1; }
 ok()   { echo "  ok: $*"; }
 
+# Bun auto-loads a .env from the process CWD, and the repo root is every
+# scenario's CWD: a developer's gitignored .env (the live instance's
+# APP_BASE_URL and BETTER_AUTH_SECRET live there on this machine) would
+# silently aim the rendered installer, the enroll, and the session signing at
+# the LIVE instance, not this sandbox. The process env beats .env (dotenv
+# never overwrites an already-set key), so pin every key .env could carry.
+# An unpinned future key is exactly how the nameless one-liner once dialed
+# :3080 from a "hermetic" sandbox.
+export APP_BASE_URL="$BASE"
+export BETTER_AUTH_SECRET="cli-e2e-sandbox-secret-not-a-real-one-0123456789ab"
+export SERVER_PORT="$PORT"
+export HOST=127.0.0.1
+export TRUSTED_ORIGINS=""
 export SUBSHELL_SERVER_CONFIG_DIR="$W/srv-config"
 export SUBSHELL_SERVER_DATA_DIR="$W/srv-data"
 export SUBSHELL_NODE_ARTIFACTS_DIR="$W/artifacts"
@@ -23,7 +36,16 @@ export SUBSHELL_RELEASE_URL=""      # no internet fallback: prove OUR artifact i
 mkdir -p "$SUBSHELL_SERVER_CONFIG_DIR" "$SUBSHELL_SERVER_DATA_DIR" "$SUBSHELL_NODE_ARTIFACTS_DIR"
 
 echo "== publish the locally compiled agent as this instance's artifact"
-TRIPLE="darwin-arm64"
+# The artifact this scenario publishes is the HOST-compiled agent, so the
+# triple is the host's; the hardcoded darwin-arm64 was true only of the
+# machine that wrote the scenario, and a linux run downloaded a triple the
+# sandbox had none of (exit 1, not the usage refusal under test).
+case "$(uname)-$(uname -m)" in
+  Darwin-arm64)  TRIPLE="darwin-arm64" ;;
+  Linux-x86_64)  TRIPLE="linux-x64" ;;
+  Linux-aarch64) TRIPLE="linux-arm64" ;;
+  *) fail "no artifact name for $(uname)-$(uname -m); the served triples are linux-x64, linux-arm64, darwin-arm64" ;;
+esac
 cp "$ROOT/apps/node/agent/dist/subshell" "$SUBSHELL_NODE_ARTIFACTS_DIR/subshell-node-cli-$TRIPLE"
 shasum -a 256 "$SUBSHELL_NODE_ARTIFACTS_DIR/subshell-node-cli-$TRIPLE" | awk '{print $1}' \
   > "$SUBSHELL_NODE_ARTIFACTS_DIR/subshell-node-cli-$TRIPLE.sha256"
