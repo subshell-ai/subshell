@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-25T09:09:59.243Z",
+  "generatedAt": "2026-09-25T09:29:06.092Z",
   "components": {
     "cli-server": {
-      "version": "1.0.0",
-      "tag": "cli-server-v1.0.0",
-      "url": "https://github.com/subshell-ai/subshell/releases/tag/cli-server-v1.0.0",
+      "version": "1.0.1",
+      "tag": "cli-server-v1.0.1",
+      "url": "https://github.com/subshell-ai/subshell/releases/tag/cli-server-v1.0.1",
       "installScript": "install-server.sh"
     },
     "cli-node": {
