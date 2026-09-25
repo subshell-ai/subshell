@@ -1002,6 +1002,28 @@ interface SpaDev {
 const SPA_START_BUDGET_MS = 20_000;
 
 /**
+ * Ends the SPA dev server tree: the `bun run` wrapper AND the vite it wraps.
+ *
+ * The child is spawned `detached`, so it leads its own process group and
+ * `-child.pid` names that group — which is the only handle that reaches both
+ * levels. `child.kill()` ends the wrapper alone and leaves vite orphaned on
+ * :5174 (measured, final review). The fallback covers a platform where the
+ * negative-pid signal is refused outright; ESRCH means the tree is already
+ * gone, which is the outcome we wanted anyway.
+ */
+function killSpaTree(child: ChildProcess): void {
+  try {
+    process.kill(-child.pid, 15);
+  } catch {
+    try {
+      child.kill(15);
+    } catch {
+      // Already gone.
+    }
+  }
+}
+
+/**
  * The SPA dev server to point the dashboard at — reused, or STARTED here.
  *
  * **Reused when one is already listening**, which is the old rule and keeps
@@ -1020,22 +1042,27 @@ async function ensureSpaDevServer(): Promise<SpaDev | null> {
   if (await spaListening()) return { url: SPA_DEV_URL, child: null };
   // stderr is kept: a Vite that dies on the way up (a missing dep, a bound
   // port it refused) says why there, and the fallback message quotes it.
+  // `detached` is the reaping fix, not a flag for a new session: `bun run`
+  // WRAPS vite rather than exec-ing it, so the spawned pid is the wrapper and
+  // `child.kill()` ends only the wrapper, leaving vite orphaned on :5174
+  // (measured, final review). A detached child leads its own process group,
+  // and killing that group reaches both levels — see `killSpaTree`.
   const child = Bun.spawn(["bun", "run", "--cwd", join("apps", "server", "web"), "dev"], {
     cwd: REPO_ROOT,
     stdout: "ignore",
     stderr: "pipe",
+    detached: true,
   });
   for (let waited = 0; waited < SPA_START_BUDGET_MS; waited += 300) {
     if (await spaListening()) return { url: SPA_DEV_URL, child };
+    // The wrapper is not the server; ask the GROUP. `child.exitCode` is the
+    // wrapper's, and a surviving vite keeps the port answering, so this loop
+    // only ends on success or on the whole tree being gone.
     if (child.exitCode !== null) break;
     await Bun.sleep(300);
   }
   const why = child.exitCode === null ? "it never answered the port in time" : `it exited (code ${child.exitCode})`;
-  try {
-    child.kill(15);
-  } catch {
-    // Already gone — the case we were trying to end anyway.
-  }
+  killSpaTree(child);
   const stderr = child.stderr ? await new Response(child.stderr as ReadableStream).text().catch(() => "") : "";
   if (stderr.trim() !== "") console.error(`  vite said: ${stderr.trim().split("\n").slice(-4).join("\n  ")}`);
   console.warn(`  The SPA dev server could not be started (${why}).`);
@@ -1224,18 +1251,14 @@ async function runDev(app: DesktopApp): Promise<number> {
     env,
   });
   const code = await proc.exited;
-  // The Vite this run started belongs to this run. Ctrl-C reaches it through
-  // the shared process group anyway; this is the path where `tauri dev` ends
-  // on its own and would otherwise leave the dev server holding :5174 with
-  // no app pointed at it. A Vite the developer started themselves is never
-  // ours to kill — `spaChild` is null in that case by construction.
-  if (spaChild) {
-    try {
-      spaChild.kill(15);
-    } catch {
-      // Already gone.
-    }
-  }
+  // The Vite this run started belongs to this run. It is in its OWN process
+  // group (spawned detached), so the terminal's Ctrl-C does NOT reach it —
+  // this kill is the reaper on every exit path, including the one where
+  // `tauri dev` ends on its own and would otherwise leave the dev server
+  // holding :5174 with no app pointed at it. A Vite the developer started
+  // themselves is never ours to kill — `spaChild` is null in that case by
+  // construction.
+  if (spaChild) killSpaTree(spaChild);
   await killLeakedApps(app, preexisting);
   return code;
 }
