@@ -1,5 +1,11 @@
 # @internal/server
 
+## 1.0.2
+
+### Patch Changes
+
+- [#201](https://github.com/subshell-ai/subshell/pull/201) [`d5320de`](https://github.com/subshell-ai/subshell/commit/d5320de70e1217340a79ad8effdc4a9d4c5338a5) Thanks [@theogravity](https://github.com/theogravity)! - The dashboard's permission mirror learns the `restricted` word macOS can answer for Photos: a refusal made without asking. The image-picker notice raises on it exactly as on a personal "Don't Allow", because the picker attaches nothing either way, and the notifications card maps it to "Blocked".
+
 ## 1.0.1
 
 ### Patch Changes
