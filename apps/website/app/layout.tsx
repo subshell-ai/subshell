@@ -5,6 +5,9 @@ export const metadata: Metadata = {
   // Resolves the OpenGraph image (and any root-relative URL) to absolute; a
   // crawler needs `https://subshell.sh/og.png`, not `/og.png`.
   metadataBase: new URL("https://subshell.sh"),
+  // The landing page IS the site; declare it as canonical so `subshell.sh/`,
+  // a query-string share link, or a `www` miss all fold into one URL.
+  alternates: { canonical: "/" },
   title: "Subshell: manage multiple agents away from your desk",
   description:
     "Your agents keep working after you walk away. View progress, get notified, and give feedback from any device with Subshell.",
