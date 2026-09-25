@@ -1,10 +1,12 @@
 import { Button } from "@internal/node-admin";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { PendingExpiryCard } from "@/components/auth/pending-expiry-card";
 import { ProviderDialog } from "@/components/auth/provider-dialog";
 import { ProvidersTable } from "@/components/auth/providers-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { PageHeader } from "@/components/page-header";
+import { usePendingExpiry } from "@/hooks/use-admin-settings";
 import { useAuthProviders } from "@/hooks/use-auth-providers";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import type { ProviderAdminView } from "@/types/auth-provider";
@@ -31,6 +33,9 @@ function AuthPage() {
   const viewerIsAdmin = publicSettings?.viewerIsAdmin;
   const isAdmin = viewerIsAdmin === true;
   const { data: providers, isLoading, error, refetch } = useAuthProviders(isAdmin);
+  // The expiry field rides the shared admin settings read, gated the same
+  // way as the providers query: a member's mount fires no doomed 403.
+  const { data: settings } = usePendingExpiry(isAdmin);
 
   // null = the create dialog; a row = edit that row. One slot so both open
   // through the same component, keyed to the row inside it.
@@ -78,6 +83,14 @@ function AuthPage() {
                 />
               ))}
           </div>
+          {/* The pending-approval expiry window (spec 2026-09-24 §6): its own
+              card under the door list, since it is the queue's policy rather
+              than one door's switch. Rendered only when the server knows the
+              field — an input for a number the route cannot back is worse
+              than no card (the Lockdown card's render guard). */}
+          {settings?.pendingApprovalExpiryDays !== undefined && (
+            <PendingExpiryCard days={settings.pendingApprovalExpiryDays} />
+          )}
           <ProviderDialog
             open={dialog.open}
             provider={dialog.provider}

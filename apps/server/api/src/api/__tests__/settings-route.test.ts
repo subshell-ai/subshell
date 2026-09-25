@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { nodeArtifactFileName } from "@internal/subshell-protocol";
@@ -12,6 +12,7 @@ import { APP_BASE_URL, NODE_ARTIFACTS_DIR, SERVER_PORT } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
@@ -19,6 +20,7 @@ import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { setLanProbeForTests } from "@/services/lan-origins.js";
 import { ensureLocalNode, localHostname } from "@/services/nodes/seed-local.js";
+import { PENDING_APPROVAL_EXPIRY_KEY } from "@/services/pending-approvals.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { originRegistry, resetOriginRegistryForTests } from "@/services/trusted-origins.js";
 import { SERVER_VERSION } from "@/version.js";
@@ -611,6 +613,106 @@ describe("settings routes (admin cookie only)", () => {
     const bearer = await app.fetch(bearerRequest("/api/settings/public", adminSubshellKey));
     expect(bearer.status).toBe(200);
     expect(((await bearer.json()) as { viewerIsAdmin: boolean }).viewerIsAdmin).toBe(false);
+  });
+
+  // pendingApprovalExpiryDays (Task 10b, spec 2026-09-24 §6): the expiry
+  // window the hourly sweep reads, now admin-set. GET answers through the
+  // sweep's OWN reader, so an absent or corrupt row reads 30 exactly as the
+  // sweep will act on it — the page can never show a number the sweep
+  // disagrees with.
+  describe("pendingApprovalExpiryDays (the sweep's window, admin-set)", () => {
+    const patch = (pendingApprovalExpiryDays: unknown) =>
+      app.fetch(
+        authedRequest("/api/settings", adminCookie, {
+          method: "PATCH",
+          body: JSON.stringify({ pendingApprovalExpiryDays }),
+        }),
+      );
+    const read = async () =>
+      (
+        (await (await app.fetch(authedRequest("/api/settings", adminCookie))).json()) as {
+          pendingApprovalExpiryDays: number;
+        }
+      ).pendingApprovalExpiryDays;
+    const clearEvents = async () =>
+      await db
+        .deleteFrom("auditEvents")
+        .where("actorUserId", "=", adminId)
+        .where("action", "=", "settings.update")
+        .where("targetId", "=", PENDING_APPROVAL_EXPIRY_KEY)
+        .execute();
+
+    afterEach(async () => {
+      await new SettingsRepository(db).delete(PENDING_APPROVAL_EXPIRY_KEY);
+      await clearEvents();
+    });
+
+    it("reads 30 with no row; PATCH 14 stores, echoes and audits; a re-send audits nothing", async () => {
+      await new SettingsRepository(db).delete(PENDING_APPROVAL_EXPIRY_KEY);
+      expect(await read()).toBe(30);
+
+      const res = await patch(14);
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { pendingApprovalExpiryDays: number }).pendingApprovalExpiryDays).toBe(14);
+      expect(await new SettingsRepository(db).get<number>(PENDING_APPROVAL_EXPIRY_KEY, Number.NaN)).toBe(14);
+
+      // Re-sending the current value: the sibling idiom — the row is written
+      // (which also heals a corrupt one), but nothing is audited.
+      expect((await patch(14)).status).toBe(200);
+
+      const events = await db
+        .selectFrom("auditEvents")
+        .select(["targetType", "targetId", "metadataJson"])
+        .where("actorUserId", "=", adminId)
+        .where("action", "=", "settings.update")
+        .where("targetId", "=", PENDING_APPROVAL_EXPIRY_KEY)
+        .execute();
+      expect(events.length).toBe(1);
+      expect([events[0]?.targetType, events[0]?.targetId]).toEqual(["settings", PENDING_APPROVAL_EXPIRY_KEY]);
+      // `from` is the ANSWERED number: no row meant 30, not null.
+      expect(JSON.parse(events[0]?.metadataJson ?? "{}")).toEqual({ from: 30, to: 14 });
+    });
+
+    it("accepts 0 (keep forever) and reads it back as 0", async () => {
+      expect((await patch(0)).status).toBe(200);
+      expect(await read()).toBe(0);
+    });
+
+    it("refuses 2.5, -1 and 3651 with 400, before anything is written", async () => {
+      await new SettingsRepository(db).set(PENDING_APPROVAL_EXPIRY_KEY, 14);
+      for (const bad of [2.5, -1, 3651]) {
+        const res = await patch(bad);
+        expect(res.status).toBe(400);
+        const body = (await res.json()) as { code: string; statusCode: number };
+        expect(body.code).toBe("BAD_REQUEST");
+        expect(body.statusCode).toBe(400);
+      }
+      // The refusal wrote nothing (the lockdown hoist's rule): neither the
+      // row nor the trail moved.
+      expect(await new SettingsRepository(db).get<number>(PENDING_APPROVAL_EXPIRY_KEY, Number.NaN)).toBe(14);
+      expect(await read()).toBe(14);
+    });
+
+    it("reads a corrupt row back as 30 through GET", async () => {
+      // Seeded the way `expiryDays`'s own suite seeds corruption: a
+      // valid-JSON non-number in the row, which the answered read falls back
+      // over. PATCHing 30 over it heals the row without an audit
+      // (from 30 === to 30, the real-changes rule).
+      await new SettingsRepository(db).set(PENDING_APPROVAL_EXPIRY_KEY, "eleven");
+      expect(await read()).toBe(30);
+      expect((await patch(30)).status).toBe(200);
+      expect(await new SettingsRepository(db).get<number>(PENDING_APPROVAL_EXPIRY_KEY, Number.NaN)).toBe(30);
+      await clearEvents();
+      expect(
+        await db
+          .selectFrom("auditEvents")
+          .select("id")
+          .where("actorUserId", "=", adminId)
+          .where("action", "=", "settings.update")
+          .where("targetId", "=", PENDING_APPROVAL_EXPIRY_KEY)
+          .execute(),
+      ).toHaveLength(0);
+    });
   });
 
   // Lockdown (operator ask 2026-09-24): the instance-wide emergency stop.

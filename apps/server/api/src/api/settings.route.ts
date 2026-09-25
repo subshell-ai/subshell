@@ -15,13 +15,22 @@ import {
   setInstanceName,
 } from "@/services/instance-name.js";
 import { applyLockdown, lockdownEnabled, serverNodeName } from "@/services/lockdown.js";
+import { expiryDays, PENDING_APPROVAL_EXPIRY_KEY } from "@/services/pending-approvals.js";
 import { ALLOW_NODE_ENROLLMENT_KEY, registrationOpen } from "@/services/registration-gate.js";
 import { autoFetchEnabled } from "@/services/releases.js";
 import { ALLOW_SERVER_SUBSHELLS_KEY, serverSubshellsEnabled } from "@/services/server-as-node.js";
 import { originRegistry } from "@/services/trusted-origins.js";
 import { SERVER_VERSION } from "@/version.js";
 
-/** The five settings an admin can WRITE, one shape shared by both schemas. */
+/**
+ * Ceiling for `pendingApprovalExpiryDays` (Task 10b, spec 2026-09-24 §6):
+ * ten years of days. The floor is 0 (keep forever), which the sweep itself
+ * defines; a hand-set value beyond a decade is indistinguishable from a
+ * typo, and the sweep's consumer is a human queue, not an archive.
+ */
+const PENDING_APPROVAL_EXPIRY_MAX_DAYS = 3650;
+
+/** The six settings an admin can WRITE, one shape shared by both schemas. */
 const SettingsWriteSchema = t.Object({
   allowRegistrations: t.Boolean({ description: "Whether new users can register" }),
   allowNodeEnrollment: t.Boolean({
@@ -41,6 +50,17 @@ const SettingsWriteSchema = t.Object({
   lockdown: t.Boolean({
     description:
       "Instance-wide emergency stop (absent means false). ON stops every running subshell and starts no new ones on any machine, admins and pane-to-pane launches included; clearing it restarts nothing. Every real flip, either direction, must carry the server's node name in `lockdownConfirm`; re-sending the current state asks nothing. Distinct from node maintenance, which is one machine, its owner, and mirrored onto it",
+  }),
+  // The expiry window behind the pending-approval sweep (spec 2026-09-24 §6).
+  // The consumer is the hourly pass in `services/pending-approvals.ts`: it
+  // deletes `pending` sign-ins whose clock is older than this number of days,
+  // so this is how long an unactioned arrival waits before it is dropped.
+  // `0` means those rows never expire. Absent means 30, and the GET answer is
+  // the ANSWERED number (absent and corrupt rows both read 30) — the same
+  // number the sweep will act on, never the raw row.
+  pendingApprovalExpiryDays: t.Number({
+    description:
+      "Days an unactioned pending sign-in waits before the hourly expiry sweep deletes it; 0 means pending rows never expire. Absent means 30. Writes outside 0 to 3650 are refused; a stored row that is not a day count reads back as 30",
   }),
 });
 
@@ -259,6 +279,10 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         // admin a 400 naming the NEW name rather than a silent lockdown by
         // a stale confirmation.
         localNodeName: await serverNodeName(db),
+        // The ANSWERED number (absent/corrupt read 30) — what the expiry
+        // sweep will act on, so the Auth page cannot show a number the
+        // sweep disagrees with.
+        pendingApprovalExpiryDays: await expiryDays(db),
       } as const;
     },
     {
@@ -267,7 +291,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         operationId: "getSettings",
         tags: ["settings"],
         description:
-          "Full settings (admin only, cookie session): the instance flags, the operator's name, and the machine name a lockdown ON must be confirmed with",
+          "Full settings (admin only, cookie session): the instance flags, the operator's name, the machine name a lockdown ON must be confirmed with, and the pending-approval expiry window as the sweep will answer it",
       },
     },
   )
@@ -296,6 +320,21 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
           // node list already) and it is the whole remedy for a caller who
           // arrived at this PATCH without the dialog.
           throw new SettingsError("lockdown_confirm", `Type the machine name "${expected}" to confirm.`, 400);
+        }
+      }
+      // The expiry-day count is validated in the same hoist position (a 400
+      // means NOTHING happened, the lockdown finding's rule): an integer in
+      // 0..3650. `Number.isInteger` rather than schema bounds because the
+      // schema says `t.Number` — 2.5 must be refused by name, not rounded by
+      // a downstream `days * MS_PER_DAY`.
+      if (body.pendingApprovalExpiryDays !== undefined) {
+        const days = body.pendingApprovalExpiryDays;
+        if (!Number.isInteger(days) || days < 0 || days > PENDING_APPROVAL_EXPIRY_MAX_DAYS) {
+          throw new SettingsError(
+            "pending_expiry_days",
+            `Pending expiry days must be a whole number from 0 to ${PENDING_APPROVAL_EXPIRY_MAX_DAYS}. Use 0 to keep pending approvals forever.`,
+            400,
+          );
         }
       }
       const repo = new SettingsRepository(db);
@@ -378,6 +417,25 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
           });
         }
       }
+      if (body.pendingApprovalExpiryDays !== undefined) {
+        // `from` is the previously ANSWERED number (absent/corrupt ⇒ 30), so
+        // the trail reads as changes to what the sweep actually did, not to
+        // whatever bytes the row happened to hold. Re-sending the current
+        // value writes the row (it heals a corrupt one) but audits nothing —
+        // the sibling idiom. No confirmation ritual: the blast radius is a
+        // queue aging out, and nothing is stopped.
+        const before = await expiryDays(db);
+        await repo.set(PENDING_APPROVAL_EXPIRY_KEY, body.pendingApprovalExpiryDays);
+        if (before !== body.pendingApprovalExpiryDays) {
+          await audit({
+            actorUserId: user.id,
+            action: "settings.update",
+            targetType: "settings",
+            targetId: PENDING_APPROVAL_EXPIRY_KEY,
+            metadataJson: JSON.stringify({ from: before, to: body.pendingApprovalExpiryDays }),
+          });
+        }
+      }
       // Lockdown is the one write here that ACTS rather than records, so it
       // runs last — every other field is settled before the whole instance
       // goes down. Its CONFIRMATION was validated up top, above every write;
@@ -404,6 +462,7 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         lockdown: await lockdownEnabled(db),
         instanceName: await resolveInstanceName(db),
         localNodeName: await serverNodeName(db),
+        pendingApprovalExpiryDays: await expiryDays(db),
         stopped: lockdownStopped,
         ...(lockdownFailed.length > 0 ? { failed: lockdownFailed } : {}),
       } as const;
