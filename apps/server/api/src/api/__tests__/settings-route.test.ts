@@ -680,6 +680,10 @@ describe("settings routes (admin cookie only)", () => {
 
     it("refuses 2.5, -1 and 3651 with 400, before anything is written", async () => {
       await new SettingsRepository(db).set(PENDING_APPROVAL_EXPIRY_KEY, 14);
+      // Start from an empty trail for this key (the afterEach keeps the suite
+      // clean, this makes the zero below unambiguous): every row counted after
+      // the loop was written by the refused PATCHes or not at all.
+      await clearEvents();
       for (const bad of [2.5, -1, 3651]) {
         const res = await patch(bad);
         expect(res.status).toBe(400);
@@ -691,6 +695,14 @@ describe("settings routes (admin cookie only)", () => {
       // row nor the trail moved.
       expect(await new SettingsRepository(db).get<number>(PENDING_APPROVAL_EXPIRY_KEY, Number.NaN)).toBe(14);
       expect(await read()).toBe(14);
+      const events = await db
+        .selectFrom("auditEvents")
+        .select("id")
+        .where("actorUserId", "=", adminId)
+        .where("action", "=", "settings.update")
+        .where("targetId", "=", PENDING_APPROVAL_EXPIRY_KEY)
+        .execute();
+      expect(events).toHaveLength(0);
     });
 
     it("reads a corrupt row back as 30 through GET", async () => {

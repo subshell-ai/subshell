@@ -143,4 +143,37 @@ describe("Auth page pending-expiry card", () => {
       restore();
     }
   });
+
+  it("refuses a malformed draft loudly, and a valid edit still saves", async () => {
+    const { patches, restore } = mockFetch(14);
+    try {
+      renderPage();
+      const input = await waitFor(() => screen.getByLabelText("Pending approvals expire after"));
+      const save = () => screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+
+      // Characters the number input lets through (HTML floats carry exponent
+      // notation): the digits-only rule refuses them, and says so — the error
+      // line at the destructive role, Save dark.
+      fireEvent.change(input, { target: { value: "1e3" } });
+      const alert = screen.getByRole("alert");
+      expect(alert.textContent).toContain("whole number");
+      expect(alert.className).toContain("text-destructive");
+      expect(save().disabled).toBe(true);
+
+      // Legal digits beyond the route's ceiling: same refusal, same weight —
+      // the card mirrors the bound rather than shipping a doomed PATCH.
+      fireEvent.change(input, { target: { value: "3651" } });
+      expect(screen.getByRole("alert").textContent).toContain("3650");
+      expect(save().disabled).toBe(true);
+
+      // And the path back: a valid draft clears the alert and saves.
+      fireEvent.change(input, { target: { value: "7" } });
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(save().disabled).toBe(false);
+      fireEvent.click(save());
+      await waitFor(() => expect(patches).toEqual([{ pendingApprovalExpiryDays: 7 }]));
+    } finally {
+      restore();
+    }
+  });
 });
