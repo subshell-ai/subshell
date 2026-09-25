@@ -143,6 +143,38 @@ export function groupSubshellsByNode(
 }
 
 /**
+ * The pseudo-node id that keys the rail's "Cross-agent comms" section — its
+ * collapse preference, its DOM id, and its React key. A real node id is a
+ * uuid and can never collide with this string.
+ */
+export const CROSS_AGENT_GROUP_ID = "cross-agent";
+
+/**
+ * Splits the rail's rows into the human-launched ones (which group by machine
+ * exactly as before) and the cross-agent ones (operator ask 2026-09-25: an
+ * agent opened them via MCP `create_subshell`; they are internal comms, so the
+ * rail files them in one section of their own instead of mixing them into the
+ * machines' recents).
+ *
+ * A PARTITION the rail applies before {@link groupSubshellsByNode}, not a rule
+ * inside it, deliberately: the home page's machine sections call the same
+ * grouping and must keep showing these panes where they run — the operator's
+ * ask named the rail and the pane's own page, not every surface. Input order
+ * is preserved in both halves (the caller's status sort), and `crossAgent`
+ * absent — every row from before the flag, or from a cached payload older than
+ * it — reads human.
+ */
+export function partitionCrossAgent(rows: readonly SubshellView[]): {
+  human: SubshellView[];
+  comms: SubshellView[];
+} {
+  const human: SubshellView[] = [];
+  const comms: SubshellView[] = [];
+  for (const row of rows) (row.crossAgent === true ? comms : human).push(row);
+  return { human, comms };
+}
+
+/**
  * The panes that pushed and have not been answered — the spotlight rule the
  * rail's Needs Attention section and the home page's are both built from
  * (spec 2026-09-24).

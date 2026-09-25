@@ -63,3 +63,44 @@ export function setCollapsedNodeGroups(collapsed: readonly string[]): string[] {
 export function toggleNodeGroup(collapsed: readonly string[], nodeId: string): string[] {
   return collapsed.includes(nodeId) ? collapsed.filter((id) => id !== nodeId) : [...collapsed, nodeId];
 }
+
+/**
+ * The rail's "Cross-agent comms" section has the OPPOSITE default to the
+ * machine groups (operator ask 2026-09-25): it is CLOSED until opened. A
+ * machine's groups default open because a human's own live work should greet
+ * them; comms panes are internal chatter that can multiply without warning
+ * when several agents spawn siblings, and a rail full of them is the noise the
+ * operator asked NOT to see by default.
+ *
+ * So this is its OWN preference, keyed to the remembered OPEN state rather
+ * than folding an inverted default into `collapsedNodeGroups` — that set's
+ * whole meaning is "open unless explicitly shut", and putting the comms id in
+ * it as a pseudo-shut would break the moment a real toggle touched it.
+ *
+ * Keyed per-DEVICE (same tier as the collapse set): how tall you like the rail
+ * is a property of the screen, not the account. Absent/corrupt/blocked storage
+ * reads CLOSED, the safe default the ask named.
+ */
+const COMMS_KEY = "subshell.sidebarCommsOpen";
+
+/** True when this device last opened the comms section; anything else is closed. */
+export function commsGroupOpen(): boolean {
+  try {
+    return localStorage.getItem(COMMS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Persists the comms section's open/closed choice.
+ * @returns the value stored, so the caller binds its render to the stored fact
+ */
+export function setCommsGroupOpen(open: boolean): boolean {
+  try {
+    localStorage.setItem(COMMS_KEY, open ? "1" : "0");
+  } catch {
+    // Storage refused: the choice still holds for this page load.
+  }
+  return open;
+}

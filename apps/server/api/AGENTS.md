@@ -143,7 +143,16 @@ SERVICE that owns the act, never in the repository, which contains database
 calls only; and it is announced ONCE PER ACT rather than per write, since one
 launch writes the row, mints its token and patches it post-spawn. The
 publisher coalesces per id over a 40 ms window, so announcing liberally at act
-boundaries costs nothing on the wire.
+boundaries costs nothing on the wire. There is ONE announced write that is no
+one's act: the attach relay's output stamp (`persistOutputFor`,
+`ws/viewers.ts`) writes `lastOutputAt` at most every 2 s per pane and announces
+it, because that stamp IS what the UI renders (the blinking printing dot
+derives from it against the clock) and on an agent node the relay is the ONLY
+fresh writer (the 60 s mtime sweep is LOCAL-ONLY by design). The 2 s throttle
+is what keeps it a stamp rather than per-frame noise. Not free server-side
+either: every coalesced `changed` costs the publisher a row read and its
+shares read even with no subscriber watching, so each attached, printing pane
+pays a read cluster per 2 s, same one-read-per-event posture as the sweep.
 
 Two pane doors arrived with spec 2026-09-25 (MCP DX), and they sit on the
 launcher's existing seams rather than new ones. `POST /api/subshells/:id/input`
@@ -152,7 +161,10 @@ RUNNING pane over REST, gated at `edit` like terminal input on the attach
 socket, through the one `NodeLauncher.sendInput` member: it writes no row, so
 it is the deliberate exception beside the announce rule above (no `publishLive`,
 no audit row), and `submit` appends Enter as a second frame, so the pair is
-ordered but not atomic. `POST /:id/restart` gained an optional `prompt` that
+ordered but not atomic. RUNNING means the row's TWO facts: a self-exited pane
+parks at `status: "running"` with `alive: 0` and its session already reaped, so
+the guard reads `alive` beside `status`, or that window types into nothing and
+answers 500 on a remote node (measured 2026-09-25). `POST /:id/restart` gained an optional `prompt` that
 rides the successful revive through the SAME `deliverPrompt` seam create uses
 (the settle constants are exported from the manager so there is one settle
 policy), turning `promptDelivered` honest on the row restart always carried as
@@ -186,9 +198,13 @@ disconnect, and when a refused agent is held (why an agent that simply
 dies would otherwise render healthy, and the SSE stream this replaced:
 `apps/server/api/docs/ws-attach.md`).
 
-The cost of that layering is drift, and it has bitten once already: the first
+The cost of that layering is drift, and it has bitten twice: the first
 pass announced `createSubshell`'s ROLLBACK path and not its success path, so a
-launch published nothing at all and every test stayed green. **When you add a
+launch published nothing at all and every test stayed green; and the feed's
+own switchover left `persistOutputFor`'s pre-existing `lastOutputAt` write
+without an announce, so a printing pane read idle and its dot never blinked
+(fixed 2026-09-25; `ws/__tests__/viewers-output-announce.test.ts` pins the
+announce, and an agent node was the worst case: no sweep reaches it). **When you add a
 subshell mutation, add its announce, and check it with a real client**; the
 suite cannot see this. The reconnect snapshot is the only backstop.
 
@@ -524,6 +540,19 @@ DB is what blows bun's 5 s default under CI load, not the tests. Why
 each is shaped this way (the leaked-harness incident, where the variable
 may and may not be set, the CI run numbers):
 `apps/server/api/docs/testing-notes.md`.
+
+**A new column on a shared table must also join the HAND-CURATED migration
+lists** in the service/repository test files. `subshell-manager*.test.ts`,
+`notify.service.test.ts`, and several `db/repositories/__tests__/` files open
+their OWN `:memory:` database and apply an explicit list of migrations (the
+anchor line is `pushUrgencyMigration.up(db)` in most of them); they do NOT run
+`runMigrations()`. Adding a column that `SubshellsRepository.create` writes
+without applying the new migration there turns every create in ~11 suites into
+"no such column". The failure only appears in the FULL-suite run, because a
+lone curated file also misses tables unrelated to your change (the same
+`no such table: node_allowed_dirs` that makes some suites red when run alone
+predates any of this). Follow the `0039-subshell-cross-agent` precedent: append
+the new migration's `.up()` beside the curated anchors.
 
 Route tests live in `__tests__/` next to the route and share
 `src/api/__tests__/helpers/auth-tables.ts`:

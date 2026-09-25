@@ -340,6 +340,7 @@ export class SubshellsService extends BaseService {
     prompt,
     nodeId,
     machineActor,
+    crossAgent,
   }: {
     /** Owner of the new subshell (never taken from the body). */
     userId: string;
@@ -361,6 +362,14 @@ export class SubshellsService extends BaseService {
      * shares, owner-only, the implicit `local` fallback included.
      */
     machineActor: boolean;
+    /**
+     * True when the launch arrived on a pane's own token (an agent opening a
+     * sibling over MCP). The row is stamped cross-agent (what the rail files
+     * under "Cross-agent comms"), and the bell defaults OFF — internal
+     * cross-agent chatter is not news to ring the human's devices for, though
+     * they can still turn it on from the pane's menu.
+     */
+    crossAgent: boolean;
   }): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     // Lockdown is the FIRST question the instance asks of every create
     // (operator ask 2026-09-24): it answers valid bodies and invalid ones
@@ -456,10 +465,14 @@ export class SubshellsService extends BaseService {
         name,
         prompt,
         nodeId: resolvedNodeId,
+        crossAgent: crossAgent ? 1 : 0,
         // Notifications default ON for new subshells (spec 2026-08-31); the
         // per-user master switch still gates the actual send, and the
-        // operator can mute an individual subshell with its bell.
-        notify: true,
+        // operator can mute an individual subshell with its bell. A
+        // cross-agent launch (operator ask 2026-09-25): the bell defaults
+        // OFF — agent-to-agent comms are not news a human needs rung for —
+        // and it stays togglable exactly like any other pane's.
+        notify: !crossAgent,
       })
       .catch(rethrowLaunchRefusal);
     // Feed the picker's Recents (and the new-subshell form's pre-fill) from
@@ -727,10 +740,11 @@ export class SubshellsService extends BaseService {
    *
    * @throws SubshellError 404 when absent or invisible to the caller.
    * @throws HttpError 403 when the caller holds only `view`.
-   * @throws ApiError 409 SUBSHELL_NOT_RUNNING when the row is not running
-   *         (checked BEFORE the launcher is resolved: nothing is typed into a
-   *         row that is not there), and 409 NODE_OFFLINE when its agent node
-   *         has no live connection (the create/restart mapper again).
+   * @throws ApiError 409 SUBSHELL_NOT_RUNNING when the row is not running OR
+   *         its pane has exited (checked BEFORE the launcher is resolved:
+   *         nothing is typed into a row that is not there), and 409
+   *         NODE_OFFLINE when its agent node has no live connection (the
+   *         create/restart mapper again).
    */
   async sendSubshellInput(
     viewerId: string,
@@ -740,7 +754,16 @@ export class SubshellsService extends BaseService {
     actor: GuardActor,
   ): Promise<{ ok: true }> {
     const { row } = await this.#gate(viewerId, id, "edit", actor);
-    if (row.status !== "running") {
+    // The TWO facts, both required — a lesson from the live incident
+    // (2026-09-25): `status` is the lifecycle INTENT and a pane that exited
+    // on its own parks at `status: "running"` with `alive: 0` (parked is what
+    // auto-restart and "Start again" revive from), so a guard on `status`
+    // alone types into a session that is already reaped — on a remote node
+    // the send-keys failure is unmapped and answers 500, on a local one it
+    // can even "succeed" into nothing. `alive` is the fact a send needs, the
+    // same conjunction the manager's own reads use (`status !== "running" ||
+    // alive !== 1`).
+    if (row.status !== "running" || row.alive !== 1) {
       throwApiError({
         code: BackendErrorCodes.SUBSHELL_NOT_RUNNING,
         message: "The subshell is not running; nothing was typed. Restart it first.",

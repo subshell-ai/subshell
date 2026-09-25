@@ -59,6 +59,15 @@ describe("subshell mcp instructions", () => {
     expect(SUBSHELL_MCP_INSTRUCTIONS).toContain("working_dir");
     expect(SUBSHELL_MCP_INSTRUCTIONS.length).toBeLessThan(1200);
   });
+
+  it("the briefing owns the spawned-pane cleanup rule (2026-09-25: comms panes the human never hears about)", () => {
+    expect(SUBSHELL_MCP_INSTRUCTIONS).toContain("yours to close");
+    expect(SUBSHELL_MCP_INSTRUCTIONS).toContain("Cross-agent comms");
+    // The create tool REPEATS the rule for harnesses that read descriptions
+    // without the briefing; that half is asserted on the wire in the
+    // tools/list case below.
+    expect(SUBSHELL_MCP_INSTRUCTIONS.length).toBeLessThan(1200);
+  });
 });
 
 /**
@@ -129,6 +138,8 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
     expect(createProps).toHaveProperty("node");
     expect(JSON.stringify(createProps.working_dir)).toContain("TARGET NODE");
     expect(byName.create_subshell.description).toContain("list_subshells before retrying");
+    expect(byName.create_subshell.description).toContain("You own their cleanup");
+    expect(byName.send_to_subshell.description).toContain("SUBSHELL_NOT_RUNNING");
     expect(Object.keys(byName.get_subshell.inputSchema.properties).sort()).toEqual(["id", "name"]);
     expect(byName.get_subshell.description).toContain("name");
     expect(byName.restart_subshell.inputSchema.properties).toHaveProperty("prompt");

@@ -315,6 +315,7 @@ export class SubshellManagerService {
     resumeFromId,
     notify,
     nodeId,
+    crossAgent,
   }: {
     userId: string;
     /** Harness plugin to launch — required, with or without a preset. */
@@ -347,6 +348,13 @@ export class SubshellManagerService {
      * runs against THIS node's launcher.
      */
     nodeId?: string;
+    /**
+     * 1 = an agent opened this pane over MCP (`create_subshell`), not a human
+     * at the UI: the row is stamped cross-agent, which is what files it under
+     * "Cross-agent comms" and (through the caller's `notify` choice) keeps it
+     * silent. Only creation writes it; a restart reuses the row.
+     */
+    crossAgent?: number;
   }): Promise<{ id: string; tmuxSocket: string; apiKey: string; promptDelivered: boolean }> {
     const presetRow = presetId ? await this.#presets.findById(presetId) : undefined;
     if (presetId && (!presetRow || presetRow.userId !== userId)) {
@@ -411,6 +419,9 @@ export class SubshellManagerService {
       harnessSessionId: harnessSession?.id ?? null,
       // Default-silent unless explicitly requested (restart inherits the bell).
       notify: notify ? 1 : 0,
+      // How the pane was OPENED, recorded once; the rail's category and the
+      // caller's bell default both read this. 0 = the DB default, human.
+      crossAgent: crossAgent === 1 ? 1 : 0,
     });
 
     // The token is minted AFTER the row exists (issueSubshellToken writes the
@@ -2050,6 +2061,7 @@ export function toSubshellView(
     notify: number;
     waitingSince: string | null;
     lastPushUrgency: number | null;
+    crossAgent: number;
   },
   status: string,
   /** The subshell's current screen, bottom-first-trimmed; empty when not running. */
@@ -2098,6 +2110,9 @@ export function toSubshellView(
     nextRestartAt: row.nextRestartAt,
     nameLocked: row.nameLocked === 1,
     notify: row.notify === 1,
+    // How this pane was OPENED: an agent over MCP, not a human at the UI. The
+    // rail files these under "Cross-agent comms" and their bell defaults off.
+    crossAgent: row.crossAgent === 1,
     // ISO ts of the attention event that put this subshell in waiting-for-you
     // state (null = not waiting); cleared by the watcher on output-resume/death.
     waitingSince: row.waitingSince,

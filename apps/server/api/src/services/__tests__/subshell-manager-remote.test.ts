@@ -17,6 +17,7 @@ import * as nodesMigration from "@/db/migrations/0017-nodes.js";
 import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
 import * as presetsMigration from "@/db/migrations/0027-presets.js";
 import * as pushUrgencyMigration from "@/db/migrations/0035-subshell-push-urgency.js";
+import * as crossAgentMigration from "@/db/migrations/0039-subshell-cross-agent.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -81,6 +82,7 @@ beforeAll(async () => {
   await subshellRenameMigration.up(dbHandle); // renamed schema the code sees
   await presetsMigration.up(dbHandle); // profiles → presets (spec 2026-09-13 §6)
   await pushUrgencyMigration.up(dbHandle); // last_push_urgency — #reviveRow clears it on revival (spec 2026-09-23)
+  await crossAgentMigration.up(dbHandle); // subshells.cross_agent — SubshellsRepository.create writes it (2026-09-25)
   presetsRepo = new PresetsRepository(dbHandle);
   subshellsRepo = new SubshellsRepository(dbHandle);
   presetId = await seedPreset(presetsRepo);

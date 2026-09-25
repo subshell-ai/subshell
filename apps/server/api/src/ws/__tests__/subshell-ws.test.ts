@@ -1,4 +1,7 @@
-import { describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { setupAuthTables } from "@/api/__tests__/helpers/auth-tables.js";
+import { db } from "@/db/index.js";
+import { getRequestlessContext } from "@/lib/context.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import { parseClientBuild } from "@/ws/attach-params.js";
 import { handleSubshellMessage } from "@/ws/subshell-ws.js";
@@ -8,7 +11,9 @@ import { registerViewer, resetGeometryQueueForTests, resetLiveViewersForTests, t
 // pinned there by __tests__/sync-stripper.test.ts.
 
 /** Records every launcher call the message handler makes. `canInput` defaults true (an edit/owner attach). */
-function fakeSocket(opts: { canInput?: boolean; subshellId?: string; sid?: string; failInput?: boolean } = {}) {
+function fakeSocket(
+  opts: { canInput?: boolean; subshellId?: string; sid?: string; failInput?: boolean; attendsPush?: boolean } = {},
+) {
   const inputs: string[] = [];
   const resizes: Array<{ cols: number; rows: number }> = [];
   const sent: Array<Record<string, unknown>> = [];
@@ -35,6 +40,9 @@ function fakeSocket(opts: { canInput?: boolean; subshellId?: string; sid?: strin
       subshellId,
       logFile: "/dev/null",
       canInput: opts.canInput ?? true,
+      // Stamped by the open handler from `resolveAttach` in production; the
+      // unseen-push tests set it by hand like everything else here.
+      ...(opts.attendsPush ? { attendsPush: true } : {}),
       // The registry is keyed by viewerId, so a fake without one registers
       // as nothing and its resize frames reach no pane.
       viewerId: crypto.randomUUID(),
@@ -312,5 +320,82 @@ describe("parseClientBuild", () => {
 
   it("keeps the dev sentinel intact", () => {
     expect(parseClientBuild(at("&build=dev"))).toBe("dev");
+  });
+});
+
+/**
+ * Typing into a pane answers its unseen push (operator report 2026-09-25):
+ * the two prior answering events were both BOUNDARIES (the detail read, the
+ * attach), so a push that arrived while the owner was already attached,
+ * already looking, kept its bell until the next reload — exactly the "the
+ * needs-attention flag won't clear while I'm interacting with it" complaint.
+ * The shared input handler is now the third answering event.
+ */
+describe("handleSubshellMessage answers the unseen push on the owner's keystroke", () => {
+  const seen: string[] = [];
+  beforeAll(async () => {
+    await setupAuthTables();
+  });
+  afterAll(async () => {
+    for (const id of seen) await db.deleteFrom("subshells").where("id", "=", id).execute();
+  });
+
+  async function unseenRow(userId: string): Promise<string> {
+    const { repos } = getRequestlessContext();
+    const row = await repos.subshells.create({
+      id: crypto.randomUUID(),
+      userId,
+      presetId: null,
+      harnessId: "shell",
+      name: "ws-typing-unseen",
+      workingDir: "/tmp",
+      tmuxSocket: "subshell-ws-typing",
+      status: "running",
+      alive: 1,
+      lastPushUrgency: 2,
+    });
+    seen.push(row.id);
+    return row.id;
+  }
+  const urgencyOf = async (id: string) => (await getRequestlessContext().repos.subshells.findById(id))?.lastPushUrgency;
+
+  it("an attending owner socket clears it on the first typed frame", async () => {
+    const id = await unseenRow(`owner-${crypto.randomUUID()}@x.local`);
+    const { ws, inputs } = fakeSocket({ subshellId: id, attendsPush: true });
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "l" }));
+    await tick(); // the answer is fire-and-forget; let the UPDATE + announce run
+    expect(inputs).toEqual(["l"]); // the keystroke still reaches the pane untouched
+    expect(await urgencyOf(id)).toBeNull();
+  });
+
+  it("a SECOND unseen interval on the same live socket is answered too (no latch)", async () => {
+    const id = await unseenRow(`owner2-${crypto.randomUUID()}@x.local`);
+    const { ws } = fakeSocket({ subshellId: id, attendsPush: true });
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "a" }));
+    await tick();
+    expect(await urgencyOf(id)).toBeNull();
+    // A new push lands (another turn the owner has not answered); the next
+    // keystroke answers it — the socket does not stop attending after one.
+    await getRequestlessContext().repos.subshells.update(id, { lastPushUrgency: 3 });
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "b" }));
+    await tick();
+    expect(await urgencyOf(id)).toBeNull();
+  });
+
+  it("a NON-attending socket (a scoped token, a grantee) types but answers nothing", async () => {
+    const id = await unseenRow(`someone-${crypto.randomUUID()}@x.local`);
+    const { ws } = fakeSocket({ subshellId: id }); // attendsPush absent = not the human
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "l" }));
+    await tick();
+    expect(await urgencyOf(id)).toBe(2); // a machine credential attended nothing
+  });
+
+  it("a read-only (view) grantee's input is dropped and answers nothing", async () => {
+    const id = await unseenRow(`view-${crypto.randomUUID()}@x.local`);
+    const { ws, inputs } = fakeSocket({ subshellId: id, canInput: false, attendsPush: true });
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "l" }));
+    await tick();
+    expect(inputs).toEqual([]);
+    expect(await urgencyOf(id)).toBe(2);
   });
 });

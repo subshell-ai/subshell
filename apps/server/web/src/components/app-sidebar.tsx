@@ -40,11 +40,24 @@ import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useWorkspaces } from "@/hooks/use-workspaces";
 import { signOutAndRedirect, useCurrentUser } from "@/lib/auth";
 import { desktopInvoke, isDesktop, onDesktopAction } from "@/lib/desktop";
-import { collapsedNodeGroups, setCollapsedNodeGroups, toggleNodeGroup } from "@/lib/sidebar-node-group-pref";
+import {
+  collapsedNodeGroups,
+  commsGroupOpen,
+  setCollapsedNodeGroups,
+  setCommsGroupOpen,
+  toggleNodeGroup,
+} from "@/lib/sidebar-node-group-pref";
 import { RECENT_LIMIT, recentWorkspaceLinks } from "@/lib/sidebar-recents";
 import { filterSubshells } from "@/lib/subshell-filter";
 import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
-import { FALLBACK_NODE_ID, groupSubshellsByNode, needsAttention, nodeLabelFor } from "@/lib/subshell-node-groups";
+import {
+  CROSS_AGENT_GROUP_ID,
+  FALLBACK_NODE_ID,
+  groupSubshellsByNode,
+  needsAttention,
+  nodeLabelFor,
+  partitionCrossAgent,
+} from "@/lib/subshell-node-groups";
 
 /** localStorage key for the collapsed state (persists across reloads). */
 const COLLAPSED_KEY = "subshell.sidebarCollapsed";
@@ -317,12 +330,30 @@ export function AppSidebar({
   // exact rows the groups see" a fact of the code rather than two identical
   // expressions kept in sync by a comment.
   const railRows = q ? filterSubshells(byStatus, subshellQuery) : byStatus;
+  // Panes an AGENT opened over MCP leave the machine groups entirely
+  // (operator ask 2026-09-25): they are internal cross-agent comms, filed in
+  // one section of their own below the machines, each row naming the machine
+  // it runs on since the section spans them. The partition runs on the
+  // FILTERED list, so a search matches them exactly like a machine's rows.
+  const { human: railHuman, comms: railComms } = partitionCrossAgent(railRows);
+  const commsGroup = {
+    nodeId: CROSS_AGENT_GROUP_ID,
+    label: "Cross-agent comms",
+    // The header's hover line is the whole explanation; two sentences max,
+    // per the design system's rule for UI text.
+    title:
+      "Panes an agent opened over MCP to talk to another agent. Created with the bell off; toggle it from a row's menu.",
+    total: railComms.length,
+    // The same per-group cap the machines get, and the same exemption while
+    // filtering: a search that hid its own ninth match lies.
+    subshells: q === "" ? railComms.slice(0, RECENT_LIMIT) : railComms,
+  };
   // NOT memoised, deliberately: a group's rank re-derives activity against
   // the CLOCK, so a `useMemo` keyed on the data would freeze the group order
   // between feed frames and undo the liveliest-member ordering the 20 s tick
   // exists to maintain. The pass is O(rows) with a Map, per tick and per
   // keystroke — the frame it costs is one the rail re-renders for anyway.
-  const nodeGroups = groupSubshellsByNode(railRows, nodeData?.nodes, {
+  const nodeGroups = groupSubshellsByNode(railHuman, nodeData?.nodes, {
     limit: q ? undefined : RECENT_LIMIT,
     // "Unanswered" means NO successful read has ever committed: in flight, or
     // failed with nothing cached. It cannot be `isPending || isError` — a
@@ -339,13 +370,24 @@ export function AppSidebar({
   // (forced-open) group, and the cap that groups apply never hides a pane that
   // pushed.
   const attentionRows = needsAttention(railRows);
-  const listedCount = nodeGroups.reduce((sum, group) => sum + group.subshells.length, 0);
+  // The "No matches" empty state must count the comms section too: a filter
+  // that hits only a cross-agent pane would otherwise say "No matches" above a
+  // row it is showing.
+  const listedCount = nodeGroups.reduce((sum, group) => sum + group.subshells.length, 0) + commsGroup.subshells.length;
   // Which node groups this device has shut. Read once at mount — the rail
   // lives for the session, so re-reading storage on every render would buy
   // nothing but a synchronous read per frame.
   const [collapsedGroups, setCollapsedGroups] = useState(collapsedNodeGroups);
   const toggleNodeGroupOpen = useCallback((nodeId: string) => {
     setCollapsedGroups((prev) => setCollapsedNodeGroups(toggleNodeGroup(prev, nodeId)));
+  }, []);
+  // The comms section's own open state: CLOSED until this device opens it
+  // (operator ask 2026-09-25), because its rows can multiply silently while
+  // the machines' groups cannot. Separate pref for the inverted default (see
+  // `sidebar-node-group-pref.ts`).
+  const [commsOpen, setCommsOpen] = useState(commsGroupOpen);
+  const toggleCommsOpen = useCallback(() => {
+    setCommsOpen((prev) => setCommsGroupOpen(!prev));
   }, []);
   const [collapsedState, setCollapsed] = useState(() => {
     try {
@@ -691,6 +733,43 @@ export function AppSidebar({
                     ))}
                   </SubshellNodeGroup>
                 ))}
+              {/* The cross-agent comms section (operator ask 2026-09-25), below
+                  the machines and only when there is something to file. It
+                  reuses the machine group's collapsing IDIOM but carries its
+                  own preference, because its default is the other way: closed
+                  (operator ask 2026-09-25). Each row's subline names its own
+                  machine (the section header cannot, it spans them all). */}
+              {!collapsed && item.to === "/" && commsGroup.total > 0 && (
+                <SubshellNodeGroup
+                  key={commsGroup.nodeId}
+                  nodeId={commsGroup.nodeId}
+                  label={commsGroup.label}
+                  title={commsGroup.title}
+                  count={commsGroup.total}
+                  open={q !== "" || commsOpen}
+                  disabled={q !== ""}
+                  onToggle={toggleCommsOpen}
+                >
+                  {commsGroup.subshells.map((sub) => {
+                    const machineLabel = nodeLabelFor(
+                      sub.nodeId || FALLBACK_NODE_ID,
+                      nodeData?.nodes,
+                      nodeData === undefined,
+                    ).label;
+                    return (
+                      <SubshellRecentRow
+                        key={`comms-${sub.id}`}
+                        subshell={sub}
+                        active={location.pathname === `/subshells/${sub.id}`}
+                        nodeLabel={machineLabel}
+                        subline={machineLabel}
+                        agentLabel={agentLabel(sub.harnessId)}
+                        presetLabel={presetLabel(sub.presetId)}
+                      />
+                    );
+                  })}
+                </SubshellNodeGroup>
+              )}
               {!collapsed &&
                 item.to === "/workspaces" &&
                 recentWorkspaces.map((r) => {

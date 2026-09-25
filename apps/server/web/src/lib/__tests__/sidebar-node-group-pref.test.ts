@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { collapsedNodeGroups, setCollapsedNodeGroups, toggleNodeGroup } from "@/lib/sidebar-node-group-pref";
+import {
+  collapsedNodeGroups,
+  commsGroupOpen,
+  setCollapsedNodeGroups,
+  setCommsGroupOpen,
+  toggleNodeGroup,
+} from "@/lib/sidebar-node-group-pref";
 
 describe("sidebar node-group collapse (per-device preference)", () => {
   const KEY = "subshell.sidebarNodeGroups";
@@ -33,5 +39,26 @@ describe("sidebar node-group collapse (per-device preference)", () => {
     // The label is `node.name` and moves with a rename; this set must not.
     setCollapsedNodeGroups(["n1"]);
     expect(collapsedNodeGroups()).toContain("n1");
+  });
+});
+
+describe("cross-agent comms group open (per-device preference)", () => {
+  const KEY = "subshell.sidebarCommsOpen";
+  afterEach(() => localStorage.removeItem(KEY));
+
+  it("defaults CLOSED — the opposite of the machine groups (operator ask 2026-09-25)", () => {
+    expect(commsGroupOpen()).toBe(false);
+  });
+
+  it("remembers an explicit open across reads", () => {
+    expect(setCommsGroupOpen(true)).toBe(true);
+    expect(commsGroupOpen()).toBe(true);
+    setCommsGroupOpen(false);
+    expect(commsGroupOpen()).toBe(false);
+  });
+
+  it("reads anything not a stored 1 as closed — corrupt/absent is the safe default", () => {
+    localStorage.setItem(KEY, "yes");
+    expect(commsGroupOpen()).toBe(false);
   });
 });

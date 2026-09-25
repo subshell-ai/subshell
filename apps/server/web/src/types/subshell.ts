@@ -70,9 +70,18 @@ export interface SubshellView {
   nextRestartAt: string | null;
   /** True = pushes (and waiting-for-you priority) enabled for this subshell; false = muted bell */
   notify: boolean;
+  /**
+   * True = the pane was launched by an agent over MCP (the `create_subshell`
+   * door), not by a human at the UI: internal cross-agent comms, filed under
+   * "Cross-agent comms" in the rail and created with the bell off. Optional
+   * for the same reason `shareCount` is — a payload cached by a client older
+   * than the field must keep typechecking, and an absent field reads human,
+   * which is what every pre-flag pane actually was.
+   */
+  crossAgent?: boolean;
   /** ISO 8601 ts of the attention event that put the subshell in waiting-for-you state; null = not waiting */
   waitingSince: string | null;
-  /** True = a delivered push the owner has not answered by opening the pane (spec 2026-09-23). */
+  /** True = a delivered push the owner has not answered by opening the pane or typing into it (spec 2026-09-23, typing added 2026-09-25). */
   unseenPush: boolean;
   /** The caller's effective access to this subshell (viewer-relative; drives which controls render) */
   access: SubshellAccess;

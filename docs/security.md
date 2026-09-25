@@ -690,7 +690,14 @@ types into a running pane over HTTP, the door the MCP `send_to_subshell` tool
 rides: the one `NodeLauncher.sendInput` member the live attach socket already
 flows keystrokes through (`tmux send-keys -l --` locally, the agent's `input`
 command remotely), so the argv posture above is this route's posture too, not a
-new exposure. Its gate is the level typing already costs on the socket: `edit`
+new exposure. RUNNING is the row's TWO facts, not one: a pane that exited on its
+own parks at `status: "running"` with `alive: 0` (parked is what auto-restart
+and "Start again" revive from) and its tmux session is already reaped, so the
+guard checks both, the liveness fact too, and a send into that window answers
+the 409 `SUBSHELL_NOT_RUNNING` ("Restart it first") with nothing typed. A
+`status`-only gate answered that window 500 on a remote node and could "succeed"
+into nothing on a local one (measured, the same day). Its gate is the level
+typing already costs on the socket: `edit`
 (a `view` grantee 403s, a foreign row 404s), and a bearer pane key follows the
 per-subshell switch-off (§3): it types into its owner's other running panes,
 never a foreign or merely-shared one. `submit` sends Enter as a SECOND
@@ -748,7 +755,14 @@ Revoke by clearing the grant: the sharing dialog, or an empty `PUT`.
 Push is **owner-targeted**. A notification goes only to the subshell owner's
 devices, gated by a per-user master switch (`user_meta.notify_enabled`) and the
 per-subshell bell (`subshells.notify`). Sharing widens who can see and act; it
-never widens who gets pushed.
+never widens who gets pushed. **Agent-launched panes are born silent**
+(2026-09-25): a create that arrives on a pane's own bearer token (the MCP
+`create_subshell` door) is stamped `subshells.cross_agent` (written once; no
+later act rewrites it) and created with the bell OFF, because
+agent-to-agent comms are not news a human needs rung for; the owner can still
+turn that pane's bell on, and the flag is what files the pane under
+"Cross-agent comms" in the client. It is a disclosure like the other row
+fields: anyone who can see the row can see it.
 
 **What owner-targeting does not decide is WHERE the metadata goes, and the
 answer is third-party relays outside the §0 perimeter**, stated here because

@@ -16,6 +16,7 @@
 import { DEFAULT_SIZING, resolveSharedGrid, type SizingPolicy, type ViewerPresence } from "@internal/subshell-protocol";
 import { encodeFrame, type WireMode } from "@internal/subshell-protocol/wire";
 import { getRequestlessContext } from "@/lib/context.js";
+import { publishLive } from "@/services/live-bus.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import { logger } from "@/utils/logger.js";
 import { resetInputHoldsForTests } from "@/ws/input-hold.js";
@@ -57,6 +58,15 @@ export interface WsData {
 
   /** True when the caller may send terminal input (`edit`/`owner`); a `view` grantee is read-only. */
   canInput: boolean;
+  /**
+   * True when this socket belongs to the human the row's pushes go to (a
+   * cookie identity on their own row) — stashed on `ws.data` by the open
+   * handler before either attach path builds its literal, the same channel
+   * `attachUserId` uses. The shared message handler lets the first TYPED
+   * frame answer the row's unseen push (`ws/unseen-answer.ts`); absent
+   * (fakes, pre-stamp frames) answers nothing, which is the safe direction.
+   */
+  attendsPush?: boolean;
   /**
    * The grid THIS viewer can display, as last reported. One input to the
    * shared-grid decision (`@internal/subshell-protocol`); never applied on its own,
@@ -181,10 +191,24 @@ const sizingPolicies = new Map<string, SizingPolicy>();
 const lastOutputWrites = new Map<string, number>();
 
 /**
- * Records that a subshell produced output, at most once per 2s.
+ * Records that a subshell produced output, at most once per 2s, and ANNOUNCES
+ * the stamp.
  *
  * Keyed by SUBSHELL, not by socket: the pump is shared now, so a per-viewer
  * throttle would multiply the write rate by the number of devices watching.
+ *
+ * The announce is not optional. This stamp is what the UI renders as "this
+ * pane is printing" (the blinking active dot is derived from `lastOutputAt`
+ * against the clock), and under the event-driven feed an unannounced write
+ * reaches no client: the row cached in every open tab kept its stale stamp,
+ * so a printing pane read idle and never blinked. For a subshell on an agent
+ * node this is the ONLY fresh `lastOutputAt` there is (the 60s mtime sweep is
+ * LOCAL-ONLY by design), so the dot was doubly dead there. Announcing a
+ * per-write would be the spam the feed replaced; the 2s throttle above is
+ * what makes this an activity STAMP, and the publisher's per-id coalescing
+ * bounds the frames. (Still attached-only: an agent pane nobody is watching
+ * relays no output, so its stamp waits for an attach, an act, or a
+ * terminate.)
  * @param subshellId - The subshell that produced output
  */
 export function persistOutputFor(subshellId: string): void {
@@ -193,6 +217,7 @@ export function persistOutputFor(subshellId: string): void {
   lastOutputWrites.set(subshellId, now);
   getRequestlessContext()
     .repos.subshells.update(subshellId, { lastOutputAt: new Date().toISOString() })
+    .then(() => publishLive({ kind: "subshell.changed", id: subshellId }))
     .catch((err: unknown) => logger.withError(err).warn("failed to persist lastOutputAt"));
 }
 

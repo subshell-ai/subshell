@@ -61,6 +61,11 @@ export const createSubshellRoute = new Elysia()
         prompt: body.prompt,
         nodeId: body.nodeId,
         machineActor: actor !== "cookie",
+        // A launch that arrives on a PANE'S OWN token is an agent opening a
+        // sibling to talk to it (`create_subshell`); a system key is admin
+        // automation, not an in-pane peer. Only the former files as
+        // cross-agent comms and (in the service) skips the default bell.
+        crossAgent: actor === "subshell-key",
       });
     },
     {

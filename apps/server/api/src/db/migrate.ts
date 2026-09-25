@@ -38,6 +38,7 @@ import * as pushUrgencyMigration from "@/db/migrations/0035-subshell-push-urgenc
 import * as nodeEncryptPublicKeyMigration from "@/db/migrations/0036-node-encrypt-public-key.js";
 import * as authProvidersMigration from "@/db/migrations/0037-auth-providers.js";
 import * as approvalStateMigration from "@/db/migrations/0038-approval-state.js";
+import * as subshellCrossAgentMigration from "@/db/migrations/0039-subshell-cross-agent.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -111,6 +112,7 @@ export async function runMigrations(): Promise<void> {
           // Approval lifecycle on `user_meta`; DEFAULT 'approved' backfills
           // every pre-existing account (spec 2026-09-24 §6).
           "0038-approval-state": approvalStateMigration,
+          "0039-subshell-cross-agent": subshellCrossAgentMigration,
         };
       },
     },

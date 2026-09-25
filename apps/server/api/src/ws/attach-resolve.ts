@@ -48,6 +48,15 @@ export interface AttachResolved {
   access: Access;
   /** What the client declared on its URL. */
   params: AttachParams;
+  /**
+   * True when this socket belongs to the human the pushes go to: a HUMAN
+   * identity (cookie session or cookie-minted ws-token, the only unbound
+   * ones) on a row they own. Stamped onto `ws.data` so the first TYPED frame
+   * answers the row's unseen push (spec 2026-09-23's "opened the pane"
+   * answer, completed 2026-09-25: a push that lands while the owner is
+   * already typing had no answering event before this).
+   */
+  attendsPush: boolean;
 }
 
 /** The attach is refused; the caller closes with exactly this. */
@@ -183,7 +192,11 @@ export async function resolveAttach(input: AttachRequest): Promise<AttachResolve
   // resolves as the owner still attends nothing, and the owner check is the
   // row itself. Best-effort: an uncleared urgency costs one extra escalation,
   // a throwing update must not refuse an admitted attach.
-  if (identity.subshellId === null && identity.userId === row.userId && row.lastPushUrgency !== null) {
+  // The SAME predicate the first typed frame will consult for the rest of
+  // this socket's life (see `attendsPush` on `AttachResolved`, and the input
+  // branch of `handleSubshellMessage`).
+  const attendsPush = identity.subshellId === null && identity.userId === row.userId;
+  if (attendsPush && row.lastPushUrgency !== null) {
     try {
       await repos.subshells.update(row.id, { lastPushUrgency: null });
       publishLive({ kind: "subshell.changed", id: row.id });
@@ -193,7 +206,7 @@ export async function resolveAttach(input: AttachRequest): Promise<AttachResolve
       logger.warn(`unseen-push clear/announce failed for ${row.id} (escalation may double)`);
     }
   }
-  return { ok: true, userId: identity.userId, row, access, params };
+  return { ok: true, userId: identity.userId, row, access, params, attendsPush };
 }
 
 /** Longest User-Agent the attach line will print (unchanged from the raw slice). */
