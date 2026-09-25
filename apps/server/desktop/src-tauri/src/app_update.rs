@@ -49,7 +49,8 @@ use subshell_desktop_core::settings::SettingsState;
 /// The tag prefix this app's own releases carry.
 ///
 /// The release-component ID, not the directory: `apps/server/desktop` ships as
-/// `desktop-server-vX.Y.Z` (root `AGENTS.md`, "GitHub Releases"). Getting this
+/// `desktop-server-vX.Y.Z` (`docs/release-and-ci.md`, "GitHub Releases").
+/// Getting this
 /// wrong points the app at another component's releases, which would parse and
 /// compare perfectly well.
 pub const TAG_PREFIX: &str = "desktop-server-v";

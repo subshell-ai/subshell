@@ -3,7 +3,7 @@
  * Keep U+2014 out of the repository's authored prose (operator ruling,
  * 2026-09-25). The docs SITE carries the same rule as a content test; this is
  * its twin for everything else a human reads in this repository: the root and
- * per-app AGENTS.md/CLAUDE.md files, docs/, .claude/rules/, READMEs, and the
+ * per-app AGENTS.md files, docs/, .claude/rules/, READMEs, and the
  * pending .changeset notes that become tomorrow's CHANGELOG entries.
  *
  * The rule, from apps/docs/AGENTS.md: no em dashes in prose, headings or
