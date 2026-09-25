@@ -70,6 +70,10 @@ const SLICE_BY_PACKAGE: Readonly<Record<string, keyof SliceFlags>> = {
   "@internal/server": "serverNode",
   "@internal/node": "serverNode",
   "@internal/e2e": "e2e",
+  // The website's suites run in the Scripts job (its `bun test` needs no
+  // browser and no build beyond what that job already runs). Unregistered, a
+  // website change would land in the unknown-package fail-wide — every slice.
+  "@internal/website": "scripts",
 };
 
 /** The all-runs baseline every degraded path returns. */
@@ -162,7 +166,10 @@ export function computePlan(
   }
 
   const serverAffected = names.has("@internal/server");
-  flags.scripts = scriptsTouched(changedFiles);
+  // `||=`: a package registered to this slice (website) must not be erased by
+  // the file predicate, which starts from the changed FILES and would answer
+  // false for an affected-set-only trigger.
+  flags.scripts ||= scriptsTouched(changedFiles);
   // The compiled-binary smoke bundles the server AND everything it imports;
   // `@internal/server` ∈ affected IS that closure (dependents-of-changed is
   // how the filter is built). `scripts/**` covers the smoke's own shell script.

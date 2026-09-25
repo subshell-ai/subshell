@@ -13,13 +13,18 @@ describe("computePlan", () => {
       [pkg("@internal/server", "apps/server/api"), "serverNode"],
       [pkg("@internal/node", "apps/node/agent"), "serverNode"],
       [pkg("@internal/e2e", "e2e"), "e2e"],
+      // The website's suites run inside the Scripts job, so its package
+      // routes there by NAME — an unregistered website would fail-wide.
+      [pkg("@internal/website", "apps/website"), "scripts"],
     ];
     for (const [p, slice] of cases) {
       const { flags } = computePlan([p], []);
       for (const key of ["web", "mobile", "desktop", "serverNode", "packages", "scripts", "e2e"] as const) {
-        // Every named-package slice routes ALONE; `scripts` stays closed with
-        // an empty changed-file list. `smoke` is excluded because server ∈
-        // affected is ITS trigger too — its own test below pins that pair.
+        // Every named-package slice routes ALONE; `scripts` stays closed for
+        // the other packages with an empty changed-file list, and opens for
+        // website from the registration alone (`||=`, not `=`). `smoke` is
+        // excluded because server ∈ affected is ITS trigger too — its own
+        // test below pins that pair.
         expect(flags[key]).toBe(key === slice);
       }
       expect(flags.smoke).toBe(p.name === "@internal/server");

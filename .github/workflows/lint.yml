@@ -138,3 +138,32 @@ jobs:
 
       - name: Audit dependencies
         run: bun run audit:deps
+
+  # The website's install column reads the root releases.json, and release.yml
+  # regenerates it after every cut. If that job's commit step ever breaks,
+  # main moves on with a stale manifest: drift is a CI failure, not a
+  # visitor's problem (spec 2026-09-23 §5). Bare on the runner like the Lint
+  # job above for the same reason: bun and the checkout are the whole need.
+  site-manifest-fresh:
+    name: releases.json matches the tags
+    # Push-only: tags land at cut START, PRs must not go red for a cut in flight; drift is caught "on the next push".
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Use Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      # ls-remote goes to the remote by protocol, so no fetch-depth: 0 here:
+      # the checkout supplies the script and the committed file it compares
+      # against, nothing more.
+      - name: Check
+        run: bun scripts/site-releases.ts --check
