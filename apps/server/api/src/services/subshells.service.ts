@@ -6,7 +6,7 @@ import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 // line. `resumed` is deliberately NOT a `NotifyKind` in either file: resuming
 // is a state change, nothing rings for it.
 import type { AttentionKind } from "@internal/mcp-core";
-import { getHarness } from "@internal/pane-runtime";
+import { allHarnesses, getHarness } from "@internal/pane-runtime";
 import { NODE_RESULT_MAINTENANCE } from "@internal/subshell-protocol";
 import type { GuardActor } from "@/api/auth-guard.js";
 import { HttpError } from "@/api/auth-guard.js";
@@ -392,14 +392,28 @@ export class SubshellsService extends BaseService {
     }
     // An id that resolves to NO plugin names nothing — a typo, or a plugin
     // that failed to load (broken plugins enter neither the registry nor the
-    // overlay). Say so (400, the same wording `POST /api/presets` uses)
-    // before anything node-shaped can answer instead: this check depends on
-    // nothing node resolution produces, so running it after would let a typo
-    // on an instance with no launch-eligible node come back as NODE_REQUIRED
+    // overlay). Say so (400, the same status `POST /api/presets` uses) before
+    // anything node-shaped can answer instead: this check depends on nothing
+    // node resolution produces, so running it after would let a typo on an
+    // instance with no launch-eligible node come back as NODE_REQUIRED
     // ("pick one") rather than "Unknown harness". Only the USABILITY gate
     // below is per-node; disabled-but-known still 409s there.
+    //
+    // The refusal NAMES the options (spec 2026-09-25, MCP DX): the machine
+    // reader that arrives through this error has no other enumeration path in
+    // hand, and a bare "unknown" forces a guess-retry loop. The list is what
+    // `getHarness` actually resolves against (built-ins plus the installed
+    // overlay), sorted, so two identical mistakes answer identically.
     if (!getHarness(harnessId)) {
-      throw new SubshellCreateError("bad_request", `Unknown harness: ${harnessId}`, 400);
+      const available = allHarnesses()
+        .map((h) => h.id)
+        .sort()
+        .join(", ");
+      throw new SubshellCreateError(
+        "bad_request",
+        `Unknown harness: ${harnessId}. Available harnesses: ${available}`,
+        400,
+      );
     }
     // §6.6 precedence BEFORE the per-node harness gate: "where" must be
     // settled first, since "usable" is per-node now (spec §6.2).

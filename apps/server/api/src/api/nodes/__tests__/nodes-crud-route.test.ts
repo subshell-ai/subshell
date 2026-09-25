@@ -74,7 +74,9 @@ function plantPending(conn: NodeConnection): () => unknown {
  * share-row-is-the-filter access model, rename (per-owner collision 409,
  * `local` immutable), delete (owner-only, running-subshell guard, force rules,
  * api-key teardown + live-socket disconnect), rotate-key (mint → flip →
- * disable, live-socket disconnect). All cookie-only in phase 1.
+ * disable, live-socket disconnect). The list is the one bearer-readable route
+ * since spec 2026-09-25 (MCP DX, owner-only); every other route here stays
+ * cookie-only.
  */
 describe("/api/nodes registry CRUD", () => {
   const pw = "nodes-crud-1";
@@ -335,8 +337,11 @@ describe("/api/nodes registry CRUD", () => {
     expect(seen.canManage).toBe(false);
   });
 
-  it("a subshell bearer key is refused on every registry route (cookie-only phase 1)", async () => {
-    expect((await req("GET", "", { bearer: subshellKey })).status).toBe(403);
+  it("a subshell bearer key reads the LIST (owner-only, spec 2026-09-25) but is refused on every other registry route", async () => {
+    // The machine consumer the cookie-only phase deferred to arrived with the
+    // MCP DX work; the list is disclosure-only, so the read answers 200 while
+    // detail, writes and rotate/delete stay cookie-only.
+    expect((await req("GET", "", { bearer: subshellKey })).status).toBe(200);
     expect((await req("GET", "/local", { bearer: subshellKey })).status).toBe(403);
     expect((await req("PATCH", "/local", { bearer: subshellKey, body: { name: "x" } })).status).toBe(403);
     expect((await req("DELETE", "/local", { bearer: subshellKey })).status).toBe(403);

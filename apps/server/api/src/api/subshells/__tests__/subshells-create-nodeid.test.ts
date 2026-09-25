@@ -174,10 +174,16 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     // POST /api/presets said 400 Unknown harness, this one said 409 "that
     // harness is disabled". A 409 calls a typo a STATE of the machine; the
     // disagreement is the bug this pins closed.
+    // Spec 2026-09-25 (MCP DX): the refusal now NAMES the options, because a
+    // machine reader with no other way to enumerate harnesses cannot retry
+    // from a bare "unknown".
     const res = await post({ harnessId: "no-such-harness", workingDir: "/tmp" });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { code: string; message: string };
-    expect(body.message).toBe("Unknown harness: no-such-harness");
+    expect(body.message.startsWith("Unknown harness: no-such-harness. Available harnesses: ")).toBe(true);
+    const ids = body.message.replace("Unknown harness: no-such-harness. Available harnesses: ", "").split(", ");
+    expect(ids).toContain("claude-code");
+    expect([...ids].sort()).toEqual(ids); // sorted: a stable message an agent can diff
   });
 
   it("an unknown harness beats node resolution: a bearer actor with no eligible node still hears 'Unknown harness'", async () => {
@@ -199,7 +205,11 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     const key = await issueSubshellToken(sid, userId);
     const res = await post({ harnessId: "no-such-harness", workingDir: "/tmp" }, key);
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { message: string }).message).toBe("Unknown harness: no-such-harness");
+    expect(
+      ((await res.json()) as { message: string }).message.startsWith(
+        "Unknown harness: no-such-harness. Available harnesses: ",
+      ),
+    ).toBe(true);
   });
 
   it('nodeId "local" → same resolution as omitted', async () => {
