@@ -212,9 +212,27 @@ describe("ProviderDialog", () => {
     try {
       renderDialog();
       await settle();
-      // The fallback seed is the pinned row too, so it carries no Remove.
-      expect(screen.getAllByText("Public base URL").length).toBeGreaterThan(0);
+      // The fallback seed is the pinned row too, so it carries no Remove —
+      // but "Callback base", never "Public base URL": with appBaseUrl unknown
+      // the dialog cannot SEE a public base URL to claim the row is one
+      // (review M-3, operator ruling 2026-09-25).
+      expect(screen.getAllByText("Callback base").length).toBeGreaterThan(0);
+      expect(screen.queryByText("Public base URL")).toBeNull();
       expect(screen.queryByRole("button", { name: `Remove ${window.location.origin}` })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("an edit row whose canonical is not the instance's base URL badges Callback base", async () => {
+    // The M-3 case: an API-created door stores an arbitrary address first.
+    // The badge may name the position's role, not assert a fact it cannot see.
+    const { restore } = mockFetch({ trustedOrigins: ["https://plane.example"], appBaseUrl: "https://plane.example" });
+    try {
+      renderDialog({ provider: view({ entryOrigins: ["https://other.example", "https://plane.example"] }) });
+      await settle();
+      expect(screen.getByText("Callback base")).toBeDefined();
+      expect(screen.queryByText("Public base URL")).toBeNull();
     } finally {
       restore();
     }

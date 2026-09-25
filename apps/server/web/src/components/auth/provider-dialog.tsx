@@ -69,8 +69,11 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
   // APP_BASE_URL's origin, falling back to this browser's origin ONLY while
   // appBaseUrl is unknown — the same source order `lib/install-addresses`
   // documents for its pickers.
-  const canonicalEntry =
-    normalizeOriginEntry(publicSettings?.appBaseUrl ?? "") ?? normalizeOriginEntry(window.location.origin);
+  // The instance's public base URL WITHOUT the window fallback — the badge in
+  // the entry list may only claim "Public base URL" of an address it can
+  // actually see (review M-3, operator ruling 2026-09-25).
+  const publicBaseOrigin = normalizeOriginEntry(publicSettings?.appBaseUrl ?? "");
+  const canonicalEntry = publicBaseOrigin ?? normalizeOriginEntry(window.location.origin);
 
   // Create starts with kind "google" AND its issuer seeded: a dialog that
   // shows Google chosen but demands a paste of the issuer URL pretends the
@@ -261,7 +264,12 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
         )}
       </div>
 
-      <EntryPointsEditor entries={entries} setEntries={setEntries} candidates={candidates} />
+      <EntryPointsEditor
+        entries={entries}
+        setEntries={setEntries}
+        candidates={candidates}
+        publicBaseOrigin={publicBaseOrigin}
+      />
 
       <RegistrationPanel entries={entries} providerId={displayId} />
 

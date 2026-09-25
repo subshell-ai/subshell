@@ -10,26 +10,33 @@ const OTHER = "__other__";
 /**
  * The entry-points list editor (spec §5a), split out of `provider-dialog.tsx`
  * by review Minor 5: a list over the live origin registry plus a typed
- * escape. The first row is the PUBLIC BASE URL (operator naming,
- * 2026-09-25), the canonical the round trip always lands on, and it is
- * PINNED there with NO control at all: "not removable" is the operator's
+ * escape. The first row is the canonical the round trip always lands on, and
+ * it is PINNED there with NO control at all: "not removable" is the operator's
  * rule, and without position 0 there is no canonical to build redirect URIs
  * from, so the control that would empty the field must not exist. Nothing
  * else about the order means anything server-side — position 0 is the only
  * position with a consequence — so there are no move arrows either (operator
  * ask 2026-09-25): the rest are a set, in the order they were added. The
- * entries themselves live in the form (it saves them); the pick, the typed
- * Other text and the refusal are this editor's own state.
+ * badge names position 0 "Public base URL" ONLY when it actually is the
+ * instance's base URL (operator ruling on review M-3): an API-created row can
+ * store anything first, and a badge that asserts a fact it cannot see would
+ * be the table saying a wrong thing confidently. Otherwise it reads
+ * "Callback base" — the one thing position 0 always is. The entries
+ * themselves live in the form (it saves them); the pick, the typed Other
+ * text and the refusal are this editor's own state.
  */
 export function EntryPointsEditor({
   entries,
   setEntries,
   candidates,
+  publicBaseOrigin,
 }: {
   entries: string[];
   setEntries: Dispatch<SetStateAction<string[]>>;
   /** The registry's addresses, best first (`entryOriginCandidates`). */
   candidates: string[];
+  /** The instance's public base URL as a canonical origin, or null if unknown. */
+  publicBaseOrigin?: string | null;
 }) {
   const [candidate, setCandidate] = useState<string | null>(null);
   const [otherText, setOtherText] = useState("");
@@ -60,7 +67,11 @@ export function EntryPointsEditor({
         {entries.map((origin, i) => (
           <li key={origin} className="flex items-center gap-2">
             <span className="min-w-0 flex-1 truncate font-mono text-detail">{origin}</span>
-            {i === 0 && <Badge variant="secondary">Public base URL</Badge>}
+            {i === 0 && (
+              <Badge variant="secondary">
+                {publicBaseOrigin != null && origin === publicBaseOrigin ? "Public base URL" : "Callback base"}
+              </Badge>
+            )}
             {i > 0 && (
               <Button
                 type="button"
