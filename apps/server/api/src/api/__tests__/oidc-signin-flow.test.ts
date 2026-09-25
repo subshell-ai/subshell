@@ -336,7 +336,7 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     expect(metaOf(rows[0])).toEqual({ method: `oidc:${door}`, userId: id });
     const serialized = JSON.stringify(rows);
     expect(serialized).not.toContain(email);
-    expect(serialized).not.toContain(r.token ?? " ");
+    expect(serialized).not.toContain(r.token ?? "\0");
     expect(serialized).not.toContain((r.token ?? "").split(".")[0]); // the raw token, not just the signed cookie
 
     await purgeByEmail(email);
