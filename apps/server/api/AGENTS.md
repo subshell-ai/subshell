@@ -129,6 +129,13 @@ src/
 └── test-preload.ts # Loaded by bunfig.toml before every test run
 ```
 
+The nodes READ surface widened once (spec 2026-09-25 MCP DX): `GET /api/nodes`
+now answers a bearer machine token with its owner's own nodes (owner-only, no
+shares, no admin boost, disclosure-only), the door the MCP `list_nodes` tool
+rides; `GET /api/nodes/:id` and every nodes write stay cookie-only. The
+accounting is `docs/security.md` §3 and the pins are
+`api/nodes/__tests__/nodes-list-bearer.test.ts`.
+
 The Nodes plane adds two files outside the DB: `GET /api/downloads/node/*`
 (`src/api/downloads.route.ts`) serves the prebuilt `subshell` binaries
 (published as `subshell-node-cli-<triple>` + `.sha256`) from `NODE_ARTIFACTS_DIR`
@@ -258,6 +265,19 @@ calls only; and it is announced ONCE PER ACT rather than per write, since one
 launch writes the row, mints its token and patches it post-spawn. The
 publisher coalesces per id over a 40 ms window, so announcing liberally at act
 boundaries costs nothing on the wire.
+
+Two pane doors arrived with spec 2026-09-25 (MCP DX), and they sit on the
+launcher's existing seams rather than new ones. `POST /api/subshells/:id/input`
+(`input-subshell.route.ts` + `SubshellsService.sendSubshellInput`) types into a
+RUNNING pane over REST, gated at `edit` like terminal input on the attach
+socket, through the one `NodeLauncher.sendInput` member: it writes no row, so
+it is the deliberate exception beside the announce rule above (no `publishLive`,
+no audit row), and `submit` appends Enter as a second frame, so the pair is
+ordered but not atomic. `POST /:id/restart` gained an optional `prompt` that
+rides the successful revive through the SAME `deliverPrompt` seam create uses
+(the settle constants are exported from the manager so there is one settle
+policy), turning `promptDelivered` honest on the row restart always carried as
+a truthful false.
 
 **Local panes are launched with `remain-on-exit`, and the launcher owes them a
 reap.** The option is what makes a finished pane observable (it is why a death

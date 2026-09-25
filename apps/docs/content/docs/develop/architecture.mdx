@@ -99,8 +99,10 @@ This is the whole `subshell mcp` implementation, serving both the server binary'
 packages/mcp-core/src/
 ├── env.ts               env contract consumer (mirror of mcp-launch's producer)
 ├── server.ts            boot + tool registration + AbortSignal plumbing
-├── tools.ts             the 13 handlers, pure over an injectable api client
-├── api-client.ts        fetch wrapper (Bearer + ApiError status)
+├── tools.ts             the shared seam (ToolApi, ToolDeps) + error guidance
+├── channel-tools.ts     the channel handlers, pure over an injectable api client
+├── subshell-tools.ts    the pane/machine handlers (panes, nodes, presets)
+├── api-client.ts        fetch wrapper (Bearer + ApiError status and code)
 ├── crypto.ts            seal / open (jose), DecryptError
 ├── identity-store.ts    keypair persistence + principal-stamp guard
 ├── pin-store.ts         TOFU peer pins (peers.json)

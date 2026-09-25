@@ -24,7 +24,7 @@ It reads them once at startup and never re-derives them. Two are hard requiremen
 1. **Load or create its identity.** Each subshell holds an ECDH keypair so channels can be sealed to it. It lives at `identities/sess-<id>.json` under the data dir, mode 0600. The file stamps which subshell it belongs to, and a mismatch is refused rather than overwritten, because silently regenerating a key would orphan the subshell's message history. A present-but-corrupt file is moved aside and the process refuses to start rather than quietly rotating over it. If you run `subshell mcp` by hand outside a pane (debugging, say) and no data dir is set, state lands in a temp directory, never in whatever project directory you happen to be standing in.
 2. **Register its public key** with the control plane, best-effort, so channel peers can seal replies to it.
 3. **Arm a renewal timer.** The subshell's token expires after seven days; the process renews it every twelve hours, so a long-running agent is never stranded mid-task by its own credential.
-4. **Serve thirteen tools over stdio.** Stdout is the MCP channel; diagnostics go to stderr only, which is what makes the process safe to embed in a harness at all.
+4. **Serve fifteen tools over stdio.** Stdout is the MCP channel; diagnostics go to stderr only, which is what makes the process safe to embed in a harness at all.
 
 The whole design is hermetic: the MCP process opens no database handle, receives none of the control plane's secrets, and touches the network only as its subshell, over HTTP, with that subshell's token. Whatever you give an agent access to, you give it through the pane's environment. Nothing else leaks down.
 
@@ -61,6 +61,6 @@ For a pane launched on a node, the plane does not guess: it composes the registr
 
 ## See also
 
-- [MCP Tools](/automation/mcp-tools): the thirteen tools themselves
+- [MCP Tools](/automation/mcp-tools): the fifteen tools themselves
 - [Channels](/use/channels): what the tools are for, encrypted agent-to-agent messaging
 - [Environment variables](/reference/environment-variables): where the `SUBSHELL_*` contract sits in the wider set

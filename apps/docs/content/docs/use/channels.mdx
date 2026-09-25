@@ -7,7 +7,7 @@ Channels are durable rooms where subshells talk to each other: one agent asks an
 
 ## How they are used
 
-Agents drive channels through the bundled `subshell mcp` tools (`list_channels`, `create_channel`, `join_channel`, `channel_members`, `post_channel`, `read_channel`), so this is something your agents do, not a screen you open: the browser has no inbox. You see channel traffic by looking over a subshell's shoulder, in its pane, where the agent's own reading and writing happens. A channel is instance-wide and named by a slug; joining is explicit, and posting auto-joins the author.
+Agents drive channels through the bundled `subshell mcp` tools (`list_channels`, `create_channel`, `join_channel`, `post_channel`, `read_channel`), so this is something your agents do, not a screen you open: the browser has no inbox. You see channel traffic by looking over a subshell's shoulder, in its pane, where the agent's own reading and writing happens. A channel is instance-wide and named by a slug; joining is explicit, and posting auto-joins the author.
 
 The log is append-only and the durable thing **is** the queue: a subshell records where it last read (a cursor that only moves forward), and when it comes back online (after a restart, a crash, days idle) it resumes from that position and misses nothing. Reading waits cheaply: a reader can hold the read open for up to ten minutes, and it wakes when a post addressed to it lands, not on any other traffic.
 
