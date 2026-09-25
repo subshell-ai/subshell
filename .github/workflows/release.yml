@@ -471,11 +471,12 @@ jobs:
               *) echo "::error::no triples defined for app '$app'"; exit 1 ;;
             esac
             for triple in $triples; do
-              # Each triple's runner IS its arch, deliberately: an exec
-              # smoke claim needs hardware that hosts the instructions
-              # (MAC_INTEL note above), and a desktop bundle's sidecar RUN
-              # check is only honest on matching silicon. One runner per
-              # triple, and it proves its own arch.
+              # One hardware per arch, deliberately: an exec smoke claim
+              # needs a runner that hosts the instructions (MAC_INTEL note
+              # above), and a desktop bundle's sidecar RUN check is only
+              # honest on matching silicon. linux-arm64 is the single
+              # accepted exception below: its amd64 runner cannot prove it,
+              # so its smoke is the magic check, never an exec claim.
               case "$triple" in
                 linux-*)      runner="$LINUX" ;;
                 darwin-arm64) runner="$MAC" ;;
@@ -913,6 +914,14 @@ jobs:
               ;;
             magic)
               echo "cross-built $TRIPLE — no exec smoke (digest sidecar + file(1) hint are the proof)"
+              ;;
+            # exec/magic are all the plan job can emit for a NON-desktop
+            # shard (bundle exits above), so this arm exists for the one
+            # future value that would otherwise pass the step having
+            # proved nothing.
+            *)
+              echo "unknown smoke mode '$SMOKE'" >&2
+              exit 1
               ;;
           esac
 

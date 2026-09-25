@@ -118,6 +118,20 @@ describe("release.yml darwin-x64 venue (settled by run 36196527394 + the hosted-
     expect(line).toContain("$out");
   });
 
+  test("an unknown smoke mode dies loud instead of exiting 0 unproved", () => {
+    // `exec` and `magic` are the only values the plan job can emit here
+    // (desktop exits earlier via the bundle guard), but a case with no
+    // default arm answers any future value with a silent pass, and a
+    // smoke that proves nothing while exiting 0 is the exact failure
+    // this whole wave of pins exists to make impossible.
+    // Own anchor, not smokeStepBody(): that slice ENDS at the magic echo,
+    // which now sits one arm before the default. `case "$SMOKE"` (the
+    // uppercase one; the plan job's tables read $triple/$TRIPLE) is unique.
+    const m = /case "\$SMOKE" in\n([\s\S]*?)\n\s*esac/.exec(WORKFLOW);
+    if (m === null) throw new Error("release.yml: the $SMOKE dispatch was not found (renamed?)");
+    expect(m[1]).toMatch(/\*\)\s*\n\s*echo "unknown smoke mode[^"]*" >&2\n\s*exit 1/);
+  });
+
   test("boot smoke backgrounds the binary directly, so $! is the process kill aims at", () => {
     // The shape `VAR=val cmd ... >log 2>&1 &` is a simple command: bash
     // execs it IN the forked child, so $! is the command itself. A helper
@@ -179,7 +193,9 @@ describe("release.yml darwin-x64 venue (settled by run 36196527394 + the hosted-
 });
 
 /** The Smoke step's script body, from the env line that hands it the smoke
- * mode to the magic-mode echo that closes it. Both anchors are unique. */
+ * mode to the magic-mode echo that ends the slice (the $SMOKE dispatch's
+ * default arm sits past that; its test anchors the case block itself).
+ * Both anchors are unique. */
 function smokeStepBody(): string {
   const start = WORKFLOW.indexOf("SMOKE: ${{ matrix.smoke }}");
   const end = WORKFLOW.indexOf("no exec smoke (digest sidecar");
