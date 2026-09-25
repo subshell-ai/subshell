@@ -1,4 +1,4 @@
-import { Button, cn, Input } from "@internal/node-admin";
+import { Button, cn } from "@internal/node-admin";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   Activity,
@@ -27,37 +27,16 @@ import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } fr
 import { AboutDialog } from "@/components/about-dialog";
 import { MobileInstallDialog } from "@/components/mobile-install-dialog";
 import { useQuickAdd } from "@/components/quick-add";
-import { SubshellNodeGroup } from "@/components/sidebar/SubshellNodeGroup";
-import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
+import { RailSubshells } from "@/components/sidebar/rail-subshells";
 import { UserMenu } from "@/components/user-menu";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
 import { useClockTick } from "@/hooks/use-clock-tick";
-import { useInstancePlugins } from "@/hooks/use-instance-plugins";
-import { useNodes } from "@/hooks/use-nodes";
-import { useOrderedSubshells } from "@/hooks/use-ordered-subshells";
-import { usePresets } from "@/hooks/use-presets";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useWorkspaces } from "@/hooks/use-workspaces";
 import { signOutAndRedirect, useCurrentUser } from "@/lib/auth";
 import { desktopInvoke, isDesktop, onDesktopAction } from "@/lib/desktop";
-import {
-  collapsedNodeGroups,
-  commsGroupOpen,
-  setCollapsedNodeGroups,
-  setCommsGroupOpen,
-  toggleNodeGroup,
-} from "@/lib/sidebar-node-group-pref";
-import { RECENT_LIMIT, recentWorkspaceLinks } from "@/lib/sidebar-recents";
-import { filterSubshells } from "@/lib/subshell-filter";
+import { recentWorkspaceLinks } from "@/lib/sidebar-recents";
 import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
-import {
-  CROSS_AGENT_GROUP_ID,
-  FALLBACK_NODE_ID,
-  groupSubshellsByNode,
-  needsAttention,
-  nodeLabelFor,
-  partitionCrossAgent,
-} from "@/lib/subshell-node-groups";
 
 /** localStorage key for the collapsed state (persists across reloads). */
 const COLLAPSED_KEY = "subshell.sidebarCollapsed";
@@ -286,109 +265,20 @@ export function AppSidebar({
   // only while the rail is expanded.
   const { data: workspaces } = useWorkspaces();
   const recentWorkspaces = recentWorkspaceLinks(workspaces);
-  // Filter mode replaces the 8 recents with matches over the FULL cached list
-  // (no server call — the list is already client-side). Same predicate as
-  // the home page and the add-subshell dialog (lib/subshell-filter).
-  const [subshellQuery, setSubshellQuery] = useState("");
   // The About dialog the user menu raises. Held here rather than in the menu
   // because choosing an item closes the menu, which would take the dialog
   // with it.
   const [aboutOpen, setAboutOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  // The rail's subshell section (mode control, filter box, spotlight, machine
+  // groups, comms) lives in `RailSubshells`. Two things stay HERE because
+  // that section unmounts while collapsed: the ref (the desktop ⌘F flow
+  // below is rail chrome, and the input exists only while the section is
+  // expanded) and the filter query itself — pre-extraction the query lived
+  // in AppSidebar, and a review caught the lift to the child silently
+  // losing the typed text across a collapse. Persistence is the parent's job.
   const filterRef = useRef<HTMLInputElement>(null);
-  const q = subshellQuery.trim();
-  // Sorted by liveness BEFORE the recents slice (band order documented in
-  // use-ordered-subshells), so a pile of old ended sessions can never crowd a
-  // live one out of the rail. The filter mode shares the same run.
-  const byStatus = useOrderedSubshells();
-  // Grouped by the MACHINE each runs on (lib/subshell-node-groups), with the
-  // cap applied per node — so a second machine's work can never be crowded
-  // out by the first's, and every group's own pile of ended sessions still
-  // loses to its own live ones. Filter mode caps nothing: a search that hid
-  // its own ninth match would be lying about what the instance holds.
-  const { data: nodeData } = useNodes();
-  // Names only, over the catalog the launch pickers already cache. An
-  // unresolvable harness degrades to its id, which is a readable slug
-  // ("claude-code") — see the clone dialog, which makes the same trade.
-  const { data: pluginData } = useInstancePlugins();
-  const agentLabel = useCallback(
-    (harnessId: string) => pluginData?.plugins.find((p) => p.id === harnessId)?.name ?? harnessId,
-    [pluginData],
-  );
-  // The tooltip's `Preset:` line, same caller-resolves pattern: one read of
-  // the list the launch form and /presets already cache, keyed alike. A
-  // presetId that names no row (loading, or since deleted) degrades to the
-  // id — the row HAS a preset, and that is the fact worth showing.
-  const { data: presetData } = usePresets();
-  const presetLabel = useCallback(
-    (presetId: string | null): string | undefined =>
-      presetId === null ? undefined : (presetData?.find((p) => p.id === presetId)?.name ?? presetId),
-    [presetData],
-  );
-  // The one filtered list both rail consumers read: the machine groups AND the
-  // Needs Attention spotlight. Deriving it once makes "the spotlight sees the
-  // exact rows the groups see" a fact of the code rather than two identical
-  // expressions kept in sync by a comment.
-  const railRows = q ? filterSubshells(byStatus, subshellQuery) : byStatus;
-  // Panes an AGENT opened over MCP leave the machine groups entirely
-  // (operator ask 2026-09-25): they are internal cross-agent comms, filed in
-  // one section of their own below the machines, each row naming the machine
-  // it runs on since the section spans them. The partition runs on the
-  // FILTERED list, so a search matches them exactly like a machine's rows.
-  const { human: railHuman, comms: railComms } = partitionCrossAgent(railRows);
-  const commsGroup = {
-    nodeId: CROSS_AGENT_GROUP_ID,
-    label: "Cross-agent comms",
-    // The header's hover line is the whole explanation; two sentences max,
-    // per the design system's rule for UI text.
-    title:
-      "Panes an agent opened over MCP to talk to another agent. Created with the bell off; toggle it from a row's menu.",
-    total: railComms.length,
-    // The same per-group cap the machines get, and the same exemption while
-    // filtering: a search that hid its own ninth match lies.
-    subshells: q === "" ? railComms.slice(0, RECENT_LIMIT) : railComms,
-  };
-  // NOT memoised, deliberately: a group's rank re-derives activity against
-  // the CLOCK, so a `useMemo` keyed on the data would freeze the group order
-  // between feed frames and undo the liveliest-member ordering the 20 s tick
-  // exists to maintain. The pass is O(rows) with a Map, per tick and per
-  // keystroke — the frame it costs is one the rail re-renders for anyway.
-  const nodeGroups = groupSubshellsByNode(railHuman, nodeData?.nodes, {
-    limit: q ? undefined : RECENT_LIMIT,
-    // "Unanswered" means NO successful read has ever committed: in flight, or
-    // failed with nothing cached. It cannot be `isPending || isError` — a
-    // background REFRESH that fails on a populated cache reports `isError`
-    // while keeping the data, and re-labelling resolved headers to short ids
-    // on a transient blip would be the header flickering a doubt it has no
-    // reason to hold. Stale-but-cached beats a verdict from a failed retry.
-    unanswered: nodeData === undefined,
-  });
-  // The "Needs Attention" spotlight above the machine groups (spec 2026-09-24):
-  // `railRows` — the same rows the groups are built from — narrowed to the
-  // owner's unseen pushes. Computed from the filter set, not from `nodeGroups`,
-  // so a match in filter mode shows here exactly as it shows in the
-  // (forced-open) group, and the cap that groups apply never hides a pane that
-  // pushed.
-  const attentionRows = needsAttention(railRows);
-  // The "No matches" empty state must count the comms section too: a filter
-  // that hits only a cross-agent pane would otherwise say "No matches" above a
-  // row it is showing.
-  const listedCount = nodeGroups.reduce((sum, group) => sum + group.subshells.length, 0) + commsGroup.subshells.length;
-  // Which node groups this device has shut. Read once at mount — the rail
-  // lives for the session, so re-reading storage on every render would buy
-  // nothing but a synchronous read per frame.
-  const [collapsedGroups, setCollapsedGroups] = useState(collapsedNodeGroups);
-  const toggleNodeGroupOpen = useCallback((nodeId: string) => {
-    setCollapsedGroups((prev) => setCollapsedNodeGroups(toggleNodeGroup(prev, nodeId)));
-  }, []);
-  // The comms section's own open state: CLOSED until this device opens it
-  // (operator ask 2026-09-25), because its rows can multiply silently while
-  // the machines' groups cannot. Separate pref for the inverted default (see
-  // `sidebar-node-group-pref.ts`).
-  const [commsOpen, setCommsOpen] = useState(commsGroupOpen);
-  const toggleCommsOpen = useCallback(() => {
-    setCommsOpen((prev) => setCommsGroupOpen(!prev));
-  }, []);
+  const [subshellQuery, setSubshellQuery] = useState("");
   const [collapsedState, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(COLLAPSED_KEY) === "1";
@@ -666,109 +556,16 @@ export function AppSidebar({
                   </Button>
                 )}
               </div>
+              {/* The whole subshell section — mode control, filter, the
+                  Needs Attention spotlight, the machine groups and the
+                  cross-agent comms — is `RailSubshells`, which owns that
+                  shape and its localStorage prefs. The ONE thing staying
+                  here is the filter query: this mount unmounts on collapse,
+                  and the query outlives it (see its prop JSDoc). It stays
+                  hidden exactly where it always was: collapsed has no room
+                  for any of it. */}
               {!collapsed && item.to === "/" && (
-                <div className="px-2 pt-1 pb-2">
-                  <Input
-                    ref={filterRef}
-                    value={subshellQuery}
-                    onChange={(e) => setSubshellQuery(e.target.value)}
-                    placeholder="Filter subshells…"
-                    aria-label="Filter subshells"
-                    className="h-7 text-detail"
-                  />
-                </div>
-              )}
-              {!collapsed && item.to === "/" && q !== "" && listedCount === 0 && (
-                <p className="px-3 py-1 text-detail text-muted-foreground">No matches.</p>
-              )}
-              {!collapsed && item.to === "/" && attentionRows.length > 0 && (
-                <section aria-label="Needs Attention" className="mb-1">
-                  <div className="flex w-full items-center gap-2 py-1 pr-2 pl-3 text-detail text-muted-foreground">
-                    <span className="min-w-0 flex-1 truncate font-strong">Needs Attention</span>
-                    <span className="shrink-0 tabular-nums opacity-70">{attentionRows.length}</span>
-                  </div>
-                  {attentionRows.map((sub) => (
-                    <SubshellRecentRow
-                      key={`attention-${sub.id}`}
-                      subshell={sub}
-                      active={location.pathname === `/subshells/${sub.id}`}
-                      nodeLabel={
-                        nodeLabelFor(sub.nodeId || FALLBACK_NODE_ID, nodeData?.nodes, nodeData === undefined).label
-                      }
-                      agentLabel={agentLabel(sub.harnessId)}
-                      presetLabel={presetLabel(sub.presetId)}
-                    />
-                  ))}
-                </section>
-              )}
-              {!collapsed &&
-                item.to === "/" &&
-                nodeGroups.map((group) => (
-                  <SubshellNodeGroup
-                    key={group.nodeId}
-                    nodeId={group.nodeId}
-                    label={group.label}
-                    title={group.title}
-                    count={group.total}
-                    // While filtering, every group is open whatever this
-                    // device remembers: a match hidden inside a shut group
-                    // reads as a filter that does not work. The header is
-                    // INERT for the duration rather than merely overridden —
-                    // a live chevron here would write the collapse to
-                    // storage behind a screen that moves nothing, and the
-                    // group would shut itself the moment the filter cleared.
-                    open={q !== "" || !collapsedGroups.includes(group.nodeId)}
-                    disabled={q !== ""}
-                    onToggle={() => toggleNodeGroupOpen(group.nodeId)}
-                  >
-                    {group.subshells.map((sub) => (
-                      <SubshellRecentRow
-                        key={sub.id}
-                        subshell={sub}
-                        active={location.pathname === `/subshells/${sub.id}`}
-                        nodeLabel={group.label}
-                        agentLabel={agentLabel(sub.harnessId)}
-                        presetLabel={presetLabel(sub.presetId)}
-                      />
-                    ))}
-                  </SubshellNodeGroup>
-                ))}
-              {/* The cross-agent comms section (operator ask 2026-09-25), below
-                  the machines and only when there is something to file. It
-                  reuses the machine group's collapsing IDIOM but carries its
-                  own preference, because its default is the other way: closed
-                  (operator ask 2026-09-25). Each row's subline names its own
-                  machine (the section header cannot, it spans them all). */}
-              {!collapsed && item.to === "/" && commsGroup.total > 0 && (
-                <SubshellNodeGroup
-                  key={commsGroup.nodeId}
-                  nodeId={commsGroup.nodeId}
-                  label={commsGroup.label}
-                  title={commsGroup.title}
-                  count={commsGroup.total}
-                  open={q !== "" || commsOpen}
-                  disabled={q !== ""}
-                  onToggle={toggleCommsOpen}
-                >
-                  {commsGroup.subshells.map((sub) => {
-                    const machineLabel = nodeLabelFor(
-                      sub.nodeId || FALLBACK_NODE_ID,
-                      nodeData?.nodes,
-                      nodeData === undefined,
-                    ).label;
-                    return (
-                      <SubshellRecentRow
-                        key={`comms-${sub.id}`}
-                        subshell={sub}
-                        active={location.pathname === `/subshells/${sub.id}`}
-                        nodeLabel={machineLabel}
-                        subline={machineLabel}
-                        agentLabel={agentLabel(sub.harnessId)}
-                        presetLabel={presetLabel(sub.presetId)}
-                      />
-                    );
-                  })}
-                </SubshellNodeGroup>
+                <RailSubshells filterRef={filterRef} query={subshellQuery} onQueryChange={setSubshellQuery} />
               )}
               {!collapsed &&
                 item.to === "/workspaces" &&

@@ -1,5 +1,6 @@
 import { cn } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
+import { TooltipLabelledLines } from "@/components/sidebar/TooltipLabelledLines";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDot } from "@/components/subshell-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -94,7 +95,7 @@ export function SubshellRecentRow({
           </span>
         </TooltipTrigger>
         <TooltipContent side="right" arrow className="whitespace-pre-line break-words">
-          {subshellRowTooltip(subshell, nodeLabel, agentLabel, presetLabel)}
+          <TooltipLabelledLines text={subshellRowTooltip(subshell, nodeLabel, agentLabel, presetLabel)} />
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

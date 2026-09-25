@@ -1,0 +1,5 @@
+---
+"@internal/server": minor
+---
+
+The sidebar's subshell section can now render as status cells. A three-way per-device toggle picks between the text rows as always (the default), machine-grouped cells (headers, counts and collapse behaviour unchanged), and a headerless flat grid where each machine's panes cluster on a shared tint plate and the most urgent pane leads. A cell is the rail's own status-dot language at grid size: the same fills, the same unseen-push bell, the working blink kept legible on a plate, and the full row tooltip opened below it with its labels bolded, so name, machine, agent, preset, state and directory still reveal on hover and focus. Clicking a cell opens the subshell, and dragging or right-clicking a cell behaves exactly as on its row. The flat grid's plates are painted from a hash of the machine's name (no server state, and two machines may share a tint: the tooltip's Node line is the truth), and the toggle buttons gained hover explanations and a denser 24px height; both are opt-ins on the shared segmented control, so every other page's toggles are untouched.
