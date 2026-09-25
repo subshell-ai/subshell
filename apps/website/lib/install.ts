@@ -94,11 +94,13 @@ export function installCopy(
     // The arch names itself on the button only when there IS a choice to
     // name; a release without an Intel bundle keeps the plain macOS label
     // rather than advertising "Apple silicon" as if it were an alternative.
+    // `Name (.ext)` is the column's idiom for every download word (operator
+    // choice, 2026-09-25): the menu rows and the alt link already spoke it.
     downloadLabel: !isMac
-      ? "Download for Linux · .deb"
+      ? "Download for Linux (.deb)"
       : macIntelAvailable(manifest, kind)
-        ? `Download for ${MAC_ARCH_LABEL[macArch]} · .dmg`
-        : "Download for macOS · .dmg",
+        ? `Download for ${MAC_ARCH_LABEL[macArch]} (.dmg)`
+        : "Download for macOS (.dmg)",
     altLabel: isMac ? "Linux (.deb)" : "macOS (.dmg)",
     altHref: assetHref(otherTarget) ?? generic,
     artifactFile: desktop ? desktopArtifactFileName(productName, target, desktop.version) : null,

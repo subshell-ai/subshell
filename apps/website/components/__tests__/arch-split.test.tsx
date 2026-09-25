@@ -13,7 +13,7 @@ function setup(selected = "darwin-arm64") {
   const picks: string[] = [];
   render(
     <ArchSplitButton
-      label="Download for Apple silicon · .dmg"
+      label="Download for Apple silicon (.dmg)"
       href="https://example.invalid/arm.dmg"
       options={OPTIONS}
       selected={selected}
