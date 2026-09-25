@@ -1,7 +1,7 @@
 # apps/website
 
 The public marketing site at subshell.sh. Static export (`next build` → `out/`),
-deployed by `website.yml` as an assets-only Cloudflare Worker — like `apps/docs`,
+deployed by `website.yml` as an assets-only Cloudflare Worker. Like `apps/docs`,
 it is a site, not one of server/node/client, which is why it sits directly under
 `apps/`.
 

@@ -3,7 +3,7 @@ import { PhoneCard } from "../components/phone-card";
 import type { ReleasesManifest } from "../lib/releases";
 
 /**
- * The approved 27-live spread: promise left (left-aligned — Theo reverted the
+ * The approved 27-live spread: promise left (left-aligned; Theo reverted the
  * centering on 27-live), the phone dead center at its natural ratio, install
  * right. Below 980px the columns stack in that same order.
  */

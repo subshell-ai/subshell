@@ -1,6 +1,6 @@
 /**
  * GitHub's classic site mark (MIT © GitHub, Inc.).
- * The real brand path, never an approximation — a wrong logo reads as a fake
+ * The real brand path, never an approximation: a wrong logo reads as a fake
  * link, and this one ships inline so there is no icon font to load.
  */
 export function GitHubIcon({ size = 15 }: { size?: number }) {

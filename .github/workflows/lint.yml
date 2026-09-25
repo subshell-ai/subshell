@@ -141,12 +141,12 @@ jobs:
 
   # The website's install column reads the root releases.json, and release.yml
   # regenerates it after every cut. If that job's commit step ever breaks,
-  # main moves on with a stale manifest — drift is a CI failure, not a
+  # main moves on with a stale manifest: drift is a CI failure, not a
   # visitor's problem (spec 2026-09-23 §5). Bare on the runner like the Lint
   # job above for the same reason: bun and the checkout are the whole need.
   site-manifest-fresh:
     name: releases.json matches the tags
-    # Push-only: tags land at cut START, PRs must not go red for a cut in flight — drift is caught "on the next push".
+    # Push-only: tags land at cut START, PRs must not go red for a cut in flight; drift is caught "on the next push".
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -162,7 +162,7 @@ jobs:
       - name: Install Dependencies
         run: bun install --frozen-lockfile
 
-      # ls-remote goes to the remote by protocol, so no fetch-depth: 0 here —
+      # ls-remote goes to the remote by protocol, so no fetch-depth: 0 here:
       # the checkout supplies the script and the committed file it compares
       # against, nothing more.
       - name: Check

@@ -597,8 +597,8 @@ jobs:
         run: bun run test:scripts
 
       # The website's suites run here: scripts/ci-test-plan.ts registers
-      # @internal/website to this slice (they are plain `bun test` — no
-      # browser — and the build step above already produced the
+      # @internal/website to this slice (they are plain `bun test`, no
+      # browser, and the build step above already produced the
       # subshell-protocol dist their imports resolve through).
       - name: Run website tests
         run: bunx turbo run test --continue --filter=@internal/website

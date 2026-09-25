@@ -7,7 +7,7 @@ export const ReleasesManifestSchema = z.object({
   generatedAt: z.string(),
   // The value is .optional() on purpose: in zod 4 an enum-keyed record makes
   // EVERY key required, and a manifest missing one component (a component not
-  // yet cut) must still parse — callers read components[id]?. Callers still
+  // yet cut) must still parse; callers read components[id]?. Callers still
   // get the id constraint: an unknown key refuses.
   components: z.record(
     z.enum(["cli-server", "cli-node", "desktop-server", "desktop-client"]),

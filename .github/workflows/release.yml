@@ -57,12 +57,12 @@
 #                 draft-then-publish pair; it predates the hosted move (the
 #                 fleet's runners had no gh CLI) and stays because the two-
 #                 invocation shape is what the no-half-release rule rides on.
-#   site-manifest — after every shard of a successful cut has published (or on
+#   site-manifest, after every shard of a successful cut has published (or on
 #                 a bare `refresh` dispatch), regenerates the root
 #                 releases.json from the REMOTE tags and commits it to main,
 #                 so the marketing site's install column reads the same
 #                 releases the updaters do. Non-matrix because the commit must
-#                 happen once, after ALL shards — publish is a matrix, so the
+#                 happen once, after ALL shards; publish is a matrix, so the
 #                 write cannot live inside it (spec 2026-09-23 §5, placement
 #                 deviation noted there).
 #
@@ -322,7 +322,7 @@ jobs:
     outputs:
       matrix: ${{ steps.compute.outputs.matrix }}
       apps: ${{ steps.compute.outputs.apps }}
-      # 'true' ONLY for an `app=refresh` dispatch — no cut, and the
+      # 'true' ONLY for an `app=refresh` dispatch: no cut, and the
       # site-manifest job runs alone. Every other path, push events included,
       # emits 'false'.
       refresh_manifest: ${{ steps.compute.outputs.refresh_manifest }}
@@ -358,9 +358,9 @@ jobs:
             *) echo "unknown app input: '$APP_INPUT'" >&2; exit 1 ;;
           esac
           # `refresh` cuts nothing, so a `-f version=` riding with it names a
-          # version no tag will ever carry — say so rather than swallow it.
+          # version no tag will ever carry; say so rather than swallow it.
           if [ "$refresh_manifest" = "true" ] && [ -n "$VERSION_INPUT" ]; then
-            echo "::notice::app=refresh cuts nothing — version input ignored"
+            echo "::notice::app=refresh cuts nothing; version input ignored"
           fi
           # The publish job downloads with `<app>-*` and globs `dist/<app>-*/*`,
           # so an app ID that is a PREFIX of another absorbs that app's
@@ -1065,14 +1065,14 @@ jobs:
 
   # The website's install column reads the root releases.json (spec
   # 2026-09-23 §3); this job is what keeps it true. It runs after EVERY shard
-  # of a real cut has published (publish is a matrix — this is the one place
+  # of a real cut has published (publish is a matrix; this is the one place
   # all components exist together), and on its own for an `app=refresh`
   # repair dispatch.
   site-manifest:
     name: Refresh releases.json for the website
     needs: [plan, publish]
     # The main-ref guard: the commit below pushes to main, so this job may
-    # only run from a run ON main — a dispatch picked on a branch ref would
+    # only run from a run ON main: a dispatch picked on a branch ref would
     # otherwise write a branch's tag view onto main.
     if: github.ref == 'refs/heads/main' && (needs.plan.outputs.refresh_manifest == 'true' || needs.publish.result == 'success')
     runs-on: ubuntu-24.04
@@ -1088,12 +1088,12 @@ jobs:
         with:
           bun-version: 1.4.0
 
-      # Generates from REMOTE tags (`git ls-remote`, never the API —
+      # Generates from REMOTE tags (`git ls-remote`, never the API,
       # site-releases.ts header). Commit with a bounded rebase retry: a cut
       # runs for over an hour, and main moves under this checkout in that
       # window (a merged PR, or another run's own refresh commit landing after
       # this job's plan step read the tags). A third collision is not a
-      # real-world shape — two pushes interleaving twice inside one second —
+      # (real-world shape: two pushes interleaving twice inside one second)
       # so a hard failure there is the honest outcome, not a force.
       - name: Generate, commit, verify
         run: |
@@ -1121,5 +1121,5 @@ jobs:
               exit 0
             fi
           done
-          echo "::error::releases.json was pushed but raw.githubusercontent will not serve the bytes we built — investigate before the site ships; a red may also mean a newer refresh superseded this run (check git log releases.json)"
+          echo "::error::releases.json was pushed but raw.githubusercontent will not serve the bytes we built; investigate before the site ships; a red may also mean a newer refresh superseded this run (check git log releases.json)"
           exit 1

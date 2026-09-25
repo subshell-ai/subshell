@@ -3,7 +3,7 @@
  * Copies the root releases.json into data/ before every build and dev start.
  * Same file, one hop: the baked copy is what the page ships, and the runtime
  * fetch refreshes it (spec 2026-09-23 §4). A missing root file is a hard error
- * at build time — an empty install section would ship silently otherwise.
+ * at build time: an empty install section would ship silently otherwise.
  */
 import { copyFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";

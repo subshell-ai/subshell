@@ -13,7 +13,7 @@ describe("GitHubIcon", () => {
 });
 
 describe("Analytics", () => {
-  test("renders nothing when the id is unset — the default", () => {
+  test("renders nothing when the id is unset (the default)", () => {
     expect(renderToStaticMarkup(<Analytics id="" />)).toBe("");
     expect(renderToStaticMarkup(<Analytics id={undefined} />)).toBe("");
   });

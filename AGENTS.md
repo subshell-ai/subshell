@@ -55,7 +55,7 @@ and the pieces it names nested inside. `apps/server/`, `apps/client/` and
 grouping, not packages.
 
 **`apps/docs` and `apps/website` are the taxonomy's two exceptions, and sit
-directly under `apps/` because they name none of the three words — both are
+directly under `apps/` because they name none of the three words: both are
 sites.** The documentation site (Fumadocs,
 a static export, package `@internal/docs`) is a site, not a product component:
 it is changesets-versioned like the four releasable apps but deploys via
@@ -297,8 +297,8 @@ machine whenever anyone ran `bun run start`. They get their own root commands
 instead. The docs site follows the same rule for the same reason: `apps/docs`
 carries no `dev` script, so `bun run dev:docs` is the only way the Fumadocs
 server starts, on port 3400. The marketing site is the same shape again:
-`apps/website` carries no `dev` script either — its `start` copies the root
-`releases.json` into `data/` and then runs `next dev`, on port 3401 — so
+`apps/website` carries no `dev` script either; its `start` copies the root
+`releases.json` into `data/` and then runs `next dev`, on port 3401, so
 `bun run dev:website` is the only way that server starts.
 
 Those commands are not proxies to `tauri dev`, and the difference is the whole

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Subshell — manage multiple agents away from your desk",
+  title: "Subshell: manage multiple agents away from your desk",
   description:
     "Your agents keep working after you walk away. View progress, get notified, and give feedback from any device with Subshell.",
 };

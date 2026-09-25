@@ -2,36 +2,36 @@
 #
 # The marketing site lives OUTSIDE the four release components and this is why
 # it has its own workflow rather than a fifth entry in release.yml's app table:
-# `website-vX.Y.Z` is cut HERE, there is no draft-release half at all — what
+# `website-vX.Y.Z` is cut HERE, there is no draft-release half at all. What
 # ships is a static export (`apps/website/out/`) deployed to Cloudflare Workers
 # static assets (apps/website/wrangler.jsonc), so for the website a deploy IS
-# the release — and the retry semantics differ: a website tag already on this
+# the release. And the retry semantics differ: a website tag already on this
 # commit means "redeploy" (below), where for release.yml it would mean "skip".
 # Spec 2026-09-23.
 #
 # Flow:
-#   ci-gate — wait for THIS commit's push-triggered Test + Lint runs and
-#             refuse anything but success. A dispatch can land while that CI
-#             is still running, or after it went red; deploying either would
-#             publish an unverified tree. `skip_ci_gate` is the loud,
-#             emergency-only opt-out.
-#   plan    — refuse any run not on refs/heads/main, resolve the version
-#             exactly as release.yml's plan job does (a `-f version=` that
-#             disagrees with apps/website/package.json would tag one version
-#             and deploy another), then own the tag in three cases: absent →
-#             create and push; present AT THIS COMMIT → redeploy; present at
-#             another commit → refuse (delete the tag to re-cut). Re-dispatch
-#             converges, same rule the release cut lives by.
-#   build   — static export via turbo, asserted, uploaded as `website-out`.
-#   deploy  — wrangler pushes apps/website/out to the custom domain, and the
-#             run summary names the URL.
+#   ci-gate: wait for THIS commit's push-triggered Test + Lint runs and
+#            refuse anything but success. A dispatch can land while that CI
+#            is still running, or after it went red; deploying either would
+#            publish an unverified tree. `skip_ci_gate` is the loud,
+#            emergency-only opt-out.
+#   plan:    refuse any run not on refs/heads/main, resolve the version
+#            exactly as release.yml's plan job does (a `-f version=` that
+#            disagrees with apps/website/package.json would tag one version
+#            and deploy another), then own the tag in three cases: absent →
+#            create and push; present AT THIS COMMIT → redeploy; present at
+#            another commit → refuse (delete the tag to re-cut). Re-dispatch
+#            converges, same rule the release cut lives by.
+#   build:   static export via turbo, asserted, uploaded as `website-out`.
+#   deploy:  wrangler pushes apps/website/out to the custom domain, and the
+#            run summary names the URL.
 name: Website
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version override — blank = read apps/website/package.json"
+        description: "Version override: blank = read apps/website/package.json"
         type: string
         required: false
         default: ""
@@ -46,7 +46,7 @@ permissions:
 
 # Deploys serialize: two concurrent runs would race the same tag and overwrite
 # each other's assets on one custom domain, and a half-finished deploy is the
-# broken site — so not cancel-in-progress, the same reason release.yml says no.
+# broken site, so not cancel-in-progress, the same reason release.yml says no.
 concurrency:
   group: website-deploy
   cancel-in-progress: false
@@ -58,7 +58,7 @@ jobs:
     # Waiting IS the job: the script's own deadline (55 min) bounds it and
     # this ceiling sits above that, because a full Test run is the wait.
     timeout-minutes: 60
-    # Reads no repo content — it only asks the Actions API about OTHER runs.
+    # Reads no repo content: it only asks the Actions API about OTHER runs.
     permissions:
       actions: read
     steps:
@@ -70,16 +70,16 @@ jobs:
           set -euo pipefail
           # In the job body rather than a job-level `if:` on purpose: `if:`
           # SKIPS the job, and a skipped job makes every `needs: ci-gate`
-          # downstream skip too — the escape hatch would skip the deploy.
+          # downstream skip too: the escape hatch would skip the deploy.
           if [ "$SKIP" = "true" ]; then
-            echo "::notice::CI gate skipped on request (skip_ci_gate=true) — deploying an unverified commit"
+            echo "::notice::CI gate skipped on request (skip_ci_gate=true), deploying an unverified commit"
             exit 0
           fi
           API="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows"
           DEADLINE=$(( $(date +%s) + 55 * 60 ))
           # The workflow FILE ids, not display names: names are labels people
           # can rename; the file a run came from is stable. Both are resolved
-          # by head_sha AND event=push — website deploys off main, and main's
+          # by head_sha AND event=push: website deploys off main, and main's
           # CI is the push runs, never the pull_request ones (a PR run for the
           # same code tested a different merge tree).
           for wf in test.yml lint.yml; do
@@ -102,14 +102,14 @@ jobs:
                 # Every non-success counts as a refusal, cancelled and skipped
                 # included: this gate asks "did CI pass THIS commit", and a
                 # cancelled run did not.
-                echo "::error::$wf on $GITHUB_SHA concluded '$conclusion' — refusing to deploy ($url)"
+                echo "::error::$wf on $GITHUB_SHA concluded '$conclusion'; refusing to deploy ($url)"
                 exit 1
               fi
               # absent (queued) and in_progress both keep waiting; the
-              # deadline is the answer for a run that never arrives — a push
+              # deadline is the answer for a run that never arrives: a push
               # whose CI was never scheduled must not deploy silently either.
               if [ "$(date +%s)" -ge "$DEADLINE" ]; then
-                echo "::error::$wf on $GITHUB_SHA never completed (last status: $status) — refusing to deploy"
+                echo "::error::$wf on $GITHUB_SHA never completed (last status: $status); refusing to deploy"
                 exit 1
               fi
               sleep 30
@@ -138,7 +138,7 @@ jobs:
           # than assumed from the button: a future `branches:` filter or a
           # hand-tag of a side branch must not become a deploy of it.
           if [ "$GITHUB_REF" != "refs/heads/main" ]; then
-            echo "::error::website deploys off main only — this run is on $GITHUB_REF"
+            echo "::error::website deploys off main only; this run is on $GITHUB_REF"
             exit 1
           fi
           pkgversion=$(jq -r .version apps/website/package.json)
@@ -148,13 +148,13 @@ jobs:
           # everything downstream reads package.json, so an override that
           # disagrees tags one version and deploys another's bytes.
           if [ "$version" != "$pkgversion" ]; then
-            echo "::error::version=$version disagrees with apps/website/package.json ($pkgversion) — merge the changesets version PR first, or drop the override"
+            echo "::error::version=$version disagrees with apps/website/package.json ($pkgversion): merge the changesets version PR first, or drop the override"
             exit 1
           fi
           tag="website-v$version"
           # The EXACT ref, not any ls-remote match: a hand-made annotated tag
           # would peel (refs/tags/X^{}), and this workflow only ever creates
-          # lightweight ones — like release.yml, `git tag -f` at a commit.
+          # lightweight ones, like release.yml: `git tag -f` at a commit.
           sha=$(git ls-remote --tags origin "refs/tags/$tag" |
                 awk -v ref="refs/tags/$tag" '$2 == ref { print $1; exit }')
           if [ -z "$sha" ]; then
@@ -171,9 +171,9 @@ jobs:
             # The redeploy path: a fixed broken deploy is re-dispatched on the
             # SAME commit, and that commit's tag is the state of this deploy,
             # not evidence of a different one.
-            echo "::notice::$tag already exists on this commit — redeploying"
+            echo "::notice::$tag already exists on this commit; redeploying"
           else
-            echo "::error::$tag already published at $sha — delete the tag to redeploy"
+            echo "::error::$tag already published at $sha; delete the tag to redeploy"
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -191,7 +191,7 @@ jobs:
         with:
           bun-version: 1.4.0
 
-      # next's bin carries a `#!/usr/bin/env node` shebang — same reason
+      # next's bin carries a `#!/usr/bin/env node` shebang. Same reason
       # lint.yml pins node: a runner image floats its own node, and the
       # pinned version (the root package.json's `engines.node`) is the
       # contract, not the image's mood.
@@ -210,7 +210,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       # --force is deliberate. apps/website/turbo.json DOES declare outputs,
-      # so a cache hit restores a COMPLETE out/ — and that is the trap, not
+      # so a cache hit restores a COMPLETE out/, and that is the trap, not
       # the safety: its build input, data/releases.json, is gitignored (copied
       # from the repo root by copy-releases), which puts it OUTSIDE turbo's
       # input hash. A warm cache would therefore restore an export baked with
@@ -218,7 +218,7 @@ jobs:
       # came from THIS checkout's root releases.json.
       #
       # NEXT_PUBLIC_* values are INLINED by the bundler, so the GA id must sit
-      # in the environment at BUILD time — a runtime env would reach nothing.
+      # in the environment at BUILD time: a runtime env would reach nothing.
       # It is a repository VARIABLE, not a secret: an analytics id is public
       # in the page source anyway. Unset ⇒ empty ⇒ the bundle ships no tag.
       - name: Build
@@ -235,7 +235,7 @@ jobs:
         run: |
           for f in apps/website/out/index.html; do
             if [ ! -f "$f" ]; then
-              echo "::error::$f is missing — the static export did not produce it"
+              echo "::error::$f is missing: the static export did not produce it"
               exit 1
             fi
           done
@@ -245,7 +245,7 @@ jobs:
           name: website-out
           path: apps/website/out
           if-no-files-found: error
-          # One run's download, then the export is worthless — the same
+          # One run's download, then the export is worthless, the same
           # self-limiting store the release shards buy with this value.
           retention-days: 1
 
