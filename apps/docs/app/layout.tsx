@@ -23,6 +23,24 @@ export const metadata: Metadata = {
     ],
     apple: "/icons/apple-touch-icon.png",
   },
+  // The same product share card the marketing site declares (one
+  // brand-generated og.png, mirrored into this root by brand:generate); a
+  // docs URL shared to a feed should preview the product, not a blank card.
+  openGraph: {
+    type: "website",
+    siteName: "Subshell",
+    title: "Subshell Docs",
+    description:
+      "Documentation for Subshell — launch, attach to, and orchestrate interactive CLI coding agents from any device.",
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "Subshell: your whole agent fleet, from any device." }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Subshell Docs",
+    description:
+      "Documentation for Subshell — launch, attach to, and orchestrate interactive CLI coding agents from any device.",
+    images: ["/og.png"],
+  },
 };
 
 export const viewport: Viewport = {

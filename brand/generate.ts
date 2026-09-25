@@ -30,6 +30,11 @@ const SITE_ICON_DIRS = [
   path.join(BRAND_DIR, "../apps/docs/public/icons"),
   path.join(BRAND_DIR, "../apps/website/public/icons"),
 ];
+/** The two sites' asset roots for the shared social preview card (og.png). */
+const SHARE_SITE_DIRS = [
+  path.join(BRAND_DIR, "../apps/docs/public"),
+  path.join(BRAND_DIR, "../apps/website/public"),
+];
 /** The favicon set both sites declare in their metadata (the 192/512 PWICONS,
  * the standalone marks and the wordmarks are the SPA's own concern). */
 const SITE_ICON_FILES = [
@@ -142,6 +147,10 @@ const JOBS: { master: string; mode: Mode; size: number; out: string }[] = [
   // ground it ever sits on).
   { master: "wordmark-docs.svg", mode: "height", size: 96, out: "docs-site/wordmark-docs-96.png" },
   { master: "wordmark-docs.svg", mode: "height", size: 192, out: "docs-site/wordmark-docs-192.png" },
+  // The social preview card (1200x630, the OG/Twitter large-image size),
+  // written into BOTH sites' roots as og.png: a shared URL deserves one card,
+  // whichever site the link unfurls to.
+  { master: "share-card.svg", mode: "width", size: 1200, out: "share/og.png" },
 ];
 
 /**
@@ -231,8 +240,17 @@ mkdirSync(DOCS_SITE_DIR, { recursive: true });
 for (const dir of SITE_ICON_DIRS) mkdirSync(dir, { recursive: true });
 for (const dir of DESKTOP_UI_DIRS) mkdirSync(dir, { recursive: true });
 for (const [out, bytes] of outputs) {
-  // A `desktop-ui/` job writes the same bytes into every bundled page's asset
-  // root; everything else has one destination.
+  // A `share/` job writes the card into both sites' roots; a `desktop-ui/`
+  // job writes the same bytes into every bundled page's asset root;
+  // everything else has one destination.
+  if (out.startsWith("share/")) {
+    for (const dir of SHARE_SITE_DIRS) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, out.slice("share/".length)), bytes);
+    }
+    console.log(`wrote ${out} ×${SHARE_SITE_DIRS.length} (${bytes.length} B)`);
+    continue;
+  }
   if (out.startsWith("desktop-ui/")) {
     for (const dir of DESKTOP_UI_DIRS) {
       writeFileSync(path.join(dir, out.slice("desktop-ui/".length)), bytes);
