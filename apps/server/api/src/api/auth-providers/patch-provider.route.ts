@@ -61,14 +61,17 @@ export const patchProviderRoute = new Elysia()
       // `kind: "email"` wholesale, so this guard lives on the PATCH path.
       if (
         row.kind === "email" &&
-        (body.issuer !== undefined || body.clientId !== undefined || body.entryOrigins !== undefined)
+        (body.issuer !== undefined ||
+          body.clientId !== undefined ||
+          body.clientSecret !== undefined ||
+          body.entryOrigins !== undefined)
       ) {
         return status(
           400,
           apiErrorBody({
             code: BackendErrorCodes.BAD_REQUEST,
             message:
-              "The E-mail provider has no issuer, client id or entry origins. Those fields describe OIDC providers.",
+              "The E-mail provider has no issuer, client id, client secret or entry origins. Those fields describe OIDC providers.",
           }),
         );
       }

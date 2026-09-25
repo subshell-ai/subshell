@@ -44,16 +44,16 @@ describe("the last-open-provider guard (2026-09-25)", () => {
   it("disables the two close-capable switches of the sole open provider, and says why", () => {
     renderTable([row("email", true, true), row("other", false, true)]);
     // OPEN means both flags on, exactly what the server's guard counts —
-    // "other" has signIn on but is disabled, so "email" is the ONLY open door.
+    // "other" has signIn on but is disabled, so "email" is the ONLY open provider.
     expect(isDisabled(switchFor("Sign-in for email"))).toBe(true);
     expect(isDisabled(switchFor("Enabled for email"))).toBe(true);
     // The explanation is on the record for every modality: an sr-only span
     // (aria-describedby carrier) repeats the rule verbatim for readers.
     expect(screen.getAllByText(/cannot disable the last provider/).length).toBeGreaterThanOrEqual(2);
-    // The switches that cannot close the door stay live.
+    // The switches that cannot close a way in stay live.
     expect(isDisabled(switchFor("Registration for email"))).toBe(false);
     expect(isDisabled(switchFor("Approval required for email"))).toBe(false);
-    // The already-closed row is not the last door: its switches move freely.
+    // The already-closed row is not the last provider: its switches move freely.
     expect(isDisabled(switchFor("Enabled for other"))).toBe(false);
   });
 

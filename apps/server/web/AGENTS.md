@@ -751,7 +751,7 @@ watcher, and `SetupKeysSection` renders the same fields for a key minted earlier
 `components/nodes/setup-keys-section.tsx` is that card, and it is the reason the
 server can show a key after the mint: `GET /api/nodes/setup-keys` returns each of the
 caller's own rows WITH its key text (owner-scoped, cookie-only — a bearer credential
-cannot enumerate enrollment providers). The row's title is the key, with
+cannot enumerate enrollment doors). The row's title is the key, with
 `CopyableValue`'s copy affordance, because the label that used to title it named
 nothing a person could match to a machine. `keyState` still decides
 unused / used / expired from `usedAt` and `expiresAt`, which is what keeps the

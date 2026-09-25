@@ -299,7 +299,8 @@ never leaves the row: GET answers `hasSecret`, audits name the fields changed
 and the issuer, never the secret. Discovery is a SAVE gate, never a build
 dependency: the save probes `{issuer}/.well-known/openid-configuration` (400
 `DISCOVERY_FAILED` otherwise), runs one real client-credentials token request
-where the metadata advertises that grant (400 `CREDENTIALS_REJECTED`; the
+against the token endpoint the discovery document itself declares — never a URL
+composed from the issuer — where the metadata advertises that grant (400 `CREDENTIALS_REJECTED`; the
 2026-09-25 ruling deleted the separate `POST /test` probe, so the save is the
 only verification), and stores the resolved endpoints beside
 `accountIssuer`, so every later rebuild runs offline and one drifted issuer
@@ -1063,7 +1064,7 @@ subshell may only be launched in one of them or beneath it.
   audit fix gave admins the matching view: `GET /api/nodes/setup-keys?all=1`
   lists every key in the instance with its creator's label, and a plain
   non-admin asking for it gets a 403 rather than a silently-narrowed list. So
-  the providers that revoke are expiry, the creator's own delete, and the admin's
+  the doors that revoke are expiry, the creator's own delete, and the admin's
   foreign one — and an admin seeing an outstanding key they cannot close is
   no longer a thing. The switch bounds the FUTURE; the ≤24 h window it leaves
   is closable from the Setup keys card by the creator or by an admin.
@@ -1104,7 +1105,7 @@ the digest bought, and what was traded against it:
   is that a minted-but-unused key is disclosed by the same read rather than being
   recoverable only from a shell history file or an access log.
 - **What it bought, and why it was worth it.** An unused key the dialog was closed on
-  used to be an open enrollment provider that could be CLOSED but not READ, so the only
+  used to be an open enrollment door that could be CLOSED but not READ, so the only
   remedy was revoke and re-mint — and the operator standing mid-`curl` with a
   half-copied command had no way back. The card that lists keys exists so those providers
   stay visible; listing the text is what makes it useful.
@@ -1113,7 +1114,7 @@ the digest bought, and what was traded against it:
   single-winner gate), and stops working entirely at `expires_at` (24 h). A used or
   expired row's key is inert on sight, and the card says which state each row is in.
   The list is owner-scoped and cookie-only: a bearer credential cannot enumerate
-  enrollment providers (`GET /api/nodes/setup-keys` answers 403 to a machine token), and
+  enrollment doors (`GET /api/nodes/setup-keys` answers 403 to a machine token), and
   one caller sees its own rows and nobody else's. The one widening is the admin
   view (audit 2026-09 item 4): `?all=1` is cookie-ADMIN only and lists every
   row with its creator's label — the same plaintext, gated like every other
@@ -1127,7 +1128,7 @@ the digest bought, and what was traded against it:
   Client Enroll step requires the field. `POST /api/nodes/setup-keys` therefore takes
   no body at all, and `POST /api/nodes/enroll` normalizes the name with the control
   plane's one label rule (`normalizeNodeName`) before it is stored — the same function
-  rename applies, so the two providers cannot disagree about what a name is.
+  rename applies, so the two doors cannot disagree about what a name is.
 - **The migration drops every outstanding key** (`0033-setup-key-plaintext.ts`
   rebuilds the table): a digest cannot become plaintext, so there was nothing to carry
   across. Keys are ≤24 h credentials and the acts on them are already in the audit log;
@@ -1368,7 +1369,7 @@ The rest is the standing accounting, unchanged by this surface:
 ### Plugin installs from the registry (spec 2026-09-09; instance-level since 2026-09-10)
 
 Phase 3 taught the plugin system a network source, and the 2026-09-10
-inversion moved it to a single provider: `POST /api/plugins` may carry a package
+inversion moved it to a single door: `POST /api/plugins` may carry a package
 spec, and the CONTROL PLANE fetches that npm package, verifies it, and
 installs it into `<SUBSHELL_SERVER_DATA_DIR>/plugins/` — the one store every
 node executes against
@@ -2032,7 +2033,7 @@ These are choices, not oversights, and they follow from §0:
   (`update-subshell-name.route.ts`). Since 2026-09-23 that sentence covers
   EVERY name path, not only the auto ones: the rename route, the create path
   (`subshell-manager.service.ts`, the choke point every caller crosses) and
-  both workspace providers run the human-typed name through the shared
+  both workspace doors run the human-typed name through the shared
   `normalizeLabel` (NFC, control bytes, format characters, cap), because a
   name reaches the restart journal line and other users' renders just like a
   device label does. The journal fields beside it are clamped to the same
@@ -2276,7 +2277,7 @@ Recorded so they are decisions rather than surprises:
 
    A password reset is therefore a credential rotation, not a session-kill
    switch for every path into the account. Disabling one IS that switch —
-   `dropLiveSocketsFor` and `dropTerminalSocketsFor` close both socket providers
+   `dropLiveSocketsFor` and `dropTerminalSocketsFor` close both socket doors
    and `dropUserTokensFor` destroys the single-use tokens that could
    otherwise walk an attach back in inside their 30 s (§2, "Disabling an
    account") — and a reset keeping neither is the asymmetry, kept on purpose.
@@ -2329,7 +2330,7 @@ What contains what:
 Installing a plugin is therefore an explicit act with a named source, never
 something a catalog does on its own — and an ADMIN act, cookie-only, on the
 one door (`/api/plugins`, [§6](#plugin-installs-from-the-registry-spec-2026-09-09-instance-level-since-2026-09-10)).
-Weaker providers were deleted rather than widened: there is no per-node install
+Weaker doors were deleted rather than widened: there is no per-node install
 route and no agent-side install verb any more.
 
 **The node enforces binaries, not plugins.** With no per-node plugin store
@@ -2486,7 +2487,7 @@ it cannot take itself down. Cookie-admin, bearer refused, audited as
 machines where the question has no answer: nothing installed, the desktop app
 running this server, or a manager that would not say. Switching who runs the
 server at all still has no route, for the original reason — the dashboard
-offers a provider into the desktop assistant instead.
+offers a door into the desktop assistant instead.
 
 **A browser now presses it in ONE direction only**, and that is a UI choice
 rather than a new rule: outside the Subshell Server app the page offers
@@ -3007,7 +3008,7 @@ Spec 2026-09-15. A **network plugin** (`type: "network"`) connects the
 control-plane host to one private network — Tailscale, Headscale, NetBird,
 Cloudflare Tunnel — and publishes Subshell on it, so the address an operator
 used to discover through a 403 becomes something the product knows and writes
-down. It is the same store, the same admin install provider and the same seeding
+down. It is the same store, the same admin install door and the same seeding
 marker as a harness plugin (§6, §11.9); what differs is what it implements and
 therefore what it costs.
 

@@ -41,7 +41,7 @@ export function SystemApiKeysCard() {
     <Card>
       <CardHeader>
         <CardTitle>System API keys</CardTitle>
-        <CardDescription>Long-lived bearer keys for external tooling against this instance.</CardDescription>
+        <CardDescription>API keys currently allow admin access to the Subshell Server API.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {error && <p className="text-destructive text-detail">{keyErrorMessage(error)}</p>}

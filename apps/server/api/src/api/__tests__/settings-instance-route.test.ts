@@ -14,7 +14,7 @@ import { setupAuthTables } from "./helpers/auth-tables.js";
  * `GET /api/settings/instance` is the app's first anonymous read outside the
  * first-run setup window, so both halves are pinned here: that it answers with
  * no credential at all, and that it answers with NOTHING BUT the three fields
- * the sign-in page renders — the name, the open provider providers, and whether
+ * the sign-in page renders — the name, the open providers, and whether
  * the E-mail provider is open at all (spec 2026-09-24 §7).
  */
 const app = new Elysia().use(errorHandlerPlugin).use(instancePublicRoutes).use(settingsRoutes);
@@ -42,7 +42,7 @@ describe("GET /api/settings/instance (anonymous)", () => {
     expect(typeof body.emailSignIn).toBe("boolean");
   });
 
-  it("carries ONLY the instance name, the provider providers, and the E-mail flag", async () => {
+  it("carries ONLY the instance name, the providers, and the E-mail flag", async () => {
     // The whole key set, not just these fields: this endpoint sits OUTSIDE
     // authGuard, so a field added here later would become anonymous silently.
     // The guarded /public payload carries viewerIsAdmin, appBaseUrl and

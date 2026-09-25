@@ -87,6 +87,13 @@ export function SystemKeyCreateDialog({
                 {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
               </Button>
             </div>
+            {/* The HOW, spelled with the real key (operator, 2026-09-25): a
+                first-time maker learns what to DO with this string at the one
+                moment they can still see it. */}
+            <p className="text-detail text-muted-foreground">
+              Use it as the request's Authorization header:{" "}
+              <span className="break-all font-mono text-foreground">Authorization: Bearer {created.key}</span>
+            </p>
             <p className="text-destructive text-detail">
               Store it somewhere safe. If it is lost, you will need to create a new key.
             </p>

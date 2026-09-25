@@ -31,7 +31,6 @@ function ApiKeysPage() {
           and an ambiguous test locator. */}
       <PageHeader
         title="API keys"
-        subtitle="Machine credentials for tooling that talks to this instance"
         // The page's one create act, top right like Add node / Add user /
         // Add provider, Plus included (operator ruling, 2026-09-25).
         action={

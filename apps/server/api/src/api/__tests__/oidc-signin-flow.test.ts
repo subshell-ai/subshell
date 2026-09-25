@@ -574,7 +574,7 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
 
   // Case 11 — §7: the E-mail provider's sign_in_enabled refuses the PASSWORD path
   // at the server (the provider-guards before-hook — `validateUserInfo` never fires
-  // there, measured), while a provider provider keeps working. The row is closed
+  // there, measured), while the OIDC provider keeps working. The row is closed
   // and restored through raw SQL, and every edge carries an invalidateAuth()
   // because the config build reads the table too.
   it("11. closing the E-mail provider 403s password sign-in; the OIDC provider keeps working", async () => {
