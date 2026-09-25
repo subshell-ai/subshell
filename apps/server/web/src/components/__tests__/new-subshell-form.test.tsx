@@ -16,10 +16,10 @@ import {
   hideMachineField,
   isSelectable,
   launchableNodes,
-  NewSubshellForm,
   type NewSubshellFormValue,
   pickNodeDefault,
-} from "@/components/subshell-picker/new-subshell-form";
+} from "@/components/subshell-picker/launch-form-rules";
+import { NewSubshellForm } from "@/components/subshell-picker/new-subshell-form";
 import { toSubshellCreateBody } from "@/hooks/use-create-subshell";
 import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
@@ -747,6 +747,264 @@ describe("NewSubshellForm copy", () => {
  * once a second machine exists at all, where a subshell runs is worth stating
  * even if only one of them can take it today.
  */
+/**
+ * The prior-launch tier (operator rule, 2026-09-25): the form opens on the
+ * newest row's four settings, and "Copy settings from" applies any listed
+ * row's settings as an explicit act. The pure selectors are pinned in
+ * `lib/__tests__/launch-defaults.test.ts`; these pins are the effect's
+ * composition — arming, degradation, and the caller/edit disqualifiers.
+ */
+describe("NewSubshellForm prior-launch defaults + copy picker", () => {
+  const PI_ON = { harnessId: "pi", name: "Pi", installed: true };
+  const PI = plugin({ id: "pi", name: "Pi", type: "agent-harness" });
+
+  function launchRow(o: Record<string, unknown>) {
+    return {
+      id: "s2",
+      name: "Last launch",
+      harnessId: "claude-code",
+      presetId: null,
+      nodeId: "local",
+      workingDir: "/srv/app",
+      createdAt: "2026-09-12T00:00:00.000Z",
+      ...o,
+    };
+  }
+
+  it("opens on the newest row's full launch: node, dir, agent AND preset", async () => {
+    const PI_NODE = node({ id: "a1", name: "mac mini", harnesses: [PI_ON] });
+    const restore = mockFetch(
+      [LOCAL, PI_NODE],
+      [CLAUDE, PI],
+      [preset({ id: "p-pi", harnessId: "pi", name: "Pi one" })],
+      [launchRow({ harnessId: "pi", presetId: "p-pi", nodeId: "a1", workingDir: "/srv/copied" })],
+      { paths: [], home: "/home/ada" },
+    );
+    try {
+      const { latest } = await renderForm();
+      await waitFor(() => expect(latest().harnessId).toBe("pi"));
+      expect(latest().presetId).toBe("p-pi");
+      expect(latest().nodeId).toBe("a1");
+      // The copied directory outranks the recents seed — the row's own dir is
+      // the answer, not the node's generic most-recent path.
+      expect(latest().workingDir).toBe("/srv/copied");
+    } finally {
+      restore();
+    }
+  });
+
+  it("a copy from an offline node degrades through the machine-switch rule", async () => {
+    // Newest row ran on the offline "old laptop" with a dir that lives there.
+    // The re-home moves the pick, and the same arm that clears a machine
+    // switch clears the copied dir; the per-node seed fills the hole.
+    const restore = mockFetch(
+      [LOCAL, ENROLLED_OFFLINE],
+      [CLAUDE],
+      [],
+      [launchRow({ nodeId: "a2", workingDir: "/srv/gone" })],
+      { paths: [], home: "/home/ada" },
+    );
+    try {
+      const { latest } = await renderForm();
+      await waitFor(() => expect(latest().nodeId).toBe("local"));
+      await waitFor(() => expect(latest().workingDir).toBe("/home/ada"));
+      expect(latest().harnessId).toBe("claude-code");
+    } finally {
+      restore();
+    }
+  });
+
+  it("a caller's initialForm pair (the Split path) is never overridden", async () => {
+    const PI_NODE = node({ id: "a1", name: "mac mini", harnesses: [PI_ON] });
+    const restore = mockFetch(
+      [LOCAL, PI_NODE],
+      [CLAUDE, PI],
+      [],
+      [launchRow({ harnessId: "pi", nodeId: "a1", workingDir: "/from/the/newest/row" })],
+      { paths: [], home: "/home/ada" },
+    );
+    try {
+      const { latest } = await renderForm({
+        harnessId: "claude-code",
+        presetId: null,
+        workingDir: "/keep/me",
+        nodeId: "local",
+      });
+      await settle();
+      expect(latest().nodeId).toBe("local");
+      expect(latest().workingDir).toBe("/keep/me");
+      expect(latest().harnessId).toBe("claude-code");
+    } finally {
+      restore();
+    }
+  });
+
+  it("typing before the list answers keeps the typed dir; the agent still lands", async () => {
+    // The host runs BOTH agents, so the recent tier's answer (pi) survives the
+    // usability check — the point here is the touched form releasing the
+    // node+dir tier while the agent tier stays armed.
+    const host = node({
+      id: "local",
+      name: "this host",
+      kind: "local",
+      access: "view",
+      harnesses: [CLAUDE_ON, PI_ON],
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const restore = mockFetch(
+      [host, node({ id: "a1", name: "mac mini", harnesses: [PI_ON] })],
+      [CLAUDE, PI],
+      [],
+      [launchRow({ harnessId: "pi", nodeId: "a1", workingDir: "/from/the/row" })],
+      { paths: [], home: "/home/ada" },
+      { subshellsGate: gate },
+    );
+    try {
+      const { latest } = await renderForm();
+      const dir = document.getElementById("picker-working-dir") as HTMLInputElement;
+      fireEvent.change(dir, { target: { value: "/typed/by/hand" } });
+      release();
+      await waitFor(() => expect(latest().harnessId).toBe("pi"));
+      // Touched means touched: the node+dir tier released, the agent tier
+      // (blank-only fill) kept its recent answer.
+      expect(latest().workingDir).toBe("/typed/by/hand");
+      expect(latest().nodeId).toBe("local");
+    } finally {
+      restore();
+    }
+  });
+
+  it("the recents seed waits for the list, never pre-empting the copy on a cold load", async () => {
+    // The ordering the review found: a first dialog open before the live feed
+    // warms the list cache — nodes and `/recent` answer first. A seed that
+    // filled the field there would make the form touched and disqualify the
+    // auto tier for the whole session; the seed now holds until the list has
+    // answered, and the copied directory wins the field when it lands.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const restore = mockFetch(
+      [LOCAL],
+      [CLAUDE],
+      [],
+      [launchRow({ workingDir: "/from/the/row" })],
+      { paths: [{ path: "/home/ada/recent", label: null }], home: "/home/ada" },
+      { subshellsGate: gate },
+    );
+    try {
+      const { latest } = await renderForm();
+      // Held: the seed knows the copy has not had its chance yet.
+      expect(latest().workingDir).toBe("");
+      release();
+      await waitFor(() => expect(latest().workingDir).toBe("/from/the/row"));
+      expect(latest().harnessId).toBe("claude-code");
+    } finally {
+      restore();
+    }
+  });
+
+  it("a copy from a maintenance node degrades like the offline case", async () => {
+    // The one unlaunchable row the picker KEEPS for its reason (spec
+    // 2026-09-14 §6) must degrade the same way: the pick re-homes, the
+    // copied dir rides the machine-switch clear, the seed refills.
+    const MAINT = node({ id: "m1", name: "shop", maintenance: true, canLaunch: false });
+    const restore = mockFetch([LOCAL, MAINT], [CLAUDE], [], [launchRow({ nodeId: "m1", workingDir: "/srv/on-shop" })], {
+      paths: [],
+      home: "/home/ada",
+    });
+    try {
+      const { latest } = await renderForm();
+      await waitFor(() => expect(latest().nodeId).toBe("local"));
+      await waitFor(() => expect(latest().workingDir).toBe("/home/ada"));
+    } finally {
+      restore();
+    }
+  });
+
+  it("lists prior subshells, applies a pick over the held fields, and resets to placeholder", async () => {
+    const PI_NODE = node({ id: "a1", name: "mac mini", harnesses: [PI_ON] });
+    const restore = mockFetch(
+      [LOCAL, PI_NODE],
+      [CLAUDE, PI],
+      [preset({ id: "p-pi", harnessId: "pi", name: "Pi one" })],
+      [
+        launchRow({
+          id: "s-new",
+          name: "Newest",
+          harnessId: "pi",
+          presetId: "p-pi",
+          nodeId: "a1",
+          workingDir: "/srv/new",
+        }),
+        launchRow({ id: "s-old", name: "Older one", createdAt: "2026-09-02T00:00:00.000Z", workingDir: "/srv/old" }),
+      ],
+      { paths: [], home: "/home/ada" },
+    );
+    try {
+      const { latest } = await renderForm();
+      await waitFor(() => expect(latest().harnessId).toBe("pi"));
+      expect(screen.getByText("Copy settings from")).toBeDefined();
+      const input = document.getElementById("picker-copy") as HTMLInputElement;
+      fireEvent.focus(input);
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.click(await screen.findByRole("option", { name: /Older one/ }));
+      // An explicit copy applies over the auto-default's answer…
+      await waitFor(() => expect(latest().harnessId).toBe("claude-code"));
+      expect(latest().presetId).toBeNull();
+      expect(latest().nodeId).toBe("local");
+      expect(latest().workingDir).toBe("/srv/old");
+      // …and the row returns to its placeholder: the copy was an action.
+      await settle();
+      expect(input.value).toBe("");
+    } finally {
+      restore();
+    }
+  });
+
+  it("the picker copies a foreign preset only to lose it to the membership guard", async () => {
+    const restore = mockFetch(
+      [LOCAL],
+      [CLAUDE],
+      [preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" })],
+      [launchRow({ harnessId: "claude-code", presetId: "p-pi" })],
+    );
+    try {
+      const { latest } = await renderForm();
+      const input = document.getElementById("picker-copy") as HTMLInputElement;
+      fireEvent.focus(input);
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.click(await screen.findByRole("option", { name: /Last launch/ }));
+      // The row names a preset that does not belong to any pickable agent —
+      // the guard leaves the launch presetless, never half-copied.
+      await waitFor(() => expect(latest().presetId).toBeNull());
+      expect(latest().harnessId).toBe("claude-code");
+    } finally {
+      restore();
+    }
+  });
+
+  it("absent with nothing to copy, and on first run", async () => {
+    const empty = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE]);
+    try {
+      await renderForm();
+      expect(screen.queryByText("Copy settings from")).toBeNull();
+    } finally {
+      empty();
+    }
+    const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [], [launchRow({})], undefined, undefined);
+    try {
+      await renderForm(emptyNewSubshellForm(), false, true);
+      expect(screen.queryByText("Copy settings from")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
 describe("hideMachineField", () => {
   it("hides the field when the host is the only place it could run", () => {
     expect(hideMachineField([LOCAL])).toBe(true);

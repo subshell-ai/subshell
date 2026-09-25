@@ -51,12 +51,23 @@ export function parseEnvPaste(text: string): EnvRow[] {
  * tiny quote-aware tokenizer keeps `"be nice"` inside one value. Tokens
  * starting with `-` open a row, the rest join its value; anything before the
  * first flag (a pasted binary name) and a leading `--` separator are dropped.
+ * A leading dash run that a smart-typography source typeset to `—`/`–` is
+ * restored to hyphens first — see {@link restoreFlagDashes}.
  */
 export function parseFlagsPaste(text: string): FlagRow[] {
-  const tokens = tokenize(text);
+  return pairFlagRows(tokenize(text));
+}
+
+/**
+ * The flag-pairing walk both paste parsers share: a token that opens a flag
+ * starts a row, the rest join its value, and a leading `--` separator (and
+ * anything before the first flag) is dropped.
+ */
+function pairFlagRows(tokens: string[]): FlagRow[] {
   const rows: FlagRow[] = [];
   let first = true;
-  for (const token of tokens) {
+  for (const raw of tokens) {
+    const token = restoreFlagDashes(raw);
     if (first && token === "--") continue;
     if (token.startsWith("-")) {
       rows.push({ flag: token, value: "" });
@@ -67,6 +78,56 @@ export function parseFlagsPaste(text: string): FlagRow[] {
     }
   }
   return rows;
+}
+
+/**
+ * Unicode dashes a smart-typography renderer substitutes for typed hyphen
+ * runs, and the ASCII spelling each restores to: en/em/horizontal-bar come
+ * from `--` (and `---`, which no flag spells), the hyphen, figure-dash and
+ * minus-sign spellings from a single `-`.
+ */
+const DASH_REPLACEMENTS = new Map<string, string>([
+  ["‐", "-"], // U+2010 hyphen
+  ["‑", "-"], // U+2011 non-breaking hyphen
+  ["‒", "-"], // U+2012 figure dash
+  ["−", "-"], // U+2212 minus sign
+  ["–", "--"], // U+2013 en dash
+  ["—", "--"], // U+2014 em dash
+  ["―", "--"], // U+2015 horizontal bar
+]);
+
+/**
+ * Restores a token's LEADING run of typographic dashes to ASCII hyphens.
+ * A command copied out of rich text (a chat reply, a docs page) arrives with
+ * `--chrome` typeset as `—chrome`; the tokenizer reads U+2014 as an ordinary
+ * character, the `startsWith("-")` test misses it, and the token used to glue
+ * onto the previous flag's value (fixed 2026-09-25, from an operator paste).
+ *
+ * Only a run the SOURCE continued WITHOUT a space is restored. The parser
+ * knows no flag list, so that continuation is a SHAPE test, which the
+ * typeset flags it exists for all pass. A run followed by whitespace or
+ * ending the token (`"— Q3"`, the `—` in `hello — world`) is punctuation
+ * inside data — the tokenizer consumes quotes before classification, so a
+ * value whose leading dash carries a space arrives as one of these guarded
+ * shapes, and restoring it would turn a value into a flag row (the first
+ * version of this function did; review caught it the same day). The
+ * no-space value that stays ambiguous, quoted or bare (`"—Q3"` and `—Q3`
+ * both arrive as the token `—Q3`), matches what a real shell does with a
+ * bare token starting with a hyphen, so the trade is the module's existing
+ * rule, not a new one.
+ */
+function restoreFlagDashes(token: string): string {
+  let restored = "";
+  let i = 0;
+  while (i < token.length) {
+    const ch = token.charAt(i);
+    const replacement = DASH_REPLACEMENTS.get(ch);
+    if (replacement === undefined) break;
+    restored += replacement;
+    i++;
+  }
+  if (i === 0 || i === token.length || /\s/.test(token.charAt(i))) return token;
+  return restored + token.slice(i);
 }
 
 /** Splits on whitespace, honouring single/double quotes and `\"` escapes. */
@@ -180,19 +241,10 @@ export function parseCommandPaste(text: string): ParsedCommand {
   }
   const rest = tokens.slice(index);
   // A token that opens a flag is not a command: a paste may be flags alone.
-  const command = rest.length > 0 && !rest[0].startsWith("-") ? rest.shift() : undefined;
-  const flags: FlagRow[] = [];
-  let first = true;
-  for (const token of rest) {
-    if (first && token === "--") continue;
-    if (token.startsWith("-")) {
-      flags.push({ flag: token, value: "" });
-      first = false;
-    } else if (flags.length > 0) {
-      const last = flags[flags.length - 1];
-      last.value = last.value ? `${last.value} ${token}` : token;
-    }
-  }
+  // The dash restoration applies here too, or a typeset `—chrome` leading a
+  // flags-only paste would be eaten as the command name.
+  const command = rest.length > 0 && !restoreFlagDashes(rest[0]).startsWith("-") ? rest.shift() : undefined;
+  const flags = pairFlagRows(rest);
   return command === undefined ? { env, flags } : { env, flags, command };
 }
 
