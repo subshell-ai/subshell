@@ -3139,10 +3139,15 @@ pub fn desktop_request_notifications() -> Result<Permission, String> {
 /// What makes it more than a second door to the same room is recorded in
 /// `desktop-core`'s `request_photos` — the picker panel that normally raises
 /// this prompt is THIS app's, so asking here arms the same TCC subject the
-/// picker will hit. No argument; reaches no CLI, config, service or file.
+/// picker will hit. The PAGE sends no argument — the `AppHandle` is injected
+/// by Tauri, and it is the checked hop to the main thread that the consent
+/// request must be made on (1.0.1 guessed an objc selector for that hop and
+/// the unrecognized selector aborted the app; the crash report of 2026-09-25
+/// is why the dispatcher is a Rust API now). Reaches no CLI, config, service
+/// or file.
 #[tauri::command(async)]
-pub fn desktop_request_photos() -> Result<Permission, String> {
-    permissions::request_photos()
+pub fn desktop_request_photos(app: AppHandle) -> Result<Permission, String> {
+    permissions::request_photos(move |f| app.run_on_main_thread(f).map_err(|e| e.to_string()))
 }
 
 /// The System Settings panes this app may open.

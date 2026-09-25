@@ -990,16 +990,21 @@ keeps that mapping in one place.
 2026-09-25, packaged app). Called on the command's tokio worker, the sheet
 never appeared and the app never registered under System Settings → Privacy &
 Security → Photos: no consent prompt ever reached TCC. PhotoKit's consent sheet
-is presentation, and presentation belongs on the main thread; `request_photos`
-now re-dispatches the REQUEST through `run_block_on_main_thread` (a
-`msg_send!` of `+[NSThread performBlockOnMainThread:]`, which
-`objc2-foundation` 0.3.2 does not generate), and only then waits on the channel.
-The wait stays on the worker, so the main thread is never held. The
-notifications pair keeps calling in place: the UN framework re-dispatches its
-own request internally, which is why the identical pattern worked there and did
-not here. **No check on this host can compile the macOS-gated half;
-`cargo check --target aarch64-apple-darwin` does, and the fix's real proof is
-a press of the button on a built app.**
+is presentation, and presentation belongs on the main thread. **The first fix
+of this crashed the app** (measured the same morning, 1.0.1): it dispatched
+through a `msg_send!` of `+[NSThread performBlockOnMainThread:]`, that
+selector does not exist on the class (its absence from the generated
+`objc2-foundation` bindings was the evidence, read the wrong way), and an
+unrecognized selector ABORTS the process; the crash report is the record.
+`request_photos` therefore takes its hop as an injected dispatcher, and
+`desktop_request_photos(app: AppHandle)` hands it
+`AppHandle::run_on_main_thread`, a checked Rust API, so the shape of the hop
+cannot be guessed wrong again. The wait stays on the worker, so the main
+thread is never held. The notifications pair keeps calling in place: the UN
+framework re-dispatches its own request internally, which is why the identical
+pattern worked there and did not here. **No check on this host can compile the
+macOS-gated half; `cargo check --target aarch64-apple-darwin` does, and the
+fix's real proof is a press of the button on a built app.**
 
 **Tauri's notification plugin cannot see any of this.** Its desktop
 `permission_state()` and `request_permission()` are stubs that answer

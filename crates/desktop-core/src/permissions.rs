@@ -46,13 +46,20 @@
 //!
 //! A fourth measured fact sits beside that: **PhotoKit's consent prompt is
 //! presentation, and presentation belongs on the main thread.** The Photos
-//! REQUEST (not its handler) is re-dispatched to main by
-//! [`request_photos`] through [`run_block_on_main_thread`], because calling it
-//! from this command's worker thread was measured (2026-09-25, packaged app)
-//! to produce no sheet and no TCC registration at all. The notifications calls
-//! keep calling in place: the UN framework re-dispatches its own request
-//! internally, which is why the same command-threaded pattern works for it and
-//! did not for Photos.
+//! REQUEST (not its handler) must run on main; calling it from this command's
+//! worker thread was measured (2026-09-25, packaged app) to produce no sheet
+//! and no TCC registration at all. The hop to main is INJECTED —
+//! [`request_photos`] takes a `run_on_main` dispatcher from its caller — for a
+//! reason measured the same day at 09:06: the first fix sent
+//! `+[NSThread performBlockOnMainThread:]` through a raw `msg_send!`, that
+//! selector does not exist on the class (its absence from the generated
+//! bindings was the evidence, read the wrong way), and the unrecognized
+//! selector ABORTS the process — an objc miss is not a catchable error.
+//! `AppHandle::run_on_main_thread` is a checked Rust API, so the shape of the
+//! hop can no longer be guessed wrong. The notifications calls keep calling
+//! in place: the UN framework re-dispatches its own request internally,
+//! which is why the same command-threaded pattern works for it and did not
+//! for Photos.
 
 use serde::Serialize;
 
@@ -243,8 +250,16 @@ pub fn photos_permission() -> Permission {
 /// `Err` is reserved for the framework's complaint. A refusal by the person is
 /// [`Permission::Denied`], which is an answer and not an error. The Photos
 /// callback carries no `NSError` at all — its whole answer is the status.
+/// The dispatcher moves the request to the main thread; this crate cannot do
+/// that hop itself (it is `tauri`-free), and the caller must not guess an
+/// Objective-C selector for it: `+[NSThread performBlockOnMainThread:]` does
+/// NOT exist, an unrecognized selector aborts the process outright, and 1.0.1
+/// shipped that mistake — the crash report of 2026-09-25 09:06 is the record.
+/// `AppHandle::run_on_main_thread` is the checked hop the caller hands in.
 #[cfg(target_os = "macos")]
-pub fn request_photos() -> Result<Permission, String> {
+pub fn request_photos(
+    run_on_main: impl FnOnce(Box<dyn FnOnce() + Send>) -> Result<(), String>,
+) -> Result<Permission, String> {
     use objc2_photos::{PHAccessLevel, PHAuthorizationStatus, PHPhotoLibrary};
     use std::sync::mpsc;
 
@@ -261,8 +276,8 @@ pub fn request_photos() -> Result<Permission, String> {
     // same pattern serves fine — arrives on an arbitrary background queue,
     // so blocking HERE (never on main) stays safe: main presents, a framework
     // queue answers, this worker waits.
-    let request = block2::RcBlock::new(move || {
-        let answer = tx.clone();
+    let start = Box::new(move || {
+        let answer = tx;
         let handler = block2::RcBlock::new(move |_status: PHAuthorizationStatus| {
             // The status is dropped on purpose — the row is re-read below.
             // What crosses the channel is only the fact that the framework
@@ -270,42 +285,17 @@ pub fn request_photos() -> Result<Permission, String> {
             let _ = answer.send(());
         });
         // SAFETY: a class method taking a plain enum and a completion block,
-        // now called on the main thread. The block runs on the framework's
-        // own queue with a plain integer argument; the `WAIT` timeout bounds
-        // the wait, exactly as around the UN calls.
+        // now called on the main thread by the injected dispatcher. The block
+        // runs on the framework's own queue with a plain integer argument;
+        // the `WAIT` timeout bounds the wait, exactly as around the UN calls.
         unsafe {
             PHPhotoLibrary::requestAuthorizationForAccessLevel_handler(PHAccessLevel::ReadWrite, &handler);
         }
     });
-    run_block_on_main_thread(&request);
+    run_on_main(start)?;
     match rx.recv_timeout(WAIT) {
         Ok(()) => Ok(photos_permission()),
         Err(_) => Ok(Permission::Unavailable),
-    }
-}
-
-/// Run a block on the AppKit main thread and return immediately.
-///
-/// `+[NSThread performBlockOnMainThread:]` (macOS 10.12+, below every floor
-/// this app ships to) is sent through `msg_send!` rather than a binding
-/// because `objc2-foundation` 0.3.2 does not generate it — its `NSThread`
-/// carries `detachNewThreadWithBlock:` but not this. The class and selector
-/// exist at runtime regardless of what the crate wrapped.
-///
-/// The shape this module relies on is: a worker dispatches, the main thread
-/// runs, the worker waits. A caller ON the main thread would get Apple's
-/// synchronous-when-on-main execution rather than a hang, and the framework's
-/// own queue answers the completion either way — but every reachable caller
-/// here is a worker, and the `WAIT` timeout bounds the wait regardless.
-#[cfg(target_os = "macos")]
-fn run_block_on_main_thread(block: &block2::RcBlock<dyn Fn()>) {
-    use objc2::{class, msg_send};
-    // SAFETY: `NSThread` is a system class always present on macOS;
-    // `performBlockOnMainThread:` has taken one `dispatch_block_t` (the same
-    // object encoding a `RcBlock` passes) since 10.12; the message returns
-    // nothing.
-    unsafe {
-        let _: () = msg_send![class!(NSThread), performBlockOnMainThread: &**block];
     }
 }
 
@@ -367,13 +357,16 @@ pub fn photos_permission() -> Permission {
     Permission::Unavailable
 }
 
-/// Linux has nothing to ask for; see [`request_notifications`].
+/// Linux has nothing to ask for; see [`request_notifications`]. The dispatcher
+/// is ignored — there is no request to move.
 ///
 /// The stub is load-bearing rather than tidy: `control.rs` names this function
 /// on every platform, and `cargo clippy` on a Mac cannot see what Linux
 /// compiles — the trap `apps/server/desktop/AGENTS.md` records.
 #[cfg(not(target_os = "macos"))]
-pub fn request_photos() -> Result<Permission, String> {
+pub fn request_photos(
+    _run_on_main: impl FnOnce(Box<dyn FnOnce() + Send>) -> Result<(), String>,
+) -> Result<Permission, String> {
     Ok(Permission::Unavailable)
 }
 
@@ -396,7 +389,7 @@ mod tests {
         assert_eq!(notification_permission(), Permission::Unavailable);
         assert_eq!(photos_permission(), Permission::Unavailable);
         assert_eq!(request_notifications(), Ok(Permission::Unavailable));
-        assert_eq!(request_photos(), Ok(Permission::Unavailable));
+        assert_eq!(request_photos(|_| Ok(())), Ok(Permission::Unavailable));
     }
 
     /// The five words are the wire contract with both the assistant page and
