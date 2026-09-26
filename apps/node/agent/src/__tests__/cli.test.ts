@@ -1028,3 +1028,26 @@ describe("update verb (spec 2026-09-15 §5.2)", () => {
     expect(err).toInclude("--rollback");
   });
 });
+
+describe("reset / uninstall verbs (issue #232)", () => {
+  // Parser and refusals only: a CONFIRMED run would delete real state, so the
+  // chain itself is pinned in reset-cli.test.ts against injected seams.
+  test("the parser accepts the verbs and exactly their flags", () => {
+    expect(parseArgs(["reset"])).toEqual({ command: "reset", flags: {} });
+    expect(parseArgs(["reset", "--confirm", "theo-linux"]).flags.confirm).toBe("theo-linux");
+    expect(parseArgs(["uninstall", "--reset-data"]).flags.resetData).toBe("1");
+    // `--json` belongs to neither verb; `--reset-data` does not exist on reset.
+    expect(() => parseArgs(["reset", "--json"])).toThrow(/not valid for 'reset'/);
+    expect(() => parseArgs(["reset", "--reset-data"])).toThrow(/not valid for 'reset'/);
+    expect(() => parseArgs(["uninstall", "--confirm"])).toThrow(/--confirm.*requires a value/);
+  });
+
+  test("--yes is REFUSED BY NAME on both verbs, before the chain sees anything", async () => {
+    const r = await run(["reset", "--yes"]);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("--yes cannot confirm a reset");
+    const u = await run(["uninstall", "--yes"]);
+    expect(u.code).toBe(1);
+    expect(u.err).toContain("--yes cannot confirm an uninstall");
+  });
+});
