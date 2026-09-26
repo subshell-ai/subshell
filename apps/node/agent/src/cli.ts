@@ -18,6 +18,7 @@ import {
   runMaintenance,
 } from "./maintenance-cli.js";
 import { runNodeMcp } from "./mcp/main.js";
+import { defaultNodeResetDeps, type NodeResetDeps, runNodeReset } from "./reset-cli.js";
 import {
   controlService,
   DEFAULT_DEPS,
@@ -30,7 +31,15 @@ import {
   setAutostart,
   uninstallService,
 } from "./service.js";
-import { type ConfirmFn, type PromptTextFn, promptConfirm, promptName, runSetup } from "./setup.js";
+import {
+  type ConfirmFn,
+  type PromptTextFn,
+  promptConfirm,
+  promptName,
+  promptText,
+  promptYesNo,
+  runSetup,
+} from "./setup.js";
 import { defaultUnenrollDeps, runUnenroll, type UnenrollDeps } from "./unenroll-cli.js";
 import {
   applyUpdate,
@@ -113,6 +122,23 @@ usage:
                           binary; the control plane's row stays until its owner
                           deletes it there. Refuses while a daemon runs or
                           subshells are live; --yes is the confirmation.
+  subshell reset
+                          stop being a node the way the Client app's Reset does:
+                          stops the daemon, closes this machine's pane servers,
+                          removes the service definition, and deletes the data
+                          directory (identity and pane logs), the daemon lock,
+                          and the node config with its key (LAST). Everything
+                          the node role wrote HERE goes; the plane's row and
+                          other machines' panes do not. The binary stays, so
+                          subshell setup can enroll again. The machine's NAME
+                          must be typed (--confirm <name> when headless); --yes
+                          cannot confirm a reset.
+  subshell uninstall [--reset-data]
+                          reset PLUS the installed binary and any .previous
+                          an update left. Asks separately whether the data goes
+                          too (default: keep it); --reset-data answers that
+                          question yes without a terminal. The same typed-name
+                          consent; --yes is refused.
   subshell status [--json] [--probe]
   subshell update [--check] [--to <version>] [--from <file>] [--force] [--yes]
                   [--json] [--no-restart]
@@ -145,11 +171,13 @@ const COMMANDS = new Set([
   "mcp",
   "pane-log",
   "report",
+  "reset",
   "run",
   "service",
   "setup",
   "status",
   "unenroll",
+  "uninstall",
   "update",
   "version",
 ]);
@@ -272,6 +300,10 @@ const FLAGS: Record<string, boolean> = {
   "--probe": false,
   "--force": false,
   "--yes": false,
+  // The destructive verbs' flags (issue #232): the scripted machine name, and
+  // the scripted YES to uninstall's data question.
+  "--confirm": true,
+  "--reset-data": false,
   "--no-service": false,
   "--no-autostart": false,
   "--check": false,
@@ -306,6 +338,10 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   // The tmux pipe-pane child: reads its stdin (the pane's output) and appends it
   // to --file, flushing every read. Built by `pipePane`, never typed.
   "pane-log": ["--file"],
+  // --yes is ACCEPTED so it can be refused BY NAME in the case block: the
+  // flag a rushed operator reaches for must be told it cannot buy this
+  // consent, not reported as an unknown word.
+  reset: ["--yes", "--confirm"],
   report: [], // same pane-env contract; a hook's command line is built by the control plane, never typed
   run: ["--dashboard-port"],
   // Derived, never hand-listed: the command-level check is the union and the
@@ -317,6 +353,7 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   setup: ["--server", "--key", "--name", "--data-dir", "--no-service", "--yes", "--json"],
   status: ["--json", "--probe"],
   unenroll: ["--yes", "--json"],
+  uninstall: ["--yes", "--confirm", "--reset-data"],
   // No subtoken table: `--rollback` is a FLAG rather than a `subshell update
   // rollback` subcommand, because it is the same verb pointed backwards and a
   // subcommand would invite `update rollback --to 0.8.0`, which means nothing.
@@ -493,6 +530,12 @@ export interface RunDeps {
    * the ORDER need neither a daemon nor a filesystem write to act on.
    */
   unenroll?: UnenrollDeps;
+  /**
+   * Service/lock/tmux/plan/prompt seams for `reset` and `uninstall` (default:
+   * built over the real service manager). The deletes are real, so the tests
+   * that pin the chain inject everything.
+   */
+  reset?: NodeResetDeps;
   /**
    * How `setup` asks for the node's name (default: {@link promptName}, a clack
    * text input prefilled with this machine's hostname).
@@ -742,6 +785,34 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           cfg,
           { yes: parsed.flags.yes === "1", json: parsed.flags.json === "1" },
           deps.unenroll ?? defaultUnenrollDeps(cfg.dataDir),
+        );
+      }
+      case "reset":
+      case "uninstall": {
+        // The node role's destructive verbs (issue #232), twin to the
+        // control plane's. `--yes` is refused HERE by name (see the flag
+        // table); consent is the machine's NAME, typed or --confirm'd.
+        if (parsed.flags.yes === "1") {
+          return fail(
+            1,
+            new Error(
+              `--yes cannot confirm ${parsed.command === "reset" ? "a reset" : "an uninstall"}; type the machine's name at the prompt, or pass --confirm <machine-name>`,
+            ),
+          );
+        }
+        const base = deps.reset ?? defaultNodeResetDeps(DEFAULT_DEPS(configExists));
+        return await runNodeReset(
+          {
+            uninstall: parsed.command === "uninstall",
+            confirm: parsed.flags.confirm,
+            resetData: parsed.flags.resetData === "1" ? true : undefined,
+          },
+          {
+            ...base,
+            interactive: deps.interactive ?? base.interactive,
+            ask: base.ask ?? promptText,
+            askConfirm: base.askConfirm ?? promptYesNo,
+          },
         );
       }
       case "setup": {

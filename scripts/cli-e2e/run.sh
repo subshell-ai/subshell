@@ -38,6 +38,7 @@ echo
 "$HERE/node-update.sh"
 echo
 "$HERE/node-dashboard.sh"
+"$HERE/node-reset-uninstall.sh"
 echo
 "$HERE/reset-uninstall.sh"
 echo

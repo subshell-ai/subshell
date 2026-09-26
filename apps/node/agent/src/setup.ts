@@ -145,6 +145,24 @@ export function resetPromptFramingForTests(): void {
   introDrawn = false;
 }
 
+/**
+ * A TEXT prompt with no validator and no remembered default: the typed NAME
+ * consent of the destructive verbs, where a prefilled value would BE the
+ * answer. No intro line — a reset's output must not read like setup branding.
+ */
+export async function promptText(question: string, def = ""): Promise<string | null> {
+  if (!process.stdin.isTTY) return null;
+  const answer = await text({ message: question, initialValue: def });
+  if (isCancel(answer)) return null;
+  return answer;
+}
+/** A yes/no prompt with no intro line (see {@link promptText}'s reason). */
+export async function promptYesNo(question: string, def: boolean): Promise<boolean | null> {
+  if (!process.stdin.isTTY) return null;
+  const answer = await confirm({ message: question, initialValue: def });
+  if (isCancel(answer)) return null;
+  return answer;
+}
 /** Production prompt: a clack confirm (see {@link promptName} for the text twin). */
 export async function promptConfirm(question: string, def: boolean): Promise<boolean | null> {
   if (!process.stdin.isTTY) return null;

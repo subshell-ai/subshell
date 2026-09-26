@@ -60,6 +60,12 @@ const TRAY_ID: &str = "subshell-node";
 /// The menu ids. Namespaced so they can never collide with a predefined
 /// item's id.
 const NODE_ID: &str = "tray:node";
+/// "Reset…" (issue #232): the tray door to the page's OWN reset dialog, the
+/// sibling of the Server app's tray item. The dialog arms itself the moment
+/// it opens, so this item raises a screen and asks nothing of its own. The
+/// machine caught mid-first-run (wrong install, no rail to stand on) gets
+/// the same typed-hostname confirmation as the rail door.
+const RESET_ID: &str = "tray:reset";
 const KEEP_ID: &str = "tray:keep";
 const ABOUT_ID: &str = "tray:about";
 /// "Check for Updates…" — this APP, not the node agent it wraps.
@@ -253,6 +259,9 @@ fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     // Present on both, because the tray is the one menu both platforms share
     // and a second platform branch buys nothing here.
     let about = MenuItem::with_id(app, ABOUT_ID, "About Subshell Client", true, None::<&str>)?;
+    // Placed directly above Quit, the Server app's tray rule for the one
+    // item that must be findable without reading the rest of the menu.
+    let reset = MenuItem::with_id(app, RESET_ID, "Reset…", true, None::<&str>)?;
     // Seeded from what the LAST check found, because the launch check runs
     // after this menu is built and may not run at all today — an item that
     // only ever said "Check for Updates…" until a check happened would hide a
@@ -287,6 +296,7 @@ fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &PredefinedMenuItem::separator(app)?,
             &keep,
             &PredefinedMenuItem::separator(app)?,
+            &reset,
             &PredefinedMenuItem::quit(app, None)?,
         ],
     )
@@ -391,6 +401,15 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             // compatible — so a page that still asked for it would simply be
             // ignored, which is the same thing an unknown id has always been.
             UPDATE_ID => crate::windows::show_node_screen(app, "update"),
+            // Raises the node page at the reset dialog through the SAME route
+            // About takes (stash + open + emit); the dialog arms a fresh plan
+            // when it MOUNTS. A second press on an already-open dialog raises
+            // the window around the same dialog: the page's open flag is a
+            // boolean, and React re-runs nothing for a value that did not
+            // change. The dialog stays honest to the machine as it was when
+            // it opened; a plan taken since then is seen by closing and
+            // pressing again.
+            RESET_ID => crate::windows::show_node_screen(app, "reset"),
             KEEP_ID => set_close_to_tray(app),
             _ => {}
         })
@@ -471,7 +490,15 @@ mod tests {
 
     #[test]
     fn the_menu_ids_are_namespaced() {
-        for id in [NODE_ID, KEEP_ID, ABOUT_ID, UPDATE_ID, PLANE_NONE_ID, PLANE_LAST_ID] {
+        for id in [
+            NODE_ID,
+            KEEP_ID,
+            ABOUT_ID,
+            UPDATE_ID,
+            RESET_ID,
+            PLANE_NONE_ID,
+            PLANE_LAST_ID,
+        ] {
             assert!(id.starts_with("tray:"), "{id}");
         }
         // The plane ids are prefixes: what follows is a URL, so the whole
