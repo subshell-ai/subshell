@@ -10,7 +10,7 @@ Five steps, each linking to its full page. You need one machine you control (Lin
 On the machine that will run the server:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/subshell-ai/subshell/main/install-server.sh | bash
+curl -fsSL https://subshell.sh/install-server.sh | bash
 ```
 
 It downloads the `subshell-server` binary for your platform from the newest GitHub release, verifies the published `.sha256` digest **before** making the file executable, installs it to `~/.local/bin/subshell-server`, and runs `subshell-server init`. The one question that decides your setup (run in the background and start at login, default yes) is answered there; everything else you can accept with Enter. Prefer a window and a button? That's the [Subshell Server desktop app](/get-started/install-server#subshell-server-desktop-app).

@@ -10,6 +10,18 @@ export type MacArch = "darwin-arm64" | "darwin-x64";
 
 const REPO = "subshell-ai/subshell";
 
+/**
+ * The site's own origin (the custom domain `app/layout.tsx` declares as its
+ * metadataBase). The one-liners fetch the install scripts from HERE: the
+ * build serves this site's own copies of the root `install-server.sh` /
+ * `install-client.sh` (`scripts/prepare-data.ts`), so the command a visitor
+ * copies reads as the product, not the git host. The discipline this buys —
+ * an edited root script means the site must redeploy before the one-liner
+ * is trustworthy — is recorded in `docs/release-and-ci.md`, and the post-cut
+ * tripwire is the byte-compare step in `scripts/cli-e2e/published-release.sh`.
+ */
+const SITE_ORIGIN = "https://subshell.sh";
+
 /** Human labels for the arch choice and the menu items. */
 export const MAC_ARCH_LABEL: Record<MacArch, string> = {
   "darwin-arm64": "Apple silicon",
@@ -68,10 +80,10 @@ export function installCopy(
   let curlCommand: string | null = null;
   if (kind === "server") {
     const script = manifest.components["cli-server"]?.installScript;
-    if (script) curlCommand = `curl -fsSL https://raw.githubusercontent.com/${REPO}/main/${script} | bash`;
+    if (script) curlCommand = `curl -fsSL ${SITE_ORIGIN}/${script} | bash`;
   } else {
     const script = desktop?.installScript;
-    if (script) curlCommand = `curl -fsSL https://raw.githubusercontent.com/${REPO}/main/${script} | bash`;
+    if (script) curlCommand = `curl -fsSL ${SITE_ORIGIN}/${script} | bash`;
   }
 
   // DIRECT asset URLs. The manifest entry's `url` is the release PAGE, but

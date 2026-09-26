@@ -637,3 +637,15 @@ fail PR CI, not just the deploy: the package's `build` script runs inside
 `bun run build`, which `lint.yml` runs on every push. The marketing site
 (`apps/website`, `website-v*` tags, `website.yml`, subshell.sh) follows the
 identical deploy shape, gate removed there too.
+
+**The website also hosts the install scripts.** The root `install-server.sh`
+and `install-client.sh` are the source, but subshell.sh serves them: the
+site's build copies both into `public/` (`apps/website/scripts/prepare-data.ts`),
+and the install column's one-liner is `curl -fsSL
+https://subshell.sh/install-server.sh | bash`, not a raw.githubusercontent
+URL. The consequence is a deploy dependency that nothing but a human notices:
+**editing either root script means redeploying the website** (`bun run
+release:website`, or a `website.yml` dispatch) before the published one-liner
+stops serving the old bytes. The tripwire is `scripts/cli-e2e/published-release.sh`
+step 1, which fetches both scripts from the site and `cmp`s them against the
+checkout, naming the remedy when they differ.

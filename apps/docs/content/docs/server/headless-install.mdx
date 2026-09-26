@@ -10,7 +10,7 @@ A box you never sit in front of is the ordinary way to run a control plane: it w
 From a fresh shell on the machine that will host the server:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/subshell-ai/subshell/main/install-server.sh | bash
+curl -fsSL https://subshell.sh/install-server.sh | bash
 ```
 
 The script detects your platform, finds the newest `cli-server-vX.Y.Z` [GitHub release](https://github.com/subshell-ai/subshell/releases), downloads `subshell-server-cli-<triple>`, and **verifies the release's `.sha256` before the file is ever made executable**: a mismatch removes the download and stops. It installs the binary to `~/.local/bin/subshell-server` (naming it what the service definition expects), tells you if that directory is not on your `PATH`, and hands over to `subshell-server init`. The piped script itself asks nothing; every question belongs to `init`, which reattaches to your terminal.
