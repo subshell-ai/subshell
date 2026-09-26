@@ -1,7 +1,7 @@
 {
   "name": "@internal/website",
   "description": "Public marketing site for Subshell: static export at subshell.sh",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "Apache-2.0",
   "type": "module",
   "private": true,
