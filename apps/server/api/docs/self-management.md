@@ -161,7 +161,10 @@ Debug logging is an instance setting (`settings` row `debug_logging`, absent =
 off), read once at boot after migrations. `SUBSHELL_DEBUG_LOGGING=1` forces it
 for a headless box or for the lines written before the database opens, and
 while it is set the route answers **409** rather than writing a row the next
-boot would override.
+boot would override. The CLI's `--verbose` (2026-09-26) engages none of this:
+it raises the CONSOLE transport of the hand-invoked run carrying it, flips no
+setting, and forces no read-only rule; this paragraph stays the whole story
+of the FILE switch.
 
 ### The node Service surface
 

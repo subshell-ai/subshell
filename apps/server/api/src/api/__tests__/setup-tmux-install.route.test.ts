@@ -159,7 +159,11 @@ describe("POST /api/setup/tmux/install", () => {
 
   it("409s a sudo-prefixed installer rather than hanging on a password prompt", async () => {
     setTmuxInstallDepsForTests({
-      chooseInstaller: () => ({ argv: ["sudo", "apt-get", "install", "-y", "tmux"], label: "apt-get" }),
+      chooseInstaller: () => ({
+        argv: ["sudo", "apt-get", "install", "-y", "tmux"],
+        label: "apt-get",
+        manual: "apt install tmux",
+      }),
       which: () => null,
       timeoutMs: 5_000,
       extraPath: async () => [],
@@ -169,6 +173,38 @@ describe("POST /api/setup/tmux/install", () => {
     // Refused BEFORE a byte was streamed: once the body opens the status line
     // is sent and 200 cannot be taken back.
     expect(res.headers.get("content-type")).toContain("application/json");
+  });
+
+  it("409s the Homebrew bootstrap and the MacPorts row: the no-terminal route runs only what needs no password", async () => {
+    // The 2026-09-26 ladder widened the CLI's OFFER (a terminal can answer a
+    // password); this route has no terminal, so the same two entries the CLI
+    // may run it must refuse HERE, by name, before the body opens.
+    const bootstrap = chooseTmuxInstaller({ platform: "darwin", which: () => null });
+    expect(bootstrap?.label).toBe("Homebrew"); // the table really yields it
+    setTmuxInstallDepsForTests({
+      chooseInstaller: () => bootstrap!,
+      which: () => null,
+      timeoutMs: 5_000,
+      extraPath: async () => [],
+    });
+    const bs = await app.fetch(authedRequest("/api/setup/tmux/install", adminCookie, { method: "POST" }));
+    expect(bs.status).toBe(409);
+    expect(((await bs.json()) as { message: string }).message).toMatch(/admin password/i);
+
+    const ports = chooseTmuxInstaller({
+      platform: "darwin",
+      which: (n) => (n === "port" ? "/opt/local/bin/port" : null),
+    });
+    expect(ports?.label).toBe("MacPorts");
+    setTmuxInstallDepsForTests({
+      chooseInstaller: () => ports!,
+      which: () => null,
+      timeoutMs: 5_000,
+      extraPath: async () => [],
+    });
+    const mp = await app.fetch(authedRequest("/api/setup/tmux/install", adminCookie, { method: "POST" }));
+    expect(mp.status).toBe(409);
+    expect(((await mp.json()) as { message: string }).message).toMatch(/port install tmux/i);
   });
 
   it("covers the real Linux table: every Linux installer chooseTmuxInstaller picks is sudo-prefixed", () => {
@@ -196,7 +232,7 @@ describe("POST /api/setup/tmux/install", () => {
     // old answer forever.
     const before = resolveDeployFacts();
     setTmuxInstallDepsForTests({
-      chooseInstaller: () => ({ argv: ["echo", "installed tmux"], label: "fake" }),
+      chooseInstaller: () => ({ argv: ["echo", "installed tmux"], label: "fake", manual: "echo" }),
       which: (name) => (name === "tmux" ? "/usr/local/bin/tmux" : null),
       timeoutMs: 5_000,
       extraPath: async () => [],
@@ -226,7 +262,7 @@ describe("POST /api/setup/tmux/install", () => {
     // A failing installer is a RESULT, not a refusal: it ran. The status was
     // already sent by then, so the only place this can be said is a frame.
     setTmuxInstallDepsForTests({
-      chooseInstaller: () => ({ argv: ["sh", "-c", "exit 3"], label: "fake" }),
+      chooseInstaller: () => ({ argv: ["sh", "-c", "exit 3"], label: "fake", manual: "exit 3" }),
       which: () => null,
       timeoutMs: 5_000,
       extraPath: async () => [],

@@ -61,6 +61,13 @@ export interface UpdateOpts {
   yes?: boolean;
   /** Machine-readable output. */
   json?: boolean;
+  /**
+   * `--verbose` (2026-09-26): CONSOLE debug for this run. Read by the
+   * DISPATCH (which raises the transport gate and refuses the flag together
+   * with `--json`), never by the verb, so an update's behavior is identical
+   * with and without it.
+   */
+  verbose?: boolean;
   /** Swap the binary and stop — the caller owns the restart (the desktop apps). */
   noRestart?: boolean;
   /** Undo the last update instead of installing one. */

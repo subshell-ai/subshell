@@ -1,10 +1,12 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { type CliDeps, dispatchCli, parseUpdateFlags } from "../cli.js";
+import { acquirePromptInput, type TtyIo } from "../commands/tty-input.js";
 import { DATABASE_PATH, SUBSHELL_PLUGIN_REGISTRY_URL, SUBSHELL_SERVER_DATA_DIR } from "../constants.js";
+import { consoleVerbose, setConsoleVerbose } from "../utils/logger.js";
 
 /**
  * Save/restore guard for env-mutating tests (client `config.test.ts` idiom)
@@ -66,6 +68,166 @@ describe("dispatchCli — boot-path passthrough", () => {
     const { deps } = collectingDeps();
     expect(await dispatchCli(["--help"], deps)).toBe(false);
     expect(await dispatchCli(["-v", "extra"], deps)).toBe(false);
+  });
+
+  // The 2026-09-26 extension of pre-boot recognition: `--verbose` is the one
+  // leading flag that is RECOGNIZED (it raises this process's console
+  // transport) WITHOUT the pinned contract changing — a leading flag is
+  // still boot, `dispatchCli` still returns false.
+  test("leading --verbose is recognized pre-boot and still returns false (boot path intact)", async () => {
+    const { deps } = collectingDeps();
+    expect(consoleVerbose()).toBe(false);
+    try {
+      expect(await dispatchCli(["--verbose"], deps)).toBe(false);
+      expect(consoleVerbose()).toBe(true);
+    } finally {
+      setConsoleVerbose(false); // the logger is one module per test process
+    }
+    expect(consoleVerbose()).toBe(false);
+  });
+
+  test("--verbose after a non-verbose leading flag is still no one's business (unknown leading flag boots)", async () => {
+    const { deps } = collectingDeps();
+    expect(await dispatchCli(["--help", "--verbose"], deps)).toBe(false);
+    expect(consoleVerbose()).toBe(false);
+  });
+});
+
+/**
+ * `--verbose` (operator addendum 2026-09-26): console-only debug for the
+ * life of the process. The logger is a module singleton and `IS_TEST`
+ * disables EMISSION, so what these can pin is the level gate the flag moves
+ * (read back through `consoleVerbose()`) and nothing that emits.
+ */
+describe("dispatchCli — --verbose (2026-09-26)", () => {
+  test("init --verbose parses (it used to be an unknown flag) and raises the console", async () => {
+    const h = initHandoffHarness();
+    try {
+      expect(await dispatchCli(["init", "--yes", "--no-service", "--verbose"], h.deps)).toBe(true);
+      expect(h.exits).toEqual([0]);
+      expect(consoleVerbose()).toBe(true);
+    } finally {
+      setConsoleVerbose(false);
+    }
+  });
+
+  test("update --verbose --json is REFUSED: JSON on stdout and debug lines are mutually exclusive", async () => {
+    const { deps, err, exits } = collectingDeps();
+    expect(await dispatchCli(["update", "--verbose", "--json"], deps)).toBe(true);
+    expect(exits).toEqual([1]);
+    expect(err.join("\n")).toMatch(/--verbose and --json are mutually exclusive/);
+    // Refused BEFORE raising: the refusal itself must not arrive as debug spam.
+    expect(consoleVerbose()).toBe(false);
+  });
+
+  test("service status accepts --verbose; --verbose + --json is refused the same way", async () => {
+    try {
+      const ok = collectingDeps({ platform: "linux", home: "/home/nobody-here" });
+      expect(await dispatchCli(["service", "status", "--verbose"], ok.deps)).toBe(true);
+      expect(ok.exits).toEqual([0]);
+      expect(consoleVerbose()).toBe(true);
+      setConsoleVerbose(false);
+
+      const bad = collectingDeps({ platform: "linux", home: "/home/nobody-here" });
+      expect(await dispatchCli(["service", "status", "--verbose", "--json"], bad.deps)).toBe(true);
+      expect(bad.exits).toEqual([1]);
+      expect(bad.err.join("\n")).toMatch(/--verbose and --json are mutually exclusive/);
+      expect(consoleVerbose()).toBe(false);
+    } finally {
+      setConsoleVerbose(false);
+    }
+  });
+
+  test("status --verbose is a usage error: status is NOT on the accepted set (its view must not need the flag)", async () => {
+    const { deps, err, exits } = collectingDeps();
+    expect(await dispatchCli(["status", "--verbose"], deps)).toBe(true);
+    expect(exits).toEqual([1]);
+    expect(err.join("\n")).toContain("unexpected argument '--verbose'");
+  });
+
+  test("usage lists the flag", async () => {
+    const { deps, err } = collectingDeps();
+    await dispatchCli(["frobnicate"], deps);
+    expect(err.join("\n")).toContain("--verbose");
+  });
+
+  // The documented interpretation (review 2026-09-26 Minor, finally pinned):
+  // `--verbose` is logging, orthogonal to the act, so `--rollback` takes it —
+  // and the rollback refusal line says so, for the flags it DOES refuse.
+  test("--rollback accepts --verbose, and the conflict message lists it", () => {
+    const err: string[] = [];
+    const opts = parseUpdateFlags(["--rollback", "--verbose"], (l) => err.push(l));
+    expect(err).toEqual([]);
+    expect(opts).toEqual({ rollback: true, verbose: true });
+    expect(parseUpdateFlags(["--rollback", "--from", "x", "--verbose"], (l) => err.push(l))).toBeNull();
+    expect(err.join("\n")).toMatch(/takes only --yes, --force, --json and --verbose/);
+  });
+
+  // SUBSHELL_VERBOSE=1 is the ENV spelling of the same affordance (operator
+  // follow-up 2026-09-26): identical for-process console-only semantics. The
+  // seams pin is `deps.env`, so no test touches this process's environment.
+  test("SUBSHELL_VERBOSE=1 activates console debug on the BARE boot (no flag, no verb)", async () => {
+    const { deps } = collectingDeps({ env: { SUBSHELL_VERBOSE: "1" } });
+    expect(consoleVerbose()).toBe(false);
+    try {
+      expect(await dispatchCli([], deps)).toBe(false); // still the boot path
+      expect(consoleVerbose()).toBe(true);
+    } finally {
+      setConsoleVerbose(false);
+    }
+  });
+
+  test('the env spellings match the debug switch\'s: "1" and "true" force, a leftover "0" does not', async () => {
+    try {
+      expect(await dispatchCli([], collectingDeps({ env: { SUBSHELL_VERBOSE: "true" } }).deps)).toBe(false);
+      expect(consoleVerbose()).toBe(true);
+      setConsoleVerbose(false);
+      expect(await dispatchCli([], collectingDeps({ env: { SUBSHELL_VERBOSE: "0" } }).deps)).toBe(false);
+      expect(consoleVerbose()).toBe(false);
+    } finally {
+      setConsoleVerbose(false);
+    }
+  });
+
+  test("env verbose + --json is refused too, naming the ENV spelling (status and backup emit JSON too)", async () => {
+    try {
+      const st = collectingDeps({ env: { SUBSHELL_VERBOSE: "1" } });
+      expect(await dispatchCli(["status", "--json"], st.deps)).toBe(true);
+      expect(st.exits).toEqual([1]);
+      expect(st.err.join("\n")).toMatch(/SUBSHELL_VERBOSE=1 and --json are mutually exclusive/);
+
+      const bk = collectingDeps({ env: { SUBSHELL_VERBOSE: "1" } });
+      expect(await dispatchCli(["backup", "--json"], bk.deps)).toBe(true);
+      expect(bk.exits).toEqual([1]);
+      expect(bk.err.join("\n")).toMatch(/SUBSHELL_VERBOSE=1 and --json are mutually exclusive/);
+
+      const up = collectingDeps({ env: { SUBSHELL_VERBOSE: "1" } });
+      expect(await dispatchCli(["update", "--json"], up.deps)).toBe(true);
+      expect(up.exits).toEqual([1]);
+      expect(up.err.join("\n")).toMatch(/SUBSHELL_VERBOSE=1 and --json are mutually exclusive/);
+      // The flag-only refusal keeps its exact old wording (the update test above
+      // pins it); naming whichever spelling was asked about is the whole change.
+      // And unlike the flag case the gate IS raised at the end: the env is a
+      // for-the-whole-process switch, raised in the dispatch head, so a refused
+      // verb still lived in a verbose process (the refusal lines themselves ride
+      // `console.error`, never the logger, so the refusal stayed clean anyway).
+      expect(consoleVerbose()).toBe(true);
+    } finally {
+      setConsoleVerbose(false);
+    }
+  });
+
+  test("env verbose with NO --json runs the verb (init has no JSON contract to conflict with)", async () => {
+    const h = initHandoffHarness({ env: { SUBSHELL_VERBOSE: "1" } });
+    // The env simply raises the console gate and the interview-style run
+    // proceeds exactly as the flag case: same answers, same exit, same writes.
+    try {
+      expect(await dispatchCli(["init", "--yes", "--no-service"], h.deps)).toBe(true);
+      expect(h.exits).toEqual([0]);
+      expect(consoleVerbose()).toBe(true);
+    } finally {
+      setConsoleVerbose(false);
+    }
   });
 });
 
@@ -1205,7 +1367,9 @@ describe("parseUpdateFlags", () => {
     for (const extra of [["--check"], ["--to", "0.7.0"], ["--from", "/x"], ["--no-restart"]]) {
       const { errs, error } = collect();
       expect(parseUpdateFlags(["--rollback", ...extra], error)).toBeNull();
-      expect(errs.join("")).toMatch(/only --yes, --force and --json/);
+      // The list gained `--verbose` (review 2026-09-26): logging is
+      // orthogonal to the act, so rollback takes it too.
+      expect(errs.join("")).toMatch(/only --yes, --force, --json and --verbose/);
     }
     const { error } = collect();
     expect(parseUpdateFlags(["--rollback", "--yes", "--force", "--json"], error)).toEqual({
@@ -1269,5 +1433,268 @@ describe("dispatchCli — update and backup", () => {
     // ladder's rung 1 answers `kind: "source"`): the update refuses to `git
     // pull` a checkout. Same measured-on-your-machine caveat as the other two.
     expect(err.join("\n")).toMatch(/no service definition|cannot replace|does not fetch releases|runs from a checkout/);
+  });
+});
+
+/**
+ * The init-handoff wave (spec 2026-09-26). The piped `curl | bash` install used
+ * to hang at the SCRIPT's `exec < /dev/tty`, so terminal detection moved INTO
+ * the CLI: `init` attaches the controlling terminal with an O_NONBLOCK open
+ * that can never wait, a run that still cannot be interactive prints EVERY
+ * default it takes (silence was the bug), `--yes` answers every question
+ * affirmatively (operator ruling 2026-09-26), and the PATH note the installer
+ * script used to echo is a question `init` asks now.
+ *
+ * Module-level harness shared by the three describes below. `env: {}` keeps
+ * PATH undefined, which the PATH question treats as UNDECIDABLE (no PATH to
+ * inspect, no offer) so cases unrelated to PATH never trip over it.
+ */
+function initHandoffHarness(overrides: Partial<CliDeps> = {}) {
+  const dir = mkdtempSync(join(tmpdir(), `subshell-hnd-${process.pid}-`));
+  const home = mkdtempSync(join(tmpdir(), `subshell-hnd-home-${process.pid}-`));
+  const out: string[] = [];
+  const err: string[] = [];
+  const exits: number[] = [];
+  let installs = 0;
+  const deps: CliDeps = {
+    log: (line) => void out.push(line),
+    error: (line) => void err.push(line),
+    exit: (code) => void exits.push(code),
+    configDir: dir,
+    home,
+    env: {},
+    which: () => "/usr/bin/tmux",
+    isTTY: false,
+    hostname: () => "test-host",
+    // Never the real installer: a dispatch-level test must not write a real
+    // unit/plist into the developer's own home (the cli-commands.test.ts lesson).
+    installService: () => {
+      installs++;
+      return { code: 0, out: "Installed (stub).\n", err: "" };
+    },
+    ...overrides,
+  };
+  return {
+    deps,
+    dir,
+    home,
+    out,
+    err,
+    exits,
+    get installs() {
+      return installs;
+    },
+  };
+}
+
+describe("dispatchCli — init's non-interactive defaults announce themselves (spec 2026-09-26)", () => {
+  test("non-interactive init (no --yes) installs no service and prints the default it took", async () => {
+    const h = initHandoffHarness();
+    expect(await dispatchCli(["init"], h.deps)).toBe(true);
+    expect(h.exits).toEqual([0]);
+    expect(h.installs).toBe(0);
+    expect(h.out.join("\n")).toContain(
+      "not interactive: background service NOT installed (run: subshell-server service install to add it, or re-run init in a terminal)",
+    );
+    // The handoff still lands: the config was written, the run is not a failure.
+    expect(h.out.join("\n")).toContain("Open http://localhost:3080/setup");
+  });
+
+  test("non-interactive init without --yes refuses a tmux-less host and adds the terminal remedy", async () => {
+    const h = initHandoffHarness({
+      platform: "darwin",
+      which: (n) => (n === "brew" ? "/opt/homebrew/bin/brew" : null),
+    });
+    let spawned = 0;
+    h.deps.spawnInstall = () => {
+      spawned++;
+      return 0;
+    };
+    expect(await dispatchCli(["init"], h.deps)).toBe(true);
+    expect(h.exits).toEqual([1]);
+    // Neither system act happens without a person (or --yes) having said yes.
+    expect(spawned).toBe(0);
+    expect(h.installs).toBe(0);
+    expect(h.err.join("\n")).toMatch(/tmux not found/i);
+    expect(h.err.join("\n")).toContain("tmux not installed; re-run init in a terminal (or with --yes) to install it");
+    // Still refuses BEFORE any write.
+    expect(existsSync(join(h.dir, "config.env"))).toBe(false);
+  });
+
+  test("--yes answers tmux affirmatively: the exact brew argv runs, then the service installs", async () => {
+    let installed = false;
+    const spawnedArgv: string[] = [];
+    const h = initHandoffHarness({
+      platform: "darwin",
+      which: (n) =>
+        n === "brew" ? "/opt/homebrew/bin/brew" : n === "tmux" && installed ? "/opt/homebrew/bin/tmux" : null,
+      spawnInstall: (argv) => {
+        spawnedArgv.push(...argv);
+        installed = true;
+        return 0;
+      },
+    });
+    expect(await dispatchCli(["init", "--yes"], h.deps)).toBe(true);
+    expect(spawnedArgv).toEqual(["brew", "install", "tmux"]);
+    expect(h.out.join("\n")).toMatch(/installing tmux via brew/);
+    expect(h.out.join("\n")).toContain("registering background service…");
+    expect(h.installs).toBe(1);
+    expect(h.exits).toEqual([0]);
+  });
+});
+
+describe("dispatchCli — init's PATH question (spec 2026-09-26)", () => {
+  const EXPORT_LINE = 'export PATH="$HOME/.local/bin:$PATH"';
+
+  /** An interactive-enough run whose ONLY confirm seams answer `confirmAnswer`. */
+  function pathRun(over: Partial<CliDeps> & { confirmAnswer?: boolean } = {}) {
+    const answer = over.confirmAnswer ?? true;
+    const h = initHandoffHarness({ isTTY: true, env: { PATH: "/usr/bin:/bin" }, ...over });
+    h.deps.prompt = () => ""; // the five config questions take their defaults
+    const questions: [string, boolean][] = [];
+    h.deps.confirm = (question, def) => {
+      questions.push([question, def]);
+      return answer;
+    };
+    return { ...h, questions };
+  }
+
+  const countOf = (text: string, needle: string): number => text.split(needle).length - 1;
+
+  test("confirm-yes appends the export to .zprofile, and a re-run does not duplicate it", async () => {
+    const h = pathRun();
+    expect(await dispatchCli(["init", "--no-service"], h.deps)).toBe(true);
+    expect(h.exits).toEqual([0]);
+    const zprofile = join(h.home, ".zprofile");
+    expect(h.questions[0]?.[0]).toMatch(/PATH/);
+    expect(h.questions[0]?.[1]).toBe(true); // the question's default is yes
+    let content = readFileSync(zprofile, "utf8");
+    expect(content).toContain(EXPORT_LINE);
+    expect(countOf(content, ".local/bin")).toBe(1);
+    // Second run: the process PATH STILL lacks the dir (a write cannot fix this
+    // process), so the question fires again and the file guard keeps it once.
+    const again = pathRun({ home: h.home, configDir: h.dir });
+    expect(await dispatchCli(["init", "--no-service"], again.deps)).toBe(true);
+    content = readFileSync(zprofile, "utf8");
+    expect(countOf(content, ".local/bin")).toBe(1);
+  });
+
+  test("answering no writes nothing", async () => {
+    const h = pathRun({ confirmAnswer: false });
+    expect(await dispatchCli(["init", "--no-service"], h.deps)).toBe(true);
+    expect(existsSync(join(h.home, ".zprofile"))).toBe(false);
+  });
+
+  test("--yes writes without asking", async () => {
+    const h = initHandoffHarness({ env: { PATH: "/usr/bin:/bin" } });
+    // No `isTTY` here either, but the confirm seam is poisoned anyway: --yes
+    // answers from the flag, never from a prompt.
+    h.deps.confirm = () => {
+      throw new Error("--yes must not consult confirm for the PATH question");
+    };
+    expect(await dispatchCli(["init", "--yes", "--no-service"], h.deps)).toBe(true);
+    expect(readFileSync(join(h.home, ".zprofile"), "utf8")).toContain(EXPORT_LINE);
+    expect(h.out.join("\n")).toMatch(/PATH: .*\.zprofile/);
+  });
+
+  test("a profile that already lists ~/.local/bin is left byte-identical", async () => {
+    const h = pathRun();
+    const zprofile = join(h.home, ".zprofile");
+    writeFileSync(zprofile, `# mine\n${EXPORT_LINE}\n`, { mode: 0o644 });
+    expect(await dispatchCli(["init", "--no-service"], h.deps)).toBe(true);
+    expect(readFileSync(zprofile, "utf8")).toBe(`# mine\n${EXPORT_LINE}\n`);
+  });
+
+  test(".zshrc is appended to only when the user already has one, never created", async () => {
+    const h = pathRun();
+    writeFileSync(join(h.home, ".zshrc"), "# my shell\n");
+    expect(await dispatchCli(["init", "--no-service"], h.deps)).toBe(true);
+    expect(readFileSync(join(h.home, ".zshrc"), "utf8")).toContain(EXPORT_LINE);
+    expect(readFileSync(join(h.home, ".zprofile"), "utf8")).toContain(EXPORT_LINE);
+
+    const bare = pathRun(); // no .zshrc in this home
+    expect(await dispatchCli(["init", "--no-service"], bare.deps)).toBe(true);
+    expect(existsSync(join(bare.home, ".zshrc"))).toBe(false);
+  });
+
+  test("non-interactive without --yes prints the manual instructions and writes nothing", async () => {
+    const h = initHandoffHarness({ env: { PATH: "/usr/bin:/bin" } });
+    expect(await dispatchCli(["init"], h.deps)).toBe(true);
+    const text = h.out.join("\n");
+    expect(text).toMatch(/not interactive: .+ is not on your PATH\. Add it to ~\/\.zprofile with:/);
+    expect(text).toContain(`    ${EXPORT_LINE}`);
+    expect(existsSync(join(h.home, ".zprofile"))).toBe(false);
+    // Both silent defaults speak in the same run.
+    expect(text).toContain(
+      "not interactive: background service NOT installed (run: subshell-server service install to add it, or re-run init in a terminal)",
+    );
+  });
+});
+
+/**
+ * `acquirePromptInput` unit-level with a fake fs: the open MUST carry
+ * O_NONBLOCK (the whole never-hangs property), and every failure degrades to
+ * non-interactive. The fd it returns stays OPEN and UNTOUCHED: an earlier
+ * shape of this module moved the tty onto fd 0 (close 0, re-open), and the
+ * pty scenario MEASURED that bun's process.stdin keeps reading the ORIGINAL
+ * pipe description after such a swap, so clack's reader starved to death on
+ * a perfectly healthy terminal. The design's named fallback — the tty rides
+ * its own fd and the prompts read THAT fd — is the shipped shape, and
+ * `closes: []` is the pin that it stays that way.
+ */
+describe("acquirePromptInput", () => {
+  interface FakeIo {
+    io: TtyIo;
+    opens: { path: string; flags: number }[];
+    closes: number[];
+  }
+  function fakeIo(over: { stdinIsTTY?: boolean; fd?: number; failFirstOpen?: boolean } = {}): FakeIo {
+    const opens: { path: string; flags: number }[] = [];
+    const closes: number[] = [];
+    let first = true;
+    const io: TtyIo = {
+      stdinIsTTY: over.stdinIsTTY ?? false,
+      constants: { O_RDONLY: 0o1, O_NONBLOCK: 0o4 },
+      open: (path, flags) => {
+        opens.push({ path, flags });
+        if (over.failFirstOpen && first) {
+          first = false;
+          const err = new Error("no such device or address") as NodeJS.ErrnoException;
+          err.code = "ENXIO";
+          throw err;
+        }
+        return over.fd ?? 3;
+      },
+      close: (fd) => void closes.push(fd),
+    };
+    return { io, opens, closes };
+  }
+
+  test("stdin is already a terminal: no /dev/tty open happens", () => {
+    const { io, opens, closes } = fakeIo({ stdinIsTTY: true });
+    const result = acquirePromptInput(io);
+    expect(result).toMatchObject({ interactive: true, swapped: false });
+    expect(result.fd).toBeUndefined();
+    expect(opens).toEqual([]);
+    expect(closes).toEqual([]);
+  });
+
+  test("piped stdin attaches /dev/tty through a NEVER-BLOCKING open, on its own fd", () => {
+    const { io, opens, closes } = fakeIo({ fd: 7 });
+    const result = acquirePromptInput(io);
+    expect(result).toMatchObject({ interactive: true, swapped: true, fd: 7 });
+    expect(opens).toEqual([{ path: "/dev/tty", flags: 0o1 | 0o4 }]);
+    // NOTHING is closed: not the drained pipe on 0 (the run may still read
+    // it), and certainly not the tty the prompts will read.
+    expect(closes).toEqual([]);
+  });
+
+  test("the open itself answers ENXIO: non-interactive, and the reason names the tty", () => {
+    const { io, closes } = fakeIo({ failFirstOpen: true });
+    const result = acquirePromptInput(io);
+    expect(result).toMatchObject({ interactive: false, swapped: false });
+    expect(result.fd).toBeUndefined();
+    expect(result.reason).toMatch(/tty/i);
+    expect(closes).toEqual([]);
   });
 });

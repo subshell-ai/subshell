@@ -194,8 +194,26 @@ tmux preflight: `init`, `configure` and
 `service install` refuse before any write when tmux is absent (the `local`
 node launches every pane through it); escape hatch
 `SUBSHELL_SERVER_SKIP_TMUX_CHECK=1`. On an INTERACTIVE run the preflight
-first OFFERS to install tmux (`commands/tmux-install.ts`: brew on macOS,
-`sudo apt-get`/`dnf` on Linux; fixed argvs, inherited stdio so sudo prompts
-in the user's own terminal) and CONTINUES the command on success, no rerun.
-`--yes`, no TTY, a declined prompt, or no supported installer all fall back
-to the plain refusal, byte-identical to before (CI never gets asked).
+first OFFERS to install tmux (`commands/tmux-install.ts`: brew, then
+MacPorts, then a Homebrew bootstrap on macOS; `sudo apt-get`/`dnf` on Linux;
+fixed argvs, inherited stdio so sudo prompts land in the user's own terminal)
+and CONTINUES the command on success, no rerun.
+Since the operator ruling of 2026-09-26 the gate is three-valued for
+`init`/`configure`: `--yes` IS the yes and RUNS the same installer with no
+prompt. For `init` the preflight also runs FIRST, and a declined or failed
+install ABORTS before any write (the message names the manual command, notes
+the installed binary, and gives the rerun). The Homebrew bootstrap prompts
+for an admin password, so a run with no terminal prints its instructions
+instead of attempting it; MacPorts flags the same property (it
+self-escalates, no parent sudo in its argv), and both the preflight and the
+server's own installer route gate on that FLAG, not a label string, so a
+display rename cannot re-admit either to a caller with no terminal. The refusal's own two
+lines (the need, and the manual command with the escape hatch) are the
+2026-09-03 text everywhere, and `service install` prints exactly those and
+nothing more, byte-stable since; what GREW is only on `init`/`configure`,
+and by exactly ONE remedy line, never two (review 2026-09-26): a no-TTY
+no-`--yes` run is never asked and still gets the decline notice naming how
+to get the offer back, where some installer exists to honor the promise;
+where none does, that run lands in "every other case" and gets the rerun
+note naming the installed binary. `service install` takes no `--yes`, so its offer keeps the
+2026-09-03 TTY-only rule unchanged.

@@ -23,7 +23,13 @@ export HOST=127.0.0.1
 export TRUSTED_ORIGINS=""
 export SUBSHELL_SERVER_CONFIG_DIR="$W/srv-config"
 export SUBSHELL_SERVER_DATA_DIR="$W/srv-data"
-mkdir -p "$SUBSHELL_SERVER_CONFIG_DIR" "$SUBSHELL_SERVER_DATA_DIR"
+# `init --yes` now ANSWERS the PATH question too (spec 2026-09-26): a login
+# PATH without ~/.local/bin gets the export appended to ~/.zprofile. That
+# write belongs in a temp HOME, never the developer's real one — the same
+# discipline the service-write stubs exist for. (bun's own cache rides HOME
+# too, which is why this is set here rather than per-call.)
+export HOME="$W/home"
+mkdir -p "$HOME" "$SUBSHELL_SERVER_CONFIG_DIR" "$SUBSHELL_SERVER_DATA_DIR"
 JAR="$W/cookies"
 SRVPID=""; NODEPID=""
 cleanup() {
