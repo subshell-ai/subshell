@@ -255,6 +255,15 @@ export function parseCommandPaste(text: string): ParsedCommand {
  * pasted before, which stops describing the preset the moment a row is edited
  * in the other panel.
  *
+ * The print rules (operator ruling 2026-09-25): env keys, the command name
+ * and flag tokens print BARE, as the words they are; env values carry quotes
+ * only where {@link shellQuote} says a shell would split or expand them; and
+ * flag VALUES print verbatim — a quote inside a CLI argument is data the
+ * person typed, not something this renderer adds. A spaced flag value still
+ * re-parses into one row (the parser re-joins an argument's whitespace); a
+ * value whose quotes or odd whitespace the person means literally is theirs
+ * to spell, exactly as they typed it.
+ *
  * Empty rows are skipped exactly as {@link toPresetPayload} skips them, so
  * what this prints is what the preset would run.
  *
@@ -275,7 +284,11 @@ export function presetFormToCommand(form: PresetFormValue, command: string): str
     if (!flag) continue;
     argv.push(flag);
     const value = row.value.trim();
-    if (value) argv.push(shellQuote(value));
+    // A CLI-arg value prints VERBATIM (operator ruling 2026-09-25): quotes
+    // in a flag's argument are data the person typed into the value, never
+    // quoting this renderer invents. Names and env assignments above are
+    // the only places quoting is the renderer's business.
+    if (value) argv.push(value);
   }
   // A preset that sets nothing has no command line — printing the bare agent
   // name would fill a fresh form's paste box with `claude` and hide the
@@ -288,19 +301,31 @@ export function presetFormToCommand(form: PresetFormValue, command: string): str
 }
 
 /**
- * Wraps a value in DOUBLE quotes when a shell would otherwise re-split or
- * interpret it, escaping `\` and `"` inside. Only what {@link tokenize}
- * treats as special needs it, so ordinary values stay bare and the rendered
- * line reads like something a person typed.
+ * Quotes an env VALUE (and the command name, which is plain in every real
+ * case) only when a shell would otherwise re-split, glob or expand it;
+ * anything else stays bare, so the rendered line reads like something a
+ * person typed. Keys, command names and flag tokens are NOT values and are
+ * never passed through this — they print as the words they are — and a
+ * flag's CLI-arg value prints verbatim, outside this function's reach.
+ * Both renderers share it: the editor's command panel
+ * ({@link presetFormToCommand}) and the preset list row's launch-command
+ * preview (`launch-command.ts`).
  *
- * Double rather than the single quotes a shell-quoting helper usually
- * reaches for: the POSIX `'\''` trick for an embedded apostrophe is not
- * something our tokenizer can read back, so a value like `it's mine` would
- * survive a shell and not survive the round trip this function exists for.
- * `"` and `\` escapes ARE read back, and mean the same thing to a real shell.
+ * A value of only shell-safe characters prints bare. A value a shell would
+ * EXPAND even inside double quotes (`$`, backtick, `!`) takes SINGLE quotes
+ * — unless it also contains an apostrophe: the shell-correct spelling then
+ * is a quote concatenation like `'$it'"'"'s`, which {@link tokenize} reads
+ * back fine but no person would, so such a value takes DOUBLE quotes and a
+ * shell may expand its `$`-part (the accepted, test-pinned edge). Everything else
+ * takes DOUBLE quotes: the POSIX `'\''` trick for an embedded apostrophe is
+ * not something our tokenizer can read back, so a value like `it's mine`
+ * would survive a shell and not survive the round trip this function exists
+ * for. `"` and `\` escapes ARE read back, and mean the same thing to a real
+ * shell.
  */
-function shellQuote(value: string): string {
+export function shellQuote(value: string): string {
   if (value === "") return '""';
-  if (!/[\s'"\\]/.test(value)) return value;
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) return value;
+  if (/[$`!]/.test(value) && !value.includes("'")) return `'${value}'`;
   return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }

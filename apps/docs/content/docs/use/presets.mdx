@@ -14,8 +14,10 @@ The rule that shapes everything else: **a preset is always optional.** A launch 
 Presets live on the Presets page, and the launch form carries a **+** that creates one with the agent you just picked already chosen. A preset's agent is fixed when it is created. The editor names it, then offers:
 
 - **Environment variables**: key/value rows. Each key must be a valid shell name; anything stranger is refused before storage, because these values reach the launch command. Useful variables for the current agent are suggested as you type.
-- **CLI flags**: each row is one option and its value; the pair is spliced into the agent's argv as stored.
+- **CLI flags**: each row is one option and its value; the pair is spliced into the agent's argv as stored. Quotes you paste with a command are structure: they hold a multi-word value together, and the words inside are what get stored. From there the value reaches the agent exactly as it stands, so a quote you want the agent to actually see is one you type into the value itself; the launch adds none.
 - **Auto-restart**: subshells launched from this preset are brought back automatically when their pane dies. The restart ladder and its give-up rule are on [Launch and manage subshells](/use/subshells).
+
+The editor's command view and each preset row's launch-command preview print those rows back under one rule: names are never quoted. Keys, the agent's command name, and flag words appear as typed; an environment value gains quotes only where a shell would otherwise split or expand it (like `MODEL="Qwen 3.8 Flash Next"`), and a flag's value is printed verbatim, quotes only the ones the value itself holds. A flag with no value renders as the flag alone.
 
 Preset names must be unique per user and agent. Edits apply to the next launch; a running subshell keeps the settings it was started with.
 

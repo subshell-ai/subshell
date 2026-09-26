@@ -148,6 +148,21 @@ omits `presetId`: absence, never null.
 **Working on the launch form, presets, the folder picker, or no-launch states:
 read apps/server/web/docs/launch-form-picker.md first.**
 
+**A preset's command renders by ONE quoting rule (operator ruling
+2026-09-25).** Names print as names: env keys and flag tokens are NEVER
+quoted, and the command prints bare (it gains quotes only if it could not
+be spelled bare at a prompt, identically in both renderers); an env value takes quotes only where a shell would
+split or expand it (double, or single for `$`/backtick/`!`: `MODEL="Qwen 3.8
+Flash Next"`, `H='$HOME'`, `URL=https://x.dev`); a flag's CLI-arg value
+prints VERBATIM, because a quote inside a CLI argument is data the person
+typed, never quoting the renderer adds; a flag without a value contributes no
+token, not an `''`. The two renderers, `presetFormToCommand` (the editor's
+command panel, multi-line) and `presetLaunchCommand`
+(`lib/launch-command.ts`, the `/presets` row preview, single-line), share
+`shellQuote` in `lib/preset-command.ts` and must keep printing the same
+words: a second quotifier is how they diverged once (`quotePosix` single-
+quoted everything, deleted with the fix).
+
 **`/settings/service` is two cards, because they are two kinds of thing**:
 `ServiceCard` is about the running PROCESS, `SupervisionCard` about the
 MACHINE, and `isServerDesktop()` is the seam: inside Subshell Server the

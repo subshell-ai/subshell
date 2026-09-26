@@ -99,10 +99,10 @@ test("create a preset from the page, verify it via the API, delete it", async ({
   // The launch command is HIDDEN until asked for: a preset's env vars are
   // where API keys live, and this page is something you scroll past. The
   // browser-level proof is that the value is not on the page at all.
-  // `presetLaunchCommand` quotes every value, so the rendered text is
-  // `E2E_PASTED='yes'` — asserting the UNQUOTED spelling would pass while
-  // the secret was on screen.
-  const secret = "E2E_PASTED='yes'";
+  // `presetLaunchCommand` prints a plain value bare (only names need no
+  // quoting; only values that need it get any), so the rendered text IS
+  // `E2E_PASTED=yes` and the assertion names the whole secret either way.
+  const secret = "E2E_PASTED=yes";
   await expect(page.getByText(secret)).toHaveCount(0);
   await page.getByRole("button", { name: "Show command for E2E shell" }).click();
   await expect(page.getByText(secret)).toBeVisible();
