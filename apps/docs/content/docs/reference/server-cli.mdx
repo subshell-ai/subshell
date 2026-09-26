@@ -151,7 +151,7 @@ One definition, two shapes: a systemd user unit on Linux (`~/.config/systemd/use
 | `install` | Write the definition and start the server. Refuses before writing anything without a `config.env`; run `init` first. `--no-autostart` runs it now but does not arm login start. On Linux it then asks logind whether your user lingers, and prints the `loginctl enable-linger` advice only when the answer is not yes. |
 | `uninstall` | Stop and remove the definition. Deliberately gates on nothing: a stranded unit must always be able to come down. |
 | `enable` / `disable` | Arm or disarm start-at-login without touching the running process. On macOS this moves the plist between `~/Library/LaunchAgents` (starts at login) and the config home (runs only when loaded). |
-| `status` | What the manager reports: run state, pid, starts-at-login, whether a teardown keeps live panes, and where the manager's log is. `--json` for scripts. Always exits 0. |
+| `status` | What the manager reports: run state, pid, starts-at-login, whether a teardown keeps live panes, and where the manager's log is. `--json` for scripts. It exits 0 even when nothing is running, so a view never fails on bad news; the one refusal is `--verbose` asked together with `--json`. |
 | `start` / `stop` | Drive an installed service; they never install one. `stop` warns (but proceeds) when the definition predates the pane-sparing directive and would take live panes down. |
 | `restart` | Restart the service. Refuses unless a teardown is known to keep live panes; pass `--force` to override. An unreadable definition fails closed the same way. |
 
