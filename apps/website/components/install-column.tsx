@@ -67,8 +67,11 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
         Install
       </h2>
       {/* A `fieldset`, not a `div role="group"`: what the a11y linter prescribes,
-          the same call tmux-step.tsx made; preflight zeroes its default chrome. */}
-      <fieldset aria-label="Which component to install" className="mb-3 flex gap-1.5">
+          the same call tmux-step.tsx made; preflight zeroes its default chrome.
+          The chips name the machine's JOB, not the product (issue #233): the
+          one lowercase word each used to offer was a name the visitor had not
+          yet learned the meaning of, and the wrong binary was one click away. */}
+      <fieldset aria-label="What this machine should do" className="mb-2 flex flex-wrap gap-1.5">
         <Button
           variant="chip"
           size="sm"
@@ -82,11 +85,13 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
           // 25px box), and the +3.4px pushed the curl row +2.9px off the fold,
           // past the 1px landmark rule.
           className={cn(
-            "px-3 rounded-[7px] h-[25px]",
+            // whitespace-nowrap: the chip wraps OUTSIDE itself (the fieldset
+            // wraps) rather than breaking the job name inside a pinned height.
+            "px-3 rounded-[7px] h-[25px] whitespace-nowrap",
             kind === "server" && "border-[rgba(217,139,224,.5)] bg-[rgba(217,139,224,.07)] !text-[var(--orchid)]",
           )}
         >
-          server
+          run the control plane
         </Button>
         <Button
           variant="chip"
@@ -94,13 +99,21 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
           aria-pressed={kind === "client"}
           onClick={() => setKind("client")}
           className={cn(
-            "px-3 rounded-[7px] h-[25px]",
+            "px-3 rounded-[7px] h-[25px] whitespace-nowrap",
             kind === "client" && "border-[rgba(217,139,224,.5)] bg-[rgba(217,139,224,.07)] !text-[var(--orchid)]",
           )}
         >
-          client
+          run agents here, or watch
         </Button>
       </fieldset>
+      {/* The chips pick the role; this line says what the picked role IS,
+          at the moment of the pick (issue #233). The Client is where a
+          machine enrolls as a node; nothing on this page used to say so. */}
+      <p className="mb-3 max-w-[38ch] text-[12px] text-[var(--dimmer)]">
+        {kind === "server"
+          ? "This machine becomes the control plane every other device connects to."
+          : "Your interface to Subshell, and the app that enrolls this machine as a node."}
+      </p>
       <p className={headingClass}>{copy.appHeading}</p>
       {offerArch ? (
         <ArchSplitButton
@@ -166,6 +179,21 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
         macOS 13+ on Apple silicon · Linux x86_64 Ubuntu 24.04+ / Debian 13+
       </p>
       <p className="mt-2.5 max-w-[38ch] text-[12px] text-[var(--dimmer)]">{why}</p>
+      {/* The third path is not a download (issue #233): adding a machine to a
+          control plane that already runs happens from that plane's own setup
+          key, and the user who wanted that stood here guessing between two
+          installers. The sentence they searched docs for, on the surface they
+          were actually on. */}
+      <p className="mt-3 max-w-[38ch] text-[12px] text-[var(--dim)]">
+        Already running Subshell?{" "}
+        <a
+          className="text-[var(--frost)] underline-offset-2 hover:text-[var(--orchid)]"
+          href="https://docs.subshell.sh/get-started/add-a-machine"
+        >
+          Add another machine
+        </a>{" "}
+        from a setup key minted on its control plane.
+      </p>
     </div>
   );
 }
