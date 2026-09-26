@@ -1,5 +1,11 @@
 # @internal/docs
 
+## 0.5.1
+
+### Patch Changes
+
+- [#228](https://github.com/subshell-ai/subshell/pull/228) [`d711650`](https://github.com/subshell-ai/subshell/commit/d711650118b0d6aea2a825326f2b5e622d991b40) Thanks [@theogravity](https://github.com/theogravity)! - fix(web): The preset list's launch-command preview prints names as names. Keys, the command and flag tokens are never quoted; env values carry quotes only where a shell would split or expand them; a flag's CLI-arg value prints verbatim, so quotes there are the ones the person typed; and a flag without a value no longer contributes an empty '' token. The Presets docs page states the rule alongside the editor and row previews, which now share one quotifier.
+
 ## 0.5.0
 
 ### Minor Changes
