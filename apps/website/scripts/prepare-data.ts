@@ -28,6 +28,7 @@ copyFileSync(src, join(dir, "releases.json"));
 console.log("data/releases.json refreshed from the repo root");
 
 const publicDir = join(root, "apps", "website", "public");
+mkdirSync(publicDir, { recursive: true });
 for (const script of ["install-server.sh", "install-client.sh"]) {
   copyFileSync(join(root, script), join(publicDir, script));
   console.log(`public/${script} refreshed from the repo root`);

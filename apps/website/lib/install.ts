@@ -1,5 +1,6 @@
 import { desktopArtifactFileName } from "@internal/subshell-protocol";
 import type { ReleasesManifest } from "./releases";
+import { SITE_ORIGIN } from "./site";
 
 export type { ReleasesManifest };
 
@@ -10,17 +11,9 @@ export type MacArch = "darwin-arm64" | "darwin-x64";
 
 const REPO = "subshell-ai/subshell";
 
-/**
- * The site's own origin (the custom domain `app/layout.tsx` declares as its
- * metadataBase). The one-liners fetch the install scripts from HERE: the
- * build serves this site's own copies of the root `install-server.sh` /
- * `install-client.sh` (`scripts/prepare-data.ts`), so the command a visitor
- * copies reads as the product, not the git host. The discipline this buys —
- * an edited root script means the site must redeploy before the one-liner
- * is trustworthy — is recorded in `docs/release-and-ci.md`, and the post-cut
- * tripwire is the byte-compare step in `scripts/cli-e2e/published-release.sh`.
- */
-const SITE_ORIGIN = "https://subshell.sh";
+// SITE_ORIGIN (the curl one-liners' host) lives in ./site.ts, shared with
+// layout/robots/sitemap; its comment carries the install-script hosting
+// story.
 
 /** Human labels for the arch choice and the menu items. */
 export const MAC_ARCH_LABEL: Record<MacArch, string> = {

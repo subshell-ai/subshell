@@ -75,12 +75,12 @@ echo "== 1. install-server.sh against the PUBLISHED release"
 curl -fsSL https://subshell.sh/install-server.sh -o "$W/install-server.sh" \
   || fail "could not fetch the installer from https://subshell.sh"
 cmp -s "$W/install-server.sh" "$REPO/install-server.sh" \
-  || fail "https://subshell.sh/install-server.sh is not this checkout's install-server.sh - the website needs a redeploy (dispatch Website.yml)"
+  || fail "https://subshell.sh/install-server.sh is not this checkout's install-server.sh - either the website needs a redeploy (dispatch Website.yml) or this checkout is not current main"
 ok "fetched the installer from the site; it matches the repo copy byte for byte"
 curl -fsSL https://subshell.sh/install-client.sh -o "$W/install-client.sh" \
   || fail "could not fetch install-client.sh from https://subshell.sh"
 cmp -s "$W/install-client.sh" "$REPO/install-client.sh" \
-  || fail "https://subshell.sh/install-client.sh is not this checkout's install-client.sh - the website needs a redeploy (dispatch Website.yml)"
+  || fail "https://subshell.sh/install-client.sh is not this checkout's install-client.sh - either the website needs a redeploy (dispatch Website.yml) or this checkout is not current main"
 ok "install-client.sh matches too (fetched, not run: the .deb half is Linux)"
 bash "$W/install-server.sh" > "$W/install.out" 2>&1 || { cat "$W/install.out"; fail "installer exited non-zero"; }
 sed 's/^/     | /' "$W/install.out"

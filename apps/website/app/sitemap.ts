@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { SITE_ORIGIN } from "../lib/site";
 
 export const dynamic = "force-static";
 
@@ -10,5 +11,5 @@ export const dynamic = "force-static";
  * canonical in layout.tsx are the two places that must learn it.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
-  return [{ url: "https://subshell.sh/" }];
+  return [{ url: `${SITE_ORIGIN}/` }];
 }

@@ -644,8 +644,13 @@ site's build copies both into `public/` (`apps/website/scripts/prepare-data.ts`)
 and the install column's one-liner is `curl -fsSL
 https://subshell.sh/install-server.sh | bash`, not a raw.githubusercontent
 URL. The consequence is a deploy dependency that nothing but a human notices:
-**editing either root script means redeploying the website** (`bun run
-release:website`, or a `website.yml` dispatch) before the published one-liner
-stops serving the old bytes. The tripwire is `scripts/cli-e2e/published-release.sh`
+**editing either root script means redeploying the website** (`gh workflow run
+website.yml`, from main, the same dance as docs.yml above) before the
+published one-liner stops serving the old bytes. And because the site builds
+off main, the very first dispatch **after** the commit that introduced these
+URLs landed is part of that change, not a follow-up: until it runs,
+`/install-server.sh` on the site is a 404 and the README's one-liner fails
+cleanly (`curl -f` hands bash nothing, so nothing installs, but nothing
+installs either). The tripwire is `scripts/cli-e2e/published-release.sh`
 step 1, which fetches both scripts from the site and `cmp`s them against the
 checkout, naming the remedy when they differ.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Subshell Client installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/subshell-ai/subshell/main/install-client.sh | bash
+#   curl -fsSL https://subshell.sh/install-client.sh | bash
 #
 # Downloads the Subshell Client DESKTOP app for this platform from the newest
 # `desktop-client-vX.Y.Z` GitHub Release, verifies its SHA-256 sidecar BEFORE
