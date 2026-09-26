@@ -1,5 +1,13 @@
 # @internal/server
 
+## 1.1.1
+
+### Patch Changes
+
+- [#216](https://github.com/subshell-ai/subshell/pull/216) [`05c4aab`](https://github.com/subshell-ai/subshell/commit/05c4aab0aaf13048af1e162a6e47d5da3c70c422) Thanks [@theogravity](https://github.com/theogravity)! - "Update all" on the Updates page now shows which machine it is working on and how far into the fleet it is: the spinner moves row to row with the sequence and the button counts ("Updating 1 of 2…"), where before every node's button disabled and only the first row ever spun, for the minutes one node's update takes. The count is the fleet the press captured, so a restarting node dropping offline mid-run no longer shifts the numbers.
+
+- [#218](https://github.com/subshell-ai/subshell/pull/218) [`843b930`](https://github.com/subshell-ai/subshell/commit/843b930c7e1bce7761b30798b5b0c86612c1521a) Thanks [@theogravity](https://github.com/theogravity)! - The Updates page now follows updates while they happen. A node row says what the server's tracker knows - installing, restarted onto the new version, refused, or quiet past two minutes - and the Server row tells the ending of a self-update to whoever opens the page next, including the boot that reverted. The story survives a refresh and shows the same in a second admin tab: it polls twice a second only while something is actually moving, and the no-polling-by-default rule stands.
+
 ## 1.1.0
 
 ### Minor Changes

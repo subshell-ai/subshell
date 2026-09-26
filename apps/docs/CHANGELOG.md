@@ -1,5 +1,11 @@
 # @internal/docs
 
+## 0.4.4
+
+### Patch Changes
+
+- [#220](https://github.com/subshell-ai/subshell/pull/220) [`4b64379`](https://github.com/subshell-ai/subshell/commit/4b64379be3744c7fa843c783e870ce29470134e2) Thanks [@theogravity](https://github.com/theogravity)! - The server install pages now print `curl -fsSL https://subshell.sh/install-server.sh | bash`, matching the website and README; the node enrollment one-liner (served by your own server) is unchanged.
+
 ## 0.4.3
 
 ### Patch Changes
