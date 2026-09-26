@@ -194,8 +194,19 @@ tmux preflight: `init`, `configure` and
 `service install` refuse before any write when tmux is absent (the `local`
 node launches every pane through it); escape hatch
 `SUBSHELL_SERVER_SKIP_TMUX_CHECK=1`. On an INTERACTIVE run the preflight
-first OFFERS to install tmux (`commands/tmux-install.ts`: brew on macOS,
-`sudo apt-get`/`dnf` on Linux; fixed argvs, inherited stdio so sudo prompts
-in the user's own terminal) and CONTINUES the command on success, no rerun.
-`--yes`, no TTY, a declined prompt, or no supported installer all fall back
-to the plain refusal, byte-identical to before (CI never gets asked).
+first OFFERS to install tmux (`commands/tmux-install.ts`: brew, then
+MacPorts, then a Homebrew bootstrap on macOS; `sudo apt-get`/`dnf` on Linux;
+fixed argvs, inherited stdio so sudo prompts land in the user's own terminal)
+and CONTINUES the command on success, no rerun.
+Since the operator ruling of 2026-09-26 the gate is three-valued for
+`init`/`configure`: `--yes` IS the yes and RUNS the same installer with no
+prompt. For `init` the preflight also runs FIRST, and a declined or failed
+install ABORTS before any write (the message names the manual command, notes
+the installed binary, and gives the rerun). The Homebrew bootstrap prompts
+for an admin password, so a run with no terminal prints its instructions
+instead of attempting it, and the server's own installer route refuses it by
+name. A prompt-less refusal with no supported installer falls back to the
+plain refusal, byte-identical to before (CI never gets asked); a refusal
+taken with nobody to ask at all (no TTY, no `--yes`) adds one line naming
+that remedy. `service install` takes no `--yes`, so its offer keeps the
+2026-09-03 TTY-only rule unchanged.

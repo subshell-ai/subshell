@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { hostname } from "node:os";
+import { join } from "node:path";
 import { isLoopbackUrl } from "@/commands/config-values.js";
 import {
   type CommandDeps,
@@ -11,6 +12,13 @@ import {
   tmuxPreflight,
   writeConfigEnv,
 } from "@/commands/configure.js";
+import {
+  addLocalBinToProfiles,
+  LOCAL_BIN_EXPORT,
+  localBinDir,
+  localBinOnPath,
+  type ProfileOutcome,
+} from "@/commands/shell-profile.js";
 import type { CliResult } from "@/service.js";
 
 /**
@@ -34,6 +42,13 @@ import type { CliResult } from "@/service.js";
  * and prints the handoff that says where to create the admin account. A
  * headless operator had every one of those verbs already and no sequence
  * pointing at them, which is the defect this closes.
+ *
+ * Since spec 2026-09-26 it also OWNS THE TERMINAL (cli.ts acquires it before
+ * this function ever runs) and it owns two questions the installer script used
+ * to echo as notes: the tmux install (via the shared preflight's `--yes`
+ * route) and the `~/.local/bin` PATH export. The rule the wave exists for:
+ * every question is either ASKED (terminal), ANSWERED YES (`--yes`), or
+ * PRONOUNCED (`not interactive:` on every default a silent run took).
  */
 
 /** Seams `init` needs beyond the configure flow's own (see {@link CommandDeps}). */
@@ -53,6 +68,14 @@ export interface InitDeps extends CommandDeps {
    * will use (production: `os.hostname()`).
    */
   hostname?: () => string;
+  /**
+   * Home the PATH question hangs off (production: `homedir()`): the user's
+   * `~/.local/bin` is what gets offered, and `~/.zprofile`/`~/.zshrc` are
+   * where the fix lands. Absent (tests that pin neither) means the PATH offer
+   * is skipped entirely — a wiring mistake cannot make `init` write a profile
+   * it was never pointed at.
+   */
+  home?: string;
 }
 
 /** The config values the handoff reads back — see {@link setupHandoffLines}. */
@@ -112,7 +135,7 @@ function generateAuthSecret(): string {
 
 /**
  * Run init: tmux preflight → mkdir 0700 home → secret bootstrap → configure
- * flow → the service question → the handoff.
+ * flow → the PATH offer → the service question → the handoff.
  *
  * @param opts - parsed flags, passed through to `runConfigure` verbatim
  * @param deps - injected seams (see {@link InitDeps})
@@ -120,10 +143,12 @@ function generateAuthSecret(): string {
  *   cli.ts maps it to `deps.exit`
  */
 export async function runInit(opts: ConfigureOpts, deps: InitDeps): Promise<number> {
-  // BEFORE any write — including the config home itself: a refused init on a
-  // machine without tmux must leave no trace. One shared offer bundle with
-  // runConfigure (makeTmuxOffer) — the gate cannot drift between commands.
-  if (!tmuxPreflight({ ...deps, offer: makeTmuxOffer(opts, deps) })) return 1;
+  // BEFORE every write AND every other question — including the config home
+  // itself (2026-09-26 ruling: a declined or failed tmux install ABORTS init
+  // with nothing written). One shared offer bundle with runConfigure
+  // (makeTmuxOffer) — the gate cannot drift between commands.
+  const installedBinaryHint = deps.home === undefined ? undefined : join(localBinDir(deps.home), "subshell-server");
+  if (!tmuxPreflight({ ...deps, offer: makeTmuxOffer(opts, deps, "init", installedBinaryHint) })) return 1;
 
   ensureConfigDir(deps.configDir);
 
@@ -158,6 +183,7 @@ export async function runInit(opts: ConfigureOpts, deps: InitDeps): Promise<numb
   const code = await runConfigure(opts, deps);
   if (code !== 0) return code;
 
+  await offerPathOnLoginShell(opts, deps);
   if (await wantsService(opts, deps)) {
     const result = deps.installService();
     // VERBATIM, out and err alike: on Linux this output carries the linger
@@ -174,18 +200,76 @@ export async function runInit(opts: ConfigureOpts, deps: InitDeps): Promise<numb
 }
 
 /**
+ * The PATH question, in the place the installer script's one-way note used
+ * to sit (spec 2026-09-26). The same three-way rule as every other question
+ * here: `--yes` answers yes, a terminal gets the question, and a run with
+ * neither makes no unasked write — it prints the manual instructions (the
+ * words of the old script note) instead, because the whole defect this wave
+ * closes is SILENCE about what a piped run decided alone.
+ *
+ * `home` absent means the seam was never wired (unit suites that pin neither
+ * PATH nor profiles) and `PATH` absent means there is no PATH to inspect:
+ * either way the offer is skipped rather than guessed at.
+ */
+async function offerPathOnLoginShell(opts: ConfigureOpts, deps: InitDeps): Promise<void> {
+  if (deps.home === undefined) return;
+  const onPath = localBinOnPath(deps.env.PATH, deps.home);
+  if (onPath !== false) return;
+  const binDir = localBinDir(deps.home);
+  if (opts.yes) {
+    reportPathWrite(deps, addLocalBinToProfiles(deps.home));
+    return;
+  }
+  if (deps.isTTY) {
+    const answer = await deps.confirm(`Add ${binDir} to your PATH (writes an export line to ~/.zprofile)?`, true);
+    if (answer === true) reportPathWrite(deps, addLocalBinToProfiles(deps.home));
+    // A cancel reads as "not that part", the same reading the service
+    // question gives it: the config is already written and init is idempotent.
+    return;
+  }
+  deps.log(`not interactive: ${binDir} is not on your PATH. Add it to ~/.zprofile with:`);
+  deps.log(`    ${LOCAL_BIN_EXPORT}`);
+}
+
+/** One line per file the PATH write touched, so the user sees the file names. */
+function reportPathWrite(deps: InitDeps, result: { zprofile: ProfileOutcome; zshrc: ProfileOutcome }): void {
+  const label: Record<Exclude<ProfileOutcome, "absent">, string> = {
+    created: "created ~/.zprofile with the ~/.local/bin export",
+    appended: "added the ~/.local/bin export to ~/.zprofile",
+    "already-present": "~/.zprofile already lists ~/.local/bin on PATH",
+  };
+  const zprofileLine = `PATH: ${label[result.zprofile]}`;
+  if (result.zshrc === "appended") deps.log(`${zprofileLine}; also appended it to ~/.zshrc`);
+  else deps.log(zprofileLine);
+}
+
+/**
  * Whether to install the background service.
  *
- * One rule, and it is the same one `--yes` follows everywhere here: a flag
- * decides, otherwise the question is asked, otherwise the default is taken —
- * and this default is YES, because a server that dies with the SSH session is
- * not what anyone meant by "set this up". A CANCEL is read as "not that
- * part": config.env is already written and `init` is idempotent, so failing
- * the command would throw away work the person did not ask to undo.
+ * The same three-way rule as every other question here, updated by the
+ * operator ruling of 2026-09-26: a flag decides, `--yes` means YES (a server
+ * that dies with the SSH session is not what anyone meant by "set this up"),
+ * a terminal is ASKED. The silent case changed: a run with NO terminal and no
+ * `--yes` does NOT install — `init` attaches its own terminal now (the piped
+ * interview runs wherever a tty exists), so what lands here genuinely has
+ * nobody to ask, and it makes no unasked system change. It prints the default
+ * it took instead: silence about the decision was the bug. A CANCEL on the
+ * question is "not that part": config.env is already written and `init` is
+ * idempotent, so failing the command would throw away work the person did not
+ * ask to undo.
  */
 async function wantsService(opts: ConfigureOpts, deps: InitDeps): Promise<boolean> {
   if (opts.service !== undefined) return opts.service;
-  if (opts.yes || !deps.isTTY) return true;
+  if (opts.yes) {
+    deps.log("registering background service…");
+    return true;
+  }
+  if (!deps.isTTY) {
+    deps.log(
+      "not interactive: background service NOT installed (run: subshell-server service install to add it, or re-run init in a terminal)",
+    );
+    return false;
+  }
   const answer = await deps.confirm("Run Subshell Server in the background and start it at login?", true);
   return answer === true;
 }

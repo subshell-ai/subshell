@@ -12,7 +12,7 @@ import {
   OWNED_KEYS,
   validateValue,
 } from "./config-values.js";
-import { chooseTmuxInstaller, runTmuxInstall, spawnInherit } from "./tmux-install.js";
+import { chooseTmuxInstaller, HOMEBREW_INSTALL_URL, runTmuxInstall, spawnInherit } from "./tmux-install.js";
 
 /**
  * `subshell-server configure` — (re)write `<configDir>/config.env` from the
@@ -104,43 +104,117 @@ export interface CommandDeps {
   /**
    * Sync package-manager runner for the tmux offer (production:
    * `spawnInherit` from tmux-install.ts). Injectable so suites pin the
-   * offer flow without touching a real installer.
+   * offer flow without touching a real installer. The `stdin` argument is
+   * the terminal fd to prompt on (see {@link ttyFd}); production callers
+   * that leave it unset inherit.
    */
-  spawnInstall?: (argv: readonly string[]) => number;
+  spawnInstall?: (argv: readonly string[], stdin?: number) => number;
+  /**
+   * The attached terminal's fd when `init` swapped a piped run onto the
+   * controlling tty (2026-09-26). The tmux offer hands it to an installer
+   * child so Homebrew's admin password can be typed on the real terminal;
+   * absent for direct TTY runs and every other command.
+   */
+  ttyFd?: number;
 }
 
 /**
- * The offer-to-install bundle for the tmux preflight (spec 2026-09-03):
- * present-and-`interactive` is the ONLY way the offer can fire — callers
- * compute `interactive` as `!--yes && TTY` (init/configure) or plain TTY
- * (service install has no flags). CI, scripts, and piped stdin see the
- * status-quo refusal; a system-package install is never the silent
- * consequence of a flag.
+ * The offer-to-install bundle for the tmux preflight (spec 2026-09-03, gate
+ * widened by the operator ruling of 2026-09-26). Three ways in:
+ *
+ * - `interactive`: a TTY with no `--yes` gets the y/N question, as ever;
+ * - `autoAccept`: `--yes` RUNS the installer without asking — `--yes` means
+ *   every question is answered yes, and the tmux install is a question like
+ *   any other (the 2026-09-03 "a flag is never a system-package install"
+ *   carve-out was explicitly reversed for `init`/`configure`);
+ * - neither: the status-quo refusal, and when the refusal was taken on a
+ *   host that DOES have an installer, `declineNotice` is one extra line
+ *   naming how to get the offer back (a terminal, or `--yes`).
+ *
+ * `service install` passes an offer with neither `autoAccept` nor
+ * `declineNotice` — it has no flags to mean yes with, so its rule stays
+ * exactly the TTY-only gate of 2026-09-03.
  */
 export interface TmuxOffer {
-  /** Caller-computed interactivity gate — the offer's master switch. */
+  /** Caller-computed interactivity gate: ask the question when true. */
   interactive: boolean;
+  /** `--yes`: run the installer directly, without consuming a prompt. */
+  autoAccept?: boolean;
+  /**
+   * The one line the SILENT refusal (neither interactive nor `--yes`) gains,
+   * and only on a host where the auto route exists (an installer is found).
+   */
+  declineNotice?: string;
+  /**
+   * Whether a terminal exists for THIS run (direct TTY or attached) — not
+   * the same fact as `interactive` (that is ask-or-not). The Homebrew
+   * bootstrap, the one installer whose child prompts its own admin password,
+   * may only RUN when this is true: `--yes` cannot type a password; where it
+   * is false the preflight prints the bootstrap's URL instructions instead.
+   * `service install` leaves it unset: its offer can only fire interactively
+   * anyway, and its refusal text must stay the 2026-09-03 one.
+   */
+  terminal?: boolean;
+  /**
+   * The command's name, carried onto the refusal so the abort sentence can
+   * say what to rerun once tmux exists (2026-09-26 ruling: a declined or
+   * failed install ABORTS the command — nothing further is written — and the
+   * message says how to come back). `service install` sets nothing; its
+   * refusal stays exactly the 2026-09-03 text.
+   */
+  commandName?: "init" | "configure";
+  /** The rerun sentence derived from {@link commandName}, if any. */
+  rerunNote?: string;
   /** Where the offer's question/progress lines go (stdout in production). */
   log: (line: string) => void;
   /** The y/N question (production: `promptLineSync`); null/EOF = declined. */
   prompt: (question: string, def: string) => string | null;
   /** Installer runner (default: `spawnInherit` — inherited stdio). */
-  spawn?: (argv: readonly string[]) => number;
+  spawn?: (argv: readonly string[], stdin?: number) => number;
+  /**
+   * The terminal fd to hand an installer child when this process's own stdin
+   * is not a terminal — the swapped `init` run's attached tty (2026-09-26).
+   * Omitted ⇒ inherit.
+   */
+  stdin?: number;
 }
 
 /**
  * The config flows' ONE offer bundle: `init` and `configure` gate
- * identically (`!--yes` AND TTY), and both take it from here so the gate
- * cannot drift between the two commands. Platform is NOT part of the offer
- * — it rides on {@link TmuxPreflightDeps.platform} where the preflight also
- * resolves the hint text from, one source for both.
+ * identically (ask on a TTY, install on `--yes`, refuse and name the remedy
+ * otherwise), and both take it from here so the gate cannot drift between
+ * the two commands. Platform is NOT part of the offer — it rides on
+ * {@link TmuxPreflightDeps.platform} where the preflight also resolves the
+ * hint text from, one source for both. The command NAME rides in so the
+ * remedy line sentencizes itself truthfully per command, and the attached
+ * tty fd rides in so an installer child can be PROMPTED on it when fd 0 is
+ * still the drained pipe.
  */
-export function makeTmuxOffer(opts: ConfigureOpts, deps: CommandDeps): TmuxOffer {
+export function makeTmuxOffer(
+  opts: ConfigureOpts,
+  deps: CommandDeps,
+  commandName: "init" | "configure",
+  installPath?: string,
+): TmuxOffer {
   return {
     interactive: !opts.yes && deps.isTTY,
+    autoAccept: opts.yes === true,
+    terminal: deps.isTTY,
+    commandName,
+    // The declined/aborted message for a run that COULD have asked: name the
+    // terminal remedy (or the --yes one), and say to rerun once tmux exists.
+    declineNotice:
+      opts.yes || deps.isTTY
+        ? undefined
+        : `tmux not installed; re-run ${commandName} in a terminal (or with --yes) to install it`,
+    rerunNote:
+      `Subshell Server needs tmux to run panes, and this run stopped before writing anything else; ` +
+      `subshell-server itself is already installed${installPath ? ` at ${installPath}` : ""}. ` +
+      `Once tmux is present, rerun: subshell-server ${commandName}`,
     log: deps.log,
     prompt: deps.promptSync,
     spawn: deps.spawnInstall,
+    stdin: deps.ttyFd,
   };
 }
 
@@ -162,6 +236,13 @@ export interface ConfigureOpts {
   trustedOrigins?: string;
   /** `--yes` (also implied by non-TTY): accept all defaults/flags, ask nobody. */
   yes?: boolean;
+  /**
+   * `--verbose` (2026-09-26): CONSOLE debug for this run, refused alongside
+   * `--json` wherever a command emits JSON. Read by the DISPATCH, which
+   * raises the transport gate; the verbs themselves never branch on it, so
+   * what gets written is identical with and without the flag.
+   */
+  verbose?: boolean;
   /**
    * `--service` / `--no-service` (`init` only): install the background
    * service, or do not. Absent means "ask, and take yes when nobody can be
@@ -203,10 +284,19 @@ export interface TmuxPreflightDeps {
  * escape hatch name (spec 2026-09-03 plan-2 Global Constraints).
  *
  * Since spec 2026-09-03 (tmux offer): an interactive run with a supported
- * installer on PATH gets ONE chance to `brew/apt-get/dnf install tmux`
- * on the spot — and CONTINUES the command on success (no rerun). Every
- * non-success path (no offer, non-interactive, no installer, declined,
- * EOF, failed install, still-not-found) is the original refusal, verbatim.
+ * installer on PATH gets ONE chance to install tmux on the spot — and
+ * CONTINUES the command on success (no rerun). Since the operator ruling of
+ * 2026-09-26 the offer has a second way in (`--yes` runs the SAME installer,
+ * no prompt — every question yes) and the macOS ladder widened (brew →
+ * MacPorts → Homebrew bootstrap). Every non-success path (no offer, no
+ * installer, a declined prompt, EOF, a failed install, still-not-found) now
+ * ABORTS the command with nothing written further, and the refusal names the
+ * declined manager's own manual command plus the rerun sentence (init/
+ * configure carry one via the offer; service install keeps its 2026-09-03
+ * refusal byte-identical). The ONE thing that is never attempted is the
+ * Homebrew bootstrap on a run with no terminal (`needsTerminal`): its child
+ * prompts an admin password that could not be typed, so it prints the
+ * instructions instead of hanging on a prompt.
  *
  * @returns true when the flow may proceed (tmux present/skip var/offered install)
  */
@@ -215,39 +305,71 @@ export function tmuxPreflight(deps: TmuxPreflightDeps): boolean {
   if (deps.which("tmux") !== null) return true;
   const platform = deps.platform ?? process.platform;
   const offer = deps.offer;
-  if (offer?.interactive) {
-    const installer = chooseTmuxInstaller({ platform, which: deps.which });
-    if (installer) {
+  // The installer lookup is needed for the declineNotice too — the terminal/
+  // --yes remedy may only be promised where some installer could do it.
+  const installer =
+    offer !== undefined &&
+    (offer.interactive ||
+      offer.autoAccept === true ||
+      offer.declineNotice !== undefined ||
+      offer.commandName !== undefined)
+      ? chooseTmuxInstaller({ platform, which: deps.which })
+      : null;
+  // The Homebrew bootstrap answers its OWN admin password, so it may only
+  // run where a terminal can receive it (direct TTY or an attached one).
+  // No terminal ⇒ never spawn it: print the instructions instead.
+  const bootstrapBlocked = installer?.needsTerminal === true && offer?.terminal === false;
+  if (offer && installer && !bootstrapBlocked && (offer.interactive || offer.autoAccept === true)) {
+    let run: boolean;
+    if (offer.autoAccept === true) {
+      offer.log(`installing tmux via ${installer.label}…`);
+      offer.log(`running: ${installer.argv.join(" ")}`);
+      run = true;
+    } else {
       offer.log(
         "tmux not found. The server launches its local subshells through tmux. " +
           `It can be installed right now with ${installer.label}.`,
       );
       offer.log(`this would run: ${installer.argv.join(" ")}`);
       const answer = offer.prompt(`Install tmux now with ${installer.label}?`, "n");
-      if (answer !== null && ["y", "yes"].includes(answer.trim().toLowerCase())) {
-        // note=offer.log: an unstartable installer (bun throws ENOENT before
-        // any child output) must explain itself, not fall back silently.
-        const found = runTmuxInstall(installer, {
-          spawn: offer.spawn ?? spawnInherit,
-          which: deps.which,
-          note: offer.log,
-        });
-        if (found) {
-          offer.log(`tmux installed (${found}), continuing.`);
-          return true;
-        }
-        offer.log("tmux was not installed, falling back to the manual steps.");
+      run = answer !== null && ["y", "yes"].includes(answer.trim().toLowerCase());
+    }
+    if (run) {
+      // note=offer.log: an unstartable installer (bun throws ENOENT before
+      // any child output) must explain itself, not fall back silently.
+      const found = runTmuxInstall(installer, {
+        spawn: offer.spawn ?? spawnInherit,
+        which: deps.which,
+        note: offer.log,
+        stdin: offer.stdin,
+      });
+      if (found) {
+        offer.log(`tmux installed (${found}), continuing.`);
+        return true;
       }
+      offer.log("tmux was not installed, falling back to the manual steps.");
     }
   }
   deps.error("tmux not found. The server launches its local subshells through tmux and cannot run without it.");
-  const hint =
-    platform === "darwin"
-      ? "Install it first (macOS: brew install tmux)"
+  const manual =
+    installer?.manual ??
+    (platform === "darwin"
+      ? "macOS: brew install tmux"
       : platform === "linux"
-        ? "Install it first (Debian/Ubuntu: apt install tmux; Fedora: dnf install tmux)"
-        : "Install tmux first (Linux: apt install tmux / dnf install tmux; macOS: brew install tmux)";
-  deps.error(`${hint} and rerun (escape hatch: ${SKIP_TMUX_CHECK_ENV}=1).`);
+        ? "Debian/Ubuntu: apt install tmux; Fedora: dnf install tmux"
+        : "Linux: apt install tmux / dnf install tmux; macOS: brew install tmux");
+  deps.error(`Install it first (${manual}); then rerun (escape hatch: ${SKIP_TMUX_CHECK_ENV}=1).`);
+  // A declined/failed install ABORTS the command (2026-09-26 ruling). Say how
+  // to come back: the manager-specific manual command is above; this names
+  // the rerun. service install sets neither, keeping its old two-line refusal.
+  if (bootstrapBlocked && installer) {
+    deps.error(
+      "Installing Homebrew itself prompts for an admin password, which needs a terminal this run has none of; " +
+        `install it yourself (${HOMEBREW_INSTALL_URL}) and rerun.`,
+    );
+  }
+  if (offer?.commandName) deps.error(offer.rerunNote ?? "");
+  if (offer?.declineNotice && installer) deps.error(offer.declineNotice);
   return false;
 }
 
@@ -635,9 +757,11 @@ export function applyConfig(input: ApplyConfigInput, configDir: string, seams?: 
  */
 export async function runConfigure(opts: ConfigureOpts, deps: CommandDeps): Promise<number> {
   // The interactivity gate is decided BEFORE the preflight: the tmux offer
-  // may fire only here (spec 2026-09-03) — `--yes`/non-TTY keep the refusal.
+  // may fire only here (spec 2026-09-03, widened 2026-09-26: `--yes` now
+  // auto-installs instead of keeping the refusal; a non-TTY without `--yes`
+  // keeps the refusal AND names the remedy).
   const interactive = !opts.yes && deps.isTTY;
-  if (!tmuxPreflight({ ...deps, offer: makeTmuxOffer(opts, deps) })) return 1;
+  if (!tmuxPreflight({ ...deps, offer: makeTmuxOffer(opts, deps, "configure") })) return 1;
 
   // Read the existing file BEFORE asking: its values become the interactive
   // defaults, and a file we cannot read is refused before a single question

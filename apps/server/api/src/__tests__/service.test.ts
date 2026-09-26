@@ -199,6 +199,21 @@ WantedBy=default.target
     expect(without.files.get(UNIT) ?? "").not.toInclude("Environment=");
   });
 
+  test("a MacPorts PATH survives the same rail: /opt/local/bin baked into unit and plist (2026-09-26)", () => {
+    // The offer may install tmux via `port`, which lands it at
+    // /opt/local/bin/tmux; the manager's stock PATH does not carry that
+    // directory, so the SAME bake-the-installing-shell's-PATH mechanism the
+    // Homebrew case relies on must carry it (addendum follow-through: a
+    // port-installed tmux that passed preflight is found by the service).
+    const unitRun = stub({ platform: "linux", pathEnv: "/usr/bin:/opt/local/bin" });
+    installService(unitRun.deps);
+    expect(unitRun.files.get(UNIT) ?? "").toInclude("Environment=PATH=/usr/bin:/opt/local/bin\nWorkingDirectory=");
+
+    const plistRun = stub({ platform: "darwin", pathEnv: "/usr/bin:/opt/local/bin" });
+    installService(plistRun.deps);
+    expect(plistRun.files.get(PLIST) ?? "").toInclude("<string>/usr/bin:/opt/local/bin</string>");
+  });
+
   test("a spaced pathEnv is quoted; a spaced script path is quoted (no word-split 203/EXEC)", () => {
     const s = stub({
       pathEnv: "/usr/bin:/opt/my tools/bin",

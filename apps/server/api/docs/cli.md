@@ -6,8 +6,8 @@
 | --- | --- |
 | `version` | print `subshell-server <version>` and exit |
 | `status` | "what WOULD this boot with": opens with the `subshell-server <version>` line byte-identical to `version` (ONE fact, ONE spelling), then config.env path/existence, layer-tagged settings, masked secret (never echoed), tmux presence, mcp entrypoint, plugin registry, port liveness, service definition on disk, and `setup` (whether the first admin account exists), so the one command an operator is told to run when something looks wrong can answer the first question they have. Reading that counts users out of the database, which is why it opens read-only and FALLS BACK to read-write with `create: false`: SQLite cannot read a WAL database without a writable `-shm` beside it, so on any instance whose sidecars are gone (a restored backup, a cleanly closed copy) a read-only open succeeds and the first query throws. It still never creates a database. Reads only, never boots. `--json` emits the same facts as a machine-readable `StatusView` (never the secret, only `set`/`missing`). Each setting carries its layer as `source`, and `default` vs `config.env`/`process env` is what lets a consumer tell "the server would boot with this" from "somebody chose this"; the desktop console seeds its form on exactly that distinction. A setting may also carry `problems`, per-entry diagnostics saying what a BROWSER will do with a value the boot accepts (a schemeless origin, a non-canonical one, a base URL that silently drops the instance's own origin). Absent when clean, never `[]`, and never a verdict: see "Why the diagnostics live in `status` and not at boot" in `apps/server/api/docs/config-env.md` |
-| `init` | first run, and THE headless entry point (spec 2026-09-15): config home (0700), `BETTER_AUTH_SECRET` bootstrap (file value > env adoption > fresh 32 random bytes base64url), the configure flow, then ONE question (run in the background and start at login?), defaulting to yes and installing through the same `installService` the service verb calls, then the handoff line naming `<APP_BASE_URL>/setup`. `--no-service` skips the install, `--service` is its explicit opposite, and `--yes`/a non-TTY take the default. **The desktop app passes `--no-service`** (`control.rs` `init_args`): it installs the service itself with its own autostart checkbox, so a question here would re-ask what the assistant already answered. A CANCELLED service question is "not that part", not a failed init (config.env is already written and `init` is idempotent), so it exits 0 and still prints the handoff; a FAILED install fails init and prints none |
-| `configure` | (re)write config.env; interactive unless `--yes`; flags `--port --host --base-url --trusted-origins --db-path --yes`. Its `applyConfig` carries three address warnings, and the third (spec 2026-09-15) was the LAN-bind trap; since 2026-09-17 it is the NAME half of it: `HOST=0.0.0.0` + a loopback base URL + loopback-only `TRUSTED_ORIGINS` still dies on a 403 "Invalid origin" naming nothing WHEN BROWSED BY NAME, because browsing by one of the machine's own IP addresses is now derived and trusted automatically (`services/lan-origins.ts`). The validator is SHARED with the dashboard's Addresses card, so the CLI and the browser cannot disagree about when this is wrong |
+| `init` | first run, and THE headless entry point (spec 2026-09-15; terminal model re-cut 2026-09-26, `commands/tty-input.ts`): it ACQUIRES ITS OWN TERMINAL first, and that replaces the installer script's old `exec < /dev/tty` (which could itself block, hanging piped installs before anything printed). An interactive stdin is used as-is; a piped run attaches `/dev/tty` with an O_NONBLOCK open (it can never hang) and asks its questions OFF THAT FD, because bun's `process.stdin` stays bound to the pipe description fd 0 held at process start (measured: clack starves on the replaced fd; the pty scenario `src/__tests__/init-tty-pty.test.ts` keeps the working shape green). A genuinely terminal-less run takes its defaults and PRINTS EVERY DEFAULT IT TOOK: no service, no tmux install, PATH manual instructions, so silence is impossible. The ordering is a ruling, not a detail: the tmux preflight precedes EVERY write, and a declined offer or a failed installer child ABORTS init at exit 1 with nothing on disk (see the passages below the table). Then: config home (0700), `BETTER_AUTH_SECRET` bootstrap (file value > env adoption > fresh 32 random bytes base64url), the configure flow, the PATH question (`~/.local/bin` missing from PATH is offered with default yes: `export PATH="$HOME/.local/bin:$PATH"` appended idempotently to `~/.zprofile`, the create-safe login file, and to `~/.zshrc` only where one already exists), then the service question (run in the background and start at login?), installing through the same `installService` the service verb calls, then the handoff line naming `<APP_BASE_URL>/setup`. `--yes` means EVERYTHING (operator ruling 2026-09-26): file/built-in defaults, the tmux installer, the PATH write, and the background service, each announced by a line. `--verbose` raises this run's console logging to debug (see the passage below the table). `--no-service` skips the install, `--service` is its explicit opposite, and a run with nobody to ask installs nothing and says so, naming `service install` as the add-later remedy. **The desktop app passes `--no-service`** (`control.rs` `init_args`): it installs the service itself with its own autostart checkbox, so a question here would re-ask what the assistant already answered (its `--yes` still answers the PATH question, and a tmux-less Mac gets the brew install, per the same ruling). A CANCELLED question is "not that part", not a failed init (config.env is already written and `init` is idempotent), so it exits 0 and still prints the handoff; a FAILED install fails init and prints none |
+| `configure` | (re)write config.env; interactive unless `--yes`; flags `--port --host --base-url --trusted-origins --db-path --yes --verbose`. Its `applyConfig` carries three address warnings, and the third (spec 2026-09-15) was the LAN-bind trap; since 2026-09-17 it is the NAME half of it: `HOST=0.0.0.0` + a loopback base URL + loopback-only `TRUSTED_ORIGINS` still dies on a 403 "Invalid origin" naming nothing WHEN BROWSED BY NAME, because browsing by one of the machine's own IP addresses is now derived and trusted automatically (`services/lan-origins.ts`). The validator is SHARED with the dashboard's Addresses card, so the CLI and the browser cannot disagree about when this is wrong |
 | `service install` | write + enable/start the per-user service (refuses before any write without a config.env; run `init` first). `--no-autostart` installs one that runs NOW but does not come back at login. On Linux it then asks logind whether the user lingers, and prints the `loginctl enable-linger` advice only when the answer is not yes; the hint used to print on every install, which told an operator who had already fixed this to go and fix it (`null`, i.e. no loginctl and no bus, still prints: unneeded advice is cheaper than a reboot that loses the server). Run ALONE it also prints the `/setup` handoff, from the same helper `init` uses so the two cannot drift |
 | `service uninstall` | stop + remove the service definition (deliberately never gates on config/tmux; a stranded unit must always come down) |
 | `service enable` / `service disable` | arm or disarm start-at-login, WITHOUT touching the running process. Linux: `systemctl --user enable\|disable` with no `--now`; that flag is the whole difference between a preference and an outage. macOS: the plist MOVES (see `apps/server/api/docs/service-units.md`) |
@@ -24,6 +24,60 @@ divergence rather than an oversight. Its preflight is shared with
 await; making it async ripples through every service caller to change one y/n
 from a clack text box into a clack confirm. Worth doing deliberately or not at
 all; do not "fix" half of it.
+
+**The gate is three-valued since 2026-09-26** (operator ruling: `--yes` means
+everything). A TTY run gets the question; an `--yes` run of `init`/`configure`
+RUNS the installer with a printed line and no question; a run with neither
+refuses, and on a host that has an installer the refusal gains one line naming
+how to get the offer back ("re-run init in a terminal (or with --yes) to
+install it"). `service install` has no `--yes`, so it keeps the plain
+TTY-only rule, and `declineNotice` is deliberately unset there: the promise
+must name a route the verb actually has. `makeTmuxOffer` is the one place the
+`init`/`configure` shape is computed, so the two commands cannot drift.
+
+**A declined or failed tmux install ABORTS `init` (same ruling, part 2).**
+The preflight precedes every write, so the abort leaves nothing behind: exit
+1, no config home, no half-asked interview, no handoff pointing at a server
+that could not run panes. The abort message does the three things a person
+needs: it says tmux is what runs panes, it prints the declined manager's own
+manual command (`brew install tmux`, `sudo port install tmux`, or the
+Homebrew URL), and it notes the binary is already installed at
+`~/.local/bin/subshell-server` so the rerun after tmux exists is the whole
+fix. A run with nobody to ask takes the same abort, loudly. `service
+install`'s refusal is shared and unchanged: it still points at its own
+`--yes`-less remedy line.
+
+**The macOS ladder is three-way (2026-09-26)**: `brew` installs tmux,
+otherwise MacPorts (`port`) does, and with neither an offer to install
+Homebrew itself runs `/bin/bash -c "$(curl -fsSL <official installer URL>)"`.
+That bootstrap is Homebrew's own documented installer on their
+infrastructure, not a revival of the retired installer hosting here, and the
+comment in `commands/tmux-install.ts` says so because the URL looks like it.
+It prompts for an admin password, which decides where it may run: a `--yes`
+run only when a terminal exists to answer it, and with no terminal at all it
+is NEVER attempted: the command prints the URL and instructions instead. The
+server's own `POST /api/setup/tmux/install` route refuses the bootstrap and
+the MacPorts row by name (it has no terminal by construction, same doctrine
+as its `sudo` refusal), so the widened ladder reaches the CLI only, and a
+Mac with MacPorts installed keeps working: `service.ts` bakes the installing
+shell's PATH into the unit/plist unchanged, so `/opt/local/bin` rides the
+same rail `/opt/homebrew/bin` always did (pinned in
+`__tests__/service.test.ts`).
+
+**`--verbose` is console debug for one hand-invoked run (2026-09-26).**
+After a verb (`init`, `configure`, `update`, every `service` verb) it raises
+the stdout transport's level to `debug`, HTTP request lines included, for the
+life of the process; LEADING the command it is the one pre-boot recognition
+and boots the server the same way, because the pinned contract that a leading
+flag boots still holds (the boot-path test in `__tests__/cli.test.ts` keeps
+it honest). It never touches the FILE transport's level, the `debug_logging`
+settings row, or the `SUBSHELL_DEBUG_LOGGING` env-forced read-only rule: the
+service manager's ExecStarts carry no such flag, so a managed journal stays
+clean by construction. It is refused together with `--json` on the commands
+that emit JSON (`update`, `service status`): JSON on stdout and debug lines
+cannot share it, and the refusal lands before the gate is raised.
+`status`/`backup` keep `--json` alone: their view output must not need the
+flag to stay machine-readable.
 
 ### Boot output
 

@@ -1,4 +1,3 @@
-import { readSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { confirm as clackConfirm, text as clackText, intro, isCancel, outro } from "@clack/prompts";
 import { runReport, runSubshellMcp } from "@internal/mcp-core";
@@ -8,6 +7,7 @@ import { runBackup } from "@/commands/backup.js";
 import { type ConfigureOpts, runConfigure } from "@/commands/configure.js";
 import { type InitDeps, runInit, setupHandoffLines } from "@/commands/init.js";
 import { collectStatus, runStatus, serviceStateLines, syncPortListening } from "@/commands/status.js";
+import { acquirePromptInput, confirmLineOn, readLineSync } from "@/commands/tty-input.js";
 import { runUpdate, type UpdateOpts } from "@/commands/update.js";
 import { serverConfigDir } from "@/config-env.js";
 import {
@@ -22,6 +22,7 @@ import {
   uninstallService,
 } from "@/service.js";
 import type { McpResolveIo } from "@/services/mcp-resolve.js";
+import { setConsoleVerbose } from "@/utils/logger.js";
 import { SERVER_VERSION } from "@/version.js";
 
 /**
@@ -184,11 +185,15 @@ usage:
                                      append stdin to a pane log, flushing each
                                      read (run by tmux's own pipe-pane, not by hand)
 
-init/configure flags: --port <n> --host <h> --base-url <url> --db-path <path> --yes
+init/configure flags: --port <n> --host <h> --base-url <url> --db-path <path>
                       --trusted-origins <origin,origin>   other addresses browsers will
                                                           use (empty clears the list)
+                      --yes                    answers EVERY question yes: the file/built-in
+                                               defaults, the tmux install, and for init the
+                                               background service and the ~/.local/bin PATH write
 init-only flags:      --service / --no-service            install the background service,
-                                                          or skip it (default: install)
+                                                          or skip it (default: ask; a run
+                                                          with nobody to ask skips, loudly)
 
 update flags:         --check                  report what is available and stop
                       --to <version>           install this published version
@@ -198,6 +203,13 @@ update flags:         --check                  report what is available and stop
                       --json                   machine-readable output
                       --no-restart             swap the binary; the caller restarts
                       --rollback               undo the last update (binary + database)
+
+verbose:              --verbose after a verb (init/configure/update, and every service
+                      verb) raises this run's CONSOLE logging to debug level, HTTP request
+                      lines included. Leading the command it boots the server the same
+                      way. It never touches server.log's level or the SUBSHELL_DEBUG_LOGGING
+                      switch, and it is refused together with --json: JSON on stdout and
+                      debug lines cannot share it.
 
 config precedence: process env > config.env > .env > built-in defaults
 `;
@@ -233,6 +245,15 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
   const exit = deps.exit ?? ((code: number) => process.exit(code));
 
   const [command] = argv;
+  // `--verbose` LEADING (2026-09-26): recognized before the boot check, which
+  // it deliberately does not change — a leading flag is still boot, and
+  // `dispatchCli` still returns false so the server process lives on. This
+  // is the one pre-boot recognition, because `subshell-server --verbose` is
+  // how an operator boots a debug run BY HAND; a manager's ExecStart carries
+  // no such flag, so a service's journal is untouched by this code path.
+  if (command === "--verbose") {
+    setConsoleVerbose(true);
+  }
   // Boot path: no subcommand, or a leading flag (a service manager passes
   // flags and env, never a subcommand word). The boot graph continues untouched.
   if (!command || command.startsWith("-")) return false;
@@ -354,6 +375,17 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
       return new Promise<boolean>(() => {});
     case "init":
     case "configure": {
+      // Terminal acquisition (spec 2026-09-26), `init` only, FIRST. Under a
+      // piped install fd 0 is the drained script pipe; `acquirePromptInput`
+      // attaches the controlling terminal on its own fd with an O_NONBLOCK
+      // open, so the hang the old script suffered AT THIS SYSCALL can never
+      // happen here. A swapped run prompts against the attached fd instead of
+      // clack — `tty-input.ts`'s header carries the measured reason (bun's
+      // process.stdin keeps reading the pipe description fd 0 held at start,
+      // which strands clack on a healthy terminal). Skipped whenever `isTTY`
+      // is injected (every test seam), so no suite touches this process's
+      // real /dev/tty.
+      const promptInput = command === "init" && deps.isTTY === undefined ? acquirePromptInput() : undefined;
       // `--service`/`--no-service` belong to `init` alone: `configure` never
       // installs anything, so accepting them there would be a flag that
       // silently does nothing.
@@ -363,11 +395,23 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
         exit(1);
         return true;
       }
-      const isTTY = deps.isTTY ?? process.stdin.isTTY === true;
+      // Before the first prompt: a `--verbose` interview shows its own debug
+      // lines (2026-09-26). The flag never touches the FILE gate, so nothing
+      // lands in server.log because of it.
+      if (opts.verbose) setConsoleVerbose(true);
+      // The attached tty is invisible to `process.stdin.isTTY` (that was set
+      // from the pipe at process start), which is why the acquisition result
+      // — not a re-read — is what makes this run interactive.
+      const isTTY = deps.isTTY ?? (promptInput ? promptInput.interactive : process.stdin.isTTY === true);
+      const ttyFd = promptInput?.swapped ? promptInput.fd : undefined;
       const cmdDeps: InitDeps = {
-        prompt: deps.prompt ?? promptText,
-        confirm: deps.confirm ?? promptConfirm,
-        promptSync: deps.promptSync ?? promptLineSync,
+        // A swapped run asks EVERY clack question through the fd-based
+        // readers (the interview still happens, with the same answers and
+        // defaults); a direct run keeps clack untouched. `ttyFd` in the
+        // closure, asserted non-null once, keeps the seam types honest.
+        prompt: deps.prompt ?? (ttyFd !== undefined ? (q, d) => readLineSync(ttyFd, q, d) : promptText),
+        confirm: deps.confirm ?? (ttyFd !== undefined ? (q, d) => confirmLineOn(ttyFd, q, d) : promptConfirm),
+        promptSync: deps.promptSync ?? (ttyFd !== undefined ? (q, d) => readLineSync(ttyFd, q, d) : promptLineSync),
         log,
         error,
         configDir: deps.configDir ?? serverConfigDir(),
@@ -378,17 +422,26 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
         // detection AND the hint text; spawnInstall stays injectable.
         platform: deps.platform ?? process.platform,
         spawnInstall: deps.spawnInstall,
+        // The attached tty (piped runs only): the tmux offer hands this fd to
+        // an installer child so Homebrew's admin password can be typed on the
+        // real terminal instead of the drained pipe.
+        ttyFd,
         // The SAME function the `service install` verb calls, with autostart
         // armed (spec 2026-09-15 §4.1) — one installer, so `init` and
         // `service install` cannot put different definitions on a host.
         installService: deps.installService ?? (() => installService(serviceDeps(deps, log), { autostart: true })),
         hostname: deps.hostname,
+        // Home the PATH question hangs off (init-only; `configure` ignores it).
+        home: deps.home ?? homedir(),
       };
       // The clack frame belongs to the clack prompts: a caller that injects
       // its own `prompt` (every test) is not drawing one, and would otherwise
       // emit bars onto a real stdout from inside a unit test. `--yes` and a
       // non-TTY draw nothing either — those runs print nothing but results.
-      const framed = !opts.yes && isTTY && deps.prompt === undefined;
+      // A SWAPPED run draws nothing too: its prompts are the fd-based line
+      // readers, and a frame around plain line prompts is a box around the
+      // wrong thing.
+      const framed = !opts.yes && isTTY && deps.prompt === undefined && ttyFd === undefined;
       if (framed) intro(`subshell-server ${SERVER_VERSION}`);
       // Async since the prompt became one (spec 2026-09-15 §3.2). Safe for
       // the same reason `mcp` is: the graph is IO-free at import and
@@ -409,6 +462,17 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
         exit(1);
         return true;
       }
+      // The one combination with no honest meaning (2026-09-26): `--json`
+      // emits a document on stdout, and debug lines would corrupt it.
+      // Refused BEFORE raising the console gate, so the refusal itself is
+      // the two ordinary lines it is.
+      if (opts.verbose && opts.json) {
+        error(VERBOSE_JSON_CONFLICT);
+        error(USAGE);
+        exit(1);
+        return true;
+      }
+      if (opts.verbose) setConsoleVerbose(true);
       const code = await runUpdate(opts, {
         log,
         error,
@@ -447,7 +511,10 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
         exit(1);
         return true;
       }
-      const allowed = SERVICE_FLAGS[verb] ?? NO_FLAGS;
+      // `--verbose` joins EVERY verb's set (2026-09-26): it moves this
+      // process's console gate, which is not the verb's job to accept or
+      // refuse. The table above stays a statement about each verb's OWN flags.
+      const allowed = new Set<string>([...(SERVICE_FLAGS[verb] ?? NO_FLAGS), "--verbose"]);
       const flags = argv.slice(2);
       const bad = flags.find((f) => !allowed.has(f));
       if (bad !== undefined) {
@@ -455,6 +522,18 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
         error(USAGE);
         exit(1);
         return true;
+      }
+      // The same mutual exclusion `update` enforces: `status --json` emits a
+      // document on stdout, and debug lines cannot share it. Refused BEFORE
+      // raising the console gate.
+      if (flags.includes("--verbose")) {
+        if (verb === "status" && flags.includes("--json")) {
+          error(VERBOSE_JSON_CONFLICT);
+          error(USAGE);
+          exit(1);
+          return true;
+        }
+        setConsoleVerbose(true);
       }
       const sdeps = serviceDeps(deps, log);
 
@@ -523,10 +602,13 @@ function serviceDeps(deps: CliDeps, log: (line: string) => void): ServiceDeps {
     env: deps.env ?? process.env,
     which: deps.which ?? ((name) => Bun.which(name) ?? null),
     pathEnv: deps.pathEnv ?? process.env.PATH,
-    // tmux offer (spec 2026-09-03): service install takes no flags, so the
-    // gate is TTY-only — non-interactive installs keep the refusal. Platform
-    // rides on the seed itself (ServiceDeps.platform) where the preflight
-    // reads it for both detection and the hint.
+    // tmux offer (spec 2026-09-03): THIS verb's gate stays TTY-only because
+    // `service install` takes no flags to mean yes with — `init`/`configure`
+    // gained the `--yes` auto-install route on 2026-09-26 (makeTmuxOffer),
+    // and it deliberately did not spread here. Non-interactive service
+    // installs keep the refusal. Platform rides on the seed itself
+    // (ServiceDeps.platform) where the preflight reads it for both detection
+    // and the hint.
     tmuxOffer: {
       interactive: deps.isTTY ?? process.stdin.isTTY === true,
       log,
@@ -547,6 +629,14 @@ const SERVICE_COMMANDS = ["install", "uninstall", "status", "enable", "disable",
 type ServiceCommand = (typeof SERVICE_COMMANDS)[number];
 const isServiceCommand = (word: string): word is ServiceCommand =>
   (SERVICE_COMMANDS as readonly string[]).includes(word);
+
+/**
+ * The `--verbose` + `--json` refusal (2026-09-26), shared verbatim by the two
+ * branches that can see both flags: JSON on stdout and debug lines on stdout
+ * are one stream fighting over it.
+ */
+const VERBOSE_JSON_CONFLICT =
+  "subshell-server: --verbose and --json are mutually exclusive (JSON on stdout and debug lines cannot share it)";
 
 /** Per-verb flag allowlist — anything else is the same "unexpected argument" refusal the config flags use. */
 const SERVICE_FLAGS: Partial<Record<ServiceCommand, ReadonlySet<string>>> = {
@@ -571,6 +661,12 @@ const UPDATE_BOOLEANS: Record<string, (o: UpdateOpts) => void> = {
   },
   "--json": (o) => {
     o.json = true;
+  },
+  // 2026-09-26: console debug for the run, including the download's own
+  // lines. Its one hard conflict (`--json`) is refused by the DISPATCH,
+  // before raising, so the refusal itself is never debug spam.
+  "--verbose": (o) => {
+    o.verbose = true;
   },
   "--no-restart": (o) => {
     o.noRestart = true;
@@ -692,6 +788,11 @@ function parseConfigFlags(
     "--yes": (o) => {
       o.yes = true;
     },
+    // Accepted by BOTH verbs (2026-09-26): the flag moves this process's
+    // console gate, which is nobody's verb business; the dispatch raises it.
+    "--verbose": (o) => {
+      o.verbose = true;
+    },
     ...(opts0.allowService
       ? {
           "--service": (o: ConfigureOpts) => {
@@ -760,20 +861,13 @@ function parseConfigFlags(
   return opts;
 }
 
-/** Decode a line's worth of bytes collected one at a time from stdin. */
-const decodeLine = (bytes: number[]): string => Buffer.from(bytes).toString("utf8").replace(/\r$/, "");
-
 /**
- * The tmux offer's prompt: `writeSync(1, …)` + one-byte blocking
- * `readSync(0, …)` until LF. It stays SYNCHRONOUS — and stays here beside the
- * clack ones rather than being replaced by them — because `tmuxPreflight` is
- * shared with `installService`, which returns a `CliResult` rather than a
- * promise and cannot await an answer. A
- * canonical-mode TTY delivers whole lines, so byte-at-a-time reads simply
- * block on the tty driver; multi-byte UTF-8 reassembles at decode. EOF
- * (Ctrl-D, or a closed stdin) returns null so the caller aborts with zero
- * writes. EAGAIN (a non-blocking stdin under some launcher) parks briefly
- * and retries rather than fabricating an answer.
+ * The tmux offer's prompt: one line off fd 0, asked with {@link
+ * readLineSync}. It stays SYNCHRONOUS — and stays here beside the clack ones
+ * rather than being replaced by them — because `tmuxPreflight` is shared with
+ * `installService`, which returns a `CliResult` rather than a promise and
+ * cannot await an answer. A swapped run hands the same reader the attached
+ * tty fd instead (the swapped wiring is at the `init`/`configure` case).
  */
 /**
  * The production text prompt: `@clack/prompts`'s `text`, with the default
@@ -804,24 +898,5 @@ export async function promptConfirm(question: string, def: boolean): Promise<boo
 }
 
 export function promptLineSync(question: string, def: string): string | null {
-  writeSync(1, `${question} [${def}]: `);
-  const bytes: number[] = [];
-  const one = Buffer.alloc(1);
-  for (;;) {
-    let n: number;
-    try {
-      n = readSync(0, one, 0, 1, null);
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === "EAGAIN") {
-        Bun.sleepSync(5);
-        continue;
-      }
-      if (code === "EIO") return null; // hangup on the far end — treat as closed stdin
-      throw err;
-    }
-    if (n === 0) return bytes.length > 0 ? decodeLine(bytes) : null;
-    if (one[0] === 0x0a) return decodeLine(bytes);
-    bytes.push(one[0] as number);
-  }
+  return readLineSync(0, question, def);
 }

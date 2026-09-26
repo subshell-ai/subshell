@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { parseEnvFile } from "../../config-env.js";
 import { runConfigure } from "../configure.js";
+import { HOMEBREW_INSTALL_URL } from "../tmux-install.js";
 import { makeDeps } from "./test-deps.js";
 
 /**
@@ -304,11 +305,34 @@ describe("runConfigure — tmux offer-to-install (spec 2026-09-03)", () => {
     expect(() => readFileSync(envFile(dir))).toThrow();
   });
 
-  test("--yes NEVER offers: prompt and installer seams untouched (CI determinism)", async () => {
+  // Operator ruling 2026-09-26: `--yes` means EVERYTHING, and the tmux install
+  // is a question like any other. The old pin ("--yes never offers, system
+  // package installs are never the consequence of a flag") inverted: --yes
+  // runs the installer it would have offered, without asking.
+  test("--yes runs the installer directly, without consuming a prompt", async () => {
+    const host = aptHost();
+    const spawned: (readonly string[])[] = [];
+    const { deps, dir, prompts } = makeDeps({
+      isTTY: true,
+      which: host.which,
+      platform: "linux",
+      spawnInstall: (argv) => {
+        spawned.push(argv);
+        host.markInstalled();
+        return 0;
+      },
+    });
+    expect(await runConfigure({ yes: true }, deps)).toBe(0);
+    expect(prompts).toEqual([]);
+    expect(spawned).toEqual([["sudo", "apt-get", "install", "-y", "tmux"]]);
+    expect(readCfg(dir).SERVER_PORT).toBe("3080");
+  });
+
+  test("no TTY → no offer and no auto-install even without --yes, with the remedy named", async () => {
     const host = aptHost();
     let spawned = 0;
-    const { deps, prompts } = makeDeps({
-      isTTY: true,
+    const { deps, prompts, err } = makeDeps({
+      isTTY: false,
       which: host.which,
       platform: "linux",
       spawnInstall: () => {
@@ -316,16 +340,12 @@ describe("runConfigure — tmux offer-to-install (spec 2026-09-03)", () => {
         return 0;
       },
     });
-    expect(await runConfigure({ yes: true }, deps)).toBe(1);
-    expect(prompts).toEqual([]);
-    expect(spawned).toBe(0);
-  });
-
-  test("no TTY → no offer even without --yes", async () => {
-    const host = aptHost();
-    const { deps, prompts } = makeDeps({ isTTY: false, which: host.which, platform: "linux" });
     expect(await runConfigure({}, deps)).toBe(1);
     expect(prompts).toEqual([]);
+    expect(spawned).toBe(0);
+    expect(err.join("\n")).toContain(
+      "tmux not installed; re-run configure in a terminal (or with --yes) to install it",
+    );
   });
 
   test("interactive but NO supported installer on PATH → silent fall to the hint", async () => {
@@ -499,6 +519,71 @@ describe("runConfigure — file hygiene", () => {
     const raw = readFileSync(envFile(dir), "utf8");
     expect(raw.split("\n")[0]).toMatch(/^#/);
     expect(raw).toMatch(/comment/i); // the drop-comment caveat is stated in the file itself
+  });
+});
+
+/**
+ * The 2026-09-26 addendum: macOS detection is three-way (brew → MacPorts →
+ * Homebrew bootstrap), the bootstrap is the one route that may install a
+ * PACKAGE MANAGER, and it is also the one thing that must NEVER be attempted
+ * without a terminal (its child prompts its own admin password).
+ */
+describe("runConfigure — macOS manager ladder (2026-09-26 addendum)", () => {
+  test("MacPorts host without brew: the offer names MacPorts and runs `port install tmux` verbatim", async () => {
+    let installed = false;
+    const spawned: (readonly string[])[] = [];
+    const { deps, prompts } = makeDeps({
+      isTTY: true,
+      platform: "darwin",
+      which: (n) => (n === "port" ? "/opt/local/bin/port" : n === "tmux" && installed ? "/opt/local/bin/tmux" : null),
+      spawnInstall: (argv) => {
+        spawned.push(argv);
+        installed = true;
+        return 0;
+      },
+      answers: ["y", "", "", "", "", ""],
+    });
+    expect(await runConfigure({}, deps)).toBe(0);
+    expect(prompts[0]?.[0]).toMatch(/Install tmux now with MacPorts\?/);
+    expect(spawned).toEqual([["port", "install", "tmux"]]);
+  });
+
+  test("no brew, no port: --yes RUNS the Homebrew bootstrap through the seam (the old silent null is gone)", async () => {
+    let installed = false;
+    const spawned: (readonly string[])[] = [];
+    const { deps, prompts } = makeDeps({
+      // The bootstrap answers its password on the terminal, so this case has
+      // one: `--yes` + TTY is the combination the addendum names.
+      isTTY: true,
+      platform: "darwin",
+      which: (n) => (n === "tmux" && installed ? "/opt/homebrew/bin/tmux" : null),
+      spawnInstall: (argv) => {
+        spawned.push(argv);
+        installed = true;
+        return 0;
+      },
+    });
+    expect(await runConfigure({ yes: true }, deps)).toBe(0);
+    expect(prompts).toEqual([]); // --yes IS the answer; nobody is asked
+    expect(spawned).toEqual([["/bin/bash", "-c", `$(curl -fsSL ${HOMEBREW_INSTALL_URL})`]]);
+  });
+
+  test("the bootstrap is the one thing NEVER attempted with no terminal: URL instructions, nothing spawned", async () => {
+    let spawned = 0;
+    const { deps, err } = makeDeps({
+      isTTY: false, // piped/scripted: no admin password can ever be typed
+      platform: "darwin",
+      which: () => null,
+      spawnInstall: () => {
+        spawned++;
+        return 0;
+      },
+    });
+    expect(await runConfigure({ yes: true }, deps)).toBe(1);
+    expect(spawned).toBe(0);
+    expect(err.join("\n")).toContain(HOMEBREW_INSTALL_URL);
+    expect(err.join("\n")).toMatch(/admin password/i);
+    expect(err.join("\n")).toContain("SUBSHELL_SERVER_SKIP_TMUX_CHECK=1");
   });
 });
 

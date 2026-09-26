@@ -95,6 +95,25 @@ export function refuseTmuxInstall(deps: TmuxInstallDeps): { installer: TmuxInsta
       message: `Installing tmux here needs ${installer.label} under sudo, and the server has no terminal to answer a password prompt. Run the command yourself and re-check.`,
     };
   }
+  // The 2026-09-26 ladder widened the CLI's offer, and this guard is the
+  // reason the widening is CLI-shaped and not route-shaped. Two new entries
+  // would HANG or MISBEHAVE here exactly where the sudo rule already refuses:
+  // the Homebrew bootstrap prompts its admin password on the child's own
+  // stdin (ignored here → the password can never be typed), and MacPorts
+  // `port install` needs root (its portsudoers entry is a per-machine grant
+  // the route cannot assume). The route runs only what needs neither: brew.
+  if (installer.needsTerminal === true) {
+    return {
+      message:
+        "Installing Homebrew prompts for an admin password, and the server has no terminal to answer one. Install Homebrew yourself (https://brew.sh), then tmux, and re-check.",
+    };
+  }
+  if (installer.label === "MacPorts") {
+    return {
+      message:
+        "Installing tmux here needs MacPorts with admin privileges, and the server has no terminal to answer a password prompt. Run sudo port install tmux yourself and re-check.",
+    };
+  }
   return { installer };
 }
 

@@ -259,10 +259,14 @@ const systemdExecStart = (line: string[]): string => line.map(systemdQuote).join
  */
 function systemdUnit(exec: string, configDir: string, pathEnv?: string): string {
   // systemd user units get a stock PATH (`/usr/bin:/bin:…`), NOT the
-  // installer's shell PATH — so a tmux from Homebrew/Nix that made the
-  // install preflight pass would be "not found" when the service starts the
-  // server. Baking the installing shell's PATH keeps preflight and runtime
-  // agreeing. Omitted when absent → the byte-exact minimal unit.
+  // installer's shell PATH — so a tmux from Homebrew (`/opt/homebrew/bin`),
+  // MacPorts (`/opt/local/bin`, the 2026-09-26 offer row) or Nix that made
+  // the install preflight pass would be "not found" when the service starts
+  // the server. Baking the installing shell's PATH keeps preflight and
+  // runtime agreeing — that pass-through, not a curated list, is what makes
+  // every well-known manager's directory survive (the same rail carries
+  // /opt/local/bin as /opt/homebrew/bin). Omitted when absent → the
+  // byte-exact minimal unit.
   const environment = pathEnv ? `Environment=PATH=${systemdQuote(pathEnv)}\n` : "";
   return `[Unit]
 Description=subshell-server (the Subshell control plane)
@@ -307,8 +311,10 @@ const xmlEscape = (s: string): string =>
 function launchdPlist(args: string[], logPath: string, configDir: string, pathEnv?: string): string {
   const argLines = args.map((a) => `\t\t<string>${xmlEscape(a)}</string>`).join("\n");
   // launchd also starts agents with a stock PATH, so a Homebrew tmux
-  // (`/opt/homebrew/bin`, Apple Silicon) that passed the preflight would be
-  // "not found" when the agent runs. Bake the installing shell's PATH.
+  // (`/opt/homebrew/bin`, Apple Silicon) or MacPorts tmux (`/opt/local/bin`,
+  // the 2026-09-26 offer row) that passed the preflight would be "not found"
+  // when the agent runs. Bake the installing shell's PATH (the same
+  // pass-through carries both; there is no curated list to keep in sync).
   // Omitted when absent → the byte-exact minimal plist.
   const envBlock = pathEnv
     ? `\t<key>EnvironmentVariables</key>\n\t<dict>\n\t\t<key>PATH</key>\n\t\t<string>${xmlEscape(pathEnv)}</string>\n\t</dict>\n`

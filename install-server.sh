@@ -169,20 +169,20 @@ mv -f "$TMP" "$DEST"
 chmod +x "$DEST"
 echo "==> installed $DEST"
 
-case ":$PATH:" in
-  *":$BIN_DIR:"*) ;;
-  *)
-    echo "==> note: $BIN_DIR is not on your PATH. Add it with:"
-    echo "        export PATH=\"\$HOME/.local/bin:\$PATH\""
-    ;;
-esac
+# The old PATH note lived here. It is GONE (spec 2026-09-26): the file this
+# script execs into is a program now, so `init` asks whether to add
+# ~/.local/bin to the shell profile and can actually do the writing — a note
+# is a human doing the last step alone, and half of piped installs never
+# finished the sentence.
 
 # tmux is what every local subshell's pane runs under. This is a warning and
-# not a refusal because `init` has its own preflight that OFFERS to install it,
-# and refusing here would take that offer away.
+# not a refusal because `init` has its own preflight and refusing here would
+# take its handling away. Wording kept honest (spec 2026-09-26): the setup
+# step CAN install tmux — on a terminal it asks, with --yes it does — but a
+# non-interactive run without --yes declines on the operator's behalf.
 if ! command -v tmux >/dev/null 2>&1; then
   echo "==> note: tmux is not installed. Subshell needs it to run panes on this host;"
-  echo "        the next step offers to install it."
+  echo "        the setup step can install it."
 fi
 
 # --- 6. hand over to the CLI ------------------------------------------------
@@ -202,15 +202,16 @@ if [ -n "${SUBSHELL_SERVER_TRUSTED_ORIGINS:-}" ]; then
 fi
 if [ "${SUBSHELL_NO_SERVICE:-}" = "1" ]; then INIT_ARGS+=(--no-service); fi
 
-# A piped curl leaves stdin reading the SCRIPT, so `init`'s questions would
-# each get EOF and take their default with nobody having been asked. Point
-# stdin back at the terminal when there demonstrably is one. Written as an
-# `if` because the `&&` spelling would leave a headless run's exit status at 1
-# if this were the last statement — not, as is often assumed, because `set -e`
-# aborts on a short-circuited AND-OR list; it does not, on bash, sh or dash.
-if [ -t 1 ] && [ -r /dev/tty ]; then
-  exec < /dev/tty
-fi
+# A piped curl leaves stdin reading the drained SCRIPT. The old ending pointed
+# stdin back at the controlling terminal there — and that rewire is GONE
+# (spec 2026-09-26), because its guard tested STDOUT while the act moved
+# STDIN, and the terminal open itself can BLOCK on some macOS terminals
+# (Terminal's "Restored session" reproduces it): the install hung before
+# `init` rendered anything. `init` now decides its own prompt input — it
+# attaches the controlling terminal with a never-waiting open, runs the full
+# interview wherever a terminal exists, and when one genuinely does not it
+# prints every default it takes. The script hands stdin to `init` exactly as
+# it received it, and nothing else rewires anything.
 
 # A piped-curl install is a distribution and the recipient never sees a LICENSE
 # file — what lands is one bare binary. Naming the terms once, and pointing at

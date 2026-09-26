@@ -52,6 +52,14 @@ shasum -a 256 "$SUBSHELL_NODE_ARTIFACTS_DIR/subshell-node-cli-$TRIPLE" | awk '{p
   > "$SUBSHELL_NODE_ARTIFACTS_DIR/subshell-node-cli-$TRIPLE.sha256"
 ok "published subshell-node-cli-$TRIPLE + bare-hex sidecar"
 
+# HOME moves BEFORE the first init (spec 2026-09-26): `init --yes` now answers
+# the PATH question yes, and a login PATH without ~/.local/bin means that
+# answer appends an export to ~/.zprofile — the fake home below is what
+# receives it, not the developer's real one. The one-liner section re-exports
+# the same HOME, which changes nothing.
+export HOME="$W/fakehome"
+mkdir -p "$HOME"
+
 "$SRV" init --yes --no-service --port $PORT --host 127.0.0.1 --base-url "$BASE" >/dev/null 2>&1 || fail "init"
 "$SRV" > "$W/server.log" 2>&1 &
 SRVPID=$!

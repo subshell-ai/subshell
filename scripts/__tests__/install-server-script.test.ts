@@ -21,7 +21,12 @@ import { join } from "node:path";
  *   asset 404s;
  * - the setup knobs reach `init` as its own flags;
  * - version resolution picks the newest `cli-server-v*` and ignores every other
- *   component's tags, which share the index.
+ *   component's tags, which share the index;
+ * - the handoff rewires NOTHING (spec 2026-09-26): the old `exec < /dev/tty`
+ *   could itself block on some macOS terminals and killed the install before
+ *   `init` rendered anything. `init` owns terminal acquisition now, and the
+ *   PATH note moved into `init` as a question, so both must be gone from the
+ *   script text.
  */
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
@@ -370,6 +375,42 @@ describe("install-server.sh", () => {
  * plugin registry documents for an http mirror, and what lets these tests
  * drive a local fake at all. Review, 2026-09-15.
  */
+/**
+ * The terminal handoff, inverted by spec 2026-09-26. The old ending rewired
+ * stdin with `exec < /dev/tty` guarded on `[ -t 1 ]`: the guard tested STDOUT
+ * while the act moved STDIN, and the /dev/tty OPEN itself can block (macOS
+ * Terminal's "Restored session" reproduces it), hanging the install before
+ * `init` printed anything. `init` now attaches its own terminal with a never-
+ * blocking open and prints every default a truly non-interactive run takes,
+ * so the script hands over stdin exactly as it received it, and the PATH
+ * note it used to print is a question inside `init` instead.
+ */
+describe("handoff: init owns the terminal (spec 2026-09-26)", () => {
+  const script = readFileSync(SCRIPT, "utf8");
+
+  test("the script never rewires stdin: no /dev/tty reattach anywhere", () => {
+    expect(script).not.toContain("exec < /dev/tty");
+    expect(script).not.toContain("exec </dev/tty");
+    expect(script).not.toMatch(/\/dev\/tty/);
+  });
+
+  test("the PATH note is gone; init asks the question instead", () => {
+    expect(script).not.toContain("is not on your PATH");
+    expect(script).not.toContain("export PATH=");
+  });
+
+  test("the tmux note promises no more than a silent run will do", () => {
+    // "the next step OFFERS to install it" over-promised: a non-interactive
+    // run without --yes does not install anything.
+    expect(script).toContain("the setup step can install it");
+    expect(script).not.toContain("offers to install");
+  });
+
+  test("the handoff is still an exec of init with the knob flags", () => {
+    expect(script).toContain('exec "$DEST" init ${INIT_ARGS[@]+"${INIT_ARGS[@]}"}');
+  });
+});
+
 describe("transport pinning", () => {
   const script = readFileSync(SCRIPT, "utf8");
 

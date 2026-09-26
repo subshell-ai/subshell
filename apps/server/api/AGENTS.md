@@ -349,7 +349,12 @@ so a field added later is a decision rather than an accumulation.
   measured rejection of the rotation package; "replaced when full" means
   truncated). The debug switch flips only the FILE transport's level:
   stdout stays `info`, HTTP request lines ride `debug`, polled routes
-  excluded.
+  excluded. The one exception is `--verbose` (2026-09-26): it raises
+  THE CONSOLE transport to debug for the life of a hand-invoked run
+  (`setConsoleVerbose` in `utils/logger.ts`, the deliberate mirror of
+  `applyDebugLogging` that never touches the FILE gate, the settings
+  row, or the env-forced read-only rule), and it is refused together
+  with `--json` where a command emits JSON.
 - **Node refusals map by EQUALITY** of `NodeRpcError.detail` against the
   protocol's `NODE_RESULT_*` constants (never a substring of `message`),
   and only an answered `"kills"` earns the certain sentence: `unknown`
@@ -447,8 +452,24 @@ REFUSED. Why `status` carries per-entry diagnostics instead of boot, and
 "Wildcards are the deliberate silence" there; the LAN probe and the
 plugin-record derivation: `apps/server/api/docs/config-env.md`. `init`,
 `configure` and `service install` refuse when tmux is absent
-(`SUBSHELL_SERVER_SKIP_TMUX_CHECK=1`; interactive runs first OFFER to
-install it).
+(`SUBSHELL_SERVER_SKIP_TMUX_CHECK=1`). Interactive runs first OFFER to
+install it, and since the operator ruling of 2026-09-26 `--yes` IS the yes:
+`init`/`configure` RUN the installer directly. `service install` takes no
+`--yes`, so its gate stays TTY-only. A refusal nobody was asked to decline
+(now: a run with no terminal AND no `--yes`) prints one more line naming
+that remedy. The same ruling's second half: the preflight runs FIRST in
+`init`, and a DECLINED offer or a failed installer child ABORTS the command
+at exit 1 before anything is written (a config home for a server that cannot
+run panes is half a setup); the abort message names the declined manager's
+manual command, notes the binary is already installed, and gives the rerun.
+The macOS ladder is three-way (2026-09-26): `brew`, then MacPorts (`port`),
+and with neither an offer to install Homebrew itself through Homebrew's own
+documented installer (their infra, not ours; it prompts for an admin
+password, so a run without any terminal gets loud instructions instead of an
+attempt). `init` also acquired its own terminal first: a piped run
+attaches the controlling terminal with a never-blocking open, and the
+defaults a truly non-interactive run takes (no service, no tmux, PATH
+instructions) are all PRINTED, because silence was the bug this closed.
 
 **Working on config.env, `applyConfig`, the origin registry or `status`
 diagnostics: read `apps/server/api/docs/config-env.md` first.**
