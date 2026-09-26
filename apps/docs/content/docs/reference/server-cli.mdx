@@ -54,11 +54,15 @@ usage:
                                      append stdin to a pane log, flushing each
                                      read (run by tmux's own pipe-pane, not by hand)
 
-init/configure flags: --port <n> --host <h> --base-url <url> --db-path <path> --yes
+init/configure flags: --port <n> --host <h> --base-url <url> --db-path <path>
                       --trusted-origins <origin,origin>   other addresses browsers will
                                                           use (empty clears the list)
+                      --yes                    answers EVERY question yes: the file/built-in
+                                               defaults, the tmux install, and for init the
+                                               background service and the ~/.local/bin PATH write
 init-only flags:      --service / --no-service            install the background service,
-                                                          or skip it (default: install)
+                                                          or skip it (default: ask; a run
+                                                          with nobody to ask skips, loudly)
 
 update flags:         --check                  report what is available and stop
                       --to <version>           install this published version
@@ -68,6 +72,14 @@ update flags:         --check                  report what is available and stop
                       --json                   machine-readable output
                       --no-restart             swap the binary; the caller restarts
                       --rollback               undo the last update (binary + database)
+
+verbose:              --verbose after a verb (init/configure/update, and every service
+                      verb) raises this run's CONSOLE logging to debug level, HTTP request
+                      lines included. Leading the command it boots the server the same
+                      way. SUBSHELL_VERBOSE=1 (or =true) is the same switch for the
+                      whole process, flag or env. It never touches server.log's level or
+                      the SUBSHELL_DEBUG_LOGGING switch, and it is refused together with
+                      --json: JSON on stdout and debug lines cannot share it.
 
 config precedence: process env > config.env > .env > built-in defaults
 ```
@@ -82,11 +94,17 @@ Exit codes: `status` and `service status` always exit 0 when the flags were vali
 
 ## init: first run
 
-`init` is the headless entry point: it creates the config home (0700), bootstraps `BETTER_AUTH_SECRET`, runs the configure flow, asks one question about the background service, and ends by telling you where to create the admin account.
+`init` is the headless entry point: it acquires a terminal, checks for tmux, creates the config home (0700), bootstraps `BETTER_AUTH_SECRET`, runs the configure flow, offers the `~/.local/bin` PATH entry, asks one question about the background service, and ends by telling you where to create the admin account.
 
-The secret ladder it writes: a non-empty `BETTER_AUTH_SECRET` already in `config.env` wins, so running `init` twice never rotates it; else a non-empty value in the environment is adopted and persisted; else a fresh one is generated, 32 random bytes, base64url. `init` is idempotent, and a cancelled service question is not a failed `init`: exit 0, config written, handoff printed.
+`init` acquires its own terminal before asking anything. An interactive stdin is used as-is. A piped run attaches `/dev/tty` and asks its questions there, so a script run through `curl | bash` still gets the interview. A run with no terminal to acquire takes its defaults instead and prints every default it took: no service, no tmux install, manual PATH instructions.
 
-Flags: the configure flags below, plus `--service` / `--no-service`, which `init` alone accepts. `configure` installs nothing, so the flag there is an unknown flag rather than a silent no-op. `--yes` or a non-TTY takes every default, and the service question defaults to yes.
+The tmux preflight precedes every write. When tmux is missing, an interactive run gets one offer to install it on the spot, and a declined offer or a failed installer aborts `init` at exit 1 with nothing on disk: no config home, no half-asked interview, no handoff. The abort message names the manual command for your platform (`brew install tmux`, `sudo port install tmux`, or the Homebrew install URL) and notes that the binary is already at `~/.local/bin/subshell-server`, so installing tmux and re-running is the whole fix. On macOS the offer is a three-way ladder: Homebrew if the machine has `brew`, MacPorts if it has `port`, and otherwise an offer to install Homebrew itself. That bootstrap asks for an admin password, so it runs only where a terminal exists to answer it; a terminal-less run prints the URL and instructions instead.
+
+After the preflight, the order is: config home, the secret ladder, the configure flow, the PATH question, the service question, then the handoff line. The PATH question appears when `~/.local/bin` is missing from your `PATH` and defaults to yes: it appends `export PATH="$HOME/.local/bin:$PATH"` to `~/.zprofile`, creating that login file if needed, and to `~/.zshrc` only where one already exists.
+
+The secret ladder it writes: a non-empty `BETTER_AUTH_SECRET` already in `config.env` wins, so running `init` twice never rotates it; else a non-empty value in the environment is adopted and persisted; else a fresh one is generated, 32 random bytes, base64url. `init` is idempotent, and a cancelled question is not a failed `init`: exit 0, config written, handoff printed. A failed tmux install fails `init` and prints no handoff.
+
+Flags: the configure flags below, plus `--service` / `--no-service`, which `init` alone accepts. `configure` installs nothing, so the flag there is an unknown flag rather than a silent no-op. `--service` is the explicit opposite of `--no-service`; a run with nobody to ask installs no service and says so, naming `subshell-server service install` as the way to add one later. `--yes` means everything: the file and built-in defaults, the tmux install, the PATH write, and the background service, each announced by its own line. `service install` alone accepts no `--yes` and keeps the plain terminal-only rule for its tmux offer.
 
 ## configure: (re)write config.env
 
@@ -94,7 +112,8 @@ Flags: the configure flags below, plus `--service` / `--no-service`, which `init
 
 - `--port <n>`, `--host <h>`, `--base-url <url>`, `--db-path <path>` set their key.
 - `--trusted-origins <origin,origin>` sets the extra browser origins; an empty value is the only way to clear the list non-interactively.
-- `--yes` answers every question with its default and prints nothing but results.
+- `--yes` answers every question yes: it takes the defaults, and where a tmux offer exists it runs the installer with an announced line instead of asking.
+- `--verbose` raises this run's console logging to debug; see the `verbose:` paragraph in the usage text.
 
 `configure` will write a key the environment already sets: it consults only `config.env`, its flags, and your answers. The environment still outranks the file at the next boot, so the write has no effect until the variable goes. The refuse-instead-of-mask guard is the dashboard's Service-page writer, which answers 409 for exactly this reason.
 

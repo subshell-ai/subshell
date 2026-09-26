@@ -8,7 +8,7 @@ Install Subshell Server on a machine you reach only over SSH, configure it from 
 ## Before you start
 
 - A Linux or macOS machine you can sign in to over SSH. The published targets are `linux-x64`, `linux-arm64`, `darwin-arm64`, and `darwin-x64` (Intel Macs); a machine outside these is refused by name.
-- The machine must stay up after your SSH session closes. The service question inside `init` handles that; see step 4 below.
+- The machine must stay up after your SSH session closes. The service question inside `init` handles that; see its step under "What `init` does, in order" below.
 - Your own browser, on a different machine, for the setup page at the end. A browser is never needed on the server itself.
 
 ## Run the install script
@@ -19,7 +19,7 @@ From a fresh shell on the machine that will host the server:
 curl -fsSL https://subshell.sh/install-server.sh | bash
 ```
 
-The script detects your platform, finds the newest `cli-server-vX.Y.Z` [GitHub release](https://github.com/subshell-ai/subshell/releases), and downloads `subshell-server-cli-<triple>`. It verifies the release's `.sha256` before the file is ever made executable: nothing it downloaded can run until its bytes match the published digest, and a mismatch removes the download and stops. It installs the binary to `~/.local/bin/subshell-server`, naming it what the service definition expects, and tells you if that directory is not on your `PATH`. It then runs `subshell-server init`. The piped script itself asks nothing; every question belongs to `init`, which reattaches to your terminal.
+The script detects your platform, finds the newest `cli-server-vX.Y.Z` [GitHub release](https://github.com/subshell-ai/subshell/releases), and downloads `subshell-server-cli-<triple>`. It verifies the release's `.sha256` before the file is ever made executable: nothing it downloaded can run until its bytes match the published digest, and a mismatch removes the download and stops. It installs the binary to `~/.local/bin/subshell-server`, naming it what the service definition expects, and then runs `subshell-server init`. The piped script itself asks nothing; every question belongs to `init`, which reattaches to your terminal and asks its interview there.
 
 ## Answering the prompts ahead of time
 
@@ -37,23 +37,24 @@ A piped command takes no arguments, so the questions have environment-variable s
 
 The database path is the exception: it keeps its default unless you run `init --db-path` yourself.
 
-Under `--yes`, or on a non-interactive run (piped stdin, no TTY), every question takes its default instead. The service question's default is yes.
+With `--yes`, every question is answered yes at once: the defaults, a missing tmux install, the `PATH` addition, and the background service, each announced by its own line. A run with no terminal at all (nothing to reattach to) takes its defaults instead, and its defaults install no service and no tmux; it prints every default it took, so an unattended run is never silent about what it skipped.
 
 ## What `init` does, in order
 
 `init` is the whole setup sequence, not just a config write:
 
-1. **The tmux preflight.** The control-plane host launches its own panes through tmux, so `init` refuses before writing anything when tmux is missing. An interactive run gets one chance to install it on the spot (`brew install tmux` on macOS, `apt-get`/`dnf` on Linux) and then continues where it left off. A refused init leaves nothing behind.
+1. **The tmux preflight.** The control-plane host launches its own panes through tmux, so `init` checks for it before writing anything. An interactive run whose host lacks tmux gets one chance to install it on the spot: `apt-get` or `dnf` on Linux, and on macOS a ladder of Homebrew, then MacPorts, then installing Homebrew itself when neither package manager is present. Declining the offer, or a failed installer, aborts `init` with nothing written: no config home, no half-asked interview, no handoff. The abort message prints the manual command for your platform and notes that the binary is already installed, so installing tmux and re-running `init` is the whole fix.
 2. **The config home.** It creates `~/.config/subshell-server` (0700) and `config.env` (0600), generating a `BETTER_AUTH_SECRET` of 32 random bytes exactly once. A second run keeps whatever is there, so init is safe to repeat.
 3. **The configuration questions:** port, bind address, base URL, extra origins, database path. Each shows its default, so Enter is a valid answer. [Configuration](/server/configuration) explains who else can write these five keys and what outranks what.
-4. **The service question:**
+4. **The PATH question.** When `~/.local/bin` is missing from your `PATH`, `init` offers to add it, with yes as the default: it appends `export PATH="$HOME/.local/bin:$PATH"` to `~/.zprofile`, and to `~/.zshrc` only where that file already exists. A run with no terminal prints the same line as instructions instead.
+5. **The service question:**
 
    ```
    Run Subshell Server in the background and start it at login?
    ```
 
    Yes installs a per-user service: a systemd user unit on Linux, a launchd agent on macOS, no sudo. On Linux the installer also checks whether your account lingers, and prints the fix only when it is missing: without lingering, the server dies at logout and never comes back after a reboot with nobody logged in. [Service and autostart](/server/service) covers both managers in depth.
-5. **The handoff.** It ends by naming the address:
+6. **The handoff.** It ends by naming the address:
 
    ```
    Open http://localhost:3080/setup in a browser to create the admin account.

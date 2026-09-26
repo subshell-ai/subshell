@@ -9,7 +9,7 @@ Install Subshell Server on an x86-64 or arm64 Linux machine, start it as a backg
 
 - A Linux machine you can sign in to, x86-64 or arm64.
 - A browser on that machine, or on another device on the same network.
-- tmux, or a way to install it. `init` checks for tmux before it writes anything and refuses when it is missing; an interactive run can install it on the spot with `apt-get` or `dnf`.
+- tmux, or a way to install it. `init` checks for tmux before it writes anything; an interactive run whose machine lacks it can install it on the spot with `apt-get` or `dnf`. Declining that offer ends `init` with nothing written, so installing tmux and re-running is the whole fix.
 
 ## Install and start the server
 
@@ -21,7 +21,7 @@ Install Subshell Server on an x86-64 or arm64 Linux machine, start it as a backg
 
    The script finds your platform, downloads the newest `cli-server` release, and checks the download against the release's published `.sha256` digest before it runs anything. It installs the binary to `~/.local/bin/subshell-server` and starts `subshell-server init`.
 
-2. `init` asks for the port, address, base URL, extra trusted origins, and database path. Each question has a default, so you can press Enter through them.
+2. `init` asks for the port, address, base URL, extra trusted origins, and database path. Each question has a default, so you can press Enter through them. If `~/.local/bin` is not on your `PATH`, it offers to add it: yes, the default, appends `export PATH="$HOME/.local/bin:$PATH"` to `~/.zprofile` and to `~/.zshrc` only if that file already exists.
 
 3. Answer the last question, which decides how the server runs:
 
@@ -29,7 +29,7 @@ Install Subshell Server on an x86-64 or arm64 Linux machine, start it as a backg
    Run Subshell Server in the background and start it at login?
    ```
 
-   Choose **Yes**. This installs a per-user systemd service, with no sudo. `--yes` and non-interactive runs take Yes automatically.
+   Choose **Yes**. This installs a per-user systemd service, with no sudo. With `--yes`, every question above is answered yes at once, each by an announced line. A run with no terminal to ask takes the quieter defaults: no service and no tmux install, and it prints what it skipped.
 
 4. When `init` finishes, it prints the address to open:
 
