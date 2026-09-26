@@ -48,7 +48,7 @@ To diagnose an already-enrolled node, run `subshell status --probe` on the machi
 
 **Cause.** Service managers start units with a stock `PATH`. On macOS that misses Homebrew's `/opt/homebrew/bin`; on Linux it misses whatever your profile adds. Subshell bakes the installing shell's `PATH` into the unit when it installs the service, which is why the daemon can be blind to a binary that appeared (or moved) after that install.
 
-**Fix.** Install the service again from a shell that finds everything (`subshell service install` re-bakes the current `PATH`) and restart it. For the control-plane host itself, the same trap exists for `tmux`, and `subshell-server status` prints exactly which tmux the server resolves, or the line `NOT FOUND: install tmux`. The agent-install path in the browser adds the login shell's `PATH` deliberately, so an install run from the page lands where detection looks.
+**Fix.** Install the service again from a shell that finds everything (`subshell service install` re-bakes the current `PATH`) and restart it. For the control-plane host itself, the same trap exists for `tmux`, and `subshell-server status` prints exactly which tmux the server resolves, or the line `NOT FOUND: install tmux (apt install tmux / brew install tmux)`. The agent-install path in the browser adds the login shell's `PATH` deliberately, so an install run from the page lands where detection looks.
 
 ## Other pages
 

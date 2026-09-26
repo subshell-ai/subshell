@@ -3,7 +3,11 @@ title: Plugin API
 description: "The contract package @subshell-ai/plugin-api: manifests, capabilities, the host object, and the API version rule."
 ---
 
-`@subshell-ai/plugin-api` is the only Subshell package a plugin author builds against. It is types and small pure functions, with no runtime reach into the system, and it is published to npm under Apache-2.0 as one of the `@subshell-ai/*` family. A plugin's build inlines it rather than importing it at runtime, because a compiled binary has no `node_modules` beside the plugin file, so a bare specifier would not resolve. The package is therefore a compile-time contract. This page lists its surface by name; the [package README](https://github.com/subshell-ai/subshell/blob/main/packages/plugin-api/README.md) is the prose reference, and the [npm listing](https://www.npmjs.com/package/@subshell-ai/plugin-api) is where versions ship.
+`@subshell-ai/plugin-api` is the only Subshell package a plugin author builds against.
+
+## What the package is
+
+It is types and small pure functions, with no runtime reach into the system, and it is published to npm under Apache-2.0 as one of the `@subshell-ai/*` family. A plugin's build inlines it rather than importing it at runtime, because a compiled binary has no `node_modules` beside the plugin file, so a bare specifier would not resolve. The package is therefore a compile-time contract. This page lists its surface by name; the [package README](https://github.com/subshell-ai/subshell/blob/main/packages/plugin-api/README.md) is the prose reference, and the [npm listing](https://www.npmjs.com/package/@subshell-ai/plugin-api) is where versions ship.
 
 ## Package version and `apiVersion`
 

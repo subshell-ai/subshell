@@ -37,9 +37,11 @@ Nothing is remembered between launches: the form starts fresh every time, and th
 
 What opens is a live terminal into the pane, not a screenshot and not a log tail. You type, and the agent responds; resize the window and the pane resizes. Close the tab and the agent keeps working: the pane is a tmux session on the machine running it, not a child of your browser, and reopening replays you back into the live screen. This is what lets you start something before dinner and finish it from the couch. [Launch and manage subshells](/use/subshells) covers statuses and restarts, and [Devices](/use/devices) covers who else is watching the same pane.
 
-## Terminate when it is done
+## Close it when you are done
 
-Terminate kills the pane's tmux session and the harness with it, revokes that subshell's API token, and leaves the pane's log on disk. The row stays listed as terminated, and restarting it builds a fresh tmux session. The conversation is new unless your agent supports resuming one. Delete removes the row too. As owner, both actions are yours alone; [Share a subshell](/use/sharing) explains what `edit` grants do and do not include.
+When the work is finished, **Close** the subshell (the ⋯ menu on its row). It stops the process, removes the subshell, and deletes its stored transcript, and it asks for confirmation because nothing survives it. Only the owner can close or delete a subshell; [Share a subshell](/use/sharing) covers what `edit` grants do and do not include. If you only want a break, closing the browser tab is enough: the pane keeps running.
+
+Agents and scripts have a second ending, Terminate, that stops the process and keeps the row so it can be restarted. [Launch and manage subshells](/use/subshells) covers both endings, restarts, and what each does to the pane's log.
 
 ## Next steps
 

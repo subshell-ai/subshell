@@ -55,7 +55,7 @@ What each feature you enable adds:
 
 A reverse proxy changes the address, not the port arithmetic: terminate TLS wherever you like and send it to the one port, then name the public origin in `APP_BASE_URL` / `TRUSTED_ORIGINS` so the browser checks agree.
 
-> [!tip] Diagnosing "node won't connect"
+> [!tip] Diagnosing a node that will not connect
 > The connection direction tells you where to look: a node with no socket has failed an outbound hop (wrong `serverUrl`, DNS, a closed egress, a captive network), never an inbound rule. `subshell status` reads local truth; `subshell status --probe` dials the plane, but it disconnects any daemon running elsewhere for this node, so treat it as a last resort.
 
 ## Other pages

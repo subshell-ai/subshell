@@ -3,7 +3,13 @@ title: Nodes overview
 description: What a node is, what enrolling a machine delegates to the control plane, and how the node link works.
 ---
 
-A **node** is a machine that runs agents for you. It runs the `subshell` node daemon and nothing else: it has no UI, no database, and no decision logic of its own. The control plane keeps the web interface, the database, the decision logic, and the terminal transport, and the node executes what the plane sends. Your control-plane host can run agents too if you allow it, and when it does, the host is also a node.
+A **node** is a machine that runs agents for the control plane.
+
+## What a node runs
+
+A node runs the `subshell` daemon and nothing else: it has no UI, no database, and no decision logic of its own. The control plane keeps the web interface, the database, the decision logic, and the terminal transport, and the node executes what the plane sends. Your control-plane host can run agents too if you allow it, and when it does, the host is also a node.
+
+## Why remote panes look identical
 
 The point of a node is that a subshell can live on any machine you own and look the same from anywhere you are. The browser cannot tell a remote pane from a local one. The control plane relays the same replay, resize, and keystroke frames either way, so xterm.js cannot tell whether the bytes came from tmux on the plane's host or from a machine in another room.
 

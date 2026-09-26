@@ -19,7 +19,7 @@ The bind is the network fact: `0.0.0.0` (the default since 2026-09-08) means rem
 
 Every sign-in carries the browser's `Origin`, and the instance keeps an allowlist of origins it will accept it from. The list is assembled live, per request, from four sources: the instance's own origins (both loopback spellings of the port, plus the base URL's origin, plus `http://<host>:<port>` when `HOST` names a concrete address), this machine's own LAN addresses on a wildcard bind, your `TRUSTED_ORIGINS` extras, and the addresses each enabled [network plugin](/server/network-plugins) reports for this host. A phone on your Wi-Fi signs in at the server's LAN address with nothing to configure, because the machine's interface addresses are derived from the kernel and trusted automatically (since 2026-09-17).
 
-What is deliberately missing is a fifth source: the request itself. The list is never derived from the request's `Host` header. "Trust the origin that matches the host you dialed" is precisely the DNS-rebinding hole the allowlist exists to close. The full derivation, source by source, and the mechanics behind the live per-request read are on [Security model](/concepts/security-model).
+One source is deliberately missing: the request itself. The list never reads the request's `Host` header, because trusting the host you dialed is exactly the DNS-rebinding hole the allowlist closes. The full derivation, source by source, is on [Security model](/concepts/security-model).
 
 ## Fixing 403 "Invalid origin"
 

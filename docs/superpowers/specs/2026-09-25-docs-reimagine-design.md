@@ -132,7 +132,7 @@ means rewrite-in-place (new opener + voice, same scope).
 - `platforms.mdx` "Supported platforms" - from about/supported-platforms.
 - `alternatives.mdx` "Compared with the alternatives" - from about/vs-alternatives.
 
-### reference - lookup (ten pages; CLIs stay one page each)
+### reference - lookup (nine pages; CLIs stay one page each)
 - `server-cli.mdx` "subshell-server CLI" - from reference/server-cli; add a
   command summary table, keep one H2 per verb.
 - `node-cli.mdx` "subshell CLI" - from reference/node-cli; same treatment.

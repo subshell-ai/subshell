@@ -35,7 +35,7 @@ The pane's own token, by contrast, carries a scoped ceiling and dies when its su
 
 ## The rule that bounds both kinds
 
-Machine credentials can never manage the instance. Every admin surface refuses a bearer credential with 403 the moment the guard sees a key instead of a browser session, even one whose owner is an admin. The refused surfaces are `/api/users`, `/api/system-keys`, the `/api/settings` writes, `/api/plugins` (the writes; the plugin listing is open to any authenticated caller), `/api/network`, `/api/audit`, the `/api/admin/*` group, and the subshell-sharing routes. Your script gets no admin actions, no key minting, and no user changes, even though the key belongs to the whole instance. Bearer actors also read "not an admin" in every response that gates the admin navigation. The blast radius of a leaked system key is everything the API does; it is not the instance itself.
+Machine credentials can never manage the instance. Every admin surface refuses a bearer credential with 403 the moment the guard sees a key instead of a browser session, even one whose owner is an admin. The refused surfaces are `/api/users`, `/api/auth-providers`, `/api/system-keys`, the `/api/settings` writes, `/api/plugins` (the writes; the plugin listing is open to any authenticated caller), `/api/network`, `/api/audit`, the `/api/admin/*` group, and the subshell-sharing routes. Your script gets no admin actions, no key minting, and no user changes, even though the key belongs to the whole instance. Bearer actors also read "not an admin" in every response that gates the admin navigation. The blast radius of a leaked system key is everything the API does; it is not the instance itself.
 
 ## The two reads every credential gets
 
