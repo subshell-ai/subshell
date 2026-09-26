@@ -141,6 +141,20 @@ describe("consent", () => {
   });
 });
 
+describe("a machine that cannot name itself", () => {
+  test("the empty name grants nothing, typed or scripted", async () => {
+    // consent_granted's rule, pinned: an empty hostname answers NO to every
+    // question, and --confirm with an empty value is the same empty answer,
+    // never a wildcard that matches it.
+    fx.deps.machineName = () => "   ";
+    fx.deps.ask = mock(() => Promise.resolve(""));
+    expect(await runReset({ uninstall: false }, fx.deps)).toBe(1);
+    expect(await runReset({ uninstall: false, confirm: "" }, fx.deps)).toBe(1);
+    expect(existsSync(fx.plan.configEnv)).toBe(true);
+    expect(fx.manager.stops).toBe(0);
+  });
+});
+
 describe("the chain", () => {
   test("reset stops, sweeps, uninstalls the definition, deletes data, KEEPS the binary", async () => {
     const code = await runReset({ uninstall: false }, fx.deps);
@@ -405,6 +419,29 @@ describe("the plan's shape guards (issue #232 review)", () => {
     expect(fx.deps.lines.join("\n")).toContain("went with the data directory");
   });
 
+  test("a SYMLINKED data home is guarded by its TARGET: a link to the home dir is refused", async () => {
+    // The fresh-eyes #239 back door, ported with the fix: a symlink whose
+    // SPELLING passes the rules while removeTreeBut walks the RESOLVED dir.
+    // Guarding resolved spellings turns "delete the target of a link into
+    // $HOME" from an exit-0 success into a pre-consent refusal naming both
+    // spellings.
+    const link = join(fx.root, "home-link");
+    symlinkSync(homedir(), link);
+    fx.plan = { ...fx.plan, dataDir: link };
+    const code = await runReset({ uninstall: false }, fx.deps);
+    expect(code).toBe(1);
+    expect(fx.deps.errors.join("\n")).toContain("unsafe path");
+    expect(fx.deps.errors.join("\n")).toContain("->");
+    expect((fx.deps.ask as ReturnType<typeof mock>).mock.calls.length).toBe(0);
+  });
+
+  test("every delete target is shape-guarded, not just the data dir", async () => {
+    fx.plan = { ...fx.plan, database: "/" };
+    const code = await runReset({ uninstall: false }, fx.deps);
+    expect(code).toBe(1);
+    expect(fx.deps.errors.join("\n")).toContain("unsafe path");
+  });
+
   test("containment through a SYMLINKED data home is refused (the Rust caller rule)", async () => {
     // Lexical spellings say disjoint, the inodes say one: dataDir is a
     // symlink whose resolved root contains the binary. The walk deletes the
@@ -447,6 +484,10 @@ describe("the port is asked, not obeyed", () => {
     expect(askedBetweenStopAndSweep).toBe(true);
     expect(fx.sweep.calls).toBe(1);
     expect(fx.manager.uninstalls).toBe(1);
+    // A server still answering rewrites under the deletes; the summary may
+    // not claim the bytes are simply gone.
+    expect(fx.deps.lines.join("\n")).toContain("can write some of it back");
+    expect(fx.deps.lines.join("\n")).not.toContain("deleted the data directory, the database");
   });
 
   test("a port that goes quiet within the wait proceeds with the deletes", async () => {

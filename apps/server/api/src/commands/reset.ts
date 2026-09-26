@@ -337,7 +337,7 @@ export async function runReset(
       deps.log("not interactive: the data and settings stay; pass --reset-data to delete them");
     } else {
       const answer = await (deps.askConfirm ?? (() => Promise.resolve(false)))(
-        "Delete this server's data and settings too — the database, pane logs, node artifacts, the data directory, and config.env, the way `reset` does? A reset leaves no copy behind: backups inside the data directory go with it. [y/N]",
+        "Delete this server's data and settings too: the database, pane logs, node artifacts, the data directory, and config.env, the way `reset` does? A reset leaves no copy behind: backups inside the data directory go with it. [y/N]",
       );
       if (answer === null) {
         deps.error(`subshell-server ${verb}: cancelled; nothing was changed`);
@@ -353,9 +353,29 @@ export async function runReset(
   // behind a nice message, and a `reset` that would swallow the binary it
   // promises to keep is refused the way the Rust `delete_guard_ok` refuses it.
   if (wipeData) {
-    for (const path of [plan.configEnv, plan.database, plan.logsDir, plan.nodeArtifacts, plan.dataDir]) {
-      if (!pathRulesOk(path)) {
-        deps.error(`subshell-server ${verb}: the delete plan names an unsafe path (${path}); refusing to run`);
+    // Each target by its RESOLVED spelling when it exists: the data walk
+    // deletes through the realpath (removeTreeBut resolves before it
+    // recurses), so a symlinked target whose SPELLING passes the rules while
+    // its TARGET is the home dir would delete through the guard's back door.
+    // Present-but-unresolvable is a refusal, the containment guard's own N3
+    // rule; absent is guarded by its spelling, the only truth there is.
+    for (const [what, raw] of [
+      ["config.env", plan.configEnv],
+      ["database", plan.database],
+      ["logs dir", plan.logsDir],
+      ["node artifacts", plan.nodeArtifacts],
+      ["data directory", plan.dataDir],
+    ] as const) {
+      const real = existsSync(raw) ? tryRealpath(raw) : raw;
+      if (real === null) {
+        deps.error(
+          `subshell-server ${verb}: the plan's ${what} (${raw}) exists but cannot be resolved; refusing to run`,
+        );
+        return 1;
+      }
+      if (!pathRulesOk(real)) {
+        const named = real === raw ? raw : `${raw} -> ${real}`;
+        deps.error(`subshell-server ${verb}: the delete plan names an unsafe path (${named}); refusing to run`);
         return 1;
       }
     }
@@ -413,8 +433,13 @@ export async function runReset(
         : wipeData
           ? "removes the service and the installed binary, AND deletes this server's data and settings"
           : "removes the service and the installed binary; the data and settings stay";
+    // The plan is named INSIDE the prompt: an operator on a custom data dir
+    // consents to paths they have actually seen.
+    const planLines = wipeData
+      ? `Will delete: ${plan.dataDir} (and everything under it), ${plan.database}, ${plan.logsDir}, ${plan.nodeArtifacts}, ${plan.configEnv}.\n`
+      : "";
     const answer = await (deps.ask ?? (() => Promise.resolve(null)))(
-      `This ${scope}. Type ${machine || "(unknown host)"} to confirm:`,
+      `${planLines}This ${scope}. Type ${machine || "(unknown host)"} to confirm:`,
     );
     if (answer === null) {
       deps.error(`subshell-server ${verb}: cancelled; nothing was changed`);
@@ -469,7 +494,7 @@ export async function runReset(
   if (manager.installed()) {
     wasInstalled = true;
     const stop = manager.stop();
-    if (stop.code !== 0 && !stop.err.includes("nothing installed")) {
+    if (stop.code !== 0) {
       deps.error(`subshell-server ${verb}: the service did not stop; continuing to clear anyway\n${stop.err}`);
       failures.push("the service did not stop");
     } else {
@@ -518,7 +543,7 @@ export async function runReset(
   // 4. Remove the service definition, so nothing can start the server again.
   if (wasInstalled) {
     const gone = manager.uninstall();
-    if (gone.code !== 0 && !gone.err.includes("nothing installed")) {
+    if (gone.code !== 0) {
       deps.error(
         `subshell-server ${verb}: the service definition could not be removed; the rest is cleared anyway\n${gone.err}`,
       );
@@ -556,7 +581,12 @@ export async function runReset(
     removeIfEmpty(plan.dataDir);
     // The sentence may only claim what actually went: a failed delete is
     // already named by `attempt`, and this line must not contradict it.
-    if (!failures.some((f) => f.startsWith("could not delete"))) {
+    const survivor = failures.find((f) => f.endsWith("was still answering"));
+    if (survivor !== undefined) {
+      // The still-running server reopens its WAL and rewrites under the
+      // deletes: the bytes went, but "gone" would not stay true.
+      deps.log("deleted what the running server allows: a server that keeps answering can write some of it back");
+    } else if (!failures.some((f) => f.startsWith("could not delete"))) {
       deps.log("deleted the data directory, the database, the logs, the artifacts, and config.env");
     }
   } else {

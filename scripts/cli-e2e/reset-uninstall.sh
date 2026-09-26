@@ -39,6 +39,7 @@ export HOME="$W/home"
 # an empty (nonexistent) temp dir and passes, which is what the sandbox wants.
 export TMUX_TMPDIR="$W/tmux"
 mkdir -p "$HOME" "$SUBSHELL_SERVER_CONFIG_DIR" "$SUBSHELL_SERVER_DATA_DIR"
+printf x > "$HOME/.keepme"
 SRVPID=""
 cleanup() {
   [ -n "$SRVPID" ] && kill "$SRVPID" 2>/dev/null
@@ -57,12 +58,12 @@ SRV="$W/subshell-server"
 cp "$SRV_SRC" "$SRV"
 
 echo "== 1. refusal shapes cost nothing"
-OUT=$("$SRV" reset --yes 2>&1) && fail "reset --yes exited 0"
+OUT=$("$SRV" reset --yes 2>&1 </dev/null) && fail "reset --yes exited 0"
 echo "$OUT" | grep -q -- "--yes cannot confirm a reset" || fail "reset --yes refused without naming itself: $OUT"
-OUT=$("$SRV" uninstall --yes 2>&1) && fail "uninstall --yes exited 0"
+OUT=$("$SRV" uninstall --yes 2>&1 </dev/null) && fail "uninstall --yes exited 0"
 echo "$OUT" | grep -q -- "--yes cannot confirm an uninstall" || fail "uninstall --yes refused wrongly: $OUT"
 # Non-TTY here (a script's stdin), so a bare reset must refuse AND name the flag.
-OUT=$("$SRV" reset 2>&1) && fail "headless reset exited 0"
+OUT=$("$SRV" reset 2>&1 </dev/null) && fail "headless reset exited 0"
 echo "$OUT" | grep -q -- "--confirm" || fail "headless refusal did not name --confirm: $OUT"
 ok "--yes refused by verb; headless names --confirm"
 
@@ -74,13 +75,26 @@ for i in $(seq 1 60); do curl -sf "$BASE/api/setup/status" >/dev/null 2>&1 && br
 curl -sf "$BASE/api/setup/status" >/dev/null || { cat "$W/server.log"; fail "server never answered"; }
 kill "$SRVPID" 2>/dev/null; wait "$SRVPID" 2>/dev/null; SRVPID=""
 [ -f "$SUBSHELL_SERVER_CONFIG_DIR/config.env" ] || fail "config.env missing before the mismatch test"
-OUT=$("$SRV" reset --confirm "definitely-not-$HOSTNAME_VAL" 2>&1) && fail "mismatched --confirm exited 0"
+OUT=$("$SRV" reset --confirm "definitely-not-$HOSTNAME_VAL" 2>&1 </dev/null) && fail "mismatched --confirm exited 0"
 echo "$OUT" | grep -q "did not match" || fail "mismatch message missing: $OUT"
 [ -f "$SUBSHELL_SERVER_CONFIG_DIR/config.env" ] || fail "a mismatched name DELETED config.env"
 ok "wrong machine name: refused, bytes intact"
 
 echo "== 3. reset deletes the data, keeps the binary"
-"$SRV" reset --confirm "$HOSTNAME_VAL" > "$W/reset.log" 2>&1 || { cat "$W/reset.log"; fail "reset exit $?"; }
+# The fresh-eyes #239 back door, compiled: a SUBSHELL_SERVER_DATA_DIR that is
+# a symlink into this scenario's HOME. Guarding resolved spellings must refuse
+# before consent; a run that deleted through the link would take the fake
+# home, and its marker is the proof nothing was touched.
+ln -s "$HOME" "$W/data-link"
+OUT=$(SUBSHELL_SERVER_DATA_DIR="$W/data-link" "$SRV" reset --confirm "$HOSTNAME_VAL" 2>&1 </dev/null) && fail "symlinked data dir to HOME exited 0"
+echo "$OUT" | grep -q "unsafe path" || fail "symlink-to-home was not refused by its target: $OUT"
+[ -f "$HOME/.keepme" ] || fail "the link's target home was touched"
+ok "symlinked data home: refused by the target's shape, nothing deleted"
+"$SRV" reset --confirm "$HOSTNAME_VAL" > "$W/reset.log" 2>&1 </dev/null; rc=$?
+if [ "$rc" -ne 0 ]; then
+  cat "$W/reset.log"
+  fail "reset exit $rc"
+fi
 [ ! -f "$SUBSHELL_SERVER_CONFIG_DIR/config.env" ] || fail "config.env survived reset"
 [ ! -e "$SUBSHELL_SERVER_DATA_DIR" ] || fail "data dir survived reset"
 [ -x "$SRV" ] || fail "reset removed the binary it promised to keep"
@@ -99,7 +113,7 @@ echo "== 4. a hand-started daemon is named, and the clear goes on anyway"
 SRVPID=$!
 for i in $(seq 1 60); do curl -sf "$BASE/api/setup/status" >/dev/null 2>&1 && break; sleep 0.5; done
 curl -sf "$BASE/api/setup/status" >/dev/null || { cat "$W/daemon.log"; fail "daemon never answered"; }
-OUT=$("$SRV" reset --confirm "$HOSTNAME_VAL" 2>&1) && fail "a live daemon should have forced exit 1"
+OUT=$("$SRV" reset --confirm "$HOSTNAME_VAL" 2>&1 </dev/null) && fail "a live daemon should have forced exit 1"
 echo "$OUT" | grep -q "still answering" || fail "the live daemon was not named: $OUT"
 # A beat before the assertions: the surviving daemon could in principle
 # resurrect a path (the capped server.log replaces itself when full). It is
@@ -115,7 +129,11 @@ echo "== 5. uninstall WITHOUT --reset-data: the binary goes, the bytes stay"
 # machine are two decisions, and the scripted default is KEEP. A non-TTY run
 # answers the data question no and names the flag that answers yes.
 "$SRV" init --yes --no-service --port $PORT --host 127.0.0.1 --base-url "$BASE" >/dev/null 2>&1 || fail "third init failed"
-"$SRV" uninstall --confirm "$HOSTNAME_VAL" > "$W/uninstall.log" 2>&1 || { cat "$W/uninstall.log"; fail "uninstall exit $?"; }
+"$SRV" uninstall --confirm "$HOSTNAME_VAL" > "$W/uninstall.log" 2>&1 </dev/null; rc=$?
+if [ "$rc" -ne 0 ]; then
+  cat "$W/uninstall.log"
+  fail "uninstall exit $rc"
+fi
 [ -f "$SUBSHELL_SERVER_CONFIG_DIR/config.env" ] || fail "the default uninstall WIPED the data it should keep"
 grep -q -- "--reset-data" "$W/uninstall.log" || fail "the keep-log did not name the flag: $(cat "$W/uninstall.log")"
 [ ! -e "$SRV" ] || fail "the binary survived uninstall"
@@ -123,7 +141,11 @@ ok "binary gone, config kept, flag named in the log"
 
 echo "== 6. uninstall --reset-data takes the data too, and its own running binary"
 cp "$SRV_SRC" "$SRV"
-"$SRV" uninstall --confirm "$HOSTNAME_VAL" --reset-data > "$W/uninstall2.log" 2>&1 || { cat "$W/uninstall2.log"; fail "uninstall --reset-data exit $?"; }
+"$SRV" uninstall --confirm "$HOSTNAME_VAL" --reset-data > "$W/uninstall2.log" 2>&1 </dev/null; rc=$?
+if [ "$rc" -ne 0 ]; then
+  cat "$W/uninstall2.log"
+  fail "uninstall --reset-data exit $rc"
+fi
 [ ! -f "$SUBSHELL_SERVER_CONFIG_DIR/config.env" ] || fail "config.env survived --reset-data"
 [ ! -e "$SUBSHELL_SERVER_DATA_DIR" ] || fail "the data dir survived --reset-data"
 [ ! -e "$SRV" ] || fail "the binary survived uninstall"
