@@ -27,12 +27,17 @@ import { serverPaths } from "@/services/server-paths.js";
  *   pane tmux servers, removes the service definition, and deletes
  *   exactly the paths `status` publishes (config.env last). The installed
  *   binary stays, so the next `init` is a first run with the tool still in
- *   hand. This is the assistant's chain mirrored with its guards: the plan's
- *   shape rules and the binary-containment rule come from the desktop's
- *   pinned twin (`services/reset-guards.ts`), and a port that still answers
- *   after the stop (a daemon started by hand, which no unit can reach) ends
- *   the chain before any byte is deleted — the Rust chain's
- *   `wait_for_port_closed` fact, not the manager's claim.
+ *   hand. This is the assistant's chain with its guards: the plan's shape
+ *   rules and the binary-containment rule come from the desktop's pinned
+ *   twin (`services/reset-guards.ts`), and the port is checked with the
+ *   Rust chain's `wait_for_port_closed` fact, not the manager's claim.
+ *   ONE deliberate divergence (operator ruling 2026-09-26, after the strict
+ *   shape killed a live plane's panes and then refused to delete anything):
+ *   once consent is given the chain CLEARS and never refuses mid-run. A
+ *   service that will not stop, a port that keeps answering, a pane server
+ *   that survives, or a file that resists deletion are each reported and
+ *   remembered for the exit code, and the rest still goes. "A reset means to
+ *   clear out everything."
  * - **uninstall** is that chain PLUS the binary the ladder named (resolved
  *   BEFORE the definition goes, since the definition is where the ladder looks
  *   first) and its `.previous` sibling. It answers "remove this program from
@@ -125,11 +130,25 @@ export function buildResetPlan(): ResetPlan {
  * `subshell-*` socket under tmux's own `(TMUX_TMPDIR ?? /tmp)/tmux-<uid>`
  * directory (NOT TMPDIR — macOS puts that somewhere with no sockets, the
  * measured reason carried in the desktop's `close_subshell_tmux`). A kill
- * answered by "error connecting" is an already-dead server: the stale socket
- * goes and the chain continues. Any other failure ENDS the chain — a surviving
- * pane makes the wipe a lie, which is the same R1 rule the desktop follows.
- * The `spawn` seam exists for the throw path: tmux missing from a machine
- * whose sockets dir is not is a SURVIVING-PANE suspicion, never a silent skip.
+ * answered by a DEAD-SERVER spelling is litter, not a pane: the stale socket
+ * goes and the sweep continues. tmux has three spellings for that and the
+ * reference chain (the Server app's `close_subshell_tmux`, reset.rs) measures
+ * all three against tmux 3.7c:
+ *
+ *   error connecting to <path> (No such file or directory)      — no socket file
+ *   error connecting to <path> (Socket operation on non-socket) — not a socket
+ *   no server running on <path>                                — a real socket, dead server
+ *
+ * The third is what a crashed or killed tmux leaves behind, which is the
+ * common case on any box that has run this product's tests; reading it as a
+ * failure stopped a real operator's reset on its first such file. Anything
+ * else that failed is a pane that survived: it is COLLECTED, named, and the
+ * sweep continues to the next socket — the CLI chain deletes everything and
+ * reports the survivors (operator ruling 2026-09-26: "a reset means to clear
+ * out everything"), and the exit code carries the failure. Every kill is
+ * attempted; one never abandons the rest. The `spawn` seam exists for the
+ * throw path: tmux missing from a machine whose sockets dir is not is a
+ * SURVIVING-PANE suspicion, never a silent skip.
  */
 export function sweepPaneSockets(
   log: (line: string) => void = () => {},
@@ -160,6 +179,7 @@ export function sweepPaneSockets(
     log(`no pane servers to close in ${dir}`);
     return { ok: true };
   }
+  const survivors: string[] = [];
   for (const name of names) {
     let res: ReturnType<typeof Bun.spawnSync>;
     try {
@@ -172,25 +192,26 @@ export function sweepPaneSockets(
     } catch (failure) {
       // tmux not on PATH: the sockets on disk mean panes ran HERE, so a
       // missing binary is "a pane may have survived", never a silent skip.
-      return {
-        ok: false,
-        detail: `tmux is not runnable to close ${name}: ${failure instanceof Error ? failure.message : String(failure)}`,
-      };
+      survivors.push(
+        `tmux is not runnable to close ${name}: ${failure instanceof Error ? failure.message : String(failure)}`,
+      );
+      continue;
     }
-    const stderr = res.stderr?.toString() ?? "";
-    if (res.exitCode !== 0 && !stderr.includes("error connecting")) {
-      return { ok: false, detail: `tmux -L ${name} kill-server failed: ${stderr.trim() || `exit ${res.exitCode}`}` };
-    }
-    if (res.exitCode !== 0) {
-      // "error connecting" against a socket on disk: stale, and the file is the litter.
+    if (res.exitCode === 0) continue;
+    // The Rust reference reads BOTH streams for the dead-server verdict.
+    const combined = `${res.stdout?.toString() ?? ""}${res.stderr?.toString() ?? ""}`;
+    if (combined.includes("error connecting") || combined.includes("no server running on")) {
+      // A dead server's socket file is the litter; the file is what remains.
       try {
         unlinkSync(join(dir, name));
       } catch {
         /* it may already be gone; that is the outcome we wanted */
       }
+      continue;
     }
+    survivors.push(`tmux -L ${name} kill-server failed: ${combined.trim() || `exit ${res.exitCode}`}`);
   }
-  return { ok: true };
+  return survivors.length === 0 ? { ok: true } : { ok: false, detail: survivors.join("\n") };
 }
 
 /** `realpathSync` or null: the spelling a live filesystem agrees on, if any. */
@@ -373,33 +394,42 @@ export async function runReset(opts: { uninstall: boolean; confirm?: string }, d
       };
     })();
 
+  // From here the chain is CLEAR-EVERYTHING (operator ruling 2026-09-26,
+  // measured on a real box the first shape failed): consent was given, so a
+  // step that cannot run never spares the bytes — a service that will not
+  // stop, a pane server that survives, a definition that resists removal, a
+  // binary that cannot be unlinked, and a missing file alike are reported,
+  // remembered for the exit code, and the chain continues. The refusal to
+  // delete anything after ALREADY killing pane servers was the half-run the
+  // strict shape produced: disturbed machine, intact data, "nothing was
+  // deleted". Only the shape guards and consent (steps 0-1) still refuse
+  // outright, because they run before any byte or process is touched.
+  const failures: string[] = [];
+
   // 2. Stop the running service. "Nothing installed" is the tolerated absence
   // (the desktop walks past the CLI's measured refusal for it); any other
-  // stop failure ENDS the chain — deleting the data of a still-booting server
-  // is the half-run the desktop's chain also refuses.
+  // stop failure is reported and the chain continues.
   let wasInstalled = false;
   if (manager.installed()) {
     wasInstalled = true;
     const stop = manager.stop();
     if (stop.code !== 0 && !stop.err.includes("nothing installed")) {
-      deps.error(`subshell-server ${verb}: the service did not stop; nothing was deleted\n${stop.err}`);
-      return 1;
+      deps.error(`subshell-server ${verb}: the service did not stop; continuing to clear anyway\n${stop.err}`);
+      failures.push("the service did not stop");
+    } else {
+      deps.log("stopped the service");
     }
-    deps.log("stopped the service");
   } else {
     deps.log("no service definition; nothing to stop");
   }
 
-  // 2.5 The port must go quiet before ANYTHING ELSE GOES: not just the first
-  // byte, but before the pane sweep and the definition removal too (the
-  // Rust chain's order: stop, `wait_for_port_closed`, then panes, then the
-  // unit). The manager's stop is a claim, not a fact, and a daemon started
-  // BY HAND has no unit this verb can reach: sweeping or unlinking around a
-  // live server would kill its panes and remove its definition under a
-  // message that promises "nothing was deleted", and the survivor would
-  // still write WAL sidecars under a chain that reported success. Bound and
-  // shape from the desktop's `wait_for_port_closed`; a platform that answers
-  // `null` is a missing hint, not a refusal.
+  // 2.5 The port is the FACT about the manager's claim: the stop says the
+  // service went, and the port answers whether it did, before the sweep reads
+  // "no panes" off a server that is merely still booting. A daemon started
+  // BY HAND has no unit this verb can reach; after the wait it is reported
+  // (it will lose its files anyway, and the line names it), not obeyed. The
+  // wait's bound and shape are the desktop's `wait_for_port_closed`; a
+  // platform that answers `null` is a missing hint, not a fact.
   const probePort = deps.probePort ?? ((host: string, port: number) => syncPortListening(host, port));
   if (plan.listenPort > 0) {
     const sleep = deps.sleep ?? ((ms: number) => Bun.sleep(ms));
@@ -408,19 +438,21 @@ export async function runReset(opts: { uninstall: boolean; confirm?: string }, d
       if (probePort("127.0.0.1", plan.listenPort) !== true) break;
       if (Date.now() >= deadline) {
         deps.error(
-          `subshell-server ${verb}: port ${plan.listenPort} is still answering: a server is running that this verb cannot stop (started by hand?); stop it and run again; nothing was deleted`,
+          `subshell-server ${verb}: port ${plan.listenPort} is still answering: a server is running that this verb cannot stop (started by hand?); it keeps running, but its files go`,
         );
-        return 1;
+        failures.push(`port ${plan.listenPort} was still answering`);
+        break;
       }
       await sleep(250);
     }
   }
 
-  // 3. Close the pane servers the stopped service owned.
+  // 3. Close the pane servers. Survivors are named, remembered, and the
+  // rest of the clear goes on without them.
   const sweep = (deps.sweepPanes ?? (() => sweepPaneSockets(deps.log)))();
   if (!sweep.ok) {
-    deps.error(`subshell-server ${verb}: a pane server survived; nothing was deleted\n${sweep.detail ?? ""}`);
-    return 1;
+    deps.error(`subshell-server ${verb}: a pane server survived; the rest is cleared anyway\n${sweep.detail ?? ""}`);
+    failures.push("a pane server survived");
   }
 
   // 4. Remove the service definition, so nothing can start the server again.
@@ -428,29 +460,32 @@ export async function runReset(opts: { uninstall: boolean; confirm?: string }, d
     const gone = manager.uninstall();
     if (gone.code !== 0 && !gone.err.includes("nothing installed")) {
       deps.error(
-        `subshell-server ${verb}: the service definition could not be removed; nothing was deleted\n${gone.err}`,
+        `subshell-server ${verb}: the service definition could not be removed; the rest is cleared anyway\n${gone.err}`,
       );
-      return 1;
+      failures.push("the service definition could not be removed");
+    } else {
+      deps.log("removed the service definition");
     }
-    deps.log("removed the service definition");
   }
 
   // 5. Delete, in the assistant's order, absence = done, config.env LAST.
-  // Every failure ends the chain with what survived named: the machine name
-  // was typed against the promise that THESE bytes are gone.
-  try {
-    rmSync(plan.database, { force: true });
-    rmSync(plan.logsDir, { recursive: true, force: true });
-    rmSync(plan.nodeArtifacts, { recursive: true, force: true });
-    removeTreeBut(plan.dataDir, plan.configEnv);
-    rmSync(plan.configEnv, { force: true });
-  } catch (failure) {
-    deps.error(
-      `subshell-server ${verb}: a delete failed and the chain stopped; some files may remain: ${failure instanceof Error ? failure.message : String(failure)}`,
-    );
-    return 1;
-  }
-  // Remove-if-empty tidies, after the last consented byte is gone: the keep
+  // One failed unlink names itself and the next byte is still attempted: the
+  // machine name was typed against the promise that this clears everything.
+  const attempt = (what: string, run: () => void): void => {
+    try {
+      run();
+    } catch (failure) {
+      const detail = failure instanceof Error ? failure.message : String(failure);
+      deps.error(`subshell-server ${verb}: could not delete ${what}: ${detail}`);
+      failures.push(`could not delete ${what}`);
+    }
+  };
+  attempt(plan.database, () => rmSync(plan.database, { force: true }));
+  attempt(plan.logsDir, () => rmSync(plan.logsDir, { recursive: true, force: true }));
+  attempt(plan.nodeArtifacts, () => rmSync(plan.nodeArtifacts, { recursive: true, force: true }));
+  attempt(plan.dataDir, () => removeTreeBut(plan.dataDir, plan.configEnv));
+  attempt(plan.configEnv, () => rmSync(plan.configEnv, { force: true }));
+  // Remove-if-empty tidies, after the last consented byte's turn: the keep
   // chain's now-empty ancestors inside the data home, the config home itself
   // (its own directory when it lives OUTSIDE dataDir), and the data home.
   // The default layout nests server logs and backups under dataDir, so those
@@ -463,7 +498,8 @@ export async function runReset(opts: { uninstall: boolean; confirm?: string }, d
   // 6. The uninstall half only: the binary the LADDER named (resolved at step
   // 1's plan, before the definition went) and the `.previous` an update left.
   // A null binary is the dev/source case: this command never deletes a
-  // checkout it was not installed from.
+  // checkout it was not installed from, and a binary that resists unlinking
+  // is reported, not obeyed.
   if (opts.uninstall) {
     if (plan.binary !== null) {
       // Decided BEFORE the unlink: the sentence about the `.previous` cannot
@@ -483,18 +519,21 @@ export async function runReset(opts: { uninstall: boolean; confirm?: string }, d
           deps.error(
             `subshell-server ${verb}: the installed binary could not be removed: ${failure instanceof Error ? failure.message : String(failure)}`,
           );
-          return 1;
+          failures.push("the installed binary could not be removed");
         }
     } else {
       deps.log("no installed binary: this instance runs from a checkout, which is left alone");
     }
-    deps.log(
-      "Subshell Server is uninstalled. Enrolled nodes were not reached; they will stop connecting to a plane that is gone.",
-    );
-  } else {
-    deps.log(
-      "Subshell Server was reset to a fresh machine. The installed binary is still here for `subshell-server init`.",
-    );
   }
+
+  if (failures.length > 0) {
+    deps.error(`subshell-server ${verb}: finished with failures: ${failures.join("; ")}`);
+    return 1;
+  }
+  deps.log(
+    opts.uninstall
+      ? "Subshell Server is uninstalled. Enrolled nodes were not reached; they will stop connecting to a plane that is gone."
+      : "Subshell Server was reset to a fresh machine. The installed binary is still here for `subshell-server init`.",
+  );
   return 0;
 }

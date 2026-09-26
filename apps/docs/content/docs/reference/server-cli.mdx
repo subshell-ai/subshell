@@ -160,7 +160,7 @@ The two destructive verbs, twin to the desktop assistant's Reset chain. `reset` 
 
 Neither is reachable over the network: there is no route for them. Consent is the machine's NAME, typed at the prompt and compared on the machine, so `--yes` (which answers every other question) is refused outright. For a run with no terminal, pass the name on the command line with `--confirm <machine-name>`; that is the same fact, just not typed at a keyboard. Without a terminal and without `--confirm`, both refuse and change nothing.
 
-Because a server started by hand has no service to stop, both verbs check the port before anything else goes: a port still answering ten seconds after the stop ends the run with "port N is still answering" and every byte and pane exactly where it was. Stop that server and run again.
+Once the name matches, the verbs clear and do not refuse mid-run: a service that will not stop, a server started by hand that keeps answering its port, a pane server that survives, or a binary that resists unlinking is each reported by name and the exit code says the run finished with failures, but the rest of the machine is still cleared. A reset means it all goes; only the pre-consent plan guards (unsafe paths, a data dir that contains the binary a reset promises to keep) refuse outright, before anything is touched.
 
 ## service: the background process
 

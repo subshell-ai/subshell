@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Issue #232: `subshell-server reset` and `uninstall` COMPILED — the refusal
 # shapes (--yes cannot buy consent, headless names --confirm, a wrong name
-# changes nothing, a hand-started daemon answering the port ends the chain
-# before any byte goes) and the real deletes, against a sandbox config/data
-# home and a COPIED binary. The copy matters: `uninstall` deletes the binary
+# changes nothing) and the real deletes, including the clear-anyway rule: a
+# hand-started daemon answering the port is NAMED and the chain deletes
+# regardless, exiting 1. The copy matters: `uninstall` deletes the binary
 # the resolution ladder names, and run-under-`subshell-server` makes that the
 # running process's own file — which is correct behavior and also would
 # remove the shared dist binary every later scenario reads.
@@ -86,23 +86,28 @@ echo "== 3. reset deletes the data, keeps the binary"
 [ -x "$SRV" ] || fail "reset removed the binary it promised to keep"
 ok "data and config gone, binary present"
 
-echo "== 4. a hand-started daemon ends the chain before any byte goes"
-# The scenario the manager seam cannot see: no service definition (--no-service
-# init), so `reset` has nothing to stop, yet a live process owns the data. The
-# port answering IS that fact; deleting under it would let the survivor
-# repopulate WAL sidecars under a chain that just reported success.
+echo "== 4. a hand-started daemon is named, and the clear goes on anyway"
+# The scenario the manager seam cannot see: no service definition
+# (--no-service init), so `reset` has nothing to stop, yet a live process
+# owns the port. Operator ruling 2026-09-26: a step that cannot run never
+# spares the bytes — the daemon is NAMED ("still answering"), the machine is
+# cleared anyway, and the exit code carries the failure. A live server keeps
+# serving from memory under a chain that already deleted its files; the next
+# start finds nothing.
 "$SRV" init --yes --no-service --port $PORT --host 127.0.0.1 --base-url "$BASE" >/dev/null 2>&1 || fail "second init failed"
 "$SRV" > "$W/daemon.log" 2>&1 &
 SRVPID=$!
 for i in $(seq 1 60); do curl -sf "$BASE/api/setup/status" >/dev/null 2>&1 && break; sleep 0.5; done
 curl -sf "$BASE/api/setup/status" >/dev/null || { cat "$W/daemon.log"; fail "daemon never answered"; }
-OUT=$("$SRV" reset --confirm "$HOSTNAME_VAL" 2>&1) && fail "reset deleted data under a live daemon"
-echo "$OUT" | grep -q "still answering" || fail "live-daemon refusal missing: $OUT"
-[ -f "$SUBSHELL_SERVER_CONFIG_DIR/config.env" ] || fail "the refused reset DELETED config.env"
+OUT=$("$SRV" reset --confirm "$HOSTNAME_VAL" 2>&1) && fail "a live daemon should have forced exit 1"
+echo "$OUT" | grep -q "still answering" || fail "the live daemon was not named: $OUT"
+[ ! -f "$SUBSHELL_SERVER_CONFIG_DIR/config.env" ] || fail "the chain let a live daemon spare the files"
+[ ! -e "$SUBSHELL_SERVER_DATA_DIR" ] || fail "a live daemon spared the data directory"
 kill "$SRVPID" 2>/dev/null; wait "$SRVPID" 2>/dev/null; SRVPID=""
-ok "a live daemon on the port: refused, bytes intact"
+ok "live daemon: named, cleared anyway, exit 1"
 
 echo "== 5. uninstall takes the data AND the binary it runs as"
+"$SRV" init --yes --no-service --port $PORT --host 127.0.0.1 --base-url "$BASE" >/dev/null 2>&1 || fail "third init failed"
 "$SRV" uninstall --confirm "$HOSTNAME_VAL" > "$W/uninstall.log" 2>&1 || { cat "$W/uninstall.log"; fail "uninstall exit $?"; }
 [ ! -f "$SUBSHELL_SERVER_CONFIG_DIR/config.env" ] || fail "config.env survived uninstall"
 [ ! -e "$SRV" ] || fail "the binary survived uninstall"

@@ -30,7 +30,7 @@ The dashboard's danger card on Settings is only a door: it raises the Subshell S
 
 `subshell-server reset` runs the assistant's chain without a window: it stops the service, waits for its port to go quiet, closes the pane servers, removes the service definition, and deletes exactly the paths `status --json` names, config home last. The binary stays, so `subshell-server init` can set the machine up again. `subshell-server uninstall` is that chain plus the installed binary and any `.previous` a prior update left; a source checkout is named and left alone.
 
-A server started by hand has no service to stop, so both verbs wait on the port before touching anything else: still answering after the stop, the run ends with "port N is still answering" and every byte and pane exactly where it was.
+A server started by hand has no service to stop; the verbs ask the port, and if it still answers they say so by name and clear the machine anyway, ending with a failing exit code. Nothing that survives consent spares the files: a step that cannot run is reported, and a reset means it all goes. Local pane servers go with the plane (remote nodes' panes live on their nodes' machines and are untouched), and the same-machine `subshell` agent keeps its own home.
 
 ```bash
 subshell-server reset                              # prompts: type this machine's name

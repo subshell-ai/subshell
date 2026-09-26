@@ -168,21 +168,30 @@ describe("the chain", () => {
     expect(fx.deps.lines.join("\n")).toContain("no service definition");
   });
 
-  test("a failed stop ends the chain with every byte left", async () => {
+  // Operator ruling 2026-09-26: once consent is given the chain CLEARS and
+  // never refuses mid-run. A step that cannot run is reported, remembered
+  // for the exit code, and the rest still goes.
+  test("a failed stop is reported and the chain still clears everything", async () => {
     fx.manager.stopFails = true;
     const code = await runReset({ uninstall: false }, fx.deps);
     expect(code).toBe(1);
-    expect(fx.sweep.calls).toBe(0);
-    expect(existsSync(fx.plan.database)).toBe(true);
-    expect(existsSync(fx.plan.configEnv)).toBe(true);
+    expect(fx.deps.errors.join("\n")).toContain("the service did not stop");
+    expect(fx.sweep.calls).toBe(1);
+    expect(fx.manager.uninstalls).toBe(1);
+    expect(existsSync(fx.plan.database)).toBe(false);
+    expect(existsSync(fx.plan.configEnv)).toBe(false);
+    expect(fx.deps.errors.join("\n")).toContain("finished with failures");
   });
 
-  test("a surviving pane server ends the chain BEFORE any deletion", async () => {
+  test("a surviving pane server is reported and the deletion goes on without it", async () => {
     fx.sweep.failWith = "tmux -L subshell-x kill-server failed";
     const code = await runReset({ uninstall: false }, fx.deps);
     expect(code).toBe(1);
-    expect(fx.manager.uninstalls).toBe(0);
-    expect(existsSync(fx.plan.database)).toBe(true);
+    expect(fx.manager.uninstalls).toBe(1);
+    expect(existsSync(fx.plan.database)).toBe(false);
+    expect(existsSync(fx.plan.configEnv)).toBe(false);
+    // The promise kept honestly: the survivor is named, not hidden behind
+    // the exit code.
     expect(fx.deps.errors.join("\n")).toContain("pane server survived");
   });
 });
@@ -332,24 +341,24 @@ describe("the plan's shape guards (issue #232 review)", () => {
   });
 });
 
-describe("the port that must go quiet", () => {
-  test("a port still answering after the stop deletes NOTHING", async () => {
-    // A daemon started BY HAND has no unit this verb can reach: the port
-    // answering is the fact, and the chain refuses on it (the desktop's
-    // `wait_for_port_closed`, mirrored). portWaitMs 0 = no waiting at all.
+describe("the port is asked, not obeyed", () => {
+  test("a port still answering after the stop is NAMED, and the clear goes on", async () => {
+    // The manager's stop is a claim; the port is the fact. A daemon started
+    // BY HAND has no unit this verb can reach — but a step that cannot run
+    // never spares the bytes (ruling 2026-09-26): it is reported and the
+    // machine is cleared anyway, exit code 1. portWaitMs 0 = no waiting.
     fx.plan = { ...fx.plan, listenPort: 31997 };
     fx.deps.probePort = () => true;
     fx.deps.portWaitMs = 0;
     const code = await runReset({ uninstall: false }, fx.deps);
     expect(code).toBe(1);
     expect(fx.deps.errors.join("\n")).toContain("still answering");
-    expect(existsSync(fx.plan.database)).toBe(true);
-    expect(existsSync(fx.plan.configEnv)).toBe(true);
-    // The ORDER pin (round-2 review): the refusal comes before the sweep and
-    // before the definition removal. A live daemon's panes are still running,
-    // and "nothing was deleted" must also mean "nothing was disturbed".
-    expect(fx.sweep.calls).toBe(0);
-    expect(fx.manager.uninstalls).toBe(0);
+    expect(existsSync(fx.plan.database)).toBe(false);
+    expect(existsSync(fx.plan.configEnv)).toBe(false);
+    // The order still holds: the question is ASKED after the stop and before
+    // the sweep, so the sweep reads the post-stop truth either way.
+    expect(fx.sweep.calls).toBe(1);
+    expect(fx.manager.uninstalls).toBe(1);
   });
 
   test("a port that goes quiet within the wait proceeds with the deletes", async () => {
@@ -400,6 +409,45 @@ describe("the tmux sweep", () => {
       }) as unknown as typeof Bun.spawnSync);
       expect(res.ok).toBe(false);
       expect(res.detail).toContain("subshell-dead");
+    } finally {
+      if (prev === undefined) delete process.env.TMUX_TMPDIR;
+      else process.env.TMUX_TMPDIR = prev;
+    }
+  });
+
+  test('"no server running on" is LITTER: socket unlinked, sweep continues', () => {
+    // The defect the operator met on a real box: a crashed tmux leaves its
+    // socket inode behind, kill-server answers "no server running on", and
+    // the port lost in the port read that as a surviving pane and stopped
+    // the WHOLE reset. The Rust reference (reset.rs, measured on 3.7c)
+    // accepts three stale spellings; this pins the third. A real failure is
+    // collected without abandoning the later sockets.
+    const tmuxDir = join(fx.root, "tmux-lit", `tmux-${process.getuid?.() ?? 0}`);
+    mkdirSync(tmuxDir, { recursive: true });
+    writeFileSync(join(tmuxDir, "subshell-stale"), "socket");
+    writeFileSync(join(tmuxDir, "subshell-angry"), "socket");
+    writeFileSync(join(tmuxDir, "subshell-last"), "socket");
+    const prev = process.env.TMUX_TMPDIR;
+    process.env.TMUX_TMPDIR = join(fx.root, "tmux-lit");
+    try {
+      const seen: string[] = [];
+      const res = sweepPaneSockets(() => {}, ((opts: { cmd: string[] }) => {
+        const name = opts.cmd[2];
+        seen.push(name);
+        if (name === "subshell-stale") {
+          return { exitCode: 1, stdout: "", stderr: `no server running on /tmp/tmux-1/subshell-stale\n` };
+        }
+        if (name === "subshell-angry")
+          return { exitCode: 1, stdout: "", stderr: "can't kill server: Input/output error" };
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }) as unknown as typeof Bun.spawnSync);
+      // The stale socket is gone, the real failure is the survivor named,
+      // and the third socket was still attempted after the failure.
+      expect(existsSync(join(tmuxDir, "subshell-stale"))).toBe(false);
+      expect(res.ok).toBe(false);
+      expect(res.detail).toContain("subshell-angry");
+      expect(res.detail).not.toContain("subshell-stale");
+      expect(seen.slice().sort()).toEqual(["subshell-angry", "subshell-last", "subshell-stale"]);
     } finally {
       if (prev === undefined) delete process.env.TMUX_TMPDIR;
       else process.env.TMUX_TMPDIR = prev;
