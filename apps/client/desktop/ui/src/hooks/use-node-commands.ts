@@ -18,7 +18,7 @@
  *    (or the CLI's) before the button that pays it.
  */
 import { asks, errorText, finished } from "@/lib/actions";
-import type { RegisterPhase, RegisterRow } from "@/lib/client-flow";
+import { isSamePlaneRetry, type RegisterPhase, type RegisterRow } from "@/lib/client-flow";
 import {
   type ActionResult,
   type EnrolledNodeBody,
@@ -523,13 +523,22 @@ export function useNodeCommands(args: {
         // is skipped rather than repeated, which is what makes the chain
         // resumable instead of destructive on its second press.
         //
+        // The skip claims a same-plane retry (issue 225): an old `nodeId`
+        // from a different plane — the residue of a server this machine used
+        // to answer, surviving a reset that never touches the agent's config —
+        // must not ride over the plane being joined here. When the stored
+        // address and the form disagree the enroll act runs, which is where
+        // the already-enrolled panel makes the overwrite deliberate.
+        //
         // It is answered FIRST, ahead of the form, and that order is the whole
         // of it: `afterEnroll` clears the spent key, so on this very press
         // `form.validate()` refuses an empty one — and refusing for an act
         // that is not going to run is how a Retry becomes a button that does
         // nothing at all, which is the dead end the checklist exists to avoid.
         // Nothing below this line is needed to start a service.
-        if (probe?.status?.nodeId) return startService();
+        if (probe?.status?.nodeId && isSamePlaneRetry({ stored: probe.status.serverUrl, target: form.values.server })) {
+          return startService();
+        }
 
         // BEFORE any spawn: the Register button stays live for a malformed
         // field on purpose, so this press is where `validateEnroll`'s per-field

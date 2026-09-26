@@ -31,6 +31,17 @@ actually configured; a plane behind a reverse-proxy subpath re-reports its own
 ws URL at its next enroll. Renaming alone does not touch it: the address did
 not change.
 
+`resolveWsUrl` carries one exception to that preference since #225: a loopback
+pin beside a REMOTE `serverUrl` is ignored and the URL derives. Every sanctioned
+flow produces that combination only as residue (a reset kept the file, a manual
+`serverUrl` edit skipped `configure`), and a remote machine dialing its own
+loopback is a node that never connects. The one honest counterexample is a node
+ON the server machine that enrolled through a LAN-spelled address, where the
+default `HOST=0.0.0.0` made that enrollment reachable and an unconfigured
+`APP_BASE_URL` answered it with a loopback pin: the bind later narrowed to
+loopback makes that pin the only reachable endpoint, and deriving goes dark. The remedy is the sanctioned one, and it clears the pin as it
+rewrites the address: `subshell configure --server http://localhost:PORT`.
+
 `normalizeServer` is exported from `enroll.ts` and shared, so a repoint writes
 the same spelling an enroll would; two commands disagreeing about one address
 is the bug that shape prevents.

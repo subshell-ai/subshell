@@ -692,6 +692,97 @@ test("runDaemon dials the persisted nodeWsUrl; old configs still dial the derive
   expect(dialed).toEqual(["wss://control.example/ws/node"]);
 });
 
+/**
+ * Issue #225: a server whose APP_BASE_URL was never configured answers enroll
+ * with its own `ws://localhost:…/ws/node`, and that pin can survive in a
+ * `config.json` whose `serverUrl` names a remote plane (a server reset keeps
+ * the agent's file; a client carried the residue). Dialing localhost from a
+ * machine that is not the server is a node that never connects, so the pin is
+ * IGNORED in exactly that combination: a plane can never be naming loopback
+ * for a remote machine, and every sanctioned repoint clears the pin, so the
+ * mismatch is residue everywhere but the bind-narrowing edge named in
+ * `docs/repointing.md`. Everything else keeps ledger 17c.
+ */
+test("a loopback nodeWsUrl is ignored only when serverUrl names a remote plane", async () => {
+  newHome();
+  const [keys] = await Promise.all([keysReady]);
+  const dialed: string[] = [];
+  const RecordingWs = function (this: never, url: string) {
+    dialed.push(url);
+    throw new Error("dial intercepted");
+  } as unknown as WsConstructor;
+  const base = {
+    nodeId: NODE_ID,
+    nodeKey: NODE_KEY,
+    controlPublicKey: JSON.stringify(keys.publicJwk),
+    dataDir: "/tmp/subshell-test-data",
+    name: "test-node",
+  };
+
+  // The bricked shape: stale loopback pin, remote serverUrl ⇒ derive.
+  await expect(
+    runDaemon(
+      { ...base, serverUrl: "https://control.example", nodeWsUrl: "ws://localhost:3080/ws/node" },
+      { WebSocketImpl: RecordingWs, runtime: null },
+    ),
+  ).rejects.toThrow(/cannot open wss:\/\/control\.example\/ws\/node/);
+  expect(dialed).toEqual(["wss://control.example/ws/node"]);
+
+  // Same-machine loopback stays pinned verbatim (17c unbroken).
+  dialed.length = 0;
+  await expect(
+    runDaemon(
+      { ...base, serverUrl: "http://localhost:3080", nodeWsUrl: "ws://localhost:3080/ws/node" },
+      { WebSocketImpl: RecordingWs, runtime: null },
+    ),
+  ).rejects.toThrow(/cannot open ws:\/\/localhost:3080\/ws\/node/);
+  expect(dialed).toEqual(["ws://localhost:3080/ws/node"]);
+
+  // A remote pin wins over a loopback serverUrl: the plane named itself.
+  dialed.length = 0;
+  await expect(
+    runDaemon(
+      { ...base, serverUrl: "http://localhost:3080", nodeWsUrl: "wss://pin.example/ws/node" },
+      { WebSocketImpl: RecordingWs, runtime: null },
+    ),
+  ).rejects.toThrow(/cannot open wss:\/\/pin\.example\/ws\/node/);
+  expect(dialed).toEqual(["wss://pin.example/ws/node"]);
+
+  // 127.0.0.1 and ::1 are loopback by address, not just by name. The IPv6
+  // spelling also exercises the bracket strip WHATWG's `hostname` leaves in.
+  for (const loopbackPin of ["ws://127.0.0.1:3080/ws/node", "ws://[::1]:3080/ws/node"]) {
+    dialed.length = 0;
+    await expect(
+      runDaemon(
+        { ...base, serverUrl: "https://control.example", nodeWsUrl: loopbackPin },
+        { WebSocketImpl: RecordingWs, runtime: null },
+      ),
+    ).rejects.toThrow(/cannot open wss:\/\/control\.example\/ws\/node/);
+    expect(dialed).toEqual(["wss://control.example/ws/node"]);
+  }
+
+  // `*.localhost` is loopback by name too (RFC 6761 resolution rule).
+  dialed.length = 0;
+  await expect(
+    runDaemon(
+      { ...base, serverUrl: "https://control.example", nodeWsUrl: "wss://plane.localhost/ws/node" },
+      { WebSocketImpl: RecordingWs, runtime: null },
+    ),
+  ).rejects.toThrow(/cannot open wss:\/\/control\.example\/ws\/node/);
+  expect(dialed).toEqual(["wss://control.example/ws/node"]);
+
+  // An unparseable pin is NOT classified loopback: the catch keeps today's
+  // behavior and lets the dial fail with the residue named, not a derivation.
+  dialed.length = 0;
+  await expect(
+    runDaemon(
+      { ...base, serverUrl: "https://control.example", nodeWsUrl: "not a url" },
+      { WebSocketImpl: RecordingWs, runtime: null },
+    ),
+  ).rejects.toThrow(/cannot open not a url/);
+  expect(dialed).toEqual(["not a url"]);
+});
+
 test("sends a ready frame the real parseNodeEvent accepts, with protocol identity", async () => {
   const h = await startDaemon();
   const ready = await waitForReady(h);

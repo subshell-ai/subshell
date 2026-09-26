@@ -227,16 +227,44 @@ export function wsUrlFor(serverUrl: string): string {
   return `${lowerScheme.replace(/^http/, "ws")}/ws/node`;
 }
 
+/** Whether a parsed URL's host names only this machine: a loopback name or address. */
+function isLoopbackHost(url: URL): boolean {
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return host === "localhost" || host.endsWith(".localhost") || host === "::1" || /^127\./.test(host);
+}
+
 /**
  * The ONE dial-URL resolution for the node socket (ledger 17c): the
  * server-reported URL persisted at enroll when present, else the derivation
  * from `serverUrl`. Both `runDaemon` and `probeOnline` resolve through here,
  * so `run` and `status --probe` can never dial different endpoints for the
  * same node.
+ *
+ * One exception, issue #225: a loopback pin beside a REMOTE `serverUrl` is
+ * ignored. A server that never configured `APP_BASE_URL` answers enroll with
+ * its own `ws://localhost:…/ws/node`, and that answer can survive in the
+ * config across a server reset (which never touches this file), leaving a
+ * remote machine dialing its own loopback forever. Every sanctioned flow
+ * clears the pin when the address changes (`configure`, `set_server_url`),
+ * so the combination is residue everywhere but one edge named in
+ * `docs/repointing.md`: a same-machine node enrolled through a LAN-spelled
+ * address whose bind was later narrowed to loopback. Its remedy is the
+ * sanctioned repoint (`configure --server http://localhost:PORT`), which
+ * clears the pin; deriving is what the plane would answer for every other
+ * machine holding this shape.
  * @param config - the enrolled node's config
  */
 function resolveWsUrl(config: NodeConfig): string {
-  return config.nodeWsUrl ?? wsUrlFor(config.serverUrl);
+  const pin = config.nodeWsUrl;
+  if (pin === undefined) return wsUrlFor(config.serverUrl);
+  try {
+    if (isLoopbackHost(new URL(pin)) && !isLoopbackHost(new URL(config.serverUrl))) {
+      return wsUrlFor(config.serverUrl);
+    }
+  } catch {
+    // Unparseable residue: keep today's behavior and let the dial fail legibly.
+  }
+  return pin;
 }
 
 /** Parse the config's pinned control key; a broken pin is fatal (commands could never verify). */
