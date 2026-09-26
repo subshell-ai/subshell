@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Subshell control plane installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/subshell-ai/subshell/main/install-server.sh | bash
+#   curl -fsSL https://subshell.sh/install-server.sh | bash
 #
 # Downloads the `subshell-server` binary for this platform from the newest
 # `cli-server-vX.Y.Z` GitHub Release, VERIFIES its digest before the file is ever

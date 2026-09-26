@@ -2,3 +2,7 @@ data/
 .next/
 out/
 .turbo/
+# Build-time copies of the root install scripts (scripts/prepare-data.ts);
+# the repo root is the source.
+public/install-server.sh
+public/install-client.sh

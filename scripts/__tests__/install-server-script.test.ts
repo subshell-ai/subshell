@@ -5,7 +5,8 @@ import { join } from "node:path";
 
 /**
  * `install-server.sh` is the control plane's one-liner: it is fetched from
- * raw.githubusercontent and piped straight into bash, so everything it does
+ * the site (https://subshell.sh, build-time copy of this very file) and piped
+ * straight into bash, so everything it does
  * before the first `chmod +x` is the whole of its safety argument. These tests
  * drive the real script against a fake release host — no release or `cli-server-v*`
  * tag exists yet (spec 2026-09-15 §2.3), and nothing here ever reaches GitHub.

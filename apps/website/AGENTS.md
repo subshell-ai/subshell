@@ -15,7 +15,13 @@ it is a site, not one of server/node/client, which is why it sits directly under
   names the derived `-darwin-x64.dmg`. No probe data ⇒ no menu, plain button.
   `--check` never fetches and strips the field from the comparison.
 - `data/releases.json` is build input (gitignored), copied from the root file by
-  `bun run copy-releases` before build/dev.
+  `bun run copy-releases` before build/dev. The same step copies the root
+  `install-server.sh` / `install-client.sh` into `public/` (also gitignored):
+  the install one-liners fetch from `SITE_ORIGIN` (`lib/site.ts`, the one
+  spelling of the site's origin) and the site serves its own copies. Editing a
+  root script therefore means a `website.yml` dispatch, or the published
+  one-liner serves stale bytes - the rule and the tripwire are in
+  `docs/release-and-ci.md`.
 - The palette in `app/globals.css` is the MARKETING token set, deliberately not
   the SPA design system; `lint:design` does not scan this app.
 - Copy changes are product decisions: Theo approves the words.

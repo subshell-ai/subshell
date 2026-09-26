@@ -33,9 +33,10 @@ test("server+mac: dmg label, direct asset href, versioned filename, server curl"
     "https://github.com/subshell-ai/subshell/releases/download/desktop-server-v0.16.0/subshell-server-desktop_0.16.0_amd64.deb",
   );
   expect(c.artifactFile).toBe("Subshell-Server-Desktop-0.16.0-darwin-arm64.dmg");
-  expect(c.curlCommand).toBe(
-    "curl -fsSL https://raw.githubusercontent.com/subshell-ai/subshell/main/install-server.sh | bash",
-  );
+  // The script comes from the product's own domain, not the git host: the
+  // site serves its build-time copies of the root install-*.sh (spec
+  // 2026-09-25 wave: install scripts from subshell.sh).
+  expect(c.curlCommand).toBe("curl -fsSL https://subshell.sh/install-server.sh | bash");
 });
 
 test("client+linux: direct deb href, alt dmg href, client curl", () => {
@@ -49,9 +50,7 @@ test("client+linux: direct deb href, alt dmg href, client curl", () => {
     "https://github.com/subshell-ai/subshell/releases/download/desktop-client-v0.6.0/Subshell-Client-Desktop-0.6.0-darwin-arm64.dmg",
   );
   expect(c.artifactFile).toBe("subshell-client-desktop_0.6.0_amd64.deb");
-  expect(c.curlCommand).toBe(
-    "curl -fsSL https://raw.githubusercontent.com/subshell-ai/subshell/main/install-client.sh | bash",
-  );
+  expect(c.curlCommand).toBe("curl -fsSL https://subshell.sh/install-client.sh | bash");
 });
 
 test("client without installScript: download only, curl row gone (Review Focus 3)", () => {

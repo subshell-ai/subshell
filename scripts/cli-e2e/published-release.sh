@@ -14,8 +14,9 @@
 # releases to exist at once.
 #
 # Steps:
-#   1. install-server.sh against the real GitHub release (its first ever run
-#      with something to download — there were no releases until today);
+#   1. install-server.sh fetched from subshell.sh (byte-compared against this
+#      checkout — the first-party hosting tripwire) and run against the real
+#      GitHub release; install-client.sh fetched and byte-compared too;
 #   2. the server it installs boots, hands off, and takes a first admin;
 #   3. first admin + a setup key;
 #   4. the node one-liner it serves installs and enrols a node against it;
@@ -65,9 +66,22 @@ export SUBSHELL_SERVER_PORT=$PORT SUBSHELL_SERVER_HOST=127.0.0.1 SUBSHELL_SERVER
 export SUBSHELL_NO_SERVICE=1
 
 echo "== 1. install-server.sh against the PUBLISHED release"
-curl -fsSL https://raw.githubusercontent.com/subshell-ai/subshell/main/install-server.sh -o "$W/install-server.sh" \
-  || fail "could not fetch the installer from raw.githubusercontent"
-ok "fetched the installer over the public URL the README prints"
+# THE URL IS THE README'S: the script is fetched from the site, the way a
+# visitor gets it, and compared BYTE-FOR-BYTE against this checkout's root
+# copy before it runs. subshell.sh serves build-time copies of the root files
+# (apps/website/scripts/prepare-data.ts), so a mismatch means the site has not
+# been redeployed since the last edit to the script - stale first-party
+# hosting, which is exactly what this step exists to catch.
+curl -fsSL https://subshell.sh/install-server.sh -o "$W/install-server.sh" \
+  || fail "could not fetch the installer from https://subshell.sh"
+cmp -s "$W/install-server.sh" "$REPO/install-server.sh" \
+  || fail "https://subshell.sh/install-server.sh is not this checkout's install-server.sh - either the website needs a redeploy (dispatch Website.yml) or this checkout is not current main"
+ok "fetched the installer from the site; it matches the repo copy byte for byte"
+curl -fsSL https://subshell.sh/install-client.sh -o "$W/install-client.sh" \
+  || fail "could not fetch install-client.sh from https://subshell.sh"
+cmp -s "$W/install-client.sh" "$REPO/install-client.sh" \
+  || fail "https://subshell.sh/install-client.sh is not this checkout's install-client.sh - either the website needs a redeploy (dispatch Website.yml) or this checkout is not current main"
+ok "install-client.sh matches too (fetched, not run: the .deb half is Linux)"
 bash "$W/install-server.sh" > "$W/install.out" 2>&1 || { cat "$W/install.out"; fail "installer exited non-zero"; }
 sed 's/^/     | /' "$W/install.out"
 SRV="$HOME/.local/bin/subshell-server"

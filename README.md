@@ -43,7 +43,7 @@ agents.
 One command installs and starts the control plane on the machine that will run it:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/subshell-ai/subshell/main/install-server.sh | bash
+curl -fsSL https://subshell.sh/install-server.sh | bash
 ```
 
 It verifies the release's `.sha256` before making anything executable, then runs

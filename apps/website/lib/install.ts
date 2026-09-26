@@ -1,5 +1,6 @@
 import { desktopArtifactFileName } from "@internal/subshell-protocol";
 import type { ReleasesManifest } from "./releases";
+import { SITE_ORIGIN } from "./site";
 
 export type { ReleasesManifest };
 
@@ -9,6 +10,10 @@ export type InstallKind = "server" | "client";
 export type MacArch = "darwin-arm64" | "darwin-x64";
 
 const REPO = "subshell-ai/subshell";
+
+// SITE_ORIGIN (the curl one-liners' host) lives in ./site.ts, shared with
+// layout/robots/sitemap; its comment carries the install-script hosting
+// story.
 
 /** Human labels for the arch choice and the menu items. */
 export const MAC_ARCH_LABEL: Record<MacArch, string> = {
@@ -68,10 +73,10 @@ export function installCopy(
   let curlCommand: string | null = null;
   if (kind === "server") {
     const script = manifest.components["cli-server"]?.installScript;
-    if (script) curlCommand = `curl -fsSL https://raw.githubusercontent.com/${REPO}/main/${script} | bash`;
+    if (script) curlCommand = `curl -fsSL ${SITE_ORIGIN}/${script} | bash`;
   } else {
     const script = desktop?.installScript;
-    if (script) curlCommand = `curl -fsSL https://raw.githubusercontent.com/${REPO}/main/${script} | bash`;
+    if (script) curlCommand = `curl -fsSL ${SITE_ORIGIN}/${script} | bash`;
   }
 
   // DIRECT asset URLs. The manifest entry's `url` is the release PAGE, but
