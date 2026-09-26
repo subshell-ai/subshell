@@ -466,11 +466,14 @@ that remedy. The same ruling's second half: the preflight runs FIRST in
 at exit 1 before anything is written (a config home for a server that cannot
 run panes is half a setup); the abort message names the declined manager's
 manual command, notes the binary is already installed, and gives the rerun.
-The macOS ladder is three-way (2026-09-26): `brew`, then MacPorts (`port`),
-and with neither an offer to install Homebrew itself through Homebrew's own
-documented installer (their infra, not ours; it prompts for an admin
-password, so a run without any terminal gets loud instructions instead of an
-attempt). `init` also acquired its own terminal first: a piped run
+The macOS ladder is three-way (2026-09-26): `brew`, then MacPorts (`port`,
+which self-escalates through portsudoers), and with neither an offer to
+install Homebrew itself through Homebrew's own documented installer (their
+infra, not ours). BOTH non-brew rungs carry `needsTerminal` (the bootstrap's
+child prompts for an admin password; `port` escalates where a password
+prompt may appear), and every terminal-less gate reads that FLAG, so a run
+without any terminal gets loud instructions instead of an attempt on either
+one. `init` also acquired its own terminal first: a piped run
 attaches the controlling terminal with a never-blocking open, and the
 defaults a truly non-interactive run takes (no service, no tmux, PATH
 instructions) are all PRINTED, because silence was the bug this closed.

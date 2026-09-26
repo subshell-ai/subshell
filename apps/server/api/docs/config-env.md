@@ -212,8 +212,8 @@ lines (the need, and the manual command with the escape hatch) are the
 2026-09-03 text everywhere, and `service install` prints exactly those and
 nothing more, byte-stable since; what GREW is only on `init`/`configure`,
 and by exactly ONE remedy line, never two (review 2026-09-26): a no-TTY
-no-`--yes` run gets the decline notice naming how to get the offer back
-(where some installer exists to honor the promise; CI never gets asked and
-gets neither), every other case gets the rerun note naming the installed
-binary. `service install` takes no `--yes`, so its offer keeps the
+no-`--yes` run is never asked and still gets the decline notice naming how
+to get the offer back, where some installer exists to honor the promise;
+where none does, that run lands in "every other case" and gets the rerun
+note naming the installed binary. `service install` takes no `--yes`, so its offer keeps the
 2026-09-03 TTY-only rule unchanged.
