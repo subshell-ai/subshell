@@ -3,6 +3,7 @@ import {
   clientScreen,
   configured,
   type FteStep,
+  isSamePlaneRetry,
   type RegisterPhase,
   railActive,
   railFor,
@@ -35,6 +36,60 @@ describe("configured", () => {
     // that walk ends at Register, which would re-enroll it.
     expect(configured(settings(null), enrolled("online"))).toBe(true);
     expect(configured(settings(null), probe({ step: "not-enrolled" }))).toBe(false);
+  });
+});
+
+describe("isSamePlaneRetry", () => {
+  // Issue #225: the register chain skipped its enroll act for ANY existing
+  // nodeId, so a machine whose config belonged to a different plane started a
+  // service bound to the old plane and read "registered" while never
+  // connecting. The skip is now a Retry claim, and this answers it.
+  it("is a Retry when the form names the stored plane, spelling aside", () => {
+    expect(isSamePlaneRetry({ stored: "https://plane.test", target: "https://plane.test" })).toBe(true);
+    expect(isSamePlaneRetry({ stored: "https://plane.test", target: "https://plane.test/" })).toBe(true);
+    expect(isSamePlaneRetry({ stored: "https://Plane.test:443", target: "https://plane.test" })).toBe(true);
+    expect(isSamePlaneRetry({ stored: "http://box.lan:3080/", target: " http://box.lan:3080 " })).toBe(true);
+  });
+
+  it("is not a Retry when the form names another plane, which is the #225 ride-over", () => {
+    expect(isSamePlaneRetry({ stored: "ws://localhost:3080", target: "https://plane.test" })).toBe(false);
+    expect(isSamePlaneRetry({ stored: "https://old.test", target: "https://new.test" })).toBe(false);
+    // A scheme change is a different plane: http and https origins never match.
+    expect(isSamePlaneRetry({ stored: "http://plane.test", target: "https://plane.test" })).toBe(false);
+  });
+
+  it("keeps today's skip when the claim cannot be disproved", () => {
+    // Empty target: the same-plane Retry whose key was spent on the failed
+    // press; `validate()` would refuse it, so refusing here would dead the button.
+    expect(isSamePlaneRetry({ stored: "https://plane.test", target: "" })).toBe(true);
+    expect(isSamePlaneRetry({ stored: "https://plane.test", target: "   " })).toBe(true);
+    // No stored address to compare against (an old or partial status body).
+    expect(isSamePlaneRetry({ stored: null, target: "https://plane.test" })).toBe(true);
+    expect(isSamePlaneRetry({ stored: "", target: "https://plane.test" })).toBe(true);
+  });
+
+  it("reads a reverse-proxy subpath as a different instance of the host", () => {
+    // Two planes can mount on one host at different paths (ledger 17c exists
+    // for exactly that). Comparing origins only would call these a Retry and
+    // re-open #225 for subpath-mounted planes, so the path is part of the key.
+    expect(isSamePlaneRetry({ stored: "https://plane.test/subshell", target: "https://plane.test" })).toBe(false);
+    expect(isSamePlaneRetry({ stored: "https://plane.test", target: "https://plane.test/subshell" })).toBe(false);
+    expect(isSamePlaneRetry({ stored: "https://plane.test/subshell/", target: "https://plane.test/subshell" })).toBe(
+      true,
+    );
+  });
+
+  it("ignores a query string, which is a spelling accident and not a plane", () => {
+    // `normalizeServer` persists the search of what was typed, so a stored
+    // address can carry one; nothing ever dials off it, so it does not
+    // distinguish planes.
+    expect(isSamePlaneRetry({ stored: "https://plane.test/?from=link", target: "https://plane.test" })).toBe(true);
+  });
+
+  it("falls back to text equality when an address will not parse", () => {
+    // Unparseable stored residue must NOT be waved through as same-plane.
+    expect(isSamePlaneRetry({ stored: "not a url", target: "https://plane.test" })).toBe(false);
+    expect(isSamePlaneRetry({ stored: "Not A URL", target: "not a url" })).toBe(true);
   });
 });
 
@@ -184,6 +239,15 @@ describe("registerSteps", () => {
     expect(states("form", probe({ step: "not-enrolled" }))).toEqual(["done", "pending", "pending"]);
     expect(states("form", enrolled("stopped"))).toEqual(["done", "done", "pending"]);
     expect(states("form", enrolled("online"))).toEqual(["done", "done", "done"]);
+  });
+
+  it("keeps the Enroll row honest when the stored config names a different plane (#225)", () => {
+    const rowStates = (target: string) => registerSteps(enrolled("stopped"), "form", null, target).map((r) => r.state);
+    // The chain WILL re-enroll here, so the row cannot claim the act is done.
+    expect(rowStates("https://other.test")).toEqual(["done", "pending", "pending"]);
+    // Same plane (spelling aside) and the empty-target default keep today's done.
+    expect(rowStates("https://plane.test/")).toEqual(["done", "done", "pending"]);
+    expect(rowStates("")).toEqual(["done", "done", "pending"]);
   });
 
   it("lets the act in flight outrank the probe, so nothing reads done while it is running", () => {

@@ -200,8 +200,45 @@ const PHASE_ACT: Record<RegisterPhase, number> = {
   done: REGISTER_ACTS.length,
 };
 
+/**
+ * Whether the register chain's enroll-skip is a same-plane Retry (issue 225).
+ *
+ * The skip exists so a Retry after the SERVICE act failed does not mint a
+ * second node row on the plane that just accepted this machine. It was
+ * answered by any stored `nodeId`, which also rode over a machine whose
+ * config belonged to a DIFFERENT plane: the chain started the service, the
+ * service dialed the old plane, and "registered" described a node that never
+ * connected. So the skip now claims what it always meant: THIS machine, THIS
+ * plane, act already done.
+ *
+ * Unprovable claims keep today's skip: an empty target is the spent-key
+ * Retry whose `validate()` refusal would otherwise dead the button, and no
+ * stored address is nothing to compare against.
+ */
+export function isSamePlaneRetry(args: { stored: string | null | undefined; target: string }): boolean {
+  const target = args.target.trim();
+  const stored = args.stored?.trim() ?? "";
+  if (target === "" || stored === "") return true;
+  const planeKey = (url: string): string | null => {
+    try {
+      const parsed = new URL(url);
+      // Path stays (subpath-mounted planes are different planes, ledger 17c);
+      // the query DROPS deliberately: `normalizeServer` persists whatever
+      // search was typed at enroll, and nothing dials off it, so a link's
+      // `?from=` must not turn a same-plane Retry into a re-enroll.
+      return `${parsed.protocol}//${parsed.host.toLowerCase()}${parsed.pathname.replace(/\/+$/, "")}`;
+    } catch {
+      return null;
+    }
+  };
+  const storedKey = planeKey(stored);
+  const targetKey = planeKey(target);
+  if (storedKey !== null && targetKey !== null) return storedKey === targetKey;
+  return stored.toLowerCase() === target.toLowerCase();
+}
+
 /** Whether the machine already shows the effect of one act, so the chain will skip it. */
-function alreadyTrue(probe: Probe | undefined, id: RegisterRow["id"]): boolean {
+function alreadyTrue(probe: Probe | undefined, id: RegisterRow["id"], targetServer: string): boolean {
   if (!probe) return false;
   switch (id) {
     // The same test the chain itself branches on (spec § 6.1): it installs
@@ -209,7 +246,7 @@ function alreadyTrue(probe: Probe | undefined, id: RegisterRow["id"]): boolean {
     case "install":
       return probe.step !== "no-node";
     case "enroll":
-      return probe.status?.nodeId != null;
+      return probe.status?.nodeId != null && isSamePlaneRetry({ stored: probe.status.serverUrl, target: targetServer });
     case "start":
       return probe.step === "online";
   }
@@ -237,11 +274,14 @@ function alreadyTrue(probe: Probe | undefined, id: RegisterRow["id"]): boolean {
  * @param probe - the machine, `undefined` before the first read
  * @param phase - which act the chain is running
  * @param failed - the act that failed, if one did; later rows never advance past it
+ * @param targetServer - the server field at the press; the Enroll row reads it so a
+ *   cross-plane re-enroll the chain WILL run does not show as already done (issue 225)
  */
 export function registerSteps(
   probe: Probe | undefined,
   phase: RegisterPhase,
   failed: RegisterRow["id"] | null = null,
+  targetServer = "",
 ): RegisterRow[] {
   // `?? -1` rather than an assertion: a phase this build predates should show
   // an untouched checklist, not throw inside a render.
@@ -250,7 +290,7 @@ export function registerSteps(
   return REGISTER_ACTS.map((act, index) => ({
     id: act.id,
     label: act.label,
-    state: actState({ index, running, failedAt, satisfied: alreadyTrue(probe, act.id) }),
+    state: actState({ index, running, failedAt, satisfied: alreadyTrue(probe, act.id, targetServer) }),
   }));
 }
 

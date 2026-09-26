@@ -515,7 +515,7 @@ export function App() {
           <ProgressScreen
             shell={shell}
             busy={runner.busy}
-            rows={registerSteps(probe, phase, failedAct)}
+            rows={registerSteps(probe, phase, failedAct, form.values.server)}
             failureOutput={failedAct ? runner.output?.stderr || runner.output?.stdout || "" : ""}
             done={phase === "done"}
             // The walk ends HERE rather than when the last act returned: the
