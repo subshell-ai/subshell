@@ -63,18 +63,34 @@ suspense.
 - Quoted UI labels and error strings are transcribed exactly as the code
   prints them.
 
+## The opener (the rule that most often gets broken)
+Every page begins with exactly one plain sentence that says what the page
+does. The sentence names the task, not the reader, and stops there.
+- No "By the end you'll have..." or "In this guide you will learn..." rollup.
+  A preview list of outcomes is a defect.
+- No alternatives, links, or "the other methods are..." in the opener. Those
+  go at the bottom.
+- No platform or requirement detail in the opener; that belongs under
+  **Before you start**.
+- Good: "Install Subshell Server on an x86-64 or arm64 Linux machine, start it
+  as a background service, and open its setup page in a browser."
+- Bad: "Install the server and reach its setup page. By the end you have the
+  binary, a service, and a browser tab. You can use Linux. The other methods
+  are macOS, the desktop app, and Docker."
+
 ## Page shape
+- One task or one thing per page. If a page serves two jobs or three
+  platforms, split it. If two pages answer one question, merge them. How-tos
+  run a few hundred words; a page that needs a caveats scroll moves the depth
+  to a Reference or Concepts page with a pointer left behind.
 - Frontmatter: keep `title` and `description` (both required; quote YAML
   values containing ": "). A description is a plain one-liner.
-- First paragraph: what this page covers, one to three neutral sentences. No
-  throat-clearing, no "In this guide...".
-- Where the page states requirements, collect them under **Prerequisites**
-  before the steps.
+- The opener (above), then **Before you start** for requirements, then the
+  steps, then **Notes** for caveats, then **Next steps** / related links.
 - Ordered actions become numbered steps, one action each; when a step changes
   what the reader sees, the result follows as a plain sentence.
-- A page may reorder its own content for clarity (caveats later, the working
-  path first). Content never moves to another page, and no page is created,
-  deleted, or merged.
+- End a how-to with what the reader should be able to do, or a single next
+  step, so the page has a clean finish line.
 - GitHub alerts: `warning` for data loss or security, `important` for what a
   reader must not miss, `note`/`tip`/`caution` sparingly. Every alert gets a
   neutral title.

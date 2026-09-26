@@ -1,0 +1,56 @@
+---
+title: Install on Linux
+description: "Install Subshell Server on a Linux machine, run it as a service, and open its setup page."
+---
+
+Install Subshell Server on an x86-64 or arm64 Linux machine, start it as a background service, and open its setup page in a browser.
+
+## Before you start
+
+- A Linux machine you can sign in to, x86-64 or arm64.
+- A browser on that machine, or on another device on the same network.
+
+## Install and start the server
+
+1. Open a terminal on the machine that will run the server and run the install script:
+
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/subshell-ai/subshell/main/install-server.sh | bash
+   ```
+
+   The script finds your platform, downloads the newest `cli-server` release, and checks the download against the release's published `.sha256` digest before it runs anything. It installs the binary to `~/.local/bin/subshell-server` and starts `subshell-server init`.
+
+2. `init` asks for the port, address, base URL, extra trusted origins, and database path. Each question has a default, so you can press Enter through them.
+
+3. Answer the last question, which decides how the server runs:
+
+   ```
+   Run Subshell Server in the background and start it at login?
+   ```
+
+   Choose **Yes**. This installs a per-user systemd service, with no sudo. `--yes` and non-interactive runs take Yes automatically.
+
+4. When `init` finishes, it prints the address to open:
+
+   ```
+   Open http://localhost:3080/setup in a browser to create the admin account.
+   ```
+
+## Open the setup page
+
+Open that address in a browser and create the first account. That first account is the administrator.
+
+> [!warning] Do this before others can reach the machine
+> The setup page is public until the first account exists, so you can create one. On a shared network, anyone who opens the page before you creates the administrator account instead.
+
+With the account created, continue to [Your first subshell](first-subshell).
+
+## Notes
+
+- `init` stores its settings in `~/.config/subshell-server/config.env` and generates the sign-in secret once. A second run keeps the existing secret.
+- To reach the server from another machine, browse to an address that machine can reach and that the instance trusts. [Networking and addresses](/server/networking) explains which addresses a browser can sign in from.
+- If something looks wrong, run `subshell-server status` first. It reports the active settings, whether tmux and the port are up, and whether the admin account exists, and it does this without starting anything.
+
+## Other install methods
+
+[Install on macOS](install-macos) · the [desktop setup app](/server/desktop-app) · [Docker](/server/docker)
