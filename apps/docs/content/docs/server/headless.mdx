@@ -1,0 +1,109 @@
+---
+title: Install by hand
+description: "Put a control plane on a box you only reach over SSH: the install script or a plain download, init, and the first URL."
+---
+
+Install Subshell Server on a machine you reach only over SSH, configure it from the terminal, and finish the setup in your own browser.
+
+## Before you start
+
+- A Linux or macOS machine you can sign in to over SSH. The published targets are `linux-x64`, `linux-arm64`, `darwin-arm64`, and `darwin-x64` (Intel Macs); a machine outside these is refused by name.
+- The machine must stay up after your SSH session closes. The service install in `init` handles that; see the notes below.
+- Your own browser, on a different machine, for the setup page at the end. A browser is never needed on the server itself.
+
+## Run the install script
+
+From a fresh shell on the machine that will host the server:
+
+```bash
+curl -fsSL https://subshell.sh/install-server.sh | bash
+```
+
+The script detects your platform, finds the newest `cli-server-vX.Y.Z` [GitHub release](https://github.com/subshell-ai/subshell/releases), and downloads `subshell-server-cli-<triple>`. It verifies the release's `.sha256` before the file is ever made executable: nothing it downloaded can run until its bytes match the published digest, and a mismatch removes the download and stops. It installs the binary to `~/.local/bin/subshell-server`, naming it what the service definition expects, and tells you if that directory is not on your `PATH`. It then runs `subshell-server init`. The piped script itself asks nothing; every question belongs to `init`, which reattaches to your terminal.
+
+## Answering the prompts ahead of time
+
+A piped command takes no arguments, so the questions have environment-variable spellings. Set any of these before the one-liner and the matching prompt never appears:
+
+| Variable | Effect |
+|---|---|
+| `SUBSHELL_SERVER_PORT` | the port, as `init --port` |
+| `SUBSHELL_SERVER_HOST` | the bind address, as `init --host` |
+| `SUBSHELL_SERVER_BASE_URL` | the public base URL, as `init --base-url` |
+| `SUBSHELL_SERVER_TRUSTED_ORIGINS` | extra browser origins, as `init --trusted-origins` |
+| `SUBSHELL_NO_SERVICE=1` | skip the service question: nothing is registered with the service manager |
+| `SUBSHELL_SERVER_VERSION` | install this exact `X.Y.Z` instead of the newest release |
+| `SUBSHELL_SERVER_RELEASE_API` / `SUBSHELL_SERVER_RELEASE_BASE` | where to look for the release list and the assets: an internal mirror, or an air-gapped copy |
+
+The database path is the exception: it keeps its default unless you run `init --db-path` yourself.
+
+Under `--yes`, or on a non-interactive run (piped stdin, no TTY), every question takes its default instead. The service question's default is yes.
+
+## What `init` does, in order
+
+`init` is the whole setup sequence, not just a config write:
+
+1. **The tmux preflight.** The control-plane host launches its own panes through tmux, so `init` refuses before writing anything when tmux is missing. An interactive run gets one chance to install it on the spot (`brew install tmux` on macOS, `apt-get`/`dnf` on Linux) and then continues where it left off. A refused init leaves nothing behind.
+2. **The config home.** It creates `~/.config/subshell-server` (0700) and `config.env` (0600), generating a `BETTER_AUTH_SECRET` of 32 random bytes exactly once. A second run keeps whatever is there, so init is safe to repeat.
+3. **The configuration questions:** port, bind address, base URL, extra origins, database path. Each shows its default, so Enter is a valid answer. [Configuration](/server/configuration) explains who else can write these five keys and what outranks what.
+4. **The service question:**
+
+   ```
+   Run Subshell Server in the background and start it at login?
+   ```
+
+   Yes installs a per-user service: a systemd user unit on Linux, a launchd agent on macOS, no sudo. On Linux the installer also checks whether your account lingers, and prints the fix only when it is missing: without lingering, the server dies at logout and never comes back after a reboot with nobody logged in. [Service and autostart](/server/service) covers both managers in depth.
+5. **The handoff.** It ends by naming the address:
+
+   ```
+   Open http://localhost:3080/setup in a browser to create the admin account.
+   ```
+
+   If your configuration means people will browse from other machines, `init` says so here too and prints the exact `subshell-server configure --trusted-origins <address>` line to run. Without that entry the failure is a 403 that names nothing. See [Networking and addresses](/server/networking).
+
+> [!warning] Open the setup page promptly
+> The setup endpoints are public until the first account exists: that is what lets you create it. On a LAN that is a race, and the window closes as soon as anyone completes it. On a network you do not own, bind loopback or set the addresses before first boot.
+
+## Read the first boot from the terminal
+
+Before you browse anywhere, take the first `status` read:
+
+```bash
+subshell-server status
+```
+
+It prints what this host would boot with, without booting anything: the `config.env` path and the layer each setting came from (the secret shown only as set-or-missing), tmux presence, the resolved MCP entrypoint, whether the port is already answering, whether a service definition is on disk, and whether the admin account has been created yet. It is the first thing to run whenever something looks wrong, and `--json` feeds the same view to scripts.
+
+## Finish in your browser
+
+Open the address `init` named, from your own machine rather than the box. Create the admin account, add an agent CLI, and launch your first subshell; [Your first subshell](/get-started/first-subshell) continues from there. If sign-in answers 403 "Invalid origin", the browser is using a name the instance does not know, and [Networking and addresses](/server/networking) explains the fix.
+
+## Install without the script
+
+The same two files can be fetched by hand; no script runs on your machine. Download `subshell-server-cli-<triple>` and its `.sha256` from the [release page](https://github.com/subshell-ai/subshell/releases). The example below uses `darwin-arm64`; the `cli` in the name marks the bare binary, not the desktop app that wraps it:
+
+```bash
+gh release download cli-server-vX.Y.Z -p 'subshell-server-cli-darwin-arm64*'
+```
+
+The `.sha256` sidecar is a bare 64-hex digest, not the `<hash>  <name>` line that checksum tools expect. Pair the two yourself:
+
+```bash
+printf '%s  %s\n' "$(cat subshell-server-cli-darwin-arm64.sha256)" \
+  subshell-server-cli-darwin-arm64 | shasum -a 256 -c -
+```
+
+Then install and initialize. `status` after `init` is the same first-boot read described above:
+
+```bash
+install -m755 subshell-server-cli-darwin-arm64 ~/.local/bin/subshell-server
+subshell-server init
+subshell-server status
+```
+
+## Other pages
+
+- [Get started](/get-started): the taught first-run path
+- [Install with the desktop app](/server/desktop-app): the same binary, wrapped in a window
+- [Run in Docker](/server/docker): the container deployment
+- [subshell-server CLI](/reference/server-cli): every verb `init` uses

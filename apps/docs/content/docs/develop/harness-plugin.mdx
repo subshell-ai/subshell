@@ -1,13 +1,20 @@
 ---
-title: Writing a Harness Plugin
+title: Write a harness plugin
 description: "Build a harness plugin that drives a new agent CLI: the manifest, the factory, the capability model, and two binding rules."
 ---
 
-A harness plugin teaches Subshell how to drive one agent CLI in a pane: how to build its launch command, how to register the agent's MCP connection to [The subshell mcp Server](/automation/mcp-server), and what its preset settings mean. Six harness plugins ship built in (Claude Code, Codex, OpenCode, Hermes, pi, and Terminal), and they are the worked examples this page points at. Everything here also holds for the Terminal plugin, which drives no agent at all. The sibling page [Writing a Network Plugin](/develop/network-plugin) covers the one family that implements a different interface.
+Build a harness plugin that teaches Subshell how to drive a new agent CLI in a pane.
+
+A harness plugin handles one agent CLI: how to build its launch command, how to register the agent's MCP connection to [The MCP server](/automation/mcp), and what its preset settings mean. Six harness plugins ship built in (Claude Code, Codex, OpenCode, Hermes, pi, and Terminal), and they are the worked examples this page points at. Everything here also holds for the Terminal plugin, which drives no agent at all. The sibling page [Write a network plugin](/develop/network-plugin) covers the one family that implements a different interface.
+
+## Before you start
+
+- A CLI for one coding agent, or a program that runs in a pane and needs no agent.
+- Node tooling for a bundler: the build's output must import nothing but node builtins.
 
 ## Runtime imports
 
-A plugin cannot import anything of Subshell's at runtime. It is loaded from disk by a compiled binary, which has no `node_modules` beside it, so a bare specifier does not resolve. Everything the host lends you arrives through a `PluginHost` handed to your factory, and your build must inline `@subshell-ai/plugin-api` rather than leave it as an import. That single constraint explains the whole shape below, and it is why the [Architecture](/develop/architecture) map shows the plugin machinery split between a published contract package and a host-side loader.
+A plugin cannot import anything of Subshell's at runtime. It is loaded from disk by a compiled binary, which has no `node_modules` beside it, so a bare specifier does not resolve. Everything the host lends you arrives through a `PluginHost` handed to your factory, and your build must inline `@subshell-ai/plugin-api` rather than leave it as an import. That single constraint explains the whole shape below, and it is why the [Architecture](/concepts/architecture) map shows the plugin machinery split between a published contract package and a host-side loader.
 
 ## Plugin identity in `package.json`
 
@@ -85,7 +92,7 @@ export default createPlugin;
 
 A plugin declaring `resume` without a `resume` object is refused at load, not ignored. The alternative would be a restart that silently begins a fresh conversation where it meant to continue. The applicable set follows the manifest's `type` as well. A harness declaring the network-plugin capability `publish` is refused by name, because a silently dropped capability leaves what it implements unreachable with nothing said.
 
-## MCP registration: three dialects plus manual
+## MCP registration: four dialects
 
 How the `subshell mcp` child gets spawned is each plugin's dialect decision, not a backend special case. Your `mcpRegistration` returns what the harness needs to find the server, and the host does the writing:
 
@@ -100,7 +107,7 @@ Whatever the dialect, `buildCommand` consumes only the registration's `args`; th
 
 A plugin never hard-codes a program to run on the pane's machine. Anything a hook needs to execute arrives from the host as `reporter: { command, args }` on the build input: the subshell binary that launched the pane, resolved for that machine, with the reporting subcommand already appended, so you add only your own verb words. A plugin handed no `reporter` omits the feature rather than guessing. This rule exists because the hooks shipped once as `bun -e '…'`, which was true of a container image and false of every desktop install. A harness that cannot start because its plugin named a program the machine does not have is a plugin bug, not a host bug.
 
-The same discipline runs through the host object. You get `findBinary` / `detectBinary` (the host's lookup ladder, never a `which` of your own), `probeVersion`, `run` (bounded, allowlisted environment, refuses a non-absolute `argv[0]`), `secrets` (write-only), `log`, `platform`, and `homeDir`. The full surface is on [The Plugin API](/develop/plugin-api).
+The same discipline runs through the host object. You get `findBinary` / `detectBinary` (the host's lookup ladder, never a `which` of your own), `probeVersion`, `run` (bounded, allowlisted environment, refuses a non-absolute `argv[0]`), `secrets` (write-only), `log`, `platform`, and `homeDir`. The full surface is on [Plugin API](/develop/plugin-api).
 
 ## Build and test
 
@@ -115,9 +122,9 @@ const plugin = createPlugin(createTestHost());
 
 The package's own [README](https://github.com/subshell-ai/subshell/blob/main/packages/plugin-api/README.md) is the canonical author's reference; the complete plugin above is condensed from it.
 
-## See also
+## Other pages
 
-- [The Plugin API](/develop/plugin-api): the contract, the capability unions, and the version rule
-- [Publishing a Plugin](/develop/publish-a-plugin): how your plugin reaches an admin's install
-- [Agents](/agents): what the built-in plugins' harnesses look like from the user's side
-- [Architecture](/develop/architecture): where the loader and the plugin store live
+- [Plugin API](/develop/plugin-api): the contract, the capability unions, and the version rule
+- [Publish a plugin](/develop/publish-plugin): how your plugin reaches an admin's install
+- [Agents overview](/agents): what the built-in plugins' harnesses look like from the user's side
+- [Architecture](/concepts/architecture): where the loader and the plugin store live

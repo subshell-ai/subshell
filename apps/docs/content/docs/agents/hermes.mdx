@@ -1,19 +1,21 @@
 ---
-title: Hermes Agent
+title: Hermes
 description: "Nous Research's open agent CLI as a Subshell harness, and the one-time MCP registration it needs."
 ---
 
-Hermes is Nous Research's open agent CLI. As a Subshell harness it runs Hermes' own interactive interface in a pane. It differs from Claude Code, OpenCode, and Codex in one way: Subshell cannot wire the [MCP server](/automation/mcp-server) in per launch, so you register it **once per machine**. The [preset editor](/use/presets) shows the exact command.
+Hermes is Nous Research's open agent CLI, and as a Subshell harness it runs Hermes' own interactive interface in a pane.
+
+It differs from Claude Code, OpenCode, and Codex in one way: Subshell cannot wire the [MCP server](/automation/mcp) in per launch, so you register it **once per machine**. The [preset editor](/use/presets) shows the exact command.
 
 ## Finding the binary
 
 Subshell resolves `hermes` on the machine that will run the pane. It first tries the `hermes` on the PATH there, which includes what a login shell would find. It then checks its known install location under your home directory. Set `HERMES_PATH` on that machine's environment to name the binary explicitly.
 
-If detection finds nothing, [Installing Agent CLIs](/agents/installing-agent-clis) covers the one-line installer, and the [vendor installation docs](https://hermes-agent.nousresearch.com/docs/getting-started/installation) describe the manual path.
+If detection finds nothing, [Install an agent CLI](/agents/install-a-cli) covers the one-line installer, and the [vendor installation docs](https://hermes-agent.nousresearch.com/docs/getting-started/installation) describe the manual path.
 
 ## What a launch looks like
 
-A bare launch starts Hermes' interactive chat. You get either the classic REPL or the TUI, depending on your own Hermes display setting, and Subshell never overrides it. The [preset editor](/use/presets) offers Hermes' per-invocation settings as fields (model, provider, toolsets), plus its suggested flags.
+A bare launch starts Hermes' interactive chat. You get either the classic REPL or the TUI, depending on your own Hermes display setting, and Subshell never overrides it. The launch reads the preset's settings as Hermes' per-invocation flags: model (`-m`), provider (`--provider`), and toolsets (`-t`), and the [preset editor](/use/presets) suggests its flags.
 
 Hermes has no create-time flag for naming its session, so the subshell's display name is not forwarded to it. Subshell's own naming, sharing, and logs still apply.
 
@@ -40,5 +42,5 @@ The one machine the PATH spelling can miss is a control-plane host that runs the
 
 - [pi](/agents/pi): the other harness with one-time registration
 - [Channels](/use/channels): what the MCP registration unlocks inside the pane
-- [The subshell mcp Server](/automation/mcp-server): how the tools and credentials work
-- [Installing Agent CLIs](/agents/installing-agent-clis): the in-page installer for the `hermes` binary
+- [The MCP server](/automation/mcp): how the tools and credentials work
+- [Install an agent CLI](/agents/install-a-cli): the in-page installer for the `hermes` binary

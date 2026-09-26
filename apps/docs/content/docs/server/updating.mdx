@@ -1,9 +1,11 @@
 ---
-title: Updating the Server
-description: Moving the control plane to a new version (from the page, the CLI, or the desktop app), and how a bad one rolls itself back.
+title: Update the server
+description: "Moving the control plane to a new version from the page, the CLI, or the desktop app, and how a bad one rolls itself back."
 ---
 
-The control plane updates by replacing its own binary and letting the new binary finish the job at its first boot, or undo it. Every path (the dashboard page, the CLI, the Subshell Server desktop app) drives the same transaction, so the behavior you read here is the behavior you get wherever you pressed the button.
+Move the control plane to a newer version and see how the update finishes or undoes itself.
+
+Every path (the dashboard page, the CLI, the Subshell Server desktop app) drives the same transaction, so the behavior you read here is the behavior you get wherever you pressed the button.
 
 ## Check first
 
@@ -62,7 +64,7 @@ The whole network side is one variable: an empty `SUBSHELL_RELEASE_URL` (the air
 ## See also
 
 - [Backups](/server/backups): the snapshot every upgrade takes, and how to take one by hand
-- [Updating a Node](/nodes/updating): the same transaction shape on the machines that run agents
+- [Update a node](/nodes/updating): the same transaction shape on the machines that run agents
 - [subshell-server CLI](/reference/server-cli): the full `update` usage block
-- [Running as a Service](/server/service): the service definition whose file the updater replaces
+- [Service and autostart](/server/service): the service definition whose file the updater replaces
 - [The full threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#1112-updates): the complete accounting for what updating costs

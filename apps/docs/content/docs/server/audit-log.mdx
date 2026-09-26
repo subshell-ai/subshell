@@ -1,7 +1,9 @@
 ---
-title: Audit Log
+title: Audit log
 description: "The instance's record of consequential acts, such as installs, role changes, restarts, and repoints, and what each row names."
 ---
+
+Read the instance's record of consequential acts, and see what each row names.
 
 The audit trail answers who did what to your instance, and when. Every consequential act writes a row containing **who** (the admin's user id, or `null` when the server itself acted), **what** (a machine-readable action name like `user.role_change`), **to which target** (its kind and id), **context** (per-action metadata), and **when**. Writing is best-effort by design: if the audit insert itself fails, the act it describes still completes. A logging problem never undoes or blocks an operator's action.
 
@@ -16,7 +18,7 @@ Not every request, only acts. The families:
 
 - **People.** Accounts created, role changes (with the before and after), password resets, and disable or enable. A password reset records that it happened and how many sessions it cut, never the password, in any form. Approval-queue decisions carry their own rows: approve and reject each name the arriving account and which provider it came through.
 - **The instance's own switches.** Flips of registration (the trail still spells this by its old settings key, even though the answer now lives on the E-mail provider's row), of node-enrollment permission, of the instance display name, and of debug logging. Each is audited only on a real change, with the old and new values, so the log reconstructs decisions rather than page visits.
-- **Sign-in providers.** Creates, updates (which fields moved, and the issuer), and removals. The client secret is never recorded. See [Sign-in Providers](/server/sign-in-providers).
+- **Sign-in providers.** Creates, updates (which fields moved, and the issuer), and removals. The client secret is never recorded. See [Sign-in providers](/server/sign-in-providers).
 - **Credentials.** System API keys created, enabled, disabled, and deleted; node setup keys created and revoked. Plaintext never appears: setup-key rows name the key's id and nothing else. An admin revoking someone else's key is the one row in that family with context: `{ foreign: true, ownerUserId }`, so the trail records whose key the admin revoked. Ids, never the key text.
 - **Subshell lifecycle.** Create, restart, terminate, delete.
 - **Nodes.** Enroll, delete, rename, key rotation, directory-allowlist changes, share changes, service verbs (start, stop, restart, install, uninstall, with whether `force` was used), repointing to another control plane (the row names the new address, which is the disclosure the act makes), logging toggles, maintenance flips, and binary updates. A maintenance row can carry a `null` actor: that is the machine's own `subshell maintenance on|off`.
@@ -28,12 +30,12 @@ Not every request, only acts. The families:
 ## What is not recorded
 
 - **Reads and re-checks.** Nothing that changes state earns a row. That includes the Updates page's Re-check button, so the `server.update` rows stay easy to find.
-- **Request lines.** Those belong to the log file, not this table (see [Logs & Debugging](/server/logs-debug)). Even there they stay off unless debug logging is explicitly on.
+- **Request lines.** Those belong to the log file, not this table (see [Logs and debugging](/server/logs)). Even there they stay off unless debug logging is explicitly on.
 - **Secret values.** This is the row-writing discipline behind the whole table: rows name origins, keys, field names, counts, and before/after values for things that are not credentials, never a password, a token, or a secret. It is what makes the audit trail safe to screenshot, paste into an issue, or hand to whoever is helping you debug.
 
 ## See also
 
-- [Users & Roles](/server/users-roles): the acts on accounts that write the people rows
-- [Registration & Enrollment](/server/registration-enrollment): the switches whose flips you can trace here
-- [API Keys](/server/api-keys): why the plaintext your key showed you once is nowhere in this table
+- [Users and roles](/server/users): the acts on accounts that write the people rows
+- [Registration and enrollment](/server/registration): the switches whose flips you can trace here
+- [API keys](/automation/api-keys): why the plaintext your key showed you once is nowhere in this table
 - [The full threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#10-audit-and-observability): the event accounting, section by section

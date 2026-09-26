@@ -1,7 +1,9 @@
 ---
-title: Overview
-description: Network plugins connect the control plane to a mesh network and publish it there, described by the plugin and executed by the host.
+title: Network plugins overview
+description: "Network plugins connect the control plane to a mesh network and publish it there, described by the plugin and executed by the host."
 ---
+
+Connect this server to a private network and make it reachable there.
 
 A network plugin connects the machine your server runs on to one private network, and publishes Subshell on it. The point is the address. On the default bind, the server trusts only its own loopback spellings, so a phone or a second hostname sends an `Origin` nothing recognises and sign-in is refused with 403 "Invalid origin". Once a plugin has put this machine on your network, the address that actually answers becomes an address you can sign in from, with no hand-editing of a config file and no restart.
 
@@ -23,7 +25,7 @@ A network plugin describes; the host executes. A plugin builds an argument vecto
 - The child gets a fixed allowlist of environment variables, so neither the auth secret nor the database path rides along.
 - stdin starts closed so a prompt cannot hang the run, captured output is capped at 64 KiB per stream, and the clock is real: 30 seconds by default, extendable to ten minutes for a package manager that needs it.
 
-This is what keeps the properties the installers already had (admin-only, bounded, environment-allowlisted, audited) true of a plugin's code too. A plugin's commands are exactly as trusted as its install was, and installing one is the same trust decision as installing the CLI it drives: plugin code runs in the control plane's process, with that process's privileges and no sandbox. See [Security model](/about/security-model).
+This is what keeps the properties the installers already had (admin-only, bounded, environment-allowlisted, audited) true of a plugin's code too. A plugin's commands are exactly as trusted as its install was, and installing one is the same trust decision as installing the CLI it drives: plugin code runs in the control plane's process, with that process's privileges and no sandbox. See [Security model](/concepts/security-model).
 
 ## Privileged steps are printed, never run
 
@@ -56,7 +58,7 @@ A credential that has to survive restarts (the Cloudflare tunnel token) goes to 
 
 ## Who may act, and what is recorded
 
-Network acts are admin acts taken with your own sign-in: install, join, publish, unpublish, leave, and saving a plugin's settings all require an admin session, and a machine credential is refused. The instance's address list itself is deliberately readable by any signed-in user (see [Networking & Addresses](/server/networking)), but reading is all it grants.
+Network acts are admin acts taken with your own sign-in: install, join, publish, unpublish, leave, and saving a plugin's settings all require an admin session, and a machine credential is refused. The instance's address list itself is deliberately readable by any signed-in user (see [Networking and addresses](/server/networking)), but reading is all it grants.
 
 The long-running acts (install, join, publish) stream their progress, so a package manager or a `tailscale up` that takes half a minute shows what it is doing rather than appearing wedged. A refusal is an answer, not a crash: when the plugin can tell you what to do next, you get that sentence with the control still on screen.
 
@@ -70,7 +72,7 @@ The join fields, if the plugin has them, are a name for this machine on the netw
 
 ## See also
 
-- [Networking & Addresses](/server/networking): the allowlist a publish feeds, and the 403 it cures
-- [Server configuration](/server/configuration): where the operator's own extras and base URL live
-- [Build a network plugin](/develop/network-plugin): the contract this page describes, from the author's side
-- [Security model](/about/security-model): the posture these bounds sit inside; the full accounting is in [docs/security.md §11.13 on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#1113-network-plugins-publish-this-server-on-a-network)
+- [Networking and addresses](/server/networking): the allowlist a publish feeds, and the 403 it cures
+- [Configuration](/server/configuration): where the operator's own extras and base URL live
+- [Write a network plugin](/develop/network-plugin): the contract this page describes, from the author's side
+- [Security model](/concepts/security-model): the posture these bounds sit inside; the full accounting is in [docs/security.md §11.13 on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#1113-network-plugins-publish-this-server-on-a-network)

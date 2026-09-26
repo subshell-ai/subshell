@@ -3,13 +3,15 @@ title: Reset
 description: "Tear the instance down from its own machine: what a reset deletes, what it never touches, and the confirmation that gates it."
 ---
 
+Delete everything an instance has ever written, from its own machine, by the guarded assistant path or by hand.
+
 Reset is the one act that deletes everything the instance has ever written, so it is deliberately kept off the network: no page you serve can drive it. And, decided once and worth stating plainly, `subshell-server` has no reset command. The sequenced, guarded reset lives in the Subshell Server desktop assistant. A headless instance deletes its data by hand, and this page shows both paths.
 
 ## From the desktop app
 
 The dashboard's danger card on Settings is only a door: it raises the Subshell Server app's assistant to the reset screen. The remote page can name a screen, never a path, and never a command. Everything that follows happens on the bundled assistant page, on this machine.
 
-**What the screen shows before you can arm it:** every path the reset will delete. They are not a template. The assistant reads them from the server's own `status` report at that moment, the same list [Files & Paths](/reference/files-and-paths) describes: the database file, the pane logs, the node artifacts, the data directory, and the config home with its `config.env`. The report is taken all-or-nothing: a partial one refuses to arm at all, because deleting a subset and reporting success is worse than deleting nothing. The plan is held by the app for the whole chain: the sequence stops and uninstalls the very server whose report named the paths, so it cannot be re-asked afterward.
+**What the screen shows before you can arm it:** every path the reset will delete. They are not a template. The assistant reads them from the server's own `status` report at that moment, the same list [Files and Paths](/reference/files-and-paths) describes: the database file, the pane logs, the node artifacts, the data directory, and the config home with its `config.env`. The report is taken all-or-nothing: a partial one refuses to arm at all, because deleting a subset and reporting success is worse than deleting nothing. The plan is held by the app for the whole chain: the sequence stops and uninstalls the very server whose report named the paths, so it cannot be re-asked afterward.
 
 **The confirmation is typing this machine's hostname**, the same one the screen displayed, compared on the machine itself. Then two guards run before anything is deleted: every target must be an absolute path that is neither `/` nor your home directory, and any recursive delete that is or contains the installed server binary is refused outright. The binary at `~/.local/bin/subshell-server` survives; the config file does not, since it is one of the things deleted.
 
@@ -17,7 +19,7 @@ The dashboard's danger card on Settings is only a door: it raises the Subshell S
 
 **What no reset reaches:**
 
-- **Enrolled remote nodes.** Each keeps its node key and keeps running. It simply stops receiving commands, because the control plane it dialed is gone.
+- **Enrolled remote nodes.** Each keeps its node key and keeps running. It stops receiving commands, because the control plane it dialed is gone.
 - **A same-machine node.** The `subshell` daemon and its config belong to the node role, a different program with its own config home, and are untouched. Stop it yourself from Subshell Client, or with `subshell service stop` on that machine. Subshells running on other machines are not shut down by resetting this one; they live on their nodes' disks and die with their own panes.
 - **The installed binary**, by the containment guard above, and the Subshell Client app's own choices.
 
@@ -41,9 +43,9 @@ rm ~/.local/bin/subshell-server       # optional: nothing else removes the binar
 
 What remains after the reset is on the other machines: nodes still hold their keys, and there is no control plane left to call. You remove them on each machine with the [node CLI](/reference/node-cli); nothing on this host can reach them.
 
-## See also
+## Other pages
 
-- [Running as a Service](/server/service): what `service uninstall` stops, and the pane-safety rule around it
+- [Service and autostart](/server/service): what `service uninstall` stops, and the pane-safety rule around it
 - [Backups](/server/backups): the snapshot you should carry off-box first
-- [Files & Paths](/reference/files-and-paths): every path the report names, and what lives in it
+- [Files and paths](/reference/files-and-paths): every path the report names, and what lives in it
 - [The threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md): why destructive acts stay local on this posture

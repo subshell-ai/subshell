@@ -1,0 +1,90 @@
+---
+title: Contribute to Subshell
+description: "Set up the Subshell dev environment: the Bun monorepo, one watch command, and the verification checks every change must pass."
+---
+
+Set up the Subshell development environment, run the stack, and learn the loop every change goes through.
+
+The repository's operational document, [`AGENTS.md`](https://github.com/subshell-ai/subshell/blob/main/AGENTS.md), is the source of truth for everything here and for hundreds of details this page deliberately does not repeat, including release pipelines and the CI arrangement. Where this summary and `AGENTS.md` disagree, `AGENTS.md` is right.
+
+## Before you start
+
+- Bun installed. Bun is the package manager and the runtime throughout; the project does not use npm or pnpm.
+- A GitHub account, for the pull request and the one-time CLA signature.
+
+## Start the stack
+
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/subshell-ai/subshell && cd subshell
+   ```
+
+2. Install dependencies and start the watch loop:
+
+   ```bash
+   bun install
+   bun run start
+   ```
+
+   `bun run start` is `turbo watch dev`. It builds the workspace packages incrementally (`build:dev` via a hash runner), then runs both apps and restarts them when a package changes. The backend (API plus WebSocket) listens on :3080, and the SPA runs on Vite at :5174, proxying `/api` and `/ws`.
+
+3. Open `http://localhost:5174` in a browser. The first visit runs the setup assistant.
+
+## The tree and the vocabulary
+
+The three product words are the directory taxonomy: **server** (the control plane), **node** (a machine running agents), and **client** (a person's interface to a control plane). Reusing one word for two things is the style violation that bounces a PR:
+
+```
+apps/server/api        the control plane: subshell-server (Elysia + SQLite)
+apps/server/web        the SPA the server serves
+apps/server/desktop    Subshell Server (Tauri)
+apps/node/agent        the node daemon: subshell
+apps/client/desktop    Subshell Client (Tauri): also where a node is managed
+apps/client/mobile     the React Native companion
+apps/docs              these docs (the taxonomy's exception: it names no word)
+packages/              plugin-api, plugins/*, pane-runtime, mcp-core,
+                       subshell-protocol, backend-client (the type-safe SDK),
+                       backend-errors, tsconfig
+```
+
+Each app under `apps/*/*/` carries its own `AGENTS.md`. It loads for agents working there, and for that app it wins over any general rule.
+
+## The verification loop
+
+```bash
+bun run verify-types
+bun run lint:check
+bun run test
+```
+
+Run all three after any modification, not only when you feel confident.
+
+- `bun run lint` fixes; `bun run lint:check` verifies. `lint` runs biome with `--write` and rarely fails. `lint:check` is read-only, and it is the one that matters. The usual loop is fix, then check.
+- `bun run test` is TypeScript only. Anything under `crates/` or a desktop app's `src-tauri/` also requires `bun run rust:check`: fmt, clippy, and tests across all three Rust crates. `cargo check` alone misses formatting, and the app crates cannot build without a staged sidecar; that script handles the staging.
+- `bun run test:cli` compiles both binaries and drives them as an operator does. It is not part of `bun run test` because it builds ~150 MB of binaries. If you touch `init`, `configure`, `status`, `service`, either CLI's `update`, the node `setup`/`enroll` verbs, or the rendered `install.sh`, this suite is the only thing that answers whether the compiled versions work.
+- Changes under `packages/` need `bunx turbo build`. `verify-types` and the other checks run against source and stay green while the workspace build is broken. One trap has caused failures twice: adding a `node:*` import to a package barrel that the React Native app resolves through Metro, which cannot see node builtins. The mobile build then dies in CI while every local check passes.
+- Never test against the live instance, such as a dev :3080 you may have running. Scripted tests get their own backend on :3199 with a temp database, and the shared `bun test` suites stub service seams.
+
+Git hooks are wired by `bun install` (lefthook): `pre-commit` formats staged files, and `pre-push` runs `verify-types`, `lint:check`, `lint:licenses` and `lint:design` with no tests, so pushes stay fast. CI owns the test suite, so we recommend running `bun run test` yourself before pushing work you want green on the first try.
+
+## Standing project rules
+
+- Pinned versions. Every dependency in every `package.json` is exact, with no `^` or `~`. After `bun add`, run syncpack to strip prefixes, then reinstall. One exception is codified: bun never resyncs the `version` field it records per workspace in `bun.lock`, so `bun run lint:lockfile:fix` rewrites exactly that field and nothing else.
+- No dynamic imports. `await import()` breaks `bun build --compile`, so the repo uses static imports only. There is exactly one sanctioned exception, named in the rules: `packages/pane-runtime/src/plugin-runtime.ts`, where the bundler's blindness is the point, because a plugin installed after the binary was built must not be bundled into it. A second exception requires a design conversation.
+- File size and organization. Around 300–400 lines is the signal to split. A resource with several endpoints becomes a per-route directory (the API's `api/subshells/`, `api/channels/`, and `api/nodes/` are the shape). Tests live in `__tests__/` beside the code. New schemas use named constants, and properties that are not self-explanatory carry JSDoc, per the style rules in the repo.
+- Changesets carry the version bumps. After user-visible changes, run `bunx changeset` and name the app the user sees the change through: one of the four released components (`@internal/server`, `@internal/node`, `@internal/desktop-server`, `@internal/desktop-client`), or `@internal/docs` for site work. Never write one for an ignored package like `@internal/server-web`: the SPA ships embedded in the server binary, and a changeset naming an ignored package wedges the release version PR.
+- The CLA is signed once. Your first pull request signs the [contributor license agreement](https://github.com/subshell-ai/subshell/blob/main/CLA.md). A bot asks, you keep copyright, and the grant is what keeps the dual licensing possible (AGPL control plane, Apache everything else).
+
+For anything this page condenses, such as release cuts, the update pipeline, the desktop apps' ACL model, or the runner arrangement, [`AGENTS.md`](https://github.com/subshell-ai/subshell/blob/main/AGENTS.md) has the full text, usually with the incident that made it a rule. The security posture lives in [docs/security.md](https://github.com/subshell-ai/subshell/blob/main/docs/security.md), summarized on the site's [Security Model](/concepts/security-model).
+
+## Notes
+
+- The two Tauri desktop apps are deliberately not in `bun run start`: a `dev` task there would open a window on every developer's machine. They have their own root commands (`dev:desktop-server`, `dev:desktop-client`), which stage the sidecar binary each app wraps.
+- The docs site follows the same rule: it starts only with `bun run dev:docs`, on :3400.
+
+## Other pages
+
+- [Write the docs](/develop/write-docs): the docs-only loop (this site)
+- [Architecture](/concepts/architecture): what you are about to change
+- [subshell-server CLI](/reference/server-cli) and [subshell CLI](/reference/node-cli): the surfaces `test:cli` drives

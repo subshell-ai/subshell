@@ -1,7 +1,9 @@
 ---
-title: Sharing
-description: Grant another user view or edit access to a subshell, and what each level exposes.
+title: Share a subshell
+description: "Grant another user view or edit access to a subshell, and what each level exposes."
 ---
+
+Grant another user view or edit access to a subshell, and see exactly what each level exposes.
 
 A subshell is **private to its owner by default**: it is absent from every other user's lists, detail pages, logs, and terminal views. It is not hidden behind a refusal; it is absent, answered as "not found", so ids cannot be probed for existence. Sharing is a deliberate widening you grant, and this page states what it opens.
 
@@ -36,11 +38,11 @@ Because these exposures are invisible from looking at a terminal, the interface 
 The same icon mechanism also flags a subshell running on a [node](/nodes) its viewer does not own: what anyone types there transits that machine.
 
 > [!note] Node shares are a separate axis
-> Sharing a subshell says who may watch or drive it. Making a machine launchable for other people is a different grant, with its own semantics: even a `view` node share lets the grantee launch their own private subshells there. That model lives on [Sharing a Node](/nodes/sharing).
+> Sharing a subshell says who may watch or drive it. Making a machine launchable for other people is a different grant, with its own semantics: even a `view` node share lets the grantee launch their own private subshells there. That model lives on [Share a node](/nodes/sharing).
 
-## See also
+## Other pages
 
-- [Subshells](/use/subshells): what the grant operates on
+- [Launch and manage subshells](/use/subshells): what the grant operates on
 - [Devices](/use/devices): the presence list every attached device sees
 - [Notifications](/use/notifications): why pushes stay with you
-- [Security Model](/about/security-model): the posture these choices sit in, and the authoritative [threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md) it summarizes
+- [Security model](/concepts/security-model): the posture these choices sit in, and the authoritative [threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md) it summarizes

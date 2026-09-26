@@ -1,7 +1,9 @@
 ---
-title: Directory Allowlist
+title: Restrict directories
 description: "Restrict which folders subshells may be created on a node; an empty list means unrestricted."
 ---
+
+Restrict the directories where subshells may be created on a node.
 
 An allowlist is a node owner's list of the directories where subshells may be created on that machine. Launches inside one of the listed directories, or anywhere beneath it, are permitted; launches outside the set are refused. It is the one control that bounds what a [share](/nodes/sharing) actually confers: a share grants launch, and the allowlist decides where a launch can land.
 
@@ -31,9 +33,9 @@ Two consequences follow from the two checks.
 
 The folder picker a grantee uses is filtered to the allowed directories, and unfiltered for the owner, who browses precisely in order to choose what to permit. That filter is a courtesy, never the gate: the launch refusals are the gate. Do not read "I can browse it" as "I can launch there" for anyone, or the reverse.
 
-## See also
+## Other pages
 
-- [Sharing a Node](/nodes/sharing): the grant that makes this bound worth setting.
-- [Maintenance Mode](/nodes/maintenance): the wider switch, where nothing launches anywhere.
-- [Files and Paths](/reference/files-and-paths): where a node keeps its state, including its copy of the rules.
+- [Share a node](/nodes/sharing): the grant that makes this bound worth setting.
+- [Manage a node](/nodes/manage): the maintenance switch, where nothing launches anywhere.
+- [Files & Paths](/reference/files-and-paths): where a node keeps its state, including its copy of the rules.
 - [The threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#6-nodes): the semantics, the gate, and the double enforcement.

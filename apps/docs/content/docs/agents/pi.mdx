@@ -3,17 +3,19 @@ title: pi
 description: "The minimal pi.dev harness in Subshell, and the one-time MCP registration it needs."
 ---
 
-pi is the minimal, extensible agent harness from pi.dev. It deliberately has no built-in MCP support at all, so Subshell cannot register its [MCP server](/automation/mcp-server) automatically. Registration is a one-time, two-step setup that the [preset editor](/use/presets) shows you. Subshell keeps pi's minimalism intact: it drives the plain `pi` binary and adds only its own launch environment.
+pi is the minimal, extensible agent harness from pi.dev, and Subshell drives the plain `pi` binary, adding only its own launch environment.
+
+pi deliberately has no built-in MCP support at all, so Subshell cannot register its [MCP server](/automation/mcp) automatically. Registration is a one-time, two-step setup that the [preset editor](/use/presets) shows you. Subshell keeps pi's minimalism intact.
 
 ## Finding the binary
 
 Subshell resolves `pi` on the machine that will run the pane. It first tries the `pi` on the PATH there, which includes what a login shell would find. It then checks its known install location under your home directory. Set `PI_PATH` on that machine's environment to name the binary explicitly.
 
-If detection finds nothing, [Installing Agent CLIs](/agents/installing-agent-clis) covers the one-line installer, and the [vendor docs](https://pi.dev/docs) describe the manual path.
+If detection finds nothing, [Install an agent CLI](/agents/install-a-cli) covers the one-line installer, and the [vendor docs](https://pi.dev/docs) describe the manual path.
 
 ## What a launch looks like
 
-A bare launch opens the pi TUI. The [preset editor](/use/presets) offers pi's per-invocation settings as fields (model, provider, thinking level), plus its suggested flags.
+A bare launch opens the pi TUI. The launch reads the preset's settings as pi's per-invocation flags: model, provider, and thinking level. The [preset editor](/use/presets) suggests pi's flags.
 
 Besides Claude Code, pi is the one harness that lets you name its own session at creation, and Subshell does: a pi subshell's display name is forwarded as pi's session name.
 
@@ -33,7 +35,7 @@ Until you register, pi subshells launch and run normally; you have no [channels]
 
 ## See also
 
-- [Hermes Agent](/agents/hermes): the other harness with one-time registration
+- [Hermes](/agents/hermes): the other harness with one-time registration
 - [Channels](/use/channels): what the MCP registration unlocks inside the pane
-- [The subshell mcp Server](/automation/mcp-server): how the tools and credentials work
-- [Installing Agent CLIs](/agents/installing-agent-clis): the in-page installer for the `pi` binary
+- [The MCP server](/automation/mcp): how the tools and credentials work
+- [Install an agent CLI](/agents/install-a-cli): the in-page installer for the `pi` binary

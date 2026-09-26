@@ -1,0 +1,53 @@
+---
+title: Pick it up from your phone
+description: "Reach a running subshell from a phone or tablet, install it on the Home Screen, and get a push when the agent needs you."
+---
+
+Open the pane you launched at your desk from a phone or tablet, install it as a Home Screen app, and get a push when the agent needs you.
+
+## Before you start
+
+- A running instance with a subshell in it, from [Your first subshell](/get-started/first-subshell).
+- An address your phone can reach. The loopback URL from setup is only this machine's own spelling. A phone on your Wi-Fi signs in at the server's LAN address with nothing to configure, because the instance knows its own interface addresses. A name the machine answers to that is not one of its addresses, such as `.local` or a local DNS name, still needs a trusted-origin entry. The `403 "Invalid origin"` failure and the mesh options that fix it durably are in [Networking and addresses](/server/networking).
+
+## Sign in from the phone
+
+Browse to that address and sign in. The same web UI reshapes itself: the sidebar becomes a drawer, a workspace's grid becomes **tabs** (one subshell at a time, with finger-sized panes), and the terminal grows a key bar. A touch keyboard has no way to send `Esc`, `Ctrl-C`, `Tab`, or arrow keys, so the bar carries `Esc`, `^C`, `Tab` and `⇧Tab`, `⏎` and `⇧⏎` (newline), `/`, the four arrows, scroll-to-top/bottom, and an image-attach button. Everything else is the same pane you type into at the desk.
+
+## Install it on the Home Screen
+
+If you use Subshell on a phone or tablet, we recommend this install. In the sidebar, the **Subshell for Mobile** dialog lists every address this server accepts sign-ins from: its own, including the LAN addresses it discovers on its own interfaces, any you added under Settings, and every network it has joined. A QR code sits beside the one you pick. Addresses a phone could never dial are not listed at all; if none is left, the dialog says so where the QR would be and names what to do. Then the install is one gesture, per platform:
+
+| Platform | Steps |
+| --- | --- |
+| iPhone / iPad | Open the address in **Safari** (Chrome and Firefox on iOS can't install it) → Share → **Add to Home Screen** → Add |
+| Android | Open the address in Chrome → ⋮ → **Add to Home screen** → Install app |
+| Desktop browser | Chrome or Edge: the install icon at the right of the address bar, or ⋮ → Cast, save and share → **Install page as app**; Safari on macOS: **File → Add to Dock**; Firefox offers no install, so use a bookmark or pin the tab |
+
+The installed app opens fullscreen under its own icon. On Apple devices it is also how notifications arrive: iOS and iPadOS deliver web push only to an installed web app, never to a browser tab. Desktop and Android browsers can push to a plain tab; there, the install is about the fullscreen shell.
+
+## Watch the same pane
+
+A subshell's pane can be open on several screens at once, and every attached device announces itself. When at least two devices are attached, the terminal shows a **Devices** control listing each device's name, grid, attach time, whether it is rendering, and whether it may type. The phone in your pocket never shrinks anyone's terminal: a viewer whose page is not visible is listed but takes no part in sizing.
+
+One rule explains most sizing surprises: while a phone is rendering, the pane fits the smallest visible viewer, axis by axis, so a 4K monitor may show an 80-column terminal. The Devices list names which device holds the width and which holds the height. A bigger viewer just has spare room; a smaller one fits by shrinking its own text. [Devices](/use/devices) covers the exceptions, including pinning the size.
+
+## Get a push when the agent needs you
+
+Notifications tell you when the agent stops working without you: its turn is done (**Done, waiting for you**), it paused for a permission or an answer (**Needs your approval**), it exited, it crashed, or the machine it runs on was taken out for node maintenance. Only Claude Code can report `Needs your approval` through its native hooks; every other agent is covered by a fallback that treats 20 seconds of silence as a finished turn and never claims approval is needed, because it cannot know what the silence means.
+
+Two switches gate every push, and both must agree: your account-wide switch under Preferences → Notifications, and the subshell's own bell in its ⋯ menu (new subshells start with the bell on; the item reads **Mute notifications** while it rings and **Notify when done** while it is quiet). Pushes go only to the owner's devices, and sharing a subshell widens who can watch, never who receives a notification.
+
+On the phone: web push arrives only on a secure (https) address, and on iPhone only for an app **added to the Home Screen**. Plain `http://192.168.x.x:3080` still installs, but iOS will never deliver a notification to it; publishing the server behind a [network plugin](/server/network-plugins)'s https address fixes both at once. A tap opens that subshell's page, and a newer event for the same subshell replaces its earlier notification rather than stacking. [Notifications](/use/notifications) covers every event, the desktop app's own native notifications, and delivery details.
+
+## The native companion
+
+There is also a real React Native app in the repository, built with Expo. In plain terms, today that means it is a from-source project. The release pipeline publishes the server, the node CLI, and the two desktop apps; nothing mobile ships through it. The app's own docs say push cannot even be end-to-end tested without your own EAS project and Firebase credentials. If you are evaluating Subshell on a phone, the Home Screen app above is the supported path.
+
+What the companion adds, when built, is OS-level presence: push delivered with no browser in the chain, an app-icon badge, lock-screen actions, and a session credential kept in the Keychain (optionally gated behind Face ID) rather than in browser storage. It authenticates as the same kind of user your browser does: you type your server's address and sign in. It shows the subshell list, the launch form, and a live xterm pane, with the same "who else is watching" device strip as the web. It is not a second web app, and the app's docs forbid it from becoming one; it exists for those OS-level capabilities.
+
+## Next steps
+
+- [Add another machine](/get-started/add-a-machine): run agents on more than the server's box.
+- [Notifications](/use/notifications) and [Devices](/use/devices): the depth behind this page.
+- [Networking and addresses](/server/networking): making an address your phone can reach and sign in from.

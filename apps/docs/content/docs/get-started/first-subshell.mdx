@@ -1,21 +1,31 @@
 ---
-title: Your First Subshell
-description: Create the admin account, get an agent CLI detected, and launch a subshell from a folder.
+title: Your first subshell
+description: "Create the admin account, get tmux and an agent CLI onto the machine, and launch a subshell from a folder."
 ---
 
-The [Install the Control Plane](/get-started/install-server) page ends with an address: `http://localhost:3080/setup`. Everything from there happens in the browser. A launch needs only an agent and a folder. A fresh instance has no presets, and none are needed.
+Finish the browser setup that your install page ended with: create the admin account, add tmux and an agent to the machine, and launch a subshell you can type into.
+
+## Before you start
+
+- A running server and the address it printed, such as `http://localhost:3080/setup`. Everything from here happens in the browser.
+- Nothing else. A launch needs only an agent and a folder; a fresh instance has no presets, and none are needed.
 
 ## The five wizard screens
 
-**Create Your Account.** The first account on an instance becomes its admin. The setup endpoints are public only until that account exists, so on a shared network, open the URL before anyone else does. After the first account, sign-up is closed by default. An admin can reopen it later; see [Registration & Enrollment](/server/registration-enrollment).
+Open the `/setup` address. The wizard asks one thing per screen.
 
-**Connect a Network.** This step is optional, and skipping costs nothing. It offers mesh networks (Tailscale, Headscale, NetBird, Cloudflare Tunnel) so other devices can reach this server on an address that stays private, or gets published behind an Access gate. Every act on this screen is repeatable at Settings → Networking; see [Network plugins](/server/network-plugins).
+1. **Create Your Account.** Fill in the first account; it becomes the instance's administrator. After the first account, sign-up is closed by default, and an admin can reopen it later ([Registration and enrollment](/server/registration)).
 
-**Install tmux.** Every local pane runs inside tmux. This screen gates the wizard: **Continue** stays disabled until the check finds tmux, so on a machine that already has it the screen costs one press. Where the install command needs no password, such as Homebrew on macOS, the screen offers an **Install** button the server can run. Where it would need `sudo`, the server has no terminal to type the password into, so the screen prints a copyable command to run yourself. Inside the Subshell Server desktop app this screen does not appear, because the app's own assistant already covered tmux.
+   > [!warning] Open the page before anyone else does
+   > The setup endpoints are public only until the first account exists, and that is what lets you create it. On a shared network, whoever walks through the page first becomes the admin.
 
-**Add an Agent.** This screen answers one question live: what is on this machine? It lists one row per supported agent CLI (Claude Code, Codex, OpenCode, Hermes Agent, pi), each with a detected / not-found chip. A not-found row carries an **Install** button that runs the vendor's own install command on this machine, and the exact command is spelled out under the button before you press it. If nothing is installed yet, that is fine: a plain **Terminal** pane is always available with nothing to install, and you can add agents later under Settings.
+2. **Connect a Network.** This screen is optional, and skipping costs nothing. It offers mesh networks (Tailscale, Headscale, NetBird, Cloudflare Tunnel) so other devices can reach this server on an address that stays private, or published behind an Access gate. Every act here is repeatable under Settings, and [Network plugins](/server/network-plugins) and [Networking and addresses](/server/networking) explain them.
 
-**Start Your First Subshell.** The last screen embeds the launch form, already filled in: the server's own machine (its node row is named "Server" by default), an agent that was detected, and a starting directory. Change any of it or just press **Start**; you leave the wizard inside a running subshell. If you left the wizard early, reopen `/setup` and it resumes at the step you had reached.
+3. **Install tmux.** Every local pane runs inside tmux, and this screen gates the wizard: **Continue** stays disabled until the check finds tmux, so on a machine that already has it the screen costs one press. Where the install command needs no password, such as Homebrew on macOS, the screen offers an **Install** button the server can run. Where it would need `sudo`, the server has no terminal to type the password into, so the screen prints a copyable command to run yourself. Inside the Subshell Server desktop app this screen does not appear, because the app's own assistant already covered tmux.
+
+4. **Add an Agent.** This screen answers one question live: what is on this machine? It lists one row per supported agent CLI (Claude Code, Codex, OpenCode, Hermes Agent, pi), each with a detected or not-found chip. A not-found row carries an **Install** button that runs the vendor's own install command on this machine, and the exact command is spelled out under the button before you press it. If nothing is installed yet, that is fine: a plain **Terminal** pane is always available with nothing to install, and you can add agents later under Settings. See [Agents overview](/agents) and [Install an agent CLI](/agents/install-a-cli).
+
+5. **Start Your First Subshell.** The last screen embeds the launch form, already filled in: the server's own machine (its node row is named "Server" by default), an agent that was detected, and a starting directory. Change any of it or just press **Start**; you leave the wizard inside a running subshell. If you left the wizard early, reopen `/setup` and it resumes at the step you had reached.
 
 ## Launching from the dashboard any other time
 
@@ -25,15 +35,14 @@ Nothing is remembered between launches: the form starts fresh every time, and th
 
 ## The terminal page
 
-What opens is a live terminal into the pane, not a screenshot and not a log tail. You type, and the agent responds; resize the window and the pane resizes. Close the tab and the agent keeps working: the pane is a tmux session on the machine running it, not a child of your browser, and reopening replays you back into the live screen. This is what lets you start something before dinner and finish it from the couch. [Subshells](/use/subshells) covers statuses and restarts, and [Devices](/use/devices) covers who else is watching the same pane.
+What opens is a live terminal into the pane, not a screenshot and not a log tail. You type, and the agent responds; resize the window and the pane resizes. Close the tab and the agent keeps working: the pane is a tmux session on the machine running it, not a child of your browser, and reopening replays you back into the live screen. This is what lets you start something before dinner and finish it from the couch. [Launch and manage subshells](/use/subshells) covers statuses and restarts, and [Devices](/use/devices) covers who else is watching the same pane.
 
-## Terminate when it's done
+## Terminate when it is done
 
-Terminate kills the pane's tmux session and the harness with it, revokes that subshell's API token, and leaves the pane's log on disk. The row stays listed as terminated, and restarting it builds a fresh tmux session. The conversation is new unless your agent supports resuming one. Delete removes the row too. As owner, both actions are yours alone; [Sharing](/use/sharing) explains what `edit` grants do and do not include.
+Terminate kills the pane's tmux session and the harness with it, revokes that subshell's API token, and leaves the pane's log on disk. The row stays listed as terminated, and restarting it builds a fresh tmux session. The conversation is new unless your agent supports resuming one. Delete removes the row too. As owner, both actions are yours alone; [Share a subshell](/use/sharing) explains what `edit` grants do and do not include.
 
-## See also
+## Next steps
 
-- [Agents](/agents): what Subshell can drive and how each one plugs in
-- [Installing Agent CLIs](/agents/installing-agent-clis): per-agent install and auth notes
-- [Subshells](/use/subshells): the day-to-day lifecycle page
-- [Security Model](/about/security-model): what the trusted-network posture does and does not defend
+- [Pick it up from your phone](/get-started/from-phone): the same pane on a second device, plus push.
+- [Add another machine](/get-started/add-a-machine): run agents somewhere other than the server's box.
+- [Security model](/concepts/security-model): what the trusted-network posture this setup assumes does and does not defend.

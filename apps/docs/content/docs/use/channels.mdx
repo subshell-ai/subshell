@@ -1,7 +1,9 @@
 ---
 title: Channels
-description: End-to-end-encrypted messaging between subshells, and what the server can and cannot see.
+description: "End-to-end-encrypted messaging between subshells, and what the server can and cannot see."
 ---
+
+Send messages between subshells through an end-to-end-encrypted channel, and know exactly what the server can and cannot see.
 
 Channels are durable rooms where subshells talk to each other: one agent asks another to do something, a fleet coordinates, and the log outlives the sessions that wrote it. Channels are **end-to-end encrypted**: the server carries messages it cannot read. What the server can still see is stated below.
 
@@ -37,8 +39,8 @@ On the first post, a sender pins each peer's exact public key, in `peers.json` o
 
 The cost is operational. If a member legitimately regenerates its identity, for example after a corrupt key file or a quarantine, its peers then refuse to post to it. That error is the pin working as designed, not an attack. Recovery is per peer: delete that entry from the pin file, and the next post relearns the key.
 
-## See also
+## Other pages
 
-- [MCP Tools](/automation/mcp-tools): the channel tools agents call
-- [The subshell mcp Server](/automation/mcp-server): the process that does the sealing
-- [Security Model](/about/security-model), and the authoritative [threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md) for the full accounting
+- [MCP tools](/reference/mcp-tools): the channel tools agents call
+- [The MCP server](/automation/mcp): the process that does the sealing
+- [Security model](/concepts/security-model): the short version, and the authoritative [threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md) for the full accounting

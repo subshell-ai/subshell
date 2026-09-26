@@ -1,0 +1,31 @@
+---
+title: Troubleshooting
+description: "Start every diagnosis with the server's status report, then follow the symptom to the page that carries its fix."
+---
+
+Start every diagnosis with the server's status report, then follow the symptom to the page that carries its fix.
+
+## Start here: `subshell-server status`
+
+Before reading symptoms, run the point-in-time report on the control-plane host:
+
+```bash
+subshell-server status
+```
+
+It prints what the server would boot with, without booting anything. The report carries the version line, where `config.env` lives, and each setting with the layer its value came from (process environment, file, or default). When tmux is missing, it prints `tmux = NOT FOUND: install tmux (apt install tmux / brew install tmux)`. It also prints the resolved MCP entrypoint, the `node artifacts = 2/4 published` line, whether an admin account exists yet, whether the configured port is listening, and whether a service definition is installed at all. The auth secret appears masked, never in full. `status --json` gives the same facts for scripts. What each line means is in [Logs and debugging](/server/logs).
+
+The `service status` verb goes one layer deeper: it is what prints `teardown keeps panes = NO: this definition predates the fix; reinstall it before stopping or restarting`.
+
+## Which page has your symptom
+
+Every failure named on these pages is a refusal the software really prints, and every quoted string is transcribed from the code that emits it. If your screen shows something else, you have found something new, and you should report it on [Support](/help/support).
+
+| What you see | Its page |
+|---|---|
+| A 403 `Invalid origin`, a passkey that refuses off its one address, a production server that will not boot | [Sign-in and address errors](/help/sign-in) |
+| A launch refused offline, unreachable, or in maintenance; a node that never comes online; `program not found` | [Node and launch errors](/help/nodes) |
+| The install one-liner refusing; an app with no server binary; a refused restart; a crashed badge | [Install and update errors](/help/install-updates) |
+| tmux missing; the live terminal glitching on attach | [Pane and terminal issues](/help/panes) |
+
+Standing questions have their own page: [FAQ](/help/faq).

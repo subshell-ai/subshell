@@ -3,15 +3,17 @@ title: Presets
 description: "Saved launch settings per agent: environment variables, CLI flags, and auto-restart."
 ---
 
-A preset is saved launch settings for one agent: environment variables, command-line flags, and an auto-restart choice. It exists so "how I always run Hermes" is written once. The rule that shapes everything else: **a preset is always optional.** A launch needs only an agent and a folder. A fresh instance has zero presets and needs none, and every preset you make is deletable.
+A preset is saved launch settings for one agent: environment variables, command-line flags, and an auto-restart choice. It exists so "how I always run Hermes" is written once.
 
-## What the editor holds
+## What a preset holds
+
+The rule that shapes everything else: **a preset is always optional.** A launch needs only an agent and a folder. A fresh instance has zero presets and needs none, and every preset you make is deletable.
 
 Presets live on the Presets page, and the launch form carries a **+** that creates one with the agent you just picked already chosen. A preset's agent is fixed when it is created. The editor names it, then offers:
 
 - **Environment variables**: key/value rows. Each key must be a valid shell name; anything stranger is refused before storage, because these values reach the launch command. Useful variables for the current agent are suggested as you type.
 - **CLI flags**: each row is one option and its value; the pair is spliced into the agent's argv as stored.
-- **Auto-restart**: subshells launched from this preset are brought back automatically when their pane dies. The restart ladder and its give-up rule are on [Subshells](/use/subshells).
+- **Auto-restart**: subshells launched from this preset are brought back automatically when their pane dies. The restart ladder and its give-up rule are on [Launch and manage subshells](/use/subshells).
 
 Preset names must be unique per user and agent. Edits apply to the next launch; a running subshell keeps the settings it was started with.
 
@@ -40,8 +42,8 @@ Three of the built-in agents (Claude Code, opencode, and Codex) get Subshell's M
 
 Deleting a preset changes nothing that is already running: subshells launched from it keep running with the settings they started with, and restarting one falls back to launching without a preset. If a dead subshell's preset is gone, it starts again as a plain agent run.
 
-## See also
+## Other pages
 
-- [Subshells](/use/subshells): what auto-restart does when a pane dies
+- [Launch and manage subshells](/use/subshells): what auto-restart does when a pane dies
 - [Agents](/agents): what each agent's flags and variables mean
-- [Sharing](/use/sharing): who can watch, a different per-subshell control
+- [Share a subshell](/use/sharing): who can watch, a different per-subshell control

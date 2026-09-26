@@ -1,0 +1,52 @@
+---
+title: Publish a plugin
+description: "Ship your plugin where Subshell can install it: package naming, the registry flow, and what integrity proves."
+---
+
+Publish your Subshell plugin to a registry so an admin can install it into the control plane.
+
+A finished plugin is a normal npm package: the manifest in `package.json`, the bundled factory in `dist/`, published to a registry. An admin installs it into the control plane's one plugin store, and from there it arms every enrolled node. This page covers the rest of the path: naming, the publish-and-install flow, and the trust model from the author's side.
+
+## Before you start
+
+The plugin itself is built per [Write a harness plugin](/develop/harness-plugin) or [Write a network plugin](/develop/network-plugin): a manifest in `package.json` and a bundled factory at the path `subshell.entry` names.
+
+## Package naming and the plugin id
+
+`@subshell-ai/plugin-<id>` is the built-in namespace, the ten packages this repository ships. Third-party plugins publish under your own package name, and a scoped name of your choosing is the norm (`@you/plugin-mytool` in the [author's README](https://github.com/subshell-ai/subshell/blob/main/packages/plugin-api/README.md)). Nothing resolves your package by name:
+
+- The package name is what the registry serves. Any valid npm name works.
+- The manifest `subshell.id` is the authority for everything else. It names the plugin's directory in the store and keys presets, launches, and enable state. An install of `@you/plugin-mytool` whose manifest says `"id": "mytool"` lands at `plugins/mytool/` in the control plane's plugin directory.
+- An install whose id collides with a directory another package already wrote is refused, naming both packages: two packages never fight over one directory. The operator uninstalls first and sees why in the refusal.
+
+Publish `dist/` and your icon in `files`, keep `subshell.entry` a relative path inside the package, and pin nothing about your consumer; your build already inlined `@subshell-ai/plugin-api` (see [Plugin API](/develop/plugin-api)).
+
+## The install flow
+
+Installing is an admin act on **Settings → Plugins**. There is a name/spec field, and anything the build does not carry ships an npm spec: `@you/plugin-mytool`, pinned to `@1.2.3`, or tagged `@latest`. Version ranges are refused at parse, not half-resolved. The dialog states your code's reach before confirming. The write itself uses the same admin-only, bearer-refused, audited door as every other plugin act, and it is audited after the bytes land, so no line records an install that did not happen.
+
+Then, in order, against your tarball:
+
+1. Integrity. The packument's `sha512` is verified over the raw downloaded bytes before anything unpacks. A mismatch means nothing was written.
+2. Unpack. Regular files and directories only. Links and devices are refused outright (a real `npm pack` never produces them), as is path traversal or a package past the size and entry caps.
+3. Load check. Your module is imported from a staging copy. Capability mismatches, a bad manifest, and a missing default export all fail here, and the live store is untouched.
+4. Promote and record. The directory lands, and an `install.json` sidecar records the package, version, and integrity that arrived. Its absence is what marks a directory as embedded-built-in rather than installed. `update` reasons from it, and it never touches the store's built-ins.
+
+The moment the install returns, the plane resolves what it stores. Your `detect` spec, preset validation, and argv answer from the loader on the next request, and no node-side install step exists. A node holds no plugins at all; the launch carries execution data your manifest and factory produced.
+
+## What integrity proves
+
+The sha512 the fetcher checks is the same registry's own announcement: it proves the bytes match what the registry said, which over npm's HTTPS registry means npm's assurance. The registry URL is one operator setting, `SUBSHELL_PLUGIN_REGISTRY_URL`, defaulting to npm (see [Environment Variables](/reference/environment-variables)), because private mirrors are the motivating case. Over an http mirror, the bytes-matching assurance belongs to the operator's network, not to npm. State this honestly rather than hiding it: publish as you would to any registry (your name, your tarball, and a `latest` that means what it says), and know that which registry was trusted is the operator's configuration, visible in `subshell-server status`.
+
+## The trust you are asking for
+
+Your code runs in the control plane's process, with the server's user privileges and no sandbox. A malicious plugin therefore reaches the instance database and the key that signs commands for every enrolled node, not one machine. Installing one is the same trust decision as installing the agent CLI the plugin drives, made once for the instance. Say so in your README, and prefer manifest data over code wherever both would work.
+
+If you are writing a network plugin (see [Write a network plugin](/develop/network-plugin)), your argv additionally runs on the control-plane host. The host runs it through its bounded spawn: an environment allowlist that keeps the server's own secrets out of the child, a 64 KiB output cap per stream, a deadline, and a refusal of `sudo`, `doas`, or `pkexec`. The plugin id names every audit row for the acts that run it and prefixes every line your plugin logs, and during an act the command's own output streams to the admin who started it.
+
+## Other pages
+
+- [Plugin API](/develop/plugin-api): what to build before publishing it
+- [Write a harness plugin](/develop/harness-plugin) and [Write a network plugin](/develop/network-plugin): the two kinds
+- [Install a plugin](/agents/plugin-registry): the operator's side of the same install
+- [Security Model](/concepts/security-model), and its full accounting in the [threat model on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md)

@@ -1,7 +1,9 @@
 ---
-title: Sharing a Node
+title: Share a node
 description: Share your machine's launch surface with another user and see what each grant level confers.
 ---
+
+Give another user view or edit access to your node, and see what each grant level confers.
 
 Sharing a node extends your machine's command surface to somebody else's workloads. A share does not open a folder or a view; it opens launch. What a grantee launches runs on your hardware, under the OS user your node runs as, with all the reach that implies. As the owner, you see grantees' work as a bare count: what they launch stays private to them unless they share it back. Admins resolve to edit on every subshell, and the machine's own OS users see every pane. This page lists what each grant confers, what stays yours, and what neither the owner nor the grantee controls.
 
@@ -14,7 +16,7 @@ The two levels:
 | Grant | What the grantee can do |
 |---|---|
 | view | Launch their own subshells on the machine. That is already running arbitrary work there. |
-| edit | Everything above, plus configure the node: re-checks (re-probing for agent CLIs), the start / install / restart service controls and log reads on [the node's page](/nodes/managing-a-node), debug-logging flips, and updates. |
+| edit | Everything above, plus configure the node: re-checks (re-probing for agent CLIs), the start / install / restart service controls and log reads on [the node's page](/nodes/manage), debug-logging flips, and updates. |
 
 These stay yours no matter what you grant:
 
@@ -25,7 +27,7 @@ These stay yours no matter what you grant:
 - Repointing it at a different control plane.
 - Maintenance and the directory allowlist.
 
-A grant that turns out to have been too wide is revoked by clearing it in the same dialog that set it. Anything the grantee already launched keeps running: revoking a share does not terminate their subshells. [Maintenance mode](/nodes/maintenance) does.
+A grant that turns out to have been too wide is revoked by clearing it in the same dialog that set it. Anything the grantee already launched keeps running: revoking a share does not terminate their subshells. [Maintenance mode](/nodes/manage) does.
 
 ## Granting access
 
@@ -44,9 +46,9 @@ Two disclosures run the other way, and both are deliberate:
 
 And one disclosure is outside both of your controls: whoever owns the node's OS user at the machine (you, presumably) can read every pane launched there and the bearer token in each launch's arguments. A node share is therefore also a statement that the machine's local users are trusted.
 
-## See also
+## Other pages
 
-- [Sharing a Subshell](/use/sharing): the other axis, who may see and type into a pane.
-- [Directory Allowlist](/nodes/directory-allowlist): bound what a grant can do with the machine.
-- [Maintenance Mode](/nodes/maintenance): stop everything on the machine, shares included.
+- [Share a subshell](/use/sharing): the other axis, who may see and type into a pane.
+- [Restrict directories](/nodes/directory-allowlist): bound what a grant can do with the machine.
+- [Manage a node](/nodes/manage): the maintenance switch, which stops everything on the machine, shares included.
 - [The threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#6-nodes): the full accounting of what each verb requires.

@@ -1,15 +1,17 @@
 ---
 title: Headscale
-description: The same tailnet experience against your own self-hosted control server.
+description: "The same tailnet experience against your own self-hosted control server."
 ---
 
-Headscale is for people who run their own tailnet controller. The plugin drives the same `tailscale` client as the [Tailscale plugin](/server/network-plugins/tailscale), pointed at your control server instead of Tailscale's service. The machine, the CLI, and the join flow are identical; what differs is who holds the CA, and everything that follows from it. Because the control server is yours, the vendor documentation, the approval policy, and the certificate story are yours too.
+Run the tailnet against a control server you host instead of Tailscale's service.
+
+Headscale is for people who run their own tailnet controller. The plugin drives the same `tailscale` client as the [Tailscale](/server/network-plugins/tailscale) plugin, pointed at your control server instead of Tailscale's service. The machine, the CLI, and the join flow are identical; what differs is who holds the CA, and everything that follows from it. Because the control server is yours, the vendor documentation, the approval policy, and the certificate story are yours too.
 
 ## One machine, one tailnet
 
 A daemon belongs to exactly one control server, so a machine running both this plugin and the Tailscale plugin can only be on one network at a time. The plugin checks the daemon's own preference for which server it serves. A daemon pointed somewhere else reports this row as not-on-your-tailnet rather than reporting a join that isn't real. If the card says the machine belongs to another control server, that is what it means: switch the daemon's enrollment, or manage the machine from the other plugin.
 
-## The one setting: your control server URL
+## The control server URL
 
 This plugin asks the question the vendor plugin never needs: which control server to join. You fill in **Control server URL**, a full `http(s)` URL like `https://headscale.example.com`, and it is required. Without it, a bare join would enroll the machine into Tailscale's hosted service instead of yours: the wrong answer, and a quiet one. The plugin refuses before running anything while the field is empty, and every join and re-join carries `--login-server` with your URL.
 
@@ -36,5 +38,5 @@ As for every private network, the plugin's recorded addresses become sign-in-tru
 
 - [Network plugins overview](/server/network-plugins): the describe/execute rule and the trust model
 - [Tailscale](/server/network-plugins/tailscale): the hosted-service sibling, including the Serve-over-HTTPS variant
-- [Networking & Addresses](/server/networking): the allowlist, and adding a plain address by hand when Serve declines
-- [Security model](/about/security-model): the posture, in [docs/security.md §11.13 on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#1113-network-plugins-publish-this-server-on-a-network)
+- [Networking and addresses](/server/networking): the allowlist, and adding a plain address by hand when Serve declines
+- [Security model](/concepts/security-model): the posture, in [docs/security.md §11.13 on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#1113-network-plugins-publish-this-server-on-a-network)

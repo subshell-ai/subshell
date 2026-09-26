@@ -1,4 +1,4 @@
 {
-  "title": "Develop",
-  "pages": ["architecture", "harness-plugin", "network-plugin", "plugin-api", "publish-a-plugin", "contribute-to-subshell", "contribute-to-these-docs"]
+  "title": "Developers",
+  "pages": ["contribute", "write-docs", "plugin-api", "harness-plugin", "network-plugin", "publish-plugin"]
 }

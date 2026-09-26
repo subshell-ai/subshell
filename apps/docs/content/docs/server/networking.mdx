@@ -1,9 +1,11 @@
 ---
-title: Networking & Addresses
+title: Networking and addresses
 description: "Which addresses can reach the server and sign in from a browser: bind, base URL, and the trusted-origin allowlist."
 ---
 
-Three settings decide which addresses your control plane answers on, and they are easy to conflate. Once you separate them, the common sign-in failure becomes a one-field fix.
+Control which addresses your control plane answers on and which browsers may sign in from them.
+
+Three settings decide this, and they are easy to conflate. Once you separate them, the common sign-in failure becomes a one-field fix.
 
 | Setting | Question it answers | Default |
 |---|---|---|
@@ -22,20 +24,22 @@ Every sign-in carries the browser's `Origin`, and the instance keeps an allowlis
 3. the operator's `TRUSTED_ORIGINS` extras;
 4. the addresses each enabled network plugin reports for this host: trusted the moment a publish earns it, and forgotten when it is undone.
 
-What is deliberately missing is a fifth source: the request itself. The list is never derived from the request's `Host` header. "Trust the origin that matches the host you dialed" is precisely the DNS-rebinding hole the allowlist exists to close. Because the read is live, a network joined a minute ago is trusted without a restart, and the LAN probe re-asks on every settings read. A laptop that switched Wi-Fi stops offering (and trusting) the address of the network it left.
+What is deliberately missing is a fifth source: the request itself. The list is never derived from the request's `Host` header. "Trust the origin that matches the host you dialed" is precisely the DNS-rebinding hole the allowlist exists to close. Because the read is live, a network joined a minute ago is trusted without a restart, and the LAN probe re-asks on every settings read. A laptop that switched Wi-Fi stops offering (and trusting) the address of the network it left. The wire-level mechanics behind this list are on [Security model](/concepts/security-model).
 
-## 403 "Invalid origin"
+## Fixing 403 "Invalid origin"
 
 This is the symptom everything above is designed to produce when an address is not on the list. It is unhelpful on its own because it names no key. The classic case, a phone on the Wi-Fi dialing the server's LAN IP while only loopback was trusted, stopped being possible in 2026-09-17, when the machine's own addresses became derived automatically. What still produces the error is a name. The server answers on `http://box.local:3080` and the app renders, but a `.local` host, a DNS entry, or any other name that is not one of the machine's interface addresses sends an `Origin` nothing matches, and sign-in fails. The server is not broken; it is refusing an address it was never told about. Production enforces this strictly, which is where you will meet it.
 
-The fix is to name the address you actually browse from:
+1. Name the address you actually browse from, with the CLI:
 
-```bash
-subshell-server configure --trusted-origins http://box.local:3080
-subshell-server service restart
-```
+   ```bash
+   subshell-server configure --trusted-origins http://box.local:3080
+   subshell-server service restart
+   ```
 
-or the same field on Settings → Networking, where a change needs no restart: the origins list is re-read live, so the retry works from the page you fixed it on. Two rules pick the right lever:
+2. Or edit the same field on Settings → Networking, where a change needs no restart: the origins list is re-read live, so the retry works from the page you fixed it on.
+
+Two rules pick the right lever:
 
 - "Also reachable at" → add an origin. Nothing else moves.
 - "This is the address now" → change `APP_BASE_URL`, and restart. Read the next section first.
@@ -55,12 +59,12 @@ Wildcards are refused, and that refusal is load-bearing. The auth stack routes a
 
 The posture is a trusted network, so no TLS is enforced. For operation from beyond the LAN, we recommend bringing the network to the box (WireGuard, Tailscale, an SSH tunnel) rather than the box to the internet. That is exactly what the [network plugins](/server/network-plugins) automate: joining Tailscale, Headscale, or NetBird and publishing Subshell on the mesh. There, the plugin's own record makes the new address trusted; nothing is unioned into `TRUSTED_ORIGINS`, and unpublishing forgets it. Cloudflare Tunnel is the one deliberate public exception, and it refuses to publish until an Access application guards the hostname. Every address carries a `secureContext` flag, which is a statement about the browser (passkeys and secure cookies need https or loopback), not about encryption: a WireGuard mesh encrypts plain `http://` end to end, and passkeys still won't work on it.
 
-Firewall and port specifics are on the reference page; the enforcement-point-by-enforcement-point accounting lives in the threat model.
+Firewall and port specifics are on [Ports](/reference/ports); the enforcement-point-by-enforcement-point accounting lives in the threat model.
 
-## See also
+## Other pages
 
-- [Network Plugins](/server/network-plugins): joining a mesh and publishing through it
-- [Security Model](/about/security-model): the trusted-network posture, in product terms
+- [Network plugins](/server/network-plugins): joining a mesh and publishing through it
+- [Security model](/concepts/security-model): the trusted-network posture, in product terms
 - [The full threat model (§8 Network boundary)](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#8-network-boundary): the authority behind every claim here
-- [Ports & Firewalls](/reference/ports-and-firewalls): what needs to be open, per deployment shape
+- [Ports](/reference/ports): what needs to be open, per deployment shape
 - [Configuration](/server/configuration): which writers can touch these keys, and which can't

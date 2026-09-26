@@ -3,7 +3,9 @@ title: Terminal
 description: "A plain shell in a subshell pane: no agent, nothing to install, and it is why a clean machine is launchable."
 ---
 
-The Terminal plugin is a subshell that drives no agent at all: your shell, in a tmux pane, watched through the browser like any other subshell. It is the one built-in with nothing to install, which is what makes a brand-new machine launchable before you have put an agent CLI on it.
+The Terminal plugin is a subshell that drives no agent at all: your shell, in a tmux pane, watched through the browser like any other subshell.
+
+It is the one built-in with nothing to install, which is what makes a brand-new machine launchable before you have put an agent CLI on it.
 
 ## What it runs
 
@@ -17,10 +19,10 @@ A terminal subshell has no agent, and so it declares no capabilities: no MCP wir
 
 Everything else Subshell does still applies, because none of it lives in the harness:
 
-- **[Sharing](/use/sharing)**: grant someone view or edit on the pane, and they watch or type in your shell.
-- **[Workspaces & Panes](/use/workspaces-panes)**: arrange terminals beside agents on one grid.
+- **[Share a subshell](/use/sharing)**: grant someone view or edit on the pane, and they watch or type in your shell.
+- **[Workspaces and panes](/use/workspaces)**: arrange terminals beside agents on one grid.
 - **Pane logs**: everything typed and printed lands in the subshell's log file, as with any harness.
-- **[Nodes](/nodes)**: a terminal subshell is often the fastest way to look at a machine you enrolled. It is a browser-based tmux session on that host, with no SSH hop.
+- **[Nodes overview](/nodes)**: a terminal subshell is often the fastest way to look at a machine you enrolled. It is a browser-based tmux session on that host, with no SSH hop.
 
 One small difference: a terminal never tells Subshell its own title, because a shell has no session name to set. The pane title follows whatever your shell prompt sets until you name the subshell. Naming it locks the name, same as with an agent.
 
@@ -30,6 +32,6 @@ On a fresh install of everything (control plane up, a node enrolled, no agent CL
 
 ## See also
 
-- [Your First Subshell](/get-started/first-subshell): the shortest path to a pane, agent or not
-- [Overview](/agents): the other five built-ins and how plugins work
-- [Sharing](/use/sharing): what an audience can see and do in your shell
+- [Your first subshell](/get-started/first-subshell): the shortest path to a pane, agent or not
+- [Agents overview](/agents): the other five built-ins and how plugins work
+- [Share a subshell](/use/sharing): what an audience can see and do in your shell

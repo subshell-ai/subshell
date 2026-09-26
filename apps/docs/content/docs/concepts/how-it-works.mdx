@@ -1,0 +1,58 @@
+---
+title: How it works
+description: "What happens when you launch a subshell: the control plane, tmux, the harness process, and remote nodes."
+---
+
+This page traces one subshell launch from the Launch button to the live terminal, and stays at the level of which component talks to which.
+
+You press Launch in a browser, and a minute later a coding agent is editing files on the machine across the room while you watch its terminal on the one in your hands. Nothing in that path is magic: it is a handful of ordinary processes talking to each other. The [Security model](/concepts/security-model) covers who is trusted, and the [Node Protocol](/reference/node-protocol) covers the wire format.
+
+## The pieces
+
+Six things participate in a running Subshell:
+
+- **Your browser**: the web UI. It speaks plain HTTP and one WebSocket to the control plane, and it never touches the machine that runs a pane.
+- **The control plane**: one process that serves the UI, holds the database, and makes every decision. It decides what to run, with what credentials, on which machine.
+- **tmux**: where panes actually live. Every subshell is a tmux session on the machine running it, which is why a pane outlives every window pointed at it.
+- **The harness**: the agent CLI you picked, or a plain shell via the terminal plugin, running in the pane like it would in any terminal.
+- **`subshell mcp`**: a small process the harness starts, which is the agent's phone line back to the control plane.
+- **The node daemon**: on any machine other than the control plane's own host, the `subshell` daemon that receives the plane's commands and runs the tmux half locally.
+
+## One launch, step by step
+
+### 1. The request
+
+The browser posts to the control plane over your authenticated session. The post names which agent to run, optionally a preset, a working directory, and optionally a first prompt. That post is the only thing your browser says about the launch; from here on, the control plane acts.
+
+### 2. The control plane builds the command line
+
+The plane validates the request. The agent's plugin must be installed and enabled, and the directory must exist on the machine you picked. It then builds the harness's command line from parts, never from a shell string you could have typed. Harnesses are plugins precisely for this step: the plugin is what knows how to drive its CLI, and the plane assembles the argv it describes.
+
+Two more things happen before anything starts. First, the plane mints a **bearer token that belongs to this one subshell**. It is scoped to what a single pane should be able to do, it self-extends while the pane lives, and it is revoked the moment the pane dies. Second, the plane assembles the pane's environment from scratch: your host's relevant variables, the preset's additions, and the `SUBSHELL_*` credentials, but none of the plane's own secrets. The harness never holds a database path or an auth secret, because it was never given one.
+
+### 3. The pane starts: on this host or a node
+
+If the target is the control plane's own machine, the plane starts a tmux session (one socket per subshell) and spawns the harness inside it.
+
+If the target is a **node**, the launch instead travels to that machine's `subshell` daemon over the WebSocket the daemon dials to the plane. It arrives as a command signed by the control plane's signing key. The node verifies the signature, the expiry, and that the command was addressed to this node, before it runs any of it. Then it does exactly what the plane does locally: tmux, pane, harness, and the same curated environment. A launch onto an offline node is refused on the spot, with the message `That node is offline. Start its subshell or pick another node.`, rather than pretending the process crashed.
+
+### 4. Output streams back the same way either way
+
+When you open the subshell's terminal page, the browser first mints a single-use WebSocket token that expires in thirty seconds, then connects with it. The server replays the pane's recent scrollback and streams live output from there. When you type, the keystrokes go back as small JSON frames. They are the same frames whether you typed on a physical keyboard or tapped the on-screen key bar on a phone.
+
+For a remote pane, those frames relay across the node's socket. The browser protocol is identical for local and remote subshells, and the terminal emulator cannot tell them apart. That is why the same viewer works on every machine enrolled. Close the tab and nothing changes on the pane: tmux is holding it, not your browser.
+
+### 5. The agent gets a phone line
+
+A running harness spawns `subshell mcp`, a small server registered into the harness by its plugin, carrying the subshell's own token in its environment. Through it the agent can see its siblings' live output, post to end-to-end-encrypted [Channels](/use/channels), and launch, restart, or terminate other subshells; one pane can fan work out to five. Everything it says goes through the same public API as any other client, with one pane's permissions. Its token dies with the pane: it is revoked the moment the subshell is terminated or deleted (before the row goes away), and it is rotated, never reused, across a restart.
+
+## Who decides what is alive
+
+tmux is the source of truth for liveness, and the database row is a statement of intent. A reconcile pass runs every minute. If tmux says a session is gone, the row is marked terminated. If a node is simply offline, the row waits, because an unreachable machine is not a dead process. On tmux 3.6 and newer, a crashed pane's exit code is read too; on older versions that detail degrades to "unknown", never to a wrong answer.
+
+## Other pages
+
+- [Subshells](/use/subshells): launching, presets, and restart semantics from the user's side
+- [Nodes overview](/nodes): enrolling and driving machines that run panes elsewhere
+- [The MCP server](/automation/mcp): what the agent can actually do through its phone line
+- [Security model](/concepts/security-model): what each credential in this story can and cannot reach

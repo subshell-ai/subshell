@@ -1,9 +1,11 @@
 ---
-title: Files & Paths
+title: Files and paths
 description: Everything Subshell writes to disk, with config homes, data dirs, credentials, logs, the permission on each, and why several of these files are secrets.
 ---
 
-There are two homes on the control-plane host and two on a node, with a small set of rules over all of them: directories that hold credentials are `0700`, the files inside are `0600`, and because a creation mode alone depends on the umask, the modes are re-asserted after the write. The defaults below are spelled the same on Linux and macOS, and the homes sit under your user's home directory. A variable or a flag can move a path; each entry names the override.
+There are two homes on the control-plane host and two on a node, with a small set of rules over all of them: directories that hold credentials are `0700`, the files inside are `0600`, and because a creation mode alone depends on the umask, the modes are re-asserted after the write.
+
+The defaults below are spelled the same on Linux and macOS, and the homes sit under your user's home directory. A variable or a flag can move a path; each entry names the override.
 
 ## The control plane's config home
 
@@ -68,12 +70,12 @@ Home: `~/.config/subshell` (override: `SUBSHELL_CONFIG_HOME`).
 | `data/mcp/<id>.json` | `0600` | Per-pane MCP registration files, written from the launch command before the pane spawns. |
 
 > [!caution] These files are the credentials
-> `config.env` holds the cookie-signing secret, `config.json` holds the node key and the node's link private half, `node-signing.json` holds the key that rules every enrolled machine, and `node-encryption.json` holds the keypair every machine uses to recognise its plane on the wire. A pane log holds whatever was typed at that terminal, pasted tokens included. None of it is encrypted at rest: the key would sit on the same disk under the same user that can already read the file. The permissions and your filesystem are the control. The full accounting lives in the repository's threat model (`docs/security.md`).
+> `config.env` holds the cookie-signing secret, `config.json` holds the node key and the node's link private half, `node-signing.json` holds the key that rules every enrolled machine, and `node-encryption.json` holds the keypair every machine uses to recognise its plane on the wire. A pane log holds whatever was typed at that terminal, pasted tokens included. None of it is encrypted at rest: the key would sit on the same disk under the same user that can already read the file. The permissions and your filesystem are the control. The full accounting lives in the [threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md).
 
-## See also
+## Other pages
 
-- [Backups](/server/backups) and [Updating the Server](/server/updating): the transaction that uses `backups/` and `update/`.
-- [Logs & Debugging](/server/logs-debug): reading the capped logs from the dashboard.
-- [Directory Allowlist](/nodes/directory-allowlist): `allowed-dirs.json` from the operator's side.
-- [Environment Variables](/reference/environment-variables): every lever that moves a path above.
-- [Security Model](/about/security-model): what each file exposes if read.
+- [Backups](/server/backups) and [Update the server](/server/updating): the transaction that uses `backups/` and `update/`.
+- [Logs and debugging](/server/logs): reading the capped logs from the dashboard.
+- [Restrict directories](/nodes/directory-allowlist): `allowed-dirs.json` from the operator's side.
+- [Environment variables](/reference/environment-variables): every lever that moves a path above.
+- [Security model](/concepts/security-model): what each file exposes if read.

@@ -11,7 +11,7 @@ Three pieces, three words: the **server** is the control plane (API, database, a
 
 Panes live in tmux on the machine that runs them, so a subshell outlives every browser pointed at it, and even an outage of the control plane. What the plane holds is control, not the process. While it is down you cannot launch, view, type, or receive notifications, and an agent's own tool calls fail until it returns. The harness itself keeps running wherever it runs.
 
-That is why "keep the server on" is an availability question, not a relay question: output streams to you through the plane, which is what lets a phone watch a pane on the machine across the room. [How It Works](/about/how-it-works) traces one launch end to end.
+That is why "keep the server on" is an availability question, not a relay question: output streams to you through the plane, which is what lets a phone watch a pane on the machine across the room. [How it works](/concepts/how-it-works) traces one launch end to end.
 
 ## Is self-hosting free?
 
@@ -32,7 +32,7 @@ Core operation is self-contained: the browser talks to the plane, the node dials
 
 ## Does it work offline / fully air-gapped?
 
-Yes, with one configuration step. Nothing in day-to-day use needs the internet, and air-gapping is an explicit setting: an empty `SUBSHELL_RELEASE_URL` refuses every release path by name. A download answers `No subshell build for "linux-x64" is published on this instance yet.` and an update says to pass `--from <file>` instead. So on such an instance you carry binaries in yourself: the server binary, and the `subshell-node-cli-<triple>` assets for each node platform, into the node-artifacts dir. [Install the Control Plane](/get-started/install-server) and [Adding a Node](/nodes/add-node) mark the hand-carried path.
+Yes, with one configuration step. Nothing in day-to-day use needs the internet, and air-gapping is an explicit setting: an empty `SUBSHELL_RELEASE_URL` refuses every release path by name. A download answers `No subshell build for "linux-x64" is published on this instance yet.` and an update says to pass `--from <file>` instead. So on such an instance you carry binaries in yourself: the server binary, and the `subshell-node-cli-<triple>` assets for each node platform, into the node-artifacts dir. [Install by hand](/server/headless) and [Add a node](/nodes/add-a-node) mark the hand-carried path.
 
 ## What can the operator, or an admin, see?
 
@@ -40,7 +40,7 @@ Read this before you enable anything. The pane transcript is the most sensitive 
 
 Admins hold instance-wide edit. They can read and interact with any subshell, though never delete or re-share yours.
 
-Channel messages are the notable exception, and they cut both ways. Each post is sealed per recipient, so the control plane stores ciphertext it cannot open. But metadata is not encrypted: channel names, membership, timing, ordering, and message sizes are plaintext on the server. The [Security Model](/about/security-model) is the reader's guide; [the threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md) is the authority that states every boundary with the code enforcing it.
+Channel messages are the notable exception, and they cut both ways. Each post is sealed per recipient, so the control plane stores ciphertext it cannot open. But metadata is not encrypted: channel names, membership, timing, ordering, and message sizes are plaintext on the server. The [Security model](/concepts/security-model) is the reader's guide; [the threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md) is the authority that states every boundary with the code enforcing it.
 
 ## Can one agent read another agent's messages?
 
@@ -54,23 +54,23 @@ Not unless you say so. A subshell is private to its owner by default: absent, 40
 
 Sharing never widens who gets pushed about a subshell. Delete, re-sharing, and the notification bell stay with the owner even from admins.
 
-Two disclosures are shown in the UI when they apply: a pane running on someone else's node, and a pane you have shared. Details are on [Sharing](/use/sharing), and the trust indicators are explained in the [Security Model](/about/security-model).
+Two disclosures are shown in the UI when they apply: a pane running on someone else's node, and a pane you have shared. Details are on [Share a subshell](/use/sharing), and the trust indicators are explained in the [Security model](/concepts/security-model).
 
 ## Do I need Tailscale?
 
-No. Any network where machines can reach each other works: a LAN, WireGuard, a tailnet, or an SSH tunnel. The [network plugins](/server/network-plugins) are convenience, not plumbing. They take a mesh you already run, publish the control plane's address on it, and make that address a trusted origin automatically. That is the part that actually saves you work: signing in from it stops 403ing. One of them, Cloudflare Tunnel, reaches the public internet behind an Access gate; its page carries that accounting.
+No. Any network where machines can reach each other works: a LAN, WireGuard, a tailnet, or an SSH tunnel. The [Network plugins](/server/network-plugins) are convenience, not plumbing. They take a mesh you already run, publish the control plane's address on it, and make that address a trusted origin automatically. That is the part that actually saves you work: signing in from it stops 403ing. One of them, Cloudflare Tunnel, reaches the public internet behind an Access gate; its page carries that accounting.
 
 ## Are the mobile and desktop apps their own servers?
 
 No. They are clients: interfaces to a control plane. Installing one never starts a second server.
 
-The web UI is the primary client. [Subshell Client as a Node](/nodes/client-as-node) wraps the same pages and is also where your machine enrolls as a node. Subshell Server is the one app that installs and runs a control plane on your machine (see [Install the Control Plane](/get-started/install-server)). The mobile companion ([Mobile and Tablet](/get-started/mobile)) is a push-capable client with its own terminal tab. All of these are windows on one plane.
+The web UI is the primary client. [Turn a desktop into a node](/nodes/desktop-node) wraps the same pages and is also where your machine enrolls as a node. Subshell Server is the one app that installs and runs a control plane on your machine (see [Install with the desktop app](/server/desktop-app)). The mobile companion ([Pick it up from your phone](/get-started/from-phone)) is a push-capable client with its own terminal tab. All of these are windows on one plane.
 
 ## How do backups work?
 
 `subshell-server backup` snapshots the database: accounts, subshells, shares, audit rows, and channel ciphertext. An update takes the same snapshot automatically, and the five most recent are kept.
 
-Config is separate on purpose. `config.env` lives in `~/.config/subshell-server`, and it holds your auth secret, so protect it like a secret when you copy anything. Network-plugin secrets are not in the snapshot; a restore needs them re-entered. Pane transcripts and the server log are files you copy only if you want them. [Backups](/server/backups) and [Updating the Server](/server/updating) cover the pieces.
+Config is separate on purpose. `config.env` lives in `~/.config/subshell-server`, and it holds your auth secret, so protect it like a secret when you copy anything. Network-plugin secrets are not in the snapshot; a restore needs them re-entered. Pane transcripts and the server log are files you copy only if you want them. [Backups](/server/backups) and [Update the server](/server/updating) cover the pieces.
 
 ## I deleted a node. What did that revoke, and what kept running?
 
@@ -80,13 +80,13 @@ The plane disables and deletes the node's credential, evicts its connection, and
 
 What deletion does not reach is the machine itself. The `subshell` daemon keeps running, now dialing with a dead key. The installed binary and config stay, and any panes already running keep running on their tmux.
 
-With subshells still running, deletion asks you first, and forcing it against an online node is refused. Stop the node and let it go offline, or delete once it is down. To stop the node and reap panes on the machine itself, run `subshell service stop`, or see [Managing a Node](/nodes/managing-a-node).
+With subshells still running, deletion asks you first, and forcing it against an online node is refused. Stop the node and let it go offline, or delete once it is down. To stop the node and reap panes on the machine itself, run `subshell service stop`, or see [Manage a node](/nodes/manage).
 
 ## Who can delete my subshell, even an admin?
 
 You alone. Admins hold instance-wide edit (read, interact, and restart), but delete and re-sharing never leave the owner. The same limit faces a node's owner: they cannot delete someone else's subshell running on their machine.
 
-Deleting a subshell deletes its row and unlinks its pane log. Details are on [Sharing](/use/sharing).
+Deleting a subshell deletes its row and unlinks its pane log. Details are on [Share a subshell](/use/sharing).
 
 ## Why no arm64 Linux desktop build?
 
@@ -94,19 +94,19 @@ Every other combination ships, Intel Macs included. The Intel shards, CLI binari
 
 arm64 Linux is the exception the matrix still refuses. There is no arm64 Linux runner to build a GUI on, and a headless cross-build's `file(1)` check cannot see a GUI's characteristic failure, which is an invisible window.
 
-On Linux, every artifact builds on Ubuntu 24.04, which sets a glibc 2.39 floor: Ubuntu 24.04 or Debian 13, or newer, for every component. [Supported Platforms](/about/supported-platforms) has the matrix.
+On Linux, every artifact builds on Ubuntu 24.04, which sets a glibc 2.39 floor: Ubuntu 24.04 or Debian 13, or newer, for every component. [Supported platforms](/concepts/platforms) has the matrix.
 
 ## Why no TLS enforcement, or 2FA?
 
 Both are posture decisions, not gaps nobody noticed. Subshell targets a network you already trust, so transport security is your deployment's job. The DNS-rebinding-shaped hole is closed where it bites: the origin allowlist.
 
-Sign-in backs off exponentially per email; that is the extent of the anti-abuse stance until the wider-deployment checklist is done. That checklist is cited at the bottom of the [Security Model](/about/security-model), and until that work lands, going beyond a trusted network is your deliberate decision, not an accident.
+Sign-in backs off exponentially per email; that is the extent of the anti-abuse stance until the wider-deployment checklist is done. That checklist is cited at the bottom of the [Security model](/concepts/security-model), and until that work lands, going beyond a trusted network is your deliberate decision, not an accident.
 
 Passkeys are supported: they are a stronger password, not a second factor.
 
-## See also
+## Other pages
 
-- [How It Works](/about/how-it-works): the pieces, in motion
-- [Security Model](/about/security-model): the posture every answer above leans on
-- [Troubleshooting](/help/troubleshooting): the named-failure list, when an answer becomes a symptom
+- [How it works](/concepts/how-it-works): the pieces, in motion
+- [Security model](/concepts/security-model): the posture every answer above leans on
+- [Troubleshooting](/help): the named-failure list, when an answer becomes a symptom
 - [Glossary](/reference/glossary): where the three words are pinned

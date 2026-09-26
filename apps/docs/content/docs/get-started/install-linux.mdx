@@ -47,7 +47,9 @@ With the account created, continue to [Your first subshell](first-subshell).
 
 ## Notes
 
+- The binary is self-contained: the web UI is embedded, so the machine needs no Bun, no checkout, and no separate frontend to serve.
 - `init` stores its settings in `~/.config/subshell-server/config.env` and generates the sign-in secret once. A second run keeps the existing secret.
+- Every question `init` asks has an environment-variable spelling for unattended runs; [Install by hand](/server/headless) lists them. The database path is the exception: it keeps its default unless you run `init --db-path` yourself.
 - To reach the server from another machine, browse to an address that machine can reach and that the instance trusts. [Networking and addresses](/server/networking) explains which addresses a browser can sign in from.
 - If something looks wrong, run `subshell-server status` first. It reports the active settings, whether tmux and the port are up, and whether the admin account exists, and it does this without starting anything.
 

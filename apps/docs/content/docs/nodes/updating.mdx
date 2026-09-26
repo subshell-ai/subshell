@@ -1,9 +1,11 @@
 ---
-title: Updating a Node
-description: Move an enrolled node to a newer binary from the page or the machine, and how rollback works there.
+title: Update a node
+description: "Move an enrolled node to a newer binary from the page or the machine, and how rollback works there."
 ---
 
-A node replaces its own binary and restarts into the new one, from the machine's keyboard or from the control plane's page. Both routes run one implementation. An update is a restart with a file swap in front of it, so it carries the restart's permissions and refusals, plus one addition: a safety transaction that puts the old binary back automatically when the new one fails.
+Move an enrolled node to a newer binary, from the page or from the machine's own keyboard, with a transaction that puts the old binary back when the new one fails.
+
+A node replaces its own binary and restarts into the new one. Both routes run one implementation. An update is a restart with a file swap in front of it, so it carries the restart's permissions and refusals, plus one addition: a safety transaction that puts the old binary back automatically when the new one fails.
 
 ## Check for a newer release
 
@@ -13,7 +15,7 @@ To ask the machine what is available:
 subshell update --check
 ```
 
-It names the newest release the release source publishes that the publisher signed. An unsigned or unverifiable release is refused by name and never offered. One thing `--check` cannot tell you is whether your plane can talk to that version: the binary holds no REST credential, so it cannot ask. The control plane knows. [Settings → Updates](/server/updating) lists every node's version against what it offers, and a node's own page says in plain words when the installed binary is too old or speaks a protocol the plane does not. [Version Compatibility](/reference/version-compatibility) explains the version floors, and `--to <version>` is how you act on an answer you read there.
+It names the newest release the release source publishes that the publisher signed. An unsigned or unverifiable release is refused by name and never offered. One thing `--check` cannot tell you is whether your plane can talk to that version: the binary holds no REST credential, so it cannot ask. The control plane knows. The Components table under Settings → Updates ([Update the server](/server/updating)) lists every node's version against what it offers, and a node's own page says in plain words when the installed binary is too old or speaks a protocol the plane does not. [Version Compatibility](/reference/versions) explains the version floors, and `--to <version>` is how you act on an answer you read there.
 
 ## Updating from the machine
 
@@ -33,7 +35,7 @@ Before the CLI moves the binary, it checks what the machine can answer locally: 
 
 The **Nodes** section of the Components table under Settings → Updates offers the same act remotely. The gate is owner or `edit` grantee, browser session only, and the control plane host's own row is never offered; the act is audited as a node update. The version it offers is the newest your plane can actually talk to, not simply the newest published.
 
-What crosses the wire is a signed `update` command naming a download URL, a digest, and the release's signed manifest with its signature. The node verifies that signature against its own compiled-in publisher key before it replaces anything, so the plane's digest is a second check, not the trust anchor. Even a control plane persuaded, or compromised, after composing the command cannot get the node to install bytes the publisher did not sign. The plane can order an update; only the publisher's key can authorise what runs. A node too old to verify the manifest would silently ignore it and install on the old rule, so your plane refuses to send one an update at all, and the node's page says so.
+What crosses the wire is a signed `update` command naming a download URL, a digest, and the release's signed manifest with its signature. The node verifies that signature against its own compiled-in publisher key before it replaces anything, so the plane's digest is a second check, not the trust anchor. Even a control plane persuaded, or compromised, after composing the command cannot get the node to install bytes the publisher did not sign. The plane can order an update; only the publisher's key can authorize what runs. A node too old to verify the manifest would silently ignore it and install on the old rule, so your plane refuses to send one an update at all, and the node's page says so.
 
 The URL embeds a one-time download token. It is held in memory, single-use, valid for ten minutes, bound to that one node and one platform, and refused on the checksum routes. It is not a credential in any general sense. The node key still does nothing on the REST API, and this token buys exactly one download of a file the release source publishes publicly anyway.
 
@@ -47,7 +49,7 @@ Two consequences:
 Whoever swaps the files cannot see whether the new binary works; the next boot can. So the updater writes a pending marker, keeps the old binary as `<binary>.previous`, and swaps. The node that boots next settles it:
 
 - The plane accepts the node (the new binary connects and is treated as a working node), and the marker and the `.previous` file are deleted. The update is over.
-- The plane refuses the node (wrong version, wrong protocol), and the marker says the refusal followed an update. The node renames `.previous` back, records the failure, and exits so the service manager respawns the version that worked, on a machine nobody visited. That swap-back is the node's entire rollback. A node has no database, so unlike [a server update](/server/updating) there is no data half to restore.
+- The plane refuses the node (wrong version, wrong protocol), and the marker says the refusal followed an update. The node renames `.previous` back, records the failure, and exits so the service manager respawns the version that worked, on a machine nobody visited. That swap-back is the node's entire rollback. A node has no database, so unlike [Update the server](/server/updating) there is no data half to restore.
 - A refusal with no marker is the ordinary "your node is too old" case, and the node does not roll back for an update that never happened.
 
 At any point afterwards, `subshell update --rollback` puts the kept `.previous` binary back, if one exists.
@@ -63,9 +65,9 @@ Two accounted exceptions:
 
 If your `SUBSHELL_RELEASE_URL` points somewhere else, you have moved delivery, not trust. Setting it empty disables every update and fetch path by name. That is the air-gapped configuration, where `--from` and hand-installed binaries are the whole story.
 
-## See also
+## Other pages
 
-- [Updating the Server](/server/updating): the same transaction with a database rollback added.
-- [Version Compatibility](/reference/version-compatibility): protocol versions and minimum node versions.
-- [Managing a Node](/nodes/managing-a-node): the service controls an update rides on.
+- [Update the server](/server/updating): the same transaction with a database rollback added.
+- [Version Compatibility](/reference/versions): protocol versions and minimum node versions.
+- [Manage a node](/nodes/manage): the service controls an update rides on.
 - [The updates accounting](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#1112-updates): what replacing an executable costs.

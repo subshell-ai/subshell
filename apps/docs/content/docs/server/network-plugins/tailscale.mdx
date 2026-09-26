@@ -1,11 +1,13 @@
 ---
 title: Tailscale
-description: Reach your server over your tailnet, covering joining, publishing, and what the plugin does and never does.
+description: "Reach your server over your tailnet, covering joining, publishing, and what the plugin does and never does."
 ---
+
+Put this machine on your tailnet and reach the server there from your other devices.
 
 The Tailscale plugin puts the machine your server runs on onto your tailnet and publishes Subshell there, so your other devices reach it over the mesh instead of over your LAN address. It drives the ordinary `tailscale` CLI that you install yourself. The plugin describes the commands, the server runs them under its bounds, and nothing here holds state: each card read asks Tailscale what is true now, so a `tailscale down` typed at the machine shows up on the page at the next look.
 
-## Getting to "ready"
+## Getting to ready
 
 The plugin can only control Tailscale, not install or privilege it, so the first steps are yours. The card prints them as copyable commands (numbered, never buttons) because the privileged ones need root and the server has no terminal for a password prompt. On macOS the app route sidesteps the whole list.
 
@@ -32,7 +34,7 @@ Two things must already be true, and both are tailnet settings in your admin con
 > [!warning] Your machine's name becomes public
 > Serve provisions a real, publicly trusted certificate for this machine's name, and every such certificate is recorded in public Certificate Transparency logs. Your machine's name becomes permanent public knowledge. The server behind it stays reachable only from your tailnet, but the name cannot be unpublished once issued. The card prints this disclosure beside the button; read it before you press.
 
-Unpublishing resets Serve for this machine. Note the scope: `serve reset` clears everything the machine serves, not just Subshell. This is deliberate: publishing also resets first, so the two halves never disagree about what they own. Leaving takes the machine out of the tailnet; it is best-effort, because a machine that was never signed in simply has nothing to undo.
+Unpublishing resets Serve for this machine. The scope is worth knowing: `serve reset` clears everything the machine serves, not just Subshell. This is deliberate: publishing also resets first, so the two halves never disagree about what they own. Leaving takes the machine out of the tailnet; it is best-effort, because a machine that was never signed in simply has nothing to undo.
 
 ## What the plugin never does
 
@@ -41,6 +43,6 @@ It installs nothing (there is no server-runnable installer here; every Tailscale
 ## See also
 
 - [Network plugins overview](/server/network-plugins): the describe/execute rule and the trust model every plugin page inherits
-- [Networking & Addresses](/server/networking): why the address needed trusting in the first place
+- [Networking and addresses](/server/networking): why the address needed trusting in the first place
 - [Headscale](/server/network-plugins/headscale): the same experience against your own control server
-- [Security model](/about/security-model): the accounting, including the Serve certificate disclosure, in [docs/security.md §11.13 on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#1113-network-plugins-publish-this-server-on-a-network)
+- [Security model](/concepts/security-model): the accounting, including the Serve certificate disclosure, in [docs/security.md §11.13 on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#1113-network-plugins-publish-this-server-on-a-network)

@@ -1,9 +1,11 @@
 ---
-title: Environment Variables
-description: Every variable the server and the node read, with its effect, its default, and whether config.env can carry it or only the process environment.
+title: Environment variables
+description: "Every variable the server and the node read, with its effect, its default, and whether config.env can carry it or only the process environment."
 ---
 
-Both binaries read their settings from the same kind of ladder: process environment first, then a file layer, then built-in defaults. The server's file layer is `config.env` in its config home (see [Configuration](/server/configuration)). The node has no file layer: its settings are `config.json`, written by `enroll`, plus a handful of environment variables.
+Both binaries read their settings from the same kind of ladder: process environment first, then a file layer, then built-in defaults.
+
+The server's file layer is `config.env` in its config home (see [Configuration](/server/configuration)). The node has no file layer: its settings are `config.json`, written by `enroll`, plus a handful of environment variables.
 
 A value the environment sets wins. The dashboard's Service-page writer refuses to write over one and answers 409, because a file edit the next boot would mask is a success report for a change that never happens. The `subshell-server configure` CLI carries no such guard: it writes the key, and the environment keeps winning at the next boot. Correct an env-set key where the environment sets it, not there.
 
@@ -78,10 +80,10 @@ Every subshell's pane environment carries its credentials, injected by the contr
 
 The release pipelines read `SUBSHELL_RELEASE_TRIPLES` (build a scoped subset), `SUBSHELL_NODE_ARTIFACTS_DIR` (publish destination), and `SUBSHELL_SERVER_RELEASE_DIR` (default `<repo>/dist-server`). These belong to cutting releases, not to running an instance; see the repository's release documentation.
 
-## See also
+## Other pages
 
 - [Configuration](/server/configuration): `config.env`, precedence, and the traps.
-- [Networking & Addresses](/server/networking): `HOST`, `APP_BASE_URL`, and the origin allowlist.
-- [Files & Paths](/reference/files-and-paths): the files these variables point at.
-- [Running as a Service](/server/service): the systemd unit exports `config.env` at boot.
-- [Logs & Debugging](/server/logs-debug): what `SUBSHELL_DEBUG_LOGGING` turns on.
+- [Networking and addresses](/server/networking): `HOST`, `APP_BASE_URL`, and the origin allowlist.
+- [Files and paths](/reference/files-and-paths): the files these variables point at.
+- [Service and autostart](/server/service): the systemd unit exports `config.env` at boot.
+- [Logs and debugging](/server/logs): what `SUBSHELL_DEBUG_LOGGING` turns on.

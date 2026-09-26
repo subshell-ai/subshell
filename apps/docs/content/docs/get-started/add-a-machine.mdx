@@ -1,0 +1,60 @@
+---
+title: Add another machine
+description: "Mint a setup key, run the install command on the new machine, and launch subshells there."
+---
+
+Register another machine as a node so agents can run there too: mint a setup key, run one command on the machine, and launch subshells on it.
+
+## Before you start
+
+- A machine the control plane is reachable from, at an address that machine can actually dial. Linux (x86-64 or arm64) or macOS (Apple silicon or Intel) is all the published node targets cover: `linux-x64`, `linux-arm64`, `darwin-arm64`, and `darwin-x64`.
+- Your own sign-in to the control plane. By default anyone signed in can add their own machines; an admin can narrow minting to admins only in Settings, and turning it off stops only new keys, never outstanding ones.
+
+## 1. Mint a setup key
+
+On the **Nodes** page press **Add node**, then **Generate setup key**. The mint asks for nothing, not even a name; the machine names itself in step 2. The dialog renders a copy-ready install command with the key baked in.
+
+A setup key is an `nsk_…` code. It is single-use, it expires 24 hours after it is created, and it is revocable by deleting it. The **Setup keys** list on the same page keeps every key you minted readable in full until it is used, expires, or is revoked, so closing the dialog mid-copy costs nothing; the server stores keys in plaintext to their creator, an exposure bounded by what the credential is: it enrolls exactly one machine and works once. Minting and revoking are audited by key id, and the key text never reaches the audit trail.
+
+## 2. Run the command on the target machine
+
+The dialog renders something like:
+
+```bash
+curl -fsSL "http://your-server:3080/install.sh?setup_key=<your-key>" | bash
+```
+
+> [!warning] The server address is baked into the command
+> The row you pick in the dialog's **Select Subshell server address** dropdown is the address the node will dial forever. Choose an address the new machine can actually reach, usually your VPN or tailnet address, before copying. A remote machine pointed at `localhost` enrolls, then dials itself and stays offline. If the instance knows no other address, the dropdown has only that one row, so set the base URL first. See [Networking and addresses](/server/networking).
+
+On the target machine the script checks for tmux (a node without tmux can run no subshell at all, though enrollment is what refuses), downloads the node binary for that platform from the same server to `~/.local/bin/subshell`, and verifies the published `.sha256` digest before the file is made executable: a corrupt or partial download leaves any existing install untouched. It then runs `subshell setup`, which asks **"Name this node"**, prefilled with the machine's hostname, so Enter accepts what the machine calls itself and typing replaces it.
+
+If the server has no binary for your platform, it usually downloads one from the project's own public release on first request and serves it. When that is impossible (an air-gapped instance), the command says so rather than failing obscurely, and names the fallback: install the node binary another way and run `subshell setup` by hand.
+
+## 3. Let setup finish
+
+`setup` generates an identity keypair and a link-encryption keypair on that machine, enrols with the control plane, and writes its config 0600. The node's long-lived key is stored only on that machine and is never echoed, not even with `--json`. From its first connect, every byte the machine and the control plane exchange rides a link both ends encrypt: the node's traffic is not readable off the network just because the server runs on plain `http://`.
+
+Finally it asks **"Run the agent in the background and start it at login?"** Yes installs a systemd user unit on Linux or a launchd agent on macOS. On Linux, a user service dies at logout unless the account has lingering enabled; when it does not, the installer prints `loginctl enable-linger $USER`.
+
+> [!important] Enrollment delegates execution
+> Enrolling delegates arbitrary command execution under that machine's OS user: from then on, the control plane can launch agent panes there as whoever runs the daemon. Register machines you own, and see [the threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#6-nodes) for the full accounting.
+
+## 4. Launch there
+
+The node appears in the list. Opening its page (or pressing **Re-check**) has the control plane probe it for the agent CLIs this instance offers; a node is only ever offered the harnesses actually installed on it. In the create-subshell dialog, pick the new machine as the **node** and a folder on it as the working directory, and press **Start**: [Launch and manage subshells](/use/subshells) covers the rest.
+
+If the machine has no terminal, the dialog's reveal switches from **Terminal** to **Desktop App** and shows two values instead of a command: the server address and the setup key. In Subshell Client, paste both on its **Enroll** step, and it installs the node binary that ships inside the app. [Turn a desktop into a node](/nodes/desktop-node) describes that assistant screen by screen.
+
+## Notes
+
+- If the row never comes online, it is almost always the baked loopback URL or an unreachable address. Run `subshell status --probe` on the node: it dials the stored address and names it. A "The setup key was rejected" means the key is invalid, expired, or already used; mint a fresh one.
+- A node started by hand with `subshell run` dies when you close the SSH session: that is the foreground daemon. Install the background service, as step 3 describes.
+- Re-enrolling an already enrolled machine is destructive: a second enrollment overwrites the node's saved configuration, registers a second node row, and discards the current node key. Reaching a plane that moved to a different address is repointing, which keeps the machine's identity ([Manage a node](/nodes/manage)).
+- Two fleet decisions are worth making deliberately: [who may launch on it](/nodes/sharing), and whether to [restrict its directories](/nodes/directory-allowlist).
+
+## Next steps
+
+- [Add a node](/nodes/add-a-node): the terminal path with every flag, and the key's full life.
+- [Nodes overview](/nodes): what a node is and what it delegates.
+- [subshell CLI](/reference/node-cli): every verb `setup`, `enroll`, and `service` take.

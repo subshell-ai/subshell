@@ -1,5 +1,5 @@
 ---
-title: The Plugin API
+title: Plugin API
 description: "The contract package @subshell-ai/plugin-api: manifests, capabilities, the host object, and the API version rule."
 ---
 
@@ -11,11 +11,11 @@ The npm version is ordinary semver (`3.0.x` at the time of writing; types drift,
 
 - A host implementing a lower contract version refuses the plugin outright, naming both numbers so the operator knows which side to upgrade (`"this plugin needs plugin-api 3, but this host implements 2; upgrade Subshell"`).
 - A host at a higher version lets the plugin through that manifest gate, but that is not a compatibility window. The loader checks members by name, so a rename across API versions refuses the older plugin at load with a named diagnosis. The real case: a v1 plugin used the `profile` spelling and comes back as missing `validatePreset`, never as silently working.
-- Host members are additive within a version line, and across one you rebuild. That is exactly what the 1 → 2 move was: renamed members, and `run` / `secrets` / `platform` / `homeDir` joined the host.
+- Host members are additive within a version line, and across one you rebuild. That is exactly what the 1 → 2 move was: renamed members, and `run`, `secrets`, `platform`, and `homeDir` joined the host.
 
 ## The manifest exports
 
-From the package you import `parseManifest`, which validates the `subshell` block of a `package.json`. The refusals named in [Writing a Harness Plugin](/develop/harness-plugin) and [Writing a Network Plugin](/develop/network-plugin) are this function's behavior: `apiVersion` must be an integer ≥ 1, `entry` must be a relative path that stays inside the package, `icon` must be a real image path that stays inside, `install.command` may not run `sudo`, `doas`, or `pkexec` at any shell boundary, and `docsUrl`s are http(s)-only. You also import `PLUGIN_API_VERSION`, `isDocsUrl`, and the manifest types (`SubshellManifest`, `DetectSpec`, `InstallSpec`, `NetworkManifest`, `PrivilegedStep`, `ManifestError`).
+From the package you import `parseManifest`, which validates the `subshell` block of a `package.json`. The refusals named in [Write a harness plugin](/develop/harness-plugin) and [Write a network plugin](/develop/network-plugin) are this function's behavior: `apiVersion` must be an integer ≥ 1, `entry` must be a relative path that stays inside the package, `icon` must be a real image path that stays inside, `install.command` may not run `sudo`, `doas`, or `pkexec` at any shell boundary, and `docsUrl`s are http(s)-only. You also import `PLUGIN_API_VERSION`, `isDocsUrl`, and the manifest types (`SubshellManifest`, `DetectSpec`, `InstallSpec`, `NetworkManifest`, `PrivilegedStep`, `ManifestError`).
 
 The manifest is load-bearing, not decoration: it is what the host reads to list your plugin and probe for its binary without importing a line of your code. The `detect` block ships to nodes as data.
 
@@ -46,8 +46,8 @@ The capability-validation functions are exported because the loader runs them. W
 
 The subpath export `@subshell-ai/plugin-api/testing` needs no Subshell to test against. `createTestHost()` returns an inert `PluginHost`. `createScriptedHost(answers)` additionally scripts `run`: keyed by joined argv (or prefix), it answers with the `RunResult` your vendor-CLI parser expects, and records every `calls`. A network plugin is mostly a parser of one CLI's output, so its tests are mostly "given this `status --json`, report that state".
 
-## See also
+## Other pages
 
-- [Writing a Harness Plugin](/develop/harness-plugin) and [Writing a Network Plugin](/develop/network-plugin): the two interfaces in motion
-- [Publishing a Plugin](/develop/publish-a-plugin): how a built plugin reaches an install
-- [Architecture](/develop/architecture): where the loader consumes all of this
+- [Write a harness plugin](/develop/harness-plugin) and [Write a network plugin](/develop/network-plugin): the two interfaces in motion
+- [Publish a plugin](/develop/publish-plugin): how a built plugin reaches an install
+- [Architecture](/concepts/architecture): where the loader consumes all of this

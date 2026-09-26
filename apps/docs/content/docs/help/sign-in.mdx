@@ -1,0 +1,51 @@
+---
+title: Sign-in and address errors
+description: "The 403 that names itself, a passkey that answers on one address only, and the production boot that refuses the placeholder secret."
+---
+
+Fix the failures that stop a browser signing in: the origin 403, passkeys that answer on one address only, and a production server that refuses to boot.
+
+## A 403 "Invalid origin" on sign-in
+
+**Symptom.** The sign-in page (or the first-run wizard) refuses with a 403, and the error names itself: `Invalid origin`. The passwords are not wrong; the request never gets that far.
+
+**Cause.** Subshell only accepts browser requests from addresses it trusts, and the allowlist is derived. It comes from the instance's own addresses (the loopback spellings of its port, the configured `APP_BASE_URL`, and a concrete bind host), the operator's `TRUSTED_ORIGINS`, and whatever a [network plugin](/server/network-plugins) published. It is never read from the request's own `Host` header. That is the DNS-rebinding hole the list exists to close. On the default configuration, the derived set is just the two loopback spellings, so opening the UI through a LAN IP or a VPN name sends an origin nothing matches.
+
+**Fix.**
+
+1. Browse from an address already on the list, or add the address you actually use. **Settings → Service** has the trusted-origins field, and from a terminal it is `subshell-server configure --trusted-origins <origin,origin>` (see the [subshell-server CLI](/reference/server-cli)).
+2. Write each entry as a full origin: scheme and host, no path. Wildcards are refused.
+3. Restart after using the flag. It rewrites `config.env`, and the CLI says the new value applies at the next start. The dashboard's field, by contrast, applies live.
+4. Check what is stored with `subshell-server status`, which prints the stored line with per-entry diagnostics for spellings a browser will not match.
+
+> [!note] The checked list is derived live
+> The list a browser is actually checked against is derived live and also includes the instance's own addresses. The long version, including why `APP_BASE_URL` matters separately, is on [Networking and addresses](/server/networking).
+
+## Passkeys work everywhere except one address
+
+**Symptom.** Password sign-in works from every address you added, but passkeys only ever work on one, usually `localhost` or the exact host in `APP_BASE_URL`. Elsewhere the browser itself rejects the ceremony before the server sees it.
+
+**Cause.** A passkey is bound at creation to a relying-party ID, and Subshell's is the host of the configured `APP_BASE_URL`, never the request's host. That is what makes the credential non-phishable. It is also why the same key refuses to authenticate under a second spelling of the same server.
+
+**Fix.** Use passkeys on the canonical address, and put other devices on it too: add the name to `TRUSTED_ORIGINS`, then browse there. Be deliberate about changing `APP_BASE_URL` itself: it moves the relying-party ID, and existing passkeys stop working on the old address. That includes the Subshell Server desktop app's own window, which opens on loopback. Adding extra origins to the allowlist does not have that effect, and it is the safe lever for "also reachable at".
+
+## The server refuses to boot in production
+
+**Symptom.** With `NODE_ENV=production`, startup dies with:
+
+```
+Refusing to boot: BETTER_AUTH_SECRET is unset in production. The built-in
+placeholder secret is public (it ships in the repo), so session cookies
+signed with it can be forged by anyone. Set BETTER_AUTH_SECRET to a unique
+value of at least 32 characters.
+```
+
+**Cause.** Session cookies are signed with `BETTER_AUTH_SECRET`. Outside production, the built-in placeholder is convenient. Under `NODE_ENV=production`, signing with a key that ships in the repository would let anyone forge a session, so the boot refuses instead.
+
+**Fix.** Set a real `BETTER_AUTH_SECRET` in `config.env` (the file `subshell-server status` names) or in the environment. Set `APP_BASE_URL` while you are there: production enforces the origin check strictly, which is where the 403 above starts to bite. `configure` deliberately does not write this key, so edit the file directly.
+
+## Other pages
+
+- [Networking and addresses](/server/networking): the origin allowlist, the three addresses, and the DNS-rebinding hole
+- [Security model](/concepts/security-model): why these refusals are by design
+- [Troubleshooting](/help): the status report to run first

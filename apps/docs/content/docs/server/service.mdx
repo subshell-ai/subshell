@@ -1,9 +1,13 @@
 ---
-title: Running as a Service
-description: "Start at login and stay up after logout: systemd user units, launchd agents, and the pane-safety rule."
+title: Service and autostart
+description: "Start at login and stay up after logout: systemd user units, launchd agents, lingering, and the pane-safety rule."
 ---
 
-The control plane runs without a terminal held open by registering with the platform's per-user service manager: a systemd user unit on Linux, a launchd agent on macOS. No sudo is involved anywhere: this is your account's manager, running as your user.
+Run the server as a background service that starts at login, and manage it with the `service` verbs.
+
+Registration with the platform's per-user service manager keeps the control plane running without a terminal held open: a systemd user unit on Linux, a launchd agent on macOS. No sudo is involved anywhere: this is your account's manager, running as your user.
+
+## The service verbs
 
 ```bash
 subshell-server service install    # write the unit / agent and start it
@@ -60,15 +64,15 @@ An unreadable definition fails closed, the same as a lethal one: not being able 
 
 Settings → Service can restart the server over HTTP, under two refusals that mirror the CLI's. The restart is available only when the service manager reports this very process's pid. A hand-run `subshell-server` in a terminal, or a container with no respawn, exits into nothing, so the button stays greyed and the page says so. And the restart route applies the pane-safety refusal too, so a page cannot silently do what the CLI refuses. Start-at-login is likewise toggleable from the page, because arming it touches nothing about the running process.
 
-What has no route at all: `stop`, `start`, `service install`, `service uninstall`, and the reset. Each one would leave the server unreachable, and an act that kills the page cannot be driven from the page. They stay CLI verbs (the reset lives in the desktop assistant; see [Reset](/server/reset)).
+What has no route at all: `stop`, `start`, `service install`, `service uninstall`, and the reset. Each one would leave the server unreachable, and an act that kills the page cannot be driven from the page. They stay CLI verbs; the reset lives in the desktop assistant, on [Reset](/server/reset).
 
-## The app as supervisor
+## Notes
 
-The Subshell Server desktop app can run the control plane as its own child instead of installing a service, the "with the app" mode offered at first run. The server learns this from environment variables naming its supervisor, and believes the claim only when the named pid is actually its parent. What a false claim could buy is only the dashboard's restart button pointing at a process nothing will respawn. In this mode, quitting the app stops the server but keeps every live pane running, and restarting the server means the app respawns it. [Install the Control Plane](/get-started/install-server) covers the two modes side by side; switching between them is the Service page's supervision control, which enforces the same pane-safety refusal.
+- The Subshell Server desktop app can also run the server as its own child process instead of installing a service. That mode, and the supervision control that switches between the two, are on [Install with the desktop app](/server/desktop-app).
 
-## See also
+## Other pages
 
 - [Configuration](/server/configuration): the file the unit loads, and which changes need a restart
 - [Reset](/server/reset): the one destructive act, kept off the network entirely
-- [Updating the Server](/server/updating): how an update uses the manager to complete its transaction
+- [Update the server](/server/updating): how an update uses the manager to complete its transaction
 - [subshell-server CLI](/reference/server-cli): every flag each verb accepts

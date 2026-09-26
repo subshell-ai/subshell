@@ -1,15 +1,17 @@
 ---
-title: The Plugin Registry
+title: Install a plugin
 description: "Installing third-party plugins from a registry: where the store lives, who may install, and what integrity proves."
 ---
 
-Everything Subshell can launch is a plugin, and six ship built in. This page is about the other kind: a plugin someone else published, installed from a registry at **Settings → Plugins**. Installing a plugin is the most privileged install in the product, so the page also covers what that act costs.
+Install a plugin someone else published, from a registry at **Settings → Plugins**.
+
+Everything Subshell can launch is a plugin, and six ship built in. This page is about the other kind. Installing a plugin is the most privileged install in the product, so this page also covers what that act costs.
 
 ## One store for every node
 
 The control plane keeps a single plugin store inside its data directory. Installing there arms every node at once: a node holds nothing plugin-related of its own, and executes the command lines this store produces. There is no per-node plugin set to reconcile.
 
-A node does still need the real binary the plugin drives. The store decides which agents the instance offers; each machine's detection decides where they are launchable. See the [Overview](/agents).
+A node does still need the real binary the plugin drives. The store decides which agents the instance offers; each machine's detection decides where they are launchable. See the [Agents overview](/agents).
 
 At boot, the store seeds the built-ins into itself, once per plugin id. That marker is what makes your decisions stick: a plugin you uninstalled is never resurrected by the next restart, while a new built-in that ships in a later version gets seeded then. The six built-ins can also be reinstalled from this page with one click, because their bytes are already in the server binary.
 
@@ -40,7 +42,7 @@ Id collisions are refused, not resolved: a package whose manifest claims an id t
 Before an uninstall, the page shows its scope: how many presets use the plugin, how many users' presets those are, and how many subshells are running on it. Then you choose:
 
 - **Uninstall, keeping presets** (the default): only the plugin's bytes go. Presets that used it survive, hidden, and work again if you reinstall.
-- **Uninstall, deleting presets**: every preset across every user that names this harness is removed too. Subshells that launched from those presets survive; they become presetless.
+- **Uninstall, deleting presets**: every preset across every user that names this harness is removed too. Subshells that launched from those presets survive; they become presetless, and their next restart composes from the empty preset instead of erroring.
 - **Disable instead**: the toggle takes the plugin out of every launch picker instance-wide without deleting anything. A freshly installed plugin is enabled, and the uninstall clears the remembered toggle, so a later reinstall starts enabled again.
 
 All three leave running subshells alone: they are processes with their own credentials, and a plugin change neither terminates nor silences them.
@@ -50,8 +52,8 @@ All three leave running subshells alone: they are processes with their own crede
 
 ## See also
 
-- [Overview](/agents): the plugin model the registry sits on
-- [Installing Agent CLIs](/agents/installing-agent-clis): the different, narrower act of installing the binary a plugin drives
-- [Writing a Harness Plugin](/develop/harness-plugin) and [Publishing a Plugin](/develop/publish-a-plugin): how the plugins behind this page get written and published
-- [Audit Log](/server/audit-log): installs and uninstalls are recorded with the admin who did them
+- [Agents overview](/agents): the plugin model the registry sits on
+- [Install an agent CLI](/agents/install-a-cli): the different, narrower act of installing the binary a plugin drives
+- [Write a harness plugin](/develop/harness-plugin) and [Publish a plugin](/develop/publish-plugin): how the plugins behind this page get written and published
+- [Audit log](/server/audit-log): installs and uninstalls are recorded with the admin who did them
 - [Network plugins](/server/network-plugins): installed through this same store and gate, but they connect networks rather than drive panes

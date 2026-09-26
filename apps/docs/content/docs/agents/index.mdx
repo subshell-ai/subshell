@@ -1,13 +1,15 @@
 ---
-title: Overview
-description: "Agents are plugins: what that means for what you can launch, where the binaries live, and who decides the set."
+title: Agents overview
+description: "What a Subshell agent plugin is, which six ship built in, where the binaries live, and who decides the set."
 ---
 
-Every agent Subshell can put in a pane, and the plain Terminal, is a **plugin**. A plugin teaches Subshell how to drive one program: how to find it, what command line starts it, how to wire in the tools that make a subshell more than a terminal, and which settings are worth offering you. The program itself is the agent's own CLI, installed the ordinary way. The plugin never ships the CLI; it only drives it.
+Every agent Subshell can put in a pane, and the plain Terminal, is a **plugin**.
+
+A plugin teaches Subshell how to drive one program: how to find it, what command line starts it, how to wire in the tools that make a subshell more than a terminal, and which settings are worth offering you. The program itself is the agent's own CLI, installed the ordinary way. The plugin never ships the CLI; it only drives it.
 
 ## The control plane owns the set
 
-Plugins are installed once, on the control plane, into a single store under its data directory. One install arms every node. A node holds nothing plugin-related of its own; it executes the command line the control plane built for the launch. Because installing a plugin runs third-party code inside the control plane's own process, installing, enabling, and uninstalling are admin actions, made at **Settings → Plugins**. See [The Plugin Registry](/agents/plugin-registry).
+Plugins are installed once, on the control plane, into a single store under its data directory. One install arms every node. A node holds nothing plugin-related of its own; it executes the command line the control plane built for the launch. Because installing a plugin runs third-party code inside the control plane's own process, installing, enabling, and uninstalling are admin actions, made at **Settings → Plugins**. See [Install a plugin](/agents/plugin-registry).
 
 Whether you can launch an agent on a machine depends on two separate questions:
 
@@ -18,26 +20,28 @@ A launch picker therefore offers only what that host actually has, per person: a
 
 ## The six built-ins
 
-Six harness plugins ship with Subshell and are seeded into the store on first boot:
+Six plugins ship with Subshell and are seeded into the store on first boot:
 
 - **[Terminal](/agents/terminal)**: a plain shell in a pane. It runs no agent, detects nothing beyond the shell itself, and has nothing to install.
 - **[Claude Code](/agents/claude-code)**: Anthropic's agentic coding CLI. This is the richest integration: per-launch MCP wiring, notification hooks, and conversation resume across restarts.
 - **[OpenCode](/agents/opencode)**: the open-source omnichannel coding CLI. MCP wiring arrives as a merged config layer, so your own OpenCode config is never touched.
 - **[Codex](/agents/codex)**: OpenAI's coding CLI. MCP wiring rides per-invocation config overrides, and its user state (`~/.codex`) is left exactly as you have it.
-- **[Hermes Agent](/agents/hermes)**: Nous Research's open agent CLI. MCP is registered once per machine with a command the preset editor shows you.
+- **[Hermes](/agents/hermes)**: Nous Research's open agent CLI. MCP is registered once per machine with a command the preset editor shows you.
 - **[pi](/agents/pi)**: the minimal pi.dev harness. MCP comes from a community adapter extension, installed once per machine. The editor shows both steps.
 
-The split that matters day to day: Claude Code, OpenCode, and Codex wire Subshell's cross-subshell tools in **automatically at every launch**. Hermes and pi use a config format with no per-launch override, so they ask for a **one-time registration** instead. All of them reach the same [MCP server](/automation/mcp-server); the difference is only how many times you set it up.
+## Automatic or one-time wiring
+
+The split that matters day to day: Claude Code, OpenCode, and Codex wire Subshell's cross-subshell tools in **automatically at every launch**. Hermes and pi use a config format with no per-launch override, so they ask for a **one-time registration** instead. All of them reach the same [MCP server](/automation/mcp); the difference is only how many times you set it up.
 
 ## Beyond the built-ins
 
-Every built-in is also an npm package (`@subshell-ai/plugin-<id>`), and third-party plugins install from a registry through the same **Settings → Plugins** screen. The plugin API they are written against is public; [Writing a Harness Plugin](/develop/harness-plugin) covers what a plugin can do.
+Every built-in is also an npm package (`@subshell-ai/plugin-<id>`), and third-party plugins install from a registry through the same **Settings → Plugins** screen. The plugin API they are written against is public; [Write a harness plugin](/develop/harness-plugin) covers what a plugin can do.
 
-If a picker shows "program not found" for a plugin that is installed, the fix is the binary, not the plugin. See [Installing Agent CLIs](/agents/installing-agent-clis).
+If a picker shows "program not found" for a plugin that is installed, the fix is the binary, not the plugin. See [Install an agent CLI](/agents/install-a-cli).
 
 ## See also
 
-- [The Plugin Registry](/agents/plugin-registry): the store, the admin gate, and what registry installs verify
-- [Installing Agent CLIs](/agents/installing-agent-clis): getting the agent binaries onto the control-plane host
-- [What a Node Is](/nodes): the machines that actually run the panes, and Re-check
+- [Install a plugin](/agents/plugin-registry): the store, the admin gate, and what registry installs verify
+- [Install an agent CLI](/agents/install-a-cli): getting the agent binaries onto the control-plane host
+- [Nodes overview](/nodes): the machines that actually run the panes, and Re-check
 - [Presets](/use/presets): saved launch configurations per harness

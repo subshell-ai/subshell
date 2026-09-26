@@ -1,11 +1,35 @@
 ---
 title: subshell CLI
-description: Every verb of the node CLI (setup, enroll, configure, run, dashboard, service, maintenance, unenroll, status, update, mcp, report), with its flags and its exit code.
+description: "Every verb of the node CLI (setup, enroll, configure, run, dashboard, service, maintenance, unenroll, status, update, mcp, report), with its flags and its exit code."
 ---
 
-`subshell` is the CLI that turns a machine into a node: a machine that runs panes for a control plane. Most of the time you use three verbs: `subshell setup` once, `subshell status` when something looks wrong, and `subshell update` when a newer version is published. This page mirrors the binary's own usage text.
+`subshell` is the CLI that turns a machine into a node: a machine that runs panes for a control plane.
+
+Most of the time you use three verbs: `subshell setup` once, `subshell status` when something looks wrong, and `subshell update` when a newer version is published.
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `setup` | The whole enrollment: tmux check, name, enroll, service offer |
+| `enroll` | Enrollment only: the primitive `setup` composes; `--name` required |
+| `configure` | Change how an already-enrolled node reaches its control plane |
+| `run` | The foreground daemon; also serves the loopback dashboard |
+| `dashboard` | The loopback dashboard without the daemon |
+| `service` | install, uninstall, status, start, stop, restart, autostart |
+| `maintenance` | on, off, status: take this node out of service or back |
+| `unenroll` | Stop being a node: delete this machine's node config and lock |
+| `status` | What this machine's local truth says (`--json`, `--probe`) |
+| `update` | Replace this node's own binary (`--rollback` undoes the last one) |
+| `version` | Print the version (`--version` and `-v` work in the command slot) |
+| `license` | Print the copyright and licence and exit |
+| `mcp` | The stdio MCP server for one pane (internal) |
+| `report` | Report a pane's state (run by harness hooks and tmux) |
+| `pane-log` | Append stdin to a pane log (run by tmux's pipe-pane) |
 
 ## Usage
+
+The literal text the binary prints on a usage error:
 
 ```
 subshell: node daemon
@@ -78,6 +102,8 @@ usage:
                           read; run by tmux's own pipe-pane, not by hand)
 ```
 
+## Exit codes
+
 Exit codes are what make this scriptable: 0 means the state is as stated, 1 is a runtime failure, and 2 is a usage error, in which case the full text above goes to stderr. `version`, `--version`, and `-v` work in the command slot only, so `subshell status --version` is treated as what it is: a typo'd flag. Value flags also accept `--flag=value`.
 
 ## setup: the full enrollment
@@ -90,28 +116,30 @@ The rendered `install.sh` reattaches your terminal before running this verb, so 
 
 This is what the Nodes page's copy-paste one-liner ends up running. `enroll` stays underneath it as the primitive for anyone composing their own flow.
 
-## enroll and configure
+## enroll: the primitive
 
-These two commands look alike and do different jobs. `enroll` spends a single-use setup key and is destructive: it overwrites `config.json`, mints a second node row on the plane, and discards the node key whose only home was the old file. Run it to join a plane, not to fix one. It takes `--name <n>` and requires it: the primitive asks no questions, and the old hostname default is gone, so a nameless `enroll` is a usage error before the tmux check, the identity, or the network.
+`enroll` and `configure` look alike and do different jobs; `enroll` is the one that joins a plane. It spends a single-use setup key and is destructive: it overwrites `config.json`, mints a second node row on the plane, and discards the node key whose only home was the old file. Run it to join a plane, not to fix one. It takes `--name <n>` and requires it: the primitive asks no questions, and the old hostname default is gone, so a nameless `enroll` is a usage error before the tmux check, the identity, or the network. Like `configure`, it never prints the node key, and the configure section below gives the shape both verbs' `--json` output carries.
+
+## configure: repoint or re-key
 
 `configure` is the day-two command for an already-enrolled node, and it needs at least one of its two value flags: `configure` with no flags is a usage error. `configure --server <url>` is the answer to "the control plane moved": it rewrites the address in `config.json` and keeps the identity (same node id, same node key, same pinned control key), spends no setup key, and mints no second row. `configure --key <node key>` stores a node key that the plane's "Rotate key" minted: it rewrites only the stored key, and it refuses an `nsk_` setup key by name, because a setup key enrolls a new node rather than updating this one. Restart the node to apply either change. Two limits are worth knowing:
 
 - It does not rename and takes no `--name`. The plane owns a node's name (the Nodes page), so a rename here would change only what `subshell status` prints.
 - It works between two names for one plane. Point it at a genuinely different control plane and the socket comes back refused; joining a different plane is an `enroll`.
 
-Neither command prints the node key. `--json` on both reports `{nodeId, serverUrl, name, dataDir, configPath}` (a `configure --key` also reports `keyUpdated`): the key's only home is the 0600 config file, and that holds for `status --json` too.
+Neither `configure` nor `enroll` prints the node key. `--json` on both reports `{nodeId, serverUrl, name, dataDir, configPath}` (a `configure --key` also reports `keyUpdated`): the key's only home is the 0600 config file, and that holds for `status --json` too.
 
-## run
+## run: the daemon
 
 `subshell run` is the foreground daemon, and it is what the service definition executes. It dials the control plane, sends its `ready` frame, and reconnects with capped exponential backoff after any drop. If a second daemon starts with the same identity, it supersedes the first, and the older one exits. Use `run` to watch what the daemon says; use `service install` for anything that should survive you closing the terminal.
 
 By default `run` also serves this node's dashboard at `http://127.0.0.1:3090`. It binds loopback only and has no login: the listen address plus the OS user is the access control. On a machine with several local users, set `SUBSHELL_DASHBOARD=0` to take the page away. `--dashboard-port <n>` (or `SUBSHELL_DASHBOARD_PORT`) moves it; the flag wins over the variable. A port the dashboard cannot take costs the dashboard, never the daemon.
 
-## dashboard
+## dashboard: the page without the daemon
 
 `subshell dashboard` serves the same page without the daemon. Reads and maintenance actions work off disk; the two actions that cannot be honored without a daemon (restart and update) answer "not supervised". It exists for a stopped or broken agent: the machine's page should not need the machine's plane socket. It takes the same `--dashboard-port`, refuses an unparseable one as a usage error, and runs until you stop it with Ctrl-C.
 
-## service
+## service: the background process
 
 `service install` writes a systemd user unit (`~/.config/systemd/user/subshell.service`) or a launchd agent (`~/Library/LaunchAgents/dev.subshell.client.plist`) and starts it. `service uninstall` takes the service down and removes the definition. `service start` and `service stop` drive an installed service and never install one. `service status` reports what the manager says and always exits 0, because it only reports; use `--json` in scripts. `service restart` refuses when the installed definition would SIGKILL live panes on the way down, and `--force` overrides that. Installing arms login start (that is what `--no-autostart` declines), and `service autostart on|off` is the day-2 version of the same decision: it arms or disarms start-at-login for the installed definition and touches nothing that is running. With no definition installed it refuses rather than writing one. On Linux `loginctl enable-linger` is the other half of surviving a logout.
 
@@ -119,7 +147,7 @@ By default `run` also serves this node's dashboard at `http://127.0.0.1:3090`. I
 
 `maintenance on` takes this machine out of service: it stays enrolled and keeps answering every other command, but launches nothing, and it stops every subshell running here, whoever owns them. Because of that, without `--yes` the command first lists those subshells (name, id, working directory), writes nothing, and exits 1; the flag is the confirmation. `maintenance off` puts the machine back in service, and `maintenance status` reads this machine's own mirror and always exits 0.
 
-The CLI does not talk to the daemon. It writes a file, and the running node detects the change and tells the control plane. The plane can throw the same switch remotely, and either end can overrule the other: the newer stamp wins, and ties go to the plane. [Maintenance Mode](/nodes/maintenance) covers the whole flag.
+The CLI does not talk to the daemon. It writes a file, and the running node detects the change and tells the control plane. The plane can throw the same switch remotely, and either end can overrule the other: the newer stamp wins, and ties go to the plane. [Manage a node](/nodes/manage) covers the whole flag.
 
 ## unenroll
 
@@ -140,20 +168,34 @@ If the node service is installed, remove it with `service uninstall`: its daemon
 
 `subshell update` replaces this node's own binary and restarts into it, with the same transaction shape as the server's: the swap keeps the old file as `<binary>.previous` with a marker beside it, and the next boot either finishes the transaction or reverts it. `--check` compares semver rather than plain inequality, and it names where the offer came from. `--to <version>` picks a published release, and `--from <file>` installs a file you name. Neither direction happens by accident: an offer older than the running binary is refused unless you pass `--force`, which also overrides the live-pane restart refusal. `--no-restart` swaps without restarting. `update --rollback` puts `<binary>.previous` back if an update left one; it takes only `--yes` and `--json` (plus `--force` on the restart) beside it.
 
-The source of the bytes matters, and the CLI cannot ask the plane: a node key can do nothing on REST, so `update` reads the release list directly from `SUBSHELL_RELEASE_URL` (default: this project's GitHub releases; empty means this host fetches nothing and you use `--from`). The refusal line says so and points at the plane's Settings → Updates page, which is where a person sees the node version the plane can talk to; see [Version Compatibility](/reference/version-compatibility).
+The source of the bytes matters, and the CLI cannot ask the plane: a node key can do nothing on REST, so `update` reads the release list directly from `SUBSHELL_RELEASE_URL` (default: this project's GitHub releases; empty means this host fetches nothing and you use `--from`). The refusal line says so and points at the plane's Settings → Updates page, which is where a person sees the node version the plane can talk to; see [Version compatibility](/reference/versions).
 
-## mcp, report, and pane-log: internal verbs
+## mcp: the pane's MCP server
 
-`mcp` is the stdio MCP server for one subshell pane ([The subshell mcp Server](/automation/mcp-server)). It is configured purely by the `SUBSHELL_*` pane environment, and a missing variable is a usage error that names the variable before a byte touches stdio. `report attention <kind>` (`turn_complete`, `needs_attention`, or `resumed`, the signal that takes "waiting for you" back off), `report session`, and `report exit <status>` are the out-of-band reports from the harness hooks and from tmux's own pane-death hook. They run on this machine, where the only program guaranteed to exist is this binary. Unlike `mcp`, an incomplete pane environment exits 0 in silence: nobody typed it, and a hook's stderr lands in the user's session. `pane-log --file <path>` is tmux's own pipe-pane capture child: it appends its stdin to the pane log, flushing each read, and exits 0 when the pane's stream closes; a missing or relative path is refused as a usage error. All four verbs exist on `subshell-server` too, which is how a server-only host drives panes with no node CLI installed.
+`mcp` is the stdio MCP server for one subshell pane ([The MCP server](/automation/mcp)). It is configured purely by the `SUBSHELL_*` pane environment, and a missing variable is a usage error that names the variable before a byte touches stdio.
 
-## version and license
+## report: harness and tmux self-report
 
-`version` prints `subshell <version> (node protocol v<N>)`, a machine contract. `license` prints the copyright and licence terms.
+`report attention <kind>` (`turn_complete`, `needs_attention`, or `resumed`, the signal that takes "waiting for you" back off), `report session`, and `report exit <status>` are the out-of-band reports from the harness hooks and from tmux's own pane-death hook. They run on this machine, where the only program guaranteed to exist is this binary. Unlike `mcp`, an incomplete pane environment exits 0 in silence: nobody typed it, and a hook's stderr lands in the user's session.
 
-## See also
+## pane-log: the capture child
 
-- [Adding a Node](/nodes/add-node) and [Managing a Node](/nodes/managing-a-node): the same verbs, operator-shaped.
-- [Updating a Node](/nodes/updating): both update paths, plane-driven and by hand.
+`pane-log --file <path>` is tmux's own pipe-pane capture child: it appends its stdin to the pane log, flushing each read, and exits 0 when the pane's stream closes; a missing or relative path is refused as a usage error.
+
+All of these internal verbs exist on `subshell-server` too, which is how a server-only host drives panes with no node CLI installed.
+
+## version
+
+`version` prints `subshell <version> (node protocol v<N>)`, a machine contract.
+
+## license
+
+`license` prints the copyright and licence terms.
+
+## Other pages
+
+- [Add a node](/nodes/add-a-node) and [Manage a node](/nodes/manage): the same verbs, operator-shaped.
+- [Update a node](/nodes/updating): both update paths, plane-driven and by hand.
 - [subshell-server CLI](/reference/server-cli): the control plane's binary.
-- [Files & Paths](/reference/files-and-paths): what this node keeps on disk.
-- [Node Protocol](/reference/node-protocol): what `run` speaks.
+- [Files and paths](/reference/files-and-paths): what this node keeps on disk.
+- [Node protocol](/reference/node-protocol): what `run` speaks.

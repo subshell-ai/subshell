@@ -18,16 +18,16 @@ const DOCS_DIR = path.join(import.meta.dir, "..", "..", "content", "docs");
 /** The canonical root `meta.json` pages list — 11 entries, in sidebar order. */
 const ROOT_PAGES = [
   "index",
-  "about",
   "get-started",
   "use",
   "agents",
   "nodes",
   "server",
   "automation",
-  "develop",
+  "concepts",
   "reference",
   "help",
+  "develop",
 ];
 
 interface MetaFile {

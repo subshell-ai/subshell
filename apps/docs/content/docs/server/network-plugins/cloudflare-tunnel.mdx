@@ -1,9 +1,14 @@
 ---
 title: Cloudflare Tunnel
-description: Publish your server on a hostname you own, behind an Access gate that the server verifies itself.
+description: "Publish your server on a hostname you own, behind an Access gate that the server verifies itself."
 ---
 
-Cloudflare Tunnel is the one network plugin that inverts the posture: instead of joining a private mesh, it points a public hostname you own at this server through Cloudflare's edge. The manifest declares that exposure (`public-with-gate`) as data the card renders before the button, so the sentence "this instance will answer on the open internet" is something you read before acting, not something you discover afterward. What makes the posture acceptable is the gate: a Cloudflare Access application in front of the hostname, whose identity assertions this server verifies itself, on every request.
+Publish this server on a public hostname you own, behind a Cloudflare Access gate that the server verifies itself.
+
+Cloudflare Tunnel is the one network plugin that inverts the posture: instead of joining a private mesh, it points a public hostname you own at this server through Cloudflare's edge. The manifest declares that exposure (`public-with-gate`) as data the card renders before the button, so the sentence "this instance will answer on the open internet" is something you read before acting, not something you discover afterward.
+
+> [!important] This plugin steps outside the trusted-network posture
+> What makes the posture acceptable is the gate: a Cloudflare Access application in front of the hostname, whose identity assertions this server verifies itself, on every request.
 
 ## What you build in Cloudflare first
 
@@ -49,6 +54,6 @@ Leave disconnects by deleting the stored token. The settings themselves are forg
 ## See also
 
 - [Network plugins overview](/server/network-plugins): the describe/execute rule and the trust model, and why a `public-with-gate` record is trusted only while published
-- [Networking & Addresses](/server/networking): the origin allowlist this hostname joins while the publish stands
-- [Registration & enrollment](/server/registration-enrollment): deciding who gets an account, which Access cannot do for you
-- [Security model](/about/security-model): the trusted-network posture this plugin deliberately steps outside, accounted in [docs/security.md §11.13 on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#1113-network-plugins-publish-this-server-on-a-network)
+- [Networking and addresses](/server/networking): the origin allowlist this hostname joins while the publish stands
+- [Registration and enrollment](/server/registration): deciding who gets an account, which Access cannot do for you
+- [Security model](/concepts/security-model): the trusted-network posture this plugin deliberately steps outside, accounted in [docs/security.md §11.13 on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#1113-network-plugins-publish-this-server-on-a-network)

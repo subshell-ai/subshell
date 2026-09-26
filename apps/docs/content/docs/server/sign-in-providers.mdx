@@ -1,44 +1,59 @@
 ---
-title: Sign-in Providers
-description: "Who may sign in through what: the Auth page's provider list, the trust each provider buys you, and the approval queue behind it."
+title: Sign-in providers
+description: "The Auth page's provider list, the trust each provider buys you, and the approval queue behind it."
 ---
+
+Add and manage the ways people sign in to this instance: the E-mail row and any external identity provider.
 
 Settings → Auth is the instance's list of ways to sign in. E-mail is on the list like everything else: it can be turned off like everything else, and unlike the others it can never be removed. Above it sit the external providers an admin has added: Google, or any OIDC-compliant identity system. The login page shows one button per open provider, named as you named it.
 
-## Adding a provider is a trust decision
+Managing the list is admin-only, cookie-only. A script's API key cannot add, edit, or remove providers, whatever else it can do.
 
-Read this before adding one, because it is the whole cost: Subshell takes the email address your provider asserts as the person's identity. An OIDC arrival whose email is verified by the provider links straight into the matching existing account. That is the same way "forgot my password" links an account to whoever holds the mailbox, but without the password step. An untrusted issuer therefore means somebody else's identity system gets to decide who signs in as your users. Add only issuers you trust the way you trust your own mail domain; the full accounting is in the [threat model §2](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#oidc-sign-in-with-approval-spec-2026-09-24).
+## Before you add a provider
 
-Managing the list is admin-only, cookie-only: a script's API key cannot add, edit, or remove providers, whatever else it can do.
+Adding a provider is a trust decision, and this is the whole cost: Subshell takes the email address your provider asserts as the person's identity. An OIDC arrival whose email is verified by the provider links straight into the matching existing account. That is the same way "forgot my password" links an account to whoever holds the mailbox, but without the password step. An untrusted issuer therefore means somebody else's identity system gets to decide who signs in as your users. Add only issuers you trust the way you trust your own mail domain; the full accounting is in the [threat model §2](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#oidc-sign-in-with-approval-spec-2026-09-24).
 
-## What the form stores, and what the save checks
+## Adding a provider
 
-- **Name** is free text: it is the login button's label, and you can rename it any time. The slug id under it is the permanent thing: the callback URLs and the account links are built on it, and renaming never changes it.
-- **Issuer, client id, client secret**: the save is the verification. Subshell runs discovery against the issuer, and where the issuer advertises the credential grant, makes one real token request with your client id and secret. A provider that fails either check is refused with the reason before it exists; you can fix the fields and press again. The secret is never shown again after saving: the form always starts blank, and leaving it blank means "keep the stored one".
-- **Entry addresses**: where people will sign in from. Each one needs this callback registered at the provider: `https://<address>/api/auth/callback/<slug-id>`. The first entry is the canonical one the callback is built from; list every address you actually serve the login page on.
-- **Allowed email domains**: optional; when set, arrivals must carry an address in one of the domains (subdomains included). Blank means any domain.
+1. Fill in **Name**. It is the login button's label, and you can rename it any time. The slug id under it is the permanent thing: the callback URLs and the account links are built on it, and renaming never changes it.
+
+2. Enter the **Issuer, client id, and client secret**. The save is the verification. Subshell runs discovery against the issuer, and where the issuer advertises the credential grant, makes one real token request with your client id and secret. A provider that fails either check is refused with the reason before it exists; you can fix the fields and press again. The secret is never shown again after saving: the form always starts blank, and leaving it blank means "keep the stored one".
+
+3. List the **Entry addresses**: where people will sign in from. Each one needs this callback registered at the provider:
+
+   ```
+   https://<address>/api/auth/callback/<slug-id>
+   ```
+
+   The first entry is the canonical one the callback is built from, so list every address you actually serve the login page on.
+
+4. Optionally set **Allowed email domains**. When set, arrivals must carry an address in one of the domains, subdomains included. Blank means any domain.
+
+5. Set the provider's three policy switches, described under [Per-provider policy](#per-provider-policy), and save. The button appears on the login page as soon as the provider is open.
 
 ## Per-provider policy
 
-Each provider answers its own three questions, and the answers are independent:
+Each provider answers its own three questions, and the answers are independent.
 
 - **Allow sign-in**: the button appears (or not) and callbacks are refused (or not).
 - **Allow account creation**: whether this provider may create accounts for people it has never seen, or only let existing accounts through.
-- **Require approval**: new accounts from this provider land on a pending queue instead of signing in; see below. Existing accounts are unaffected.
+- **Require approval**: new accounts from this provider land on a pending queue instead of signing in; see [The approval queue](#the-approval-queue). Existing accounts are unaffected.
 
-Two guards apply everywhere. The last open provider cannot be closed: a write that would leave nobody able to sign in is refused, because that is a lockout with only the break-glass environment variable as the way back. And an arrival through a provider can never become the instance's first admin: the first account is always minted through the E-mail row's first-run window, never through a provider.
+Two guards apply everywhere. The last open provider cannot be closed: a write that would leave nobody able to sign in is refused, because that is a lockout with only the break-glass environment variable as the way back. And an arrival through a provider can never become the instance's first admin. The first account is always minted through the E-mail row's first-run window, never through a provider.
 
 ## The approval queue
 
-A pending person sees a plain waiting screen and is signed out of nothing, because they were never signed in: they do not appear in the Users roster, cannot reach the API, and their re-tries just re-answer "still pending". Admins see them on the **Users page's Pending approval tab**, where each row says which provider the arrival came through and offers Approve or Reject. Approval is the only way out of the queue: approving an already-approved person is refused as a mistake, not applied as a no-op. A rejection looks identical from the visitor's side, because the waiting screen does not distinguish. The difference shows on the admin's side: the Pending tab lists rejected rows too, marked rejected, and the audit trail records the decision. Stale pending arrivals expire on a window an admin sets on the Auth page, so the waiting people whose approval never came are cleaned out automatically.
+A pending person sees a plain waiting screen and is signed out of nothing, because they were never signed in: they do not appear in the Users roster, cannot reach the API, and their re-tries just re-answer "still pending". Admins see them on the **Users page's Pending approval tab**, where each row says which provider the arrival came through and offers Approve or Reject.
+
+Approval is the only way out of the queue: approving an already-approved person is refused as a mistake, not applied as a no-op. A rejection looks identical from the visitor's side, because the waiting screen does not distinguish. The difference shows on the admin's side: the Pending tab lists rejected rows too, marked rejected, and the audit trail records the decision. Stale pending arrivals expire on a window an admin sets on the Auth page, so the waiting people whose approval never came are cleaned out automatically.
 
 ## What is never exposed
 
-The client secret is never returned by any read, echoed in an error, or written to the audit trail: the trail records that a provider's fields changed and which issuer it points at. The anonymous read that draws the login page names each open provider by id, name, and kind only, never its issuer, client id, or anything secret.
+The client secret is never returned by any read, echoed in an error, or written to the audit trail. The trail records that a provider's fields changed and which issuer it points at. The anonymous read that draws the login page names each open provider by id, name, and kind only, never its issuer, client id, or anything secret.
 
 ## See also
 
-- [Registration & Enrollment](/server/registration-enrollment): the E-mail row's own gate, and the node door
-- [Users & Roles](/server/users-roles): the Pending tab where approvals happen
-- [Audit Log](/server/audit-log): the provider rows the trail keeps
+- [Registration and enrollment](/server/registration): the E-mail row's own gate, and the node door
+- [Users and roles](/server/users): the Pending tab where approvals happen
+- [Audit log](/server/audit-log): the provider rows the trail keeps
 - [The full threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#2-identity-and-credentials): the verified-email link rule, priced

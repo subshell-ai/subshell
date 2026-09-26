@@ -1,0 +1,66 @@
+---
+title: Install an agent CLI
+description: "Getting an agent binary onto the control-plane host: the in-page installer, what it runs, and its limits."
+---
+
+Install an agent CLI binary on the control-plane host with the in-page installer, or by running the same command in a terminal yourself.
+
+A plugin teaches Subshell to drive an agent CLI; the CLI itself is a program you install like any other. When a launch picker says "program not found," the plugin is fine and the binary is missing. Subshell can run that machine's own installer for you, on the control-plane host only, behind an admin gate.
+
+## Before you start
+
+- An admin browser session on the control plane. The installer runs only for admins, and bearer API keys are refused.
+- The machine you are installing for is the control-plane host. The installer cannot reach into a node; see "The control-plane host only" below.
+
+## Where the button is
+
+The in-page installer appears in two places, and both are admin-only surfaces:
+
+- The **Add an Agent** screen of the first-run wizard, after you create the account.
+- The **Harnesses** card of the control-plane host's node row (named "Server" by default). A row whose binary is missing offers an Install button when you are an admin. Enrolled nodes never offer it; the boundary is explained below.
+
+Each agent row shows its detection state and, beside the Install button, the exact command it will run. You can see what you are about to do without clicking anything.
+
+## What it runs, and how it runs it
+
+The installer runs the agent's own vendor install command, the one baked into that plugin's built-in manifest, not a mirror maintained by us. The request to the server carries only which agent to install. Which command exists is decided by what is compiled into this build. The run has four properties:
+
+- **It runs on the control-plane host**, as the server's own OS user. It never reaches into a node's machine.
+- **Only an admin can run it.** The route demands an admin browser session, and bearer API keys are refused. Unlike the rest of first-run setup, it is never open on an instance with no accounts: letting an anonymous caller make the host fetch and run a remote script would be remote code execution. The wizard is safe from that concern because its screen sits after account creation, so whoever reaches it already signed in.
+- **It is bounded.** The installer gets an allowlisted environment (not the server's own, which holds secrets), the login shell's PATH added so package managers are reachable, a closed stdin, a 64 KiB cap per output stream, and a 10-minute deadline. One install runs per agent at a time.
+- **It is live and audited.** Installer output streams to the page line by line while it runs. When it exits, the result, exit code, and output are reported, and the agent is re-detected so the row shows its new state immediately. The run is written to the [Audit log](/server/audit-log) with the admin who started it. No credential appears in the audit line.
+
+An install that runs and fails is shown as a failure, with the installer's own output under the row that failed: a non-zero exit is a result, not a mystery.
+
+> [!note] None of these need root
+> Every built-in agent installer is a user-scoped vendor script; it installs under the server user's home. Subshell never runs anything with elevated privileges. There is no terminal here to answer a password prompt, and none of these commands asks.
+
+## The install commands
+
+The same commands work in any terminal on the host. These are exactly what the button runs for the five agent CLIs (Terminal installs nothing: every machine that runs Subshell has a shell):
+
+| Agent | Install command | Vendor docs |
+|---|---|---|
+| Claude Code | `curl -fsSL https://claude.ai/install.sh \| bash` | [Setup](https://code.claude.com/docs/en/setup) |
+| OpenCode | `curl -fsSL https://opencode.ai/install \| bash` | [CLI docs](https://opencode.ai/docs/cli/) |
+| Codex | `curl -fsSL https://chatgpt.com/codex/install.sh \| sh` | [CLI docs](https://learn.chatgpt.com/docs/codex/cli) |
+| Hermes Agent | `curl -fsSL https://hermes-agent.nousresearch.com/install.sh \| bash` | [Installation](https://hermes-agent.nousresearch.com/docs/getting-started/installation) |
+| pi | `curl -fsSL https://pi.dev/install.sh \| sh` | [pi.dev docs](https://pi.dev/docs) |
+
+After installing by hand, the row updates on the next page load. A **Re-check** asks that machine right now.
+
+## The control-plane host only
+
+The installer is admin work on the control-plane host, not fleet provisioning. It exists because that host is the one machine every control plane has and the server itself runs on: it may be a headless box you reach only through the browser.
+
+For a [node](/nodes), installing an agent CLI means installing it on that machine. The plane's installer runs on its own host and nothing else. Use the same commands above over SSH, package the CLIs into your node images, or have whoever owns that machine do it the way they prefer. Then press **Re-check** on the node's Harnesses card (owner or edit access) and its rows update to what the machine has. Detection answers per machine, and the picker keeps offering each agent only where its binary was found.
+
+> [!note] Not the same as installing plugins
+> This installs the CLI the plugin drives, not a plugin. Plugins themselves are installed at Settings → Plugins and decide what Subshell can launch at all; see [Install a plugin](/agents/plugin-registry).
+
+## See also
+
+- [Install a plugin](/agents/plugin-registry): installing plugins, the other and more privileged act
+- [Add a node](/nodes/add-a-node): enrolling the machines these CLIs need to reach
+- [Audit log](/server/audit-log): where installs and refusals are recorded
+- [Security model](/concepts/security-model): the trust posture these limits sit inside; the full accounting is in [docs/security.md §11.10 on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md)

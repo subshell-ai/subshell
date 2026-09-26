@@ -1,9 +1,11 @@
 ---
-title: Node Protocol
+title: Node protocol
 description: "The wire contract between the control plane and an enrolled node: enrollment, the encrypted handshake, the two connect gates, the signed command envelope, every command and event, close codes, and versioning."
 ---
 
-This is the reference for the link between the control plane and a node: a machine running the `subshell` daemon. It is written for the operator debugging a node and the contributor implementing something node-side. For what the link is for and what it defends against, see [How It Works](/about/how-it-works) and [Security Model](/about/security-model); the command payloads a node answers with are covered by [Managing a Node](/nodes/managing-a-node). The contract itself lives in the shared protocol package (frames, validators, the envelope, the version gates), and both sides import it, so there is no second copy to drift.
+This page is the wire contract between the control plane and a node: a machine running the `subshell` daemon.
+
+It is written for the operator debugging a node and the contributor implementing something node-side. The contract itself lives in the shared protocol package (frames, validators, the envelope, the version gates), and both sides import it, so there is no second copy to drift. For what the link is for and what it defends against, see [How it works](/concepts/how-it-works) and [Security model](/concepts/security-model); the command payloads a node answers with are covered by [Manage a node](/nodes/manage).
 
 ## 1. Shape of the link
 
@@ -19,7 +21,7 @@ Both directions cap frames at 1 MiB (1,048,576 bytes). Each handler enforces the
 
 ## 2. Enrollment
 
-A node is enrolled once, with a single-use setup key (`nsk_…`). The key is valid for 24 hours, is stored in plaintext, and is listed in full on the Setup keys page until it is used, expires, or is revoked; revocation is audited. Mint one on the Nodes page ([Adding a Node](/nodes/add-node)).
+A node is enrolled once, with a single-use setup key (`nsk_…`). The key is valid for 24 hours, is stored in plaintext, and is listed in full on the Setup keys page until it is used, expires, or is revoked; revocation is audited. Mint one on the Nodes page ([Add a node](/nodes/add-a-node)).
 
 1. The node checks for tmux first, so a machine that cannot host a pane never spends a setup key. It then generates its identity keypair (P-256, for sealed channel delivery; a present-but-corrupt key file is quarantined, never silently rotated) and its link keypair (X25519, for the encrypted `/ws/node` handshake).
 2. It posts `POST /api/nodes/enroll` with the setup key, a name (≤ 64 characters), `os`/`arch`/`hostname`/`agentVersion`, its public JWK, and its link public key (`encryptPublicKey`). A body without the link key still enrolls: the row simply starts unpaired, and its node pairs through §3's `register` self-heal on its first connect. This is the one node route with no auth guard: the setup key is the credential.
@@ -253,10 +255,10 @@ The floor rides every protocol bump, so today it rides 14. The command that make
 
 Settings → Updates lists held nodes and those under the floor in one place, since a refused node otherwise looks like an ordinary offline node.
 
-## See also
+## Other pages
 
-- [Version Compatibility](/reference/version-compatibility): the gates from the operator's chair.
-- [Managing a Node](/nodes/managing-a-node) and [Updating a Node](/nodes/updating): driving this link from the dashboard.
-- [Security Model](/about/security-model): what signing proves and what it does not.
-- [Files & Paths](/reference/files-and-paths): the files this link maintains on the node.
+- [Version compatibility](/reference/versions): the gates from the operator's chair.
+- [Manage a node](/nodes/manage) and [Update a node](/nodes/updating): driving this link from the dashboard.
+- [Security model](/concepts/security-model): what signing proves and what it does not.
+- [Files and paths](/reference/files-and-paths): the files this link maintains on the node.
 - [subshell CLI](/reference/node-cli): the verbs that compose with this protocol.

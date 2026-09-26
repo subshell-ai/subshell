@@ -1,9 +1,11 @@
 ---
 title: REST API
-description: Scripting the control plane over HTTP, covering auth paths, the live OpenAPI docs, and the type surface you can build against.
+description: "Scripting the control plane over HTTP: auth paths, the live OpenAPI docs, credential scopes, and the type surface you can build against."
 ---
 
-The control plane exposes a JSON REST API under `/api`, so scripts can do what the browser UI does. better-auth's sign-in and session routes live under `/api/auth/*`, and the terminal streams on WebSockets. Your own instance documents itself live: open `http://<your-server>:3080/docs` for the interactive reference, generated from the exact build that is answering you rather than from a snapshot.
+The control plane exposes a JSON REST API under `/api`, so scripts can do what the browser UI does.
+
+better-auth's sign-in and session routes live under `/api/auth/*`, and the terminal streams on WebSockets. Your own instance documents itself live: open `http://<your-server>:3080/docs` for the interactive reference, generated from the exact build that is answering you rather than from a snapshot.
 
 ## Which credential reaches which surface
 
@@ -13,13 +15,15 @@ Three kinds of credential exist, and where each is accepted is a rule, not a con
 |---|---|---|
 | **Session cookie** | your browser, after password or passkey sign-in | Everything you have access to, and the only credential admin surfaces accept. |
 | **Subshell token** | a running pane (minted at launch, baked into its environment) | That subshell's own surface, and only its owner's subshells. Shared grants and the admin boost are switched off for bearer actors, so a pane can never act on a subshell merely shared with its owner. It can mint a terminal attach token only for its own subshell. |
-| **System API key** | your scripts and tooling | General API use. Never management; see below. Mint and revoke under Settings → API keys ([System API Keys](/automation/system-api-keys)). |
+| **System API key** | your scripts and tooling | General API use, with no permission ceiling. It can never manage the instance; see the refusals below. Mint and revoke it under Settings → API keys ([API keys](/automation/api-keys)). |
 
 Bearer keys go in an `Authorization: Bearer subshell_…` header. On top of the table, three refusals are deliberate, and worth knowing before your first script hits one:
 
 - **Admin surfaces reject bearer credentials** with 403. The cookie-session, admin-role-only surfaces are the `/api/users` writes, `/api/system-keys`, the `/api/plugins` writes (the plugin listing is open to any authenticated caller, since the launch pickers read against it), `/api/network`, and the `/api/admin/*` group. Machine credentials can never manage the instance.
 - **Sharing is a browser act.** The routes that grant or revoke access to a subshell are cookie-only.
 - **A [node](/nodes)'s agent key does nothing on REST**: presented to the API, it is refused by name. Its entire job is authenticating that machine's WebSocket to the control plane.
+
+## Attaching to a terminal
 
 The terminal WebSocket does not take your credential on the socket either. You mint a short-lived, single-use attach token (`POST /api/auth/ws-token`) and hand the socket that. A browser-session mint is unrestricted: the token attaches wherever your own access reaches. A bearer key may mint as well, but only a bound token: it names one subshell at issue and is refused at redemption on every other pane. A system key may name any subshell; a running pane's own token may name only itself. A bound token is also refused on the whole-user live feed outright.
 
@@ -72,10 +76,10 @@ Branch on `code`, the machine-readable value, never on `message` (wording is pro
 
 ## Rate limiting
 
-Email sign-in answers repeated failures with an exponential backoff. Nothing else on the API is rate-limited: there is no per-key throttle, and no list caps beyond the query parameters the routes themselves define. That follows the [trusted-network posture](/about/security-model): the service is hardened for a network you control (VPN, tailnet, LAN). If you ever put it somewhere that is not one, closing this gap is a named step on the checklist, not an oversight to discover.
+Email sign-in answers repeated failures with an exponential backoff. Nothing else on the API is rate-limited: there is no per-key throttle, and no list caps beyond the query parameters the routes themselves define. That follows the [trusted-network posture](/concepts/security-model): the service is hardened for a network you control (VPN, tailnet, LAN). If you ever put it somewhere that is not one, closing this gap is a named step on the checklist, not an oversight to discover.
 
-## See also
+## Other pages
 
-- [System API Keys](/automation/system-api-keys): the credential your scripts should carry
-- [API Keys](/server/api-keys): how the two bearer kinds are minted and managed
-- [Security Model](/about/security-model): the posture the rate-limiting and admin-refusal rules assume
+- [API keys](/automation/api-keys): how the two bearer kinds are minted, scoped, and managed
+- [The MCP server](/automation/mcp): the credential your running panes carry
+- [Security model](/concepts/security-model): the posture the rate-limiting and admin-refusal rules assume

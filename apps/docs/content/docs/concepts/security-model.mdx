@@ -1,0 +1,112 @@
+---
+title: Security model
+description: "The trusted-network posture: what Subshell defends against, what it deliberately does not, and how the trusted-origin allowlist is derived."
+---
+
+Subshell is built for a machine you run or a network you trust, and this page is a reader's guide to what that posture defends and what it deliberately leaves open.
+
+The trusted network means a VPN, WireGuard, a tailnet, or an SSH tunnel. Subshell is not designed to be exposed to the public internet, and that is a design input rather than a disclaimer. Permissive CORS, rate limiting only on sign-in, unbounded free-text fields, and a file picker that browses the host by default are each sound inside that perimeter and unsound outside it. Before you enable anything, read the posture as [stated plainly in the threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#0-the-posture-stated-plainly).
+
+The [full document in the repository](https://github.com/subshell-ai/subshell/blob/main/docs/security.md) is authoritative: it states every boundary with the code that enforces it, and it enumerates the accepted risks with their reasoning. This page is a guide to that model, not a replacement for it; what follows is what you need before deciding which features to turn on.
+
+> [!important] The real trust boundary is your OS user
+> Whoever owns the account running Subshell owns everything Subshell holds: the keys on disk, every pane's contents, the logs, and the process environments. No feature of the product changes that, and the model does not pretend to. "Local-first" means the trust boundary is a machine you already control.
+
+## What is defended
+
+The recurring shape: credentials are required, scoped, and revoked; guesses are slowed; and the server keeps only ciphertext of your messages.
+
+- **Any unauthenticated API call**: one guard sits in front of every API route except auth and setup status. There is one deliberate exception: the sign-in page may read the instance's display name and its list of open sign-in providers anonymously (id, name, and kind only, never issuer, client id, or any secret). That lets you see which plane you are about to give a password to, and through which doors it will let you.
+- **Probing other people's subshells**: foreign ids answer 404, never 403, so nothing can be enumerated.
+- **A runaway agent**: per-subshell tokens hold a permission map, are bound to their own row, and are rejected on every admin surface. A pane cannot enumerate the machine's disk through the file API.
+- **Replayed terminal access**: WebSocket attach tokens live thirty seconds and work once.
+- **Password guessing**: sign-in backs off exponentially, per email.
+- **The server reading your channel messages**: messages are sealed per recipient, and the control plane stores ciphertext it cannot open.
+- **A forged launch on a node**: every command is signed, short-lived, single-use, and addressed to one node. The node verifies before executing.
+- **DNS rebinding**: the origin allowlist is derived from configuration and never from the request's own `Host` header. The mechanics are in the next section.
+- **Terminal output attacking the UI**: pane bytes are rendered only inside the terminal emulator, never as markup.
+
+## How the trusted-origin allowlist is derived
+
+Every sign-in carries the browser's `Origin`, and the instance keeps an allowlist of origins it will accept it from. The list is assembled live, per request, from four sources:
+
+1. The instance's own origins: both loopback spellings of the port (`http://localhost:3080` and `http://127.0.0.1:3080`), the base URL's origin, and `http://<host>:<port>` when `HOST` is a concrete address rather than a wildcard.
+2. On a wildcard bind, the machine's own LAN addresses: every non-internal IPv4 interface address, derived from the kernel and trusted automatically (since 2026-09-17). A phone on your Wi-Fi signs in at the server's LAN address with nothing to configure. An entry here is a literal IP, which a DNS-rebinding attack can never produce as an `Origin`. Interface addresses prove the entry names this host; a name proves nothing, so a LAN hostname still needs an explicit `TRUSTED_ORIGINS` entry.
+3. The operator's `TRUSTED_ORIGINS` extras.
+4. The addresses each enabled [network plugin](/server/network-plugins) reports for this host: trusted the moment a publish earns it, and forgotten when it is undone. A publish is not unioned into `TRUSTED_ORIGINS`, which stays the operator's extras alone.
+
+What is deliberately missing is a fifth source: the request itself. The list is never derived from the request's `Host` header. "Trust the origin that matches the host you dialed" is precisely the DNS-rebinding hole the allowlist exists to close. Production enforces the origin check strictly.
+
+The listen address is a network fact, not an identity. `HOST` defaults to `0.0.0.0` (the default since 2026-09-08), which lets remote nodes and devices reach the server; `HOST=127.0.0.1` in `config.env` restores loopback-only. The string `0.0.0.0` never joins the trusted list; what binding on it does is make the machine's own LAN addresses relevant, as above.
+
+Because the read is live, a network joined a minute ago is trusted without a restart, and the LAN probe re-asks on every settings read. A laptop that switched Wi-Fi stops offering, and stops trusting, the address of the network it left. For the settings behind these rules and the fix when an address is missing from the list, see [Networking and addresses](/server/networking).
+
+## What the list will not accept
+
+An origin is scheme, host, and optional port, and nothing else. Both writers of the list, the `subshell-server configure --trusted-origins` flag and the Settings → Networking page, validate every entry by component and store the canonical form a browser actually sends. That is what admits the spellings people type (a trailing slash, a mixed-case host, an explicit `:443`) while storing the one string the checkers compare. A path, query, or fragment is refused. Credentials are refused too, rather than silently stripped by canonicalization.
+
+Wildcards are refused, and that refusal is load-bearing. The auth stack routes any entry containing `*` or `?` through pattern matching, so a written `https://*` would trust every https origin on the internet. That dissolves the allowlist this section describes, which the [threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#8-network-boundary) spends a whole section accounting for. An operator who genuinely wants a pattern can still set the env var or hand-edit `config.env`, since those bypass the validators by design. `subshell-server status` then reports per-entry problems telling you what a browser will do with the value.
+
+## What enabling each thing costs
+
+### Enrolling a node
+
+Start with the plain fact: registering a node delegates arbitrary command execution on that machine, under the node's OS user, to the control plane. Everything else follows from that.
+
+Sharing a node is a second axis, and it is wide: any share, even **view**, lets the grantee launch their own subshells there, invisible to the node's owner unless those subshells are separately shared.
+
+Whoever owns the node's OS user owns every pane launched there, files and process-visible tokens included. And because one signing key rules the fleet, a control-plane compromise is a compromise of every enrolled node. The reverse holds too: a node's key can do nothing on the REST API at all. Details are on [Add a node](/nodes/add-a-node) and [Share a node](/nodes/sharing).
+
+### Adding a sign-in provider
+
+An external provider (Google or any OIDC system) becomes a second definer of who someone is. The weight of it comes down to one rule: when your provider says an email address is verified, Subshell links the arrival to the account with that address.
+
+That is the design: the provider's verified assertion is the credential. It also means an issuer you add can hand people a way into any account whose address it can assert. Add only issuers you trust to decide identity, the same way you trust your mail domain to run password resets. Each provider's own switches (sign-in, account creation, required approval, allowed domains) then bound what that provider may do.
+
+Provider management itself is admin-only and cookie-only: no machine credential can touch the list. The last open provider cannot be closed, so no edit can lock the instance out of itself. The accounting and the approval queue are on [Sign-in providers](/server/sign-in-providers).
+
+### Sharing a subshell
+
+A subshell is private until you share it. A **view** grant shows the grantee your full pane output: if a secret is on screen, it is on their screen. An **edit** grant adds the keystroke stream and the ability to type into a live agent session.
+
+Everyone attached sees everyone else attached, by device name. That disclosure is deliberate: a shared pane is sized to its smallest viewer, and that question is unanswerable otherwise.
+
+Pushes never follow shares. Delete, re-sharing, and the notification bell stay with the owner, even against admins. The full accounting is on [Share a subshell](/use/sharing).
+
+### Channels
+
+Channel message bodies are end-to-end encrypted between the subshells that hold the channel. The server relays opaque envelopes, and peer keys are pinned on first contact, so a compromised relay cannot swap one silently.
+
+What E2EE does not cover is stated plainly in the threat model: metadata is plaintext. That includes channel names, membership, timing, ordering, and message sizes. Encryption on the wire says nothing about a local OS user with the keypairs on disk. See [Channels](/use/channels).
+
+### Publishing on a network
+
+[Network plugins](/server/network-plugins) publish the control plane's address on a mesh you already trust. One of them, Cloudflare Tunnel, inverts the posture to public-with-a-gate, and the [Access guard it requires](/server/network-plugins/cloudflare-tunnel) becomes the perimeter the moment you enable it. That plugin's page carries the accounting.
+
+## What is explicitly not defended
+
+The model names these rather than leaving them as surprises:
+
+- **A local OS user on any host in play**: this is the boundary itself, not a threat to mitigate.
+- **Network-level attackers**: there is no TLS enforcement and no certificate pinning, so transport security is your deployment's job. The exception is the node link: since protocol 14, the node ↔ control-plane connection encrypts itself at the application layer whatever the deployment, and the node verifies its plane's pinned key on every connection. What still rides your network in the clear is the browser ↔ server traffic and the node-binary downloads, and that is what HTTPS in front is for.
+- **Channel metadata analysis**: see Channels above.
+- **Control-plane compromise**: the signing key rules every node.
+- **A malicious admin**: admins hold instance-wide edit, can mint full-access system keys, and can reset other users' passwords. There is no separation of duties.
+- **Denial of service**: only sign-in is rate-limited.
+- **The harnesses' own supply chain**: Subshell launches whatever `claude` (or other CLI) sits on the host's `PATH` and verifies nothing about it.
+
+The reasoning behind each, and several more, is in [the accepted risks](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#11-accepted-risks).
+
+## If you must go wider
+
+Exposing an instance beyond a trusted network is possible, but the checklist in the threat model is a list of prerequisites, not improvements. It asks for HTTPS with secure cookies and a real secret, strict origin validation, rate limiting on every route, input length caps and pagination, a locked-down file root (`SUBSHELL_FS_ROOT`), rotated and reviewed API keys, and a re-examination of channel E2EE's assumptions. It also asks you to look hard at whether node enrollment across a hostile network should exist at all.
+
+Until that work is done and verified, the posture stands: trusted network only.
+
+## Other pages
+
+- [How it works](/concepts/how-it-works): the machinery these boundaries sit around
+- [Networking and addresses](/server/networking): the three settings and the 403 fix
+- [The full threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md): authoritative, with the enforcement point for each claim
+- [Nodes overview](/nodes): the delegation decision, in product terms
+- [Glossary](/reference/glossary): where the credential kinds are named

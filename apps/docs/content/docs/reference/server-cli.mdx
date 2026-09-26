@@ -1,11 +1,30 @@
 ---
 title: subshell-server CLI
-description: Every verb of the control plane binary (run, init, configure, status, update, backup, service, mcp, report, pane-log), with the flags each one accepts and the exit code each one answers with.
+description: "Every verb of the control plane binary (run, init, configure, status, update, backup, service, mcp, report, pane-log), with the flags each one accepts and the exit code each one answers with."
 ---
 
-`subshell-server` is the control plane's single binary: run without a subcommand it boots the server, and run with one it is a management tool. This page mirrors the binary's own usage text: the flags below are exactly the flags it parses, and anything else is a usage error.
+`subshell-server` is the control plane's single binary: run without a subcommand it boots the server, and run with one it is a management tool.
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| (none) | Run the server (the boot path) |
+| `version` | Print the version and exit |
+| `license` | Print the copyright and licence and exit |
+| `status` | Print the resolved config view and exit (`--json` for machine output) |
+| `init` | First run: config home, auth secret, config.env, and the service |
+| `configure` | (Re)write config.env; interactive unless `--yes` |
+| `update` | Install a newer server over this one (`--check` to look only) |
+| `backup` | Snapshot the database now (`--json` for machine output) |
+| `service` | Drive the background process: install, uninstall, enable, disable, status, start, stop, restart |
+| `mcp` | Serve the stdio MCP server a subshell pane's harness spawns |
+| `report` | Report a pane's state (run by harness hooks) |
+| `pane-log` | Append stdin to a pane log (run by tmux's pipe-pane) |
 
 ## Usage
+
+This page mirrors the binary's own usage text. The block below is the literal text the binary prints on a usage error, so the flags named there are exactly the flags it parses, and anything else is a usage error.
 
 ```
 subshell-server: the Subshell control plane
@@ -54,6 +73,8 @@ config precedence: process env > config.env > .env > built-in defaults
 ```
 
 Value flags also accept the `--flag=value` form, so a URL containing `=` still works.
+
+## The boot path and exit codes
 
 The boot path is the no-subcommand form. A service unit or `launchd` job that names the binary with no subcommand (or with only a leading flag) boots the server. This is a pinned contract: never teach a bare invocation a new meaning. Every other word is a subcommand, and an unknown word is refused with the usage text above and exit 1.
 
@@ -117,18 +138,30 @@ One definition, two shapes: a systemd user unit on Linux (`~/.config/systemd/use
 
 Each local subshell's tmux server is a child of the service, so an old definition without `KillMode=process` (systemd) or `AbandonProcessGroup=true` (launchd) means a stop or restart kills every running pane. New installs write the sparing directive, and `service status` tells you which kind you have.
 
-## mcp, report, and pane-log: internal verbs
+## mcp: the pane's MCP server
 
-`mcp` serves the stdio MCP server that a subshell pane's harness spawns ([The subshell mcp Server](/automation/mcp-server)). It is the one long-running command. A server-only host resolves its MCP entrypoint through its own binary, which is why this subcommand exists on both products. The `report` verbs are how harness hooks report a pane's state: `report attention <kind>` (`turn_complete`, `needs_attention`, or `resumed`, the signal that takes "waiting for you" back off) and `report session`. `report exit <status>`, the report tmux's own pane-died hook runs, is answered here too by the same shared reporter, though the usage text above names only the verbs the harness manifests emit. `pane-log --file <path>` is the capture child tmux's pipe-pane runs for a pane on this host: it appends its stdin to the pane log, flushing every read, and blocks until the pane's stream closes. A missing or relative `--file` is refused with exit 1. None of these are typed by humans: the report bodies and the log path are built from the pane's environment by the control plane.
+`mcp` serves the stdio MCP server that a subshell pane's harness spawns ([The MCP server](/automation/mcp)). It is the one long-running command. A server-only host resolves its MCP entrypoint through its own binary, which is why this subcommand exists on both products.
 
-## version and license
+## report: harness self-report
 
-`version` prints `subshell-server <version>`, a machine contract, matched exactly by the release pipeline. `license` prints the copyright and licence terms, since the binary ships as a bare file with no LICENSE beside it.
+The `report` verbs are how harness hooks report a pane's state: `report attention <kind>` (`turn_complete`, `needs_attention`, or `resumed`, the signal that takes "waiting for you" back off) and `report session`. `report exit <status>`, the report tmux's own pane-died hook runs, is answered here too by the same shared reporter, though the usage text names only the verbs the harness manifests emit. No human types these: the report bodies are built from the pane's environment by the control plane.
 
-## See also
+## pane-log: the capture child
+
+`pane-log --file <path>` is the capture child tmux's pipe-pane runs for a pane on this host: it appends its stdin to the pane log, flushing every read, and blocks until the pane's stream closes. A missing or relative `--file` is refused with exit 1. The log path is built from the pane's environment by the control plane, not by hand.
+
+## version
+
+`version` prints `subshell-server <version>`, a machine contract, matched exactly by the release pipeline.
+
+## license
+
+`license` prints the copyright and licence terms, since the binary ships as a bare file with no LICENSE beside it.
+
+## Other pages
 
 - [subshell CLI](/reference/node-cli): the node's own binary, similar shape, different exit-code convention.
-- [Environment Variables](/reference/environment-variables): what `config.env` and the process environment can carry.
-- [Files & Paths](/reference/files-and-paths): every file these verbs create, with its permissions.
-- [Running as a Service](/server/service): the same ground from the operator's side.
-- [Updating the Server](/server/updating): the dashboard path and the transaction in full.
+- [Environment variables](/reference/environment-variables): what `config.env` and the process environment can carry.
+- [Files and paths](/reference/files-and-paths): every file these verbs create, with its permissions.
+- [Service and autostart](/server/service): the same ground from the operator's side.
+- [Update the server](/server/updating): the dashboard path and the transaction in full.

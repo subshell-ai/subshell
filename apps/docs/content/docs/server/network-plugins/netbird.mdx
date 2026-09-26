@@ -1,7 +1,9 @@
 ---
 title: NetBird
-description: Reach your server over a NetBird mesh. Join once, and the address becomes trusted.
+description: "Reach your server over a NetBird mesh. Join once, and the address becomes trusted."
 ---
+
+Connect this machine to your NetBird network, where the join is already the publish.
 
 The NetBird plugin connects the machine your server runs on to your NetBird network. Its one difference from the Tailscale family is structural: a NetBird join already makes the machine reachable at its WireGuard address, so there is nothing for a publish to do to the network. Joining is publishing: the press that puts this machine on your NetBird network also records the addresses and makes them sign-in-trusted, in one act, with the publish audit row written from the join.
 
@@ -39,6 +41,6 @@ The card's ladder is one rung shorter than Tailscale's too: NetBird reports inst
 ## See also
 
 - [Network plugins overview](/server/network-plugins): the describe/execute rule and the trust model every plugin page inherits
-- [Networking & Addresses](/server/networking): the allowlist a join feeds
+- [Networking and addresses](/server/networking): the allowlist a join feeds
 - [Tailscale](/server/network-plugins/tailscale): the mesh variant that does have a publish step
-- [Security model](/about/security-model): the posture, in [docs/security.md §11.13 on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#1113-network-plugins-publish-this-server-on-a-network)
+- [Security model](/concepts/security-model): the posture, in [docs/security.md §11.13 on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#1113-network-plugins-publish-this-server-on-a-network)

@@ -1,0 +1,54 @@
+---
+title: "Install with the desktop app"
+description: "Run the control plane from the Subshell Server desktop app, with a setup assistant for a machine with nothing installed."
+---
+
+Run Subshell Server from the Subshell Server desktop app, which bundles the server binary and opens a setup assistant on a machine with nothing installed.
+
+## Before you start
+
+- A macOS 13+ or Linux x86-64 desktop. The app is a signed, notarized `.dmg` on macOS and a `.deb` on Linux.
+- tmux. If it is missing, the assistant installs it for you as part of setup.
+
+## Install the app and run setup
+
+1. Download and install the Subshell Server app. It ships the server binary inside it, and nothing is downloaded on first run.
+
+2. Open the app. On a machine with nothing installed it opens a setup assistant that starts with **Welcome to Subshell**.
+
+3. If tmux is missing, an **Install tmux** step follows. The assistant runs `brew install tmux` on a Mac with Homebrew, and uses `pkexec` with your desktop's password prompt on Debian/Ubuntu. It does not continue until tmux is installed. When tmux is already present, that step does not appear.
+
+4. On **Set Up Subshell Server**, press the single button. The app installs the bundled `subshell-server` to `~/.local/bin`, writes a `config.env`, and starts it. The service is registered only if you choose background mode. Port and addresses are behind **Customize port and addresses…**, and the defaults apply if you leave them.
+
+5. Choose how the server will run. The two choices mirror `init`'s service question:
+   - **In the background**: a launchd agent on macOS or a systemd user service on Linux, alive whether or not the app is open.
+   - **With the Subshell Server app**: quitting the app stops the server, though running subshells keep running.
+
+   There is also a **Start at login** checkbox.
+
+6. On macOS, once the server is running, a screen called **What macOS Will Ask** explains the permissions the app will request before it takes you to the dashboard.
+
+7. The dashboard opens in the same window, pointed at the server's own loopback address. The web wizard walks the rest: your account, **Connect a Network**, your agents, and your first subshell. Create the first account there.
+
+> [!warning] Create the admin account promptly
+> The setup endpoints are public until the first account exists, and that is what lets you create it. On a LAN, the first browser through becomes the admin. The window closes when the first account exists.
+
+## What the app owns
+
+The app adds no management surface of its own. Everything about a running instance lives in the dashboard. What stays in the app is only what a page the server serves cannot do: first run, recovery, update, and reset. [Reset](/server/reset) describes the assistant's reset screen.
+
+## The app as supervisor
+
+In the **With the Subshell Server app** mode the control plane runs as the app's own child instead of as an installed service. The server learns this from environment variables naming its supervisor, and believes the claim only when the named pid is actually its parent. What a false claim could buy is only the dashboard's restart button pointing at a process nothing will respawn.
+
+In this mode, quitting the app stops the server but keeps every live pane running, and restarting the server means the app respawns it. The supervision control on Settings → Service switches between the two modes, and it enforces the same pane-safety refusal as the CLI: a definition that would take your panes down stops the change until you rewrite it or force past it. [Service and autostart](/server/service) explains that rule and covers changing your mind later.
+
+## Notes
+
+- The **In the background** choice registers a per-user service: a launchd agent on macOS or a systemd user unit on Linux, no sudo. [Service and autostart](/server/service) covers the unit, the plist, and lingering in full, and it covers changing your mind later.
+
+## Other pages
+
+- [Install by hand](/server/headless): the same binary with no app and no scripts
+- [Get started](/get-started): the taught first-run path
+- [subshell-server CLI](/reference/server-cli): every verb the app wraps

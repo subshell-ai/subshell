@@ -1,4 +1,4 @@
 {
   "title": "Nodes",
-  "pages": ["index", "add-node", "client-as-node", "sharing", "directory-allowlist", "maintenance", "managing-a-node", "updating"]
+  "pages": ["index", "add-a-node", "desktop-node", "manage", "directory-allowlist", "sharing", "updating"]
 }

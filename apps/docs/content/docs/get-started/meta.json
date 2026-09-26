@@ -1,5 +1,5 @@
 {
   "title": "Get Started",
   "defaultOpen": true,
-  "pages": ["index", "install-server", "first-subshell", "mobile"]
+  "pages": ["index", "install-linux", "install-macos", "first-subshell", "from-phone", "add-a-machine"]
 }

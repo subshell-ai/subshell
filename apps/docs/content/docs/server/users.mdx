@@ -1,0 +1,58 @@
+---
+title: Users and roles
+description: Accounts, the admin role, and what an admin can and categorically cannot do to someone else's subshell.
+---
+
+Control who can sign in to this instance, what role each account holds, and what an admin can and cannot do to other people's accounts.
+
+Two roles exist: **admin** and **user**. The first account your instance ever registers becomes the admin; that is how administration comes into existence. Every other account is whatever role an admin gives it when it is created, or later. You manage all of it on the **Users** page under Server Settings, which is itself admin-only.
+
+## What an admin can do
+
+- **Create accounts.** The Add-user dialog asks for the same fields as the first-run setup form (name, email, password) plus a role. The account can sign in immediately. This is the way to hand out access on a closed instance, and it is audited as `user.create`.
+- **Change someone's role.** Promote a user to admin, or demote an admin. You cannot change your own role from here at all, even to the role you already hold. The reason: an admin who demotes themselves by accident on a single-admin instance cannot undo it, and nobody else could either. Another admin has to do it.
+- **Reset another user's password.** This is a recovery tool for the moment an account may be compromised: it sets a new password and signs the user out of every session they hold, so an attacker carrying an old cookie loses it. The count of revoked sessions is reported and audited. The password itself is never logged, echoed, or put in the audit trail.
+- **Disable or re-enable an account.** A disabled account cannot sign in, and every credential it holds is refused. Disabling also evicts its live sessions, drops its live dashboard feeds, and takes its enrolled nodes offline: every machine that person added as a node is disconnected on the spot and refused at the door until the account is re-enabled. Each one then reconnects by itself within a minute, on the same node key, because a disable freezes the account and never revokes the machine's credential. Re-enabling is always allowed and resumes everything the disable refused. Like the role change, you cannot do this to yourself.
+- **Approve or reject arrivals.** When a [Sign-in providers](/server/sign-in-providers) row requires approval, new accounts from it wait on the page's **Pending approval** tab instead of signing in: each row names the provider the arrival came through, and Approve or Reject is the only way out. Pending people are not in the Members roster, not in the API's view of the instance, and cannot reach anything until approved; a stale pending expires on the admin-set window.
+
+The page is those two tabs (**Members** and **Pending approval**), and each member row carries a Provider column: the badge list of how that account can actually sign in (E-mail, or which providers have linked it). Accounts that arrived through a provider and hold no password show no E-mail badge, and the row menu drops **Reset password** for them: there is no password to reset, and the old menu that offered it was misleading.
+
+Every one of these writes an audit row; see [Audit log](/server/audit-log).
+
+## What a password reset does not do
+
+A password reset is a credential rotation, not a session-kill switch for every path into the account. You should know that before you reach for it in a real incident.
+
+- It does not remove the target's passkeys. Those live in their own store, and an attacker who enrolled one during a compromise can simply sign in again and mint a fresh session. No admin-side lever exists here: passkeys are managed only by their own user, on their Account page. Treat a suspected compromise as needing more than a password change.
+- It does not cut already-connected WebSockets. A live terminal attach authenticated once, at connect, and is never re-checked; it keeps streaming until it disconnects.
+
+## What an admin categorically cannot do
+
+- **Delete someone else's subshell, or change anyone's shares.** Admins hold instance-wide edit: they can read and drive any subshell. Closing (deleting) a subshell and re-sharing one stay with the real owner, always.
+- **Delete a user.** There is no user-deletion route, deliberately: it would orphan that person's subshells, shares, channels and audit rows, and the design of a clean delete is its own unsolved problem. Disable the account instead.
+- **Reset your own password through this door.** Your own password lives under Account, where changing it requires the current one, so an unlocked laptop is not a credential takeover.
+- **Touch the `system` service account.** It is the owner of your system API keys (see [API keys](/automation/api-keys)); it has no password to reset, and a role change on it would mean nothing. The Users page shows it with no controls.
+
+## The last-admin guard
+
+Demoting the final admin would leave an instance nobody can administer: no user creation, no settings, no system keys. The demotion is therefore refused with a message naming the reason. The same guard protects disabling: the last admin who can still sign in cannot be disabled either. Both checks count and write in a single transaction, because two admins demoting each other at the same moment must not both read "there are two of us" and both succeed. Promote someone else before you demote yourself.
+
+## What everyone can see
+
+The user roster is readable by every signed-in caller, and by any machine credential, a running subshell's own token included. Every account's email, display name, role, and disabled state are instance-wide reads by design: it is what lets the sharing picker name the people you can share with. That is a real widening, recorded in the threat model, and it is sound on this posture because every signed-in user is someone the operator admitted. It carries no secret and grants nothing. [Share a subshell](/use/sharing) is what grants.
+
+## Admin screens are safe to quote
+
+Server Settings → Status reads `GET /api/admin/status`, the widest single read in the system: versions, the node protocol, host paths, instance-wide counts, node versions under the floor, and the security posture, all in one body. It carries no secret in any form. The auth secret appears only as "is this the placeholder?", and the break-glass password only as "armed or not". A test scans the serialized response for the actual values, so nothing added later can regress that. The reasoning is practical: an admin's screen gets screenshotted into issues, and this one is safe to share.
+
+## The instance's own name
+
+Alongside user accounts, an admin chooses what this control plane is called, under Settings → General. The display name defaults to the host's own name, appears in the sidebar and on the sign-in page, and is what lets a person with several instances tell them apart. It is served unauthenticated to the sign-in page for exactly that reason: knowing which plane is about to receive your password is a security property, not a leak. Every rename is audited.
+
+## See also
+
+- [Registration and enrollment](/server/registration): the two doors new accounts and new machines come through
+- [Audit log](/server/audit-log): the record every act on this page leaves
+- [Share a subshell](/use/sharing): what a grant does and does not confer
+- [Security model](/concepts/security-model): where the admin role sits in the posture
+- [The full threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#3-authorization): the authorization axes and accepted risks, with the enforcement points

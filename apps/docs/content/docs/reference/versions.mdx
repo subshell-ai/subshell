@@ -1,0 +1,60 @@
+---
+title: Version compatibility
+description: "How server and node versions pair up: the exact-match protocol number, the minimum node version, the release manifest, and what happens at a mismatch."
+---
+
+The control plane and the node ship as a pair, and a connecting node must clear two gates.
+
+Every published release carries one document so a control plane can answer compatibility questions without downloading an 80 MB binary, and one rule makes rolling back an update inseparable from restoring the database.
+
+## The two gates, in order
+
+Both gates are decided on the node's first frame (`ready`), and both numbers live in the shared protocol package: one definition, imported by both sides.
+
+Gate 1 is the version floor. `MIN_NODE_VERSION` is the operator-facing statement "this server needs subshell ≥ X". A node that reports a lower version, a version it cannot parse, or no version at all is refused. This gate runs first because its refusal is the one a person can act on: it names the version required and the version found, where a bare protocol number names neither. The floor is raised in the same commit as every protocol bump; a node below the floor either cannot hear a command the plane means to send or cannot report a fact the plane has learned to read.
+
+Gate 2 is the protocol, matched exactly. `NODE_PROTOCOL_VERSION` is a wire number (currently `14`, the encrypted-link cutover). Any difference in either direction fails the check. There is deliberately no compatibility window and no per-feature gating. A window would buy "add a command without a node rollout" and pay for it with one untestable "is this node new enough?" branch per feature and a second meaning for every null. What remains instead is one comparison and no dead ends. A server that lags its node is just as wrong as the reverse: the pair ships together, and the Nodes page names which is which.
+
+The floor and the protocol are independent numbers on purpose (one meaning each, one comparison each, raised together), and a mismatch always says which one failed.
+
+## What a refusal does
+
+A refused node's socket is not closed. The plane moves it to a held registry, where it is offline for every purpose (launches, tails, probes, and the liveness answers your pages read) except one: it can still receive the `update` command. The command's wire shape is therefore frozen forever: field names and meanings never change, because the node parsing it is by construction one whose protocol the plane does not share.
+
+- The node's row goes back to offline and carries the refusal's reason ("needs an update, below floor" or "protocol mismatch") with the versions it reported. Since protocol 14 there is a third reason: a legacy row that sees a plaintext `ready` which would otherwise pass both gates holds the node under a pairing reason. That `ready` is the downgrade attempt the encryption handshake exists to refuse, and the held node's self-claimed identity is never written onto the row. The handshake section of [Node protocol](/reference/node-protocol) describes the `register` self-heal that ends it.
+- Only the `result` of an `update` the plane sent is accepted from a held socket; every other frame it sends (its heartbeat, or its `ready` on a reconnect) is dropped unread.
+- After ten idle minutes the plane closes the socket with the update-required code; the node logs the reason and exits, because a 4406 is terminal. The next dial comes from the service manager's respawn (a bare foreground `run` stays exited), and a still-old node is held again. The ten minutes exist so that pressing Update can land inside them.
+- Rotating or deleting the node's key evicts a held socket too. If a held update's replacement binary is then refused too, the node rolls itself back to `<binary>.previous` automatically: the refusal is the rollback signal.
+
+A node nobody just updated is the ordinary "your node is too old" case. The remedy either way is [Update a node](/nodes/updating): from the browser now, or by walking to the machine if the plane cannot reach its own release source.
+
+## The release manifest
+
+Every published app release carries a `release-manifest.json` asset with five fields: `component` (one of `cli-server`, `cli-node`, `desktop-server`, `desktop-client`), `version`, `nodeProtocol`, `minNodeVersion`, and `commit`, the commit sha it was cut from.
+
+It exists so a control plane can answer "which node release can I offer" without downloading anything: the Updates page offers the newest `cli-node-v*` release whose `nodeProtocol` equals its own. A release with no manifest is never offered; every cut before 2026-09-15 predates the manifest, so the page says "unknown" rather than guessing. Releases are compared by semver, never by date: four components share one repository, and whichever tag was cut most recently is very often not the newest of any one of them.
+
+## Database versions ride with the binary
+
+One fact ties a server update to the database: Kysely's migrator is forward-only, and a database carrying a migration name the running binary does not know cannot boot that binary at all (measured, not inferred). So:
+
+- Every update snapshots the whole database first (`VACUUM INTO`, kept under the data dir).
+- The swap is a transaction the new binary settles at boot: migrations pass and it completes; they fail and it restores the snapshot, puts the previous binary back, and exits for the service manager to respawn the old pair.
+- A rollback that restores only the binary, not the database, is not a rollback.
+
+That coupling is the same on the node, minus the database half: the marker names the binary and its `.previous`, and either end of the update can finish or undo it. [Update the server](/server/updating) covers the whole transaction.
+
+## npm packages are a different versioning
+
+The four app components release under their own tags (`cli-server-vX.Y.Z`, `cli-node-vX.Y.Z`, `desktop-server-v…`, `desktop-client-v…`) and are what the two gates above compare. The `@subshell-ai/*` packages on npm (the plugin API and the harness and network plugins) carry their own versions on their own schedule, and the wire says nothing about them. A plugin is installed once into the control plane's store and reaches nodes only as data: the plane-built launch command and the detection rule the node runs against its own PATH. A plugin's release therefore never requires a node-side rollout or a protocol bump.
+
+> [!important] Practical rule
+> When a change crosses the wire, cut the whole set: a desktop bundle ships the CLI it wraps, so a server-only or node-only release does not reach desktop users until the matching desktop cut. The repository's release workflow takes `app=all` for exactly this.
+
+## Other pages
+
+- [Node protocol](/reference/node-protocol): the gates in the connect sequence, every frame, and the close codes.
+- [Update a node](/nodes/updating) and [Update the server](/server/updating): both halves in practice.
+- [Supported platforms](/concepts/platforms): which triples have published binaries at all.
+- [Install a plugin](/agents/plugin-registry): why a plugin version is not a wire version.
+- [Release notes](/help/release-notes): which version raised which floor.

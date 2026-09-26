@@ -3,13 +3,15 @@ title: Claude Code
 description: "Anthropic's agentic coding CLI as a Subshell harness: detection, launch, and automatic MCP wiring."
 ---
 
-Claude Code is Anthropic's interactive coding CLI. Of the built-in harnesses, it has the fullest integration: the `subshell mcp` server is wired in at every launch with nothing to register, the CLI's own hooks drive your [Notifications](/use/notifications) bell, and a restarted subshell resumes the same conversation rather than starting a fresh one.
+Claude Code is Anthropic's interactive coding CLI, and its Subshell integration is the fullest of the built-ins.
+
+The `subshell mcp` server is wired in at every launch with nothing to register, the CLI's own hooks drive your [Notifications](/use/notifications) bell, and a restarted subshell resumes the same conversation rather than starting a fresh one.
 
 ## Finding the binary
 
 Subshell resolves `claude` on the machine that will run the pane. It first tries the `claude` on the PATH there, which includes what a login shell would find, so nvm- and volta-style installs are covered. It then checks Claude Code's known install locations under your home directory. If you keep it anywhere else, point at it explicitly with `CLAUDE_PATH` in that machine's environment. One other host setting carries through to every launch when it is set: `CLAUDE_CONFIG_DIR`, so a non-default Claude config directory is respected.
 
-The control plane asks and the machine answers: the launch page and the **Re-check** button probe the binary, so the picker only offers Claude Code on hosts that actually have it. Subshell does not install the CLI on your behalf. If detection finds nothing, [Installing Agent CLIs](/agents/installing-agent-clis) covers the one-line installer, and the [vendor setup docs](https://code.claude.com/docs/en/setup) describe the manual path.
+The control plane asks and the machine answers: the launch page and the **Re-check** button probe the binary, so the picker only offers Claude Code on hosts that actually have it. Subshell does not install the CLI on your behalf. If detection finds nothing, [Install an agent CLI](/agents/install-a-cli) covers the one-line installer, and the [vendor setup docs](https://code.claude.com/docs/en/setup) describe the manual path.
 
 ## What a launch looks like
 
@@ -17,11 +19,11 @@ Every Claude Code subshell starts as an interactive `claude` session in a tmux p
 
 Settings ride on the command line per invocation. Subshell never writes into your real `~/.claude` files, so a preset cannot leak into the Claude Code you run outside Subshell.
 
-In the [preset editor](/use/presets), Claude Code's known settings (permission mode, model, output style, and similar) appear as editable fields rather than raw flags, and the editor suggests the environment variables and flags that matter for this CLI. If a preset sets its own `hooks` key, Subshell's own hooks take priority over it. The alternative would be no notifications at all.
+The plugin registers Claude Code's known settings (permission mode, model, output style, and similar) with the preset schema, and a preset that carries them has them applied through the launch's `--settings` JSON rather than as raw flags you type yourself. In the [preset editor](/use/presets), the suggestions cover the environment variables and flags that matter for this CLI. If a preset sets its own `hooks` key, Subshell's own hooks take priority over it. The alternative would be no notifications at all.
 
-## Cross-subshell tools, automatically
+## Automatic cross-subshell tools
 
-The [subshell MCP server](/automation/mcp-server) provides the tools that let an agent see its siblings, read and write [channels](/use/channels), and coordinate. It is registered for every Claude Code subshell automatically. The control plane writes a per-subshell `--mcp-config` document holding just the `subshell` server entry, and the launch names it, so from the first prompt the agent can call Subshell's tools.
+The [MCP server](/automation/mcp) provides the tools that let an agent see its siblings, read and write [channels](/use/channels), and coordinate. It is registered for every Claude Code subshell automatically. The control plane writes a per-subshell `--mcp-config` document holding just the `subshell` server entry, and the launch names it, so from the first prompt the agent can call Subshell's tools.
 
 Two facts about that file:
 
@@ -49,5 +51,5 @@ No other built-in does this. OpenCode, Codex, Hermes, and pi have no per-subshel
 
 - [Notifications](/use/notifications): what the hooks feed, and how delivery is gated
 - [Presets](/use/presets): saved per-harness configuration, including Claude Code's settings fields
-- [The subshell mcp Server](/automation/mcp-server): what the registered tools actually give the agent
-- [Installing Agent CLIs](/agents/installing-agent-clis): the in-page installer for the `claude` binary
+- [The MCP server](/automation/mcp): what the registered tools actually give the agent
+- [Install an agent CLI](/agents/install-a-cli): the in-page installer for the `claude` binary
