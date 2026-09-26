@@ -50,17 +50,17 @@ If you will browse from another machine: the default bind (`0.0.0.0`) makes the 
 
 On a Mac or Linux desktop, if you prefer a window to a terminal, the **Subshell Server** app ships the server binary inside it, and nothing is downloaded on first run. It is a signed, notarized `.dmg` on macOS 13+, and a `.deb` on Linux x86-64.
 
-On a machine with nothing installed, the app opens a setup assistant. Every first run shows **Welcome to Subshell**, then an Install tmux step. If tmux is already present, the step costs one press of **Continue**, but the prerequisite is still named. The assistant runs `brew install tmux` on a Mac with Homebrew, and uses `pkexec` with your desktop's password prompt on Debian/Ubuntu.
+On a machine with nothing installed, the app opens a setup assistant that starts with **Welcome to Subshell**. If tmux is missing, an **Install tmux** step follows: the assistant runs `brew install tmux` on a Mac with Homebrew, and uses `pkexec` with your desktop's password prompt on Debian/Ubuntu, and it does not continue until tmux is installed. When tmux is already present, that step does not appear.
 
-On macOS, a screen called **What macOS Will Ask** explains the permissions the app will request. **Set Up Subshell Server** then asks the one real question described below, and on its single press installs the bundled `subshell-server` to `~/.local/bin`, writes a `config.env`, and starts it. The service is registered only in background mode. Port and addresses sit behind "Customize port and addresses…".
+**Set Up Subshell Server** asks the one real question described below, and on its single press installs the bundled `subshell-server` to `~/.local/bin`, writes a `config.env`, and starts it. The service is registered only in background mode. Port and addresses are behind "Customize port and addresses…". On macOS, once the server is running, a screen called **What macOS Will Ask** explains the permissions the app will request before it takes you to the dashboard.
 
 Two choices there mirror `init`'s question: run **In the background** (a launchd agent or systemd user service, alive whether or not the app is open), or **With the Subshell Server app** (quitting the app stops the server, though running subshells keep running). There is also a **Start at login** checkbox.
 
-The dashboard then opens in the same window, pointed at the server's own loopback address, and the web wizard continues the assistant's dot row: your account, your agents, your first subshell. [Running as a Service](/server/service) covers changing your mind later.
+The dashboard then opens in the same window, pointed at the server's own loopback address, and the web wizard walks the rest: your account, **Connect a Network**, your agents, your first subshell. [Running as a Service](/server/service) covers changing your mind later.
 
 ## Doing it by hand
 
-The same artifacts, no script. Download the two files for your triple from the release page. The example below uses `darwin-arm64`; the `cli` in the name marks the bare binary, not the desktop app that wraps it:
+This path uses the same artifacts with no script. Download the two files for your triple from the release page. The example below uses `darwin-arm64`; the `cli` in the name marks the bare binary, not the desktop app that wraps it:
 
 ```bash
 gh release download cli-server-vX.Y.Z -p 'subshell-server-cli-darwin-arm64*'

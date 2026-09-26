@@ -3,7 +3,7 @@ title: Subshell Client as a Node
 description: "Register your own machine as a node from the Subshell Client desktop app, without a terminal."
 ---
 
-Subshell Client is two things in one app: your interface to a control plane, and the place where the machine you are sitting at becomes a node. The second half lives in a separate window, **Window → This machine…**, an assistant that registers this machine: you paste a setup key and name the machine, and it installs the node binary, enrols it, and gets it running in the background. There is no terminal and no download step, because the binary ships inside the app.
+Subshell Client is two things in one app: your interface to a control plane, and the place where the machine you are sitting at becomes a node. The second half lives in a separate window, opened by the app's own **Open Client App** item (the tray on every platform, the **Window** menu on macOS). It registers this machine: you paste a setup key and name the machine, and it installs the node binary, enrols it, and gets it running in the background. There is no terminal and no download step, because the binary ships inside the app.
 
 ## Who needs this window
 
@@ -16,10 +16,10 @@ The machine hosting the control plane has its own built-in node row, and you do 
 The assistant asks one question per screen, in order:
 
 1. **Connect**: the control plane's address. It is asked first because every later screen answers a question about a plane that has not been named yet. This is the address the app's other window loads.
-2. **Install the node**: the bundled binary is installed to `~/.local/bin/subshell`, the same managed copy the command-line path writes, so one machine cannot end up with two of them. Replacing an existing binary goes through the node's own update transaction, which records a rollback point. If the installed binary is too old to have one, the screen reports that plainly instead of pretending otherwise.
-3. **Enroll**: you paste the two values the plane's **Nodes → Add node** dialog shows on its **Desktop App** path: the server address and a single-use setup key. [Adding a Node](/nodes/add-node) covers what a key is and how long it lives, and the key stays listed on the Nodes page until it is used. The screen also asks a **Node name**, and it is required: naming moved off the control plane and onto the machine that knows what it is called. The node generates its identity on this machine and consumes the setup key in the exchange. It keeps no copy of the key, which lives 24 hours at most. The long-lived **node key** the exchange returns is stored only in the node's private 0600 config file, its one home.
+2. **Install the node**: the bundled binary is installed to `~/.local/bin/subshell`, the same managed copy the command-line path writes, so one machine cannot end up with two of them. Replacing an existing binary goes through the node's own update transaction, which records a rollback point. If the installed binary is too old to have one, the screen reports that plainly.
+3. **Enroll**: you paste the two values the plane's **Nodes → Add node** dialog shows on its **Desktop App** path: the server address and a single-use setup key. [Adding a Node](/nodes/add-node) covers what a key is and how long it lives, and the key stays listed on the Nodes page until it is used. The screen also asks a **Node name**, and it is required: naming moved off the control plane and onto the machine being named. The node generates its identity on this machine and consumes the setup key in the exchange. It keeps no copy of the key, which lives 24 hours at most. The long-lived **node key** the exchange returns is stored only in the node's private 0600 config file, its one home.
 4. **Service**: the app offers to start the node at login and keep it running, as a systemd user unit on Linux or a launchd agent on macOS.
-5. **Connected**: the node's live state, whether it is online and what the service manager says, and a **Re-enroll…** entry point for deliberately doing step 3 again.
+5. **Connected**: the node's live state, whether it is online and what the service manager says. Doing step 3 again deliberately is the **Re-enroll…** act, offered separately beside the control plane's address.
 
 tmux is a gate, not a caption: while the machine has no tmux, the enroll and service buttons stay disabled, because a tmux-less node would come up online and then fail every launch. The screen names the install command for your platform; installing it and pressing Refresh re-arms the buttons.
 

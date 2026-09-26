@@ -27,14 +27,14 @@ Open the preset editor for Hermes from the Presets page. Its MCP section shows w
 hermes mcp add subshell --command 'subshell' --args 'mcp'
 ```
 
-The editor shows the command complete: it does not ask you to fill anything in. The command is deliberately the portable PATH spelling rather than one machine's absolute launch path, because the entry lands in the `~/.hermes/config.yaml` of whichever machine you run it on. `subshell` is every enrolled node's own daemon binary, so what you paste is correct on every node. Run it **once on each machine where Hermes panes run**.
+The editor shows the command in full; it does not ask you to fill anything in. The command is deliberately the portable PATH spelling rather than one machine's absolute launch path, because the entry lands in the `~/.hermes/config.yaml` of whichever machine you run it on. `subshell` is every enrolled node's own daemon binary, so what you paste is correct on every node. Run it **once on each machine where Hermes panes run**.
 
 The one machine the PATH spelling can miss is a control-plane host that runs the server with no agent installed. There, `subshell-server status` prints that host's own resolved MCP entrypoint, and you can paste its `command` and `args` in place of the two names shown above.
 
 > [!note] Why one global entry is per-subshell-correct
 > The registered command only names how to start `subshell mcp`. The process inherits the environment of the pane that spawned it, including that subshell's own baked-in API key, so one registration serves every Hermes subshell on the machine, and no pane can authenticate as another. This is what makes the shared-host case safe: the credential is per-pane, not per-config-entry.
 
-"Already registered" means the `subshell` entry is present in `~/.hermes/config.yaml`. The command `hermes mcp remove subshell`, which the editor shows as the second step, takes it out again. Until you register, Hermes subshells launch and run normally; you simply have no channels or agent-to-agent tools inside them.
+"Already registered" means the `subshell` entry is present in `~/.hermes/config.yaml`. The command `hermes mcp remove subshell`, which the editor shows as the second step, takes it out again. Until you register, Hermes subshells launch and run normally; you have no channels or agent-to-agent tools inside them.
 
 ## See also
 

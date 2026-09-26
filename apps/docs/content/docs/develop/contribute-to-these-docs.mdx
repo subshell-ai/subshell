@@ -9,7 +9,7 @@ These docs live in the same repository as the product they describe, as MDX file
 
 The site is `apps/docs`, a [Fumadocs](https://fumadocs.dev) site on Next.js built to a fully static export and served at docs.subshell.sh. Three practical consequences:
 
-- **Pages are MDX files** under `apps/docs/content/docs/`. That is Markdown plus imports, but the build is static, so keep pages to prose, code blocks, tables, and GitHub-style alerts. No interactive widgets.
+- **Pages are MDX files** under `apps/docs/content/docs/`. That is Markdown plus imports, but the build is static, so keep pages to prose, code blocks, tables, and GitHub-style alerts. A static build runs no interactive widgets.
 - **The sidebar is a file tree**, not a config database. Each folder has a `meta.json` listing its pages in order, and each page's sidebar label is its frontmatter `title`.
 - **Search is a static index** built at compile time, and the site emits `llms.txt` and `llms-full.txt` from the same frontmatter. Write the `description` carefully: it is what search results and agents quoting these docs will read.
 
@@ -90,7 +90,7 @@ Merging to `main` does not deploy. The process mirrors the product's releases: p
 gh workflow run docs.yml
 ```
 
-The workflow is dispatch-only and gated on CI passing. Tagging and releasing is owned by the workflow, never a hand-made tag. Your PR merging is step one, the version PR merging is step two, and the dispatch is step three. If you are not a maintainer, the second and third steps are maintainer actions; a reviewer will tell you when your change is queued.
+The workflow is dispatch-only, and it has no CI gate: every push builds the static export, and PR CI checks it before that, so the export is proven before the deploy exists. Tagging and releasing is owned by the workflow, never a hand-made tag. Your PR merging is step one, the version PR merging is step two, and the dispatch is step three. If you are not a maintainer, the second and third steps are maintainer actions; a reviewer will tell you when your change is queued.
 
 ## Finishing a stub page
 

@@ -8,13 +8,13 @@ Adding a node is three steps: mint a setup key on the control plane, hand the ta
 ## 1. Mint a setup key
 
 1. Open the **Nodes** page and press **Add node**.
-2. Press **Create setup key**.
+2. Press **Generate setup key**.
 
-The mint asks for nothing, not even a name. Earlier versions opened with a "Node name" field, but that text only ever labeled the key: the one-liner named the machine from its own hostname whatever you had typed, so the question moved to the machine itself (step 3). After you press **Create setup key**, the dialog renders a copy-ready install command with the key baked in.
+The mint asks for nothing, not even a name. Earlier versions opened with a "Node name" field, but that text only ever labeled the key: the one-liner named the machine from its own hostname whatever you had typed, so the question moved to the machine itself (step 3). After you press **Generate setup key**, the dialog renders a copy-ready install command with the key baked in.
 
 A setup key is an `nsk_…` code. It is single-use, it expires 24 hours after it is created, and it is revocable by deleting it. An admin can see and revoke every key on the instance: the Setup keys card has a switch that lists all accounts' keys, each row names its creator, and the same Revoke button closes a foreign row. For everyone else, deleting stays the creator's act: the delete answers "not found" for every row the caller did not mint.
 
-A setup key is not shown only once. The **Setup keys** list on the same page keeps every key you minted readable in full, with a copy button, until it is used, expires, or is revoked, so closing the dialog mid-copy costs nothing. There is a trade-off here worth stating: to list a key, the server stores it in plaintext. The exposure is bounded by what the credential is. It enrolls exactly one machine, works once, and is inert after 24 hours or the moment you delete it. The list is also scoped: you see the keys you minted, not anyone else's, unless you are an admin and ask for the whole instance. Minting and revoking are audited by key id, and the key text never reaches the audit trail.
+A setup key is not shown only once. The **Setup keys** list on the same page keeps every key you minted readable in full, with a copy button, until it is used, expires, or is revoked, so closing the dialog mid-copy costs nothing. Listing keys has a cost: the server stores them in plaintext. The exposure is bounded by what the credential is. It enrolls exactly one machine, works once, and is inert after 24 hours or the moment you delete it. The list is also scoped: you see the keys you minted, not anyone else's, unless you are an admin and ask for the whole instance. Minting and revoking are audited by key id, and the key text never reaches the audit trail.
 
 Who may mint a key is an instance setting. By default anyone signed in can add their own machines, and the switch on the Settings page narrows it to admins only. Turning it off means "stop handing out new keys": keys already minted stay usable until they expire or are deleted.
 
@@ -36,7 +36,7 @@ On the target machine this:
 If the server has no binary for your platform, it usually downloads one from the project's own public release on first request and serves it to you. When that is impossible (an air-gapped instance), the command says so rather than failing obscurely, and names the fallback: install the node binary another way and run `subshell setup` by hand.
 
 > [!warning] The server address is baked into the command
-> The row you pick in the dialog's **Address the node dials** dropdown is the address the node will dial forever. Choose an address the new machine can actually reach, usually your VPN or tailnet address, before copying: the choice rides along in the command (a `server=` argument the server accepts only for addresses it already trusts) and is baked into the script when the machine downloads it. A remote machine pointed at `localhost` enrolls, then dials itself and stays offline. If the instance knows no other address, the dropdown has only that one row, so set the base URL first. See [Networking](/server/networking).
+> The row you pick in the dialog's **Select Subshell server address** dropdown is the address the node will dial forever. Choose an address the new machine can actually reach, usually your VPN or tailnet address, before copying: the choice rides along in the command (a `server=` argument the server accepts only for addresses it already trusts) and is baked into the script when the machine downloads it. A remote machine pointed at `localhost` enrolls, then dials itself and stays offline. If the instance knows no other address, the dropdown has only that one row, so set the base URL first. See [Networking](/server/networking).
 
 ## 3. What `subshell setup` does
 
@@ -54,7 +54,7 @@ It then asks **"Name this node"**, and this is where a node gets its name. The a
 curl -fsSL "http://your-server:3080/install.sh?setup_key=<your-key>" | SUBSHELL_NODE_NAME="mac mini" bash
 ```
 
-After the name, `setup` generates an identity keypair and a link-encryption keypair on that machine, enrols with the control plane, and writes its config 0600. The node's long-lived key is stored only on that machine and is never echoed, not even with `--json`. From its first connect, every byte the machine and the plane exchange rides a link both ends encrypt themselves. The node's traffic is not readable off the network just because this server runs on plain `http://`.
+After the name, `setup` generates an identity keypair and a link-encryption keypair on that machine, enrols with the control plane, and writes its config 0600. The node's long-lived key is stored only on that machine and is never echoed, not even with `--json`. From its first connect, every byte the machine and the plane exchange rides a link both ends encrypt. The node's traffic is not readable off the network just because this server runs on plain `http://`.
 
 Finally it asks: **"Run the agent in the background and start it at login?"** If you answer yes, it installs a systemd user unit on Linux or a launchd agent on macOS. `--no-service` (or `SUBSHELL_NO_SERVICE=1` for the piped install) skips the question, and `subshell service install` does the same thing later.
 
@@ -62,7 +62,7 @@ On Linux, a user service dies at logout unless the user has **lingering** enable
 
 ## 4. The Desktop App path
 
-If the machine has no terminal, the dialog's reveal switches from **Terminal** to **Desktop App** and shows two values instead of a command: the server address and the setup key, each with its own copy button. In Subshell Client, open **Window → This machine…**, connect to that address, and paste both on its **Enroll** step. The app asks what to call the machine, installs the node binary it ships with (nothing is downloaded) and enrols. The unpublished-binary warning and the air-gapped detour are concerns of the terminal path; the app carries its own copy whatever this server has published. [Subshell Client as a Node](/nodes/client-as-node) describes the assistant screen by screen.
+If the machine has no terminal, the dialog's reveal switches from **Terminal** to **Desktop App** and shows two values instead of a command: the server address and the setup key, each with its own copy button. In Subshell Client, open its own window with the **Open Client App** item (the tray on every platform, the **Window** menu on macOS), connect to that address, and paste both on its **Enroll** step. The app asks what to call the machine, installs the node binary it ships with (nothing is downloaded) and enrols. The unpublished-binary warning and the air-gapped detour are concerns of the terminal path; the app carries its own copy whatever this server has published. [Subshell Client as a Node](/nodes/client-as-node) describes the assistant screen by screen.
 
 ## 5. Online
 

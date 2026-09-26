@@ -10,7 +10,7 @@ Every node has one, including the control plane host's own row.
 ## What turning it on does
 
 - New subshell launches on the node are refused for everyone, the owner and every grantee included.
-- Every subshell running there is terminated, whoever owns them. This is the effect to weigh before you throw the switch. Any node share lets its grantee launch private work on your machine, so maintenance stops work you cannot enumerate and may not own. Before you throw the switch, the node's page tells you how many subshells will stop: the count, and nothing about whose they are. The people who own them learn by push.
+- Every subshell running there is terminated, whoever owns them. This is the effect to weigh before you turn it on. Any node share lets its grantee launch private work on your machine, so maintenance stops work you cannot enumerate and may not own. Before you throw the switch, the node's page tells you how many subshells will stop: the count, and nothing about whose they are. The people who own them learn by push.
 - Everything else keeps working: the node answers service controls, log reads, re-checks, config, and updates exactly as before. The row stays visible to everyone who could see it.
 
 Turning it off puts the node back in service for the same audience as before. Maintenance is a window, not a change to anyone's grants.

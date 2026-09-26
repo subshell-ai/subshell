@@ -34,7 +34,7 @@ The sha512 the fetcher checks is the same registry's own announcement: it proves
 
 ## The trust you are asking for
 
-Your code runs in the control plane's process, with the server's user privileges and no sandbox. A malicious plugin therefore reaches the instance database and the key that signs commands for every enrolled node, not one machine. Installing one is the same trust decision as installing the agent CLI the plugin drives, made once for the instance. Say so in your README, and prefer manifest data over code wherever both would work. If you are writing a network plugin (see [Writing a Network Plugin](/develop/network-plugin)), your argv additionally runs on the control-plane host, bounded by the host's spawn door, but yours in the logs.
+Your code runs in the control plane's process, with the server's user privileges and no sandbox. A malicious plugin therefore reaches the instance database and the key that signs commands for every enrolled node, not one machine. Installing one is the same trust decision as installing the agent CLI the plugin drives, made once for the instance. Say so in your README, and prefer manifest data over code wherever both would work. If you are writing a network plugin (see [Writing a Network Plugin](/develop/network-plugin)), your argv additionally runs on the control-plane host. The host runs it through its bounded spawn: an environment allowlist that keeps the server's own secrets out of the child, a 64 KiB output cap per stream, a deadline, and a refusal of `sudo`, `doas`, or `pkexec`. The plugin id names every audit row for the acts that run it and prefixes every line your plugin logs, and during an act the command's own output streams to the admin who started it.
 
 ## See also
 

@@ -11,7 +11,7 @@ Three kinds of credential exist, and where each is accepted is a rule, not a con
 
 | Credential | Who holds it | Where it works |
 |---|---|---|
-| **Session cookie** | your browser, after password or passkey sign-in | Everything you have access to, and the **only** credential admin surfaces accept. |
+| **Session cookie** | your browser, after password or passkey sign-in | Everything you have access to, and the only credential admin surfaces accept. |
 | **Subshell token** | a running pane (minted at launch, baked into its environment) | That subshell's own surface, and only its owner's subshells. Shared grants and the admin boost are switched off for bearer actors, so a pane can never act on a subshell merely shared with its owner. It can mint a terminal attach token only for its own subshell. |
 | **System API key** | your scripts and tooling | General API use. Never management; see below. Mint and revoke under Settings → API keys ([System API Keys](/automation/system-api-keys)). |
 

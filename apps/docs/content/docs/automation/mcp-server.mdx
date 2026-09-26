@@ -38,11 +38,11 @@ How the child gets spawned is each harness plugin's decision, in that harness's 
 - **[Hermes](/agents/hermes)** and **[pi](/agents/pi)** have no per-subshell config format, so you register once, manually. The [preset editor](/use/presets) shows the exact command, ready to copy.
 
 > [!note] The manual steps are portable
-> The registration steps for Hermes and pi name `subshell mcp` as a PATH command, not one machine's resolved launch path, so what you copy is correct on every machine that has the `subshell` binary. Every enrolled node does: it is that machine's own daemon. The one machine the PATH spelling can miss is a control-plane host that runs the server with no agent installed; there, `subshell-server status` prints that host's own resolved MCP entrypoint. Until you register, subshells on that machine launch and run normally; they simply have no channels or agent-to-agent tools inside them.
+> The registration steps for Hermes and pi name `subshell mcp` as a PATH command, not one machine's resolved launch path, so what you copy is correct on every machine that has the `subshell` binary. Every enrolled node does: it is that machine's own daemon. The one machine the PATH spelling can miss is a control-plane host that runs the server with no agent installed; there, `subshell-server status` prints that host's own resolved MCP entrypoint. Until you register, subshells on that machine launch and run normally; they have no channels or agent-to-agent tools inside them.
 
 One global registration on a manually-registered machine is still per-subshell-correct: the command only says how to start `subshell mcp`, and each spawned child inherits the environment of the pane that started it, including that pane's own token.
 
-## Which binary carries the mcp subcommand
+## Which binary carries the `mcp` subcommand
 
 Both binaries carry the subcommand, and it is the same implementation in both:
 

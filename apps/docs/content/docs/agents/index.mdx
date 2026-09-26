@@ -3,11 +3,11 @@ title: Overview
 description: "Agents are plugins: what that means for what you can launch, where the binaries live, and who decides the set."
 ---
 
-Every agent Subshell can put in a pane, and the plain Terminal, is a **plugin**. A plugin teaches Subshell how to drive one program: how to find it, what command line starts it, how to wire in the tools that make a subshell more than a terminal, and which settings are worth offering you. The program itself is the agent's own CLI, installed the ordinary way. The plugin never ships the CLI, it only drives it.
+Every agent Subshell can put in a pane, and the plain Terminal, is a **plugin**. A plugin teaches Subshell how to drive one program: how to find it, what command line starts it, how to wire in the tools that make a subshell more than a terminal, and which settings are worth offering you. The program itself is the agent's own CLI, installed the ordinary way. The plugin never ships the CLI; it only drives it.
 
 ## The control plane owns the set
 
-Plugins are installed once, on the control plane, into a single store under its data directory. One install arms every node. A node holds nothing plugin-related of its own; it simply executes the command line the control plane built for the launch. Because installing a plugin runs third-party code inside the control plane's own process, installing, enabling, and uninstalling are admin actions, made at **Settings → Plugins**. See [The Plugin Registry](/agents/plugin-registry).
+Plugins are installed once, on the control plane, into a single store under its data directory. One install arms every node. A node holds nothing plugin-related of its own; it executes the command line the control plane built for the launch. Because installing a plugin runs third-party code inside the control plane's own process, installing, enabling, and uninstalling are admin actions, made at **Settings → Plugins**. See [The Plugin Registry](/agents/plugin-registry).
 
 Whether you can launch an agent on a machine depends on two separate questions:
 

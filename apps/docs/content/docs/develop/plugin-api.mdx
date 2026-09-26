@@ -7,7 +7,7 @@ description: "The contract package @subshell-ai/plugin-api: manifests, capabilit
 
 ## Package version and `apiVersion`
 
-The npm version is ordinary semver (`2.1.x` at the time of writing; types drift, nothing breaks). The contract version is a different integer: `PLUGIN_API_VERSION`, currently `2`, which your manifest declares as `"apiVersion": 2`. The rules the host enforces:
+The npm version is ordinary semver (`3.0.x` at the time of writing; types drift, nothing breaks). The contract version is a different integer: `PLUGIN_API_VERSION`, currently `2`, which your manifest declares as `"apiVersion": 2`. The rules the host enforces:
 
 - A host implementing a lower contract version refuses the plugin outright, naming both numbers so the operator knows which side to upgrade (`"this plugin needs plugin-api 3, but this host implements 2; upgrade Subshell"`).
 - A host at a higher version lets the plugin through that manifest gate, but that is not a compatibility window. The loader checks members by name, so a rename across API versions refuses the older plugin at load with a named diagnosis. The real case: a v1 plugin used the `profile` spelling and comes back as missing `validatePreset`, never as silently working.
@@ -15,7 +15,7 @@ The npm version is ordinary semver (`2.1.x` at the time of writing; types drift,
 
 ## The manifest exports
 
-From the package you import `parseManifest`, which validates the `subshell` block of a `package.json`. The refusals named in [Writing a Harness Plugin](/develop/harness-plugin) and [Writing a Network Plugin](/develop/network-plugin) are this function's behavior: `apiVersion` must be an integer ≥ 1, `entry` must be a relative path that stays inside the package, `icon` must be a real image path that stays inside, `install.command` is never `sudo`-prefixed, and `docsUrl`s are http(s)-only. You also import `PLUGIN_API_VERSION`, `isDocsUrl`, and the manifest types (`SubshellManifest`, `DetectSpec`, `InstallSpec`, `NetworkManifest`, `PrivilegedStep`, `ManifestError`).
+From the package you import `parseManifest`, which validates the `subshell` block of a `package.json`. The refusals named in [Writing a Harness Plugin](/develop/harness-plugin) and [Writing a Network Plugin](/develop/network-plugin) are this function's behavior: `apiVersion` must be an integer ≥ 1, `entry` must be a relative path that stays inside the package, `icon` must be a real image path that stays inside, `install.command` may not run `sudo`, `doas`, or `pkexec` at any shell boundary, and `docsUrl`s are http(s)-only. You also import `PLUGIN_API_VERSION`, `isDocsUrl`, and the manifest types (`SubshellManifest`, `DetectSpec`, `InstallSpec`, `NetworkManifest`, `PrivilegedStep`, `ManifestError`).
 
 The manifest is load-bearing, not decoration: it is what the host reads to list your plugin and probe for its binary without importing a line of your code. The `detect` block ships to nodes as data.
 

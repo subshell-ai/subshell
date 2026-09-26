@@ -35,7 +35,7 @@ Every list and card shows one of six states:
 | node unreachable | the machine that owns this pane has no connection to the server |
 | ended | retired with the terminate action; still restartable |
 
-**node unreachable** outranks the other states, by design. A missing connection is not a missing process: the node may be down while its panes keep running, and while the node is unreachable nobody can know what those panes are doing. So a subshell on a quiet machine reports node unreachable and never crashed. When the node reconnects, the control plane re-probes it, surviving panes answer, and the displayed state is corrected.
+**node unreachable** outranks the other states, by design. A missing connection is not a missing process: the node may be down while its panes keep running, and while the node is unreachable nobody can know what those panes are doing. So a subshell on a quiet machine reports "node unreachable" and never "crashed". When the node reconnects, the control plane re-probes it, surviving panes answer, and the displayed state is corrected.
 
 ## Restarting
 

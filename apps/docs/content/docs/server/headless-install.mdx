@@ -51,7 +51,7 @@ Under `--yes`, or on a non-interactive run (piped stdin, no TTY), every question
    Open http://localhost:3080/setup in a browser to create the admin account.
    ```
 
-   If your configuration means people will browse from other machines, `init` says so here too and prints the exact `subshell-server configure --trusted-origins <address>` line to run. Without that entry the failure is a 403 that names no key. See [Networking & Addresses](/server/networking).
+   If your configuration means people will browse from other machines, `init` says so here too and prints the exact `subshell-server configure --trusted-origins <address>` line to run. Without that entry the failure is a 403 that names nothing. See [Networking & Addresses](/server/networking).
 
 > [!warning] Open the setup page promptly
 > The setup endpoints are public until the first account exists: that is what lets you create it. On a LAN that is a race, and the window closes as soon as anyone completes it. On a network you do not own, bind loopback or set the addresses before first boot.
@@ -68,7 +68,7 @@ subshell-server status
 
 It prints what this host would boot with, without booting anything: the `config.env` path and the layer each setting came from (the secret shown only as set-or-missing), tmux presence, the resolved MCP entrypoint, whether the port is already answering, whether a service definition is on disk, and whether the admin account has been created yet. It is the first thing to run whenever something looks wrong, and `--json` feeds the same view to scripts.
 
-Finally, open the address you configured, from your own machine rather than the box. If sign-in answers 403 "Invalid origin", the browser is using a name the instance does not know; [Networking & Addresses](/server/networking) walks the fix.
+Finally, open the address you configured, from your own machine rather than the box. If sign-in answers 403 "Invalid origin", the browser is using a name the instance does not know; [Networking & Addresses](/server/networking) explains the fix.
 
 ## Install without the script
 

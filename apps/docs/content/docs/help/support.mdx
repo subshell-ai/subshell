@@ -21,7 +21,7 @@ On the control-plane host:
 subshell-server status
 ```
 
-Paste its output into your report. It is the first diagnostic for a reason. It prints the version, where `config.env` lives, every setting `configure` owns with the layer its value came from, `tmux` as either a resolved absolute path or `NOT FOUND`, the MCP entrypoint, how many node artifacts are published out of three, whether an admin account exists yet, whether the configured port is listening, and what the service definition says. The auth secret is masked, which is why the output is safe to paste.
+Paste its output into your report. It is the first diagnostic for a reason. It prints the version, where `config.env` lives, every setting `configure` owns with the layer its value came from, `tmux` as either a resolved absolute path or `NOT FOUND`, the MCP entrypoint, how many node artifacts are published out of four, whether an admin account exists yet, whether the configured port is listening, and what the service definition says. The auth secret is masked, which is why the output is safe to paste.
 
 A node machine answers the same kind of question with `subshell status`, which reads the daemon's local lock and prints `ONLINE (local daemon pid …)` or `OFFLINE` with the commands that fix it. Do not pass `--probe` casually when reporting: the probe opens a live socket and kicks any other daemon running for that node.
 
@@ -30,7 +30,7 @@ A node machine answers the same kind of question with `subshell status`, which r
 | Include | Why |
 |---|---|
 | Which component, and its version | Four components version independently; both CLIs answer `version`, and the desktop apps show theirs in their About surface |
-| Your OS and architecture | The glibc floor and the Apple-silicon-only rule explain more refusals than bugs do |
+| Your OS and architecture | The glibc floor and the closed target list (no arm64 Linux desktop build) explain more refusals than bugs do |
 | How it runs: systemd/launchd service, desktop app, container, or a terminal | Supervision changes what restart, logs, and update can even do |
 | The message you saw, word for word | The copy is deliberate; paraphrases hide which refusal fired |
 | What you did immediately before it | Most origin and offline failures reproduce in three steps |

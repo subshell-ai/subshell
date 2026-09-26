@@ -7,7 +7,7 @@ Everything Subshell can launch is a plugin, and six ship built in. This page is 
 
 ## One store for every node
 
-The control plane keeps a single plugin store inside its data directory. Installing there **arms every node at once**: a node holds nothing plugin-related of its own, and simply executes the command lines this store produces. There is no per-node plugin set to reconcile.
+The control plane keeps a single plugin store inside its data directory. Installing there arms every node at once: a node holds nothing plugin-related of its own, and executes the command lines this store produces. There is no per-node plugin set to reconcile.
 
 A node does still need the real binary the plugin drives. The store decides which agents the instance offers; each machine's detection decides where they are launchable. See the [Overview](/agents).
 
@@ -40,7 +40,7 @@ Id collisions are refused, not resolved: a package whose manifest claims an id t
 Before an uninstall, the page shows its scope: how many presets use the plugin, how many users' presets those are, and how many subshells are running on it. Then you choose:
 
 - **Uninstall, keeping presets** (the default): only the plugin's bytes go. Presets that used it survive, hidden, and work again if you reinstall.
-- **Uninstall, deleting presets**: every preset across every user that names this harness is removed too. Subshells that launched from those presets survive; they simply become presetless.
+- **Uninstall, deleting presets**: every preset across every user that names this harness is removed too. Subshells that launched from those presets survive; they become presetless.
 - **Disable instead**: the toggle takes the plugin out of every launch picker instance-wide without deleting anything. A freshly installed plugin is enabled, and the uninstall clears the remembered toggle, so a later reinstall starts enabled again.
 
 All three leave running subshells alone: they are processes with their own credentials, and a plugin change neither terminates nor silences them.
