@@ -10,7 +10,8 @@ description: "Every verb of the control plane binary (run, init, configure, stat
 | Command | What it does |
 | --- | --- |
 | (none) | Run the server (the boot path) |
-| `version` | Print the version and exit |
+| `help` | Print the usage text and exit (`--help`, `-h`) |
+| `version` | Print the version and exit (`--version`, `-v`) |
 | `license` | Print the copyright and licence and exit |
 | `status` | Print the resolved config view and exit (`--json` for machine output) |
 | `init` | First run: config home, auth secret, config.env, and the service |
@@ -31,7 +32,8 @@ subshell-server: the Subshell control plane
 
 usage:
   subshell-server                run the server (boot path: no subcommand)
-  subshell-server version        print the version and exit
+  subshell-server help           print this usage and exit (also --help and -h)
+  subshell-server version        print the version and exit (also --version and -v)
   subshell-server license        print the copyright and licence and exit
   subshell-server status         print the resolved config view and exit (--json for machine output)
   subshell-server init           first run: config home + auth secret + config.env + the service
@@ -88,7 +90,7 @@ Value flags also accept the `--flag=value` form, so a URL containing `=` still w
 
 ## The boot path and exit codes
 
-The boot path is the no-subcommand form. A service unit or `launchd` job that names the binary with no subcommand (or with only a leading flag) boots the server. This is a pinned contract: never teach a bare invocation a new meaning. Every other word is a subcommand, and an unknown word is refused with the usage text above and exit 1.
+The boot path is the no-subcommand form. A service unit or `launchd` job that names the binary with no subcommand (or with only a leading flag) boots the server. This is a pinned contract: never teach a bare invocation a new meaning. Two leading flags are answered BEFORE that rule, because booting is the wrong reply to a question: `--help`/`-h` print the usage text and exit 0, and `--version`/`-v` print the version line; the same answers come from the words `help` and `version`. Every other word is a subcommand, and an unknown word is refused with the usage text above and exit 1.
 
 Exit codes: `status` and `service status` always exit 0 when the flags were valid, because they are views and a script should not have to tell "not running" from "the call failed". One refusal can reach these views from outside the flags: an ambient `SUBSHELL_VERBOSE` asked together with `--json` exits 1, because debug lines would corrupt the document. `report` always exits 0 whatever happens, because harness hooks run it and their stderr lands in your session. `mcp` runs until its pane's client disconnects, and `pane-log` runs until the pane's output stream closes and then exits 0. Every other verb exits 0 on success and 1 on any refusal or failure, including usage errors, unlike the node CLI, which uses exit 2 for those.
 
@@ -171,7 +173,7 @@ The `report` verbs are how harness hooks report a pane's state: `report attentio
 
 ## version
 
-`version` prints `subshell-server <version>`, a machine contract, matched exactly by the release pipeline.
+`version` prints `subshell-server <version>`, a machine contract, matched exactly by the release pipeline. `--version` and `-v` are answered from the command slot with the same line, for the same reason `help` is: the release pipeline calls the word, and the flag spellings are only ever a person asking.
 
 ## license
 

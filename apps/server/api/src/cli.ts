@@ -162,7 +162,8 @@ const USAGE = `subshell-server: the Subshell control plane
 
 usage:
   subshell-server                run the server (boot path: no subcommand)
-  subshell-server version        print the version and exit
+  subshell-server help           print this usage and exit (also --help and -h)
+  subshell-server version        print the version and exit (also --version and -v)
   subshell-server license        print the copyright and licence and exit
   subshell-server status         print the resolved config view and exit (--json for machine output)
   subshell-server init           first run: config home + auth secret + config.env + the service
@@ -267,12 +268,36 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
   if (command === "--verbose" || envVerbose) {
     setConsoleVerbose(true);
   }
+  // `--help`/`-h` answer BEFORE the boot path. A leading flag IS boot — the
+  // service manager's convention this dispatch is built around — and the one
+  // spelling everyone reaches for without reading a manual must not boot a
+  // server as its side effect. `--version`/`-v` ride the same recognition:
+  // the node CLI set exactly this precedent for `subshell --version` (its
+  // COMMAND_ALIASES, on the argument that an accurate "unknown command" is
+  // useless to the person typing the thing every other CLI answers). The
+  // bare word `help` answers through the switch like every other word.
+  if (command === "--help" || command === "-h") {
+    cliEngaged = true;
+    log(USAGE);
+    exit(0);
+    return true;
+  }
+  if (command === "--version" || command === "-v") {
+    cliEngaged = true;
+    log(`subshell-server ${SERVER_VERSION}`);
+    exit(0);
+    return true;
+  }
   // Boot path: no subcommand, or a leading flag (a service manager passes
   // flags and env, never a subcommand word). The boot graph continues untouched.
   if (!command || command.startsWith("-")) return false;
   cliEngaged = true;
 
   switch (command) {
+    case "help":
+      log(USAGE);
+      exit(0);
+      return true;
     case "version":
       log(`subshell-server ${SERVER_VERSION}`);
       exit(0);
