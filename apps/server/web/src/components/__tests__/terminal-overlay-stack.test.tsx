@@ -86,7 +86,7 @@ function plates(container: HTMLElement): HTMLElement[] {
 const isHud = (el: HTMLElement): boolean => el.textContent?.includes("Socket") ?? false;
 const isBadge = (el: HTMLElement): boolean => el.textContent?.includes("⌨") ?? false;
 
-describe("TerminalOverlayStack layout (the HUD never moves; the badge yields)", () => {
+describe("TerminalOverlayStack layout (the HUD never moves; the badge yields; the badge lives only in the diagnostics state)", () => {
   it("the HUD's top edge is identical with the badge empty and with a keystroke pending", () => {
     // Badge empty: the HUD is the stack's only plate, at the anchor.
     const empty = renderStack(true, false);
@@ -107,10 +107,11 @@ describe("TerminalOverlayStack layout (the HUD never moves; the badge yields)", 
     cleanup();
   });
 
-  it("with the HUD closed the badge keeps the corner to itself, at the anchor", () => {
+  it("with diagnostics off the stack renders nothing, even with a keystroke pending", () => {
+    // Issue #243: the badge is diagnostic text, so it exists only inside the
+    // diagnostics state. Normal typing leaves this corner of the screen
+    // entirely out of the repaint.
     const { container } = renderStack(false, true);
-    const stackPlates = plates(container);
-    expect(stackPlates).toHaveLength(1);
-    expect(isBadge(stackPlates[0] as HTMLElement)).toBe(true);
+    expect(container.firstElementChild).toBeNull();
   });
 });

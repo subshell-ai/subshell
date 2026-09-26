@@ -65,15 +65,17 @@ const TERMINAL_OPTIONS = {
 /**
  * The terminal's overlay stack: ONE anchored column at the devices strip's
  * top-right corner (floated, dense, pointer-events-none), holding the Wave C
- * diagnostics HUD and the in-flight input badge.
+ * diagnostics HUD and, while the HUD is open, the in-flight input badge.
+ * The badge lives only inside the diagnostics state (issue #243): it is
+ * diagnostic text, and on the normal typing path its burst-by-flicker
+ * presence distracted exactly the people a quiet terminal serves best.
  *
  * Order is load-bearing (an operator report, 2026-09-21): the HUD is the
  * PERSISTENT surface and is the column's FIRST child, so its top edge stays
  * at the anchor through every keystroke burst. The badge is transient and
- * yields: while the HUD is open it renders BELOW it (flex column, one gap),
- * and while the HUD is closed the badge is the column's only child and sits
- * at the anchor itself, exactly where it always lived. A flex column's DOM
- * order IS its visual order, which is what the layout test pins.
+ * yields: it renders BELOW the HUD (flex column, one gap), never at the
+ * anchor. A flex column's DOM order IS its visual order, which is what the
+ * layout test pins.
  *
  * On a workspace pane the devices wrapper renders after this component and
  * at the same corner, so when both are up the devices strip wins the paint
@@ -86,8 +88,8 @@ export function TerminalOverlayStack({
   inputQueueRef: { current: InputQueue | null };
   /**
    * The HUD's inputs, present only while the page turned the HUD on (the
-   * subshell page alone does). Null renders no HUD, and the badge keeps the
-   * corner to itself.
+   * subshell page alone does). Null renders the corner empty: the HUD and
+   * the badge are one state, the diagnostics state.
    */
   diagnostics?: {
     /** The subshell row (live feed); undefined while the record has not arrived. */
@@ -104,19 +106,20 @@ export function TerminalOverlayStack({
     lastOutputRef: { current: number | null };
   } | null;
 }) {
+  // One state, not two plates each with a switch: with diagnostics off the
+  // stack renders nothing at all — no HUD, and no badge either (issue #243).
+  if (!diagnostics) return null;
   return (
     <div className="pointer-events-none absolute top-1 right-4 z-10 flex flex-col items-end gap-1">
-      {diagnostics && (
-        <PaneDiagnosticsHud
-          subshell={diagnostics.subshell}
-          socket={diagnostics.socket}
-          reconnectsRef={diagnostics.reconnectsRef}
-          inputQueueRef={inputQueueRef}
-          viewers={diagnostics.viewers}
-          nodeLabel={diagnostics.nodeLabel}
-          lastOutputRef={diagnostics.lastOutputRef}
-        />
-      )}
+      <PaneDiagnosticsHud
+        subshell={diagnostics.subshell}
+        socket={diagnostics.socket}
+        reconnectsRef={diagnostics.reconnectsRef}
+        inputQueueRef={inputQueueRef}
+        viewers={diagnostics.viewers}
+        nodeLabel={diagnostics.nodeLabel}
+        lastOutputRef={diagnostics.lastOutputRef}
+      />
       <InputQueueBadge inputQueueRef={inputQueueRef} />
     </div>
   );
@@ -129,10 +132,10 @@ export function TerminalOverlayStack({
  * that is merely fast has no UI.
  *
  * Exported for the badge's component test; the app's only consumer renders
- * it inside {@link TerminalOverlayStack}, below the Wave C diagnostics HUD
- * when that is open and at the column's anchor when it is not. Positioning
- * lives on that column; the badge is a plate inside it, so the badge is the
- * thing that moves and the HUD never does.
+ * it inside {@link TerminalOverlayStack}, and only while the Wave C
+ * diagnostics HUD is open (issue #243) — with diagnostics off the badge
+ * renders nowhere. Positioning lives on that column; the badge is a plate
+ * inside it, so the badge is the thing that moves and the HUD never does.
  */
 export function InputQueueBadge({ inputQueueRef }: { inputQueueRef: { current: InputQueue | null } }) {
   const { stats } = useLiveInputQueue(inputQueueRef);
@@ -289,7 +292,8 @@ export interface SubshellTerminalProps {
    * owns the toggle (the actions menu's "Diagnostics" item, persisted per
    * device) and resolves the node label; the terminal contributes what only
    * it can see: the socket state, the reconnect count, the input queue and
-   * the live viewers frame. Absent renders no HUD.
+   * the live viewers frame. Absent renders no HUD — and no input badge
+   * either: the badge shows only inside the diagnostics state (issue #243).
    */
   diagnosticsOverlay?: { nodeLabel: string | null } | null;
   /** Extra buttons for the exited panel's action row (e.g. Edit preset). */
@@ -958,7 +962,8 @@ export function SubshellTerminal({
             />
           )}
           {/* The terminal's whole overlay stack (see TerminalOverlayStack):
-              HUD anchored, badge yielding below it. */}
+              while diagnostics are on, HUD anchored and badge yielding below
+              it; while off, nothing. */}
           <TerminalOverlayStack
             inputQueueRef={inputQueueRef}
             diagnostics={
