@@ -1,5 +1,15 @@
 # @internal/node
 
+## 1.2.0
+
+### Minor Changes
+
+- [#239](https://github.com/subshell-ai/subshell/pull/239) [`ef7031c`](https://github.com/subshell-ai/subshell/commit/ef7031cc85ee6beb6d8e5307e798ad45442da719) Thanks [@theogravity](https://github.com/theogravity)! - feat(node), feat(desktop-client): the node role gets its reset doors (issue [#232](https://github.com/subshell-ai/subshell/issues/232)). New CLI verbs: `subshell reset` stops the daemon, closes this machine's pane servers, removes the service definition, and deletes the data directory, the daemon lock and `config.json` (the node key's only home) last, keeping the binary; `subshell uninstall` adds the binary and asks separately, default NO, whether the data goes too (`--reset-data` is the scripted yes). Consent is the machine's NAME typed at the prompt or `--confirm <name>`; `--yes` is refused by name, and once consent is given a step that cannot run is reported and the clear continues. The Subshell Client's tray gains **Reset…**, raising the page's existing typed-hostname dialog from any state. Docs: the node CLI reference gains the verbs and a reset/uninstall section.
+
+### Patch Changes
+
+- [#231](https://github.com/subshell-ai/subshell/pull/231) [`107e945`](https://github.com/subshell-ai/subshell/commit/107e945afac4c2739419d5cbbc1ea8ae715d559c) Thanks [@theogravity](https://github.com/theogravity)! - fix(node), fix(client): the [#225](https://github.com/subshell-ai/subshell/issues/225) invalid state self-heals and can no longer be installed. The node agent now ignores a loopback `nodeWsUrl` persisted beside a remote `serverUrl` (the residue a server whose base URL was never configured leaves behind, surviving a reset that keeps this file) and dials the plane `config.json` actually names; same-machine loopback pins are untouched. The Subshell Client's register chain skips its enroll act only for a same-plane retry, so a machine carrying an old registration to a different server re-enrolls behind the existing confirm rather than silently starting a node bound to the wrong plane.
+
 ## 1.1.0
 
 ### Minor Changes
