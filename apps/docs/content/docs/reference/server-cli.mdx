@@ -17,6 +17,8 @@ description: "Every verb of the control plane binary (run, init, configure, stat
 | `configure` | (Re)write config.env; interactive unless `--yes` |
 | `update` | Install a newer server over this one (`--check` to look only) |
 | `backup` | Snapshot the database now (`--json` for machine output) |
+| `reset` | Stop the server and delete its data and settings, keeping the binary (typed-name consent) |
+| `uninstall` | Reset plus the installed binary (same consent) |
 | `service` | Drive the background process: install, uninstall, enable, disable, status, start, stop, restart |
 | `mcp` | Serve the stdio MCP server a subshell pane's harness spawns |
 | `report` | Report a pane's state (run by harness hooks) |
@@ -38,6 +40,10 @@ usage:
   subshell-server configure      (re)write config.env; interactive unless --yes
   subshell-server update         install a newer server over this one (--check to look only)
   subshell-server backup         snapshot the database now (--json for machine output)
+  subshell-server reset          stop the server and delete its data and settings, keeping the binary;
+                                 the machine's NAME must be typed (--confirm <name> when headless)
+  subshell-server uninstall      reset PLUS the installed binary; the same typed-name consent;
+                                 --yes is refused for both
   subshell-server service install    background the server (systemd user unit / launchd agent);
                                      --no-autostart to run it now but not at login
   subshell-server service uninstall  stop it and remove the service definition
@@ -72,6 +78,10 @@ update flags:         --check                  report what is available and stop
                       --json                   machine-readable output
                       --no-restart             swap the binary; the caller restarts
                       --rollback               undo the last update (binary + database)
+
+reset/uninstall flags: --confirm <machine-name>  the machine's name, for a run with no TTY to
+                      type it into; without it (and without a terminal) both verbs refuse and
+                      change nothing. --yes is REFUSED on both: it cannot stand in for the name.
 
 verbose:              --verbose after a verb (init/configure/update, and every service
                       verb) raises this run's CONSOLE logging to debug level, HTTP request
@@ -141,6 +151,14 @@ Flags:
 ## backup
 
 `backup` takes a single-file snapshot of the database now (`VACUUM INTO`), in the same directory and under the same retention as the ones `update` takes automatically: five by default (`SUBSHELL_DB_BACKUPS_KEEP`; `0` keeps everything). `--json` prints the path, the size, and how many are kept. Exit 1 names the reason, the ordinary one being a configured server that has never booted and so has no database yet.
+
+## reset and uninstall
+
+The two destructive verbs, twin to the desktop assistant's Reset chain. `reset` stops the service, waits for its port to go quiet, closes the pane servers, removes the service definition, and deletes exactly the paths `status --json` names (config home last); the installed binary is kept, so `init` can set the machine up again. `uninstall` does all of that and then removes the binary the resolution ladder named, plus any `.previous` a prior update left. A source checkout has no installed binary, so uninstall says so and leaves the checkout alone.
+
+Neither is reachable over the network: there is no route for them. Consent is the machine's NAME, typed at the prompt and compared on the machine, so `--yes` (which answers every other question) is refused outright. For a run with no terminal, pass the name on the command line with `--confirm <machine-name>`; that is the same fact, just not typed at a keyboard. Without a terminal and without `--confirm`, both refuse and change nothing.
+
+Because a server started by hand has no service to stop, both verbs check the port before anything else goes: a port still answering ten seconds after the stop ends the run with "port N is still answering" and every byte and pane exactly where it was. Stop that server and run again.
 
 ## service: the background process
 

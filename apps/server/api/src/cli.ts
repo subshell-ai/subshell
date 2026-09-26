@@ -6,6 +6,7 @@ import { licenseNotice } from "@internal/subshell-protocol";
 import { runBackup } from "@/commands/backup.js";
 import { type ConfigureOpts, runConfigure } from "@/commands/configure.js";
 import { type InitDeps, runInit, setupHandoffLines } from "@/commands/init.js";
+import { runReset } from "@/commands/reset.js";
 import { collectStatus, runStatus, serviceStateLines, syncPortListening } from "@/commands/status.js";
 import { acquirePromptInput, confirmLineOn, readLineSync } from "@/commands/tty-input.js";
 import { runUpdate, type UpdateOpts } from "@/commands/update.js";
@@ -56,10 +57,11 @@ import { SERVER_VERSION } from "@/version.js";
  *
  * Convention (not a safety mechanism): handled quick commands run to
  * completion and `process.exit` SYNCHRONOUSLY inside `dispatchCli` (sync fs,
- * `readSync(0, …)` prompts, `Bun.spawnSync` for the service manager). Four
+ * `readSync(0, …)` prompts, `Bun.spawnSync` for the service manager). Six
  * commands opt out by name: `mcp` (long-running by contract), `init` and
- * `configure` (clack prompts), and `update`/`backup` (spec 2026-09-15 — they
- * download, prompt, and snapshot a database). It is
+ * `configure` (clack prompts), `update`/`backup` (spec 2026-09-15 — they
+ * download, prompt, and snapshot a database), and `reset`/`uninstall` (the
+ * typed-name prompt and the bounded port wait; issue #232). It is
  * kept because suspension is otherwise invisible on bun 1.4.0 — measured, NOT
  * spec behaviour: any top-level await in the entry prelude lets Bun evaluate
  * the rest of the graph and the entry body while the await is pending
@@ -169,6 +171,10 @@ usage:
   subshell-server configure      (re)write config.env; interactive unless --yes
   subshell-server update         install a newer server over this one (--check to look only)
   subshell-server backup         snapshot the database now (--json for machine output)
+  subshell-server reset          stop the server and delete its data and settings, keeping the binary;
+                                 the machine's NAME must be typed (--confirm <name> when headless)
+  subshell-server uninstall      reset PLUS the installed binary; the same typed-name consent;
+                                 --yes is refused for both
   subshell-server service install    background the server (systemd user unit / launchd agent);
                                      --no-autostart to run it now but not at login
   subshell-server service uninstall  stop it and remove the service definition
@@ -522,6 +528,62 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
         return true;
       }
       const code = await runBackup({ json: argv.includes("--json") }, { log, error });
+      exit(code);
+      return true;
+    }
+    case "reset":
+    case "uninstall": {
+      // The destructive verbs (issue #232). Consent is the machine's NAME, so
+      // `--yes` — the flag that answers every OTHER question — is refused
+      // HERE by name, never ignored: a flag a rushed operator reaches for and
+      // that silently did not apply must say so, the way `service install`
+      // never let `--yes` auto-install and `unenroll --yes` cannot buy a live
+      // daemon. The scripted spelling is `--confirm <name>`: still naming the
+      // machine, just not typing it at a keyboard.
+      if (argv.includes("--yes")) {
+        error(
+          `subshell-server: --yes cannot confirm ${command === "reset" ? "a reset" : "an uninstall"}; type the machine's name at the prompt, or pass --confirm <machine-name>`,
+        );
+        exit(1);
+        return true;
+      }
+      let confirmName: string | undefined;
+      for (let i = 1; i < argv.length; i++) {
+        const flag = argv[i];
+        if (flag === "--confirm") {
+          const value = argv[i + 1];
+          if (value === undefined || value.startsWith("--")) {
+            error("subshell-server: --confirm needs the machine's name as its value");
+            error(USAGE);
+            exit(1);
+            return true;
+          }
+          confirmName = value;
+          i++;
+        } else {
+          error(`subshell-server: unexpected argument '${flag}'`);
+          error(USAGE);
+          exit(1);
+          return true;
+        }
+      }
+      const code = await runReset(
+        { uninstall: command === "uninstall", confirm: confirmName },
+        {
+          log,
+          error,
+          isTTY: deps.isTTY ?? process.stdin.isTTY === true,
+          machineName: deps.hostname,
+          // The consent question carries NO default on purpose: an empty
+          // ENTER is a mismatch, and a mismatch changes nothing.
+          ask: (question) => (deps.prompt ? Promise.resolve(deps.prompt(question, "")) : promptText(question, "")),
+          service: serviceDeps(deps, log),
+          // The same kernel-table reader `status` uses: the chain refuses
+          // while the port answers, so a hand-started daemon cannot have its
+          // files deleted under it.
+          probePort: deps.probePort,
+        },
+      );
       exit(code);
       return true;
     }

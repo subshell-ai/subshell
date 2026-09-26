@@ -39,4 +39,6 @@ echo
 echo
 "$HERE/node-dashboard.sh"
 echo
+"$HERE/reset-uninstall.sh"
+echo
 echo "✓ headless CLI end-to-end suite passed"

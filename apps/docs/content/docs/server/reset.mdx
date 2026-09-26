@@ -5,11 +5,11 @@ description: "Tear the instance down from its own machine: what a reset deletes,
 
 Delete everything an instance has ever written, from its own machine, by the guarded assistant path or by hand.
 
-Reset is the one act that deletes everything the instance has ever written, so it is deliberately kept off the network: no page you serve can drive it. And, decided once and worth stating plainly, `subshell-server` has no reset command. The sequenced, guarded reset lives in the Subshell Server desktop assistant. A headless instance deletes its data by hand, and this page shows both paths.
+Reset is the one act that deletes everything the instance has ever written, so it is deliberately kept off the network: no page you serve can drive it. The doors to it all stand on the machine itself: the Subshell Server desktop assistant, its tray menu, and `subshell-server reset` on the CLI. They run one chain and ask one confirmation, the machine's name. (The old ruling that the CLI would never carry a reset verb was reversed on 2026-09-26, issue #232: what stayed was the no-network rule and the typed name, not the hand work.)
 
 ## From the desktop app
 
-The dashboard's danger card on Settings is only a door: it raises the Subshell Server app's assistant to the reset screen. The remote page can name a screen, never a path, and never a command. Everything that follows happens on the bundled assistant page, on this machine.
+The dashboard's danger card on Settings is only a door: it raises the Subshell Server app's assistant to the reset screen. The remote page can name a screen, never a path, and never a command. Everything that follows happens on the bundled assistant page, on this machine. A machine that never finished setup has no dashboard to stand on, which is why the app's tray menu carries **Reset…** too: it raises the same confirmation over a first-run screen, the door a wrong-machine install reaches for (issue #232).
 
 **What the screen shows before you can arm it:** every path the reset will delete. They are not a template. The assistant reads them from the server's own `status` report at that moment, the same list [Files and paths](/reference/files-and-paths) describes: the database file, the pane logs, the node artifacts, the data directory, and the config home with its `config.env`. The report is taken all-or-nothing: a partial one refuses to arm at all, because deleting a subset and reporting success is worse than deleting nothing. The plan is held by the app for the whole chain: the sequence stops and uninstalls the very server whose report named the paths, so it cannot be re-asked afterward.
 
@@ -26,22 +26,21 @@ The dashboard's danger card on Settings is only a door: it raises the Subshell S
 > [!caution] Backups go too
 > Database backups are kept inside the data directory, which makes them covered by design: a reset leaves no copy behind. If anything in the database is worth keeping, run `subshell-server backup` and move the file somewhere else first.
 
-## From a headless box, by hand
+## From the CLI
 
-A headless instance has no assistant window, and there is no command that stands in for one. The by-hand equivalent is deliberately left as hand work, so that the only thing deleting your instance is a person at a keyboard on that machine:
+`subshell-server reset` runs the assistant's chain without a window: it stops the service, waits for its port to go quiet, closes the pane servers, removes the service definition, and deletes exactly the paths `status --json` names, config home last. The binary stays, so `subshell-server init` can set the machine up again. `subshell-server uninstall` is that chain plus the installed binary and any `.previous` a prior update left; a source checkout is named and left alone.
 
-```bash
-subshell-server service uninstall     # stop the service and remove the definition
-subshell-server status --json         # the paths block lists everything below
-```
-
-Delete what that report names: the database, the pane logs directory, the data directory, then the config home last (it holds the secret; deleting it is what makes the instance unbootable rather than merely empty). The binary at `~/.local/bin/subshell-server` is the only thing the assistant would have kept by policy; removing it is your call:
+A server started by hand has no service to stop, so both verbs wait on the port before touching anything else: still answering after the stop, the run ends with "port N is still answering" and every byte and pane exactly where it was.
 
 ```bash
-rm ~/.local/bin/subshell-server       # optional: nothing else removes the binary
+subshell-server reset                              # prompts: type this machine's name
+subshell-server reset --confirm "$(hostname)"     # the scripted spelling of the same name
+subshell-server uninstall --confirm "$(hostname)" # and take the binary
 ```
 
-What remains after the reset is on the other machines: nodes still hold their keys, and there is no control plane left to call. You remove them on each machine with the [node CLI](/reference/node-cli); nothing on this host can reach them.
+The confirmation is the machine's name, compared on the machine. `--yes`, which answers every other question the server CLI asks, is refused by name here: a flag a rushed operator reaches for that silently did not apply must say so. Without a terminal to type into and without `--confirm`, both verbs refuse and change nothing before they touch a manager or a file.
+
+What remains after any reset is on the other machines: nodes still hold their keys, and there is no control plane left to call. You remove them on each machine with the [node CLI](/reference/node-cli); nothing on this host can reach them.
 
 ## Other pages
 

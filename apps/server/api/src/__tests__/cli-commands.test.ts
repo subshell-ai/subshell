@@ -501,3 +501,48 @@ describe("dispatchCli — service install hands off too", () => {
     expect(install.out.join("\n")).not.toContain("/setup");
   });
 });
+
+describe("dispatchCli — reset / uninstall (issue #232)", () => {
+  test("`reset --yes` is REFUSED by name, not silently ignored", async () => {
+    const h = harness();
+    expect(await dispatchCli(["reset", "--yes"], h.deps)).toBe(true);
+    expect(h.exits).toEqual([1]);
+    expect(h.err.join("\n")).toContain("--yes cannot confirm a reset");
+  });
+
+  test("`uninstall --yes` refuses on its own verb name too", async () => {
+    const h = harness();
+    await dispatchCli(["uninstall", "--yes"], h.deps);
+    expect(h.exits).toEqual([1]);
+    expect(h.err.join("\n")).toContain("--yes cannot confirm an uninstall");
+  });
+
+  test("a headless reset without --confirm refuses and names the flag", async () => {
+    const h = harness(); // isTTY: false by default
+    await dispatchCli(["reset"], h.deps);
+    expect(h.exits).toEqual([1]);
+    expect(h.err.join("\n")).toContain("--confirm");
+  });
+
+  test("`--confirm <wrong name>` is still a mismatch: exit 1, USAGE stays hidden", async () => {
+    const h = harness(); // hostname(): "test-host"
+    await dispatchCli(["reset", "--confirm", "not-the-box"], h.deps);
+    expect(h.exits).toEqual([1]);
+    expect(h.err.join("\n")).toContain("did not match");
+    expect(h.err.join("\n")).not.toContain("usage:");
+  });
+
+  test("`--confirm` with no value is a usage error", async () => {
+    const h = harness();
+    await dispatchCli(["reset", "--confirm"], h.deps);
+    expect(h.exits).toEqual([1]);
+    expect(h.err.join("\n")).toContain("--confirm needs the machine's name");
+  });
+
+  test("an unknown flag on reset is a usage error naming the flag", async () => {
+    const h = harness();
+    await dispatchCli(["reset", "--force"], h.deps);
+    expect(h.exits).toEqual([1]);
+    expect(h.err.join("\n")).toContain("unexpected argument '--force'");
+  });
+});
