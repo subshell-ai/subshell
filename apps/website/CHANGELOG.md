@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.2
+
+### Patch Changes
+
+- [#222](https://github.com/subshell-ai/subshell/pull/222) [`512a7cf`](https://github.com/subshell-ai/subshell/commit/512a7cffb3aca50903a133c4c66099afe3519666) Thanks [@theogravity](https://github.com/theogravity)! - Refresh the site's copy of the control-plane install script: subshell.sh serves a build-time copy of the root `install-server.sh`, and that script changed with the terminal-handoff fix (the reattach is gone; `init` acquires its own terminal and prints every non-interactive default), so the published one-liner's bytes must move with it. This bump is what lets `website.yml` mint a fresh `website-v*` tag after the merge; without it the deploy would refuse against the already-published tag.
+
 ## 0.2.1
 
 ### Patch Changes
