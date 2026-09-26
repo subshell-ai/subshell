@@ -1,5 +1,22 @@
 import type { StartServerUpdate } from "@/hooks/use-updates";
-import type { NodeUpdateRow, NodeUpdates, ServerUpdateView, UpdatesView } from "@/types/updates";
+import type { NodeUpdateRow, NodeUpdates, ServerUpdateView, UpdatesView, UpdateTrackerState } from "@/types/updates";
+
+/**
+ * One tracker entry (design 2026-09-25), defaulted to the working phase of a
+ * 0.8.0 -> 0.9.1 update. Shared because the wire shape is long and the phase
+ * under test is the only thing any row test cares about.
+ */
+export function updateState(over: Partial<UpdateTrackerState> = {}): UpdateTrackerState {
+  return {
+    from: "0.8.0",
+    to: "0.9.1",
+    startedAt: "2026-09-25T12:00:00.000Z",
+    phase: "working",
+    message: null,
+    endedAt: null,
+    ...over,
+  };
+}
 
 /**
  * A complete `GET /api/admin/updates` body, for the Updates page's table.

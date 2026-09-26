@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { nodeRow, nodeUpdates } from "@/components/__tests__/helpers/updates-view";
-import { NodeRows, nextPhase, rowState, WATCH_STALL_MS } from "@/components/updates/node-rows";
-import type { NodeUpdates } from "@/types/updates";
+import { nodeRow, nodeUpdates, updateState } from "@/components/__tests__/helpers/updates-view";
+import { NodeRows, rowState } from "@/components/updates/node-rows";
+import type { NodeUpdates, UpdateTrackerState } from "@/types/updates";
 
 afterEach(cleanup);
 
@@ -54,22 +54,55 @@ describe("rowState", () => {
   });
 });
 
-describe("nextPhase", () => {
-  const watch = { to: "0.9.1", acceptedAt: 1_000, phase: "installing" as const };
+describe("row update state, read from the server's tracker", () => {
+  // The watches these tests used to stage are gone: the phase is SERVER state
+  // (design 2026-09-25), so the rows are rendered, not driven. The same
+  // sentence appears for both live phases because to the page they are one
+  // fact - the machine is on its way - and only the server knows which half.
+  const fleet = (update: UpdateTrackerState | null) =>
+    nodeUpdates({
+      rows: [
+        nodeRow({
+          id: "a",
+          name: "alpha",
+          agentVersion: "0.9.0",
+          updateAvailable: true,
+          canUpdate: { ok: true, reason: null },
+          update,
+        }),
+      ],
+    });
 
-  it("says done the moment the machine reports the version it was sent", () => {
-    expect(nextPhase(watch, "0.9.1", 1_500)).toBe("done");
+  it("names the version a working update is installing", () => {
+    renderRows(fleet(updateState({ phase: "working" })));
+    expect(screen.getByText("alpha is installing 0.9.1 and will reconnect by itself.")).toBeTruthy();
   });
 
-  it("keeps installing while the machine is quiet, old, or briefly absent", () => {
-    expect(nextPhase(watch, "0.9.0", 1_500)).toBe("installing");
-    expect(nextPhase(watch, null, 1_500)).toBe("installing");
-    expect(nextPhase(watch, undefined, 1_500)).toBe("installing");
+  it("names it the same while the machine is restarting", () => {
+    renderRows(fleet(updateState({ phase: "restarting" })));
+    expect(screen.getByText("alpha is installing 0.9.1 and will reconnect by itself.")).toBeTruthy();
   });
 
-  it("says stalled when the clock runs out, and a late return still outranks the stall", () => {
-    expect(nextPhase(watch, "0.9.0", 1_000 + WATCH_STALL_MS)).toBe("stalled");
-    expect(nextPhase(watch, "0.9.1", 1_000 + WATCH_STALL_MS)).toBe("done");
+  it("says Updated to once the server has seen the machine back on the new version", () => {
+    renderRows(fleet(updateState({ phase: "done", endedAt: "2026-09-25T12:01:00.000Z" })));
+    expect(screen.getByText("Updated to 0.9.1.")).toBeTruthy();
+    expect(screen.queryByText(/is installing/)).toBeNull();
+  });
+
+  it("hedges when the machine has not come back, without ever claiming it failed", () => {
+    renderRows(fleet(updateState({ phase: "stalled" })));
+    expect(screen.getByText(/has not reported 0\.9\.1 yet/)).toBeTruthy();
+    expect(screen.queryByText(/did not land/)).toBeNull();
+  });
+
+  it("states a failed update with the server's reason", () => {
+    renderRows(fleet(updateState({ phase: "failed", message: "nothing respawns this agent", endedAt: "x" })));
+    expect(screen.getByText(/did not land: nothing respawns this agent/)).toBeTruthy();
+  });
+
+  it("says nothing extra when no update was ordered", () => {
+    renderRows(fleet(null));
+    expect(screen.queryByText(/installing|Updated to|did not land/)).toBeNull();
   });
 });
 
@@ -288,14 +321,16 @@ describe("NodeRows", () => {
         deferred.get("a")?.();
       });
       await waitFor(() => expect(allBtn.textContent).toBe("Updating 2 of 2…"));
-      expect(screen.getByText(/Update accepted. alpha is installing 0.9.1/)).toBeTruthy();
+      // No sentence yet, for either row: the phase lives in the payload now,
+      // and the payload the test was rendered with knows nothing.
       expect(screen.getAllByRole("button", { name: "Updating…" }).length).toBe(1);
-      expect(screen.queryByText(/Update accepted. beta is installing/)).toBeNull();
+      expect(screen.queryByText(/is installing/)).toBeNull();
 
-      // The mid-run refetch: a restarts, goes offline, and drops OUT of the
-      // updatable list while b is still in flight. The counter must keep
-      // counting the fleet the press captured, not the one on screen now,
-      // or it reads "1 of 1" while the operator's own press said two.
+      // The mid-run refetch: a's tracker entry has appeared, a is offline and
+      // out of the updatable list, and b is still in flight. The counter must
+      // keep counting the fleet the press captured, not the one on screen
+      // now, or it reads "1 of 1" while the operator's own press said two;
+      // and a's sentence arrives FROM THE PAYLOAD, not from this tab's memory.
       view.rerender(
         <QueryClientProvider client={client}>
           <div className="grid">
@@ -308,6 +343,7 @@ describe("NodeRows", () => {
                     name: "alpha",
                     agentVersion: "0.9.0",
                     canUpdate: { ok: false, reason: "this node is offline" },
+                    update: updateState({ phase: "restarting" }),
                   }),
                   nodeRow({ id: "b", name: "beta", agentVersion: "0.9.0", canUpdate: { ok: true, reason: null } }),
                 ],
@@ -317,13 +353,43 @@ describe("NodeRows", () => {
         </QueryClientProvider>,
       );
       expect(allBtn.textContent).toBe("Updating 2 of 2…");
+      expect(screen.getByText("alpha is installing 0.9.1 and will reconnect by itself.")).toBeTruthy();
+      expect(screen.queryByText(/beta is installing/)).toBeNull();
 
-      // b's 202 lands: the sequence is done; the header button is itself again.
+      // b's 202 lands: the sequence is done; the header button is itself
+      // again, counted against the fleet as it stands now.
       await act(async () => {
         deferred.get("b")?.();
       });
       await waitFor(() => expect(allBtn.textContent).toBe("Update all (1)"));
-      expect(screen.getByText(/beta is installing 0.9.1/)).toBeTruthy();
+      view.rerender(
+        <QueryClientProvider client={client}>
+          <div className="grid">
+            <NodeRows
+              fleet={nodeUpdates({
+                release: { version: "0.9.1", tag: "cli-node-v0.9.1", publishedAt: null },
+                rows: [
+                  nodeRow({
+                    id: "a",
+                    name: "alpha",
+                    agentVersion: "0.9.0",
+                    canUpdate: { ok: false, reason: "this node is offline" },
+                    update: updateState({ phase: "restarting" }),
+                  }),
+                  nodeRow({
+                    id: "b",
+                    name: "beta",
+                    agentVersion: "0.9.0",
+                    canUpdate: { ok: true, reason: null },
+                    update: updateState({ phase: "restarting" }),
+                  }),
+                ],
+              })}
+            />
+          </div>
+        </QueryClientProvider>,
+      );
+      expect(screen.getByText("beta is installing 0.9.1 and will reconnect by itself.")).toBeTruthy();
     } finally {
       globalThis.fetch = original;
     }
@@ -334,57 +400,46 @@ describe("NodeRows", () => {
     expect(screen.getByText(/no published platform/)).toBeTruthy();
   });
 
-  it("says the update was accepted and is installing once the 202 lands", async () => {
-    // The gap this closes (operator report 2026-09-23): the POST answers the
-    // ACCEPTANCE, but the restart and the return on the new version happen
-    // after it, and with no poller the row used to say nothing at all.
+  it("states a refusal once when the tracker has also recorded it", async () => {
+    // Two paths now know a press failed: this tab's mutation (whose alert the
+    // row renders) and the server tracker (whose `failed` entry arrives with
+    // the next payload). Where BOTH speak - the press that was refused after
+    // the entry opened - the tracker's sentence wins and the hook's alert is
+    // suppressed, or the same refusal shows up twice, 2026-09-17's lesson
+    // re-armed with a second source.
     const original = globalThis.fetch;
-    globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
-      if (init?.method === "POST") {
-        return new Response(JSON.stringify({ ok: true, from: "0.9.0", to: "0.9.1", url: "/d/linux-x64" }), {
-          status: 202,
-        });
-      }
-      // The watcher's read: still the OLD version, so the sentence stays
-      // "installing" and the `Updated to` line does not appear yet.
-      return new Response(JSON.stringify({ nodes: [{ id: "a", agentVersion: "0.9.0" }] }), { status: 200 });
-    }) as typeof globalThis.fetch;
+    globalThis.fetch = (async (_input: unknown, _init?: RequestInit) =>
+      new Response("NODE_NOT_SUPERVISED: nothing respawns this agent", { status: 409 })) as typeof globalThis.fetch;
     try {
-      renderRows(
-        nodeUpdates({
-          release: { version: "0.9.1", tag: "cli-node-v0.9.1", publishedAt: null },
-          rows: [nodeRow({ id: "a", name: "alpha", agentVersion: "0.9.0", canUpdate: { ok: true, reason: null } })],
-        }),
-      );
+      const fleetBefore = nodeUpdates({
+        rows: [nodeRow({ id: "a", name: "alpha", agentVersion: "0.9.0", canUpdate: { ok: true, reason: null } })],
+      });
+      const view = renderRows(fleetBefore);
       fireEvent.click(screen.getByRole("button", { name: "Update" }));
-      expect(
-        await screen.findByText(/Update accepted. alpha is installing 0.9.1 and will reconnect by itself/),
-      ).toBeTruthy();
-      expect(screen.queryByText(/Updated to/)).toBeNull();
-    } finally {
-      globalThis.fetch = original;
-    }
-  });
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("NODE_NOT_SUPERVISED");
 
-  it("says Updated to once the polled list reports the machine back on the new version", async () => {
-    const original = globalThis.fetch;
-    globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
-      if (init?.method === "POST") {
-        return new Response(JSON.stringify({ ok: true, from: "0.9.0", to: "0.9.1", url: "/d/linux-x64" }), {
-          status: 202,
-        });
-      }
-      return new Response(JSON.stringify({ nodes: [{ id: "a", agentVersion: "0.9.1" }] }), { status: 200 });
-    }) as typeof globalThis.fetch;
-    try {
-      renderRows(
-        nodeUpdates({
-          release: { version: "0.9.1", tag: "cli-node-v0.9.1", publishedAt: null },
-          rows: [nodeRow({ id: "a", name: "alpha", agentVersion: "0.9.0", canUpdate: { ok: true, reason: null } })],
-        }),
+      view.rerender(
+        <QueryClientProvider client={view.client}>
+          <div className="grid">
+            <NodeRows
+              fleet={nodeUpdates({
+                rows: [
+                  nodeRow({
+                    id: "a",
+                    name: "alpha",
+                    agentVersion: "0.9.0",
+                    canUpdate: { ok: true, reason: null },
+                    update: updateState({ phase: "failed", message: "nothing respawns this agent", endedAt: "x" }),
+                  }),
+                ],
+              })}
+            />
+          </div>
+        </QueryClientProvider>,
       );
-      fireEvent.click(screen.getByRole("button", { name: "Update" }));
-      expect(await screen.findByText("Updated to 0.9.1.")).toBeTruthy();
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.getAllByText(/nothing respawns this agent/).length).toBe(1);
     } finally {
       globalThis.fetch = original;
     }

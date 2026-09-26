@@ -1,12 +1,10 @@
-import { apiFetch, Button, NODES_QUERY_KEY, type Node } from "@internal/node-admin";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@internal/node-admin";
 import { LoaderCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { DASH, MobilePair, RowRule, VersionCell } from "@/components/updates/row-cells";
 import { useNodeUpdate } from "@/hooks/use-node-update";
-import { UPDATES_QUERY_KEY } from "@/lib/query-keys";
 import { endOnce } from "@/lib/update-copy";
-import type { NodeUpdateRow, NodeUpdates } from "@/types/updates";
+import type { NodeUpdateRow, NodeUpdates, UpdateTrackerState } from "@/types/updates";
 
 /**
  * What one row says about itself, in the fewest words that are true (spec §10).
@@ -42,52 +40,30 @@ export function rowState(row: NodeUpdateRow, fleet: Pick<NodeUpdates, "minNodeVe
 }
 
 /**
- * One accepted node update, from the 202 to the machine reporting back.
+ * What one tracker entry says on its row, in the page's own words.
  *
- * The page's own contract — "nothing on this page moves without a press" — is
- * exactly why this state has to exist: a node update's LAST act lands after
- * the POST answers. The agent exits ~500 ms after the 202 and reconnects
- * seconds later on the new version, and with no poller and no live feed onto
- * this query the row used to sit saying `0.15.0 → 0.15.1` forever after an
- * update that had in fact worked (operator report, 2026-09-23: "the update did
- * work but it didn't update the version or say that it was success").
+ * The phase is SERVER state (design 2026-09-25: `update-tracker.ts` on the
+ * server, mirrored into this payload), not component memory — which is what
+ * lets a refreshed page, or a second admin tab, pick up an in-flight update
+ * mid-sentence instead of after the fact. The older reason still stands too:
+ * a node update's LAST act lands AFTER the POST answers (operator report,
+ * 2026-09-23: "the update did work but it didn't update the version"), and
+ * the tracker is now the thing that knows.
  */
-interface Watch {
-  /** The version the server said this machine is installing. */
-  to: string;
-  /** When the 202 landed; the stall clock starts here. */
-  acceptedAt: number;
-  /**
-   * `installing` until the node reports `to` (→ `done`) or the stall clock
-   * runs out (→ `stalled`). `done`/`stalled` watches are terminal: they render
-   * their line and they do NOT keep the poller alive.
-   */
-  phase: "installing" | "done" | "stalled";
-}
-
-/** Cadence of the RETURN watcher: 2 s, and only while a watch is installing. */
-const WATCH_POLL_MS = 2_000;
-/**
- * After this, stop pretending to know. The restart itself is seconds; a watch
- * still installing at two minutes means the machine has not dialled back (or
- * not on the new version), which is a fact worth saying rather than a green
- * sentence worth holding forever.
- */
-export const WATCH_STALL_MS = 120_000;
-
-/**
- * The next phase of a watch, given what the polled node list says.
- * Pure so all three branches are testable without timers or fetches.
- */
-export function nextPhase(
-  watch: Watch,
-  reported: string | null | undefined,
-  nowMs: number,
-  stallMs: number = WATCH_STALL_MS,
-): Watch["phase"] {
-  if (reported === watch.to) return "done";
-  if (nowMs - watch.acceptedAt >= stallMs) return "stalled";
-  return "installing";
+function updateLine(row: NodeUpdateRow, update: UpdateTrackerState): string {
+  switch (update.phase) {
+    case "working":
+    case "restarting":
+      // One sentence for both live phases: to the page they are the same
+      // fact, the machine is on its way; only the server knows which half.
+      return `${row.name} is installing ${update.to} and will reconnect by itself.`;
+    case "done":
+      return `Updated to ${update.to}.`;
+    case "failed":
+      return `The update to ${update.to} did not land: ${update.message ?? "the node gave no reason"}.`;
+    case "stalled":
+      return `The update was accepted, but ${row.name} has not reported ${update.to} yet. It may still be restarting; reload to check.`;
+  }
 }
 
 /**
@@ -106,7 +82,6 @@ export function nextPhase(
  */
 export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
   const nodeUpdate = useNodeUpdate();
-  const queryClient = useQueryClient();
   // The run carries the fleet the press CAPTURED, ids in press order, for
   // the whole sequence's length: a mid-run refetch takes a restarting node
   // offline, its canUpdate goes false, and a counter reading the live
@@ -117,60 +92,17 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
   // than by the shared mutation: `useMutation` can only name its latest call,
   // so a busy state read from it left every "Update all" but the first row
   // silent for the minutes that one POST takes (operator report 2026-09-25).
+  // The spinner is this tab's press only; every SENTENCE about what happens
+  // after the press belongs to the server's tracker, mirrored on each row.
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [watches, setWatches] = useState<Record<string, Watch>>({});
   const updatable = fleet.rows.filter((row) => row.canUpdate.ok);
 
-  // The watcher rides the SAME query key the rest of the app reads nodes
-  // through, `enabled` only while some update is still installing — so the
-  // standing cadence this page refuses stays refused, and only the seconds an
-  // operator is actually watching are polled (the route's 1 s cadence for a
-  // running server job is the same precedent).
-  const installing = Object.values(watches).some((w) => w.phase === "installing");
-  const { data: nodesView } = useQuery({
-    queryKey: NODES_QUERY_KEY,
-    queryFn: () => apiFetch<{ nodes: Node[] }>("/api/nodes"),
-    enabled: installing,
-    refetchInterval: installing ? WATCH_POLL_MS : false,
-  });
-
-  // Advance every installing watch off the polled answer. The node reporting
-  // the version it was sent is DONE, and the fleet read that feeds the rows'
-  // own cells is invalidated on that transition — so the row's Running column
-  // shows the new number without a reload, under its `Updated to` line.
-  useEffect(() => {
-    if (!installing) return;
-    const nodes = nodesView?.nodes;
-    if (!nodes) return;
-    const nowMs = Date.now();
-    let changed = false;
-    let anyDone = false;
-    const next: Record<string, Watch> = {};
-    for (const [id, watch] of Object.entries(watches)) {
-      if (watch.phase !== "installing") {
-        next[id] = watch;
-        continue;
-      }
-      const phase = nextPhase(watch, nodes.find((n) => n.id === id)?.agentVersion, nowMs);
-      if (phase !== watch.phase) {
-        changed = true;
-        if (phase === "done") anyDone = true;
-      }
-      next[id] = { ...watch, phase };
-    }
-    if (changed) setWatches(next);
-    if (anyDone) {
-      void queryClient.invalidateQueries({ queryKey: UPDATES_QUERY_KEY });
-    }
-  }, [nodesView, watches, installing, queryClient]);
-
-  /** Work one node: it owns the row spinner while its POST runs, then hands
-   * the row to the watch once the 202 records `to` and starts the stall clock. */
+  /** Work one node: this tab owns the row spinner while its POST runs; the
+   * tracker on the server owns everything the row says afterwards. */
   async function updateOne(nodeId: string): Promise<void> {
     setActiveId(nodeId);
     try {
-      const res = await nodeUpdate.update(nodeId);
-      setWatches((prev) => ({ ...prev, [nodeId]: { to: res.to, acceptedAt: Date.now(), phase: "installing" } }));
+      await nodeUpdate.update(nodeId);
     } finally {
       // The next row has usually already claimed the spinner by the time a
       // failing or finished call gets here; only release OURS.
@@ -183,7 +115,6 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
     // or a refusal from before stays pinned on its row through (and after) a
     // run in which that row was never even asked.
     nodeUpdate.reset();
-    setWatches({});
     setRun({ ids: updatable.map((row) => row.id) });
     try {
       for (const row of updatable) {
@@ -245,10 +176,10 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
       {fleet.rows.map((row, index) => {
         const runningValue = row.agentVersion ?? "version unknown";
         const updating = activeId === row.id;
-        // The node page's card got these sentences first, for the same reason:
-        // after the 202 the machine is mid-restart, and "it will reconnect by
-        // itself" is what a person watching a finished spinner needs to hear.
-        const watch = watches[row.id];
+        // The tracker entry rides the row (design 2026-09-25): every sentence
+        // about an ordered update comes from the server's fact, so a refresh
+        // or a second tab reads the same story mid-flight.
+        const tracked = row.update;
         return (
           <div key={row.id} className="contents">
             {index > 0 && <RowRule />}
@@ -269,10 +200,6 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
                 title={row.canUpdate.reason ?? undefined}
                 onClick={() => {
                   nodeUpdate.reset();
-                  setWatches((prev) => {
-                    const { [row.id]: _cleared, ...rest } = prev;
-                    return rest;
-                  });
                   void updateOne(row.id).catch(() => {
                     // The hook keeps the failure and the row renders it; a
                     // rejection here is the sequence's contract, not an error
@@ -290,21 +217,24 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
             {!row.canUpdate.ok && row.canUpdate.reason !== null && (
               <p className="col-span-full truncate text-detail text-muted-foreground">{row.canUpdate.reason}</p>
             )}
-            {watch?.phase === "installing" && (
-              <p className="col-span-full text-detail text-success">
-                Update accepted. {row.name} is installing {watch.to} and will reconnect by itself.
+            {tracked !== null && (
+              <p
+                className={`col-span-full text-detail ${
+                  tracked.phase === "done" || tracked.phase === "working" || tracked.phase === "restarting"
+                    ? "text-success"
+                    : tracked.phase === "failed"
+                      ? "text-destructive"
+                      : "text-muted-foreground"
+                }`}
+              >
+                {updateLine(row, tracked)}
               </p>
             )}
-            {watch?.phase === "done" && (
-              <p className="col-span-full text-detail text-success">Updated to {watch.to}.</p>
-            )}
-            {watch?.phase === "stalled" && (
-              <p className="col-span-full text-detail text-muted-foreground">
-                The update was accepted, but {row.name} has not reported {watch.to} yet. It may still be restarting;
-                reload to check.
-              </p>
-            )}
-            {nodeUpdate.failure?.nodeId === row.id && (
+            {/* This tab's refusal renders as its alert ONLY while the tracker
+                has not also recorded the failure: once the entry exists, the
+                sentence above carries the same words, and 2026-09-17's lesson
+                says one failing row shows a refusal exactly once. */}
+            {nodeUpdate.failure?.nodeId === row.id && tracked?.phase !== "failed" && (
               <p role="alert" className="col-span-full text-destructive text-detail">
                 {nodeUpdate.failure.message}
               </p>

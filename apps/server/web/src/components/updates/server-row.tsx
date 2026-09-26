@@ -7,7 +7,7 @@ import { UpdateDialog } from "@/components/updates/update-dialog";
 import type { StartServerUpdate } from "@/hooks/use-updates";
 import type { DesktopShell } from "@/lib/desktop";
 import { endOnce } from "@/lib/update-copy";
-import type { ServerUpdateView, UpdateJob } from "@/types/updates";
+import type { ServerUpdateView, UpdateJob, UpdateTrackerState } from "@/types/updates";
 
 /**
  * The bundled server version when it is NEWER than the one this instance is
@@ -104,11 +104,19 @@ export function jobLine(job: UpdateJob): string {
 export function ServerRow({
   view,
   update,
+  serverUpdate,
 }: {
   /** The server half of `GET /api/admin/updates` */
   view: ServerUpdateView;
   /** The page's update handle */
   update: StartServerUpdate;
+  /**
+   * The server tracker's own entry (design 2026-09-25), re-created at boot
+   * after a real update. It tells the ending to readers who were not the
+   * pressing tab - and only to them: while a job line or this tab's own
+   * outcome is telling the story, this stays silent.
+   */
+  serverUpdate: UpdateTrackerState | null;
 }) {
   const [confirming, setConfirming] = useState(false);
   // A job is a fact about the SERVER, so it outlives this page: an admin who
@@ -146,6 +154,33 @@ export function ServerRow({
           Could not check for updates: {endOnce(view.latestError)}
         </p>
       )}
+
+      {/* The ending the server remembered, for readers who never pressed.
+          Silence rules, both load-bearing: while THIS boot's job is running
+          the job line is the same story in more detail, and while this tab
+          rode the press its own outcome chain is the closer tell. Live phases
+          with no job are a transient this row does not narrate. */}
+      {serverUpdate !== null &&
+        view.job === null &&
+        update.outcome === "idle" &&
+        serverUpdate.phase !== "working" &&
+        serverUpdate.phase !== "restarting" && (
+          <p
+            className={`col-span-full text-detail ${
+              serverUpdate.phase === "done"
+                ? "text-success"
+                : serverUpdate.phase === "failed"
+                  ? "text-destructive"
+                  : "text-muted-foreground"
+            }`}
+          >
+            {serverUpdate.phase === "done"
+              ? `Updated to ${serverUpdate.to}.`
+              : serverUpdate.phase === "failed"
+                ? `The update to ${serverUpdate.to} did not land: ${serverUpdate.message ?? "the boot recorded no reason"}.`
+                : `The server was updating itself and this boot never told us how it ended; the outcome is unknown. Check the running version.`}
+          </p>
+        )}
 
       {busy && job !== null ? (
         <p className="col-span-full flex items-center gap-2 text-sm text-warning">
