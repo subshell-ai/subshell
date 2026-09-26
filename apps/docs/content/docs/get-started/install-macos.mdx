@@ -16,7 +16,7 @@ Install Subshell Server on an Apple silicon or Intel Mac, start it as a backgrou
 1. Open a terminal on the Mac that will run the server and run the install script:
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/subshell-ai/subshell/main/install-server.sh | bash
+   curl -fsSL https://subshell.sh/install-server.sh | bash
    ```
 
    The script detects your platform, finds your platform's binary from the newest `cli-server` release, and checks the download against the release's published `.sha256` digest before it runs anything. It installs the binary to `~/.local/bin/subshell-server` and starts `subshell-server init`.
