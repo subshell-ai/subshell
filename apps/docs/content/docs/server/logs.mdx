@@ -48,7 +48,7 @@ stdout, which is what the service manager collects, is pinned at info no matter 
 
 ## Pane transcripts are a separate world
 
-The server's log never contains terminal output or keystrokes. What does hold screen content is the pane transcript: each subshell's screen, streamed to a file on the machine that runs it. It is the most sensitive thing the app writes, since a terminal echoes what you typed, pasted tokens included. Those files are 0600 in a 0700 directory and swept by age (`SUBSHELL_LOG_RETENTION_DAYS`, default 30). The running subshell's own log is never swept, because it is the live replay buffer. Their paths and posture are in [Files and paths](/reference/files-and-paths), and the reasoning is §4 of the threat model.
+The server's log never contains terminal output or keystrokes. What does hold screen content is the pane transcript: each subshell's screen, streamed to a file on the machine that runs it. It is the most sensitive thing the app writes, since a terminal echoes what you typed, pasted tokens included. Those files are 0600 in a 0700 directory and swept by age. The sweep runs on the machine that holds them, and the default differs: 30 days on the control-plane host (`SUBSHELL_LOG_RETENTION_DAYS`), one day on a node, where the agent sweeps its own disk. The running subshell's own log is never swept, because it is the live replay buffer. Their paths and posture are in [Files and paths](/reference/files-and-paths), and the reasoning is §4 of the threat model.
 
 ## See also
 

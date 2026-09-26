@@ -15,7 +15,7 @@ To ask the machine what is available:
 subshell update --check
 ```
 
-It names the newest release the release source publishes that the publisher signed. An unsigned or unverifiable release is refused by name and never offered. One thing `--check` cannot tell you is whether your plane can talk to that version: the binary holds no REST credential, so it cannot ask. The control plane knows. The Components table under Settings → Updates ([Update the server](/server/updating)) lists every node's version against what it offers, and a node's own page says in plain words when the installed binary is too old or speaks a protocol the plane does not. [Version Compatibility](/reference/versions) explains the version floors, and `--to <version>` is how you act on an answer you read there.
+It names the newest release the release source publishes that the publisher signed. An unsigned or unverifiable release is refused by name and never offered. One thing `--check` cannot tell you is whether your plane can talk to that version: the binary holds no REST credential, so it cannot ask. The control plane knows. The Components table under Settings → Updates ([Update the server](/server/updating)) lists every node's version against what it offers, and a node's own page says in plain words when the installed binary is too old or speaks a protocol the plane does not. [Version compatibility](/reference/versions) explains the version floors, and `--to <version>` is how you act on an answer you read there.
 
 ## Updating from the machine
 
@@ -27,7 +27,7 @@ subshell update --from ./subshell-node-cli-linux-x64 --yes
 
 `--from` installs a local file instead of downloading. That is the path for an air-gapped fleet: with `SUBSHELL_RELEASE_URL` set empty, every networked update refuses and names `--from` instead of failing quietly. `--force` allows a downgrade.
 
-The two routes differ in when they refuse. The page-commanded update refuses before downloading anything when the restart it will request cannot mean what it says, which is an unsupervised node, or a service definition that would close live panes without `force`. That ordering matters because a refusal there arrives before 70 MB has crossed the wire. The CLI at the keyboard installs first, and if the manager cannot or should not be restarted, it reports that plainly with the new binary already in place.
+The two routes differ in when they refuse. The page-commanded update refuses before downloading anything when the restart it will request cannot mean what it says, which is an unsupervised node, or a service definition that would close live panes without `force`. That ordering matters because a refusal there arrives before roughly 80 MB (Apple silicon; about 100 MB on Linux) has crossed the wire. The CLI at the keyboard installs first, and if the manager cannot or should not be restarted, it reports that plainly with the new binary already in place.
 
 Before the CLI moves the binary, it checks what the machine can answer locally: no downgrade without `--force`, and an installed binary that can actually be resolved. It also checks the release's publisher. `release-manifest.json` and its signature are two small reads, verified against a key compiled into this binary, and the artifact is downloaded only after they pass. The digest the downloaded bytes are hashed against comes from that signed manifest, never from the `.sha256` sidecar. Any candidate, downloaded or copied with `--from`, must then run and report the exact version it claims.
 
@@ -68,6 +68,6 @@ If your `SUBSHELL_RELEASE_URL` points somewhere else, you have moved delivery, n
 ## Other pages
 
 - [Update the server](/server/updating): the same transaction with a database rollback added.
-- [Version Compatibility](/reference/versions): protocol versions and minimum node versions.
+- [Version compatibility](/reference/versions): protocol versions and minimum node versions.
 - [Manage a node](/nodes/manage): the service controls an update rides on.
 - [The updates accounting](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#1112-updates): what replacing an executable costs.

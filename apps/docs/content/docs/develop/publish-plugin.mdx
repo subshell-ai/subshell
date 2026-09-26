@@ -36,7 +36,7 @@ The moment the install returns, the plane resolves what it stores. Your `detect`
 
 ## What integrity proves
 
-The sha512 the fetcher checks is the same registry's own announcement: it proves the bytes match what the registry said, which over npm's HTTPS registry means npm's assurance. The registry URL is one operator setting, `SUBSHELL_PLUGIN_REGISTRY_URL`, defaulting to npm (see [Environment Variables](/reference/environment-variables)), because private mirrors are the motivating case. Over an http mirror, the bytes-matching assurance belongs to the operator's network, not to npm. State this honestly rather than hiding it: publish as you would to any registry (your name, your tarball, and a `latest` that means what it says), and know that which registry was trusted is the operator's configuration, visible in `subshell-server status`.
+The sha512 the fetcher checks is the same registry's own announcement: it proves the bytes match what the registry said, which over npm's HTTPS registry means npm's assurance. The registry URL is one operator setting, `SUBSHELL_PLUGIN_REGISTRY_URL`, defaulting to npm (see [Environment variables](/reference/environment-variables)), because private mirrors are the motivating case. Over an http mirror, the bytes-matching assurance belongs to the operator's network, not to npm. State this honestly rather than hiding it: publish as you would to any registry (your name, your tarball, and a `latest` that means what it says), and know that which registry was trusted is the operator's configuration, visible in `subshell-server status`.
 
 ## The trust you are asking for
 
@@ -49,4 +49,4 @@ If you are writing a network plugin (see [Write a network plugin](/develop/netwo
 - [Plugin API](/develop/plugin-api): what to build before publishing it
 - [Write a harness plugin](/develop/harness-plugin) and [Write a network plugin](/develop/network-plugin): the two kinds
 - [Install a plugin](/agents/plugin-registry): the operator's side of the same install
-- [Security Model](/concepts/security-model), and its full accounting in the [threat model on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md)
+- [Security model](/concepts/security-model), and its full accounting in the [threat model on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md)

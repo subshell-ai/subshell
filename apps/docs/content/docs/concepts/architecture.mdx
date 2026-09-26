@@ -72,7 +72,6 @@ The plugin system spans three packages: the contract, the loader, and the built-
 
 ```
 packages/plugin-api/src/     the published contract: @subshell-ai/plugin-api
-│                            (see The Plugin API below)
 packages/pane-runtime/src/
 ├── plugin-runtime.ts        the loader; holds the repo's one sanctioned
 │                            dynamic import (a plugin installed after the
@@ -91,7 +90,7 @@ packages/plugins/            ten built-ins, each its own @subshell-ai/plugin-*
                              cloudflare-tunnel)
 ```
 
-The control plane owns which plugins exist, not the node. `apps/server/api/src/api/plugins.route.ts` and the store at the server's data dir hold the single set that arms every node. What ships to a node is execution data only: the built argv, the binary-lookup rule, and the `detect` spec as data. Nodes and the protocol behind them have their own pages: [Nodes overview](/nodes) and [Node Protocol](/reference/node-protocol).
+The control plane owns which plugins exist, not the node. `apps/server/api/src/api/plugins.route.ts` and the store at the server's data dir hold the single set that arms every node. What ships to a node is execution data only: the built argv, the binary-lookup rule, and the `detect` spec as data. Nodes and the protocol behind them have their own pages: [Nodes overview](/nodes) and [Node protocol](/reference/node-protocol).
 
 ### The MCP child: `packages/mcp-core/src/`
 
@@ -113,7 +112,7 @@ packages/mcp-core/src/
                          hook's machine may have no bun, only the binary
 ```
 
-What the agent can do through it is on [The MCP server](/automation/mcp) and [MCP Tools](/reference/mcp-tools). The pane's four-layer environment ladder is on [Presets](/use/presets).
+What the agent can do through it is on [The MCP server](/automation/mcp) and [MCP tools](/reference/mcp-tools). The pane's four-layer environment ladder is on [Presets](/use/presets).
 
 ### The web client's credential surface
 
@@ -156,7 +155,7 @@ Violating any of these is a bug. Most are pinned by tests, and each entry names 
 
 ### New harnesses: three registration dialects, plus manual
 
-A harness plugin picks whichever MCP registration dialect its CLI supports. The three automatic dialects are a generated config file plus an activating flag (claude-code's `--mcp-config`), a config layer selected by an env var the host owns (opencode's `OPENCODE_CONFIG`), and per-invocation `-c` overrides merged for one run only (codex). hermes and pi have no per-subshell format, so they register once, manually. The plugin's `mcpSetup()` steps render verbatim in the preset editor, and the single global entry stays correct per subshell because the spawned child inherits each pane's own credentials. The env producer (`subshellMcpEnv`) is harness-agnostic: anything that reads `SUBSHELL_*` from its pane env gets the same wiring. Per-harness user-facing detail is on the [Agents overview](/agents) pages, and building one is covered by [Writing a Harness Plugin](/develop/harness-plugin).
+A harness plugin picks whichever MCP registration dialect its CLI supports. The three automatic dialects are a generated config file plus an activating flag (claude-code's `--mcp-config`), a config layer selected by an env var the host owns (opencode's `OPENCODE_CONFIG`), and per-invocation `-c` overrides merged for one run only (codex). hermes and pi have no per-subshell format, so they register once, manually. The plugin's `mcpSetup()` steps render verbatim in the preset editor, and the single global entry stays correct per subshell because the spawned child inherits each pane's own credentials. The env producer (`subshellMcpEnv`) is harness-agnostic: anything that reads `SUBSHELL_*` from its pane env gets the same wiring. Per-harness user-facing detail is on the [Agents overview](/agents) pages, and building one is covered by [Write a harness plugin](/develop/harness-plugin).
 
 ### Federation
 
@@ -172,6 +171,6 @@ Principals are already opaque labels (`sess:<id>`, `user:<id>`), so a future `re
 
 - [How it works](/concepts/how-it-works): the same machinery, told as one launch
 - [Security model](/concepts/security-model): the summary; its [GitHub source](https://github.com/subshell-ai/subshell/blob/main/docs/security.md) is the authority
-- [API keys](/automation/api-keys), [The MCP server](/automation/mcp), [Node Protocol](/reference/node-protocol)
-- [The Plugin API](/develop/plugin-api): the contract the component map points at
+- [API keys](/automation/api-keys), [The MCP server](/automation/mcp), [Node protocol](/reference/node-protocol)
+- [Plugin API](/develop/plugin-api): the contract the component map points at
 - [Contribute to Subshell](/develop/contribute): the dev loop this map's tests run in

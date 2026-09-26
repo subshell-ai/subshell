@@ -19,7 +19,7 @@ Three kinds of credential exist, and where each is accepted is a rule, not a con
 
 Bearer keys go in an `Authorization: Bearer subshell_…` header. On top of the table, three refusals are deliberate, and worth knowing before your first script hits one:
 
-- **Admin surfaces reject bearer credentials** with 403. The cookie-session, admin-role-only surfaces are the `/api/users` writes, `/api/system-keys`, the `/api/plugins` writes (the plugin listing is open to any authenticated caller, since the launch pickers read against it), `/api/network`, and the `/api/admin/*` group. Machine credentials can never manage the instance.
+- **Admin surfaces reject bearer credentials** with 403. The cookie-session, admin-role-only surfaces are the `/api/users` writes, `/api/system-keys`, the `/api/settings` writes, the `/api/plugins` writes (the plugin listing is open to any authenticated caller, since the launch pickers read against it), `/api/network`, and the `/api/admin/*` group. Machine credentials can never manage the instance.
 - **Sharing is a browser act.** The routes that grant or revoke access to a subshell are cookie-only.
 - **A [node](/nodes)'s agent key does nothing on REST**: presented to the API, it is refused by name. Its entire job is authenticating that machine's WebSocket to the control plane.
 
@@ -31,7 +31,7 @@ The terminal WebSocket does not take your credential on the socket either. You m
 
 `/api/subshells` (rows, logs, restart, terminate, pane input, sharing, WS-attach), `/api/workspaces`, `/api/presets`, `/api/nodes` (a bearer machine token may list its owner's own nodes; the detail read and every write are cookie-only), `/api/channels` and `/api/identities` (the encrypted agent logs), `/api/devices` and `/api/notifications` (push for your own sessions), `/api/files` and `/api/uploads`, `/api/settings`, `/api/users`, `/api/audit` (admin), `/api/plugins`, `/api/network`, `/api/system-keys`, `/api/setup` (first-run), `/api/downloads/node/…` (the node binaries enrollment fetches), and `/api/admin/*` (status, deployment, updates, all cookie-admin).
 
-Two reads sit before sign-in: `GET /api/setup/status` (has the first account been created yet?) and `GET /api/settings/instance`, which returns just the instance's display name so the sign-in page can tell you which plane is asking for your password. Outside the first-run window, that second one is the only pre-auth read. The Scalar page at `/docs` is the authoritative, always-current listing.
+Two reads sit before sign-in: `GET /api/setup/status` (has the first account been created yet?) and `GET /api/settings/instance`, which returns the instance's display name and its open sign-in providers, so the sign-in page can tell you which plane is asking for your password and through which doors it will let you in. Outside the first-run window, that second one is the only pre-auth read. The Scalar page at `/docs` is the authoritative, always-current listing.
 
 ## Typed clients
 
@@ -53,7 +53,7 @@ Subshell is dual-licensed by directory: everything under `apps/server/` (the con
 
 It does not, and that is explicit. The license carries an additional permission under AGPL section 7, the **API Type Surface exception** ([full text](https://github.com/subshell-ai/subshell/blob/main/apps/server/LICENSE)):
 
-> "API Type Surface" means the TypeScript type declarations that describe this software's externally reachable interfaces: its HTTP routes and their request, response and parameter shapes, its WebSocket frames, and its MCP tools, including the `App` type exported by `@internal/server`, and any TypeScript declaration file (.d.ts) generated from those declarations.
+> "API Type Surface" means the TypeScript type declarations that describe this software's externally reachable interfaces -- its HTTP routes and their request, response and parameter shapes, its WebSocket frames, and its MCP tools -- including the `App` type exported by `@internal/server`, and any TypeScript declaration file (.d.ts) generated from those declarations.
 
 The permission lets you use that surface under Apache-2.0 instead of the AGPL, and it names its purpose outright: API clients, SDKs, test harnesses and tools may be written for Subshell (distributed, or offered as a network service) without falling under the AGPL. The boundary is equally explicit about what stays copyleft: the exception covers declarations, not implementation. No executable code or server internals are in it. In practice, using HTTP, WebSocket, or MCP interfaces plus the type surface keeps you entirely outside the AGPL.
 

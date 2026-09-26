@@ -44,11 +44,11 @@ Finally it asks **"Run the agent in the background and start it at login?"** Yes
 
 The node appears in the list. Opening its page (or pressing **Re-check**) has the control plane probe it for the agent CLIs this instance offers; a node is only ever offered the harnesses actually installed on it. In the create-subshell dialog, pick the new machine as the **node** and a folder on it as the working directory, and press **Start**: [Launch and manage subshells](/use/subshells) covers the rest.
 
-If the machine has no terminal, the dialog's reveal switches from **Terminal** to **Desktop App** and shows two values instead of a command: the server address and the setup key. In Subshell Client, paste both on its **Enroll** step, and it installs the node binary that ships inside the app. [Turn a desktop into a node](/nodes/desktop-node) describes that assistant screen by screen.
+If the machine has no terminal, the dialog's reveal switches from **Terminal** to **Desktop App** and shows two values instead of a command: the server address and the setup key. In Subshell Client, paste both on its **Register This Machine** step, and it installs the node binary that ships inside the app. [Turn a desktop into a node](/nodes/desktop-node) describes that assistant screen by screen.
 
 ## Notes
 
-- If the row never comes online, it is almost always the baked loopback URL or an unreachable address. Run `subshell status --probe` on the node: it dials the stored address and names it. A "The setup key was rejected" means the key is invalid, expired, or already used; mint a fresh one.
+- If the row never comes online, it is almost always the baked loopback URL or an unreachable address. Run `subshell status --probe` on the node: it dials the stored address and names it. The script line `subshell: the setup key was rejected: invalid, expired, or already used.` means exactly that; mint a fresh key and rerun the command.
 - A node started by hand with `subshell run` dies when you close the SSH session: that is the foreground daemon. Install the background service, as step 3 describes.
 - Re-enrolling an already enrolled machine is destructive: a second enrollment overwrites the node's saved configuration, registers a second node row, and discards the current node key. Reaching a plane that moved to a different address is repointing, which keeps the machine's identity ([Manage a node](/nodes/manage)).
 - Two fleet decisions are worth making deliberately: [who may launch on it](/nodes/sharing), and whether to [restrict its directories](/nodes/directory-allowlist).

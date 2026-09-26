@@ -9,6 +9,7 @@ Install Subshell Server on an Apple silicon or Intel Mac, start it as a backgrou
 
 - A Mac, Apple silicon (`darwin-arm64`) or Intel (`darwin-x64`). Both are published server targets.
 - A browser on that Mac.
+- tmux, or a way to install it. `init` checks for tmux before it writes anything and refuses when it is missing; an interactive run can install it on the spot with Homebrew.
 
 ## Install and start the server
 
@@ -43,11 +44,11 @@ Open that address in a browser and create the first account. That first account 
 > [!warning] Do this before others can reach the machine
 > The setup page is public until the first account exists, so you can create one. On a shared network, anyone who opens the page before you creates the administrator account instead.
 
-With the account created, continue to [Your first subshell](/get-started/first-subshell). The wizard covers tmux next: a fresh Mac usually has none, and its **Install tmux** screen can run the Homebrew install for you because that command needs no password.
+With the account created, continue to [Your first subshell](/get-started/first-subshell). Its wizard confirms tmux for the browser flow, and on a Mac its **Install tmux** screen can run the Homebrew install because that command needs no password.
 
 ## Or use the desktop app
 
-If you would rather have a window than a terminal, the **Subshell Server** app is the GUI route to the same server. It ships the server binary inside it, so nothing is downloaded on first run, and it is a signed, notarized `.dmg` for Apple silicon Macs running macOS 13 or later. Its setup assistant installs tmux when it is missing, starts the server on one press, and opens the dashboard in the same window. [Install with the desktop app](/server/desktop-app) covers it screen by screen.
+If you would rather have a window than a terminal, the **Subshell Server** app is the GUI route to the same server. It ships the server binary inside it, so nothing is downloaded on first run, and it is a signed, notarized `.dmg` for Apple silicon and Intel Macs, macOS 13 or later. Its setup assistant installs tmux when it is missing, starts the server on one press, and opens the dashboard in the same window. [Install with the desktop app](/server/desktop-app) covers it screen by screen.
 
 ## Notes
 

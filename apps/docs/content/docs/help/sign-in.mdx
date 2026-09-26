@@ -13,7 +13,7 @@ Fix the failures that stop a browser signing in: the origin 403, passkeys that a
 
 **Fix.**
 
-1. Browse from an address already on the list, or add the address you actually use. **Settings → Service** has the trusted-origins field, and from a terminal it is `subshell-server configure --trusted-origins <origin,origin>` (see the [subshell-server CLI](/reference/server-cli)).
+1. Browse from an address already on the list, or add the address you actually use. **Settings → Networking** has the trusted-origins field in its Addresses card, and from a terminal it is `subshell-server configure --trusted-origins <origin,origin>` (see the [subshell-server CLI](/reference/server-cli)).
 2. Write each entry as a full origin: scheme and host, no path. Wildcards are refused.
 3. Restart after using the flag. It rewrites `config.env`, and the CLI says the new value applies at the next start. The dashboard's field, by contrast, applies live.
 4. Check what is stored with `subshell-server status`, which prints the stored line with per-entry diagnostics for spellings a browser will not match.
@@ -21,7 +21,7 @@ Fix the failures that stop a browser signing in: the origin 403, passkeys that a
 > [!note] The checked list is derived live
 > The list a browser is actually checked against is derived live and also includes the instance's own addresses. The long version, including why `APP_BASE_URL` matters separately, is on [Networking and addresses](/server/networking).
 
-## Passkeys work everywhere except one address
+## Passkeys fail everywhere except one address
 
 **Symptom.** Password sign-in works from every address you added, but passkeys only ever work on one, usually `localhost` or the exact host in `APP_BASE_URL`. Elsewhere the browser itself rejects the ceremony before the server sees it.
 

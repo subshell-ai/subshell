@@ -25,7 +25,7 @@ The split is structural, not a nicety. Every command reaches the node over the n
 
 The node refuses a verb whenever the request cannot mean what it says: the node is offline, it is not running under a service manager at all, nothing is installed, its binary is too old, or, for restart, the service definition would close the live panes rather than leave them running, unless you explicitly pass `force`. Refusals are answered as reasons, not error codes.
 
-The **runtime report** on the node's page (how the node is supervised, and where its config, log, and binary live) appears only for an online node viewed by the owner or an edit grantee. A view grantee may launch on the machine, but that does not make its paths their business.
+The **Runtime** card on the node's page (how the node is supervised, and where its config, log, and binary live) appears only for an online node viewed by the owner or an edit grantee. A view grantee may launch on the machine, but that does not make its paths their business.
 
 ## Reading the log
 
@@ -55,7 +55,7 @@ Below the dashboard, the same two settings can be written by hand or by the envi
 
 ## Repointing at a different control plane
 
-**Config** lets the owner replace the address the node dials. It is the browser twin of running `subshell configure --server <url>` on the machine, and it deserves care.
+The **Control plane** card on the node's page lets the owner replace the address the node dials. It is the browser twin of running `subshell configure --server <url>` on the machine, and it deserves care.
 
 - It keeps the machine's identity: the same node id, the same key, the same pinned signing key, and the same encryption link (its own keypair and the plane's pinned public half). It spends no setup key and mints no second row. The new plane must already hold the key the node pins, or every command it sends fails verification. In practice it only works between two names for one plane.
 - The node dials the newly named host carrying this plane's node key. Repointing discloses that credential to whatever address was typed, so treat it as naming a host you trust, not as editing a URL.

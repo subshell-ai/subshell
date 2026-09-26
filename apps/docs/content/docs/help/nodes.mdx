@@ -28,11 +28,11 @@ subshell: WARNING: SERVER is a loopback address; a remote node
 
 **Fix.**
 
-1. Before copying the command, pick an address the new machine can actually reach, usually your VPN or tailnet address, in the dialog's **Address the node dials** dropdown. The choice rides to the server as the command's `server=` argument, and only addresses the instance already trusts are accepted.
+1. Before copying the command, pick an address the new machine can actually reach, usually your VPN or tailnet address, in the dialog's **Select Subshell server address** dropdown. The choice rides to the server as the command's `server=` argument, and only addresses the instance already trusts are accepted.
 2. To fix it for every future install, set `APP_BASE_URL` itself.
 3. Either way, mint a fresh key and rerun: the old key is single-use.
 
-To diagnose an already-enrolled node, run `subshell status --probe` on the machine. It dials the stored address and names it. Read its own warning first: the probe opens a live node socket and the control plane keeps the newest connection, so it kicks any daemon running elsewhere for that node. Only probe when no other copy is running. And if you started the daemon by hand with `subshell run`, it died with your SSH session. That verb is foreground on purpose; install the background service instead (the "Add a node" walk covers both).
+To diagnose an already-enrolled node, run `subshell status --probe` on the machine. It dials the stored address and names it. Read its own warning first: the probe opens a live node socket and the control plane keeps the newest connection, so it kicks any daemon running elsewhere for that node. Only probe when no other copy is running. And if you started the daemon by hand with `subshell run`, it died with your SSH session. That verb is foreground on purpose; install the background service instead ([Add a node](/nodes/add-a-node) covers both).
 
 ## "program not found" for an agent you installed
 

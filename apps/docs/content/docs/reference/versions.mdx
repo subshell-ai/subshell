@@ -5,7 +5,7 @@ description: "How server and node versions pair up: the exact-match protocol num
 
 The control plane and the node ship as a pair, and a connecting node must clear two gates.
 
-Every published release carries one document so a control plane can answer compatibility questions without downloading an 80 MB binary, and one rule makes rolling back an update inseparable from restoring the database.
+Every published release carries one document so a control plane can answer compatibility questions without downloading the node binary, which is roughly 80 MB on Apple Silicon and 100 MB on Linux. One rule makes rolling back an update inseparable from restoring the database.
 
 ## The two gates, in order
 

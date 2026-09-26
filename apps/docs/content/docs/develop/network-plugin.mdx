@@ -5,7 +5,7 @@ description: "How to write a network plugin: the interface, the manifest, and th
 
 Build a network plugin that connects the control-plane host to one network and publishes Subshell on it.
 
-An address an operator previously knew only from a 403 becomes a trusted sign-in origin the moment the plugin's record earns it. Four network plugins ship built in (Tailscale, Headscale, NetBird, Cloudflare Tunnel), and the [Network Plugins](/server/network-plugins) pages cover what an admin sees. This page is for the author of the fifth: the interface, the manifest, and the discipline every line of it is written under.
+An address an operator previously knew only from a 403 becomes a trusted sign-in origin the moment the plugin's record earns it. Four network plugins ship built in (Tailscale, Headscale, NetBird, Cloudflare Tunnel), and the [Network plugins overview](/server/network-plugins) covers what an admin sees. This page is for the author of the fifth: the interface, the manifest, and the discipline every line of it is written under.
 
 ## The execution boundary
 
@@ -70,7 +70,7 @@ Two capabilities, `supervise` and `guard`, exist for the case where the plugin's
 
 ## Other pages
 
-- [Network Plugins](/server/network-plugins): what the admin's pages show for all four built-ins
+- [Network plugins overview](/server/network-plugins): what the admin's pages show for all four built-ins
 - [Plugin API](/develop/plugin-api): `NetworkPlugin`, `PluginHost`, and the version rule
 - [Write a harness plugin](/develop/harness-plugin): the pane-driving family this one parallels
 - The design spec, [Network plugins](https://github.com/subshell-ai/subshell/blob/main/docs/superpowers/specs/2026-09-15-network-plugins-design.md), and the [Security Model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md): what every boundary above costs and why

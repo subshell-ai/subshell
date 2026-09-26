@@ -28,7 +28,7 @@ process env  >  config.env  >  .env  >  built-in default
 - **.env**: a dotenv file in the working directory, which the service runs from the config home. Real deployments skip it; it exists for dev checkouts.
 - **Built-in defaults** for everything nobody has written down: port `3080`, bind `0.0.0.0`, base URL `http://localhost:<port>`.
 
-`subshell-server status` tells you, for each setting, which layer supplied it: one of **process env**, **config.env**, or **default** (a `.env` value arrives through the environment by then). Settings → Service shows the same attribution next to each field, and it is the fact to check before you edit. With the environment owning a key, the dashboard refuses to write it: you get "change `<KEY>` where the server is started" rather than a success that never takes effect. A CLI write in that situation lands in a file the environment still shadows.
+`subshell-server status` tells you, for each setting, which layer supplied it: one of **process env**, **config.env**, or **default** (a `.env` value arrives through the environment by then). Settings → Networking shows the same attribution next to each field, and it is the fact to check before you edit. With the environment owning a key, the dashboard refuses to write it: you get "change `<KEY>` where the server is started" rather than a success that never takes effect. A CLI write in that situation lands in a file the environment still shadows.
 
 ## Who writes what
 
@@ -37,7 +37,7 @@ Five keys belong to the configuration tools: `SERVER_PORT`, `HOST`, `APP_BASE_UR
 | Writer | Writes |
 |---|---|
 | `subshell-server configure` (and `init`, which runs the same flow) | all five, from its questions or its flags |
-| Settings → Service in the dashboard | four: port, bind address, base URL, trusted origins. Never `DATABASE_PATH`: moving the database from a web page is a destructive change with no undo, so `--db-path` stays CLI-only. |
+| Settings → Networking in the dashboard | four: port, bind address, base URL, trusted origins. Never `DATABASE_PATH`: moving the database from a web page is a destructive change with no undo, so `--db-path` stays CLI-only. |
 
 Neither writer ever touches `BETTER_AUTH_SECRET`: `init` generates it once and everything else carries it forward. Both writers refuse invalid values with the same sentence. An origin list is validated entry by entry (scheme, host, optional port; a path, query, or credentials are refused, not silently stripped) and stored in the canonical form a browser actually sends. Wildcards cannot be written through either surface, and [Networking and addresses](/server/networking) explains why that refusal is load-bearing.
 
@@ -45,7 +45,7 @@ Some rules that follow from this shape, each one deliberate:
 
 - **`TRUSTED_ORIGINS` is written or removed, never written empty.** Its built-in default is a non-empty list, and config.env outranks `.env`, so an empty line would silently strip those defaults. `--trusted-origins ""` therefore deletes the key.
 - **Defaults follow the file.** Re-running `configure` shows your stored values as the defaults, and a `--yes` run keeps any key it is not given a flag for. Flags outrank the file, so a scripted re-run is an edit, not a reset.
-- **Three of the four address keys take effect at the next restart; trusted origins take effect immediately**, because that list is read live on every request. Settings → Service shows saved-versus-running and says when a restart is what stands between you and the change.
+- **Three of the four address keys take effect at the next restart; trusted origins take effect immediately**, because that list is read live on every request. Settings → Networking shows saved-versus-running and says when a restart is what stands between you and the change.
 - **A write can warn without refusing.** A LAN bind with a loopback base URL, or a base URL naming a port the server will not listen on, produces warnings at write time. The symptoms are a remote node dialing itself or a browser hitting a 403.
 
 ## Common pitfalls
@@ -54,7 +54,7 @@ Some rules that follow from this shape, each one deliberate:
 
 **`APP_BASE_URL` is not just a display value.** Its origin is trusted automatically, it is where auth redirects point, and it is the passkey rpID, so changing it stops existing passkeys working on the old address. If the goal is that the instance is also reachable at another address, add to `TRUSTED_ORIGINS` instead; the difference is spelled out in [Networking and addresses](/server/networking).
 
-**Hand-edits and env vars bypass the validators, on purpose.** Both are escape hatches: an env var is the only way to set a key no tool owns. A bad value that slips through is diagnosed, not blocked at boot. `status` prints per-entry problems for the origins list and the base URL, naming what a browser will do with the value, and the Service page renders the same notes beside the fields.
+**Hand-edits and env vars bypass the validators, on purpose.** Both are escape hatches: an env var is the only way to set a key no tool owns. A bad value that slips through is diagnosed, not blocked at boot. `status` prints per-entry problems for the origins list and the base URL, naming what a browser will do with the value, and the Networking page renders the same notes beside the fields.
 
 ## Notes
 

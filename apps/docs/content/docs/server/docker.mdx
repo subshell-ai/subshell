@@ -52,7 +52,7 @@ Three details that were measured in the field rather than assumed:
 
 ## Ports and boot
 
-`3080:3080` is published, not loopback-bound. Remote access runs through a reverse proxy that connects to this host's reachable IP, and a `127.0.0.1` publish makes every proxied request a 502. Inside, the server binds `0.0.0.0`. `APP_BASE_URL` from `.env` should be the URL people actually open, with any other names they browse on added as trusted origins; a container is no exception to [Networking and addresses](/server/networking). `restart: unless-stopped` brings the service back with the Docker daemon, which assumes the daemon itself is enabled. Firewall and port specifics are on [Ports](/reference/ports).
+`3080:3080` is published, not loopback-bound. Remote access runs through a reverse proxy that connects to this host's reachable IP, and a `127.0.0.1` publish makes every proxied request a 502. Inside, the server binds `0.0.0.0`. `APP_BASE_URL` from `.env` should be the URL people actually open, with any other names they browse on added as trusted origins; a container is no exception to [Networking and addresses](/server/networking). `restart: unless-stopped` brings the service back with the Docker daemon, which assumes the daemon itself is enabled. Firewall and port specifics are on [Ports and firewalls](/reference/ports).
 
 ## What does not survive a restart
 

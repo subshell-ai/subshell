@@ -17,14 +17,9 @@ The bind is the network fact: `0.0.0.0` (the default since 2026-09-08) means rem
 
 ## What a browser may use
 
-Every sign-in carries the browser's `Origin`, and the instance keeps an allowlist of origins it will accept it from. The list is assembled live, per request, from four sources:
+Every sign-in carries the browser's `Origin`, and the instance keeps an allowlist of origins it will accept it from. The list is assembled live, per request, from four sources: the instance's own origins (both loopback spellings of the port, plus the base URL's origin, plus `http://<host>:<port>` when `HOST` names a concrete address), this machine's own LAN addresses on a wildcard bind, your `TRUSTED_ORIGINS` extras, and the addresses each enabled [network plugin](/server/network-plugins) reports for this host. A phone on your Wi-Fi signs in at the server's LAN address with nothing to configure, because the machine's interface addresses are derived from the kernel and trusted automatically (since 2026-09-17).
 
-1. the instance's own origins: both loopback spellings of the port (`http://localhost:3080` and `http://127.0.0.1:3080`), the base URL's origin, and `http://<host>:<port>` when `HOST` is a concrete address rather than a wildcard;
-2. on a wildcard bind, the machine's own LAN addresses: every non-internal IPv4 interface address, derived from the kernel and trusted automatically (since 2026-09-17). A phone on your Wi-Fi signs in at the server's LAN address with nothing to configure. An entry here is a literal IP, which a DNS-rebinding attack can never produce as an `Origin`;
-3. the operator's `TRUSTED_ORIGINS` extras;
-4. the addresses each enabled network plugin reports for this host: trusted the moment a publish earns it, and forgotten when it is undone.
-
-What is deliberately missing is a fifth source: the request itself. The list is never derived from the request's `Host` header. "Trust the origin that matches the host you dialed" is precisely the DNS-rebinding hole the allowlist exists to close. Because the read is live, a network joined a minute ago is trusted without a restart, and the LAN probe re-asks on every settings read. A laptop that switched Wi-Fi stops offering (and trusting) the address of the network it left. The wire-level mechanics behind this list are on [Security model](/concepts/security-model).
+What is deliberately missing is a fifth source: the request itself. The list is never derived from the request's `Host` header. "Trust the origin that matches the host you dialed" is precisely the DNS-rebinding hole the allowlist exists to close. The full derivation, source by source, and the mechanics behind the live per-request read are on [Security model](/concepts/security-model).
 
 ## Fixing 403 "Invalid origin"
 
@@ -51,20 +46,18 @@ Two rules pick the right lever:
 
 ## What the list will not accept
 
-An origin is scheme, host, and optional port, and nothing else. Both writers (the CLI flag and the Networking page) validate every entry by component and store the canonical form a browser actually sends. That is what admits the spellings people type (a trailing slash, a mixed-case host, an explicit `:443`) while storing the one string the checkers compare. A path, query, or fragment is refused. Credentials are refused too, rather than silently stripped by canonicalization.
-
-Wildcards are refused, and that refusal is load-bearing. The auth stack routes any entry containing `*` or `?` through pattern matching, so a written `https://*` would trust every https origin on the internet. That dissolves the allowlist this page describes, which the [threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#8-network-boundary) spends a whole section accounting for. An operator who genuinely wants a pattern can still set the env var or hand-edit `config.env`, since those bypass the validators by design. `subshell-server status` then reports per-entry problems telling you what a browser will do with the value.
+An entry is a scheme, host, and optional port, and nothing else: paths, queries, fragments, and credentials are refused, and wildcards are refused too, because a written `https://*` would match every https origin. Both writers of the list validate and store the canonical spelling a browser sends, so the notation you type works. An operator who genuinely wants a pattern can still set the env var or hand-edit `config.env`, which bypass the validators by design; `subshell-server status` then reports per-entry problems. [Security model](/concepts/security-model) carries the mechanics and the derivation rule; the [threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#8-network-boundary) accounts for what the allowlist defends.
 
 ## Reaching the box from anywhere
 
 The posture is a trusted network, so no TLS is enforced. For operation from beyond the LAN, we recommend bringing the network to the box (WireGuard, Tailscale, an SSH tunnel) rather than the box to the internet. That is exactly what the [network plugins](/server/network-plugins) automate: joining Tailscale, Headscale, or NetBird and publishing Subshell on the mesh. There, the plugin's own record makes the new address trusted; nothing is unioned into `TRUSTED_ORIGINS`, and unpublishing forgets it. Cloudflare Tunnel is the one deliberate public exception, and it refuses to publish until an Access application guards the hostname. Every address carries a `secureContext` flag, which is a statement about the browser (passkeys and secure cookies need https or loopback), not about encryption: a WireGuard mesh encrypts plain `http://` end to end, and passkeys still won't work on it.
 
-Firewall and port specifics are on [Ports](/reference/ports); the enforcement-point-by-enforcement-point accounting lives in the threat model.
+Firewall and port specifics are on [Ports and firewalls](/reference/ports); the enforcement-point-by-enforcement-point accounting lives in the threat model.
 
 ## Other pages
 
 - [Network plugins](/server/network-plugins): joining a mesh and publishing through it
 - [Security model](/concepts/security-model): the trusted-network posture, in product terms
 - [The full threat model (§8 Network boundary)](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#8-network-boundary): the authority behind every claim here
-- [Ports](/reference/ports): what needs to be open, per deployment shape
+- [Ports and firewalls](/reference/ports): what needs to be open, per deployment shape
 - [Configuration](/server/configuration): which writers can touch these keys, and which can't

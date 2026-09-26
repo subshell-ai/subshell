@@ -9,19 +9,19 @@ A subshell is a real CLI agent (Claude Code, opencode, Codex, Hermes, Pi, or a p
 
 ## Before you start
 
-- The agent must be installed and enabled on the machine you launch to.
+- The agent's plugin must be installed and enabled in the control plane, and the agent's CLI installed on the machine you launch to.
 - The folder must exist and pass that node's [directory allowlist](/nodes/directory-allowlist), if it has one.
 
 ## Launch a subshell
 
-From the new-subshell form choose an **agent** and a **folder**; those two are all a launch requires. The remaining choices are optional:
+The new-subshell form asks for an **agent** and a **folder**; those two are all a launch requires. Two further choices are optional:
 
-   - a **preset**: saved launch settings for that agent ([Presets](/use/presets)),
-   - a **machine**: which node runs it. The pickers default sensibly, and the row disappears when the control plane is the only machine you may launch on. A lone agent node keeps the choice visible.
-   - a **name**: an unnamed subshell gets a date/time label,
-   - a **starting prompt**: typed into the pane once the agent has drawn its first screen. The launch response reports whether it was delivered.
+- a **preset**: saved launch settings for that agent ([Presets](/use/presets)),
+- a **machine**: which node runs it. The picker defaults sensibly, and the row disappears when the control plane is the only machine you may launch on. A lone agent node keeps the choice visible.
 
-While a subshell's name is unlocked, it adopts the title its pane carries. Even a placeholder name gets replaced, and agents such as Claude Code rename their pane after the current task, so you see the name change. Renaming a subshell yourself locks the name permanently: it is yours from then on.
+The form asks for no name. A new subshell is listed under its agent's name until its pane carries a title. While the name is unlocked it then adopts whatever title the pane carries, and agents such as Claude Code rename their pane after the current task, so you see the name change. Choosing **Edit title** in the subshell's ⋯ menu locks the name permanently: it is yours from then on.
+
+A starting prompt is not a field on the browser form. The REST API and the MCP `create_subshell` tool accept one: it is typed into the pane once the agent has drawn its first screen, and the launch response reports whether it was delivered.
 
 ## Attach and detach
 

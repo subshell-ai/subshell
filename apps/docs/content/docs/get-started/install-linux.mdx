@@ -9,6 +9,7 @@ Install Subshell Server on an x86-64 or arm64 Linux machine, start it as a backg
 
 - A Linux machine you can sign in to, x86-64 or arm64.
 - A browser on that machine, or on another device on the same network.
+- tmux, or a way to install it. `init` checks for tmux before it writes anything and refuses when it is missing; an interactive run can install it on the spot with `apt-get` or `dnf`.
 
 ## Install and start the server
 
@@ -52,6 +53,7 @@ With the account created, continue to [Your first subshell](first-subshell).
 - Every question `init` asks has an environment-variable spelling for unattended runs; [Install by hand](/server/headless) lists them. The database path is the exception: it keeps its default unless you run `init --db-path` yourself.
 - To reach the server from another machine, browse to an address that machine can reach and that the instance trusts. [Networking and addresses](/server/networking) explains which addresses a browser can sign in from.
 - If something looks wrong, run `subshell-server status` first. It reports the active settings, whether tmux and the port are up, and whether the admin account exists, and it does this without starting anything.
+- A machine outside the published targets (`linux-x64`, `linux-arm64`, `darwin-arm64`, `darwin-x64`) is refused by name, never silently mis-resolved.
 
 ## Other install methods
 

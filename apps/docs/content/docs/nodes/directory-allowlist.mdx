@@ -14,7 +14,7 @@ An allowlist is a node owner's list of the directories where subshells may be cr
 
 Only the node's owner edits the allowlist (an admin, for the control-plane host's row). It is deliberately not included in the `edit` grant. Any node share, `view` included, already lets its grantee launch on the machine, so an `edit` grantee who could widen the list to `/` would face no restriction at all. Widening the rules sits with whoever can revoke them.
 
-The rules are read-visible to everyone who can see the node, grantees included. A refusal is unexplainable without them, and they name directories, not contents. You edit them on the node's page, under **Config**, and every change is audited.
+The rules are read-visible to everyone who can see the node, grantees included. A refusal is unexplainable without them, and they name directories, not contents. You edit them in the **Allowed directories** card on the node's page, and every change is audited.
 
 ## How the rules are enforced in two places
 
@@ -37,5 +37,5 @@ The folder picker a grantee uses is filtered to the allowed directories, and unf
 
 - [Share a node](/nodes/sharing): the grant that makes this bound worth setting.
 - [Manage a node](/nodes/manage): the maintenance switch, where nothing launches anywhere.
-- [Files & Paths](/reference/files-and-paths): where a node keeps its state, including its copy of the rules.
+- [Files and paths](/reference/files-and-paths): where a node keeps its state, including its copy of the rules.
 - [The threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#6-nodes): the semantics, the gate, and the double enforcement.

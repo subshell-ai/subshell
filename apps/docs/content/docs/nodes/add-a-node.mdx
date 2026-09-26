@@ -3,7 +3,7 @@ title: Add a node
 description: "Mint a setup key on the control plane, run the install command on the target machine, and bring the node row online."
 ---
 
-Add a machine as a node: mint a setup key on the control plane, run the install command it renders on the target machine, and watch the row come online. This page covers the terminal path. The setting behind most first-attempt failures is the server URL baked into the command; the warning under "Run the command on the target machine" explains it.
+Add a machine as a node: mint a setup key on the control plane, run the install command it renders on the target machine, and watch the row come online.
 
 ## Before you start
 
@@ -71,7 +71,7 @@ The node appears in the list. Opening its page (or pressing **Re-check**) has th
 
 ## If it does not come online
 
-- **"The setup key was rejected"**: the key is invalid, expired, or already used. Mint a fresh one and rerun the command. Nothing was consumed on the machine's side except the download.
+- **`subshell: the setup key was rejected: invalid, expired, or already used.`**: the key is bad, spent, or too old. Mint a fresh one and rerun the command. Nothing was consumed on the machine's side except the download.
 - **The node runs but the row stays offline**: this is almost always the baked loopback URL, or the machine cannot reach the address. Run `subshell status --probe` on the node: it dials the stored address and names it.
 - **A node started by hand dies when you close the SSH session**: that is `subshell run`, the foreground daemon. Install the background service, as the setup section describes.
 

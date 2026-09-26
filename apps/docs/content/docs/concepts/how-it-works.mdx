@@ -5,7 +5,7 @@ description: "What happens when you launch a subshell: the control plane, tmux, 
 
 This page traces one subshell launch from the Launch button to the live terminal, and stays at the level of which component talks to which.
 
-You press Launch in a browser, and a minute later a coding agent is editing files on the machine across the room while you watch its terminal on the one in your hands. Nothing in that path is magic: it is a handful of ordinary processes talking to each other. The [Security model](/concepts/security-model) covers who is trusted, and the [Node Protocol](/reference/node-protocol) covers the wire format.
+You press Launch in a browser, and a minute later a coding agent is editing files on the machine across the room while you watch its terminal on the one in your hands. Nothing in that path is magic: it is a handful of ordinary processes talking to each other. The [Security model](/concepts/security-model) covers who is trusted, and the [Node protocol](/reference/node-protocol) covers the wire format.
 
 ## The pieces
 
@@ -52,7 +52,7 @@ tmux is the source of truth for liveness, and the database row is a statement of
 
 ## Other pages
 
-- [Subshells](/use/subshells): launching, presets, and restart semantics from the user's side
+- [Launch and manage subshells](/use/subshells): launching, presets, and restart semantics from the user's side
 - [Nodes overview](/nodes): enrolling and driving machines that run panes elsewhere
 - [The MCP server](/automation/mcp): what the agent can actually do through its phone line
 - [Security model](/concepts/security-model): what each credential in this story can and cannot reach
