@@ -259,7 +259,12 @@ echo "== 9. backup takes a snapshot on demand"
 grep -q '"bytes"' "$W/backup.json" || { cat "$W/backup.json"; fail "backup printed no size"; }
 BACKUP=$(bun -e "console.log(JSON.parse(require('fs').readFileSync('$W/backup.json','utf8')).path)")
 [ -f "$BACKUP" ] || fail "the backup file is not there"
-[ "$(stat -f '%Lp' "$BACKUP" 2>/dev/null || stat -c '%a' "$BACKUP")" = "600" ] || fail "the backup is not 0600"
+# GNU stat answers -f with a FILESYSTEM block on stdout (still exiting 1), so
+# the BSD-first spelling let the fallback text concatenate into the comparison
+# and the check failed on this coreutils even against a true 0600 file. Ask
+# GNU's -c first; BSD's -f is the fallback, and the mode rides the message.
+MODE=$(stat -c '%a' "$BACKUP" 2>/dev/null || stat -f '%Lp' "$BACKUP" 2>/dev/null)
+[ "$MODE" = "600" ] || fail "the backup is not 0600 (mode: $MODE)"
 ok "backup wrote $BACKUP (0600)"
 
 kill $SRVPID 2>/dev/null; wait $SRVPID 2>/dev/null
