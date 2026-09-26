@@ -60,9 +60,10 @@ export interface ResetPlan {
   binary: string | null;
   /**
    * The port `status` would report listening on. Carried in the plan because
-   * the chain refuses while it answers: a stopped SERVICE goes dark, but a
+   * the chain ASKS it after the stop: a stopped SERVICE goes dark, but a
    * hand-started daemon has no unit to stop and no manager to ask, and the
-   * port answering IS that fact (the desktop's chain waits on exactly this).
+   * port answering IS that fact. The answer is reported and remembered for
+   * the exit code; it does not spare the files.
    */
   listenPort: number;
 }
@@ -85,7 +86,7 @@ export interface ResetDeps {
     stop: () => { code: number; err: string };
     uninstall: () => { code: number; err: string };
   };
-  /** Close the pane tmux servers; a failure ends the chain (default: the real sweep). */
+  /** Close the pane tmux servers; anything it cannot settle is reported and the clear continues (default: the real sweep). */
   sweepPanes?: () => { ok: boolean; detail?: string };
   /** The service deps the default manager seams run against (tests point them at a temp home). */
   service?: ServiceDeps;
@@ -229,8 +230,9 @@ function tryRealpath(path: string): string | null {
  * segments, not by string equality on one level: a config home nested deeper
  * than one level inside the data dir (`<dataDir>/config/config.env`, the
  * shape a redirected `SUBSHELL_SERVER_CONFIG_DIR` makes) must not have its
- * parent subtree `rm -rf`'d mid-walk — config.env is the chain's LAST act,
- * and a mid-chain failure has to leave the machine still self-describing.
+ * parent subtree `rm -rf`'d mid-walk. config.env's own deletion is the
+ * chain's LAST act — the walk may never take the file that act is named for,
+ * whatever else on the way succeeded or failed.
  */
 function removeTreeBut(dir: string, keep: string): void {
   if (!existsSync(dir)) return;
@@ -447,12 +449,16 @@ export async function runReset(opts: { uninstall: boolean; confirm?: string }, d
     }
   }
 
-  // 3. Close the pane servers. Survivors are named, remembered, and the
-  // rest of the clear goes on without them.
+  // 3. Close the pane servers. Whatever the sweep could not settle — live
+  // survivors, or a sweep that could not even enumerate them (no uid to name
+  // the socket directory) — is reported by the sweep's own words, remembered,
+  // and the rest of the clear goes on without them.
   const sweep = (deps.sweepPanes ?? (() => sweepPaneSockets(deps.log)))();
   if (!sweep.ok) {
-    deps.error(`subshell-server ${verb}: a pane server survived; the rest is cleared anyway\n${sweep.detail ?? ""}`);
-    failures.push("a pane server survived");
+    deps.error(
+      `subshell-server ${verb}: the pane sweep reported problems, below; the rest is cleared anyway\n${sweep.detail ?? ""}`,
+    );
+    failures.push("the pane sweep reported problems");
   }
 
   // 4. Remove the service definition, so nothing can start the server again.
@@ -493,7 +499,11 @@ export async function runReset(opts: { uninstall: boolean; confirm?: string }, d
   pruneEmptyChainInside(dirname(plan.configEnv), plan.dataDir);
   removeIfEmpty(dirname(plan.configEnv));
   removeIfEmpty(plan.dataDir);
-  deps.log("deleted the data directory, the database, the logs, the artifacts, and config.env");
+  // The sentence may only claim what actually went: a failed delete is
+  // already named by `attempt`, and this line must not contradict it.
+  if (!failures.some((f) => f.startsWith("could not delete"))) {
+    deps.log("deleted the data directory, the database, the logs, the artifacts, and config.env");
+  }
 
   // 6. The uninstall half only: the binary the LADDER named (resolved at step
   // 1's plan, before the definition went) and the `.previous` an update left.
@@ -510,17 +520,30 @@ export async function runReset(opts: { uninstall: boolean; confirm?: string }, d
         // home: the tree walk already took it, and the containment guard
         // stands down for uninstall precisely because of this shape.
         deps.log("the installed binary went with the data directory");
-      } else
+      } else {
+        // Two separate unlinks, two separate reports: a `.previous` that
+        // resists after the binary went must not blame the binary.
         try {
-          unlinkSync(plan.binary);
-          if (hadPrevious) unlinkSync(`${plan.binary}.previous`);
-          deps.log(`removed ${plan.binary}${hadPrevious ? " and its .previous" : ""}`);
+          rmSync(plan.binary, { force: true }); // absence = done, as in step 5
+          deps.log(`removed ${plan.binary}`);
         } catch (failure) {
           deps.error(
             `subshell-server ${verb}: the installed binary could not be removed: ${failure instanceof Error ? failure.message : String(failure)}`,
           );
           failures.push("the installed binary could not be removed");
         }
+        if (hadPrevious) {
+          try {
+            rmSync(`${plan.binary}.previous`, { force: true });
+            deps.log(`removed ${plan.binary}.previous`);
+          } catch (failure) {
+            deps.error(
+              `subshell-server ${verb}: the .previous sibling could not be removed: ${failure instanceof Error ? failure.message : String(failure)}`,
+            );
+            failures.push("the .previous sibling could not be removed");
+          }
+        }
+      }
     } else {
       deps.log("no installed binary: this instance runs from a checkout, which is left alone");
     }

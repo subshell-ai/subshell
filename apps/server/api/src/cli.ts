@@ -603,9 +603,9 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
           // ENTER is a mismatch, and a mismatch changes nothing.
           ask: (question) => (deps.prompt ? Promise.resolve(deps.prompt(question, "")) : promptText(question, "")),
           service: serviceDeps(deps, log),
-          // The same kernel-table reader `status` uses: the chain refuses
-          // while the port answers, so a hand-started daemon cannot have its
-          // files deleted under it.
+          // The same kernel-table reader `status` uses: the chain names a
+          // port that still answers before the sweep and the deletes, so a
+          // hand-started daemon is on the record in the run's own output.
           probePort: deps.probePort,
         },
       );

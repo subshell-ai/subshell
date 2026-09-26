@@ -101,6 +101,10 @@ for i in $(seq 1 60); do curl -sf "$BASE/api/setup/status" >/dev/null 2>&1 && br
 curl -sf "$BASE/api/setup/status" >/dev/null || { cat "$W/daemon.log"; fail "daemon never answered"; }
 OUT=$("$SRV" reset --confirm "$HOSTNAME_VAL" 2>&1) && fail "a live daemon should have forced exit 1"
 echo "$OUT" | grep -q "still answering" || fail "the live daemon was not named: $OUT"
+# A beat before the assertions: the surviving daemon could in principle
+# resurrect a path (the capped server.log replaces itself when full). It is
+# quiet here, but the wait makes the assertion about the CHAIN, not a race.
+sleep 0.5
 [ ! -f "$SUBSHELL_SERVER_CONFIG_DIR/config.env" ] || fail "the chain let a live daemon spare the files"
 [ ! -e "$SUBSHELL_SERVER_DATA_DIR" ] || fail "a live daemon spared the data directory"
 kill "$SRVPID" 2>/dev/null; wait "$SRVPID" 2>/dev/null; SRVPID=""

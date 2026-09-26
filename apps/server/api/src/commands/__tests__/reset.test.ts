@@ -192,7 +192,7 @@ describe("the chain", () => {
     expect(existsSync(fx.plan.configEnv)).toBe(false);
     // The promise kept honestly: the survivor is named, not hidden behind
     // the exit code.
-    expect(fx.deps.errors.join("\n")).toContain("pane server survived");
+    expect(fx.deps.errors.join("\n")).toContain("pane sweep reported problems");
   });
 });
 
@@ -348,15 +348,21 @@ describe("the port is asked, not obeyed", () => {
     // never spares the bytes (ruling 2026-09-26): it is reported and the
     // machine is cleared anyway, exit code 1. portWaitMs 0 = no waiting.
     fx.plan = { ...fx.plan, listenPort: 31997 };
-    fx.deps.probePort = () => true;
+    // The ORDER pin: the question is asked AFTER the stop and BEFORE the
+    // sweep, recorded at probe time rather than inferred from later counts
+    // (a probe stub that only returns true cannot see a moved block).
+    let askedBetweenStopAndSweep = false;
+    fx.deps.probePort = () => {
+      askedBetweenStopAndSweep = fx.manager.stops === 1 && fx.sweep.calls === 0;
+      return true;
+    };
     fx.deps.portWaitMs = 0;
     const code = await runReset({ uninstall: false }, fx.deps);
     expect(code).toBe(1);
     expect(fx.deps.errors.join("\n")).toContain("still answering");
     expect(existsSync(fx.plan.database)).toBe(false);
     expect(existsSync(fx.plan.configEnv)).toBe(false);
-    // The order still holds: the question is ASKED after the stop and before
-    // the sweep, so the sweep reads the post-stop truth either way.
+    expect(askedBetweenStopAndSweep).toBe(true);
     expect(fx.sweep.calls).toBe(1);
     expect(fx.manager.uninstalls).toBe(1);
   });
