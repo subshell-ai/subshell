@@ -102,7 +102,13 @@ export function UpdatesTable({
             <>
               <DesktopRows desktop={view.desktop} />
               <RowRule />
-              <ServerRow view={view.server} update={update} />
+              {/* The tracker's self entry rides too: an update ordered from
+                  ANY tab (or by the last boot) gets its ending read here by
+                  whoever opens the page next. Inside Subshell Server the
+                  bundled-install path shells to the CLI, which the server-side
+                  tracker cannot see, and the assistant owns that story - so it
+                  belongs to this browser row only. */}
+              <ServerRow view={view.server} update={update} serverUpdate={view.serverUpdate} />
             </>
           )}
           <NodeRows fleet={view.nodes} />

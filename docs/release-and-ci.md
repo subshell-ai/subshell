@@ -242,7 +242,10 @@ you touch any of it:
   delete both) or reverts it (restore the database backup, rename `.previous`
   back, record the failure, exit 1 so the manager respawns the old version).
   That is what makes the CLI path, the dashboard path and the desktop path
-  ONE implementation. The node does the same without the database half.
+  ONE implementation. The node does the same without the database half. A
+  server boot that lands either outcome also re-creates its in-memory
+  update-tracker entry from the marker (that entry cannot survive the
+  restart), so the dashboard's Updates page still tells the true story.
 - **Never write the installed binary by convention.** It is the file the
   SERVICE DEFINITION names, else the one this process IS, else nothing:
   `services/installed-binary.ts` on the server, `selfInvokePrefix()` on the

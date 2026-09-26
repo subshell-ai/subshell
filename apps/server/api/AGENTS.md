@@ -491,7 +491,9 @@ runs. Rationale and the retired `bun -e` hooks:
 Whoever SWAPS writes the marker (`<dataDir>/update/pending.json`, 0600,
 and keeps the old binary as `.previous`); whoever BOOTS completes or
 reverts the transaction (migrations pass → audit, delete both; migration
-fails → restore the DB backup, rename `.previous` back, record, exit 1),
+fails → restore the DB backup, rename `.previous` back, record, exit 1;
+and the landing boot RE-CREATES the update tracker's server entry from the
+marker, since the in-memory begin died with the swapping process),
 which is what makes the CLI, dashboard and desktop paths ONE
 implementation. The four modules, and the one fact each exists for
 (`installed-binary.ts`: the binary the SERVICE DEFINITION names, never a

@@ -11,6 +11,7 @@ import { requireAdmin } from "@/api/auth-guard.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { isNodeOffline, listHeld } from "@/services/nodes/node-registry.js";
+import { readView, type UpdateStateView, updateTrackerSeams } from "@/services/nodes/update-tracker.js";
 import { compatibleNodeRelease, releaseSourceUrl, resolveReleases } from "@/services/releases.js";
 import { collectServerUpdateView, type ReleaseRef, releaseRef } from "@/services/server-update.js";
 
@@ -50,6 +51,59 @@ export const adminUpdatesSeams = {
   getHeldRows: (): HeldRow[] => listHeld(),
 };
 
+/**
+ * One in-flight or recently-finished update, straight off `update-tracker.ts`
+ * (design 2026-09-25) — the reason a page refresh mid-update now keeps its
+ * story. Times serialize ISO like `publishedAt` and the job's `startedAt` do
+ * everywhere else on this payload; the tracker's epoch-ms stay in the service.
+ */
+const UpdateStateSchema = t.Object({
+  from: t.String({
+    description:
+      "The version the plane saw on this machine when the update was ordered (`unknown` until the node ever reported one)",
+  }),
+  to: t.String({ description: "The version this server ordered" }),
+  startedAt: t.String({
+    description: "ISO 8601 of the ordering — the stall clock's zero (for a self entry, of the swap that began)",
+  }),
+  phase: t.Union(
+    [t.Literal("working"), t.Literal("restarting"), t.Literal("done"), t.Literal("failed"), t.Literal("stalled")],
+    {
+      description:
+        "`working`: ordered, the swap unconfirmed. `restarting`: the node answered and is booting into the new binary. `done`/`failed`: terminal. `stalled`: nothing confirmed it within 2 minutes, and a later `ready` can STILL resolve it — which is why it is not a failure",
+    },
+  ),
+  message: t.Nullable(t.String(), {
+    description: "For `failed`: the sentence the refusal answered with, or `rolled back to X` for a boot that reverted",
+  }),
+  endedAt: t.Nullable(t.String(), {
+    description: "ISO 8601 for a terminal entry; null for anything still live — `stalled` included",
+  }),
+});
+
+/** The wire shape of {@link UpdateStateSchema}, restated because the tracker hands out epoch-ms. */
+interface UpdateStateWire {
+  from: string;
+  to: string;
+  startedAt: string;
+  phase: UpdateStateView["phase"];
+  message: string | null;
+  endedAt: string | null;
+}
+
+/** The tracker's epoch-ms view as this payload spells it; null ⇒ no story to render. */
+function wireUpdateState(view: UpdateStateView | null | undefined): UpdateStateWire | null {
+  if (!view) return null;
+  return {
+    from: view.from,
+    to: view.to,
+    phase: view.phase,
+    startedAt: new Date(view.startedAt).toISOString(),
+    message: view.message,
+    endedAt: view.endedAt === null ? null : new Date(view.endedAt).toISOString(),
+  };
+}
+
 const NodeUpdateRowSchema = t.Object({
   id: t.String({ description: "Node id" }),
   name: t.String({ description: "The node's display name" }),
@@ -78,10 +132,18 @@ const NodeUpdateRowSchema = t.Object({
     },
     { description: "Whether this node can be updated from here" },
   ),
+  update: t.Nullable(UpdateStateSchema, {
+    description:
+      "An update this server ordered and has not forgotten (in-memory, design 2026-09-25): what the row renders as in-flight progress; null when nothing is or was recently in flight here",
+  }),
 });
 
 const AdminUpdatesSchema = t.Object({
   server: ServerUpdateViewSchema,
+  serverUpdate: t.Nullable(UpdateStateSchema, {
+    description:
+      "This server's own update as the tracker knows it — begun on the swap path, RE-CREATED at the boot that completes or records the failure (the ordering process exited, so an in-memory begin never survives a real update). Null when this process has no such story",
+  }),
   nodes: t.Object(
     {
       release: t.Nullable(ReleaseRefSchema, {
@@ -148,6 +210,9 @@ export const adminUpdatesRoutes = new Elysia({ prefix: "/api/admin" }).use(requi
       new NodesRepository(db).listAgents(),
     ]);
     const held = new Map(adminUpdatesSeams.getHeldRows().map((row) => [row.nodeId, row]));
+    // ONE tracker read per payload, clocked through the seams object (the
+    // route test injects it to move entries across the stall boundary).
+    const states = readView(updateTrackerSeams.now());
 
     const rows = nodes.map((node) => {
       const heldRow = held.get(node.id) ?? null;
@@ -175,11 +240,13 @@ export const adminUpdatesRoutes = new Elysia({ prefix: "/api/admin" }).use(requi
           heldRow !== null,
           node.protocolVersion ?? heldRow?.protocolVersion ?? null,
         ),
+        update: wireUpdateState(states.nodes[node.id]),
       };
     });
 
     return {
       server,
+      serverUpdate: wireUpdateState(states.server),
       nodes: {
         release: rels.node,
         reason: rels.nodeReason,

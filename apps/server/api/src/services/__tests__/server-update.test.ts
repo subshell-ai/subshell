@@ -10,6 +10,7 @@ import {
   releaseAssetNames,
 } from "@internal/subshell-protocol";
 import { backupsDir } from "@/services/db-backup.js";
+import { readView, resetForTests } from "@/services/nodes/update-tracker.js";
 import type { ResolvedRelease } from "@/services/releases.js";
 import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
 import {
@@ -139,6 +140,7 @@ beforeEach(() => {
   writeFileSync(binary, "the old binary", { mode: 0o755 });
   resetUpdateJobForTests();
   clearPending();
+  resetForTests();
   releaseSeams.verifyManifest = async (bytes, sig, _pub, expected) => {
     const parsed = parseReleaseManifest(typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8"));
     if (parsed === null || sig.trim() !== "TEST-ARMOR") {
@@ -155,6 +157,7 @@ afterEach(() => {
   fake.stop();
   resetUpdateJobForTests();
   clearPending();
+  resetForTests();
   rmSync(dir, { recursive: true, force: true });
   setReleaseUrlForTests(null);
   resetReleaseCacheForTests();
@@ -189,9 +192,18 @@ describe("startServerUpdate", () => {
     expect(pending?.to).toBe("99.0.0");
     expect(pending?.origin).toBe("api");
     expect(pending?.backup).toBe(join(dir, "snapshot.db"));
+    // And the tracker's self entry opened on the ONLY path that restarts
+    // (design 2026-09-25): the entry itself dies with this process — the boot
+    // finalizer re-creates it — but the moment of the swap must be witnessed
+    // here, where the page's last poll before the exit can still read it.
+    const self = readView().server;
+    expect(self?.phase).toBe("working");
+    expect(self?.to).toBe("99.0.0");
   });
 
   it("leaves the installed binary untouched when the digest does not match", async () => {
+    // (And no self entry: the swap never happened, so nothing was ordered
+    // toward a restart — `beginSelfUpdate` sits on the exit path alone.)
     startServerUpdate(
       {
         release: releaseWith(fake, "99.0.0", "the new binary", "0".repeat(64)),
@@ -214,6 +226,7 @@ describe("startServerUpdate", () => {
     expect(existsSync(`${binary}.previous`)).toBe(false);
     // Nothing was opened, so there is nothing for the next boot to act on.
     expect(readPending()).toBeNull();
+    expect(readView().server).toBeNull();
   });
 
   it("refuses a binary that reports a different version, and deletes it", async () => {

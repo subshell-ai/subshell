@@ -46,6 +46,7 @@ import {
   releaseHeld,
 } from "./node-registry.js";
 import { binaryPayload, failConnPendings, resolveResult } from "./node-rpc.js";
+import { recordNodeDisconnect, recordNodeReady } from "./update-tracker.js";
 
 /**
  * `/ws/node` — the agent dial-in socket (spec 2026-08-31 §5.3).
@@ -210,6 +211,20 @@ export interface NodeWsDeps {
    * Present as a seam so a test can count the kick without a live socket.
    */
   detect?(nodeId: string): void;
+  /**
+   * Resolve this node's update-tracker entry against a `ready`'s reported
+   * version (default `update-tracker.ts`'s `recordNodeReady`; the `??` at the
+   * call site is the production wiring, {@link NodeWsDeps.detect}'s shape).
+   * Seam so a test can watch the CALL without a tracker of its own.
+   */
+  recordNodeReady?(nodeId: string, agentVersion: string): void;
+  /**
+   * Note that this node's authenticated socket dropped (default
+   * `recordNodeDisconnect` — deliberately a no-op; see its doc). Carried as a
+   * seam for symmetry with {@link NodeWsDeps.recordNodeReady}: the moments the
+   * handler witnesses are all injectable, including the ones that do nothing.
+   */
+  recordNodeDisconnect?(nodeId: string): void;
   /**
    * The link-handshake machine's dependencies, passed straight through to
    * {@link handleLinkFrame} for every frame on a socket the upgrade classified.
@@ -797,6 +812,13 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // Record FIRST (spec §5.3/§8): even an incompatible agent gets its
       // identity persisted so the Nodes page can show "agent too old".
       await deps.nodes.applyReady(nodeId, report);
+      // The tracker's one piece of evidence about what actually boots there
+      // (design 2026-09-25): beside the row write, NOT after the gates below,
+      // because a refused-and-held ready reports the same fact about the
+      // machine — a swap that reverted at boot is exactly a ready that comes
+      // back on the old version. The frame may still be rejected downstream;
+      // the version it proved is already recorded.
+      (deps.recordNodeReady ?? recordNodeReady)(nodeId, event.agentVersion);
       // The write this frame issued can OVERTAKE its own eviction: a forced
       // `disconnectNode` that lands while the UPDATE is in flight detaches
       // and projects `offline` around its own await, and the already-issued
@@ -1077,6 +1099,15 @@ export async function handleNodeClose(deps: NodeWsDeps, ws: NodeWsSocket): Promi
     detachConnection(nodeId, mine);
     failConnPendings(conn ?? current, "offline");
     await deps.nodes.setStatus(nodeId, "offline" satisfies NodeStatus);
+    // Witnessed, and deliberately NOT read as a restart (design 2026-09-25):
+    // this branch is the authenticated socket's own death, which is exactly
+    // what an updated agent exiting to re-dial also looks like, and exactly
+    // what a flap looks like. The tracker's no-op here is the tested posture.
+    // The call is not above the identity guard because the held/superseded
+    // branch is NOT the node going away — a fresher socket holds its place —
+    // and there the death of a socket carrying an in-flight `update` is
+    // witnessed by `failConnPendings`, never through this seam.
+    (deps.recordNodeDisconnect ?? recordNodeDisconnect)(nodeId);
     // Every running row on this machine just became unreachable, and no write
     // touched any of them — so without this the dashboard keeps rendering
     // them as healthy until the viewer reconnects.

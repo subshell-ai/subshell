@@ -24,6 +24,7 @@ import { audit } from "@/services/audit.js";
 import { getHeld, getLive } from "@/services/nodes/node-registry.js";
 import { NodeRpcError, sendCommand, UPDATE_COMMAND_TIMEOUT_MS } from "@/services/nodes/node-rpc.js";
 import { mintUpdateToken } from "@/services/nodes/update-tokens.js";
+import { beginUpdate, updateOutcomeUnknown, updateRefused, updateSwapped } from "@/services/nodes/update-tracker.js";
 import { autoFetchEnabled, compatibleNodeRelease, fetchDigest } from "@/services/releases.js";
 
 const UpdateBodySchema = t.Object({
@@ -384,6 +385,12 @@ export const updateNodeRoute = new Elysia()
       // Read BEFORE sending: the command is about to take this socket down,
       // and this is what decides the WORDING of a pane-safety refusal.
       const paneSafety = live?.agent?.runtime?.service.paneSafety;
+      // The tracker opens its entry the instant the order is real (design
+      // 2026-09-25): AFTER every 409 gate above, because a refused offer
+      // ordered nothing and must not render as an update in flight, and BEFORE
+      // `sendCommand`, because a refresh during the ~70 MB download is the
+      // case this whole module exists for.
+      beginUpdate(gate.row.id, { from, to: release.version });
       try {
         await sendCommand(
           gate.row.id,
@@ -424,6 +431,10 @@ export const updateNodeRoute = new Elysia()
           // nobody knows. The reader is a person asking "why is that machine
           // on a version nothing recorded".
           if (err.code === "timeout") {
+            // The tracker's twin of the `node.update.unknown` row below: the
+            // entry stays observable as working so the stall clock runs and a
+            // late `ready` can still resolve it (update-tracker.ts).
+            updateOutcomeUnknown(gate.row.id);
             await audit({
               actorUserId: user.id,
               action: "node.update.unknown",
@@ -433,6 +444,20 @@ export const updateNodeRoute = new Elysia()
             });
           }
           const refusal = refusalFor(err, paneSafety);
+          // Two codes are NOT the node saying it did nothing. `timeout`: the
+          // plane stopped waiting on a five-minute window that contains a
+          // ~70 MB download. `offline` (review 2026-09-26): failConnPendings
+          // fires it when the socket dies while an ALREADY-DELIVERED command
+          // runs - a held node whose 10-minute budget expires mid-download
+          // is this route's own flagship case. Both leave the entry working:
+          // the machine may still boot onto `to`, and the resolving `ready`
+          // is the tracker's verdict, not a sentence this handler guessed.
+          // Everything else is a spoken refusal and closes the entry with
+          // the words this 409 carries. A non-RPC throw re-raises untouched:
+          // the entry stalls, the honest answer to a failure nobody witnessed.
+          if (err.code !== "timeout" && err.code !== "offline") {
+            updateRefused(gate.row.id, refusal.message);
+          }
           return status(409, apiErrorBody({ code: refusal.code, message: refusal.message }));
         }
         throw err;
@@ -445,6 +470,9 @@ export const updateNodeRoute = new Elysia()
         targetId: gate.row.id,
         metadataJson: JSON.stringify({ from, to: release.version, forced: body.force === true }),
       });
+      // The swap is confirmed — the node answered before it exits (the agent
+      // quits ~500 ms after this 202). `restarting` until its next `ready`.
+      updateSwapped(gate.row.id);
       return status(202, { ok: true as const, from, to: release.version, url: publicUrl });
     },
     {

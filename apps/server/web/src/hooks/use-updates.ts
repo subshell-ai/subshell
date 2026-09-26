@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ADMIN_STATUS_QUERY_KEY, type AdminStatus } from "@/hooks/use-admin-status";
 import { isNewBoot } from "@/hooks/use-server-restart";
 import { SERVER_DEPLOYMENT_QUERY_KEY, UPDATES_QUERY_KEY } from "@/lib/query-keys";
+import { updatesPollMs } from "@/lib/updates-poll";
 import type { ServerUpdateView, UpdatesView } from "@/types/updates";
 
 /**
@@ -17,21 +18,26 @@ import type { ServerUpdateView, UpdatesView } from "@/types/updates";
  * `enabled` is the CONFIRMED admin flag rather than a default of true — the
  * gate `/settings/status` established, so a non-admin mount fires no doomed 403.
  *
- * **It does not poll by default.** The release index has a 15-minute TTL on the
- * server and nothing here moves without a press, so a background poll would
- * spend a request per minute to render a number that cannot have changed. What
- * DOES move is a running job, and `useStartServerUpdate` raises the cadence to
- * 1 s for exactly as long as one runs.
+ * **It does not poll by default.** The release index has a 15-minute TTL on
+ * the server and nothing here moves without a press, so a background poll
+ * would spend a request per minute to render a number that cannot have
+ * changed. Two things DO move, and each raises the cadence for exactly as
+ * long as it lasts: a server job this page started (`useStartServerUpdate`,
+ * 1 s), and anything the server's update tracker still calls live (2 s -
+ * the decision is the tested `updatesPollMs`, and because "is anything
+ * moving" is a SERVER fact, a refreshed page picks the cadence back up on
+ * its first read, which is what makes refresh-resume work).
  *
  * @param enabled - true only once the server has confirmed this viewer is an admin
- * @param refetchMs - poll cadence; `false` (the default) is no poll at all
+ * @param refetchMs - explicit cadence from the page (a running server job);
+ *   `false` (the default) leaves the decision to the tracker
  */
 export function useUpdates(enabled: boolean, refetchMs: number | false = false) {
   return useQuery({
     queryKey: UPDATES_QUERY_KEY,
     queryFn: () => apiFetch<UpdatesView>("/api/admin/updates"),
     enabled,
-    refetchInterval: refetchMs,
+    refetchInterval: (query) => updatesPollMs(query.state.data as UpdatesView | undefined, refetchMs),
     // Mounting the page IS the check: the server's own memo is what keeps that
     // from being a network read every time.
     staleTime: 0,

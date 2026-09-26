@@ -1,18 +1,23 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { idleUpdate, recordingUpdate, serverUpdateView } from "@/components/__tests__/helpers/updates-view";
+import {
+  idleUpdate,
+  recordingUpdate,
+  serverUpdateView,
+  updateState,
+} from "@/components/__tests__/helpers/updates-view";
 import { jobLine, ServerRow } from "@/components/updates/server-row";
-import type { ServerUpdateView, UpdateJob } from "@/types/updates";
+import type { ServerUpdateView, UpdateJob, UpdateTrackerState } from "@/types/updates";
 
 afterEach(cleanup);
 
 const updateButton = (label = /^Update to /) => screen.getByRole("button", { name: label }) as HTMLButtonElement;
 
 /** The row is a `contents` fragment; a grid div is its real parent on the page. */
-function renderRow(view: ServerUpdateView, update = idleUpdate) {
+function renderRow(view: ServerUpdateView, update = idleUpdate, serverUpdate: UpdateTrackerState | null = null) {
   return render(
     <div className="grid">
-      <ServerRow view={view} update={update} />
+      <ServerRow view={view} update={update} serverUpdate={serverUpdate} />
     </div>,
   );
 }
@@ -156,5 +161,47 @@ describe("the confirmation", () => {
     // rather than promised, the same gate `RestartDialog` applies.
     fireEvent.click(screen.getByRole("button", { name: "Update anyway" }));
     expect(update.pressed).toEqual([{ force: true }]);
+  });
+});
+
+describe("the boot's own update outcome (server-side tracker, design 2026-09-25)", () => {
+  it("tells the outcome the tab that pressed did not stay to see", () => {
+    renderRow(serverUpdateView(), idleUpdate, updateState({ phase: "done", to: "0.7.0", endedAt: "x" }));
+    expect(screen.getByText("Updated to 0.7.0.")).toBeTruthy();
+  });
+
+  it("states a boot that recorded a failure, with its reason", () => {
+    renderRow(
+      serverUpdateView(),
+      idleUpdate,
+      updateState({ phase: "failed", to: "0.7.0", message: "migrations refused", endedAt: "x" }),
+    );
+    expect(screen.getByText(/did not land: migrations refused/)).toBeTruthy();
+  });
+
+  it("hedges when the boot never reported at all", () => {
+    renderRow(serverUpdateView(), idleUpdate, updateState({ phase: "stalled", to: "0.7.0" }));
+    expect(screen.getByText(/outcome is unknown/)).toBeTruthy();
+  });
+
+  it("stays quiet while this boot's job is still telling the story", () => {
+    renderRow(
+      serverUpdateView({ job: job({ phase: "downloading" }) }),
+      idleUpdate,
+      updateState({ phase: "working", to: "0.7.0" }),
+    );
+    expect(screen.queryByText(/Updated to|did not land|outcome is unknown/)).toBeNull();
+  });
+
+  it("yields to the tab that rode the press to its own ending", () => {
+    // The pressing tab's outcome chain says "Updated to 0.7.0." itself; the
+    // tracker must add nothing, so the sentence exists exactly once - which
+    // is the assertion that actually catches the duplicate.
+    renderRow(
+      serverUpdateView(),
+      { ...idleUpdate, outcome: "done", installing: "0.7.0" },
+      updateState({ phase: "done", to: "0.7.0", endedAt: "x" }),
+    );
+    expect(screen.getAllByText("Updated to 0.7.0.").length).toBe(1);
   });
 });
