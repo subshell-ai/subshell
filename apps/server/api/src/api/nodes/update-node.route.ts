@@ -444,11 +444,20 @@ export const updateNodeRoute = new Elysia()
             });
           }
           const refusal = refusalFor(err, paneSafety);
-          // Every OTHER `NodeRpcError` is the node SAYING it did nothing, so
-          // the entry closes as failed with the sentence this 409 carries. A
-          // non-RPC throw re-raises untouched: the entry is left working and
-          // stalls, which is the honest answer to a failure nobody witnessed.
-          if (err.code !== "timeout") updateRefused(gate.row.id, refusal.message);
+          // Two codes are NOT the node saying it did nothing. `timeout`: the
+          // plane stopped waiting on a five-minute window that contains a
+          // ~70 MB download. `offline` (review 2026-09-26): failConnPendings
+          // fires it when the socket dies while an ALREADY-DELIVERED command
+          // runs - a held node whose 10-minute budget expires mid-download
+          // is this route's own flagship case. Both leave the entry working:
+          // the machine may still boot onto `to`, and the resolving `ready`
+          // is the tracker's verdict, not a sentence this handler guessed.
+          // Everything else is a spoken refusal and closes the entry with
+          // the words this 409 carries. A non-RPC throw re-raises untouched:
+          // the entry stalls, the honest answer to a failure nobody witnessed.
+          if (err.code !== "timeout" && err.code !== "offline") {
+            updateRefused(gate.row.id, refusal.message);
+          }
           return status(409, apiErrorBody({ code: refusal.code, message: refusal.message }));
         }
         throw err;

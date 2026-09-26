@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   beginSelfUpdate,
   beginUpdate,
-  hasNonTerminal,
   readView,
   recordNodeDisconnect,
   recordNodeReady,
@@ -179,10 +178,44 @@ describe("recordNodeReady", () => {
     expect(readView().nodes.n1?.phase).toBe("done");
   });
 
+  it("a reconnect flap's OLD-version ready does not terminalize a working entry", () => {
+    // Review 2026-09-26: only a swap THIS plane witnessed (`restarting`) can
+    // read a below-`to` version as a rollback. The agent re-dials on its own
+    // while an executor is still running (the daemon's stale-socket guard
+    // exists because commands outlive sockets), so a flap during the
+    // download reports the STILL-running old version - and a terminal
+    // `failed` there would discard the honest `ready` minutes later.
+    beginUpdate("n1", { from: "0.8.0", to: "0.9.0" });
+    updateOutcomeUnknown("n1");
+    recordNodeReady("n1", "0.8.0");
+    expect(readView().nodes.n1?.phase).toBe("working");
+    recordNodeReady("n1", "0.9.0");
+    expect(readView().nodes.n1?.phase).toBe("done");
+  });
+
+  it("a connect race - ready queued around the order - does not fake a rollback", () => {
+    beginUpdate("n1", { from: "0.8.0", to: "0.9.0" });
+    recordNodeReady("n1", "0.8.0");
+    expect(readView().nodes.n1?.phase).toBe("working");
+  });
+
+  it("a ready whose version cannot be read as a version is ignored, not rolled back", () => {
+    // The frame validator only guarantees isStr; the ws handler itself falls
+    // back to "unversioned". Garbage must not compare its way into a
+    // permanent `failed` - the entry waits for a report it can read.
+    beginUpdate("n1", { from: "0.8.0", to: "0.9.0" });
+    updateSwapped("n1");
+    recordNodeReady("n1", "");
+    expect(readView().nodes.n1?.phase).toBe("restarting");
+    recordNodeReady("n1", "unversioned");
+    expect(readView().nodes.n1?.phase).toBe("restarting");
+    recordNodeReady("n1", "0.9.0");
+    expect(readView().nodes.n1?.phase).toBe("done");
+  });
+
   it("records nothing when no update was in flight", () => {
     recordNodeReady("n1", "0.9.0");
     expect(readView().nodes.n1).toBeUndefined();
-    expect(hasNonTerminal()).toBe(false);
   });
 });
 
@@ -247,25 +280,6 @@ describe("readView — the derived clock", () => {
     beginUpdate("n1", { from: "0.8.0", to: "0.9.0" });
     expect(readView(1_000_000 + STALL_MS + TERMINAL_EXPIRE_MS - 1).nodes.n1?.phase).toBe("stalled");
     expect(readView(1_000_000 + STALL_MS + TERMINAL_EXPIRE_MS).nodes.n1).toBeUndefined();
-  });
-});
-
-describe("hasNonTerminal", () => {
-  it("answers the poll gate: false empty, true while live, true while stalled, false when all terminal", () => {
-    expect(hasNonTerminal()).toBe(false);
-    beginUpdate("n1", { from: "0.8.0", to: "0.9.0" });
-    expect(hasNonTerminal()).toBe(true);
-    nowMs = 1_000_000 + STALL_MS;
-    expect(hasNonTerminal()).toBe(true); // stalled still counts — a ready can land
-    updateRefused("n1", "refused");
-    expect(hasNonTerminal()).toBe(false);
-  });
-
-  it("counts the self entry", () => {
-    beginSelfUpdate({ from: "1.0.0", to: "1.1.0" });
-    expect(hasNonTerminal()).toBe(true);
-    resolveSelfUpdate("done");
-    expect(hasNonTerminal()).toBe(false);
   });
 });
 

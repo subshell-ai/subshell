@@ -8,7 +8,10 @@ import { semverLt } from "@internal/subshell-protocol";
  * back to a bare version pair while the machine was minutes into a download.
  * The server already witnesses every transition that matters (the dispatch,
  * the refusal, the `ready` that confirms a boot), so the tracker stores those
- * moments and nothing else: no sweeper, no persistence, no timers.
+ * moments and nothing else: no sweeper, no persistence, no timers. The map is
+ * bounded by the number of distinct node ids this process has been asked to
+ * update (one entry each, replaced on re-press); nothing accumulates without
+ * an order, which is why no sweeper is needed.
  *
  * **Terminal phases are derived at read time, never stored.** `done` and
  * `failed` are an entry that has been stamped `endedAt` (with or without a
@@ -29,10 +32,10 @@ import { semverLt } from "@internal/subshell-protocol";
 
 /**
  * When a non-terminal entry stops reading as "in flight" and starts reading
- * as "nobody has confirmed anything in this long". Matches the SPA's existing
- * `WATCH_STALL_MS` (`components/updates/node-rows.tsx`) — the page has always
- * stopped believing at two minutes; the server now agrees out loud, which is
- * what makes the verdict survive a refresh.
+ * as "nobody has confirmed anything in this long". Two minutes, the figure the
+ * page's own watcher used before the tracker made the verdict server state —
+ * the same belief the operator already had, now said out loud so it survives a
+ * refresh.
  */
 export const STALL_MS = 120_000;
 
@@ -169,20 +172,34 @@ export function updateOutcomeUnknown(nodeId: string): void {
  *
  * - version NOT older than `to` (equal by the route's own comparator, or
  *   newer — a hand-update that overtook the order): `done`.
- * - version older than `to`: `failed`, noting the rollback — the boot that
- *   could not migrate put the old binary back (docs/updating.md). The note
- *   says "rolled back" also for the timeout case where nothing ever
- *   installed, because from the plane those two are the same observable:
- *   the machine is back on an older version than it promised.
+ * - version older than `to` WHEN THIS PLANE WITNESSED THE SWAP (`restarting`):
+ *   `failed`, noting the rollback — the boot that could not migrate put the
+ *   old binary back (docs/updating.md).
+ * - version older than `to` while still `working`: NOTHING. The agent re-dials
+ *   on its own, so a socket flap during the download (or a `ready` queued
+ *   around the order) reports the STILL-RUNNING old version. Terminalizing
+ *   there would discard the honest `ready` minutes later; the entry waits,
+ *   and the stall clock and expiry answer if none comes.
+ * - a version that does not read as a version (the frame validator guarantees
+ *   only isStr, and the ws handler itself falls back to `"unversioned"`):
+ *   ignored. Garbage must not compare its way into a permanent verdict; the
+ *   entry waits for a report it can actually read.
  *
  * A terminal or absent entry records nothing — the story already has an end.
  */
 export function recordNodeReady(nodeId: string, agentVersion: string): void {
   const entry = entries.get(nodeId);
   if (!entry || isTerminal(entry)) return;
-  if (semverLt(agentVersion, entry.to)) entry.failedNote = `rolled back to ${agentVersion}`;
+  if (!VERSION_SHAPE.test(agentVersion)) return;
+  if (semverLt(agentVersion, entry.to)) {
+    if (entry.phase !== "restarting") return;
+    entry.failedNote = `rolled back to ${agentVersion}`;
+  }
   entry.endedAt = updateTrackerSeams.now();
 }
+
+/** What counts as a readable version: a `MAJOR.MINOR.PATCH` prefix (build suffix allowed). */
+const VERSION_SHAPE = /^\d+\.\d+\.\d+/;
 
 /**
  * `nodeId`'s authenticated socket dropped. Deliberately NOTHING observable:
@@ -280,20 +297,6 @@ export function readView(nowMs: number = updateTrackerSeams.now()): UpdateSnapsh
     else snapshot.nodes[key] = view(entry, nowMs);
   }
   return snapshot;
-}
-
-/**
- * Whether anything is still in flight (a `stalled` entry counts — a late
- * `ready` can still resolve it). The poll gate for whoever reads the payload:
- * false means the next read will answer the same whatever the machine does,
- * so nothing needs to keep asking.
- */
-export function hasNonTerminal(nowMs: number = updateTrackerSeams.now()): boolean {
-  for (const entry of entries.values()) {
-    const phase = derive(entry, nowMs);
-    if (phase !== "done" && phase !== "failed") return true;
-  }
-  return false;
 }
 
 /** Empties the tracker. Test seam only; @internal. */

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import {
   MIN_NODE_VERSION,
   NODE_CLOSE_HANDSHAKE_REQUIRED,
@@ -1742,6 +1742,12 @@ describe("handleNodeMessage through the link machine (spec 2026-09-24 §4/§5/§
 describe("handleNodeMessage + handleNodeClose → the update tracker", () => {
   beforeEach(() => {
     resetNodeRegistryForTests();
+    resetForTests();
+  });
+  afterEach(() => {
+    // Entry-reset alone would leave THIS block's last test (the seam override)
+    // ending with a live `n1` working entry in the map for whatever runs next
+    // in-file; exit is cheap and makes that true of no test.
     resetForTests();
   });
 

@@ -1102,9 +1102,11 @@ export async function handleNodeClose(deps: NodeWsDeps, ws: NodeWsSocket): Promi
     // Witnessed, and deliberately NOT read as a restart (design 2026-09-25):
     // this branch is the authenticated socket's own death, which is exactly
     // what an updated agent exiting to re-dial also looks like, and exactly
-    // what a flap looks like. The tracker's no-op here is the tested posture;
-    // the held/superseded branch below cannot be a disconnect at all, which
-    // is why the call lives HERE and not above the identity guard.
+    // what a flap looks like. The tracker's no-op here is the tested posture.
+    // The call is not above the identity guard because the held/superseded
+    // branch is NOT the node going away — a fresher socket holds its place —
+    // and there the death of a socket carrying an in-flight `update` is
+    // witnessed by `failConnPendings`, never through this seam.
     (deps.recordNodeDisconnect ?? recordNodeDisconnect)(nodeId);
     // Every running row on this machine just became unreachable, and no write
     // touched any of them — so without this the dashboard keeps rendering

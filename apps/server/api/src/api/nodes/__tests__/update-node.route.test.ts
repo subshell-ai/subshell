@@ -798,6 +798,27 @@ describe("POST /api/nodes/:id/update", () => {
     expect(readView().nodes[id]?.phase).toBe("done");
   });
 
+  it("a socket loss mid-command leaves the entry working too — the command may still be running", async () => {
+    // Review 2026-09-26: `offline` reached this handler from
+    // failConnPendings when the socket dies WHILE AN ALREADY-DELIVERED
+    // COMMAND RUNS (a held node's 10-minute budget expiring mid-download is
+    // the flagship case). That is not the node SAYING it did nothing, and a
+    // terminal `failed` here would contradict the row's own version cell
+    // when the machine comes back on `to`. Same posture as the timeout.
+    useFakeRelease();
+    const id = await mkNode();
+    const sock = goOnline(id);
+    const record = getLive(id);
+    if (!record) throw new Error("no connection record");
+    const resP = req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    await waitFor(() => sock.sent.length > 0, "update command on the wire");
+    expect(failConnPendings(record, "offline", "socket closed")).toBe(1);
+    expect((await resP).status).toBe(409);
+    expect(readView().nodes[id]?.phase).toBe("working");
+    recordNodeReady(id, RELEASE_VERSION);
+    expect(readView().nodes[id]?.phase).toBe("done");
+  });
+
   it("opens NO entry for a gate refusal — a refused offer ordered nothing", async () => {
     useNoRelease();
     const id = await mkNode();

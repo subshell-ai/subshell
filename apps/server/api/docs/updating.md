@@ -43,6 +43,10 @@ The four modules, and the one fact each exists for:
   the manager respawns the old version), completes AFTER `startServer`
   (audit `server.update` with actor null, delete `.previous` and the marker),
   and records a failure when the marker names a version this process is not.
+  All three landing paths also RE-CREATE the in-memory update tracker's server
+  entry from the marker (`services/nodes/update-tracker.ts`, through its
+  `resolveSelfUpdate`): the `beginSelfUpdate` entry died with the swapping
+  process, so a refreshed Updates page finds the true story, not silence.
   The swap's front half, `keepPreviousBinary`, hardlinks the RUNNING binary and
   where links are refused copies ATOMICALLY (temp + fsync + one rename; a
   truncated `.previous` can never exist as a rollback target), and BOTH paths
