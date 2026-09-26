@@ -1,37 +1,37 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-26T04:43:02.245Z",
+  "generatedAt": "2026-09-26T10:22:14.953Z",
   "components": {
     "cli-server": {
-      "version": "1.1.3",
-      "tag": "cli-server-v1.1.3",
-      "url": "https://github.com/subshell-ai/subshell/releases/tag/cli-server-v1.1.3",
+      "version": "1.2.0",
+      "tag": "cli-server-v1.2.0",
+      "url": "https://github.com/subshell-ai/subshell/releases/tag/cli-server-v1.2.0",
       "installScript": "install-server.sh"
     },
     "cli-node": {
-      "version": "1.1.0",
-      "tag": "cli-node-v1.1.0",
-      "url": "https://github.com/subshell-ai/subshell/releases/tag/cli-node-v1.1.0"
+      "version": "1.2.0",
+      "tag": "cli-node-v1.2.0",
+      "url": "https://github.com/subshell-ai/subshell/releases/tag/cli-node-v1.2.0"
     },
     "desktop-server": {
-      "version": "1.1.0",
-      "tag": "desktop-server-v1.1.0",
-      "url": "https://github.com/subshell-ai/subshell/releases/tag/desktop-server-v1.1.0",
+      "version": "1.2.0",
+      "tag": "desktop-server-v1.2.0",
+      "url": "https://github.com/subshell-ai/subshell/releases/tag/desktop-server-v1.2.0",
       "desktopAssets": [
-        "Subshell-Server-Desktop-1.1.0-darwin-arm64.dmg",
-        "Subshell-Server-Desktop-1.1.0-darwin-x64.dmg",
-        "subshell-server-desktop_1.1.0_amd64.deb"
+        "Subshell-Server-Desktop-1.2.0-darwin-arm64.dmg",
+        "Subshell-Server-Desktop-1.2.0-darwin-x64.dmg",
+        "subshell-server-desktop_1.2.0_amd64.deb"
       ]
     },
     "desktop-client": {
-      "version": "1.1.0",
-      "tag": "desktop-client-v1.1.0",
-      "url": "https://github.com/subshell-ai/subshell/releases/tag/desktop-client-v1.1.0",
+      "version": "1.2.0",
+      "tag": "desktop-client-v1.2.0",
+      "url": "https://github.com/subshell-ai/subshell/releases/tag/desktop-client-v1.2.0",
       "installScript": "install-client.sh",
       "desktopAssets": [
-        "Subshell-Client-Desktop-1.1.0-darwin-arm64.dmg",
-        "Subshell-Client-Desktop-1.1.0-darwin-x64.dmg",
-        "subshell-client-desktop_1.1.0_amd64.deb"
+        "Subshell-Client-Desktop-1.2.0-darwin-arm64.dmg",
+        "Subshell-Client-Desktop-1.2.0-darwin-x64.dmg",
+        "subshell-client-desktop_1.2.0_amd64.deb"
       ]
     }
   }
