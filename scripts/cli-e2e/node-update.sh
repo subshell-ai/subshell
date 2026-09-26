@@ -406,7 +406,19 @@ ok "installed the throwaway-signed release on the signed digest — the lying si
 
 # Same armor, manifest flipped in one digest hex AFTER signing: the armor no
 # longer covers those bytes, and the answer must be a refusal by name.
-cp "$W/bin2/subshell.patched" "$W/bin2/subshell"
+# Restoring the CURRENT bytes onto the live path can intermittently meet
+# ETXTBSY: the `version` probes above have exited, but the kernel can hold an
+# exec'd inode's last reference a few milliseconds longer, and cp onto a
+# still-mapped file refuses. A short retry is the same rule `dev:install`
+# learned (it stages beside the path and renames); the assertion this step
+# exists for is what the TAMPERED run below must NOT do, and that runs
+# against a settled file either way.
+cp_ok=""
+for _ in 1 2 3 4 5 6 7 8; do
+  cp "$W/bin2/subshell.patched" "$W/bin2/subshell" 2>"$W/cp.err" && { cp_ok=1; break; }
+  sleep 0.25
+done
+[ -n "$cp_ok" ] || { cat "$W/cp.err"; fail "could not restore the CURRENT binary onto the live path"; }
 rm -f "$W/data/update-pending.json" "$W/bin2/subshell.previous"
 bun "$W/fake-release-signed.ts" "$W/next-subshell" "$TAMP_PORT" "$NEXT" \
   "$W/rel/tampered-manifest.json" "$W/rel/release-manifest.json.sig" > "$W/tampered.log" 2>&1 &
