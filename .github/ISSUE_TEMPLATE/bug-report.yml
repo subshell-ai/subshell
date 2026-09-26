@@ -1,0 +1,89 @@
+name: Bug report
+description: Something isn't working the way it should.
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The exact sequence is the most useful thing you can give us.
+  - type: checkboxes
+    id: searched
+    attributes:
+      label: Before you file
+      options:
+        - label: I have searched the existing issues for this
+          required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Redact anything you typed into a pane; pane logs hold pasted secrets.
+      placeholder: Describe what you saw.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps you took, in order
+      description: Include which installer or download you used at each step.
+      placeholder: |
+        1. Installed ...
+        2. Went to ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where did you do this?
+      description: The machine and OS the steps ran on.
+      options:
+        - macOS (Apple silicon)
+        - macOS (Intel)
+        - Linux
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: parts
+    attributes:
+      label: Which parts are affected?
+      description: Pick everything involved. If you are not sure, pick Not sure.
+      options:
+        - label: Control plane / server
+        - label: Subshell Server desktop app
+        - label: Subshell Client desktop app
+        - label: CLI and node agent (subshell)
+        - label: Web UI in a browser
+        - label: Mobile app
+        - label: Website / docs
+        - label: A harness plugin
+        - label: Not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: From the app's About screen, or the output of `subshell-server version`.
+      placeholder: "1.4.3"
+  - type: textarea
+    id: excerpts
+    attributes:
+      label: Config or log excerpts
+      description: |
+        Redact tokens, passwords, and anything you typed into a pane. Pane logs hold what was typed, including pasted secrets.
+      render: text
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Redact anything you typed into a pane; pane logs hold pasted secrets.

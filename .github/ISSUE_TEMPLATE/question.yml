@@ -1,0 +1,21 @@
+name: Question
+description: A how-do-I question about Subshell.
+labels:
+  - question
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Not working? The bug report form asks for exactly what we need to fix it; questions land here and get answered on the thread.
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to do?
+      placeholder: I want to ...
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you read or tried so far?
+      description: Links to the docs pages you came through are welcome.

@@ -1,0 +1,35 @@
+name: General feedback
+description: Ideas, wants, and how Subshell could serve you better.
+labels:
+  - feedback
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This one is deliberately short. Write it the way you would tell a friend.
+  - type: textarea
+    id: ask
+    attributes:
+      label: What would make Subshell better for you?
+      placeholder: One installer for server and client, a harness you want supported, a workflow that fights you.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What are you doing today because of this?
+      description: The workaround, the extra steps, or the gap as you live it.
+  - type: checkboxes
+    id: parts
+    attributes:
+      label: Which part does this touch?
+      options:
+        - label: Whole product
+        - label: Control plane / server
+        - label: Subshell Server desktop app
+        - label: Subshell Client desktop app
+        - label: CLI and node agent (subshell)
+        - label: Web UI in a browser
+        - label: Mobile app
+        - label: Website / docs
+        - label: A harness plugin
